@@ -1,14 +1,23 @@
 (library
- (name clawq_runtime)
- (modules command_bridge phase2 runtime_config config_loader
-           http_client http_server provider prompt_builder workspace_scaffold agent session slack telegram daemon
-           stt mcp_server tool tool_registry tools_builtin memory
-           rate_limiter scheduler service migrate audit skills vector secret_store
-           runtime_native runtime_docker tunnel_cloudflare resilience landlock
-           channel discord)
+ (name clawq_runtime_core)
+ (modules phase2 runtime_config config_loader
+           http_client provider prompt_builder workspace_scaffold agent session
+           stt tool tool_registry tools_builtin memory rate_limiter scheduler
+           migrate audit skills vector secret_store resilience landlock channel
+           slack discord command_bridge_min)
  (foreign_stubs (language c) (names landlock_stubs))
  (wrapped false)
  (libraries yojson sqlite3 clawq_extracted
+            lwt lwt.unix cohttp-lwt-unix conduit-lwt-unix logs logs.fmt fmt
+            mirage-crypto mirage-crypto-rng mirage-crypto-rng.unix
+            kdf.pbkdf digestif.c base64 eqaf))
+
+(library
+ (name clawq_runtime_integrations)
+ (modules http_server telegram daemon mcp_server service
+           runtime_native runtime_docker tunnel_cloudflare command_bridge)
+ (wrapped false)
+ (libraries clawq_runtime_core yojson sqlite3 clawq_extracted
             lwt lwt.unix cohttp-lwt-unix conduit-lwt-unix logs logs.fmt fmt
             mirage-crypto mirage-crypto-rng mirage-crypto-rng.unix
             kdf.pbkdf digestif.c base64 eqaf))
@@ -17,4 +26,11 @@
  (name main)
  (public_name clawq)
  (modules main)
- (libraries clawq_runtime cmdliner))
+ (libraries clawq_runtime_core clawq_runtime_integrations cmdliner))
+
+(executable
+ (name main_min)
+ (public_name clawq-min)
+ (enabled_if (= %{env:CLAWQ_BUILD_MINIMAL=false} true))
+ (modules main_min)
+ (libraries clawq_runtime_core cmdliner))

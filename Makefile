@@ -1,18 +1,25 @@
 SHELL := opam exec --switch=clawq-5.1 -- /usr/bin/env bash
 .SHELLFLAGS := -c
 
-.PHONY: bootstrap build build-opt build-opt-all build-opt-speed build-opt-size build-opt-stripped build-opt-stripped-all build-opt-speed-stripped build-opt-size-stripped extract extract-check run phase2 test fmt fmt-check clean release docker-build docker-run
+.PHONY: bootstrap build build-minimal build-opt build-opt-all build-opt-speed build-opt-size build-opt-minimal build-opt-stripped build-opt-stripped-all build-opt-speed-stripped build-opt-size-stripped extract extract-check run phase2 test fmt fmt-check clean release docker-build docker-run
 
 OPT ?= speed
 DIST_DIR := dist
 SPEED_EXE := _build_opt_speed/default/src/main.exe
 SIZE_EXE := _build_opt_size/default/src/main.exe
+MIN_EXE := _build/default/src/main_min.exe
 
 bootstrap:
 	./scripts/bootstrap_coq.sh
 
 build:
 	dune build
+
+build-minimal:
+	@CLAWQ_BUILD_MINIMAL=true dune build src/main_min.exe
+	@exe="$(MIN_EXE)"; \
+		size_kb=$$((($$(stat -c%s "$$exe") + 1023) / 1024)); \
+		echo "$$exe $$size_kb KB"
 
 build-opt:
 	@if [ "$(OPT)" = "speed" ]; then \
@@ -25,6 +32,12 @@ build-opt:
 	fi
 
 build-opt-all: build-opt-speed build-opt-size
+
+build-opt-minimal:
+	@DUNE_BUILD_DIR=_build_opt_min CLAWQ_BUILD_MINIMAL=true dune build --profile=release-size src/main_min.exe
+	@exe="_build_opt_min/default/src/main_min.exe"; \
+		size_kb=$$((($$(stat -c%s "$$exe") + 1023) / 1024)); \
+		echo "$$exe $$size_kb KB"
 
 build-opt-stripped:
 	@if [ "$(OPT)" = "speed" ]; then \
