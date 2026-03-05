@@ -1,7 +1,7 @@
 SHELL := opam exec --switch=clawq-5.1 -- /usr/bin/env bash
 .SHELLFLAGS := -c
 
-.PHONY: bootstrap build build-minimal build-opt build-opt-all build-opt-speed build-opt-size build-opt-minimal build-opt-stripped build-opt-stripped-all build-opt-speed-stripped build-opt-size-stripped extract extract-check run phase2 test fmt fmt-check clean release docker-build docker-run
+.PHONY: bootstrap build build-minimal build-opt build-opt-all build-opt-speed build-opt-size build-opt-minimal build-opt-stripped build-opt-stripped-all build-opt-speed-stripped build-opt-size-stripped extract extract-check run phase2 test fmt fmt-check clean release docker-build docker-run verify-report
 
 OPT ?= speed
 DIST_DIR := dist
@@ -119,6 +119,9 @@ docker-build:
 
 docker-run:
 	docker run -it --rm -p 3000:3000 --name clawq clawq:latest agent
+
+verify-report:
+	@./scripts/formal_verification_report.sh
 
 clean:
 	dune clean

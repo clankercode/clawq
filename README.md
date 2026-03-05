@@ -1,5 +1,7 @@
 # clawq
 
+![Formal Verification](docs/badges/formal-verification.svg)
+
 Coq-first port scaffold of nullclaw with an OCaml runtime path via Coq extraction.
 
 ## Current State
@@ -54,6 +56,25 @@ make extract
 
 # Check whether extracted code has drifted from Coq sources
 make extract-check
+```
+
+## Formal Verification
+
+Core properties are machine-checked in Coq and extracted to OCaml via `coq/theories/Clawq/Extract.v`.
+
+**69 theorems/lemmas** proven across 5 domains:
+
+| Domain | Proofs | Key Properties |
+|--------|--------|----------------|
+| CLI parsing (`CliProofs.v`) | 22 | All 18 commands parse correctly; unknown input handled safely |
+| Configuration (`ConfigProofs.v`) | 15 | Weight sums, port/temperature ranges, secure-by-default |
+| Path safety (`PathSafety.v`) | 19 | No directory traversal; normalization idempotent; workspace containment |
+| Audit chain (`AuditChain.v`) | 7 | HMAC chain integrity; append-only verification |
+| Rate limiter (`RateLimiter.v`) | 6 | Token bucket bounds and monotonicity |
+
+```bash
+# Generate full report and badge
+make verify-report
 ```
 
 ## Notes
