@@ -12,6 +12,7 @@ let () =
       ("streaming", Test_streaming.suite);
       ("http_server", Test_http_server.suite);
       ("config_loader", Test_config_loader.suite);
+      ("prompt_builder", Test_prompt_builder.suite);
       ("vector", Test_vector.suite);
       ("secret_store", Test_secret_store.suite);
       ("tools_security", Test_tools_security.suite);

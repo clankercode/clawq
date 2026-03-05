@@ -166,7 +166,7 @@ let default_workspace () =
 
 let default_prompt =
   {
-    dynamic_enabled = false;
+    dynamic_enabled = true;
     include_tools_section = true;
     include_safety_section = true;
     include_workspace_section = true;
