@@ -1,0 +1,12 @@
+---
+complexity: low
+depends_on:
+    - P1.M2.E4.T007
+estimate_hours: 2
+id: P1.M2.E4.T008
+priority: medium
+status: pending
+tags: []
+title: 'Config: default notification target for proactive outreach'
+---
+Heartbeat (T007) and any other proactive agent behavior needs to know where to send unsolicited messages. Add a notify config section (or per-channel field) specifying the default outbound target: e.g. telegram.notify_chat_id, or a channel-agnostic notify_target with channel + address. Without this, heartbeat can reason but cannot reach the user.

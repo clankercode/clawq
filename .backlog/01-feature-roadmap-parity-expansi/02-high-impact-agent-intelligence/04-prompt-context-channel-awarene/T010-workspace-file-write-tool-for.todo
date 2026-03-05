@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 4
+id: P1.M2.E4.T010
+priority: medium
+status: pending
+tags: []
+title: Workspace file-write tool for agent memory continuity
+---
+AGENTS.md defines a memory architecture where the agent writes to memory/YYYY-MM-DD.md (daily log) and maintains MEMORY.md (curated long-term memory). Without a write_file tool, the entire continuity model is aspirational. Implement a workspace-scoped write_file tool (path must be within workspace, no traversal) and a read_file tool. These are the minimum primitives needed for the agent to actually maintain its own memory files across sessions.

@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on:
+    - P1.M2.E4.T002
+estimate_hours: 3
+id: P1.M2.E4.T009
+priority: medium
+status: pending
+tags: []
+title: MEMORY.md session-privacy gate
+---
+AGENTS.md specifies that MEMORY.md must only be loaded in direct/private sessions — never group chats or multi-participant contexts. Currently prompt_builder injects all workspace files regardless of session type. Add a session_type field (private|group) to the agent turn context and conditionally exclude MEMORY.md (and other sensitive files) when session_type=group. Depends on per-message context injection (T002) for the session type signal.
