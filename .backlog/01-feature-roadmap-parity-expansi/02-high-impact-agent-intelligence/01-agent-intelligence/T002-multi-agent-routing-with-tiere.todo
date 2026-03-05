@@ -1,0 +1,11 @@
+---
+complexity: high
+depends_on: []
+estimate_hours: 25
+id: P1.M2.E1.T002
+priority: high
+status: pending
+tags: []
+title: Multi-agent routing with tiered context bindings
+---
+Route incoming messages to specialized agents via priority-ordered matching: peer ID > parent peer > guild roles > guild > team > account > channel > default. Config-driven agent bindings list. New routing module; config schema extension. Enables #research → researcher agent, #builds → builder agent without user-side routing.

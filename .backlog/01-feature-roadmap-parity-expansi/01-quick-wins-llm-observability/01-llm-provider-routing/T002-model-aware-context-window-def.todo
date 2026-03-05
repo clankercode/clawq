@@ -1,0 +1,11 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 6
+id: P1.M1.E1.T002
+priority: high
+status: pending
+tags: []
+title: Model-aware context window defaults
+---
+Lookup table of ~30 common models + providers with their context window sizes. Clawq uses a single global token limit for all agents; this enables per-model auto-tuning. Hook result into agent compaction trigger. Low effort — config-only logic.

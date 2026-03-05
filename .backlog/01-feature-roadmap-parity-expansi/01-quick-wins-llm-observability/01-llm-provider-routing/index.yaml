@@ -1,0 +1,32 @@
+complexity: low
+depends_on: []
+estimate_hours: 20
+id: P1.M1.E1
+locked: false
+name: LLM Provider Routing
+status: pending
+tasks:
+    - complexity: low
+      depends_on: []
+      estimate_hours: 8
+      file: T001-model-based-provider-routing.todo
+      id: T001
+      priority: high
+      status: pending
+      title: Model-based provider routing
+    - complexity: low
+      depends_on: []
+      estimate_hours: 6
+      file: T002-model-aware-context-window-def.todo
+      id: T002
+      priority: high
+      status: pending
+      title: Model-aware context window defaults
+    - complexity: low
+      depends_on: []
+      estimate_hours: 5
+      file: T003-circuit-breaker-fallback-provi.todo
+      id: T003
+      priority: medium
+      status: pending
+      title: Circuit breaker fallback provider chain

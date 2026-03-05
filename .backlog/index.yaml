@@ -1,4 +1,14 @@
-project: "Clawq"
-description: "A formally verified fully autonomous AI assistant."
+description: A formally verified fully autonomous AI assistant.
+phases:
+    - depends_on: []
+      description: 'Features identified via nullclaw comparison and doc review. Organized by effort tier: quick wins, high impact, ecosystem expansion, and formalization.'
+      estimate_hours: 300
+      id: P1
+      locked: false
+      name: 'Feature Roadmap: Parity & Expansion'
+      path: 01-feature-roadmap-parity-expansi
+      priority: high
+      status: pending
+      weeks: 12
+project: Clawq
 timeline_weeks: 0
-phases: []

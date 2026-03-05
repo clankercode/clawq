@@ -1,0 +1,45 @@
+complexity: medium
+depends_on: []
+estimate_hours: 300
+id: P1
+locked: false
+milestones:
+    - complexity: medium
+      depends_on: []
+      description: 'Low-effort, high-impact features: provider routing, context windows, circuit breaker, cost tracking, cron improvements.'
+      estimate_hours: 35
+      id: M1
+      locked: false
+      name: 'Quick Wins: LLM & Observability'
+      path: 01-quick-wins-llm-observability
+      status: pending
+    - complexity: medium
+      depends_on: []
+      description: 'Medium-effort features: history compaction, multi-agent routing, signed audit trail, OTP channel pairing.'
+      estimate_hours: 80
+      id: M2
+      locked: false
+      name: 'High Impact: Agent Intelligence & Security'
+      path: 02-high-impact-agent-intelligence
+      status: pending
+    - complexity: medium
+      depends_on: []
+      description: 'Higher-effort integrations: MCP stdio client, web channel, voice STT/TTS, OpenTelemetry tracing.'
+      estimate_hours: 120
+      id: M3
+      locked: false
+      name: Ecosystem Expansion
+      path: 03-ecosystem-expansion
+      status: pending
+    - complexity: medium
+      depends_on: []
+      description: 'Coq proof work and extraction improvements: formal shell safety (F6), native type mapping optimizations.'
+      estimate_hours: 40
+      id: M4
+      locked: false
+      name: Formalization
+      path: 04-formalization
+      status: pending
+name: 'Feature Roadmap: Parity & Expansion'
+status: pending
+weeks: 12

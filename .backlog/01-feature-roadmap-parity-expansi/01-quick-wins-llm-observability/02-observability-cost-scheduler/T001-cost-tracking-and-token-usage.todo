@@ -1,0 +1,11 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 6
+id: P1.M1.E2.T001
+priority: high
+status: pending
+tags: []
+title: Cost tracking and token usage analytics
+---
+Per-model pricing lookup table (input vs output $/M tokens) with automatic cost calculation per inference turn. Aggregate by session/agent/provider. Nullclaw supports 50+ models. No new deps — token counting heuristic already exists. Optional metrics export hook.

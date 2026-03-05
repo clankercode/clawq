@@ -1,0 +1,8 @@
+complexity: medium
+depends_on: []
+epics: []
+estimate_hours: 40
+id: P1.M4
+locked: false
+name: Formalization
+status: pending

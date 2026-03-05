@@ -1,0 +1,24 @@
+complexity: low
+depends_on: []
+estimate_hours: 15
+id: P1.M1.E2
+locked: false
+name: 'Observability: Cost & Scheduler'
+status: pending
+tasks:
+    - complexity: low
+      depends_on: []
+      estimate_hours: 6
+      file: T001-cost-tracking-and-token-usage.todo
+      id: T001
+      priority: high
+      status: pending
+      title: Cost tracking and token usage analytics
+    - complexity: low
+      depends_on: []
+      estimate_hours: 8
+      file: T002-cron-scheduler-run-tracking-an.todo
+      id: T002
+      priority: medium
+      status: pending
+      title: 'Cron scheduler: run tracking and agent-aware triggers'

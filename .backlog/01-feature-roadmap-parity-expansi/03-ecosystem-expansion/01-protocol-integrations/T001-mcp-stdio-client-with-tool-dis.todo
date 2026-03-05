@@ -1,0 +1,11 @@
+---
+complexity: high
+depends_on: []
+estimate_hours: 22
+id: P1.M3.E1.T001
+priority: medium
+status: pending
+tags: []
+title: MCP stdio client with tool discovery
+---
+Full Model Context Protocol client: spawn external tool servers as child processes (Lwt_process), communicate via JSON-RPC 2.0 over newline-delimited stdio, discover tool definitions via initialize→tools/list, wrap into agent tool registry. mcp_server.ml is currently stubs only. Supports multiple servers simultaneously. Integration placement.

@@ -1,0 +1,11 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 8
+id: P1.M1.E1.T001
+priority: high
+status: pending
+tags: []
+title: Model-based provider routing
+---
+Parse model name prefixes (e.g. 'anthropic/claude-opus-4-6') to route to the correct provider instead of always using the first. Nullclaw does case-insensitive matching with date-suffix stripping and aliases. Changes in agent.ml + provider.ml.

@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 15
+id: P1.M2.E2.T002
+priority: medium
+status: pending
+tags: []
+title: OTP/TOTP pairing flow for channel access control
+---
+Replace static chat-ID allowlists with 6-digit TOTP pairing handshake. One-time code flow → bearer token with time-window validation. More secure than static allowlists for ephemeral/mobile users; chat IDs can leak. Pilot with Telegram channel, extend to others. Needs TOTP crypto + config state machine. Integration placement.

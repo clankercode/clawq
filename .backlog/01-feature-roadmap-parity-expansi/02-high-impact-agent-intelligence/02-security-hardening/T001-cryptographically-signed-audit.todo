@@ -1,0 +1,11 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 10
+id: P1.M2.E2.T001
+priority: high
+status: pending
+tags: []
+title: Cryptographically signed audit trail
+---
+Add HMAC-SHA256 signatures to audit log entries for tamper detection and non-repudiation. Audit is currently append-only but unsigned. Reuses existing HMAC chain infrastructure already proven in AuditChain.v (F3). Formalize signature chain in AuditSigning.v (F13) and extract. Core placement.

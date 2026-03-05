@@ -8,10 +8,18 @@ let log_path () = Filename.concat (clawq_dir ()) "daemon.log"
 
 let read_file path =
   try
-    let ic = open_in path in
-    let s = really_input_string ic (in_channel_length ic) in
+    let ic = open_in_bin path in
+    let buf = Buffer.create 256 in
+    let chunk = Bytes.create 256 in
+    let rec loop () =
+      let n = input ic chunk 0 256 in
+      if n > 0 then (
+        Buffer.add_subbytes buf chunk 0 n;
+        loop ())
+    in
+    (try loop () with End_of_file -> ());
     close_in ic;
-    Some s
+    Some (Buffer.contents buf)
   with _ -> None
 
 let proc_start_ticks pid =

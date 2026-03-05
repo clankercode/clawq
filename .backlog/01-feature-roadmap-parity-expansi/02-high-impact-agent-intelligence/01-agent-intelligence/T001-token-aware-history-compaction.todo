@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 18
+id: P1.M2.E1.T001
+priority: high
+status: pending
+tags: []
+title: Token-aware history compaction with LLM summarization
+---
+Dual-trigger compaction: fires at 75% of token budget (estimate ~4 chars/token) OR max message count. For large histories: split into halves, summarize each via LLM call, merge. Preserve AGENTS.md context rules in summary. Nullclaw does this. Changes in agent.ml. Core placement.

@@ -1,0 +1,26 @@
+complexity: medium
+depends_on: []
+epics:
+    - complexity: high
+      depends_on: []
+      description: ""
+      estimate_hours: 50
+      id: E1
+      locked: false
+      name: Agent Intelligence
+      path: 01-agent-intelligence
+      status: pending
+    - complexity: medium
+      depends_on: []
+      description: ""
+      estimate_hours: 30
+      id: E2
+      locked: false
+      name: Security Hardening
+      path: 02-security-hardening
+      status: pending
+estimate_hours: 80
+id: P1.M2
+locked: false
+name: 'High Impact: Agent Intelligence & Security'
+status: pending

@@ -1,0 +1,11 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 8
+id: P1.M1.E2.T002
+priority: medium
+status: pending
+tags: []
+title: 'Cron scheduler: run tracking and agent-aware triggers'
+---
+Extend scheduler.ml (already has SQLite + cron parsing) to: (1) track run history with timestamp/status/result preview, (2) expose 'cron runs' CLI command, (3) support per-agent routing so a job can target a specific named agent. No new deps.

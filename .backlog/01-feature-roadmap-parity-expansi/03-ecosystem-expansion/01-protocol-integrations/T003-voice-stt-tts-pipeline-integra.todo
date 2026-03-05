@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 18
+id: P1.M3.E1.T003
+priority: low
+status: pending
+tags: []
+title: Voice STT/TTS pipeline integrated into agent loop
+---
+Connect existing standalone 'transcribe' command (Whisper API) into message ingestion pipeline. Add TTS output support (Groq/OpenAI/Eleven Labs endpoint). Add audio media type handling in channels. Enables voice-first interfaces, Discord voice, accessibility. Groq Whisper ~3x faster than OpenAI. Integration placement.

@@ -1,0 +1,11 @@
+---
+complexity: high
+depends_on: []
+estimate_hours: 30
+id: P1.M3.E1.T002
+priority: medium
+status: pending
+tags: []
+title: Web channel (WebChannel v1) with pairing and relay
+---
+Browser-native WebSocket channel. Dual transport: local (127.0.0.1 direct) and relay (remote wss:// proxy). Pairing handshake: one-time code → bearer token. Optional X25519-ChaCha20-Poly1305 E2E encryption via relay (mirage-crypto already present). Structured event envelopes: user_message, assistant_chunk, assistant_final, tool_call, approval_request. Nullclaw has formal spec (webchannel_v1.json). Needs websocketaf or cohttp upgrade. Integration placement.
