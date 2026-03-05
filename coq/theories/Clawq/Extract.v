@@ -5,6 +5,8 @@ From Coq Require Import ExtrOcamlNatInt.
 Require Import Clawq.Cli.
 Require Import Clawq.Config.
 Require Import Clawq.PathSafety.
+Require Import Clawq.QuoteParsing.
+Require Import Clawq.ShellSafety.
 
 Extraction Language OCaml.
 
@@ -19,6 +21,7 @@ Extract Inlined Constant Nat.ltb => "(<)".
 (* Inline tail-recursive nat arithmetic (redundant when nat = int). *)
 Extract Inlined Constant Nat.tail_add => "(+)".
 Extract Inlined Constant Nat.tail_mul => "( * )".
+Extract Inlined Constant Ascii.ascii_of_nat => "Char.chr".
 
 (* Replace the numeral-conversion machinery with native OCaml identity.
    ExtrOcamlNatInt maps nat to int, so of_num_uint just needs to convert
@@ -92,4 +95,8 @@ Extraction "src/extracted/clawq_core.ml"
   Clawq.PathSafety.norm_acc
   Clawq.PathSafety.normalize
   Clawq.PathSafety.is_prefix
-  Clawq.PathSafety.is_path_safe_segs.
+  Clawq.PathSafety.is_path_safe_segs
+  (* Shell safety (F6) *)
+  Clawq.QuoteParsing.split_words
+  Clawq.QuoteParsing.is_shell_safe
+  Clawq.ShellSafety.is_allowed.

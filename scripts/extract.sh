@@ -19,6 +19,8 @@ ${COQC} -R coq/theories Clawq coq/theories/Clawq/Cli.v
 ${COQC} -R coq/theories Clawq coq/theories/Clawq/PathSafety.v
 ${COQC} -R coq/theories Clawq coq/theories/Clawq/AuditChain.v
 ${COQC} -R coq/theories Clawq coq/theories/Clawq/RateLimiter.v
+${COQC} -R coq/theories Clawq coq/theories/Clawq/QuoteParsing.v
+${COQC} -R coq/theories Clawq coq/theories/Clawq/ShellSafety.v
 
 # Proof files (depend on core definitions; compiled for verification only)
 ${COQC} -R coq/theories Clawq coq/theories/Clawq/ConfigProofs.v

@@ -59,7 +59,7 @@ Priority ordering for new phases:
 - [x] **F3** — AuditChain.v: HMAC chain verify_chain_append, build_chain validity, suffix monotonicity
 - [x] **F4** — RateLimiter.v: token bucket bounded refill, monotone refill, consume semantics (P1–P6)
 - [x] **F5** — Config.v + ConfigProofs.v: valid_port, valid_temperature, validate_config_full (P8–P15)
-- [ ] **F6** — QuoteParsing.v + ShellSafety.v: shell tokenizer correctness, metachar blacklist completeness, allowlist monotonicity (extract)
+- [x] **F6** — QuoteParsing.v + ShellSafety.v: shell tokenizer correctness, metachar blacklist completeness, allowlist monotonicity (extract)
 - [ ] **F7** — SecretStore.v: encrypt/decrypt identity, nonce uniqueness bound, resolve_secret completeness (spec-only)
 - [ ] **F8** — ChannelAuth.v + SlackAuth.v: generic allowlist filtering, replay prevention window, HMAC basestring (extract allowlist)
 - [ ] **F9** — AuditRetention.v: purge_by_count/age correctness, purge preserves chain validity (extract)

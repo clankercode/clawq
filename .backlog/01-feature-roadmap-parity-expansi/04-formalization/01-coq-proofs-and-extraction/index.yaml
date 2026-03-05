@@ -12,7 +12,7 @@ tasks:
       file: T001-formal-shell-injection-prevent.todo
       id: T001
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Formal shell injection prevention proof (F6)
     - complexity: low

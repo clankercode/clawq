@@ -63,6 +63,16 @@ let test_shell_rejects_command_chaining () =
     "unsafe syntax blocked" true
     (contains out "unsafe shell syntax")
 
+let test_shell_rejects_dollar_expansion () =
+  let tool =
+    Tools_builtin.shell_exec ~workspace_only:true ~allowed_commands:[ "ls" ]
+  in
+  let args = `Assoc [ ("command", `String "ls $HOME") ] in
+  let out = Lwt_main.run (tool.invoke args) in
+  Alcotest.(check bool)
+    "dollar expansion blocked" true
+    (contains out "unsafe shell syntax")
+
 let test_shell_handles_quoted_args () =
   let tool =
     Tools_builtin.shell_exec ~workspace:(Sys.getcwd ()) ~workspace_only:true
@@ -218,6 +228,8 @@ let suite =
       test_shell_allowlist_allows_command;
     Alcotest.test_case "shell chaining rejected" `Quick
       test_shell_rejects_command_chaining;
+    Alcotest.test_case "shell dollar expansion rejected" `Quick
+      test_shell_rejects_dollar_expansion;
     Alcotest.test_case "shell quoted args" `Quick test_shell_handles_quoted_args;
     Alcotest.test_case "shell absolute path arg blocked" `Quick
       test_shell_rejects_absolute_path_arg;

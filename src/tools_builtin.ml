@@ -129,7 +129,7 @@ let is_command_allowed ~allowed_commands cmd =
   let base_cmd = extract_command cmd in
   base_cmd <> "" && List.mem base_cmd allowed_commands
 
-let has_unsafe_shell_syntax cmd =
+let has_unsafe_shell_syntax_ocaml cmd =
   let has_char c = String.contains cmd c in
   has_char ';' || has_char '|' || has_char '&' || has_char '>' || has_char '<'
   || has_char '`' || has_char '\n' || has_char '\r'
@@ -142,7 +142,7 @@ let has_unsafe_shell_syntax cmd =
   in
   has_dollar_paren 0
 
-let split_command_words cmd =
+let split_command_words_ocaml cmd =
   let len = String.length cmd in
   let buf = Buffer.create len in
   let words = ref [] in
@@ -188,6 +188,27 @@ let split_command_words cmd =
           end
   in
   parse 0 None
+
+let has_unsafe_shell_syntax cmd =
+  let coq_unsafe = not (Clawq_core.is_shell_safe cmd) in
+  let ocaml_unsafe = has_unsafe_shell_syntax_ocaml cmd in
+  if coq_unsafe <> ocaml_unsafe then
+    Logs.warn (fun m ->
+        m "ShellSafety drift: Coq=%b OCaml=%b for command %S" coq_unsafe
+          ocaml_unsafe cmd);
+  coq_unsafe
+
+let split_command_words cmd =
+  let coq_result =
+    match Clawq_core.split_words cmd with
+    | Some words -> Ok words
+    | None -> Error "unterminated quote in command"
+  in
+  let ocaml_result = split_command_words_ocaml cmd in
+  if coq_result <> ocaml_result then
+    Logs.warn (fun m ->
+        m "ShellSafety tokenizer drift between Coq and OCaml for command %S" cmd);
+  coq_result
 
 let contains_substr s sub =
   let slen = String.length s in
