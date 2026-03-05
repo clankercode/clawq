@@ -159,6 +159,12 @@ let tunnel_cmd =
 
 let migrate_cmd = with_args "migrate" "Run database migrations." []
 
+let reset_agent_cmd =
+  simple "reset-agent"
+    "Wipe all session history, cron jobs, and workspace files, then redeploy \
+     workspace defaults. Prompts for confirmation before acting. Does NOT \
+     touch config.json."
+
 let main_info =
   Cmd.info "clawq" ~version:"0.1.0-dev" ~doc:"Coq-first AI assistant runtime"
     ~man:
@@ -198,6 +204,7 @@ let () =
       runtime_cmd;
       tunnel_cmd;
       migrate_cmd;
+      reset_agent_cmd;
       phase2_cmd;
       hardware_cmd;
     ]
