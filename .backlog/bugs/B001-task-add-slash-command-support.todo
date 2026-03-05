@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B001
+priority: high
+status: pending
+tags: []
+title: 'task: add slash command support with common slash commands. also: populate telgram''s command list with them (overwrite all existing if they don''t match).'
+---
+
+task: add slash command support with common slash commands. also: populate telgram's command list with them (overwrite all existing if they don't match).

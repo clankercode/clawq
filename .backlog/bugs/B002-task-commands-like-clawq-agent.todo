@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B002
+priority: high
+status: pending
+tags: []
+title: 'task: commands like `clawq agent --help` are pretty useless atm (only provides global help). We should provide help per command (and we should improve global help too). Be efficient with code and reuse command docs in the global docs as is suitable to avoid duplication and ending up with stale help when we add new commands in future.'
+---
+
+task: commands like `clawq agent --help` are pretty useless atm (only provides global help). We should provide help per command (and we should improve global help too). Be efficient with code and reuse command docs in the global docs as is suitable to avoid duplication and ending up with stale help when we add new commands in future.
