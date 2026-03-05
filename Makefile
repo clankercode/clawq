@@ -85,10 +85,10 @@ extract:
 	./scripts/extract.sh
 
 run:
-	dune exec clawq -- help
+	dune exec src/main.exe -- help
 
 phase2:
-	dune exec clawq -- phase2
+	dune exec src/main.exe -- phase2
 
 extract-check:
 	@echo "Checking extraction is up to date..."
