@@ -18,3 +18,4 @@ _opam
 **/*.tmp.*
 dune-workspace
 main.stripped.test
+.backlog/.context.yaml
