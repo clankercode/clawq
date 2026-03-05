@@ -56,3 +56,11 @@ tasks:
       priority: medium
       status: pending
       title: Remove [NO_REPLY] from AGENTS.md; make fully channel-conditional
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 5
+      file: T007-implement-heartbeat-md-polling.todo
+      id: T007
+      priority: medium
+      status: pending
+      title: Implement HEARTBEAT.md polling in daemon

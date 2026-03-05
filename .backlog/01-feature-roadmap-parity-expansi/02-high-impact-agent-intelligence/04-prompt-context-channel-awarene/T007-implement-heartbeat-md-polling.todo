@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 5
+id: P1.M2.E4.T007
+priority: medium
+status: pending
+tags: []
+title: Implement HEARTBEAT.md polling in daemon
+---
+Wire a periodic heartbeat loop into daemon.ml that fires on a configurable interval (default: 5 min). Each heartbeat: reads HEARTBEAT.md from the workspace; if non-empty and non-trivial, runs an agent turn with the file contents as the system trigger message. Agent can send proactive Telegram messages, check calendar/email, etc. Reply HEARTBEAT_OK suppresses any outbound message. Respect quiet hours (23:00-08:00) unless the response is marked urgent. Config fields: heartbeat_enabled, heartbeat_interval_seconds, heartbeat_quiet_hours.
