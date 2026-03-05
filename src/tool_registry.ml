@@ -8,6 +8,8 @@ let register registry tool =
 let find registry name =
   List.find_opt (fun (t : Tool.t) -> t.name = name) registry.tools
 
+let list registry = List.rev registry.tools
+
 let to_openai_json registry =
   `List
     (List.map

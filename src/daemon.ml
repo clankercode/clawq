@@ -39,6 +39,8 @@ let run ~(config : Runtime_config.t) =
       Logs.Src.set_level src (Some Logs.Warning)
   ) (Logs.Src.list ());
   Logs.info (fun m -> m "clawq daemon starting (pid=%d)" (Unix.getpid ()));
+  let workspace = Runtime_config.effective_workspace config in
+  Workspace_scaffold.ensure_dir workspace;
   let active_provider =
     let with_key =
       List.filter (fun (_, p) -> Runtime_config.is_key_set p.Runtime_config.api_key) config.providers
@@ -57,6 +59,7 @@ let run ~(config : Runtime_config.t) =
   Logs.info (fun m -> m "Provider: %s | Model: %s | Temp: %.2f"
     active_provider (Runtime_config.effective_primary_model config.agent_defaults)
     config.default_temperature);
+  Logs.info (fun m -> m "Workspace: %s" workspace);
   Logs.info (fun m -> m "Channels: cli=%b telegram=%b"
     config.channels.cli (config.channels.telegram <> None));
   let tool_registry =

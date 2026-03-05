@@ -128,6 +128,18 @@ let test_handle_audit () =
     "audit returns output" true
     (String.length result > 0)
 
+let test_parse_agent_workspace_override_ok () =
+  match Command_bridge.parse_agent_workspace_override [ "--workspace"; "/tmp/ws" ] with
+  | Ok (Some ws) -> Alcotest.(check string) "workspace parsed" "/tmp/ws" ws
+  | _ -> Alcotest.fail "expected workspace override to parse"
+
+let test_parse_agent_workspace_override_invalid () =
+  match Command_bridge.parse_agent_workspace_override [ "--workspace" ] with
+  | Error usage ->
+    Alcotest.(check bool) "usage mentions agent" true
+      (String.length usage > 0)
+  | _ -> Alcotest.fail "expected usage error"
+
 let suite =
   [
     Alcotest.test_case "handle phase2" `Quick test_handle_phase2;
@@ -151,4 +163,8 @@ let suite =
     Alcotest.test_case "handle skills" `Quick test_handle_skills;
     Alcotest.test_case "handle skills path" `Quick test_handle_skills_path;
     Alcotest.test_case "handle audit" `Quick test_handle_audit;
+    Alcotest.test_case "parse agent workspace override ok" `Quick
+      test_parse_agent_workspace_override_ok;
+    Alcotest.test_case "parse agent workspace override invalid" `Quick
+      test_parse_agent_workspace_override_invalid;
   ]

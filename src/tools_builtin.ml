@@ -9,10 +9,14 @@ let is_path_safe ~workspace path =
   let real_path =
     try Unix.realpath resolved with Unix.Unix_error _ -> resolved
   in
-  String.length real_path >= String.length real_workspace
-  && String.sub real_path 0 (String.length real_workspace) = real_workspace
+  let ws_len = String.length real_workspace in
+  String.length real_path >= ws_len
+  && String.sub real_path 0 ws_len = real_workspace
+  && (String.length real_path = ws_len
+      || real_workspace = "/"
+      || real_path.[ws_len] = '/')
 
-let shell_exec ~workspace_only =
+let shell_exec ~workspace_only ~workspace =
   let description =
     if workspace_only then
       "Execute a shell command from the workspace directory and return stdout and stderr"
@@ -55,7 +59,7 @@ let shell_exec ~workspace_only =
             else
               Unix.environment ()
           in
-          let cwd = if workspace_only then Some (Sys.getcwd ()) else None in
+          let cwd = if workspace_only then Some workspace else None in
           let cmd = ("", [| "/bin/sh"; "-c"; command |]) in
           let proc =
             Lwt_process.open_process_full ?cwd ~env cmd
@@ -85,7 +89,7 @@ let shell_exec ~workspace_only =
     risk_level = High;
   }
 
-let file_read ~workspace_only =
+let file_read ~workspace_only ~workspace =
   {
     Tool.name = "file_read";
     description = "Read the contents of a file";
@@ -112,7 +116,7 @@ let file_read ~workspace_only =
           try args |> member "path" |> to_string with _ -> ""
         in
         if path = "" then Lwt.return "Error: path is required"
-        else if workspace_only && not (is_path_safe ~workspace:(Sys.getcwd ()) path) then
+        else if workspace_only && not (is_path_safe ~workspace path) then
           Lwt.return "Error: path is outside workspace"
         else
           Lwt.catch
@@ -124,7 +128,7 @@ let file_read ~workspace_only =
     risk_level = Low;
   }
 
-let file_write ~workspace_only =
+let file_write ~workspace_only ~workspace =
   {
     Tool.name = "file_write";
     description = "Write content to a file";
@@ -160,7 +164,7 @@ let file_write ~workspace_only =
           try args |> member "content" |> to_string with _ -> ""
         in
         if path = "" then Lwt.return "Error: path is required"
-        else if workspace_only && not (is_path_safe ~workspace:(Sys.getcwd ()) path) then
+        else if workspace_only && not (is_path_safe ~workspace path) then
           Lwt.return "Error: path is outside workspace"
         else
           Lwt.catch
@@ -379,9 +383,10 @@ let make_web_reader_tool api_key =
 
 let register_all ~(config : Runtime_config.t) registry =
   let workspace_only = config.security.workspace_only in
-  Tool_registry.register registry (shell_exec ~workspace_only);
-  Tool_registry.register registry (file_read ~workspace_only);
-  Tool_registry.register registry (file_write ~workspace_only);
+  let workspace = Runtime_config.effective_workspace config in
+  Tool_registry.register registry (shell_exec ~workspace_only ~workspace);
+  Tool_registry.register registry (file_read ~workspace_only ~workspace);
+  Tool_registry.register registry (file_write ~workspace_only ~workspace);
   Tool_registry.register registry (http_get ~workspace_only);
   if config.stt <> None then
     Tool_registry.register registry (transcribe ~config);

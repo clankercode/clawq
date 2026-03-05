@@ -104,6 +104,29 @@ let test_backfill_expands_tunnel_cloudflare_fields () =
        (Yojson.Safe.to_string cloudflare));
   Sys.remove tmp
 
+let test_workspace_default_present () =
+  let config = Config_loader.parse_config (`Assoc []) in
+  Alcotest.(check bool) "workspace default non-empty" true
+    (String.length config.workspace > 0)
+
+let test_prompt_parsing () =
+  let json =
+    Yojson.Safe.from_string
+      {|{
+  "prompt": {
+    "dynamic_enabled": true,
+    "workspace_files": ["AGENTS.md", "EGO.md"],
+    "max_workspace_file_chars": 200,
+    "max_workspace_total_chars": 400
+  }
+}|}
+  in
+  let config = Config_loader.parse_config json in
+  Alcotest.(check bool) "dynamic prompt enabled" true config.prompt.dynamic_enabled;
+  Alcotest.(check int) "workspace files count" 2 (List.length config.prompt.workspace_files);
+  Alcotest.(check int) "file char cap parsed" 200 config.prompt.max_workspace_file_chars;
+  Alcotest.(check int) "total char cap parsed" 400 config.prompt.max_workspace_total_chars
+
 let suite =
   [
     Alcotest.test_case "backfill adds zai config fields" `Quick
@@ -118,4 +141,8 @@ let suite =
       test_tunnel_defaults_present;
     Alcotest.test_case "backfill expands tunnel cloudflare fields" `Quick
       test_backfill_expands_tunnel_cloudflare_fields;
+    Alcotest.test_case "workspace default present" `Quick
+      test_workspace_default_present;
+    Alcotest.test_case "prompt parsing" `Quick
+      test_prompt_parsing;
   ]

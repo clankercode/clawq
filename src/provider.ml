@@ -67,39 +67,62 @@ let default_base_url_for name =
   | "zai"        -> "https://api.z.ai/api/paas/v4"
   | _            -> "https://openrouter.ai/api/v1"
 
-let complete ~(config : Runtime_config.t) ~messages ?tools () =
-  let open Lwt.Syntax in
-  let provider_name, provider =
-    let find_named name =
-      List.find_opt (fun (n, _) -> n = name) config.providers
-    in
-    let with_key =
-      List.filter (fun (_, p) -> Runtime_config.is_key_set p.Runtime_config.api_key) config.providers
-    in
-    let preferred =
-      match config.default_provider with
-      | Some name ->
-        (match find_named name with
-         | Some (n, p) when Runtime_config.is_key_set p.api_key -> Some (n, p)
-         | _ -> None)
-      | None -> None
-    in
-    match preferred with
+let select_provider ~(config : Runtime_config.t) =
+  let find_named name =
+    List.find_opt (fun (n, _) -> n = name) config.providers
+  in
+  let with_key =
+    List.filter
+      (fun (_, p) -> Runtime_config.is_key_set p.Runtime_config.api_key)
+      config.providers
+  in
+  let model_target = Runtime_config.effective_primary_target config.agent_defaults in
+  let model_provider_preferred =
+    match model_target.provider with
+    | Some name ->
+      (match find_named name with
+       | Some (n, p) when Runtime_config.is_key_set p.api_key -> Some (n, p)
+       | _ -> None)
+    | None -> None
+  in
+  let config_provider_preferred =
+    match config.default_provider with
+    | Some name ->
+      (match find_named name with
+       | Some (n, p) when Runtime_config.is_key_set p.api_key -> Some (n, p)
+       | _ -> None)
+    | None -> None
+  in
+  let chosen =
+    match model_provider_preferred with
     | Some pair -> pair
-    | None ->
-      (match with_key with
-       | (name, p) :: _ -> (name, p)
-       | [] ->
-         (match config.providers with
+    | None -> (
+      match config_provider_preferred with
+      | Some pair -> pair
+      | None ->
+        match with_key with
+        | (name, p) :: _ -> (name, p)
+        | [] ->
+          match config.providers with
           | (name, p) :: _ -> (name, p)
           | [] ->
             ( "default",
-              { Runtime_config.api_key = ""; base_url = None; default_model = None } )))
+              { Runtime_config.api_key = ""; base_url = None; default_model = None } ))
   in
-  let model = match provider.default_model with
-    | Some m -> m
-    | None -> Runtime_config.effective_primary_model config.agent_defaults
+  let provider_name, provider = chosen in
+  let model =
+    match model_target.provider with
+    | Some requested when requested = provider_name -> model_target.model
+    | _ ->
+      (match provider.default_model with
+       | Some m -> m
+       | None -> model_target.model)
   in
+  (provider_name, provider, model)
+
+let complete ~(config : Runtime_config.t) ~messages ?tools () =
+  let open Lwt.Syntax in
+  let provider_name, provider, model = select_provider ~config in
   let base_url =
     match provider.base_url with
     | Some url -> url
@@ -313,37 +336,7 @@ let process_sse_stream stream ~on_chunk =
 
 let complete_stream ~(config : Runtime_config.t) ~messages ?tools ~on_chunk () =
   let open Lwt.Syntax in
-  let provider_name, provider =
-    let find_named name =
-      List.find_opt (fun (n, _) -> n = name) config.providers
-    in
-    let with_key =
-      List.filter (fun (_, p) -> Runtime_config.is_key_set p.Runtime_config.api_key) config.providers
-    in
-    let preferred =
-      match config.default_provider with
-      | Some name ->
-        (match find_named name with
-         | Some (n, p) when Runtime_config.is_key_set p.api_key -> Some (n, p)
-         | _ -> None)
-      | None -> None
-    in
-    match preferred with
-    | Some pair -> pair
-    | None ->
-      (match with_key with
-       | (name, p) :: _ -> (name, p)
-       | [] ->
-         (match config.providers with
-          | (name, p) :: _ -> (name, p)
-          | [] ->
-            ( "default",
-              { Runtime_config.api_key = ""; base_url = None; default_model = None } )))
-  in
-  let model = match provider.default_model with
-    | Some m -> m
-    | None -> Runtime_config.effective_primary_model config.agent_defaults
-  in
+  let provider_name, provider, model = select_provider ~config in
   let base_url =
     match provider.base_url with
     | Some url -> url

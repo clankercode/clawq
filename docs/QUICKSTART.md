@@ -47,6 +47,7 @@ Fill in these fields:
 
 ```json
 {
+  "workspace": "~/.clawq/workspace",
   "default_temperature": 0.7,
   "providers": {
     "openrouter": {
@@ -56,8 +57,17 @@ Fill in these fields:
   },
   "agent_defaults": {
     "primary_model": "openai/gpt-4o",
-    "model_priority": ["openai/gpt-4o", "openai/gpt-4o-mini"],
+    "model_priority": [
+      { "provider": "openrouter", "model": "openai/gpt-4o" },
+      { "provider": "groq", "model": "openai/gpt-oss-120b" }
+    ],
     "max_tool_iterations": 10
+  },
+  "prompt": {
+    "dynamic_enabled": true,
+    "workspace_files": ["AGENTS.md", "EGO.md", "SOUL.md", "TOOLS.md", "USER.md"],
+    "max_workspace_file_chars": 3500,
+    "max_workspace_total_chars": 12000
   },
   "channels": {
     "cli": true,
@@ -82,8 +92,7 @@ Fill in these fields:
       "account_id": "",
       "tunnel_id": "",
       "tunnel_name": "clawq",
-      "hostname": "",
-      "ingress_service": "http://127.0.0.1:3000"
+      "hostname": ""
     }
   }
 }
@@ -92,10 +101,13 @@ Fill in these fields:
 ### Configuration notes
 
 - **allow_from**: `["*"]` allows all Telegram users. To restrict access, list specific chat IDs (as strings): `["123456789", "987654321"]`. Find your chat ID by messaging [@userinfobot](https://t.me/userinfobot).
-- **model_priority**: Ordered model preference list (first is used now, later items are reserved for fallback behavior).
+- **workspace**: Default daemon workspace root. `clawq agent` uses this directory instead of current shell directory.
+- **model_priority**: Ordered preference list; entries can be plain model strings or objects like `{ "provider": "groq", "model": "openai/gpt-oss-120b" }`.
 - **primary_model**: Backward-compatible alias for the first entry in `model_priority`.
+- **prompt.dynamic_enabled**: Enables dynamic prompt construction using runtime/tool/workspace context and workspace docs.
 - **base_url**: Change this if using OpenAI directly (`https://api.openai.com/v1`) or a self-hosted endpoint.
 - **tunnel.cloudflare**: Predeclared for future tunnel support; keep disabled unless you are wiring Cloudflare in your own build.
+- **tunnel.cloudflare.ingress_service**: Automatically derived from `gateway.host` and `gateway.port`.
 
 ## 5. Validate
 
@@ -106,6 +118,12 @@ dune exec clawq -- doctor
 ```
 
 You should see `doctor: all checks passed`. If there are warnings, fix the noted issues.
+
+Initialize workspace prompt files (`EGO.md`, `AGENTS.md`, etc.):
+
+```bash
+dune exec clawq -- workspace init
+```
 
 Check the full status:
 

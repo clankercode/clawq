@@ -60,7 +60,12 @@ let turn mgr ~key ~message =
 
 let get_config mgr = mgr.config
 
-let update_config mgr config = mgr.config <- config
+let update_config mgr config =
+  mgr.config <- config;
+  Hashtbl.iter
+    (fun _ (agent, _) ->
+      agent.Agent.config <- config)
+    mgr.sessions
 
 let turn_stream mgr ~key ~message ~on_chunk =
   let open Lwt.Syntax in

@@ -17,6 +17,82 @@ let redact_key s =
   if len <= 8 then String.make len '*'
   else String.sub s 0 4 ^ "..." ^ String.sub s (len - 4) 4
 
+let doctor_issues (cfg : Runtime_config.t) =
+  let issues = ref [] in
+  let add s = issues := s :: !issues in
+  let workspace = Runtime_config.effective_workspace cfg in
+  if not (Sys.file_exists workspace) then
+    add (Printf.sprintf "WARNING: workspace path does not exist: %s" workspace);
+  let ego_path = Filename.concat workspace "EGO.md" in
+  let soul_path = Filename.concat workspace "SOUL.md" in
+  if Sys.file_exists soul_path && not (Sys.file_exists ego_path) then
+    add "WARNING: SOUL.md exists without EGO.md; migrate persona file to EGO.md";
+  if Sys.file_exists soul_path && Sys.file_exists ego_path then
+    add "WARNING: both EGO.md and SOUL.md exist; EGO.md is preferred";
+  if cfg.providers = [] then add "WARNING: No providers configured";
+  List.iter
+    (fun (name, (p : Runtime_config.provider_config)) ->
+      if not (Runtime_config.is_key_set p.api_key) then
+        add (Printf.sprintf "WARNING: Provider '%s' has no API key" name))
+    cfg.providers;
+  (match cfg.default_provider with
+  | Some name when not (List.exists (fun (n, _) -> n = name) cfg.providers) ->
+    add (Printf.sprintf "WARNING: default_provider '%s' not found in providers" name)
+  | Some name ->
+    (match List.assoc_opt name cfg.providers with
+     | Some p when not (Runtime_config.is_key_set p.api_key) ->
+       add (Printf.sprintf "WARNING: default_provider '%s' has no API key" name)
+     | _ -> ())
+  | None -> ());
+  let primary_target = Runtime_config.effective_primary_target cfg.agent_defaults in
+  (match primary_target.provider with
+  | None -> ()
+  | Some provider_name ->
+    (match List.assoc_opt provider_name cfg.providers with
+     | None ->
+       add
+         (Printf.sprintf
+            "WARNING: model_priority[0] selects provider '%s' for model '%s' but provider is not configured"
+            provider_name primary_target.model)
+     | Some p when not (Runtime_config.is_key_set p.api_key) ->
+       add
+         (Printf.sprintf
+            "WARNING: model_priority[0] selects provider '%s' for model '%s' but provider has no API key"
+            provider_name primary_target.model)
+     | Some _ -> ()));
+  if cfg.agent_defaults.primary_model
+     <> Runtime_config.effective_primary_model cfg.agent_defaults
+  then
+    add
+      (Printf.sprintf
+         "WARNING: primary_model '%s' differs from model_priority[0] '%s'; model_priority is used"
+         cfg.agent_defaults.primary_model
+         (Runtime_config.effective_primary_model cfg.agent_defaults));
+  (match cfg.channels.telegram with
+  | None -> ()
+  | Some tg ->
+    List.iter
+      (fun (name, (acct : Runtime_config.telegram_account)) ->
+        if acct.bot_token = "" then
+          add
+            (Printf.sprintf "WARNING: Telegram account '%s' has empty bot_token"
+               name);
+        if acct.allow_from = [] then
+          add
+            (Printf.sprintf
+               "WARNING: Telegram account '%s' has no allow_from entries" name))
+      tg.accounts);
+  if cfg.security.encrypt_secrets then
+    List.iter (fun (name, (p : Runtime_config.provider_config)) ->
+      if Runtime_config.is_key_set p.api_key
+         && String.length p.api_key > 0
+         && p.api_key.[0] <> '$' then
+        add (Printf.sprintf
+               "WARNING: Provider '%s' has plaintext API key but encrypt_secrets is enabled. \
+                Use \"$ENV_VAR\" syntax to reference environment variables." name))
+      cfg.providers;
+  List.rev !issues
+
 let cmd_status () =
   let cfg = get_config () in
   let lines = ref [] in
@@ -53,48 +129,9 @@ let cmd_status () =
 
 let cmd_doctor () =
   let cfg = get_config () in
-  let issues = ref [] in
-  let add s = issues := s :: !issues in
-  if cfg.providers = [] then add "WARNING: No providers configured";
-  List.iter
-    (fun (name, (p : Runtime_config.provider_config)) ->
-      if not (Runtime_config.is_key_set p.api_key) then
-        add (Printf.sprintf "WARNING: Provider '%s' has no API key" name))
-    cfg.providers;
-  (match cfg.default_provider with
-  | Some name when not (List.exists (fun (n, _) -> n = name) cfg.providers) ->
-    add (Printf.sprintf "WARNING: default_provider '%s' not found in providers" name)
-  | Some name ->
-    (match List.assoc_opt name cfg.providers with
-     | Some p when not (Runtime_config.is_key_set p.api_key) ->
-       add (Printf.sprintf "WARNING: default_provider '%s' has no API key" name)
-     | _ -> ())
-  | None -> ());
-  (match cfg.channels.telegram with
-  | None -> ()
-  | Some tg ->
-    List.iter
-      (fun (name, (acct : Runtime_config.telegram_account)) ->
-        if acct.bot_token = "" then
-          add
-            (Printf.sprintf "WARNING: Telegram account '%s' has empty bot_token"
-               name);
-        if acct.allow_from = [] then
-          add
-            (Printf.sprintf
-               "WARNING: Telegram account '%s' has no allow_from entries" name))
-      tg.accounts);
-  if cfg.security.encrypt_secrets then
-    List.iter (fun (name, (p : Runtime_config.provider_config)) ->
-      if Runtime_config.is_key_set p.api_key
-         && String.length p.api_key > 0
-         && p.api_key.[0] <> '$' then
-        add (Printf.sprintf
-               "WARNING: Provider '%s' has plaintext API key but encrypt_secrets is enabled. \
-                Use \"$ENV_VAR\" syntax to reference environment variables." name))
-      cfg.providers;
+  let issues = doctor_issues cfg in
   let result =
-    match List.rev !issues with
+    match issues with
     | [] -> "doctor: all checks passed"
     | issues -> "doctor: issues found\n" ^ String.concat "\n" issues
   in
@@ -114,6 +151,7 @@ let cmd_onboard () =
     let template =
       {|{
   "default_temperature": 0.7,
+  "workspace": "~/.clawq/workspace",
   "default_provider": "openrouter",
   "providers": {
     "openrouter": {
@@ -140,8 +178,22 @@ let cmd_onboard () =
   },
   "agent_defaults": {
     "primary_model": "openai/gpt-4o",
-    "model_priority": ["openai/gpt-4o", "openai/gpt-4o-mini"],
+    "model_priority": [
+      { "provider": "openrouter", "model": "openai/gpt-4o" },
+      { "provider": "groq", "model": "openai/gpt-oss-120b" }
+    ],
     "max_tool_iterations": 10
+  },
+  "prompt": {
+    "dynamic_enabled": true,
+    "include_tools_section": true,
+    "include_safety_section": true,
+    "include_workspace_section": true,
+    "include_runtime_section": true,
+    "include_datetime_section": true,
+    "workspace_files": ["AGENTS.md", "EGO.md", "SOUL.md", "TOOLS.md", "USER.md"],
+    "max_workspace_file_chars": 3500,
+    "max_workspace_total_chars": 12000
   },
   "channels": {
     "cli": true,
@@ -176,8 +228,7 @@ let cmd_onboard () =
       "account_id": "",
       "tunnel_id": "",
       "tunnel_name": "clawq",
-      "hostname": "",
-      "ingress_service": "http://127.0.0.1:3000"
+      "hostname": ""
     }
   }
 }|}
@@ -191,6 +242,7 @@ let cmd_onboard () =
          (Printf.sprintf "Failed to write config: %s" (Printexc.to_string exn)));
     "Created config template at " ^ config_path
     ^ "\nEdit it to add your API keys and bot tokens."
+    ^ "\nThen run: clawq workspace init"
   end
 
 let cmd_models () =
@@ -244,8 +296,30 @@ let cmd_memory () =
   Printf.sprintf "Memory backend: %s\nSearch enabled: %b" cfg.memory.backend
     cfg.memory.search_enabled
 
-let cmd_workspace () =
-  Printf.sprintf "Workspace: %s" (Sys.getcwd ())
+let cmd_workspace args =
+  let cfg = get_config () in
+  let workspace = Runtime_config.effective_workspace cfg in
+  match args with
+  | [ "init" ] ->
+    let created = Workspace_scaffold.scaffold ~workspace in
+    if created = [] then
+      Printf.sprintf "Workspace ready at %s (no new files created)\n" workspace
+    else
+      Printf.sprintf "Workspace initialized at %s\nCreated:\n%s\n"
+        workspace
+        (String.concat "\n" (List.map (fun f -> "  - " ^ f) created))
+  | _ ->
+    let docs = [ "AGENTS.md"; "EGO.md"; "SOUL.md"; "USER.md"; "TOOLS.md" ] in
+    let status_lines =
+      List.map
+        (fun name ->
+          let path = Filename.concat workspace name in
+          Printf.sprintf "  %s: %s" name
+            (if Sys.file_exists path then "present" else "missing"))
+        docs
+    in
+    "Workspace: " ^ workspace ^ "\n"
+    ^ "Docs:\n" ^ String.concat "\n" status_lines ^ "\n"
 
 let cmd_capabilities () =
   "Available capabilities:\n\
@@ -298,8 +372,25 @@ let cmd_mcp () =
   Lwt_main.run (Mcp_server.run ~config:cfg ());
   ""
 
-let cmd_agent () =
+let parse_agent_workspace_override args =
+  match args with
+  | [] -> Ok None
+  | [ "--workspace"; path ] when path <> "" -> Ok (Some path)
+  | [ "--workspace" ] ->
+    Error "Usage: clawq agent [--workspace <path>]"
+  | _ ->
+    Error "Usage: clawq agent [--workspace <path>]"
+
+let cmd_agent args =
+  match parse_agent_workspace_override args with
+  | Error usage -> usage
+  | Ok workspace_override ->
   let cfg = get_config () in
+  let cfg =
+    match workspace_override with
+    | None -> cfg
+    | Some workspace -> { cfg with workspace }
+  in
   Lwt_main.run (Daemon.run ~config:cfg);
   "Daemon stopped."
 
@@ -438,14 +529,14 @@ let cmd_service args =
 let handle args =
   match args with
   | "phase2" :: _ -> Phase2.render ()
-  | "agent" :: _ -> cmd_agent ()
+  | "agent" :: rest -> cmd_agent rest
   | "status" :: _ -> cmd_status ()
   | "doctor" :: _ -> cmd_doctor ()
   | "onboard" :: _ -> cmd_onboard ()
   | "models" :: _ -> cmd_models ()
   | "channel" :: _ -> cmd_channel ()
   | "memory" :: _ -> cmd_memory ()
-  | "workspace" :: _ -> cmd_workspace ()
+  | "workspace" :: rest -> cmd_workspace rest
   | "capabilities" :: _ -> cmd_capabilities ()
   | "auth" :: _ -> cmd_auth ()
   | "transcribe" :: rest -> cmd_transcribe rest

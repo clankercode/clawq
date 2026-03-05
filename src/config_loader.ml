@@ -1,6 +1,10 @@
 let parse_config json =
   let open Yojson.Safe.Util in
   let default = Runtime_config.default in
+  let workspace =
+    try json |> member "workspace" |> to_string
+    with _ -> default.workspace
+  in
   let default_temperature =
     try json |> member "default_temperature" |> to_float
     with _ -> default.default_temperature
@@ -42,16 +46,31 @@ let resolve_secret s =
       let model_priority =
         try
           ad |> member "model_priority" |> to_list
-          |> List.map to_string
-          |> List.filter (fun s -> s <> "")
+          |> List.filter_map (fun entry ->
+                 match entry with
+                 | `String s when s <> "" ->
+                   Some ({ Runtime_config.provider = None; model = s } : Runtime_config.model_target)
+                 | `Assoc _ ->
+                   let model =
+                     try entry |> member "model" |> to_string with _ -> ""
+                   in
+                   if model = "" then None
+                   else
+                     let provider =
+                       try Some (entry |> member "provider" |> to_string)
+                       with _ -> None
+                     in
+                     Some ({ Runtime_config.provider; model } : Runtime_config.model_target)
+                 | _ -> None)
         with _ -> []
       in
       let model_priority =
-        if model_priority <> [] then model_priority else [ primary_model ]
+        if model_priority <> [] then model_priority
+        else [ ({ Runtime_config.provider = None; model = primary_model } : Runtime_config.model_target) ]
       in
       let primary_model =
         match model_priority with
-        | first :: _ -> first
+        | first :: _ -> first.model
         | [] -> primary_model
       in
       let system_prompt =
@@ -66,6 +85,66 @@ let resolve_secret s =
       in
       ({ primary_model; model_priority; system_prompt; max_tool_iterations } : Runtime_config.agent_defaults)
     with _ -> default.agent_defaults
+  in
+  let prompt =
+    try
+      let p = json |> member "prompt" in
+      let dynamic_enabled =
+        try p |> member "dynamic_enabled" |> to_bool
+        with _ -> default.prompt.dynamic_enabled
+      in
+      let include_tools_section =
+        try p |> member "include_tools_section" |> to_bool
+        with _ -> default.prompt.include_tools_section
+      in
+      let include_safety_section =
+        try p |> member "include_safety_section" |> to_bool
+        with _ -> default.prompt.include_safety_section
+      in
+      let include_workspace_section =
+        try p |> member "include_workspace_section" |> to_bool
+        with _ -> default.prompt.include_workspace_section
+      in
+      let include_runtime_section =
+        try p |> member "include_runtime_section" |> to_bool
+        with _ -> default.prompt.include_runtime_section
+      in
+      let include_datetime_section =
+        try p |> member "include_datetime_section" |> to_bool
+        with _ -> default.prompt.include_datetime_section
+      in
+      let workspace_files =
+        try
+          p |> member "workspace_files" |> to_list
+          |> List.map to_string
+          |> List.filter (fun s -> s <> "")
+        with _ -> default.prompt.workspace_files
+      in
+      let workspace_files =
+        if workspace_files = [] then default.prompt.workspace_files
+        else workspace_files
+      in
+      let max_workspace_file_chars =
+        try p |> member "max_workspace_file_chars" |> to_int
+        with _ -> default.prompt.max_workspace_file_chars
+      in
+      let max_workspace_total_chars =
+        try p |> member "max_workspace_total_chars" |> to_int
+        with _ -> default.prompt.max_workspace_total_chars
+      in
+      ({
+         dynamic_enabled;
+         include_tools_section;
+         include_safety_section;
+         include_workspace_section;
+         include_runtime_section;
+         include_datetime_section;
+         workspace_files;
+         max_workspace_file_chars;
+         max_workspace_total_chars;
+       }
+        : Runtime_config.prompt_config)
+    with _ -> default.prompt
   in
   let channels =
     try
@@ -230,10 +309,6 @@ let resolve_secret s =
                 try Some (c |> member "credentials_path" |> to_string)
                 with _ -> d.credentials_path
               in
-              let ingress_service =
-                try Some (c |> member "ingress_service" |> to_string)
-                with _ -> d.ingress_service
-              in
               Some
                 ({
                    Runtime_config.api_token;
@@ -243,7 +318,6 @@ let resolve_secret s =
                    hostname;
                    config_path;
                    credentials_path;
-                   ingress_service;
                  }
                   : Runtime_config.cloudflare_tunnel_config)
           with _ -> default_tunnel.cloudflare
@@ -252,10 +326,12 @@ let resolve_secret s =
     with _ -> default.tunnel
   in
   {
+    workspace;
     Runtime_config.default_temperature;
     default_provider;
     providers;
     agent_defaults;
+    prompt;
     channels;
     gateway;
     memory;
@@ -264,6 +340,64 @@ let resolve_secret s =
     zai_mcp;
     tunnel;
   }
+
+let trim s =
+  let is_ws = function ' ' | '\t' | '\r' | '\n' -> true | _ -> false in
+  let len = String.length s in
+  let rec left i = if i < len && is_ws s.[i] then left (i + 1) else i in
+  let rec right i = if i >= 0 && is_ws s.[i] then right (i - 1) else i in
+  let l = left 0 in
+  let r = right (len - 1) in
+  if r < l then "" else String.sub s l (r - l + 1)
+
+let unquote s =
+  let len = String.length s in
+  if len >= 2 then
+    let first = s.[0] in
+    let last = s.[len - 1] in
+    if (first = '"' && last = '"') || (first = '\'' && last = '\'')
+    then String.sub s 1 (len - 2)
+    else s
+  else s
+
+let load_dotenv_file path =
+  if Sys.file_exists path then
+    try
+      let ic = open_in path in
+      let rec loop () =
+        match input_line ic with
+        | line ->
+          let line = trim line in
+          if line <> "" && line.[0] <> '#' then
+            let line =
+              if String.length line >= 7 && String.sub line 0 7 = "export "
+              then trim (String.sub line 7 (String.length line - 7))
+              else line
+            in
+            (match String.index_opt line '=' with
+             | None -> ()
+             | Some idx ->
+               let key = trim (String.sub line 0 idx) in
+               let raw_val =
+                 String.sub line (idx + 1) (String.length line - idx - 1)
+               in
+               let value = unquote (trim raw_val) in
+               if key <> "" then
+                 (try
+                    ignore (Sys.getenv key)
+                  with Not_found -> Unix.putenv key value));
+          loop ()
+        | exception End_of_file -> close_in_noerr ic
+      in
+      loop ()
+    with _ -> ()
+
+let load_dotenv () =
+  let cwd_env = Filename.concat (Sys.getcwd ()) ".env" in
+  let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
+  let clawq_env = Filename.concat (Filename.concat home ".clawq") ".env" in
+  load_dotenv_file clawq_env;
+  load_dotenv_file cwd_env
 
 let rec merge_json (original : Yojson.Safe.t) (complete : Yojson.Safe.t) : Yojson.Safe.t =
   match original, complete with
@@ -285,6 +419,7 @@ let backfill_config ~path ~original_json ~(config : Runtime_config.t) =
   let config_for_backfill : Runtime_config.t =
     {
       config with
+      workspace = Runtime_config.effective_workspace config;
       providers = Runtime_config.with_zai_coding_provider config.providers;
       zai_mcp =
         (match config.zai_mcp with
@@ -305,6 +440,7 @@ let backfill_config ~path ~original_json ~(config : Runtime_config.t) =
   end
 
 let load ?(path = "") () : Runtime_config.t =
+  load_dotenv ();
   let config_path =
     if path <> "" then path
     else

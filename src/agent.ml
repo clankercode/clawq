@@ -1,21 +1,23 @@
 type t = {
   mutable history : Provider.message list;
-  config : Runtime_config.t;
-  system_prompt : string;
+  mutable config : Runtime_config.t;
+  mutable system_prompt : string;
   tool_registry : Tool_registry.t option;
 }
 
 let max_history = 50
 
 let create ~config ?tool_registry () =
+  let system_prompt = Prompt_builder.build ~config ~tool_registry in
   {
     history = [];
     config;
-    system_prompt = config.Runtime_config.agent_defaults.system_prompt;
+    system_prompt;
     tool_registry;
   }
 
 let build_messages agent =
+  agent.system_prompt <- Prompt_builder.build ~config:agent.config ~tool_registry:agent.tool_registry;
   Provider.make_message ~role:"system" ~content:agent.system_prompt
   :: List.rev agent.history
 

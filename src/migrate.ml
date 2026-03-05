@@ -95,14 +95,16 @@ let convert (json : Yojson.Safe.t) =
     with _ -> default.security.audit_enabled
   in
   let config : Runtime_config.t = {
+    workspace = default.workspace;
     default_temperature;
     default_provider = None;
     providers;
     agent_defaults = {
       default.agent_defaults with
       primary_model;
-      model_priority = [ primary_model ];
+      model_priority = [ { Runtime_config.provider = None; model = primary_model } ];
     };
+    prompt = default.prompt;
     channels;
     gateway;
     memory = { backend = memory_backend; search_enabled; db_path = "" };
@@ -110,7 +112,7 @@ let convert (json : Yojson.Safe.t) =
                  tools_enabled = default.security.tools_enabled;
                  encrypt_secrets = default.security.encrypt_secrets };
     stt = None;
-    zai_mcp = None;
+    zai_mcp = default.zai_mcp;
     tunnel = default.tunnel;
   } in
   (config, List.rev !warnings)

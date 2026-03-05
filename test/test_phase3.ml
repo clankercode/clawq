@@ -1,5 +1,12 @@
 let default_config = Runtime_config.default
 
+let contains ~needle haystack =
+  let re = Str.regexp_string needle in
+  try
+    ignore (Str.search_forward re haystack 0);
+    true
+  with Not_found -> false
+
 (* Test: system prompt from config *)
 let test_system_prompt_from_config () =
   let config =
@@ -13,8 +20,9 @@ let test_system_prompt_from_config () =
     }
   in
   let agent = Agent.create ~config () in
-  Alcotest.(check string)
-    "system prompt from config" "You are a test bot." agent.system_prompt
+  Alcotest.(check bool)
+    "system prompt from config" true
+    (contains ~needle:"You are a test bot." agent.system_prompt)
 
 (* Test: default system prompt *)
 let test_default_system_prompt () =
@@ -193,7 +201,10 @@ let test_config_new_fields () =
     {|{
       "agent_defaults": {
         "primary_model": "test-model",
-        "model_priority": ["priority-model", "fallback-model"],
+        "model_priority": [
+          {"provider": "groq", "model": "priority-model"},
+          "fallback-model"
+        ],
         "system_prompt": "Custom prompt",
         "max_tool_interactions": 5
       },
@@ -213,6 +224,9 @@ let test_config_new_fields () =
   Alcotest.(check string)
     "effective model from priority list" "priority-model"
     (Runtime_config.effective_primary_model config.agent_defaults);
+  Alcotest.(check (option string))
+    "effective provider from priority list" (Some "groq")
+    (Runtime_config.effective_primary_provider config.agent_defaults);
   Alcotest.(check int)
     "max_tool_iterations" 5 config.agent_defaults.max_tool_iterations;
   Alcotest.(check string) "db_path" "/tmp/test.db" config.memory.db_path;
@@ -251,6 +265,67 @@ let test_status_shows_prompt () =
     (String.length result > 0
      && String.sub result 0 12 = "clawq status")
 
+let test_doctor_warns_model_priority_provider_key_missing () =
+  let cfg =
+    {
+      default_config with
+      providers =
+        [
+          ( "groq",
+            {
+              Runtime_config.api_key = "";
+              base_url = Some "https://api.groq.com/openai/v1";
+              default_model = None;
+            } );
+        ];
+      agent_defaults =
+        {
+          default_config.agent_defaults with
+          model_priority =
+            [ { Runtime_config.provider = Some "groq"; model = "openai/gpt-oss-120b" } ];
+          primary_model = "openai/gpt-oss-120b";
+        };
+    }
+  in
+  let issues = Command_bridge.doctor_issues cfg in
+  let joined = String.concat "\n" issues in
+  Alcotest.(check bool)
+    "doctor warns when priority provider key missing" true
+    (try
+       ignore
+         (Str.search_forward
+            (Str.regexp_string
+               "model_priority[0] selects provider 'groq' for model 'openai/gpt-oss-120b' but provider has no API key")
+            joined 0);
+       true
+     with Not_found -> false)
+
+let test_prompt_prefers_ego_over_soul () =
+  let tmp = Filename.temp_file "clawq_ws" ".tmp" in
+  Sys.remove tmp;
+  Unix.mkdir tmp 0o755;
+  let ego_path = Filename.concat tmp "EGO.md" in
+  let soul_path = Filename.concat tmp "SOUL.md" in
+  let oc = open_out ego_path in
+  output_string oc "EGO says hello";
+  close_out oc;
+  let oc2 = open_out soul_path in
+  output_string oc2 "SOUL says hello";
+  close_out oc2;
+  let cfg =
+    {
+      default_config with
+      workspace = tmp;
+      agent_defaults =
+        { default_config.agent_defaults with system_prompt = "Prelude" };
+    }
+  in
+  let prompt = Prompt_builder.build ~config:cfg ~tool_registry:None in
+  Alcotest.(check bool) "prompt contains EGO" true
+    (contains ~needle:"EGO says hello" prompt);
+  Alcotest.(check bool) "prompt omits SOUL when EGO exists" false
+    (contains ~needle:"SOUL says hello" prompt)
+
 let suite =
   [
     Alcotest.test_case "system prompt from config" `Quick
@@ -272,4 +347,8 @@ let suite =
     Alcotest.test_case "provider tool result json" `Quick
       test_provider_tool_result_json;
     Alcotest.test_case "status shows prompt" `Quick test_status_shows_prompt;
+    Alcotest.test_case "doctor warns model priority provider missing key" `Quick
+      test_doctor_warns_model_priority_provider_key_missing;
+    Alcotest.test_case "prompt prefers EGO over SOUL" `Quick
+      test_prompt_prefers_ego_over_soul;
   ]
