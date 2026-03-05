@@ -180,14 +180,19 @@ let cmd_models () =
           let url =
             match p.base_url with Some u -> u | None -> "(default)"
           in
-          Printf.sprintf "  %s: %s (key: %s)" name url
-            (if Runtime_config.is_key_set p.api_key then "configured" else "not set"))
+          let model_info = match p.default_model with
+            | Some m -> Printf.sprintf " model: %s" m
+            | None -> ""
+          in
+          Printf.sprintf "  %s: %s (key: %s)%s" name url
+            (if Runtime_config.is_key_set p.api_key then "configured" else "not set")
+            model_info)
         providers
     in
     "Configured providers:\n" ^ String.concat "\n" lines
+    ^ Printf.sprintf "\nDefault model: %s" cfg.agent_defaults.primary_model
     ^ Printf.sprintf "\nDefault provider: %s"
         (match cfg.default_provider with Some p -> p | None -> "(auto)")
-    ^ Printf.sprintf "\nDefault model: %s" cfg.agent_defaults.primary_model
 
 let cmd_channel () =
   let cfg = get_config () in

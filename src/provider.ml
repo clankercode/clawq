@@ -63,7 +63,6 @@ let messages_to_json messages = `List (List.map message_to_json messages)
 
 let complete ~(config : Runtime_config.t) ~messages ?tools () =
   let open Lwt.Syntax in
-  let model = config.agent_defaults.primary_model in
   let provider_name, provider =
     let find_named name =
       List.find_opt (fun (n, _) -> n = name) config.providers
@@ -89,7 +88,11 @@ let complete ~(config : Runtime_config.t) ~messages ?tools () =
           | (name, p) :: _ -> (name, p)
           | [] ->
             ( "default",
-              { Runtime_config.api_key = ""; base_url = None } )))
+              { Runtime_config.api_key = ""; base_url = None; default_model = None } )))
+  in
+  let model = match provider.default_model with
+    | Some m -> m
+    | None -> config.agent_defaults.primary_model
   in
   let base_url =
     match provider.base_url with
@@ -187,3 +190,186 @@ let complete ~(config : Runtime_config.t) ~messages ?tools () =
           Lwt.fail_with "Failed to extract content from LLM response"
         else
           Lwt.return (Text { content; model = resp_model; usage })
+
+type stream_event =
+  | Delta of string
+  | ToolCallDelta of { index : int; id : string option; function_name : string option; arguments : string option }
+  | Done
+
+let parse_sse_line line =
+  let prefix = "data: " in
+  let plen = String.length prefix in
+  if String.length line >= plen && String.sub line 0 plen = prefix then
+    let data = String.sub line plen (String.length line - plen) in
+    if data = "[DONE]" then Some `Done
+    else
+      (try Some (`Json (Yojson.Safe.from_string data))
+       with _ -> None)
+  else None
+
+let process_sse_stream stream ~on_chunk =
+  let open Lwt.Syntax in
+  let buf = Buffer.create 256 in
+  let content_acc = Buffer.create 1024 in
+  let tool_calls_acc : (int * string * string * Buffer.t) list ref = ref [] in
+  let resp_model = ref "" in
+  let usage_acc = ref None in
+  let process_line line =
+    match parse_sse_line line with
+    | Some `Done -> on_chunk Done
+    | Some (`Json json) ->
+      let open Yojson.Safe.Util in
+      (try resp_model := json |> member "model" |> to_string with _ -> ());
+      (try
+         let u = json |> member "usage" in
+         let pt = u |> member "prompt_tokens" |> to_int in
+         let ct = u |> member "completion_tokens" |> to_int in
+         usage_acc := Some (pt, ct)
+       with _ -> ());
+      let delta =
+        try json |> member "choices" |> index 0 |> member "delta"
+        with _ -> `Null
+      in
+      let content_delta =
+        try Some (delta |> member "content" |> to_string)
+        with _ -> None
+      in
+      (match content_delta with
+       | Some c when c <> "" ->
+         Buffer.add_string content_acc c;
+         on_chunk (Delta c)
+       | _ ->
+         let tc_deltas =
+           try delta |> member "tool_calls" |> to_list with _ -> []
+         in
+         if tc_deltas <> [] then begin
+           List.iter (fun tc ->
+             let idx = try tc |> member "index" |> to_int with _ -> 0 in
+             let id = try Some (tc |> member "id" |> to_string) with _ -> None in
+             let fn_name =
+               try Some (tc |> member "function" |> member "name" |> to_string) with _ -> None
+             in
+             let fn_args =
+               try Some (tc |> member "function" |> member "arguments" |> to_string) with _ -> None
+             in
+             (* accumulate tool call data *)
+             let existing = List.find_opt (fun (i, _, _, _) -> i = idx) !tool_calls_acc in
+             (match existing with
+              | None ->
+                let args_buf = Buffer.create 256 in
+                (match fn_args with Some a -> Buffer.add_string args_buf a | None -> ());
+                let tc_id = match id with Some i -> i | None -> "" in
+                let tc_name = match fn_name with Some n -> n | None -> "" in
+                tool_calls_acc := !tool_calls_acc @ [(idx, tc_id, tc_name, args_buf)]
+              | Some (_, _, _, args_buf) ->
+                (match fn_args with Some a -> Buffer.add_string args_buf a | None -> ()));
+             ignore (on_chunk (ToolCallDelta { index = idx; id; function_name = fn_name; arguments = fn_args }))
+           ) tc_deltas;
+           Lwt.return_unit
+         end else
+           Lwt.return_unit)
+    | None -> Lwt.return_unit
+  in
+  let process_buffer () =
+    let s = Buffer.contents buf in
+    Buffer.clear buf;
+    let lines = String.split_on_char '\n' s in
+    let rec process_lines = function
+      | [] -> Lwt.return_unit
+      | [last] ->
+        (* last element may be incomplete - put back in buffer *)
+        Buffer.add_string buf last;
+        Lwt.return_unit
+      | line :: rest ->
+        let line = if String.length line > 0 && line.[String.length line - 1] = '\r'
+          then String.sub line 0 (String.length line - 1) else line in
+        let* () = if line <> "" then process_line line else Lwt.return_unit in
+        process_lines rest
+    in
+    process_lines lines
+  in
+  let* () = Lwt_stream.iter_s (fun chunk ->
+    Buffer.add_string buf chunk;
+    process_buffer ()
+  ) stream in
+  (* process any remaining data in buffer *)
+  let remaining = Buffer.contents buf in
+  let* () = if remaining <> "" then process_line remaining else Lwt.return_unit in
+  let content = Buffer.contents content_acc in
+  let model = if !resp_model <> "" then !resp_model else "unknown" in
+  let tool_calls = List.map (fun (_, id, name, args_buf) ->
+    { id; function_name = name; arguments = Buffer.contents args_buf }
+  ) !tool_calls_acc in
+  if tool_calls <> [] then
+    Lwt.return (ToolCalls { calls = tool_calls; model; usage = !usage_acc })
+  else
+    Lwt.return (Text { content; model; usage = !usage_acc })
+
+let complete_stream ~(config : Runtime_config.t) ~messages ?tools ~on_chunk () =
+  let open Lwt.Syntax in
+  let provider_name, provider =
+    let find_named name =
+      List.find_opt (fun (n, _) -> n = name) config.providers
+    in
+    let with_key =
+      List.filter (fun (_, p) -> Runtime_config.is_key_set p.Runtime_config.api_key) config.providers
+    in
+    let preferred =
+      match config.default_provider with
+      | Some name ->
+        (match find_named name with
+         | Some (n, p) when Runtime_config.is_key_set p.api_key -> Some (n, p)
+         | _ -> None)
+      | None -> None
+    in
+    match preferred with
+    | Some pair -> pair
+    | None ->
+      (match with_key with
+       | (name, p) :: _ -> (name, p)
+       | [] ->
+         (match config.providers with
+          | (name, p) :: _ -> (name, p)
+          | [] ->
+            ( "default",
+              { Runtime_config.api_key = ""; base_url = None; default_model = None } )))
+  in
+  let model = match provider.default_model with
+    | Some m -> m
+    | None -> config.agent_defaults.primary_model
+  in
+  let base_url =
+    match provider.base_url with
+    | Some url -> url
+    | None -> "https://openrouter.ai/api/v1"
+  in
+  let uri = base_url ^ "/chat/completions" in
+  let body_fields =
+    [
+      ("model", `String model);
+      ("messages", messages_to_json messages);
+      ("temperature", `Float (max 1e-8 config.default_temperature));
+      ("stream", `Bool true);
+    ]
+  in
+  let body_fields =
+    match tools with
+    | Some t when t <> `List [] -> body_fields @ [ ("tools", t) ]
+    | _ -> body_fields
+  in
+  let body = `Assoc body_fields |> Yojson.Safe.to_string in
+  let headers =
+    [ ("Authorization", "Bearer " ^ provider.api_key) ]
+  in
+  Logs.info (fun m ->
+      m "LLM stream request to %s provider=%s model=%s msgs=%d" uri provider_name
+        model (List.length messages));
+  let* status, stream = Http_client.post_stream ~uri ~headers ~body in
+  if status < 200 || status >= 300 then begin
+    (* collect error body from stream *)
+    let* chunks = Lwt_stream.to_list stream in
+    let response_body = String.concat "" chunks in
+    Lwt.fail_with
+      (Printf.sprintf "LLM API error (HTTP %d): %s" status response_body)
+  end else
+    process_sse_stream stream ~on_chunk

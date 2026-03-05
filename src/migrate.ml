@@ -31,7 +31,7 @@ let convert (json : Yojson.Safe.t) =
           try Some (v |> member "base_url" |> to_string)
           with _ -> None
         in
-        Some (name, ({ api_key; base_url } : Runtime_config.provider_config))
+        Some (name, ({ api_key; base_url; default_model = None } : Runtime_config.provider_config))
       ) models
     with _ -> []
   in

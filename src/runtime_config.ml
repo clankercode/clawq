@@ -1,4 +1,4 @@
-type provider_config = { api_key : string; base_url : string option }
+type provider_config = { api_key : string; base_url : string option; default_model : string option }
 
 type agent_defaults = {
   primary_model : string;
@@ -67,6 +67,10 @@ let to_json (cfg : t) : Yojson.Safe.t =
     let fields = [ ("api_key", `String p.api_key) ] in
     let fields = match p.base_url with
       | Some url -> fields @ [ ("base_url", `String url) ]
+      | None -> fields
+    in
+    let fields = match p.default_model with
+      | Some m -> fields @ [ ("default_model", `String m) ]
       | None -> fields
     in
     `Assoc fields

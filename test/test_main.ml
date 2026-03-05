@@ -9,4 +9,5 @@ let () =
       ("audit", Test_audit.suite);
       ("skills", Test_skills.suite);
       ("memory_search", Test_memory_search.suite);
+      ("streaming", Test_streaming.suite);
     ]

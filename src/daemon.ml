@@ -135,6 +135,15 @@ let run ~(config : Runtime_config.t) =
   in
   let _ = Lwt_unix.on_signal Sys.sigint do_shutdown in
   let _ = Lwt_unix.on_signal Sys.sigterm do_shutdown in
+  let _ = Lwt_unix.on_signal Sys.sighup (fun _ ->
+    Logs.info (fun m -> m "SIGHUP received, reloading config...");
+    (try
+       let new_config = Config_loader.load () in
+       Session.update_config session_manager new_config;
+       Logs.info (fun m -> m "Config reloaded successfully")
+     with exn ->
+       Logs.err (fun m -> m "Config reload failed: %s" (Printexc.to_string exn))))
+  in
   write_state ~config
     ~components:[ ("gateway", "running"); ("telegram", "running"); ("cron", "running") ];
   (match db with

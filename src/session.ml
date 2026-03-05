@@ -1,5 +1,5 @@
 type t = {
-  config : Runtime_config.t;
+  mutable config : Runtime_config.t;
   sessions : (string, Agent.t * Lwt_mutex.t) Hashtbl.t;
   tool_registry : Tool_registry.t option;
   db : Sqlite3.db option;
@@ -59,6 +59,39 @@ let turn mgr ~key ~message =
       Lwt.return response)
 
 let get_config mgr = mgr.config
+
+let update_config mgr config = mgr.config <- config
+
+let turn_stream mgr ~key ~message ~on_chunk =
+  let open Lwt.Syntax in
+  let agent, mutex = get_or_create mgr ~key in
+  Lwt_mutex.with_lock mutex (fun () ->
+      (match mgr.db with
+       | Some db when mgr.config.security.audit_enabled ->
+         Audit.log ~db (ChatMessage {
+           session_key = key; role = "user";
+           content_preview = message })
+       | _ -> ());
+      let history_before = List.length agent.history in
+      let* response = Agent.turn_stream agent ~user_message:message
+          ?db:mgr.db ~session_key:key ~on_chunk () in
+      (match mgr.db with
+       | Some db ->
+         let new_messages = List.length agent.history - history_before in
+         if new_messages > 0 then begin
+           let reversed = List.rev agent.history in
+           let to_persist =
+             let skip = history_before in
+             List.filteri (fun i _ -> i >= skip) reversed
+           in
+           List.iter (fun msg -> Memory.store_message ~db ~session_key:key msg) to_persist
+         end;
+         if mgr.config.security.audit_enabled then
+           Audit.log ~db (ChatMessage {
+             session_key = key; role = "assistant";
+             content_preview = response })
+       | None -> ());
+      Lwt.return response)
 
 let reset mgr ~key =
   (match mgr.db with

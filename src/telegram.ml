@@ -144,51 +144,61 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
         send_message ~bot_token ~chat_id:update.chat_id
           ~text:"Sorry, an error occurred processing your message. Please try again.")
 
+let poll_account ~bot_token ~(account : Runtime_config.telegram_account) ~name
+    ~(session_mgr : Session.t) =
+  let open Lwt.Syntax in
+  Logs.info (fun m -> m "Starting Telegram polling for account '%s'" name);
+  let offset = ref 0 in
+  let poll_count = ref 0 in
+  let rec poll () =
+    incr poll_count;
+    (if !poll_count <= 3 then
+       Logs.info (fun m -> m "Telegram poll #%d for account '%s'" !poll_count name)
+     else if !poll_count = 4 then
+       Logs.info (fun m -> m "Telegram polling stable, suppressing routine poll logs for '%s'" name));
+    let* updates =
+      Lwt.catch
+        (fun () -> get_updates ~bot_token ~offset:!offset ~timeout:30)
+        (fun exn ->
+          Logs.err (fun m ->
+              m "Telegram poll error for '%s': %s" name (Printexc.to_string exn));
+          let* () = Lwt_unix.sleep 5.0 in
+          Lwt.return [])
+    in
+    let* () =
+      Lwt_list.iter_s
+        (fun update ->
+          offset := update.update_id + 1;
+          handle_update ~bot_token ~account ~session_mgr update)
+        updates
+    in
+    poll ()
+  in
+  poll ()
+
 let start_polling ~(config : Runtime_config.t)
     ~(session_manager : Session.t) =
-  let open Lwt.Syntax in
   match config.channels.telegram with
   | None ->
     Logs.info (fun m -> m "No Telegram config found, skipping polling");
     Lwt.return_unit
-  | Some tg_config -> (
+  | Some tg_config ->
     match tg_config.accounts with
     | [] ->
       Logs.info (fun m -> m "No Telegram accounts configured");
       Lwt.return_unit
-    | (name, account) :: _ ->
-      if account.bot_token = "" then (
-        Logs.warn (fun m ->
-            m "Telegram account '%s' has empty bot_token, skipping" name);
-        Lwt.return_unit)
-      else
-        let bot_token = account.bot_token in
-        Logs.info (fun m -> m "Starting Telegram polling for account '%s'" name);
-        let offset = ref 0 in
-        let poll_count = ref 0 in
-        let rec poll () =
-          incr poll_count;
-          (if !poll_count <= 3 then
-             Logs.info (fun m -> m "Telegram poll #%d for account '%s'" !poll_count name)
-           else if !poll_count = 4 then
-             Logs.info (fun m -> m "Telegram polling stable, suppressing routine poll logs"));
-          let* updates =
-            Lwt.catch
-              (fun () -> get_updates ~bot_token ~offset:!offset ~timeout:30)
-              (fun exn ->
-                Logs.err (fun m ->
-                    m "Telegram poll error: %s" (Printexc.to_string exn));
-                let* () = Lwt_unix.sleep 5.0 in
-                Lwt.return [])
-          in
-          let* () =
-            Lwt_list.iter_s
-              (fun update ->
-                offset := update.update_id + 1;
-                handle_update ~bot_token ~account ~session_mgr:session_manager
-                  update)
-              updates
-          in
-          poll ()
-        in
-        poll ())
+    | accounts ->
+      let poll_loops = List.filter_map (fun (name, (account : Runtime_config.telegram_account)) ->
+        if account.bot_token = "" then (
+          Logs.warn (fun m ->
+              m "Telegram account '%s' has empty bot_token, skipping" name);
+          None)
+        else
+          Some (poll_account ~bot_token:account.bot_token ~account ~name
+                  ~session_mgr:session_manager)
+      ) accounts in
+      match poll_loops with
+      | [] ->
+        Logs.info (fun m -> m "No Telegram accounts with valid bot_token");
+        Lwt.return_unit
+      | loops -> Lwt.join loops

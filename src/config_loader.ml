@@ -26,7 +26,10 @@ let resolve_secret s =
              let base_url =
                try Some (v |> member "base_url" |> to_string) with _ -> None
              in
-             (name, ({ api_key; base_url } : Runtime_config.provider_config)))
+             let default_model =
+               try Some (v |> member "default_model" |> to_string) with _ -> None
+             in
+             (name, ({ api_key; base_url; default_model } : Runtime_config.provider_config)))
     with _ -> []
   in
   let agent_defaults =
