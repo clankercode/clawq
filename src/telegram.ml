@@ -128,6 +128,34 @@ let chunk_text ?(max_len = telegram_max_message_len) text =
     in
     go 0 []
 
+let send_chat_action ~bot_token ~chat_id ~action =
+  let open Lwt.Syntax in
+  let uri = Printf.sprintf "%s%s/sendChatAction" api_base bot_token in
+  let body =
+    `Assoc [ ("chat_id", `String chat_id); ("action", `String action) ]
+    |> Yojson.Safe.to_string
+  in
+  let* _status, _body = Http_client.post_json ~uri ~headers:[] ~body in
+  Lwt.return_unit
+
+(* Send typing action repeatedly every ~4s until [p] resolves. *)
+let with_typing ~bot_token ~chat_id p =
+  let open Lwt.Syntax in
+  let cancelled = ref false in
+  let rec loop () =
+    if !cancelled then Lwt.return_unit
+    else
+      let* () = send_chat_action ~bot_token ~chat_id ~action:"typing" in
+      if !cancelled then Lwt.return_unit
+      else
+        let* () = Lwt_unix.sleep 4.0 in
+        loop ()
+  in
+  Lwt.async (fun () -> loop ());
+  let+ result = p in
+  cancelled := true;
+  result
+
 let send_message ~bot_token ~chat_id ~text =
   let open Lwt.Syntax in
   let uri = Printf.sprintf "%s%s/sendMessage" api_base bot_token in
@@ -282,7 +310,10 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
             let* result =
               Lwt.catch
                 (fun () ->
-                  let* response = Session.turn session_mgr ~key ~message:msg in
+                  let turn_p = Session.turn session_mgr ~key ~message:msg in
+                  let* response =
+                    with_typing ~bot_token ~chat_id:update.chat_id turn_p
+                  in
                   Lwt.return (Ok response))
                 (fun exn -> Lwt.return (Error (Printexc.to_string exn)))
             in
