@@ -559,8 +559,28 @@ let cmd_audit args =
              | None -> "")
         ) rows in
         "Audit log:\n" ^ header ^ "\n" ^ String.concat "\n" lines
+    | [ "verify" ] ->
+      (match Audit.get_signing_key () with
+       | Error msg -> Printf.sprintf "Error: %s" msg
+       | Ok key ->
+         match Audit.verify_chain ~db ~key with
+         | Ok () -> "Audit chain verification: OK"
+         | Error (id, reason) ->
+           Printf.sprintf "Audit chain verification FAILED at entry %d: %s" id reason)
+    | [ "export" ] ->
+      let path = cfg.security.audit_retention.export_path in
+      let export_file = Filename.concat path "audit_export.jsonl" in
+      let count = Audit.export_json ~db ~path:export_file in
+      Printf.sprintf "Exported %d audit entries to %s" count export_file
+    | [ "export"; path ] ->
+      let count = Audit.export_json ~db ~path in
+      Printf.sprintf "Exported %d audit entries to %s" count path
+    | [ "purge" ] ->
+      let ret = cfg.security.audit_retention in
+      let deleted = Audit.purge_old ~db ~max_age_days:ret.max_age_days ~max_entries:ret.max_entries in
+      Printf.sprintf "Purged %d audit entries" deleted
     | _ ->
-      "Usage: clawq audit <list|list --limit N>"
+      "Usage: clawq audit <list|list --limit N|verify|export [path]|purge>"
 
 let cmd_skills args =
   match args with

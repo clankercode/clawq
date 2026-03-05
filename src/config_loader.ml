@@ -158,7 +158,46 @@ let parse_config ?(resolve_secrets = true) json =
           Some ({ accounts } : Runtime_config.telegram_config)
         with _ -> None
       in
-      ({ cli; telegram } : Runtime_config.channel_config)
+      let discord =
+        try
+          let d = ch |> member "discord" in
+          let bot_token =
+            try d |> member "bot_token" |> to_string |> resolve_secret with _ -> ""
+          in
+          let allow_guilds =
+            try d |> member "allow_guilds" |> to_list |> List.map to_string with _ -> ["*"]
+          in
+          let allow_users =
+            try d |> member "allow_users" |> to_list |> List.map to_string with _ -> ["*"]
+          in
+          let intents =
+            try d |> member "intents" |> to_int with _ -> 33281
+          in
+          Some ({ bot_token; allow_guilds; allow_users; intents } : Runtime_config.discord_config)
+        with _ -> None
+      in
+      let slack =
+        try
+          let s = ch |> member "slack" in
+          let bot_token =
+            try s |> member "bot_token" |> to_string |> resolve_secret with _ -> ""
+          in
+          let signing_secret =
+            try s |> member "signing_secret" |> to_string |> resolve_secret with _ -> ""
+          in
+          let events_path =
+            try s |> member "events_path" |> to_string with _ -> "/slack/events"
+          in
+          let allow_channels =
+            try s |> member "allow_channels" |> to_list |> List.map to_string with _ -> ["*"]
+          in
+          let allow_users =
+            try s |> member "allow_users" |> to_list |> List.map to_string with _ -> ["*"]
+          in
+          Some ({ bot_token; signing_secret; events_path; allow_channels; allow_users } : Runtime_config.slack_config)
+        with _ -> None
+      in
+      ({ cli; telegram; discord; slack } : Runtime_config.channel_config)
     with _ -> default.channels
   in
   let gateway =
@@ -266,9 +305,18 @@ let parse_config ?(resolve_secrets = true) json =
         try Some (m |> member "embedding_provider" |> to_string)
         with _ -> default.memory.embedding_provider
       in
+      let max_messages_per_session =
+        try m |> member "max_messages_per_session" |> to_int
+        with _ -> default.memory.max_messages_per_session
+      in
+      let max_message_age_days =
+        try m |> member "max_message_age_days" |> to_int
+        with _ -> default.memory.max_message_age_days
+      in
       ({ backend; search_enabled; db_path;
          vector_weight; keyword_weight;
-         embedding_model; embedding_provider } : Runtime_config.memory_config)
+         embedding_model; embedding_provider;
+         max_messages_per_session; max_message_age_days } : Runtime_config.memory_config)
     with _ -> default.memory
   in
   let security =
@@ -296,7 +344,59 @@ let parse_config ?(resolve_secrets = true) json =
         try s |> member "encrypt_secrets" |> to_bool
         with _ -> default.security.encrypt_secrets
       in
-      ({ workspace_only; audit_enabled; tools_enabled; encrypt_secrets } : Runtime_config.security_config)
+      let rate_limit =
+        try
+          let rl = s |> member "rate_limit" in
+          let gateway_per_ip_rpm =
+            try rl |> member "gateway_per_ip_rpm" |> to_int
+            with _ -> default.security.rate_limit.gateway_per_ip_rpm in
+          let gateway_per_session_rpm =
+            try rl |> member "gateway_per_session_rpm" |> to_int
+            with _ -> default.security.rate_limit.gateway_per_session_rpm in
+          let telegram_per_chat_rpm =
+            try rl |> member "telegram_per_chat_rpm" |> to_int
+            with _ -> default.security.rate_limit.telegram_per_chat_rpm in
+          let burst_multiplier =
+            try rl |> member "burst_multiplier" |> to_float
+            with _ -> default.security.rate_limit.burst_multiplier in
+          ({ gateway_per_ip_rpm; gateway_per_session_rpm;
+             telegram_per_chat_rpm; burst_multiplier } : Runtime_config.rate_limit_config)
+        with _ -> default.security.rate_limit
+      in
+      let audit_retention =
+        try
+          let ar = s |> member "audit_retention" in
+          let max_age_days =
+            try ar |> member "max_age_days" |> to_int
+            with _ -> default.security.audit_retention.max_age_days in
+          let max_entries =
+            try ar |> member "max_entries" |> to_int
+            with _ -> default.security.audit_retention.max_entries in
+          let export_before_purge =
+            try ar |> member "export_before_purge" |> to_bool
+            with _ -> default.security.audit_retention.export_before_purge in
+          let export_path =
+            try ar |> member "export_path" |> to_string
+            with _ -> default.security.audit_retention.export_path in
+          ({ max_age_days; max_entries; export_before_purge; export_path }
+            : Runtime_config.audit_retention_config)
+        with _ -> default.security.audit_retention
+      in
+      let audit_signing_enabled =
+        try s |> member "audit_signing_enabled" |> to_bool
+        with _ -> default.security.audit_signing_enabled
+      in
+      let landlock_enabled =
+        try s |> member "landlock_enabled" |> to_bool
+        with _ -> default.security.landlock_enabled
+      in
+      let landlock_extra_read_paths =
+        try s |> member "landlock_extra_read_paths" |> to_list |> List.map to_string
+        with _ -> default.security.landlock_extra_read_paths
+      in
+      ({ workspace_only; audit_enabled; tools_enabled; encrypt_secrets;
+         rate_limit; audit_retention; audit_signing_enabled;
+         landlock_enabled; landlock_extra_read_paths } : Runtime_config.security_config)
     with _ -> default.security
   in
   let stt =

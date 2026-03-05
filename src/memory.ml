@@ -167,6 +167,36 @@ let list_sessions ~db =
   ignore (Sqlite3.finalize stmt);
   List.rev !keys
 
+let cleanup_session ~db ~session_key ~max_messages ~max_age_days =
+  if max_age_days > 0 then begin
+    let sql =
+      "DELETE FROM messages WHERE session_key = ? AND created_at < datetime('now', '-' || ? || ' days')"
+    in
+    let stmt = Sqlite3.prepare db sql in
+    ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT session_key));
+    ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int max_age_days)));
+    ignore (Sqlite3.step stmt);
+    ignore (Sqlite3.finalize stmt)
+  end;
+  if max_messages > 0 then begin
+    let sql =
+      "DELETE FROM messages WHERE session_key = ? AND id NOT IN \
+       (SELECT id FROM messages WHERE session_key = ? ORDER BY id DESC LIMIT ?)"
+    in
+    let stmt = Sqlite3.prepare db sql in
+    ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT session_key));
+    ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT session_key));
+    ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.INT (Int64.of_int max_messages)));
+    ignore (Sqlite3.step stmt);
+    ignore (Sqlite3.finalize stmt)
+  end
+
+let cleanup_all ~db ~max_messages ~max_age_days =
+  let sessions = list_sessions ~db in
+  List.iter (fun session_key ->
+    cleanup_session ~db ~session_key ~max_messages ~max_age_days
+  ) sessions
+
 let search ~db ~query ?session_key ~limit () =
   let sql, has_session =
     match session_key with

@@ -18,7 +18,22 @@ let auth_ok ~auth_token req =
     in
     bearer || api_key
 
-let handler ~session_manager ~require_pairing ~auth_token _conn req body =
+let client_ip req =
+  let headers = Cohttp.Request.headers req in
+  match Cohttp.Header.get headers "x-forwarded-for" with
+  | Some xff -> (match String.split_on_char ',' xff with
+    | ip :: _ -> String.trim ip
+    | [] -> "unknown")
+  | None -> "unknown"
+
+let rate_limit_response () =
+  Cohttp_lwt_unix.Server.respond_string ~status:`Too_many_requests
+    ~headers:json_headers
+    ~body:{|{"error":"rate limit exceeded"}|} ()
+
+let handler ~session_manager ~require_pairing ~auth_token
+    ?slack_config
+    ?ip_limiter ?session_limiter _conn req body =
   let open Lwt.Syntax in
   let uri = Cohttp.Request.uri req in
   let path = Uri.path uri in
@@ -29,7 +44,14 @@ let handler ~session_manager ~require_pairing ~auth_token _conn req body =
     Cohttp_lwt_unix.Server.respond_string ~status:`OK ~headers:json_headers
       ~body:{|{"status":"ok"}|} ()
   | `POST, "/chat" ->
-    if require_pairing then
+    let* ip_ok = match ip_limiter with
+      | Some lim -> Rate_limiter.check_and_consume lim ~key:(client_ip req)
+      | None -> Lwt.return true
+    in
+    if not ip_ok then
+      let* _ = Cohttp_lwt.Body.drain_body body in
+      rate_limit_response ()
+    else if require_pairing then
       let* _ = Cohttp_lwt.Body.drain_body body in
       Cohttp_lwt_unix.Server.respond_string ~status:`Forbidden
         ~headers:json_headers
@@ -67,6 +89,12 @@ let handler ~session_manager ~require_pairing ~auth_token _conn req body =
           ~headers:json_headers
           ~body:{|{"error":"message is required"}|} ()
       else
+        let* sess_ok = match session_limiter with
+          | Some lim -> Rate_limiter.check_and_consume lim ~key:session_id
+          | None -> Lwt.return true
+        in
+        if not sess_ok then rate_limit_response ()
+        else
         let key = "web:" ^ session_id in
         let* result =
           Lwt.catch
@@ -88,7 +116,14 @@ let handler ~session_manager ~require_pairing ~auth_token _conn req body =
             ~status:`Internal_server_error ~headers:json_headers
             ~body:(Yojson.Safe.to_string (`Assoc [("error", `String err)])) ())
   | `POST, "/chat/stream" ->
-    if require_pairing then
+    let* ip_ok = match ip_limiter with
+      | Some lim -> Rate_limiter.check_and_consume lim ~key:(client_ip req)
+      | None -> Lwt.return true
+    in
+    if not ip_ok then
+      let* _ = Cohttp_lwt.Body.drain_body body in
+      rate_limit_response ()
+    else if require_pairing then
       let* _ = Cohttp_lwt.Body.drain_body body in
       Cohttp_lwt_unix.Server.respond_string ~status:`Forbidden
         ~headers:json_headers
@@ -126,6 +161,12 @@ let handler ~session_manager ~require_pairing ~auth_token _conn req body =
           ~headers:json_headers
           ~body:{|{"error":"message is required"}|} ()
       else
+        let* sess_ok = match session_limiter with
+          | Some lim -> Rate_limiter.check_and_consume lim ~key:session_id
+          | None -> Lwt.return true
+        in
+        if not sess_ok then rate_limit_response ()
+        else
         let key = "web:" ^ session_id in
         let stream, push = Lwt_stream.create () in
         Lwt.async (fun () ->
@@ -164,14 +205,36 @@ let handler ~session_manager ~require_pairing ~auth_token _conn req body =
           ("Connection", "keep-alive")] in
         Cohttp_lwt_unix.Server.respond ~status:`OK ~headers
           ~body:(Cohttp_lwt.Body.of_stream stream) ())
+  | `POST, path when (match slack_config with Some sc -> path = sc.Runtime_config.events_path | None -> false) ->
+    let sc = Option.get slack_config in
+    let* body_str = Cohttp_lwt.Body.to_string body in
+    let headers = Cohttp.Request.headers req in
+    let signature = match Cohttp.Header.get headers "x-slack-signature" with
+      | Some v -> v | None -> ""
+    in
+    let timestamp = match Cohttp.Header.get headers "x-slack-request-timestamp" with
+      | Some v -> v | None -> ""
+    in
+    if not (Slack.verify_signature ~signing_secret:sc.signing_secret
+              ~timestamp ~body:body_str ~signature) then
+      Cohttp_lwt_unix.Server.respond_string ~status:`Unauthorized
+        ~headers:json_headers
+        ~body:{|{"error":"invalid signature"}|} ()
+    else
+      let* result = Slack.handle_event ~config:sc ~session_manager body_str in
+      Cohttp_lwt_unix.Server.respond_string ~status:`OK
+        ~headers:json_headers ~body:result ()
   | _ ->
     let* _ = Cohttp_lwt.Body.drain_body body in
     Cohttp_lwt_unix.Server.respond_string ~status:`Not_found
       ~headers:json_headers ~body:{|{"error":"not found"}|} ()
 
-let start ~port ~host ~require_pairing ~auth_token ~session_manager =
+let start ~port ~host ~require_pairing ~auth_token ~session_manager
+    ?slack_config
+    ?ip_limiter ?session_limiter () =
   let open Lwt.Syntax in
-  let callback = handler ~session_manager ~require_pairing ~auth_token in
+  let callback = handler ~session_manager ~require_pairing ~auth_token
+      ?slack_config ?ip_limiter ?session_limiter in
   let* ctx = Conduit_lwt_unix.init ~src:host () in
   let ctx = Cohttp_lwt_unix.Net.init ~ctx () in
   Cohttp_lwt_unix.Server.create ~ctx ~mode:(`TCP (`Port port))

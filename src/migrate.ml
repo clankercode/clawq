@@ -60,7 +60,7 @@ let convert (json : Yojson.Safe.t) =
       (* Warn about unsupported channels *)
       (try ignore (ch |> member "irc"); warn "IRC channel not supported, skipping"
        with _ -> ());
-      ({ cli; telegram } : Runtime_config.channel_config)
+      ({ cli; telegram; discord = None; slack = None } : Runtime_config.channel_config)
     with _ -> default.channels
   in
   let gateway =
@@ -114,14 +114,8 @@ let convert (json : Yojson.Safe.t) =
     gateway;
     runtime = default.runtime;
     tunnel = default.tunnel;
-    memory = { backend = memory_backend; search_enabled; db_path = "";
-               vector_weight = default.memory.vector_weight;
-               keyword_weight = default.memory.keyword_weight;
-               embedding_model = default.memory.embedding_model;
-               embedding_provider = default.memory.embedding_provider };
-    security = { workspace_only; audit_enabled;
-                 tools_enabled = default.security.tools_enabled;
-                 encrypt_secrets = default.security.encrypt_secrets };
+    memory = { default.memory with backend = memory_backend; search_enabled };
+    security = { default.security with workspace_only; audit_enabled };
     stt = None;
     mcp = default.mcp;
     resilience = default.resilience;

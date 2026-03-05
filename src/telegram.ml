@@ -68,8 +68,10 @@ let is_allowed ~(account : Runtime_config.telegram_account) ~chat_id =
   | [ "*" ] -> true
   | ids -> List.mem chat_id ids
 
+let _rate_limit_warnings : (string, float) Hashtbl.t = Hashtbl.create 16
+
 let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
-    ~(session_mgr : Session.t) update =
+    ~(session_mgr : Session.t) ?chat_limiter update =
   let open Lwt.Syntax in
   if not (is_allowed ~account ~chat_id:update.chat_id) then (
     Logs.warn (fun m ->
@@ -77,6 +79,24 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
           update.chat_id);
     Lwt.return_unit)
   else
+    let* rate_ok = match chat_limiter with
+      | Some lim -> Rate_limiter.check_and_consume lim ~key:update.chat_id
+      | None -> Lwt.return true
+    in
+    if not rate_ok then begin
+      let now = Unix.gettimeofday () in
+      let should_warn = match Hashtbl.find_opt _rate_limit_warnings update.chat_id with
+        | Some last -> now -. last >= 60.0
+        | None -> true
+      in
+      if should_warn then begin
+        Hashtbl.replace _rate_limit_warnings update.chat_id now;
+        let* () = send_message ~bot_token ~chat_id:update.chat_id
+          ~text:"Please slow down, I can only process a limited number of messages per minute." in
+        Lwt.return_unit
+      end else
+        Lwt.return_unit
+    end else
     let key = "telegram:" ^ update.chat_id in
     let* user_text =
       match update.voice_file_id with
@@ -145,7 +165,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
           ~text:"Sorry, an error occurred processing your message. Please try again.")
 
 let poll_account ~bot_token ~(account : Runtime_config.telegram_account) ~name
-    ~(session_mgr : Session.t) =
+    ~(session_mgr : Session.t) ?chat_limiter () =
   let open Lwt.Syntax in
   Logs.info (fun m -> m "Starting Telegram polling for account '%s'" name);
   let offset = ref 0 in
@@ -169,7 +189,7 @@ let poll_account ~bot_token ~(account : Runtime_config.telegram_account) ~name
       Lwt_list.iter_s
         (fun update ->
           offset := update.update_id + 1;
-          handle_update ~bot_token ~account ~session_mgr update)
+          handle_update ~bot_token ~account ~session_mgr ?chat_limiter update)
         updates
     in
     poll ()
@@ -177,7 +197,7 @@ let poll_account ~bot_token ~(account : Runtime_config.telegram_account) ~name
   poll ()
 
 let start_polling ~(config : Runtime_config.t)
-    ~(session_manager : Session.t) =
+    ~(session_manager : Session.t) ?chat_limiter () =
   match config.channels.telegram with
   | None ->
     Logs.info (fun m -> m "No Telegram config found, skipping polling");
@@ -195,7 +215,7 @@ let start_polling ~(config : Runtime_config.t)
           None)
         else
           Some (poll_account ~bot_token:account.bot_token ~account ~name
-                  ~session_mgr:session_manager)
+                  ~session_mgr:session_manager ?chat_limiter ())
       ) accounts in
       match poll_loops with
       | [] ->

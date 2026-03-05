@@ -18,4 +18,9 @@ let () =
       ("mcp", Test_mcp.suite);
       ("resilience", Test_resilience.suite);
       ("perf", Test_perf.suite);
+      ("memory_retention", Test_memory_retention.suite);
+      ("landlock", Test_landlock.suite);
+      ("rate_limiter", Test_rate_limiter.suite);
+      ("slack", Test_slack.suite);
+      ("discord", Test_discord.suite);
     ]

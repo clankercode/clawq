@@ -10,7 +10,27 @@ type telegram_account = { bot_token : string; allow_from : string list }
 
 type telegram_config = { accounts : (string * telegram_account) list }
 
-type channel_config = { cli : bool; telegram : telegram_config option }
+type discord_config = {
+  bot_token : string;
+  allow_guilds : string list;
+  allow_users : string list;
+  intents : int;
+}
+
+type slack_config = {
+  bot_token : string;
+  signing_secret : string;
+  events_path : string;
+  allow_channels : string list;
+  allow_users : string list;
+}
+
+type channel_config = {
+  cli : bool;
+  telegram : telegram_config option;
+  discord : discord_config option;
+  slack : slack_config option;
+}
 
 type prompt_config = {
   dynamic_enabled : bool;
@@ -50,6 +70,22 @@ type memory_config = {
   keyword_weight : int;
   embedding_model : string option;
   embedding_provider : string option;
+  max_messages_per_session : int;
+  max_message_age_days : int;
+}
+
+type rate_limit_config = {
+  gateway_per_ip_rpm : int;
+  gateway_per_session_rpm : int;
+  telegram_per_chat_rpm : int;
+  burst_multiplier : float;
+}
+
+type audit_retention_config = {
+  max_age_days : int;
+  max_entries : int;
+  export_before_purge : bool;
+  export_path : string;
 }
 
 type security_config = {
@@ -57,6 +93,11 @@ type security_config = {
   audit_enabled : bool;
   tools_enabled : bool;
   encrypt_secrets : bool;
+  rate_limit : rate_limit_config;
+  audit_retention : audit_retention_config;
+  audit_signing_enabled : bool;
+  landlock_enabled : bool;
+  landlock_extra_read_paths : string list;
 }
 
 type stt_config = {
@@ -139,7 +180,7 @@ let default =
       max_tool_iterations = 10;
     };
     prompt = default_prompt;
-    channels = { cli = true; telegram = None };
+    channels = { cli = true; telegram = None; discord = None; slack = None };
     gateway = { host = "127.0.0.1"; port = 3000; require_pairing = true; auth_token = None };
     runtime = {
       docker_image = "clawq:latest";
@@ -149,8 +190,24 @@ let default =
     tunnel = { provider = "cloudflare"; enabled = false };
     memory = { backend = "sqlite"; search_enabled = false; db_path = "";
                vector_weight = 50; keyword_weight = 50;
-               embedding_model = None; embedding_provider = None };
-    security = { workspace_only = true; audit_enabled = false; tools_enabled = true; encrypt_secrets = false };
+               embedding_model = None; embedding_provider = None;
+               max_messages_per_session = 500; max_message_age_days = 30 };
+    security = {
+      workspace_only = true; audit_enabled = false; tools_enabled = true; encrypt_secrets = false;
+      rate_limit = {
+        gateway_per_ip_rpm = 60; gateway_per_session_rpm = 30;
+        telegram_per_chat_rpm = 20; burst_multiplier = 1.5;
+      };
+      audit_retention = {
+        max_age_days = 90; max_entries = 100000;
+        export_before_purge = false;
+        export_path = (let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
+                       Filename.concat (Filename.concat home ".clawq") "audit_exports");
+      };
+      audit_signing_enabled = false;
+      landlock_enabled = false;
+      landlock_extra_read_paths = [];
+    };
     stt = None;
     mcp = { enabled = true; exposed_tools = None };
     resilience = { timeout_s = 120.0; max_retries = 2; base_delay_s = 1.0; fallback_provider = None };
@@ -259,6 +316,23 @@ let to_json (cfg : t) : Yojson.Safe.t =
     ("channels", `Assoc (
       [ ("cli", `Bool cfg.channels.cli) ]
       @ (match telegram_json with `Null -> [] | j -> [ ("telegram", j) ])
+      @ (match cfg.channels.discord with
+         | None -> []
+         | Some d -> [ ("discord", `Assoc [
+             ("bot_token", `String d.bot_token);
+             ("allow_guilds", `List (List.map (fun s -> `String s) d.allow_guilds));
+             ("allow_users", `List (List.map (fun s -> `String s) d.allow_users));
+             ("intents", `Int d.intents);
+           ]) ])
+      @ (match cfg.channels.slack with
+         | None -> []
+         | Some s -> [ ("slack", `Assoc [
+             ("bot_token", `String s.bot_token);
+             ("signing_secret", `String s.signing_secret);
+             ("events_path", `String s.events_path);
+             ("allow_channels", `List (List.map (fun c -> `String c) s.allow_channels));
+             ("allow_users", `List (List.map (fun u -> `String u) s.allow_users));
+           ]) ])
     ));
     ("gateway", `Assoc gateway_fields);
     ("runtime", `Assoc [
@@ -275,6 +349,8 @@ let to_json (cfg : t) : Yojson.Safe.t =
       ("search_enabled", `Bool cfg.memory.search_enabled);
       ("vector_weight", `Int cfg.memory.vector_weight);
       ("keyword_weight", `Int cfg.memory.keyword_weight);
+      ("max_messages_per_session", `Int cfg.memory.max_messages_per_session);
+      ("max_message_age_days", `Int cfg.memory.max_message_age_days);
     ] @ (if cfg.memory.db_path <> "" then [ ("db_path", `String cfg.memory.db_path) ] else [])
       @ (match cfg.memory.embedding_model with Some m -> [ ("embedding_model", `String m) ] | None -> [])
       @ (match cfg.memory.embedding_provider with Some p -> [ ("embedding_provider", `String p) ] | None -> [])));
@@ -283,6 +359,21 @@ let to_json (cfg : t) : Yojson.Safe.t =
       ("audit_enabled", `Bool cfg.security.audit_enabled);
       ("tools_enabled", `Bool cfg.security.tools_enabled);
       ("encrypt_secrets", `Bool cfg.security.encrypt_secrets);
+      ("rate_limit", `Assoc [
+        ("gateway_per_ip_rpm", `Int cfg.security.rate_limit.gateway_per_ip_rpm);
+        ("gateway_per_session_rpm", `Int cfg.security.rate_limit.gateway_per_session_rpm);
+        ("telegram_per_chat_rpm", `Int cfg.security.rate_limit.telegram_per_chat_rpm);
+        ("burst_multiplier", `Float cfg.security.rate_limit.burst_multiplier);
+      ]);
+      ("audit_retention", `Assoc [
+        ("max_age_days", `Int cfg.security.audit_retention.max_age_days);
+        ("max_entries", `Int cfg.security.audit_retention.max_entries);
+        ("export_before_purge", `Bool cfg.security.audit_retention.export_before_purge);
+        ("export_path", `String cfg.security.audit_retention.export_path);
+      ]);
+      ("audit_signing_enabled", `Bool cfg.security.audit_signing_enabled);
+      ("landlock_enabled", `Bool cfg.security.landlock_enabled);
+      ("landlock_extra_read_paths", `List (List.map (fun s -> `String s) cfg.security.landlock_extra_read_paths));
     ]);
   ] in
   let fields = match stt_json with
@@ -339,5 +430,6 @@ let merge_with_coq (coq_cfg : Clawq_core.clawqConfig) (cfg : t) : t =
         workspace_only = sec.security_workspace_only_cfg;
         audit_enabled = sec.security_audit_enabled_cfg;
         encrypt_secrets = sec.security_encrypt_secrets_cfg;
+        (* rate_limit, audit_retention, audit_signing, landlock preserved from JSON config *)
       };
   }

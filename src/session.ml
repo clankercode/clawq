@@ -22,6 +22,15 @@ let get_or_create mgr ~key =
              m "Restored %d messages for session %s" (List.length history) key)
        end
      | None -> ());
+    (match mgr.db with
+     | Some db ->
+       let loaded_len = List.length agent.history in
+       let max_msgs = mgr.config.memory.max_messages_per_session in
+       if max_msgs > 0 && loaded_len > max_msgs * 2 then
+         Memory.cleanup_session ~db ~session_key:key
+           ~max_messages:max_msgs
+           ~max_age_days:mgr.config.memory.max_message_age_days
+     | None -> ());
     let mutex = Lwt_mutex.create () in
     let pair = (agent, mutex) in
     Hashtbl.replace mgr.sessions key pair;

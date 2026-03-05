@@ -5,8 +5,6 @@ type t = {
   tool_registry : Tool_registry.t option;
 }
 
-let max_history = 50
-
 let create ~config ?tool_registry () =
   let system_prompt = Prompt_builder.build ~config ~tool_registry in
   {
@@ -22,9 +20,13 @@ let build_messages agent =
   :: List.rev agent.history
 
 let trim_history agent =
+  let effective_max =
+    let m = agent.config.memory.max_messages_per_session in
+    if m <= 0 then 500 else min m 500
+  in
   let len = List.length agent.history in
-  if len > max_history then
-    agent.history <- List.filteri (fun i _ -> i < max_history) agent.history
+  if len > effective_max then
+    agent.history <- List.filteri (fun i _ -> i < effective_max) agent.history
 
 let tools_json agent =
   match agent.tool_registry with

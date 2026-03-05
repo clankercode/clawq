@@ -18,6 +18,10 @@ let write_state ~(config : Runtime_config.t) ~components =
         ("gateway_host", `String config.gateway.host);
         ( "telegram_enabled",
           `Bool (config.channels.telegram <> None) );
+        ( "discord_enabled",
+          `Bool (config.channels.discord <> None) );
+        ( "slack_enabled",
+          `Bool (config.channels.slack <> None) );
         ("pid", `Int (Unix.getpid ()));
       ]
   in
@@ -70,8 +74,9 @@ let run ~(config : Runtime_config.t) =
     active_provider (Runtime_config.effective_primary_model config.agent_defaults)
     config.default_temperature);
   Logs.info (fun m -> m "Workspace: %s" workspace);
-  Logs.info (fun m -> m "Channels: cli=%b telegram=%b"
-    config.channels.cli (config.channels.telegram <> None));
+  Logs.info (fun m -> m "Channels: cli=%b telegram=%b discord=%b slack=%b"
+    config.channels.cli (config.channels.telegram <> None)
+    (config.channels.discord <> None) (config.channels.slack <> None));
   let tool_registry =
     if config.security.tools_enabled then begin
       let registry = Tool_registry.create () in
@@ -119,6 +124,28 @@ let run ~(config : Runtime_config.t) =
           m "Failed to initialize SQLite memory: %s" (Printexc.to_string exn));
       None
   in
+  let signing_key =
+    match db with
+    | Some _db when config.security.audit_enabled && config.security.audit_signing_enabled ->
+      (match Audit.get_signing_key () with
+       | Ok k -> Logs.info (fun m -> m "Audit signing enabled"); Some k
+       | Error msg -> Logs.warn (fun m -> m "Audit signing key unavailable: %s" msg); None)
+    | _ -> None
+  in
+  let rl = config.security.rate_limit in
+  let ip_limiter = Rate_limiter.create
+      ~rate_per_minute:rl.gateway_per_ip_rpm
+      ~burst_multiplier:rl.burst_multiplier in
+  let session_limiter = Rate_limiter.create
+      ~rate_per_minute:rl.gateway_per_session_rpm
+      ~burst_multiplier:rl.burst_multiplier in
+  let chat_limiter = Rate_limiter.create
+      ~rate_per_minute:rl.telegram_per_chat_rpm
+      ~burst_multiplier:rl.burst_multiplier in
+  if config.security.landlock_enabled then begin
+    Logs.info (fun m -> m "Landlock sandbox requested, activating...");
+    Landlock.sandbox_workspace ~config
+  end;
   let session_manager = Session.create ~config ?tool_registry ?db () in
   write_state ~config
     ~components:[ ("gateway", "starting"); ("telegram", "starting") ];
@@ -128,7 +155,9 @@ let run ~(config : Runtime_config.t) =
         Http_server.start ~port:config.gateway.port ~host:config.gateway.host
           ~require_pairing:config.gateway.require_pairing
           ~auth_token:config.gateway.auth_token
-          ~session_manager)
+          ~session_manager
+          ?slack_config:config.channels.slack
+          ~ip_limiter ~session_limiter ())
       (fun exn ->
         Logs.err (fun m ->
             m "Gateway server error: %s" (Printexc.to_string exn));
@@ -137,7 +166,7 @@ let run ~(config : Runtime_config.t) =
   let telegram =
     Lwt.catch
       (fun () ->
-        Telegram.start_polling ~config ~session_manager)
+        Telegram.start_polling ~config ~session_manager ~chat_limiter ())
       (fun exn ->
         Logs.err (fun m ->
             m "Telegram polling error: %s" (Printexc.to_string exn));
@@ -169,7 +198,7 @@ let run ~(config : Runtime_config.t) =
     ~components:[ ("gateway", "running"); ("telegram", "running"); ("cron", "running") ];
   (match db with
    | Some db when config.security.audit_enabled ->
-     Audit.log ~db (DaemonEvent { action = "start";
+     Audit.log ~db ?signing_key (DaemonEvent { action = "start";
        details = Printf.sprintf "pid=%d gateway=%s:%d"
          (Unix.getpid ()) config.gateway.host config.gateway.port })
    | _ -> ());
@@ -177,16 +206,41 @@ let run ~(config : Runtime_config.t) =
       m "Daemon ready. Gateway on %s:%d" config.gateway.host
         config.gateway.port);
   Lwt.async (fun () -> telegram);
+  Lwt.async (fun () ->
+    Lwt.catch
+      (fun () -> Discord.start ~config ~session_manager)
+      (fun exn ->
+        Logs.err (fun m ->
+            m "Discord channel error: %s" (Printexc.to_string exn));
+        Lwt.return_unit));
   (match db with
    | Some db ->
      Scheduler.init_schema db;
      Lwt.async (fun () ->
        Lwt.catch
          (fun () ->
+           let last_memory_cleanup = ref (Unix.gettimeofday ()) in
+           let last_retention_run = ref 0.0 in
            let rec loop () =
              let open Lwt.Syntax in
              let* () = Lwt_unix.sleep 60.0 in
              let* () = Scheduler.tick ~db ~session_mgr:session_manager in
+             let now = Unix.gettimeofday () in
+             if now -. !last_memory_cleanup >= 3600.0 then begin
+               last_memory_cleanup := now;
+               let mem = config.memory in
+               Logs.info (fun m -> m "Running periodic memory cleanup");
+               Memory.cleanup_all ~db
+                 ~max_messages:mem.max_messages_per_session
+                 ~max_age_days:mem.max_message_age_days
+             end;
+             if config.security.audit_enabled && now -. !last_retention_run >= 3600.0 then begin
+               last_retention_run := now;
+               ignore (Audit.retention_tick ~db ~config)
+             end;
+             let* () = Rate_limiter.cleanup_expired ip_limiter ~max_idle_seconds:300.0 in
+             let* () = Rate_limiter.cleanup_expired session_limiter ~max_idle_seconds:300.0 in
+             let* () = Rate_limiter.cleanup_expired chat_limiter ~max_idle_seconds:300.0 in
              loop ()
            in loop ())
          (fun exn ->
@@ -200,7 +254,7 @@ let run ~(config : Runtime_config.t) =
     ~components:[ ("gateway", "stopped"); ("telegram", "stopped") ];
   (match db with
    | Some db when config.security.audit_enabled ->
-     Audit.log ~db (DaemonEvent { action = "stop"; details = "clean shutdown" })
+     Audit.log ~db ?signing_key (DaemonEvent { action = "stop"; details = "clean shutdown" })
    | _ -> ());
   (* PID file cleanup is handled by service.ml after Daemon.run returns *)
   Logs.info (fun m -> m "clawq daemon stopped");
