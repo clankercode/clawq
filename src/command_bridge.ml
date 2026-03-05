@@ -479,7 +479,9 @@ let cmd_mcp () =
 let cmd_agent () =
   let cfg = get_config () in
   (try Lwt_main.run (Daemon.run ~config:cfg)
-   with Failure msg -> print_endline ("Error: " ^ msg); exit 1);
+   with Failure msg ->
+     print_endline ("Error: " ^ msg);
+     exit 1);
   "Daemon stopped."
 
 let get_db () =

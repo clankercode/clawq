@@ -53,17 +53,20 @@ let is_path_safe_ocaml ~workspace path =
    Log warnings when they disagree to surface model/implementation drift. *)
 let is_path_safe ~workspace path =
   let resolved_for_coq =
-    if Filename.is_relative path then Filename.concat workspace path
-    else path
+    if Filename.is_relative path then Filename.concat workspace path else path
   in
   let coq_ok = is_path_safe_coq ~workspace resolved_for_coq in
   let ocaml_ok = is_path_safe_ocaml ~workspace path in
-  (if coq_ok && not ocaml_ok then
+  if coq_ok && not ocaml_ok then
     Logs.warn (fun m ->
-      m "PathSafety: Coq=safe, OCaml=unsafe for '%s' (symlink or realpath edge case)" path));
-  (if not coq_ok && ocaml_ok then
+        m
+          "PathSafety: Coq=safe, OCaml=unsafe for '%s' (symlink or realpath \
+           edge case)"
+          path);
+  if (not coq_ok) && ocaml_ok then
     Logs.debug (fun m ->
-      m "PathSafety: Coq=unsafe, OCaml=safe for '%s' (conservative Coq model)" path));
+        m "PathSafety: Coq=unsafe, OCaml=safe for '%s' (conservative Coq model)"
+          path);
   coq_ok && ocaml_ok
 
 let default_shell_allowlist =
