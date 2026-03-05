@@ -271,32 +271,32 @@ let process_sse_stream stream ~on_chunk =
          let tc_deltas =
            try delta |> member "tool_calls" |> to_list with _ -> []
          in
-         if tc_deltas <> [] then begin
-           List.iter (fun tc ->
-             let idx = try tc |> member "index" |> to_int with _ -> 0 in
-             let id = try Some (tc |> member "id" |> to_string) with _ -> None in
-             let fn_name =
-               try Some (tc |> member "function" |> member "name" |> to_string) with _ -> None
-             in
-             let fn_args =
-               try Some (tc |> member "function" |> member "arguments" |> to_string) with _ -> None
-             in
-             (* accumulate tool call data *)
-             let existing = List.find_opt (fun (i, _, _, _) -> i = idx) !tool_calls_acc in
-             (match existing with
-              | None ->
-                let args_buf = Buffer.create 256 in
-                (match fn_args with Some a -> Buffer.add_string args_buf a | None -> ());
-                let tc_id = match id with Some i -> i | None -> "" in
-                let tc_name = match fn_name with Some n -> n | None -> "" in
-                tool_calls_acc := !tool_calls_acc @ [(idx, tc_id, tc_name, args_buf)]
-              | Some (_, _, _, args_buf) ->
-                (match fn_args with Some a -> Buffer.add_string args_buf a | None -> ()));
-             ignore (on_chunk (ToolCallDelta { index = idx; id; function_name = fn_name; arguments = fn_args }))
-           ) tc_deltas;
-           Lwt.return_unit
-         end else
-           Lwt.return_unit)
+          if tc_deltas <> [] then begin
+            let* () = Lwt_list.iter_s (fun tc ->
+              let idx = try tc |> member "index" |> to_int with _ -> 0 in
+              let id = try Some (tc |> member "id" |> to_string) with _ -> None in
+              let fn_name =
+                try Some (tc |> member "function" |> member "name" |> to_string) with _ -> None
+              in
+              let fn_args =
+                try Some (tc |> member "function" |> member "arguments" |> to_string) with _ -> None
+              in
+              (* accumulate tool call data *)
+              let existing = List.find_opt (fun (i, _, _, _) -> i = idx) !tool_calls_acc in
+              (match existing with
+               | None ->
+                 let args_buf = Buffer.create 256 in
+                 (match fn_args with Some a -> Buffer.add_string args_buf a | None -> ());
+                 let tc_id = match id with Some i -> i | None -> "" in
+                 let tc_name = match fn_name with Some n -> n | None -> "" in
+                 tool_calls_acc := !tool_calls_acc @ [(idx, tc_id, tc_name, args_buf)]
+               | Some (_, _, _, args_buf) ->
+                 (match fn_args with Some a -> Buffer.add_string args_buf a | None -> ()));
+              on_chunk (ToolCallDelta { index = idx; id; function_name = fn_name; arguments = fn_args })
+            ) tc_deltas in
+            Lwt.return_unit
+          end else
+            Lwt.return_unit)
     | None -> Lwt.return_unit
   in
   let process_buffer () =

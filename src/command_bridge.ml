@@ -2,9 +2,62 @@ let config = lazy (Config_loader.load ())
 
 let get_config () = Lazy.force config
 
-let read_daemon_state () =
+let daemon_state_path () =
   let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
-  let path = Filename.concat (Filename.concat home ".clawq") "daemon_state.json" in
+  Filename.concat (Filename.concat home ".clawq") "daemon_state.json"
+
+let remove_daemon_state () =
+  let path = daemon_state_path () in
+  if Sys.file_exists path then
+    (try Sys.remove path with _ -> ())
+
+let pid_is_alive pid =
+  try
+    Unix.kill pid 0;
+    true
+  with Unix.Unix_error _ -> false
+
+let read_file path =
+  try
+    let ic = open_in path in
+    let s = really_input_string ic (in_channel_length ic) in
+    close_in ic;
+    Some s
+  with _ -> None
+
+let proc_start_ticks pid =
+  let path = Printf.sprintf "/proc/%d/stat" pid in
+  match read_file path with
+  | None -> None
+  | Some stat ->
+    let idx =
+      try Some (String.rindex stat ')') with _ -> None
+    in
+    (match idx with
+     | None -> None
+     | Some i ->
+       let rest = String.sub stat (i + 2) (String.length stat - i - 2) in
+       let fields = String.split_on_char ' ' rest |> List.filter (fun s -> s <> "") in
+       (try Some (List.nth fields 19) with _ -> None))
+
+let proc_cmdline_contains ~needle pid =
+  let path = Printf.sprintf "/proc/%d/cmdline" pid in
+  match read_file path with
+  | None -> false
+  | Some s ->
+    let hay = String.lowercase_ascii s in
+    let nee = String.lowercase_ascii needle in
+    let hlen = String.length hay in
+    let nlen = String.length nee in
+    let rec loop i =
+      if i + nlen > hlen then false
+      else if String.sub hay i nlen = nee then true
+      else loop (i + 1)
+    in
+    nlen > 0 && loop 0
+
+let read_daemon_state () =
+  let path = daemon_state_path () in
   if Sys.file_exists path then
     try
       let json = Yojson.Safe.from_file path in
@@ -17,18 +70,50 @@ let redact_key s =
   if len <= 8 then String.make len '*'
   else String.sub s 0 4 ^ "..." ^ String.sub s (len - 4) 4
 
-let doctor_issues (cfg : Runtime_config.t) =
+let cmd_status () =
+  let cfg = get_config () in
+  let lines = ref [] in
+  let add s = lines := s :: !lines in
+  add "clawq status";
+  add (Printf.sprintf "  model: %s" cfg.agent_defaults.primary_model);
+  add
+    (Printf.sprintf "  temperature: %.2f" cfg.default_temperature);
+  add (Printf.sprintf "  gateway: %s:%d" cfg.gateway.host cfg.gateway.port);
+  add
+    (Printf.sprintf "  gateway auth: %s"
+       (match cfg.gateway.auth_token with Some _ -> "enabled" | None -> "disabled"));
+  add
+    (Printf.sprintf "  cli channel: %s"
+       (if cfg.channels.cli then "enabled" else "disabled"));
+  add
+    (Printf.sprintf "  telegram: %s"
+       (match cfg.channels.telegram with
+       | None -> "not configured"
+       | Some tg ->
+         Printf.sprintf "%d account(s)" (List.length tg.accounts)));
+  add (Printf.sprintf "  memory backend: %s" cfg.memory.backend);
+  add
+    (Printf.sprintf "  providers: %d configured"
+       (List.length cfg.providers));
+  (match read_daemon_state () with
+  | None -> add "  daemon: not running"
+  | Some json ->
+    let open Yojson.Safe.Util in
+    (try
+       let pid = json |> member "pid" |> to_int in
+       if pid_is_alive pid then
+         add (Printf.sprintf "  daemon: running (pid %d)" pid)
+       else begin
+         add (Printf.sprintf "  daemon: stale state (pid %d not running)" pid);
+         remove_daemon_state ()
+       end
+      with _ -> add "  daemon: state file found"));
+  List.rev !lines |> String.concat "\n"
+
+let cmd_doctor () =
+  let cfg = get_config () in
   let issues = ref [] in
   let add s = issues := s :: !issues in
-  let workspace = Runtime_config.effective_workspace cfg in
-  if not (Sys.file_exists workspace) then
-    add (Printf.sprintf "WARNING: workspace path does not exist: %s" workspace);
-  let ego_path = Filename.concat workspace "EGO.md" in
-  let soul_path = Filename.concat workspace "SOUL.md" in
-  if Sys.file_exists soul_path && not (Sys.file_exists ego_path) then
-    add "WARNING: SOUL.md exists without EGO.md; migrate persona file to EGO.md";
-  if Sys.file_exists soul_path && Sys.file_exists ego_path then
-    add "WARNING: both EGO.md and SOUL.md exist; EGO.md is preferred";
   if cfg.providers = [] then add "WARNING: No providers configured";
   List.iter
     (fun (name, (p : Runtime_config.provider_config)) ->
@@ -44,30 +129,6 @@ let doctor_issues (cfg : Runtime_config.t) =
        add (Printf.sprintf "WARNING: default_provider '%s' has no API key" name)
      | _ -> ())
   | None -> ());
-  let primary_target = Runtime_config.effective_primary_target cfg.agent_defaults in
-  (match primary_target.provider with
-  | None -> ()
-  | Some provider_name ->
-    (match List.assoc_opt provider_name cfg.providers with
-     | None ->
-       add
-         (Printf.sprintf
-            "WARNING: model_priority[0] selects provider '%s' for model '%s' but provider is not configured"
-            provider_name primary_target.model)
-     | Some p when not (Runtime_config.is_key_set p.api_key) ->
-       add
-         (Printf.sprintf
-            "WARNING: model_priority[0] selects provider '%s' for model '%s' but provider has no API key"
-            provider_name primary_target.model)
-     | Some _ -> ()));
-  if cfg.agent_defaults.primary_model
-     <> Runtime_config.effective_primary_model cfg.agent_defaults
-  then
-    add
-      (Printf.sprintf
-         "WARNING: primary_model '%s' differs from model_priority[0] '%s'; model_priority is used"
-         cfg.agent_defaults.primary_model
-         (Runtime_config.effective_primary_model cfg.agent_defaults));
   (match cfg.channels.telegram with
   | None -> ()
   | Some tg ->
@@ -91,47 +152,8 @@ let doctor_issues (cfg : Runtime_config.t) =
                "WARNING: Provider '%s' has plaintext API key but encrypt_secrets is enabled. \
                 Use \"$ENV_VAR\" syntax to reference environment variables." name))
       cfg.providers;
-  List.rev !issues
-
-let cmd_status () =
-  let cfg = get_config () in
-  let lines = ref [] in
-  let add s = lines := s :: !lines in
-  add "clawq status";
-  add
-    (Printf.sprintf "  model: %s"
-       (Runtime_config.effective_primary_model cfg.agent_defaults));
-  add
-    (Printf.sprintf "  temperature: %.2f" cfg.default_temperature);
-  add (Printf.sprintf "  gateway: %s:%d" cfg.gateway.host cfg.gateway.port);
-  add
-    (Printf.sprintf "  cli channel: %s"
-       (if cfg.channels.cli then "enabled" else "disabled"));
-  add
-    (Printf.sprintf "  telegram: %s"
-       (match cfg.channels.telegram with
-       | None -> "not configured"
-       | Some tg ->
-         Printf.sprintf "%d account(s)" (List.length tg.accounts)));
-  add (Printf.sprintf "  memory backend: %s" cfg.memory.backend);
-  add
-    (Printf.sprintf "  providers: %d configured"
-       (List.length cfg.providers));
-  (match read_daemon_state () with
-  | None -> add "  daemon: not running"
-  | Some json ->
-    let open Yojson.Safe.Util in
-    (try
-       let pid = json |> member "pid" |> to_int in
-       add (Printf.sprintf "  daemon: running (pid %d)" pid)
-     with _ -> add "  daemon: state file found"));
-  List.rev !lines |> String.concat "\n"
-
-let cmd_doctor () =
-  let cfg = get_config () in
-  let issues = doctor_issues cfg in
   let result =
-    match issues with
+    match List.rev !issues with
     | [] -> "doctor: all checks passed"
     | issues -> "doctor: issues found\n" ^ String.concat "\n" issues
   in
@@ -151,7 +173,6 @@ let cmd_onboard () =
     let template =
       {|{
   "default_temperature": 0.7,
-  "workspace": "~/.clawq/workspace",
   "default_provider": "openrouter",
   "providers": {
     "openrouter": {
@@ -161,15 +182,7 @@ let cmd_onboard () =
     "groq": {
       "api_key": "YOUR_GROQ_API_KEY_HERE",
       "base_url": "https://api.groq.com/openai/v1"
-    },
-    "zai_coding": {
-      "api_key": "$ZAI_CODING_API_KEY",
-      "default_model": "glm-5"
     }
-  },
-  "zai_mcp": {
-    "web_search_enabled": true,
-    "web_reader_enabled": true
   },
   "stt": {
     "provider": "groq",
@@ -177,23 +190,7 @@ let cmd_onboard () =
     "language": "en"
   },
   "agent_defaults": {
-    "primary_model": "openai/gpt-4o",
-    "model_priority": [
-      { "provider": "openrouter", "model": "openai/gpt-4o" },
-      { "provider": "groq", "model": "openai/gpt-oss-120b" }
-    ],
-    "max_tool_iterations": 10
-  },
-  "prompt": {
-    "dynamic_enabled": true,
-    "include_tools_section": true,
-    "include_safety_section": true,
-    "include_workspace_section": true,
-    "include_runtime_section": true,
-    "include_datetime_section": true,
-    "workspace_files": ["AGENTS.md", "EGO.md", "SOUL.md", "TOOLS.md", "USER.md"],
-    "max_workspace_file_chars": 3500,
-    "max_workspace_total_chars": 12000
+    "primary_model": "openai/gpt-4o"
   },
   "channels": {
     "cli": true,
@@ -209,7 +206,17 @@ let cmd_onboard () =
   "gateway": {
     "host": "127.0.0.1",
     "port": 3000,
-    "require_pairing": false
+    "require_pairing": true,
+    "auth_token": ""
+  },
+  "runtime": {
+    "docker_image": "clawq:latest",
+    "docker_container_name": "clawq",
+    "docker_port": 3000
+  },
+  "tunnel": {
+    "provider": "cloudflare",
+    "enabled": false
   },
   "memory": {
     "backend": "sqlite",
@@ -219,17 +226,6 @@ let cmd_onboard () =
     "workspace_only": true,
     "audit_enabled": false,
     "tools_enabled": true
-  },
-  "tunnel": {
-    "enabled": false,
-    "provider": "cloudflare",
-    "cloudflare": {
-      "api_token": "$CLOUDFLARE_API_TOKEN",
-      "account_id": "",
-      "tunnel_id": "",
-      "tunnel_name": "clawq",
-      "hostname": ""
-    }
   }
 }|}
     in
@@ -242,7 +238,6 @@ let cmd_onboard () =
          (Printf.sprintf "Failed to write config: %s" (Printexc.to_string exn)));
     "Created config template at " ^ config_path
     ^ "\nEdit it to add your API keys and bot tokens."
-    ^ "\nThen run: clawq workspace init"
   end
 
 let cmd_models () =
@@ -266,8 +261,7 @@ let cmd_models () =
         providers
     in
     "Configured providers:\n" ^ String.concat "\n" lines
-    ^ Printf.sprintf "\nDefault model: %s"
-        (Runtime_config.effective_primary_model cfg.agent_defaults)
+    ^ Printf.sprintf "\nDefault model: %s" cfg.agent_defaults.primary_model
     ^ Printf.sprintf "\nDefault provider: %s"
         (match cfg.default_provider with Some p -> p | None -> "(auto)")
 
@@ -296,54 +290,122 @@ let cmd_memory () =
   Printf.sprintf "Memory backend: %s\nSearch enabled: %b" cfg.memory.backend
     cfg.memory.search_enabled
 
-let cmd_workspace args =
-  let cfg = get_config () in
-  let workspace = Runtime_config.effective_workspace cfg in
-  match args with
-  | [ "init" ] ->
-    let created = Workspace_scaffold.scaffold ~workspace in
-    if created = [] then
-      Printf.sprintf "Workspace ready at %s (no new files created)\n" workspace
-    else
-      Printf.sprintf "Workspace initialized at %s\nCreated:\n%s\n"
-        workspace
-        (String.concat "\n" (List.map (fun f -> "  - " ^ f) created))
-  | _ ->
-    let docs = [ "AGENTS.md"; "EGO.md"; "SOUL.md"; "USER.md"; "TOOLS.md" ] in
-    let status_lines =
-      List.map
-        (fun name ->
-          let path = Filename.concat workspace name in
-          Printf.sprintf "  %s: %s" name
-            (if Sys.file_exists path then "present" else "missing"))
-        docs
-    in
-    "Workspace: " ^ workspace ^ "\n"
-    ^ "Docs:\n" ^ String.concat "\n" status_lines ^ "\n"
+let cmd_workspace () =
+  Printf.sprintf "Workspace: %s" (Sys.getcwd ())
 
 let cmd_capabilities () =
-  "Available capabilities:\n\
-  \  - LLM chat (OpenAI-compatible providers)\n\
-  \  - Telegram channel (long-polling)\n\
-  \  - HTTP gateway (/health)\n\
-  \  - Config management\n\
-  \  - Session management"
-
-let cmd_auth () =
   let cfg = get_config () in
-  let providers = Runtime_config.with_zai_coding_provider cfg.providers in
-  match providers with
-  | [] -> "No providers configured. No API keys set."
-  | listed_providers ->
-    let lines =
-      List.map
-        (fun (name, (p : Runtime_config.provider_config)) ->
-          Printf.sprintf "  %s: %s" name
-            (if Runtime_config.is_key_set p.api_key then redact_key p.api_key
-             else "not set"))
-        listed_providers
+  let caps = ref [] in
+  let add s = caps := s :: !caps in
+  (* Providers *)
+  let active_providers =
+    List.filter (fun (_, p) -> Runtime_config.is_key_set p.Runtime_config.api_key) cfg.providers
+  in
+  add (Printf.sprintf "  - LLM chat: %d provider(s) configured (%s)"
+         (List.length active_providers)
+         (if active_providers = [] then "none active"
+          else String.concat ", " (List.map fst active_providers)));
+  (* Channels *)
+  if cfg.channels.cli then add "  - CLI channel: enabled";
+  (match cfg.channels.telegram with
+   | Some tg ->
+     add (Printf.sprintf "  - Telegram channel: %d account(s)" (List.length tg.accounts))
+   | None -> ());
+  (* Gateway *)
+  add (Printf.sprintf "  - HTTP gateway: %s:%d" cfg.gateway.host cfg.gateway.port);
+  (* Memory *)
+  add (Printf.sprintf "  - Memory: %s (FTS search: %s)"
+         cfg.memory.backend
+         (if cfg.memory.search_enabled then "enabled" else "disabled"));
+  (* Tools *)
+  if cfg.security.tools_enabled then begin
+    let registry = Tool_registry.create () in
+    Tools_builtin.register_all ~config:cfg registry;
+    let skills =
+      Skills.load_all
+        ~workspace_only:cfg.security.workspace_only
+        ~allowed_commands:Tools_builtin.default_shell_allowlist ()
     in
-    "API key status:\n" ^ String.concat "\n" lines
+    List.iter (fun s -> Tool_registry.register registry s) skills;
+    let tool_names = List.map (fun (t : Tool.t) -> t.name) registry.tools in
+    add (Printf.sprintf "  - Tools: %d registered (%s)"
+           (List.length tool_names) (String.concat ", " tool_names))
+  end else
+    add "  - Tools: disabled";
+  (* MCP *)
+  if cfg.mcp.enabled then begin
+    let exposed = match cfg.mcp.exposed_tools with
+      | None -> "all tools"
+      | Some names -> String.concat ", " names
+    in
+    add (Printf.sprintf "  - MCP server: enabled (exposing: %s)" exposed)
+  end else
+    add "  - MCP server: disabled";
+  (* Security *)
+  add (Printf.sprintf "  - Security: workspace_only=%b audit=%b encrypt_secrets=%b"
+         cfg.security.workspace_only cfg.security.audit_enabled cfg.security.encrypt_secrets);
+  (* STT *)
+  (match cfg.stt with
+   | Some s -> add (Printf.sprintf "  - Voice/STT: %s (%s)" s.provider s.model)
+   | None -> ());
+  (* Cron *)
+  add "  - Cron scheduler: available";
+  (* Service management *)
+  add "  - Service management: start/stop/restart/status";
+  "Available capabilities:\n" ^ String.concat "\n" (List.rev !caps)
+
+let cmd_auth args =
+  match args with
+  | [ "encrypt" ] ->
+    if not (get_config ()).security.encrypt_secrets then
+      "Secret encryption is disabled. Set security.encrypt_secrets to true in config."
+    else begin
+      match Secret_store.get_master_key () with
+      | Error msg -> Printf.sprintf "Error: %s" msg
+      | Ok key ->
+        let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
+        let config_path =
+          Filename.concat (Filename.concat home ".clawq") "config.json"
+        in
+        if not (Sys.file_exists config_path) then
+          "No config file found at " ^ config_path
+        else begin
+          let json =
+            try Ok (Yojson.Safe.from_file config_path) with exn -> Error exn
+          in
+          match json with
+          | Error exn ->
+            Printf.sprintf "Failed to read config: %s" (Printexc.to_string exn)
+          | Ok json ->
+            (match Secret_store.encrypt_config_secrets ~key json with
+             | Error msg -> Printf.sprintf "Error: %s" msg
+             | Ok new_json ->
+               (try
+                  let s = Yojson.Safe.pretty_to_string ~std:true new_json in
+                  let oc = open_out config_path in
+                  output_string oc s;
+                  output_char oc '\n';
+                  close_out oc;
+                  "API keys encrypted in " ^ config_path
+                with exn ->
+                  Printf.sprintf "Failed to write config: %s"
+                    (Printexc.to_string exn)))
+        end
+    end
+  | _ ->
+    let cfg = get_config () in
+    match cfg.providers with
+    | [] -> "No providers configured. No API keys set."
+    | providers ->
+      let lines =
+        List.map
+          (fun (name, (p : Runtime_config.provider_config)) ->
+            Printf.sprintf "  %s: %s" name
+              (if Runtime_config.is_key_set p.api_key then redact_key p.api_key
+               else "not set"))
+          providers
+      in
+      "API key status:\n" ^ String.concat "\n" lines
 
 let cmd_transcribe args =
   match args with
@@ -369,28 +431,31 @@ let cmd_transcribe args =
 
 let cmd_mcp () =
   let cfg = get_config () in
-  Lwt_main.run (Mcp_server.run ~config:cfg ());
-  ""
+  if not cfg.mcp.enabled then
+    "MCP server is disabled. Set mcp.enabled to true in config."
+  else if not cfg.security.tools_enabled then
+    "MCP server requires security.tools_enabled=true to expose tools."
+  else begin
+    let registry = Tool_registry.create () in
+    Tools_builtin.register_all ~config:cfg registry;
+    let skills =
+      Skills.load_all
+        ~workspace_only:cfg.security.workspace_only
+        ~allowed_commands:Tools_builtin.default_shell_allowlist ()
+    in
+    List.iter (fun s -> Tool_registry.register registry s) skills;
+    (* Filter to exposed_tools allowlist if configured *)
+    (match cfg.mcp.exposed_tools with
+     | Some allowed ->
+       registry.tools <-
+         List.filter (fun (t : Tool.t) -> List.mem t.name allowed) registry.tools
+     | None -> ());
+    Lwt_main.run (Mcp_server.run ~registry ());
+    ""
+  end
 
-let parse_agent_workspace_override args =
-  match args with
-  | [] -> Ok None
-  | [ "--workspace"; path ] when path <> "" -> Ok (Some path)
-  | [ "--workspace" ] ->
-    Error "Usage: clawq agent [--workspace <path>]"
-  | _ ->
-    Error "Usage: clawq agent [--workspace <path>]"
-
-let cmd_agent args =
-  match parse_agent_workspace_override args with
-  | Error usage -> usage
-  | Ok workspace_override ->
+let cmd_agent () =
   let cfg = get_config () in
-  let cfg =
-    match workspace_override with
-    | None -> cfg
-    | Some workspace -> { cfg with workspace }
-  in
   Lwt_main.run (Daemon.run ~config:cfg);
   "Daemon stopped."
 
@@ -526,24 +591,191 @@ let cmd_service args =
   | _ ->
     "Usage: clawq service <start|stop|status|restart>"
 
+let cmd_runtime args =
+  let cfg = get_config () in
+  let docker_cfg =
+    {
+      Runtime_docker.image = cfg.runtime.docker_image;
+      container_name = cfg.runtime.docker_container_name;
+      port = cfg.runtime.docker_port;
+      extra_args = [];
+    }
+  in
+  match args with
+  | [ "status" ] | [] ->
+    let native_status = Runtime_native.status_string () in
+    let docker_status =
+      Lwt_main.run (Runtime_docker.status ~docker_config:docker_cfg)
+    in
+    Printf.sprintf "Runtime status:\n  native: %s\n  docker: %s" native_status docker_status
+  | [ "native"; "start" ] ->
+    (match Runtime_native.start ~config:cfg with
+     | Ok () -> "Native runtime started"
+     | Error msg -> Printf.sprintf "Error: %s" msg)
+  | [ "native"; "stop" ] ->
+    (match Runtime_native.stop () with
+     | Ok () -> "Native runtime stopped"
+     | Error msg -> Printf.sprintf "Error: %s" msg)
+  | [ "native"; "health" ] ->
+    let healthy = Lwt_main.run (Runtime_native.health ~config:cfg) in
+    if healthy then "Native runtime: healthy" else "Native runtime: unhealthy"
+  | [ "docker"; "start" ] ->
+    Lwt_main.run
+      (Runtime_docker.start ~docker_config:docker_cfg ~config:cfg)
+  | [ "docker"; "stop" ] ->
+    Lwt_main.run
+      (Runtime_docker.stop ~docker_config:docker_cfg)
+  | [ "docker"; "health" ] ->
+    let healthy =
+      Lwt_main.run
+        (Runtime_docker.health ~docker_config:docker_cfg)
+    in
+    if healthy then "Docker runtime: healthy" else "Docker runtime: unhealthy"
+  | _ ->
+    "Usage: clawq runtime <status|native start|native stop|native health|docker start|docker stop|docker health>"
+
+let cmd_tunnel args =
+  let tunnel_state_path () =
+    let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
+    Filename.concat (Filename.concat home ".clawq") "tunnel_state.json"
+  in
+  let save_tunnel_state ~pid ~port ~url =
+    let start_ticks = proc_start_ticks pid in
+    let path = tunnel_state_path () in
+    let dir = Filename.dirname path in
+    (try if not (Sys.file_exists dir) then Sys.mkdir dir 0o755 with _ -> ());
+    let json =
+      `Assoc
+        [
+          ("provider", `String Tunnel_cloudflare.name);
+          ("pid", `Int pid);
+          ("port", `Int port);
+          ("url", `String url);
+          ("start_ticks", (match start_ticks with Some s -> `String s | None -> `Null));
+        ]
+    in
+    try
+      let oc = open_out path in
+      output_string oc (Yojson.Safe.pretty_to_string ~std:true json);
+      output_char oc '\n';
+      close_out oc;
+      Ok ()
+    with exn -> Error (Printexc.to_string exn)
+  in
+  let read_tunnel_state () =
+    let path = tunnel_state_path () in
+    if not (Sys.file_exists path) then None
+    else
+      try
+        let json = Yojson.Safe.from_file path in
+        let open Yojson.Safe.Util in
+        let pid = json |> member "pid" |> to_int in
+        let url = json |> member "url" |> to_string in
+        let start_ticks =
+          try
+            let v = json |> member "start_ticks" in
+            if v = `Null then None else Some (to_string v)
+          with _ -> None
+        in
+        Some (pid, url, start_ticks)
+      with _ -> None
+  in
+  let remove_tunnel_state () =
+    let path = tunnel_state_path () in
+    if Sys.file_exists path then
+      (try Sys.remove path with _ -> ())
+  in
+  let cfg = get_config () in
+  if cfg.tunnel.provider <> Tunnel_cloudflare.name then
+    Printf.sprintf "Tunnel provider '%s' is not supported in this build (supported: %s)"
+      cfg.tunnel.provider Tunnel_cloudflare.name
+  else if not cfg.tunnel.enabled then
+    "Tunnel is disabled in config (set tunnel.enabled=true to use)"
+  else
+  let tunnel_pid_matches ~pid ~start_ticks =
+    if not (pid_is_alive pid) then false
+    else if not (proc_cmdline_contains ~needle:"cloudflared" pid) then false
+    else
+      match start_ticks, proc_start_ticks pid with
+      | Some expected, Some actual -> expected = actual
+      | _ -> true
+  in
+  match args with
+  | [ "start" ] ->
+    let tunnel = Tunnel_cloudflare.create ~port:cfg.gateway.port in
+    Lwt_main.run (Tunnel_cloudflare.start tunnel);
+    (match Tunnel_cloudflare.get_pid tunnel, Tunnel_cloudflare.get_url tunnel with
+     | Some pid, Some url ->
+       (match save_tunnel_state ~pid ~port:cfg.gateway.port ~url with
+        | Ok () -> Printf.sprintf "Tunnel started: %s (pid %d)" url pid
+        | Error err ->
+          Printf.sprintf "Tunnel started: %s (pid %d)\nWarning: failed to save state: %s"
+            url pid err)
+     | _ -> "Tunnel started but URL or PID not available")
+  | [ "stop" ] ->
+      (match read_tunnel_state () with
+      | None -> "No running tunnel state found"
+      | Some (pid, _url, start_ticks) ->
+       if not (tunnel_pid_matches ~pid ~start_ticks) then begin
+         remove_tunnel_state ();
+         Printf.sprintf
+           "Refusing to stop pid %d: tunnel process identity mismatch; stale state removed"
+           pid
+       end else begin
+         (try Unix.kill pid Sys.sigterm with _ -> ());
+         let rec wait_for_exit attempts =
+           if attempts <= 0 then false
+           else
+             try
+               Unix.kill pid 0;
+               Unix.sleepf 0.2;
+               wait_for_exit (attempts - 1)
+             with Unix.Unix_error _ -> true
+         in
+         if wait_for_exit 20 then begin
+           remove_tunnel_state ();
+           Printf.sprintf "Tunnel stopped (pid %d)" pid
+         end else
+           Printf.sprintf "Tunnel stop signal sent but process still running (pid %d)" pid
+       end)
+  | [ "status" ] | [] ->
+    (match read_tunnel_state () with
+     | None ->
+       Printf.sprintf "Tunnel provider: %s\n  Status: stopped\n  To start: clawq tunnel start"
+         Tunnel_cloudflare.name
+      | Some (pid, url, start_ticks) ->
+       let running = tunnel_pid_matches ~pid ~start_ticks in
+       if running then
+         Printf.sprintf "Tunnel provider: %s\n  Status: running (pid %d)\n  URL: %s"
+           Tunnel_cloudflare.name pid url
+       else begin
+         remove_tunnel_state ();
+         Printf.sprintf "Tunnel provider: %s\n  Status: stopped (stale state cleaned)"
+           Tunnel_cloudflare.name
+       end)
+  | _ ->
+    "Usage: clawq tunnel <start|status|stop>"
+
 let handle args =
   match args with
   | "phase2" :: _ -> Phase2.render ()
-  | "agent" :: rest -> cmd_agent rest
+  | "agent" :: _ -> cmd_agent ()
   | "status" :: _ -> cmd_status ()
   | "doctor" :: _ -> cmd_doctor ()
   | "onboard" :: _ -> cmd_onboard ()
   | "models" :: _ -> cmd_models ()
   | "channel" :: _ -> cmd_channel ()
   | "memory" :: _ -> cmd_memory ()
-  | "workspace" :: rest -> cmd_workspace rest
+  | "workspace" :: _ -> cmd_workspace ()
   | "capabilities" :: _ -> cmd_capabilities ()
-  | "auth" :: _ -> cmd_auth ()
+  | "auth" :: rest -> cmd_auth rest
   | "transcribe" :: rest -> cmd_transcribe rest
   | "mcp" :: _ -> cmd_mcp ()
   | "cron" :: rest -> cmd_cron rest
   | "skills" :: rest -> cmd_skills rest
   | "audit" :: rest -> cmd_audit rest
+  | "runtime" :: rest -> cmd_runtime rest
+  | "tunnel" :: rest -> cmd_tunnel rest
   | "hardware" :: _ -> "hardware: deferred to Phase 2"
   | "migrate" :: rest -> Migrate.cmd_migrate rest
   | "service" :: rest -> cmd_service rest

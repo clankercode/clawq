@@ -31,6 +31,16 @@ let write_state ~(config : Runtime_config.t) ~components =
 
 let run ~(config : Runtime_config.t) =
   let open Lwt.Syntax in
+  let is_loopback_host host =
+    let h = String.lowercase_ascii (String.trim host) in
+    h = "127.0.0.1" || h = "localhost" || h = "::1"
+  in
+  if (not config.gateway.require_pairing) && config.gateway.auth_token = None then
+    failwith
+      "Insecure gateway config: set gateway.require_pairing=true or configure gateway.auth_token";
+  if (not (is_loopback_host config.gateway.host)) && config.gateway.auth_token = None then
+    failwith
+      "Refusing non-loopback gateway bind without gateway.auth_token";
   Logs.set_reporter (Logs_fmt.reporter ());
   Logs.set_level (Some Logs.Info);
   List.iter (fun src ->
@@ -66,7 +76,11 @@ let run ~(config : Runtime_config.t) =
     if config.security.tools_enabled then begin
       let registry = Tool_registry.create () in
       Tools_builtin.register_all ~config registry;
-      let skills = Skills.load_all () in
+      let skills =
+        Skills.load_all
+          ~workspace_only:config.security.workspace_only
+          ~allowed_commands:Tools_builtin.default_shell_allowlist ()
+      in
       List.iter (fun s ->
         Tool_registry.register registry s;
         Logs.info (fun m -> m "Loaded skill: %s" s.Tool.name)
@@ -93,11 +107,12 @@ let run ~(config : Runtime_config.t) =
          if not (Sys.file_exists clawq_dir) then Sys.mkdir clawq_dir 0o755
        with _ -> ());
       let db = Memory.init ~db_path ~search_enabled:config.memory.search_enabled () in
+      Vector.init_schema db;
       if config.security.audit_enabled then begin
         Audit.init_schema db;
         Logs.info (fun m -> m "Audit trail enabled")
       end;
-      Logs.info (fun m -> m "SQLite memory initialized at %s" db_path);
+      Logs.info (fun m -> m "SQLite memory initialized at %s (vector index enabled)" db_path);
       Some db
     with exn ->
       Logs.warn (fun m ->
@@ -111,6 +126,8 @@ let run ~(config : Runtime_config.t) =
     Lwt.catch
       (fun () ->
         Http_server.start ~port:config.gateway.port ~host:config.gateway.host
+          ~require_pairing:config.gateway.require_pairing
+          ~auth_token:config.gateway.auth_token
           ~session_manager)
       (fun exn ->
         Logs.err (fun m ->

@@ -1,3 +1,3 @@
 (test
  (name test_main)
- (libraries clawq_extracted clawq_runtime alcotest str))
+ (libraries clawq_extracted clawq_runtime alcotest str unix))

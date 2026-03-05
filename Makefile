@@ -1,7 +1,7 @@
 SHELL := opam exec --switch=clawq-5.1 -- /usr/bin/env bash
 .SHELLFLAGS := -c
 
-.PHONY: bootstrap build extract extract-check run phase2 test fmt fmt-check clean
+.PHONY: bootstrap build extract extract-check run phase2 test fmt fmt-check clean release docker-build docker-run
 
 bootstrap:
 	./scripts/bootstrap_coq.sh
@@ -38,6 +38,15 @@ fmt:
 
 fmt-check:
 	dune fmt 2>&1 | head -20; test $${PIPESTATUS[0]} -eq 0
+
+release:
+	dune build --release
+
+docker-build:
+	docker build -t clawq:latest .
+
+docker-run:
+	docker run -it --rm -p 3000:3000 --name clawq clawq:latest agent
 
 clean:
 	dune clean

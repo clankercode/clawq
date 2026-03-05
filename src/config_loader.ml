@@ -1,9 +1,14 @@
-let parse_config json =
+let parse_config ?(resolve_secrets = true) json =
   let open Yojson.Safe.Util in
   let default = Runtime_config.default in
-  let workspace =
-    try json |> member "workspace" |> to_string
-    with _ -> default.workspace
+  let providers_node =
+    let top =
+      try json |> member "providers" with _ -> `Null
+    in
+    if top <> `Null then
+      top
+    else
+      (try json |> member "models" |> member "providers" with _ -> `Null)
   in
   let default_temperature =
     try json |> member "default_temperature" |> to_float
@@ -13,15 +18,17 @@ let parse_config json =
     try Some (json |> member "default_provider" |> to_string)
     with _ -> default.default_provider
   in
-let resolve_secret s =
-    if String.length s > 1 && s.[0] = '$' then
-      let var_name = String.sub s 1 (String.length s - 1) in
-      (try Sys.getenv var_name with Not_found -> s)
-    else s
+  let encrypt_secrets =
+    try
+      json |> member "security" |> member "encrypt_secrets" |> to_bool
+    with _ -> Runtime_config.default.security.encrypt_secrets
+  in
+  let resolve_secret s =
+    if resolve_secrets then Secret_store.resolve_secret ~encrypt_secrets s else s
   in
   let providers =
     try
-      json |> member "providers" |> to_assoc
+      providers_node |> to_assoc
       |> List.map (fun (name, v) ->
              let api_key =
                try v |> member "api_key" |> to_string |> resolve_secret
@@ -43,48 +50,20 @@ let resolve_secret s =
         try ad |> member "primary_model" |> to_string
         with _ -> default.agent_defaults.primary_model
       in
-      let model_priority =
-        try
-          ad |> member "model_priority" |> to_list
-          |> List.filter_map (fun entry ->
-                 match entry with
-                 | `String s when s <> "" ->
-                   Some ({ Runtime_config.provider = None; model = s } : Runtime_config.model_target)
-                 | `Assoc _ ->
-                   let model =
-                     try entry |> member "model" |> to_string with _ -> ""
-                   in
-                   if model = "" then None
-                   else
-                     let provider =
-                       try Some (entry |> member "provider" |> to_string)
-                       with _ -> None
-                     in
-                     Some ({ Runtime_config.provider; model } : Runtime_config.model_target)
-                 | _ -> None)
-        with _ -> []
-      in
-      let model_priority =
-        if model_priority <> [] then model_priority
-        else [ ({ Runtime_config.provider = None; model = primary_model } : Runtime_config.model_target) ]
-      in
-      let primary_model =
-        match model_priority with
-        | first :: _ -> first.model
-        | [] -> primary_model
-      in
       let system_prompt =
         try ad |> member "system_prompt" |> to_string
         with _ -> default.agent_defaults.system_prompt
       in
       let max_tool_iterations =
         try ad |> member "max_tool_iterations" |> to_int
-        with _ ->
-          (try ad |> member "max_tool_interactions" |> to_int
-           with _ -> default.agent_defaults.max_tool_iterations)
+        with _ -> default.agent_defaults.max_tool_iterations
       in
-      ({ primary_model; model_priority; system_prompt; max_tool_iterations } : Runtime_config.agent_defaults)
+      ({ primary_model; system_prompt; max_tool_iterations } : Runtime_config.agent_defaults)
     with _ -> default.agent_defaults
+  in
+  let workspace =
+    try json |> member "workspace" |> to_string
+    with _ -> default.workspace
   in
   let prompt =
     try
@@ -114,15 +93,8 @@ let resolve_secret s =
         with _ -> default.prompt.include_datetime_section
       in
       let workspace_files =
-        try
-          p |> member "workspace_files" |> to_list
-          |> List.map to_string
-          |> List.filter (fun s -> s <> "")
+        try p |> member "workspace_files" |> to_list |> List.map to_string
         with _ -> default.prompt.workspace_files
-      in
-      let workspace_files =
-        if workspace_files = [] then default.prompt.workspace_files
-        else workspace_files
       in
       let max_workspace_file_chars =
         try p |> member "max_workspace_file_chars" |> to_int
@@ -146,6 +118,18 @@ let resolve_secret s =
         : Runtime_config.prompt_config)
     with _ -> default.prompt
   in
+  let agent_defaults =
+    if agent_defaults = default.agent_defaults then
+      let primary_model =
+        try
+          json |> member "agents" |> member "defaults" |> member "model"
+          |> member "primary" |> to_string
+        with _ -> default.agent_defaults.primary_model
+      in
+      { agent_defaults with primary_model }
+    else
+      agent_defaults
+  in
   let channels =
     try
       let ch = json |> member "channels" in
@@ -158,9 +142,9 @@ let resolve_secret s =
           let accounts =
             tg |> member "accounts" |> to_assoc
             |> List.map (fun (name, v) ->
-                   let bot_token =
-                     try v |> member "bot_token" |> to_string with _ -> ""
-                   in
+                    let bot_token =
+                      try v |> member "bot_token" |> to_string |> resolve_secret with _ -> ""
+                    in
                    let allow_from =
                      try
                        v |> member "allow_from" |> to_list
@@ -191,8 +175,47 @@ let resolve_secret s =
         try gw |> member "require_pairing" |> to_bool
         with _ -> default.gateway.require_pairing
       in
-      ({ host; port; require_pairing } : Runtime_config.gateway_config)
+      let auth_token =
+        try
+          let v = gw |> member "auth_token" |> to_string in
+          if String.trim v = "" then None else Some v
+        with _ -> default.gateway.auth_token
+      in
+      ({ host; port; require_pairing; auth_token } : Runtime_config.gateway_config)
     with _ -> default.gateway
+  in
+  let runtime =
+    try
+      let r = json |> member "runtime" in
+      let docker_image =
+        try r |> member "docker_image" |> to_string
+        with _ -> default.runtime.docker_image
+      in
+      let docker_container_name =
+        try r |> member "docker_container_name" |> to_string
+        with _ -> default.runtime.docker_container_name
+      in
+      let docker_port =
+        try r |> member "docker_port" |> to_int
+        with _ -> default.runtime.docker_port
+      in
+      ({ docker_image; docker_container_name; docker_port }
+        : Runtime_config.runtime_config)
+    with _ -> default.runtime
+  in
+  let tunnel =
+    try
+      let t = json |> member "tunnel" in
+      let provider =
+        try t |> member "provider" |> to_string
+        with _ -> default.tunnel.provider
+      in
+      let enabled =
+        try t |> member "enabled" |> to_bool
+        with _ -> default.tunnel.enabled
+      in
+      ({ provider; enabled } : Runtime_config.tunnel_config)
+    with _ -> default.tunnel
   in
   let memory =
     try
@@ -203,13 +226,49 @@ let resolve_secret s =
       in
       let search_enabled =
         try m |> member "search_enabled" |> to_bool
-        with _ -> default.memory.search_enabled
+        with _ ->
+          try m |> member "search" |> member "enabled" |> to_bool
+          with _ -> default.memory.search_enabled
       in
       let db_path =
         try m |> member "db_path" |> to_string
         with _ -> default.memory.db_path
       in
-      ({ backend; search_enabled; db_path } : Runtime_config.memory_config)
+      let vector_weight =
+        try m |> member "vector_weight" |> to_int
+        with _ -> default.memory.vector_weight
+      in
+      let keyword_weight =
+        try m |> member "keyword_weight" |> to_int
+        with _ -> default.memory.keyword_weight
+      in
+      let vector_weight =
+        if vector_weight < 0 then 0
+        else if vector_weight > 100 then 100
+        else vector_weight
+      in
+      let keyword_weight =
+        if keyword_weight < 0 then 0
+        else if keyword_weight > 100 then 100
+        else keyword_weight
+      in
+      let vector_weight, keyword_weight =
+        if vector_weight + keyword_weight = 100 then
+          (vector_weight, keyword_weight)
+        else
+          (default.memory.vector_weight, default.memory.keyword_weight)
+      in
+      let embedding_model =
+        try Some (m |> member "embedding_model" |> to_string)
+        with _ -> default.memory.embedding_model
+      in
+      let embedding_provider =
+        try Some (m |> member "embedding_provider" |> to_string)
+        with _ -> default.memory.embedding_provider
+      in
+      ({ backend; search_enabled; db_path;
+         vector_weight; keyword_weight;
+         embedding_model; embedding_provider } : Runtime_config.memory_config)
     with _ -> default.memory
   in
   let security =
@@ -217,15 +276,21 @@ let resolve_secret s =
       let s = json |> member "security" in
       let workspace_only =
         try s |> member "workspace_only" |> to_bool
-        with _ -> default.security.workspace_only
+        with _ ->
+          try json |> member "autonomy" |> member "workspace_only" |> to_bool
+          with _ -> default.security.workspace_only
       in
       let audit_enabled =
         try s |> member "audit_enabled" |> to_bool
-        with _ -> default.security.audit_enabled
+        with _ ->
+          try s |> member "audit" |> member "enabled" |> to_bool
+          with _ -> default.security.audit_enabled
       in
       let tools_enabled =
         try s |> member "tools_enabled" |> to_bool
-        with _ -> default.security.tools_enabled
+        with _ ->
+          try s |> member "tools" |> member "enabled" |> to_bool
+          with _ -> default.security.tools_enabled
       in
       let encrypt_secrets =
         try s |> member "encrypt_secrets" |> to_bool
@@ -245,85 +310,44 @@ let resolve_secret s =
       Some ({ provider; model; language } : Runtime_config.stt_config)
     with _ -> None
   in
-  let zai_mcp =
+  let mcp =
     try
-      let v = json |> member "zai_mcp" in
-      match v with
-      | `Null -> default.zai_mcp
-      | _ ->
-        let web_search_enabled =
-          try v |> member "web_search_enabled" |> to_bool
-          with _ -> Runtime_config.default_zai_mcp.web_search_enabled
-        in
-        let web_reader_enabled =
-          try v |> member "web_reader_enabled" |> to_bool
-          with _ -> Runtime_config.default_zai_mcp.web_reader_enabled
-        in
-        Some
-          ({ Runtime_config.web_search_enabled; web_reader_enabled }
-            : Runtime_config.zai_mcp_config)
-    with _ -> default.zai_mcp
+      let m = json |> member "mcp" in
+      let enabled =
+        try m |> member "enabled" |> to_bool
+        with _ -> default.mcp.enabled
+      in
+      let exposed_tools =
+        try
+          let tools = m |> member "exposed_tools" |> to_list |> List.map to_string in
+          Some tools
+        with _ -> None
+      in
+      ({ enabled; exposed_tools } : Runtime_config.mcp_config)
+    with _ -> default.mcp
   in
-  let tunnel =
+  let resilience =
     try
-      let t = json |> member "tunnel" in
-      match t with
-      | `Null -> default.tunnel
-      | _ ->
-        let default_tunnel = Runtime_config.default_tunnel in
-        let enabled =
-          try t |> member "enabled" |> to_bool
-          with _ -> default_tunnel.enabled
-        in
-        let provider =
-          try t |> member "provider" |> to_string
-          with _ -> default_tunnel.provider
-        in
-        let cloudflare =
-          try
-            let c = t |> member "cloudflare" in
-            match c with
-            | `Null -> default_tunnel.cloudflare
-            | _ ->
-              let d = Runtime_config.default_cloudflare_tunnel in
-              let api_token =
-                try c |> member "api_token" |> to_string |> resolve_secret
-                with _ -> d.api_token
-              in
-              let account_id =
-                try Some (c |> member "account_id" |> to_string) with _ -> d.account_id
-              in
-              let tunnel_id =
-                try Some (c |> member "tunnel_id" |> to_string) with _ -> d.tunnel_id
-              in
-              let tunnel_name =
-                try Some (c |> member "tunnel_name" |> to_string) with _ -> d.tunnel_name
-              in
-              let hostname =
-                try Some (c |> member "hostname" |> to_string) with _ -> d.hostname
-              in
-              let config_path =
-                try Some (c |> member "config_path" |> to_string) with _ -> d.config_path
-              in
-              let credentials_path =
-                try Some (c |> member "credentials_path" |> to_string)
-                with _ -> d.credentials_path
-              in
-              Some
-                ({
-                   Runtime_config.api_token;
-                   account_id;
-                   tunnel_id;
-                   tunnel_name;
-                   hostname;
-                   config_path;
-                   credentials_path;
-                 }
-                  : Runtime_config.cloudflare_tunnel_config)
-          with _ -> default_tunnel.cloudflare
-        in
-        Some ({ Runtime_config.enabled; provider; cloudflare } : Runtime_config.tunnel_config)
-    with _ -> default.tunnel
+      let r = json |> member "resilience" in
+      let timeout_s =
+        try r |> member "timeout_s" |> to_float
+        with _ -> default.resilience.timeout_s
+      in
+      let max_retries =
+        try r |> member "max_retries" |> to_int
+        with _ -> default.resilience.max_retries
+      in
+      let base_delay_s =
+        try r |> member "base_delay_s" |> to_float
+        with _ -> default.resilience.base_delay_s
+      in
+      let fallback_provider =
+        try Some (r |> member "fallback_provider" |> to_string)
+        with _ -> default.resilience.fallback_provider
+      in
+      ({ timeout_s; max_retries; base_delay_s; fallback_provider }
+        : Runtime_config.resilience_config)
+    with _ -> default.resilience
   in
   {
     workspace;
@@ -334,70 +358,14 @@ let resolve_secret s =
     prompt;
     channels;
     gateway;
+    runtime;
+    tunnel;
     memory;
     security;
     stt;
-    zai_mcp;
-    tunnel;
+    mcp;
+    resilience;
   }
-
-let trim s =
-  let is_ws = function ' ' | '\t' | '\r' | '\n' -> true | _ -> false in
-  let len = String.length s in
-  let rec left i = if i < len && is_ws s.[i] then left (i + 1) else i in
-  let rec right i = if i >= 0 && is_ws s.[i] then right (i - 1) else i in
-  let l = left 0 in
-  let r = right (len - 1) in
-  if r < l then "" else String.sub s l (r - l + 1)
-
-let unquote s =
-  let len = String.length s in
-  if len >= 2 then
-    let first = s.[0] in
-    let last = s.[len - 1] in
-    if (first = '"' && last = '"') || (first = '\'' && last = '\'')
-    then String.sub s 1 (len - 2)
-    else s
-  else s
-
-let load_dotenv_file path =
-  if Sys.file_exists path then
-    try
-      let ic = open_in path in
-      let rec loop () =
-        match input_line ic with
-        | line ->
-          let line = trim line in
-          if line <> "" && line.[0] <> '#' then
-            let line =
-              if String.length line >= 7 && String.sub line 0 7 = "export "
-              then trim (String.sub line 7 (String.length line - 7))
-              else line
-            in
-            (match String.index_opt line '=' with
-             | None -> ()
-             | Some idx ->
-               let key = trim (String.sub line 0 idx) in
-               let raw_val =
-                 String.sub line (idx + 1) (String.length line - idx - 1)
-               in
-               let value = unquote (trim raw_val) in
-               if key <> "" then
-                 (try
-                    ignore (Sys.getenv key)
-                  with Not_found -> Unix.putenv key value));
-          loop ()
-        | exception End_of_file -> close_in_noerr ic
-      in
-      loop ()
-    with _ -> ()
-
-let load_dotenv () =
-  let cwd_env = Filename.concat (Sys.getcwd ()) ".env" in
-  let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
-  let clawq_env = Filename.concat (Filename.concat home ".clawq") ".env" in
-  load_dotenv_file clawq_env;
-  load_dotenv_file cwd_env
 
 let rec merge_json (original : Yojson.Safe.t) (complete : Yojson.Safe.t) : Yojson.Safe.t =
   match original, complete with
@@ -413,21 +381,10 @@ let rec merge_json (original : Yojson.Safe.t) (complete : Yojson.Safe.t) : Yojso
       List.filter (fun (k, _) -> not (List.mem_assoc k orig_fields)) comp_fields
     in
     `Assoc (merged @ new_fields)
-  | _ -> original
+  | _ -> complete
 
-let backfill_config ~path ~original_json ~(config : Runtime_config.t) =
-  let config_for_backfill : Runtime_config.t =
-    {
-      config with
-      workspace = Runtime_config.effective_workspace config;
-      providers = Runtime_config.with_zai_coding_provider config.providers;
-      zai_mcp =
-        (match config.zai_mcp with
-        | Some _ -> config.zai_mcp
-        | None -> Some Runtime_config.default_zai_mcp);
-    }
-  in
-  let complete_json = Runtime_config.to_json config_for_backfill in
+let backfill_config ~path ~original_json ~config =
+  let complete_json = Runtime_config.to_json config in
   let merged = merge_json original_json complete_json in
   if merged <> original_json then begin
     try
@@ -440,7 +397,6 @@ let backfill_config ~path ~original_json ~(config : Runtime_config.t) =
   end
 
 let load ?(path = "") () : Runtime_config.t =
-  load_dotenv ();
   let config_path =
     if path <> "" then path
     else
@@ -461,6 +417,7 @@ let load ?(path = "") () : Runtime_config.t =
     match json with
     | None -> Runtime_config.default
     | Some json ->
-      let config = parse_config json in
-      backfill_config ~path:config_path ~original_json:json ~config;
+      let config = parse_config ~resolve_secrets:true json in
+      let backfill_cfg = parse_config ~resolve_secrets:false json in
+      backfill_config ~path:config_path ~original_json:json ~config:backfill_cfg;
       config

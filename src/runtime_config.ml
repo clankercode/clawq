@@ -2,14 +2,8 @@ type provider_config = { api_key : string; base_url : string option; default_mod
 
 type agent_defaults = {
   primary_model : string;
-  model_priority : model_target list;
   system_prompt : string;
   max_tool_iterations : int;
-}
-
-and model_target = {
-  provider : string option;
-  model : string;
 }
 
 type telegram_account = { bot_token : string; allow_from : string list }
@@ -18,9 +12,45 @@ type telegram_config = { accounts : (string * telegram_account) list }
 
 type channel_config = { cli : bool; telegram : telegram_config option }
 
-type gateway_config = { host : string; port : int; require_pairing : bool }
+type prompt_config = {
+  dynamic_enabled : bool;
+  include_tools_section : bool;
+  include_safety_section : bool;
+  include_workspace_section : bool;
+  include_runtime_section : bool;
+  include_datetime_section : bool;
+  workspace_files : string list;
+  max_workspace_file_chars : int;
+  max_workspace_total_chars : int;
+}
 
-type memory_config = { backend : string; search_enabled : bool; db_path : string }
+type gateway_config = {
+  host : string;
+  port : int;
+  require_pairing : bool;
+  auth_token : string option;
+}
+
+type runtime_config = {
+  docker_image : string;
+  docker_container_name : string;
+  docker_port : int;
+}
+
+type tunnel_config = {
+  provider : string;
+  enabled : bool;
+}
+
+type memory_config = {
+  backend : string;
+  search_enabled : bool;
+  db_path : string;
+  vector_weight : int;
+  keyword_weight : int;
+  embedding_model : string option;
+  embedding_provider : string option;
+}
 
 type security_config = {
   workspace_only : bool;
@@ -35,66 +65,35 @@ type stt_config = {
   language : string option;
 }
 
-type zai_mcp_config = {
-  web_search_enabled : bool;
-  web_reader_enabled : bool;
+type resilience_config = {
+  timeout_s : float;
+  max_retries : int;
+  base_delay_s : float;
+  fallback_provider : string option;
 }
 
-type cloudflare_tunnel_config = {
-  api_token : string;
-  account_id : string option;
-  tunnel_id : string option;
-  tunnel_name : string option;
-  hostname : string option;
-  config_path : string option;
-  credentials_path : string option;
-}
-
-type tunnel_config = {
+type mcp_config = {
   enabled : bool;
-  provider : string;
-  cloudflare : cloudflare_tunnel_config option;
+  exposed_tools : string list option;
+  (** [None] = expose all registered tools; [Some names] = allowlist *)
 }
 
-type prompt_config = {
-  dynamic_enabled : bool;
-  include_tools_section : bool;
-  include_safety_section : bool;
-  include_workspace_section : bool;
-  include_runtime_section : bool;
-  include_datetime_section : bool;
-  workspace_files : string list;
-  max_workspace_file_chars : int;
-  max_workspace_total_chars : int;
-}
-
-let zai_coding_provider_name = "zai_coding"
-
-let zai_coding_provider : provider_config = {
-  api_key = "";
-  base_url = Some "https://api.z.ai/api/coding/paas/v4";
-  default_model = Some "glm-5";
-}
-
-let default_zai_mcp : zai_mcp_config = {
-  web_search_enabled = true;
-  web_reader_enabled = true;
-}
-
-let default_cloudflare_tunnel : cloudflare_tunnel_config = {
-  api_token = "";
-  account_id = None;
-  tunnel_id = None;
-  tunnel_name = Some "clawq";
-  hostname = None;
-  config_path = None;
-  credentials_path = None;
-}
-
-let default_tunnel : tunnel_config = {
-  enabled = false;
-  provider = "cloudflare";
-  cloudflare = Some default_cloudflare_tunnel;
+type t = {
+  workspace : string;
+  default_temperature : float;
+  default_provider : string option;
+  providers : (string * provider_config) list;
+  agent_defaults : agent_defaults;
+  prompt : prompt_config;
+  channels : channel_config;
+  gateway : gateway_config;
+  runtime : runtime_config;
+  tunnel : tunnel_config;
+  memory : memory_config;
+  security : security_config;
+  stt : stt_config option;
+  mcp : mcp_config;
+  resilience : resilience_config;
 }
 
 let default_workspace_files =
@@ -111,9 +110,13 @@ let default_workspace_files =
     "memory.md";
   ]
 
-let default_prompt : prompt_config =
+let default_workspace () =
+  let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
+  Filename.concat (Filename.concat home ".clawq") "workspace"
+
+let default_prompt =
   {
-    dynamic_enabled = true;
+    dynamic_enabled = false;
     include_tools_section = true;
     include_safety_section = true;
     include_workspace_section = true;
@@ -124,45 +127,6 @@ let default_prompt : prompt_config =
     max_workspace_total_chars = 12000;
   }
 
-let default_workspace () =
-  let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
-  Filename.concat (Filename.concat home ".clawq") "workspace"
-
-let default_system_prompt =
-  "You are clawq, a repository-native software engineering agent operating through a CLI runtime.\n"
-  ^ "Your objective is to deliver technically correct, minimal, verifiable changes with disciplined reasoning and practical communication.\n\n"
-  ^ "Execution priorities:\n"
-  ^ "1) Understand local context before editing.\n"
-  ^ "2) Prefer concrete action to speculative discussion.\n"
-  ^ "3) Keep diffs narrow, coherent, and maintainable.\n"
-  ^ "4) Validate changes with relevant checks and report outcomes truthfully.\n"
-  ^ "5) Preserve user intent, existing conventions, and unrelated local modifications.\n\n"
-  ^ "Non-negotiables:\n"
-  ^ "- Never fabricate tool results, command outputs, or test outcomes.\n"
-  ^ "- Never leak secrets, credentials, or private data.\n"
-  ^ "- Ask before destructive, irreversible, or externally visible actions.\n"
-  ^ "- When uncertain, state assumptions explicitly and choose the safest effective path.\n\n"
-  ^ "Response contract:\n"
-  ^ "- Lead with the result.\n"
-  ^ "- Be concise by default; expand only when complexity requires it.\n"
-  ^ "- For substantial work, include changed files, behavioral impact, and validation status."
-
-type t = {
-  workspace : string;
-  default_temperature : float;
-  default_provider : string option;
-  providers : (string * provider_config) list;
-  agent_defaults : agent_defaults;
-  prompt : prompt_config;
-  channels : channel_config;
-  gateway : gateway_config;
-  memory : memory_config;
-  security : security_config;
-  stt : stt_config option;
-  zai_mcp : zai_mcp_config option;
-  tunnel : tunnel_config option;
-}
-
 let default =
   {
     workspace = default_workspace ();
@@ -171,42 +135,46 @@ let default =
     providers = [];
     agent_defaults = {
       primary_model = "openai/gpt-4o";
-      model_priority = [ { provider = None; model = "openai/gpt-4o" } ];
-      system_prompt = default_system_prompt;
+      system_prompt = "You are clawq, a helpful AI assistant. Answer questions clearly and concisely.";
       max_tool_iterations = 10;
     };
     prompt = default_prompt;
     channels = { cli = true; telegram = None };
-    gateway = { host = "127.0.0.1"; port = 3000; require_pairing = false };
-    memory = { backend = "sqlite"; search_enabled = false; db_path = "" };
+    gateway = { host = "127.0.0.1"; port = 3000; require_pairing = true; auth_token = None };
+    runtime = {
+      docker_image = "clawq:latest";
+      docker_container_name = "clawq";
+      docker_port = 3000;
+    };
+    tunnel = { provider = "cloudflare"; enabled = false };
+    memory = { backend = "sqlite"; search_enabled = false; db_path = "";
+               vector_weight = 50; keyword_weight = 50;
+               embedding_model = None; embedding_provider = None };
     security = { workspace_only = true; audit_enabled = false; tools_enabled = true; encrypt_secrets = false };
     stt = None;
-    zai_mcp = Some default_zai_mcp;
-    tunnel = Some default_tunnel;
+    mcp = { enabled = true; exposed_tools = None };
+    resilience = { timeout_s = 120.0; max_retries = 2; base_delay_s = 1.0; fallback_provider = None };
   }
 
 let is_key_set key =
   key <> "" && not (String.length key > 4 && String.sub key 0 4 = "YOUR")
 
-let with_zai_coding_provider providers =
-  match List.assoc_opt zai_coding_provider_name providers with
-  | Some _ -> providers
-  | None -> providers @ [ (zai_coding_provider_name, zai_coding_provider) ]
+type model_target = { provider : string option; model : string }
 
-let effective_primary_target (ad : agent_defaults) =
-  match ad.model_priority with
-  | target :: _ -> target
-  | [] -> { provider = None; model = ad.primary_model }
+let effective_primary_target (ad : agent_defaults) : model_target =
+  let raw = String.trim ad.primary_model in
+  match String.index_opt raw '/' with
+  | Some i when i > 0 && i + 1 < String.length raw ->
+    let provider = String.sub raw 0 i in
+    let model = String.sub raw (i + 1) (String.length raw - i - 1) in
+    { provider = Some provider; model }
+  | _ -> { provider = None; model = raw }
 
 let effective_primary_model (ad : agent_defaults) =
   (effective_primary_target ad).model
 
 let effective_primary_provider (ad : agent_defaults) =
   (effective_primary_target ad).provider
-
-let cloudflare_ingress_service (gw : gateway_config) =
-  let host = if gw.host = "0.0.0.0" then "127.0.0.1" else gw.host in
-  Printf.sprintf "http://%s:%d" host gw.port
 
 let expand_home path =
   if String.length path >= 2 && String.sub path 0 2 = "~/" then
@@ -216,12 +184,11 @@ let expand_home path =
     (try Sys.getenv "HOME" with Not_found -> "/tmp")
   else path
 
-let effective_workspace cfg =
+let effective_workspace (cfg : t) =
   let path = expand_home cfg.workspace in
   if path = "" then default_workspace () else path
 
 let to_json (cfg : t) : Yojson.Safe.t =
-  let opt_string = function Some s -> `String s | None -> `Null in
   let provider_json (p : provider_config) =
     let fields = [ ("api_key", `String p.api_key) ] in
     let fields = match p.base_url with
@@ -252,70 +219,16 @@ let to_json (cfg : t) : Yojson.Safe.t =
       `Assoc ([ ("provider", `String s.provider); ("model", `String s.model) ]
               @ (match s.language with Some l -> [ ("language", `String l) ] | None -> []))
   in
-  let zai_mcp_json = match cfg.zai_mcp with
-    | None -> `Null
-    | Some z ->
-      `Assoc [
-        ("web_search_enabled", `Bool z.web_search_enabled);
-        ("web_reader_enabled", `Bool z.web_reader_enabled);
-      ]
-  in
-  let tunnel_json =
-    match cfg.tunnel with
-    | None -> `Null
-    | Some t ->
-      let cloudflare_json =
-        match t.cloudflare with
-        | None -> `Null
-        | Some c ->
-          let fields = [ ("api_token", `String c.api_token) ] in
-          let fields =
-            match c.account_id with
-            | Some v -> fields @ [ ("account_id", `String v) ]
-            | None -> fields
-          in
-          let fields =
-            match c.tunnel_id with
-            | Some v -> fields @ [ ("tunnel_id", `String v) ]
-            | None -> fields
-          in
-          let fields =
-            match c.tunnel_name with
-            | Some v -> fields @ [ ("tunnel_name", `String v) ]
-            | None -> fields
-          in
-          let fields =
-            match c.hostname with
-            | Some v -> fields @ [ ("hostname", `String v) ]
-            | None -> fields
-          in
-          let fields =
-            match c.config_path with
-            | Some v -> fields @ [ ("config_path", `String v) ]
-            | None -> fields
-          in
-          let fields =
-            match c.credentials_path with
-            | Some v -> fields @ [ ("credentials_path", `String v) ]
-            | None -> fields
-          in
-          let fields = fields @ [
-            ("ingress_service", `String (cloudflare_ingress_service cfg.gateway));
-          ] in
-          `Assoc fields
-      in
-      let fields =
-        [
-          ("enabled", `Bool t.enabled);
-          ("provider", `String t.provider);
-        ]
-      in
-      let fields =
-        match cloudflare_json with
-        | `Null -> fields
-        | j -> fields @ [ ("cloudflare", j) ]
-      in
-      `Assoc fields
+  let gateway_fields =
+    [
+      ("host", `String cfg.gateway.host);
+      ("port", `Int cfg.gateway.port);
+      ("require_pairing", `Bool cfg.gateway.require_pairing);
+    ]
+    @
+    (match cfg.gateway.auth_token with
+     | Some token -> [ ("auth_token", `String token) ]
+     | None -> [])
   in
   let fields = [
     ("workspace", `String cfg.workspace);
@@ -328,16 +241,7 @@ let to_json (cfg : t) : Yojson.Safe.t =
   let fields = fields @ [
     ("providers", `Assoc (List.map (fun (name, p) -> (name, provider_json p)) cfg.providers));
     ("agent_defaults", `Assoc [
-      ("primary_model", `String (effective_primary_model ad));
-      ("model_priority",
-       `List
-         (List.map
-            (fun (mt : model_target) ->
-              match mt.provider with
-              | None -> `String mt.model
-              | Some p ->
-                `Assoc [ ("provider", `String p); ("model", `String mt.model) ])
-            ad.model_priority));
+      ("primary_model", `String ad.primary_model);
       ("system_prompt", `String ad.system_prompt);
       ("max_tool_iterations", `Int ad.max_tool_iterations);
     ]);
@@ -356,15 +260,24 @@ let to_json (cfg : t) : Yojson.Safe.t =
       [ ("cli", `Bool cfg.channels.cli) ]
       @ (match telegram_json with `Null -> [] | j -> [ ("telegram", j) ])
     ));
-    ("gateway", `Assoc [
-      ("host", `String cfg.gateway.host);
-      ("port", `Int cfg.gateway.port);
-      ("require_pairing", `Bool cfg.gateway.require_pairing);
+    ("gateway", `Assoc gateway_fields);
+    ("runtime", `Assoc [
+      ("docker_image", `String cfg.runtime.docker_image);
+      ("docker_container_name", `String cfg.runtime.docker_container_name);
+      ("docker_port", `Int cfg.runtime.docker_port);
+    ]);
+    ("tunnel", `Assoc [
+      ("provider", `String cfg.tunnel.provider);
+      ("enabled", `Bool cfg.tunnel.enabled);
     ]);
     ("memory", `Assoc ([
       ("backend", `String cfg.memory.backend);
       ("search_enabled", `Bool cfg.memory.search_enabled);
-    ] @ (if cfg.memory.db_path <> "" then [ ("db_path", `String cfg.memory.db_path) ] else [])));
+      ("vector_weight", `Int cfg.memory.vector_weight);
+      ("keyword_weight", `Int cfg.memory.keyword_weight);
+    ] @ (if cfg.memory.db_path <> "" then [ ("db_path", `String cfg.memory.db_path) ] else [])
+      @ (match cfg.memory.embedding_model with Some m -> [ ("embedding_model", `String m) ] | None -> [])
+      @ (match cfg.memory.embedding_provider with Some p -> [ ("embedding_provider", `String p) ] | None -> [])));
     ("security", `Assoc [
       ("workspace_only", `Bool cfg.security.workspace_only);
       ("audit_enabled", `Bool cfg.security.audit_enabled);
@@ -376,15 +289,23 @@ let to_json (cfg : t) : Yojson.Safe.t =
     | `Null -> fields
     | j -> fields @ [ ("stt", j) ]
   in
-  let fields = match zai_mcp_json with
-    | `Null -> fields
-    | j -> fields @ [ ("zai_mcp", j) ]
+  let mcp_fields = [ ("enabled", `Bool cfg.mcp.enabled) ] in
+  let mcp_fields = match cfg.mcp.exposed_tools with
+    | None -> mcp_fields
+    | Some tools ->
+      mcp_fields @ [ ("exposed_tools", `List (List.map (fun s -> `String s) tools)) ]
   in
-  let fields = match tunnel_json with
-    | `Null -> fields
-    | j -> fields @ [ ("tunnel", j) ]
+  let fields = fields @ [ ("mcp", `Assoc mcp_fields) ] in
+  let res_fields = [
+    ("timeout_s", `Float cfg.resilience.timeout_s);
+    ("max_retries", `Int cfg.resilience.max_retries);
+    ("base_delay_s", `Float cfg.resilience.base_delay_s);
+  ] in
+  let res_fields = match cfg.resilience.fallback_provider with
+    | Some p -> res_fields @ [ ("fallback_provider", `String p) ]
+    | None -> res_fields
   in
-  ignore opt_string;
+  let fields = fields @ [ ("resilience", `Assoc res_fields) ] in
   `Assoc fields
 
 let merge_with_coq (coq_cfg : Clawq_core.clawqConfig) (cfg : t) : t =
@@ -398,13 +319,13 @@ let merge_with_coq (coq_cfg : Clawq_core.clawqConfig) (cfg : t) : t =
     agent_defaults = {
       cfg.agent_defaults with
       primary_model = coq_cfg.config_default_model;
-      model_priority = [ { provider = None; model = coq_cfg.config_default_model } ];
     };
     gateway =
       {
         host = gw.gateway_host;
         port = gw.gateway_port;
         require_pairing = gw.gateway_require_pairing;
+        auth_token = cfg.gateway.auth_token;
       };
     memory =
       {

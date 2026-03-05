@@ -1,22 +1,189 @@
+let normalize_path path =
+  let parts = String.split_on_char '/' path in
+  let is_abs = String.length path > 0 && path.[0] = '/' in
+  let rec resolve acc = function
+    | [] -> List.rev acc
+    | "." :: rest -> resolve acc rest
+    | ".." :: rest -> (match acc with _ :: tl -> resolve tl rest | [] -> resolve [] rest)
+    | "" :: rest -> resolve acc rest
+    | part :: rest -> resolve (part :: acc) rest
+  in
+  let resolved = resolve [] parts in
+  let joined = String.concat "/" resolved in
+  if is_abs then "/" ^ joined else joined
+
 let is_path_safe ~workspace path =
   let real_workspace =
-    try Unix.realpath workspace with Unix.Unix_error _ -> workspace
+    try Unix.realpath workspace with Unix.Unix_error _ -> normalize_path workspace
   in
   let resolved =
     if Filename.is_relative path then Filename.concat workspace path
     else path
   in
+  (* Try realpath first (works for existing files/dirs), fall back to normalization *)
   let real_path =
-    try Unix.realpath resolved with Unix.Unix_error _ -> resolved
+    try Unix.realpath resolved
+    with Unix.Unix_error _ ->
+      (* For non-existent files, try resolving the parent directory *)
+      let dir = Filename.dirname resolved in
+      let base = Filename.basename resolved in
+      let real_dir =
+        try Unix.realpath dir
+        with Unix.Unix_error _ -> normalize_path dir
+      in
+      Filename.concat real_dir base
   in
-  let ws_len = String.length real_workspace in
-  String.length real_path >= ws_len
-  && String.sub real_path 0 ws_len = real_workspace
-  && (String.length real_path = ws_len
-      || real_workspace = "/"
-      || real_path.[ws_len] = '/')
+  let wlen = String.length real_workspace in
+  String.length real_path >= wlen
+  && String.sub real_path 0 wlen = real_workspace
+  &&
+  (String.length real_path = wlen
+   || real_path.[wlen] = '/')
 
-let shell_exec ~workspace_only ~workspace =
+let default_shell_allowlist = [
+  "ls"; "cat"; "head"; "tail"; "grep"; "find"; "wc"; "sort"; "uniq";
+  "echo"; "pwd"; "date"; "whoami"; "which"; "file"; "stat";
+  "diff"; "patch"; "mkdir"; "touch";
+  "git"; "make"; "dune"; "opam"; "npm"; "yarn";
+  "jq"; "sed"; "awk"; "tr"; "cut"; "tee";
+  "tar"; "zip"; "unzip"; "gzip"; "gunzip";
+]
+
+let extract_command cmd =
+  let trimmed = String.trim cmd in
+  (* Skip leading env vars like VAR=value *)
+  let parts = String.split_on_char ' ' trimmed in
+  let rec find_cmd = function
+    | [] -> ""
+    | part :: rest ->
+      if String.contains part '=' && not (String.contains part '/') then
+        find_cmd rest
+      else
+        (* Handle paths like /usr/bin/ls -> ls *)
+        Filename.basename part
+  in
+  find_cmd parts
+
+let is_command_allowed ~allowed_commands cmd =
+  let base_cmd = extract_command cmd in
+  base_cmd <> "" && List.mem base_cmd allowed_commands
+
+let has_unsafe_shell_syntax cmd =
+  let has_char c = String.contains cmd c in
+  has_char ';' || has_char '|' || has_char '&' || has_char '>'
+  || has_char '<' || has_char '`' || has_char '\n' || has_char '\r'
+  ||
+  let len = String.length cmd in
+  let rec has_dollar_paren i =
+    if i + 1 >= len then false
+    else if cmd.[i] = '$' && cmd.[i + 1] = '(' then true
+    else has_dollar_paren (i + 1)
+  in
+  has_dollar_paren 0
+
+let split_command_words cmd =
+  let len = String.length cmd in
+  let buf = Buffer.create len in
+  let words = ref [] in
+  let push_word () =
+    if Buffer.length buf > 0 then begin
+      words := Buffer.contents buf :: !words;
+      Buffer.clear buf
+    end
+  in
+  let rec parse i quote =
+    if i >= len then
+      match quote with
+      | Some _ -> Error "unterminated quote in command"
+      | None ->
+        push_word ();
+        Ok (List.rev !words)
+    else
+      let c = cmd.[i] in
+      match quote with
+      | None ->
+        if c = ' ' || c = '\t' then begin
+          push_word ();
+          parse (i + 1) None
+        end else if c = '\'' || c = '"' then
+          parse (i + 1) (Some c)
+        else if c = '\\' && i + 1 < len then begin
+          Buffer.add_char buf cmd.[i + 1];
+          parse (i + 2) None
+        end else begin
+          Buffer.add_char buf c;
+          parse (i + 1) None
+        end
+      | Some q ->
+        if c = q then
+          parse (i + 1) None
+        else if c = '\\' && q = '"' && i + 1 < len then begin
+          Buffer.add_char buf cmd.[i + 1];
+          parse (i + 2) (Some q)
+        end else begin
+          Buffer.add_char buf c;
+          parse (i + 1) (Some q)
+        end
+  in
+  parse 0 None
+
+let contains_substr s sub =
+  let slen = String.length s in
+  let nlen = String.length sub in
+  let rec loop i =
+    if i + nlen > slen then false
+    else if String.sub s i nlen = sub then true
+    else loop (i + 1)
+  in
+  nlen = 0 || loop 0
+
+let is_workspace_safe_arg arg =
+  let a = String.trim arg in
+  let a =
+    if String.length a > 0 && a.[0] = '-' then
+      match String.index_opt a '=' with
+      | Some i when i + 1 < String.length a ->
+        String.sub a (i + 1) (String.length a - i - 1)
+      | _ -> ""
+    else
+      a
+  in
+  if a = "" then true
+  else
+  let len = String.length a in
+  not
+    ( (len > 0 && (a.[0] = '/' || a.[0] = '~'))
+      || contains_substr a ".."
+      || contains_substr a "://" )
+
+let has_workspace_unsafe_args argv =
+  match argv with
+  | [] -> true
+  | cmd :: args ->
+    let unsafe_args = List.exists (fun arg -> not (is_workspace_safe_arg arg)) args in
+    let git_unsafe =
+      if cmd = "git" then
+        match args with
+        | subcmd :: _ ->
+          let allowed_subcommands =
+            [ "status"; "log"; "diff"; "show"; "branch"; "rev-parse"; "ls-files" ]
+          in
+          (not (List.mem subcmd allowed_subcommands))
+          || List.exists
+               (fun a -> contains_substr a "://" || contains_substr a "@")
+               args
+        | [] -> true
+      else false
+    in
+    unsafe_args || git_unsafe
+
+let is_workspace_safe_command_token token =
+  let t = String.trim token in
+  t <> ""
+  && not (String.contains t '/')
+  && not (contains_substr t "..")
+
+let shell_exec ~workspace_only ~allowed_commands =
   let description =
     if workspace_only then
       "Execute a shell command from the workspace directory and return stdout and stderr"
@@ -50,6 +217,11 @@ let shell_exec ~workspace_only ~workspace =
           with _ -> ""
         in
         if command = "" then Lwt.return "Error: command is required"
+        else if workspace_only && has_unsafe_shell_syntax command then
+          Lwt.return "Error: command contains unsafe shell syntax in workspace_only mode"
+        else if workspace_only && not (is_command_allowed ~allowed_commands command) then
+          Lwt.return (Printf.sprintf "Error: command '%s' is not in the allowlist. Allowed: %s"
+            (extract_command command) (String.concat ", " allowed_commands))
         else
           let open Lwt.Syntax in
           let env =
@@ -59,37 +231,47 @@ let shell_exec ~workspace_only ~workspace =
             else
               Unix.environment ()
           in
-          let cwd = if workspace_only then Some workspace else None in
-          let cmd = ("", [| "/bin/sh"; "-c"; command |]) in
-          let proc =
-            Lwt_process.open_process_full ?cwd ~env cmd
-          in
-          let timeout = Lwt_unix.sleep 30.0 in
-          let* result =
-            Lwt.pick
-              [
-                (let* stdout = Lwt_io.read proc#stdout in
-                 let* stderr = Lwt_io.read proc#stderr in
-                 let* status = proc#close in
-                 let exit_code =
-                   match status with
-                   | Unix.WEXITED n -> n
-                   | Unix.WSIGNALED n -> 128 + n
-                   | Unix.WSTOPPED n -> 128 + n
-                 in
-                 Lwt.return
-                   (Printf.sprintf "exit_code: %d\nstdout:\n%s\nstderr:\n%s"
-                      exit_code stdout stderr));
-                (let* () = timeout in
-                 proc#kill Sys.sigkill;
-                 Lwt.return "Error: command timed out after 30 seconds");
-              ]
-          in
-          Lwt.return result);
+          let cwd = if workspace_only then Some (Sys.getcwd ()) else None in
+          match split_command_words command with
+          | Error msg -> Lwt.return ("Error: " ^ msg)
+          | Ok argv ->
+            (match argv with
+             | [] -> Lwt.return "Error: command is required"
+             | cmd :: _ when workspace_only && not (is_workspace_safe_command_token cmd) ->
+               Lwt.return "Error: command binary path is disallowed in workspace_only mode"
+             | _ when workspace_only && has_workspace_unsafe_args argv ->
+               Lwt.return "Error: command contains paths/targets disallowed in workspace_only mode"
+             | _ ->
+               let cmd = ("", Array.of_list argv) in
+               let proc =
+                 Lwt_process.open_process_full ?cwd ~env cmd
+               in
+               let timeout = Lwt_unix.sleep 30.0 in
+               let* result =
+                 Lwt.pick
+                   [
+                     (let* stdout = Lwt_io.read proc#stdout in
+                      let* stderr = Lwt_io.read proc#stderr in
+                      let* status = proc#close in
+                      let exit_code =
+                        match status with
+                        | Unix.WEXITED n -> n
+                        | Unix.WSIGNALED n -> 128 + n
+                        | Unix.WSTOPPED n -> 128 + n
+                      in
+                      Lwt.return
+                        (Printf.sprintf "exit_code: %d\nstdout:\n%s\nstderr:\n%s"
+                           exit_code stdout stderr));
+                     (let* () = timeout in
+                      proc#kill Sys.sigkill;
+                      Lwt.return "Error: command timed out after 30 seconds");
+                   ]
+               in
+               Lwt.return result));
     risk_level = High;
   }
 
-let file_read ~workspace_only ~workspace =
+let file_read ~workspace_only =
   {
     Tool.name = "file_read";
     description = "Read the contents of a file";
@@ -116,7 +298,7 @@ let file_read ~workspace_only ~workspace =
           try args |> member "path" |> to_string with _ -> ""
         in
         if path = "" then Lwt.return "Error: path is required"
-        else if workspace_only && not (is_path_safe ~workspace path) then
+        else if workspace_only && not (is_path_safe ~workspace:(Sys.getcwd ()) path) then
           Lwt.return "Error: path is outside workspace"
         else
           Lwt.catch
@@ -128,7 +310,7 @@ let file_read ~workspace_only ~workspace =
     risk_level = Low;
   }
 
-let file_write ~workspace_only ~workspace =
+let file_write ~workspace_only =
   {
     Tool.name = "file_write";
     description = "Write content to a file";
@@ -164,7 +346,7 @@ let file_write ~workspace_only ~workspace =
           try args |> member "content" |> to_string with _ -> ""
         in
         if path = "" then Lwt.return "Error: path is required"
-        else if workspace_only && not (is_path_safe ~workspace path) then
+        else if workspace_only && not (is_path_safe ~workspace:(Sys.getcwd ()) path) then
           Lwt.return "Error: path is outside workspace"
         else
           Lwt.catch
@@ -179,18 +361,101 @@ let file_write ~workspace_only ~workspace =
     risk_level = Medium;
   }
 
+let file_edit ~workspace_only =
+  {
+    Tool.name = "file_edit";
+    description = "Edit a file by replacing the first occurrence of old_text with new_text";
+    parameters_schema =
+      `Assoc
+        [
+          ("type", `String "object");
+          ( "properties",
+            `Assoc
+              [
+                ( "path",
+                  `Assoc
+                    [
+                      ("type", `String "string");
+                      ("description", `String "Path to the file to edit");
+                    ] );
+                ( "old_text",
+                  `Assoc
+                    [
+                      ("type", `String "string");
+                      ("description", `String "Text to find and replace");
+                    ] );
+                ( "new_text",
+                  `Assoc
+                    [
+                      ("type", `String "string");
+                      ("description", `String "Replacement text");
+                    ] );
+              ] );
+          ("required", `List [ `String "path"; `String "old_text"; `String "new_text" ]);
+        ];
+    invoke =
+      (fun args ->
+        let open Yojson.Safe.Util in
+        let path = try args |> member "path" |> to_string with _ -> "" in
+        let old_text = try args |> member "old_text" |> to_string with _ -> "" in
+        let new_text = try args |> member "new_text" |> to_string with _ -> "" in
+        if path = "" then Lwt.return "Error: path is required"
+        else if old_text = "" then Lwt.return "Error: old_text is required"
+        else if workspace_only && not (is_path_safe ~workspace:(Sys.getcwd ()) path) then
+          Lwt.return "Error: path is outside workspace"
+        else
+          Lwt.catch
+            (fun () ->
+              let open Lwt.Syntax in
+              let* content = Lwt_io.with_file ~mode:Lwt_io.Input path Lwt_io.read in
+              let idx =
+                let ol = String.length old_text in
+                let cl = String.length content in
+                let rec find i =
+                  if i + ol > cl then -1
+                  else if String.sub content i ol = old_text then i
+                  else find (i + 1)
+                in
+                find 0
+              in
+              if idx < 0 then
+                Lwt.return "Error: old_text not found in file"
+              else
+                let before = String.sub content 0 idx in
+                let after = String.sub content (idx + String.length old_text)
+                  (String.length content - idx - String.length old_text) in
+                let new_content = before ^ new_text ^ after in
+                let* () =
+                  Lwt_io.with_file ~mode:Lwt_io.Output path (fun oc ->
+                    Lwt_io.write oc new_content)
+                in
+                Lwt.return (Printf.sprintf "Edited %s: replaced %d chars with %d chars"
+                  path (String.length old_text) (String.length new_text)))
+            (fun exn -> Lwt.return ("Error: " ^ Printexc.to_string exn)));
+    risk_level = Medium;
+  }
+
 let is_localhost_url url =
-  let url_lower = String.lowercase_ascii url in
-  let starts_with prefix s =
-    String.length s >= String.length prefix
-    && String.sub s 0 (String.length prefix) = prefix
+  let is_loopback_host host =
+    let host = String.lowercase_ascii host in
+    host = "localhost" || host = "127.0.0.1" || host = "::1"
   in
-  starts_with "http://localhost" url_lower
-  || starts_with "http://127.0.0.1" url_lower
-  || starts_with "http://[::1]" url_lower
-  || starts_with "https://localhost" url_lower
-  || starts_with "https://127.0.0.1" url_lower
-  || starts_with "https://[::1]" url_lower
+  let has_http_scheme uri =
+    match Uri.scheme uri with
+    | Some scheme ->
+      let scheme = String.lowercase_ascii scheme in
+      scheme = "http" || scheme = "https"
+    | None -> false
+  in
+  try
+    let uri = Uri.of_string url in
+    has_http_scheme uri
+    && Uri.userinfo uri = None
+    &&
+    match Uri.host uri with
+    | Some host -> is_loopback_host host
+    | None -> false
+  with _ -> false
 
 let http_get ~workspace_only =
   let description =
@@ -268,6 +533,9 @@ let transcribe ~(config : Runtime_config.t) =
           try args |> member "file_path" |> to_string with _ -> ""
         in
         if file_path = "" then Lwt.return "Error: file_path is required"
+        else if config.security.workspace_only
+                && not (is_path_safe ~workspace:(Sys.getcwd ()) file_path) then
+          Lwt.return "Error: file_path is outside workspace"
         else
           Lwt.catch
             (fun () ->
@@ -288,120 +556,12 @@ let transcribe ~(config : Runtime_config.t) =
     risk_level = Low;
   }
 
-let call_zai_mcp ~api_key ~endpoint ~tool_name ~arguments =
-  let body =
-    `Assoc [
-      ("jsonrpc", `String "2.0");
-      ("method",  `String "tools/call");
-      ("id",      `Int 1);
-      ("params",  `Assoc [
-        ("name",      `String tool_name);
-        ("arguments", arguments);
-      ]);
-    ] |> Yojson.Safe.to_string
-  in
-  let headers = [
-    ("Authorization", "Bearer " ^ api_key);
-  ] in
-  Http_client.post_json ~uri:endpoint ~headers ~body
-
-let make_web_search_tool api_key =
-  {
-    Tool.name = "zai_web_search";
-    description = "Search the web using Z.AI web search service";
-    parameters_schema =
-      `Assoc [
-        ("type", `String "object");
-        ("properties", `Assoc [
-          ("query", `Assoc [
-            ("type", `String "string");
-            ("description", `String "Search query");
-          ]);
-        ]);
-        ("required", `List [ `String "query" ]);
-      ];
-    invoke =
-      (fun args ->
-        let open Yojson.Safe.Util in
-        let query =
-          try args |> member "query" |> to_string with _ -> ""
-        in
-        if query = "" then Lwt.return "Error: query is required"
-        else
-          Lwt.catch
-            (fun () ->
-              let open Lwt.Syntax in
-              let arguments = `Assoc [ ("query", `String query) ] in
-              let* _status, body =
-                call_zai_mcp ~api_key
-                  ~endpoint:"https://api.z.ai/api/mcp/web_search_prime/mcp"
-                  ~tool_name:"webSearchPrime"
-                  ~arguments
-              in
-              Lwt.return body)
-            (fun exn -> Lwt.return ("Error: " ^ Printexc.to_string exn)));
-    risk_level = Low;
-  }
-
-let make_web_reader_tool api_key =
-  {
-    Tool.name = "zai_web_reader";
-    description = "Read the content of a web page using Z.AI web reader service";
-    parameters_schema =
-      `Assoc [
-        ("type", `String "object");
-        ("properties", `Assoc [
-          ("url", `Assoc [
-            ("type", `String "string");
-            ("description", `String "URL of the web page to read");
-          ]);
-        ]);
-        ("required", `List [ `String "url" ]);
-      ];
-    invoke =
-      (fun args ->
-        let open Yojson.Safe.Util in
-        let url =
-          try args |> member "url" |> to_string with _ -> ""
-        in
-        if url = "" then Lwt.return "Error: url is required"
-        else
-          Lwt.catch
-            (fun () ->
-              let open Lwt.Syntax in
-              let arguments = `Assoc [ ("url", `String url) ] in
-              let* _status, body =
-                call_zai_mcp ~api_key
-                  ~endpoint:"https://api.z.ai/api/mcp/web_reader/mcp"
-                  ~tool_name:"webReader"
-                  ~arguments
-              in
-              Lwt.return body)
-            (fun exn -> Lwt.return ("Error: " ^ Printexc.to_string exn)));
-    risk_level = Low;
-  }
-
 let register_all ~(config : Runtime_config.t) registry =
   let workspace_only = config.security.workspace_only in
-  let workspace = Runtime_config.effective_workspace config in
-  Tool_registry.register registry (shell_exec ~workspace_only ~workspace);
-  Tool_registry.register registry (file_read ~workspace_only ~workspace);
-  Tool_registry.register registry (file_write ~workspace_only ~workspace);
+  Tool_registry.register registry (shell_exec ~workspace_only ~allowed_commands:default_shell_allowlist);
+  Tool_registry.register registry (file_read ~workspace_only);
+  Tool_registry.register registry (file_write ~workspace_only);
+  Tool_registry.register registry (file_edit ~workspace_only);
   Tool_registry.register registry (http_get ~workspace_only);
   if config.stt <> None then
-    Tool_registry.register registry (transcribe ~config);
-  let zai_api_key =
-    match List.assoc_opt "zai_coding" config.providers with
-    | Some p when Runtime_config.is_key_set p.api_key -> Some p.api_key
-    | _ ->
-      (match List.assoc_opt "zai" config.providers with
-       | Some p when Runtime_config.is_key_set p.api_key -> Some p.api_key
-       | _ -> None)
-  in
-  (match config.zai_mcp, zai_api_key with
-   | Some mcp, Some key ->
-     if mcp.web_search_enabled then
-       Tool_registry.register registry (make_web_search_tool key);
-     if mcp.web_reader_enabled then
-       Tool_registry.register registry (make_web_reader_tool key)
-   | _ -> ())
+    Tool_registry.register registry (transcribe ~config)

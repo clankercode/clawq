@@ -72,7 +72,13 @@ let convert (json : Yojson.Safe.t) =
         with _ -> default.gateway.port in
       let require_pairing = try gw |> member "require_pairing" |> to_bool
         with _ -> default.gateway.require_pairing in
-      ({ host; port; require_pairing } : Runtime_config.gateway_config)
+      let auth_token =
+        try
+          let v = gw |> member "auth_token" |> to_string in
+          if String.trim v = "" then None else Some v
+        with _ -> default.gateway.auth_token
+      in
+      ({ host; port; require_pairing; auth_token } : Runtime_config.gateway_config)
     with _ -> default.gateway
   in
   let memory_backend =
@@ -102,18 +108,23 @@ let convert (json : Yojson.Safe.t) =
     agent_defaults = {
       default.agent_defaults with
       primary_model;
-      model_priority = [ { Runtime_config.provider = None; model = primary_model } ];
     };
     prompt = default.prompt;
     channels;
     gateway;
-    memory = { backend = memory_backend; search_enabled; db_path = "" };
+    runtime = default.runtime;
+    tunnel = default.tunnel;
+    memory = { backend = memory_backend; search_enabled; db_path = "";
+               vector_weight = default.memory.vector_weight;
+               keyword_weight = default.memory.keyword_weight;
+               embedding_model = default.memory.embedding_model;
+               embedding_provider = default.memory.embedding_provider };
     security = { workspace_only; audit_enabled;
                  tools_enabled = default.security.tools_enabled;
                  encrypt_secrets = default.security.encrypt_secrets };
     stt = None;
-    zai_mcp = default.zai_mcp;
-    tunnel = default.tunnel;
+    mcp = default.mcp;
+    resilience = default.resilience;
   } in
   (config, List.rev !warnings)
 
@@ -170,11 +181,7 @@ let cmd_migrate args =
     find args
   in
   let path = match source_path with
-    | Some p -> if Sys.file_exists p then Some p
-      else begin
-        Printf.sprintf "Source file not found: %s" p |> ignore;
-        None
-      end
+    | Some p -> if Sys.file_exists p then Some p else None
     | None -> find_nullclaw_config ()
   in
   match path with

@@ -59,16 +59,18 @@ let parse_interval s =
     | Some n, 'd' -> Ok (Interval (float_of_int n *. 86400.0))
     | _ -> Error ("invalid interval: " ^ s)
 
-let parse_cron_field field =
+let parse_cron_field ~min_v ~max_v field =
+  let in_range n = n >= min_v && n <= max_v in
   if field = "*" then Ok []
   else if String.length field > 2 && String.sub field 0 2 = "*/" then
     match int_of_string_opt (String.sub field 2 (String.length field - 2)) with
-    | Some step -> Ok [ -step ]
+    | Some step when step > 0 -> Ok [ -step ]
+    | Some _ -> Error ("invalid cron step: " ^ field)
     | None -> Error ("invalid cron step: " ^ field)
   else
     let parts = String.split_on_char ',' field in
     let nums = List.filter_map int_of_string_opt parts in
-    if List.length nums = List.length parts then Ok nums
+    if List.length nums = List.length parts && List.for_all in_range nums then Ok nums
     else Error ("invalid cron field: " ^ field)
 
 let parse_schedule s =
@@ -79,9 +81,11 @@ let parse_schedule s =
     let parts = String.split_on_char ' ' s |> List.filter (fun p -> p <> "") in
     match parts with
     | [ min; hr; dom; mon; dow ] ->
-      (match parse_cron_field min, parse_cron_field hr,
-             parse_cron_field dom, parse_cron_field mon,
-             parse_cron_field dow with
+       (match parse_cron_field ~min_v:0 ~max_v:59 min,
+              parse_cron_field ~min_v:0 ~max_v:23 hr,
+              parse_cron_field ~min_v:1 ~max_v:31 dom,
+              parse_cron_field ~min_v:1 ~max_v:12 mon,
+              parse_cron_field ~min_v:0 ~max_v:6 dow with
        | Ok minute, Ok hour, Ok dom_l, Ok month, Ok dow_l ->
          Ok (CronExpr { minute; hour; dom = dom_l; month; dow = dow_l })
        | Error e, _, _, _, _ | _, Error e, _, _, _
@@ -218,16 +222,14 @@ let prune_runs ~db ~job_name ~keep =
   ignore (Sqlite3.finalize stmt)
 
 let get_last_run_time ~db ~job_name =
-  let sql = "SELECT started_at FROM cron_runs WHERE job_name = ? \
+  let sql = "SELECT CAST(strftime('%s', started_at) AS INTEGER) FROM cron_runs WHERE job_name = ? \
              ORDER BY id DESC LIMIT 1" in
   let stmt = Sqlite3.prepare db sql in
   ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT job_name));
   let result =
     if Sqlite3.step stmt = Sqlite3.Rc.ROW then
       match Sqlite3.column stmt 0 with
-      | Sqlite3.Data.TEXT _s ->
-        (* approximate: use current time minus 1 second as fallback *)
-        Some (Unix.gettimeofday () -. 1.0)
+      | Sqlite3.Data.INT ts -> Some (Int64.to_float ts)
       | _ -> None
     else None
   in

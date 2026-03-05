@@ -1,7 +1,24 @@
 let json_headers =
   Cohttp.Header.of_list [ ("Content-Type", "application/json") ]
 
-let handler ~session_manager _conn req body =
+let auth_ok ~auth_token req =
+  match auth_token with
+  | None -> true
+  | Some token ->
+    let headers = Cohttp.Request.headers req in
+    let bearer =
+      match Cohttp.Header.get headers "authorization" with
+      | Some v -> String.trim v = ("Bearer " ^ token)
+      | None -> false
+    in
+    let api_key =
+      match Cohttp.Header.get headers "x-api-key" with
+      | Some v -> String.trim v = token
+      | None -> false
+    in
+    bearer || api_key
+
+let handler ~session_manager ~require_pairing ~auth_token _conn req body =
   let open Lwt.Syntax in
   let uri = Cohttp.Request.uri req in
   let path = Uri.path uri in
@@ -11,7 +28,18 @@ let handler ~session_manager _conn req body =
     let* _ = Cohttp_lwt.Body.drain_body body in
     Cohttp_lwt_unix.Server.respond_string ~status:`OK ~headers:json_headers
       ~body:{|{"status":"ok"}|} ()
-  | `POST, "/chat" -> (
+  | `POST, "/chat" ->
+    if require_pairing then
+      let* _ = Cohttp_lwt.Body.drain_body body in
+      Cohttp_lwt_unix.Server.respond_string ~status:`Forbidden
+        ~headers:json_headers
+        ~body:{|{"error":"pairing required; web chat is disabled until pairing flow is enabled"}|} ()
+    else if not (auth_ok ~auth_token req) then
+      let* _ = Cohttp_lwt.Body.drain_body body in
+      Cohttp_lwt_unix.Server.respond_string ~status:`Unauthorized
+        ~headers:json_headers
+        ~body:{|{"error":"unauthorized"}|} ()
+    else (
     let* body_str = Cohttp_lwt.Body.to_string body in
     let json =
       try Ok (Yojson.Safe.from_string body_str)
@@ -21,16 +49,20 @@ let handler ~session_manager _conn req body =
     | Error msg ->
       Cohttp_lwt_unix.Server.respond_string ~status:`Bad_request
         ~headers:json_headers
-        ~body:(Printf.sprintf {|{"error":"invalid JSON: %s"}|} msg) ()
+        ~body:(Yojson.Safe.to_string (`Assoc [("error", `String ("invalid JSON: " ^ msg))])) ()
     | Ok json ->
       let open Yojson.Safe.Util in
       let session_id =
-        try json |> member "session_id" |> to_string with _ -> "default"
+        try json |> member "session_id" |> to_string with _ -> ""
       in
       let message =
         try json |> member "message" |> to_string with _ -> ""
       in
-      if message = "" then
+      if session_id = "" then
+        Cohttp_lwt_unix.Server.respond_string ~status:`Bad_request
+          ~headers:json_headers
+          ~body:{|{"error":"session_id is required"}|} ()
+      else if message = "" then
         Cohttp_lwt_unix.Server.respond_string ~status:`Bad_request
           ~headers:json_headers
           ~body:{|{"error":"message is required"}|} ()
@@ -54,9 +86,19 @@ let handler ~session_manager _conn req body =
         | Error err ->
           Cohttp_lwt_unix.Server.respond_string
             ~status:`Internal_server_error ~headers:json_headers
-            ~body:(Printf.sprintf {|{"error":"%s"}|}
-              (String.map (fun c -> if c = '"' then '\'' else c) err)) ())
-  | `POST, "/chat/stream" -> (
+            ~body:(Yojson.Safe.to_string (`Assoc [("error", `String err)])) ())
+  | `POST, "/chat/stream" ->
+    if require_pairing then
+      let* _ = Cohttp_lwt.Body.drain_body body in
+      Cohttp_lwt_unix.Server.respond_string ~status:`Forbidden
+        ~headers:json_headers
+        ~body:{|{"error":"pairing required; web chat is disabled until pairing flow is enabled"}|} ()
+    else if not (auth_ok ~auth_token req) then
+      let* _ = Cohttp_lwt.Body.drain_body body in
+      Cohttp_lwt_unix.Server.respond_string ~status:`Unauthorized
+        ~headers:json_headers
+        ~body:{|{"error":"unauthorized"}|} ()
+    else (
     let* body_str = Cohttp_lwt.Body.to_string body in
     let json =
       try Ok (Yojson.Safe.from_string body_str)
@@ -66,16 +108,20 @@ let handler ~session_manager _conn req body =
     | Error msg ->
       Cohttp_lwt_unix.Server.respond_string ~status:`Bad_request
         ~headers:json_headers
-        ~body:(Printf.sprintf {|{"error":"invalid JSON: %s"}|} msg) ()
+        ~body:(Yojson.Safe.to_string (`Assoc [("error", `String ("invalid JSON: " ^ msg))])) ()
     | Ok json ->
       let open Yojson.Safe.Util in
       let session_id =
-        try json |> member "session_id" |> to_string with _ -> "default"
+        try json |> member "session_id" |> to_string with _ -> ""
       in
       let message =
         try json |> member "message" |> to_string with _ -> ""
       in
-      if message = "" then
+      if session_id = "" then
+        Cohttp_lwt_unix.Server.respond_string ~status:`Bad_request
+          ~headers:json_headers
+          ~body:{|{"error":"session_id is required"}|} ()
+      else if message = "" then
         Cohttp_lwt_unix.Server.respond_string ~status:`Bad_request
           ~headers:json_headers
           ~body:{|{"error":"message is required"}|} ()
@@ -123,9 +169,9 @@ let handler ~session_manager _conn req body =
     Cohttp_lwt_unix.Server.respond_string ~status:`Not_found
       ~headers:json_headers ~body:{|{"error":"not found"}|} ()
 
-let start ~port ~host ~session_manager =
+let start ~port ~host ~require_pairing ~auth_token ~session_manager =
   let open Lwt.Syntax in
-  let callback = handler ~session_manager in
+  let callback = handler ~session_manager ~require_pairing ~auth_token in
   let* ctx = Conduit_lwt_unix.init ~src:host () in
   let ctx = Cohttp_lwt_unix.Net.init ~ctx () in
   Cohttp_lwt_unix.Server.create ~ctx ~mode:(`TCP (`Port port))

@@ -35,7 +35,10 @@ let risk_level_of_string = function
   | "medium" -> Tool.Medium
   | _ -> Tool.Low
 
-let load_skill path =
+let load_skill
+    ?(workspace_only = true)
+    ?(allowed_commands = Tools_builtin.default_shell_allowlist)
+    path =
   try
     let json = Yojson.Safe.from_file path in
     let open Yojson.Safe.Util in
@@ -56,26 +59,54 @@ let load_skill path =
       parameters_schema;
       invoke = (fun args ->
         let cmd = substitute_template command args in
-        let open Lwt.Syntax in
-        let proc = Lwt_process.open_process_full
-            ("", [| "/bin/sh"; "-c"; cmd |]) in
-        let timeout = Lwt_unix.sleep 30.0 in
-        let* result = Lwt.pick [
-          (let* stdout = Lwt_io.read proc#stdout in
-           let* stderr = Lwt_io.read proc#stderr in
-           let* status = proc#close in
-           let exit_code = match status with
-             | Unix.WEXITED n -> n
-             | Unix.WSIGNALED n -> 128 + n
-             | Unix.WSTOPPED n -> 128 + n
-           in
-           Lwt.return (Printf.sprintf "exit_code: %d\nstdout:\n%s\nstderr:\n%s"
-                         exit_code stdout stderr));
-          (let* () = timeout in
-           proc#kill Sys.sigkill;
-           Lwt.return "Error: skill command timed out after 30 seconds");
-        ] in
-        Lwt.return result);
+        if workspace_only && Tools_builtin.has_unsafe_shell_syntax cmd then
+          Lwt.return "Error: skill command contains unsafe shell syntax in workspace_only mode"
+        else if workspace_only
+                && not (Tools_builtin.is_command_allowed ~allowed_commands cmd) then
+          Lwt.return
+            (Printf.sprintf "Error: skill command '%s' is not in the allowlist"
+               (Tools_builtin.extract_command cmd))
+        else
+          match Tools_builtin.split_command_words cmd with
+          | Error msg -> Lwt.return ("Error: " ^ msg)
+          | Ok argv ->
+            (match argv with
+             | [] -> Lwt.return "Error: skill command is empty"
+             | cmd :: _ when workspace_only && not (Tools_builtin.is_workspace_safe_command_token cmd) ->
+               Lwt.return "Error: skill command binary path is disallowed in workspace_only mode"
+             | _ when workspace_only && Tools_builtin.has_workspace_unsafe_args argv ->
+               Lwt.return "Error: skill command contains paths/targets disallowed in workspace_only mode"
+             | _ ->
+               let open Lwt.Syntax in
+               let env =
+                 if workspace_only then
+                   [|
+                     "HOME=" ^ (try Sys.getenv "HOME" with Not_found -> "/tmp");
+                     "PATH=" ^ (try Sys.getenv "PATH" with Not_found -> "/usr/bin:/bin");
+                   |]
+                 else
+                   Unix.environment ()
+               in
+               let cwd = if workspace_only then Some (Sys.getcwd ()) else None in
+               let proc = Lwt_process.open_process_full
+                   ?cwd ~env ("", Array.of_list argv) in
+               let timeout = Lwt_unix.sleep 30.0 in
+               let* result = Lwt.pick [
+                 (let* stdout = Lwt_io.read proc#stdout in
+                  let* stderr = Lwt_io.read proc#stderr in
+                  let* status = proc#close in
+                  let exit_code = match status with
+                    | Unix.WEXITED n -> n
+                    | Unix.WSIGNALED n -> 128 + n
+                    | Unix.WSTOPPED n -> 128 + n
+                  in
+                  Lwt.return (Printf.sprintf "exit_code: %d\nstdout:\n%s\nstderr:\n%s"
+                                exit_code stdout stderr));
+                 (let* () = timeout in
+                  proc#kill Sys.sigkill;
+                  Lwt.return "Error: skill command timed out after 30 seconds");
+               ] in
+               Lwt.return result));
       risk_level;
     } in
     Some tool
@@ -84,12 +115,17 @@ let load_skill path =
                   path (Printexc.to_string exn));
     None
 
-let load_all ?(dir = skills_dir ()) () =
+let load_all
+    ?(dir = skills_dir ())
+    ?(workspace_only = true)
+    ?(allowed_commands = Tools_builtin.default_shell_allowlist)
+    () =
   if Sys.file_exists dir && Sys.is_directory dir then
     let files = Sys.readdir dir in
     Array.to_list files
     |> List.filter (fun f -> Filename.check_suffix f ".json")
-    |> List.filter_map (fun f -> load_skill (Filename.concat dir f))
+    |> List.filter_map (fun f ->
+           load_skill ~workspace_only ~allowed_commands (Filename.concat dir f))
   else
     []
 
@@ -132,7 +168,7 @@ let create_example () =
       }
     }
   },
-  "command": "cd {{path}} && git status",
+  "command": "git -C {{path}} status",
   "risk_level": "low"
 }|} in
     let oc = open_out path in

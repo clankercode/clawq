@@ -90,6 +90,78 @@ let test_risk_level_parsing () =
   Alcotest.(check bool) "low" true (Skills.risk_level_of_string "low" = Tool.Low);
   Alcotest.(check bool) "unknown" true (Skills.risk_level_of_string "xyz" = Tool.Low)
 
+let test_skill_invoke_workspace_policy_blocked () =
+  let tmp = Filename.temp_file "skill_policy" ".json" in
+  let json = {|{
+    "name": "policy_test",
+    "description": "Policy test",
+    "parameters": {"type": "object", "properties": {}},
+    "command": "echo ok && whoami",
+    "risk_level": "low"
+  }|} in
+  let oc = open_out tmp in
+  output_string oc json;
+  close_out oc;
+  (match Skills.load_skill ~workspace_only:true tmp with
+   | None -> Alcotest.fail "failed to load skill"
+   | Some tool ->
+     let out = Lwt_main.run (tool.invoke (`Assoc [])) in
+     Alcotest.(check bool) "blocked" true
+       (try
+          let re = Str.regexp_string "unsafe shell syntax" in
+          ignore (Str.search_forward re out 0);
+          true
+        with Not_found -> false));
+  Sys.remove tmp
+
+let test_skill_invoke_workspace_path_blocked () =
+  let tmp = Filename.temp_file "skill_path_policy" ".json" in
+  let json = {|{
+    "name": "path_policy_test",
+    "description": "Path policy test",
+    "parameters": {"type": "object", "properties": {}},
+    "command": "cat /etc/passwd",
+    "risk_level": "low"
+  }|} in
+  let oc = open_out tmp in
+  output_string oc json;
+  close_out oc;
+  (match Skills.load_skill ~workspace_only:true tmp with
+   | None -> Alcotest.fail "failed to load skill"
+   | Some tool ->
+     let out = Lwt_main.run (tool.invoke (`Assoc [])) in
+     Alcotest.(check bool) "blocked" true
+       (try
+          let re = Str.regexp_string "disallowed in workspace_only mode" in
+          ignore (Str.search_forward re out 0);
+          true
+        with Not_found -> false));
+  Sys.remove tmp
+
+let test_skill_invoke_workspace_binary_path_blocked () =
+  let tmp = Filename.temp_file "skill_bin_policy" ".json" in
+  let json = {|{
+    "name": "bin_policy_test",
+    "description": "Binary policy test",
+    "parameters": {"type": "object", "properties": {}},
+    "command": "./echo hi",
+    "risk_level": "low"
+  }|} in
+  let oc = open_out tmp in
+  output_string oc json;
+  close_out oc;
+  (match Skills.load_skill ~workspace_only:true tmp with
+   | None -> Alcotest.fail "failed to load skill"
+   | Some tool ->
+     let out = Lwt_main.run (tool.invoke (`Assoc [])) in
+     Alcotest.(check bool) "blocked" true
+       (try
+          let re = Str.regexp_string "binary path is disallowed" in
+          ignore (Str.search_forward re out 0);
+          true
+        with Not_found -> false));
+  Sys.remove tmp
+
 let suite =
   [
     Alcotest.test_case "template substitution" `Quick test_substitute_template;
@@ -101,4 +173,10 @@ let suite =
     Alcotest.test_case "load_all with skill" `Quick test_load_all_with_skill;
     Alcotest.test_case "list skills empty" `Quick test_list_skills_empty;
     Alcotest.test_case "risk level parsing" `Quick test_risk_level_parsing;
+    Alcotest.test_case "skill invoke workspace policy blocked" `Quick
+      test_skill_invoke_workspace_policy_blocked;
+    Alcotest.test_case "skill invoke workspace path blocked" `Quick
+      test_skill_invoke_workspace_path_blocked;
+    Alcotest.test_case "skill invoke workspace binary path blocked" `Quick
+      test_skill_invoke_workspace_binary_path_blocked;
   ]

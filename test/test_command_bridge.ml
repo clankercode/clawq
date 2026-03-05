@@ -128,17 +128,56 @@ let test_handle_audit () =
     "audit returns output" true
     (String.length result > 0)
 
-let test_parse_agent_workspace_override_ok () =
-  match Command_bridge.parse_agent_workspace_override [ "--workspace"; "/tmp/ws" ] with
-  | Ok (Some ws) -> Alcotest.(check string) "workspace parsed" "/tmp/ws" ws
-  | _ -> Alcotest.fail "expected workspace override to parse"
+let test_handle_tunnel_status () =
+  let result = Command_bridge.handle [ "tunnel"; "status" ] in
+  Alcotest.(check bool)
+    "tunnel status returns output" true
+    (String.length result > 0
+     &&
+     ((try
+         let re = Str.regexp_string "Tunnel provider" in
+         ignore (Str.search_forward re result 0);
+         true
+       with Not_found -> false)
+      ||
+      (try
+         let re = Str.regexp_string "Tunnel is disabled" in
+         ignore (Str.search_forward re result 0);
+         true
+        with Not_found -> false)))
 
-let test_parse_agent_workspace_override_invalid () =
-  match Command_bridge.parse_agent_workspace_override [ "--workspace" ] with
-  | Error usage ->
-    Alcotest.(check bool) "usage mentions agent" true
-      (String.length usage > 0)
-  | _ -> Alcotest.fail "expected usage error"
+let with_temp_home f =
+  let base = Filename.get_temp_dir_name () in
+  let dir = Filename.concat base ("clawq_home_" ^ string_of_int (Random.bits ())) in
+  Unix.mkdir dir 0o755;
+  let old_home = try Some (Sys.getenv "HOME") with Not_found -> None in
+  Unix.putenv "HOME" dir;
+  Fun.protect
+    (fun () -> f dir)
+    ~finally:(fun () ->
+      (match old_home with
+       | Some v -> Unix.putenv "HOME" v
+       | None -> Unix.putenv "HOME" "");
+      (try Unix.rmdir (Filename.concat dir ".clawq") with _ -> ());
+      (try Unix.rmdir dir with _ -> ()))
+
+let test_status_cleans_stale_daemon_state () =
+  with_temp_home (fun home ->
+      let clawq_dir = Filename.concat home ".clawq" in
+      Unix.mkdir clawq_dir 0o755;
+      let state_path = Filename.concat clawq_dir "daemon_state.json" in
+      let oc = open_out state_path in
+      output_string oc {|{"pid":999999}|};
+      close_out oc;
+      let result = Command_bridge.handle [ "status" ] in
+      let has_stale =
+        try
+          ignore (Str.search_forward (Str.regexp_string "stale state") result 0);
+          true
+        with Not_found -> false
+      in
+      Alcotest.(check bool) "reports stale state" true has_stale;
+      Alcotest.(check bool) "state file removed" false (Sys.file_exists state_path))
 
 let suite =
   [
@@ -163,8 +202,7 @@ let suite =
     Alcotest.test_case "handle skills" `Quick test_handle_skills;
     Alcotest.test_case "handle skills path" `Quick test_handle_skills_path;
     Alcotest.test_case "handle audit" `Quick test_handle_audit;
-    Alcotest.test_case "parse agent workspace override ok" `Quick
-      test_parse_agent_workspace_override_ok;
-    Alcotest.test_case "parse agent workspace override invalid" `Quick
-      test_parse_agent_workspace_override_invalid;
+    Alcotest.test_case "handle tunnel status" `Quick test_handle_tunnel_status;
+    Alcotest.test_case "status cleans stale daemon state" `Quick
+      test_status_cleans_stale_daemon_state;
   ]

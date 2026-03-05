@@ -16,9 +16,15 @@ depends: [
   "sqlite3"
   "lwt"
   "cohttp-lwt-unix"
+  "conduit-lwt-unix"
   "tls-lwt"
   "logs"
   "fmt"
+  "mirage-crypto"
+  "mirage-crypto-rng"
+  "kdf"
+  "digestif"
+  "base64"
   "alcotest" {with-test}
 ]
 build: [

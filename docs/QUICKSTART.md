@@ -176,6 +176,106 @@ curl http://127.0.0.1:3000/health
 # {"status":"ok"}
 ```
 
+## Advanced Features
+
+### Docker Deployment
+
+```bash
+# Build the Docker image
+make docker-build
+
+# Run clawq in Docker
+make docker-run
+
+# Or run directly with docker
+docker run -it --rm -p 3000:3000 \
+  -e CLAWQ_MASTER_KEY="your-passphrase" \
+  clawq:latest agent
+```
+
+### Secret Encryption
+
+To encrypt API keys at rest:
+
+1. Set `security.encrypt_secrets` to `true` in config
+2. Set the `CLAWQ_MASTER_KEY` environment variable with a strong passphrase
+3. Run `clawq auth encrypt` to encrypt all plaintext API keys in config
+4. Keys are encrypted with AES-256-GCM and stored as `$ENC:...` values
+5. At runtime, keys are automatically decrypted using the master key
+
+### Vector Search (Hybrid Memory)
+
+To enable semantic search alongside FTS keyword search:
+
+1. Set `memory.search_enabled` to `true`
+2. Configure an embedding provider:
+   ```json
+   "memory": {
+     "search_enabled": true,
+     "embedding_provider": "openai",
+     "embedding_model": "text-embedding-3-small",
+     "vector_weight": 50,
+     "keyword_weight": 50
+   }
+   ```
+3. Vector and keyword weights must sum to 100
+
+### Cloudflare Tunnel
+
+To expose your local clawq instance via a public URL:
+
+```bash
+# Requires cloudflared to be installed
+clawq tunnel start
+```
+
+This spawns a `cloudflared` process and prints the assigned `*.trycloudflare.com` URL.
+
+### Runtime Adapters
+
+```bash
+# Native runtime (default)
+clawq runtime native start
+clawq runtime native stop
+clawq runtime native health
+
+# Docker runtime
+clawq runtime docker start
+clawq runtime docker stop
+clawq runtime docker health
+
+# Check all runtime status
+clawq runtime status
+```
+
+### MCP Server Configuration
+
+The MCP server exposes tools over JSON-RPC via stdio. Configure it in config.json:
+
+```json
+"mcp": {
+  "enabled": true,
+  "exposed_tools": ["file_read", "file_write", "shell_exec"]
+}
+```
+
+- Set `enabled` to `false` to disable the MCP server entirely
+- Set `exposed_tools` to an array of tool names to restrict which tools are available
+- Omit `exposed_tools` to expose all registered tools
+
+### Resilience Configuration
+
+Configure timeout, retry, and fallback behavior for LLM calls:
+
+```json
+"resilience": {
+  "timeout_s": 120.0,
+  "max_retries": 2,
+  "base_delay_s": 1.0,
+  "fallback_provider": "groq"
+}
+```
+
 ## Troubleshooting
 
 **Bot doesn't respond:**

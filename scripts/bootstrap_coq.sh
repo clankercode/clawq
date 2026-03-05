@@ -18,7 +18,9 @@ if ! opam switch show 2>/dev/null | grep -q "clawq-5.1"; then
 fi
 
 eval "$(opam env --switch=clawq-5.1)"
-opam install -y dune coq.8.19.2 coq-stdlib cmdliner yojson sqlite3
+opam install -y dune coq.8.19.2 coq-stdlib cmdliner yojson sqlite3 \
+  lwt cohttp-lwt-unix conduit-lwt-unix tls-lwt logs fmt \
+  mirage-crypto mirage-crypto-rng kdf digestif base64 alcotest
 
 echo "Bootstrap complete. Next:"
 echo "  eval \"\$(opam env --switch=clawq-5.1)\""

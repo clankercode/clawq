@@ -10,5 +10,12 @@ let () =
       ("skills", Test_skills.suite);
       ("memory_search", Test_memory_search.suite);
       ("streaming", Test_streaming.suite);
+      ("http_server", Test_http_server.suite);
       ("config_loader", Test_config_loader.suite);
+      ("vector", Test_vector.suite);
+      ("secret_store", Test_secret_store.suite);
+      ("tools_security", Test_tools_security.suite);
+      ("mcp", Test_mcp.suite);
+      ("resilience", Test_resilience.suite);
+      ("perf", Test_perf.suite);
     ]
