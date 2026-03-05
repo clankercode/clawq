@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B006
+priority: high
+status: pending
+tags: []
+title: 'task: run flambda experiment by creating an opam switch variant and compare stripped/unstripped sizes plus startup/runtime perf'
+---
+
+task: run flambda experiment by creating an opam switch variant and compare stripped/unstripped sizes plus startup/runtime perf

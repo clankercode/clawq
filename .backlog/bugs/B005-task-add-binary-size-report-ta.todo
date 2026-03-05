@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B005
+priority: high
+status: pending
+tags: []
+title: 'task: add binary size report target that records section-level sizes (.text/.rodata/.debug) for speed+size profiles and fails CI on large regressions'
+---
+
+task: add binary size report target that records section-level sizes (.text/.rodata/.debug) for speed+size profiles and fails CI on large regressions

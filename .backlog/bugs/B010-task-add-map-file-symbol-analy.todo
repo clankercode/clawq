@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B010
+priority: high
+status: pending
+tags: []
+title: 'task: add map-file/symbol analysis workflow to identify top native code contributors and prioritize code-size reductions'
+---
+
+task: add map-file/symbol analysis workflow to identify top native code contributors and prioritize code-size reductions

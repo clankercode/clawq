@@ -1,0 +1,16 @@
+---
+claimed_at: "2026-03-05T15:52:49Z"
+claimed_by: cli-user
+completed_at: null
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B007
+priority: high
+started_at: "2026-03-05T15:52:49Z"
+status: in_progress
+tags: []
+title: 'task: split src/clawq_runtime into smaller dune libraries so optional subsystems (http/mcp/telegram/tunnel/docker) are linked only when referenced'
+---
+
+task: split src/clawq_runtime into smaller dune libraries so optional subsystems (http/mcp/telegram/tunnel/docker) are linked only when referenced

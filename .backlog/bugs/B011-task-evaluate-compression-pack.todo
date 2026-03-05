@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B011
+priority: high
+status: pending
+tags: []
+title: 'task: evaluate compression/packaging strategy (strip + upx optional) with startup-time impact measurements and release guidance'
+---
+
+task: evaluate compression/packaging strategy (strip + upx optional) with startup-time impact measurements and release guidance

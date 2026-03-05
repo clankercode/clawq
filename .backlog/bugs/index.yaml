@@ -3,3 +3,10 @@ bugs:
     - file: B002-task-commands-like-clawq-agent.todo
     - file: B003-for-whatever-reason-the-help-o.todo
     - file: B004-for-whatever-reason-the-help-o.todo
+    - file: B005-task-add-binary-size-report-ta.todo
+    - file: B006-task-run-flambda-experiment-by.todo
+    - file: B007-task-split-src-clawq-runtime-i.todo
+    - file: B008-task-introduce-feature-flags-i.todo
+    - file: B009-task-audit-transitive-dependen.todo
+    - file: B010-task-add-map-file-symbol-analy.todo
+    - file: B011-task-evaluate-compression-pack.todo

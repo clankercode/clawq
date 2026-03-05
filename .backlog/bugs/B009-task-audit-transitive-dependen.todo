@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B009
+priority: high
+status: pending
+tags: []
+title: 'task: audit transitive dependency weight and identify high-cost libraries to replace or isolate behind optional packages'
+---
+
+task: audit transitive dependency weight and identify high-cost libraries to replace or isolate behind optional packages

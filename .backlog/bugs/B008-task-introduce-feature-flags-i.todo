@@ -1,0 +1,16 @@
+---
+claimed_at: "2026-03-05T15:52:49Z"
+claimed_by: cli-user
+completed_at: null
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B008
+priority: high
+started_at: "2026-03-05T15:52:49Z"
+status: in_progress
+tags: []
+title: 'task: introduce feature flags in dune (enabled_if) to build a minimal core CLI binary without server/network integrations'
+---
+
+task: introduce feature flags in dune (enabled_if) to build a minimal core CLI binary without server/network integrations
