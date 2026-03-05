@@ -12,3 +12,4 @@ bugs:
     - file: B011-task-evaluate-compression-pack.todo
     - file: B012-add-some-measure-of-formal-ver.todo
     - file: B013-relax-auth-requirements-see-fa.todo
+    - file: B014-task-impelemnt-telegram-typing.todo
