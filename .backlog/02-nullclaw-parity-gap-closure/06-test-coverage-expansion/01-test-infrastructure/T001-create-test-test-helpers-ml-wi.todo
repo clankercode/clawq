@@ -1,0 +1,38 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 3
+id: P2.M6.E1.T001
+priority: high
+status: pending
+tags: []
+title: 'Create test/test_helpers.ml: with_memory_db (SQLite :memory:), with_temp_dir, fixture loader, assert_ok/assert_error'
+---
+
+# Create test/test_helpers.ml: with_memory_db (SQLite :memory:), with_temp_dir, fixture loader, assert_ok/assert_error
+
+## Requirements
+
+- `test/test_helpers.ml` does not currently exist; create it.
+- Implement the following functions:
+  - `with_memory_db : (Sqlite3.db -> 'a) -> 'a` — opens a `:memory:` SQLite DB, calls `Memory.init ~db_path:":memory:" ()`, passes the DB handle to the callback, closes the DB after the callback returns (even on exception).
+  - `with_temp_dir : (string -> 'a) -> 'a` — creates a temporary directory via `Filename.temp_dir`, calls the callback with the path, removes the directory recursively afterward.
+  - `run_lwt : 'a Lwt.t -> 'a` — thin wrapper: `Lwt_main.run t`.
+  - `assert_ok : ('a, string) result -> 'a` — calls `Alcotest.fail` with the error string if `Error`, otherwise returns the value.
+  - `assert_error : ('a, string) result -> string` — calls `Alcotest.fail "expected error but got Ok"` if `Ok`, otherwise returns the error string.
+  - `contains : string -> string -> bool` — returns true if the second string is a substring of the first.
+- Add `test_helpers` to the `(modules ...)` list in `test/dune`.
+
+## Implementation Notes
+
+The `with_memory_db` cleanup: use `Fun.protect ~finally:(fun () -> ignore (Sqlite3.db_close db))`. For `with_temp_dir`, use `Filename.temp_dir "clawq_test" ""` and clean up with a recursive `Sys.remove` or `Unix.system "rm -rf {dir}"`. The `contains` function uses a simple substring scan. This module is not itself a test suite — it exports utility functions used by other test files.
+
+## Acceptance Criteria
+
+Done when:
+- `test/test_helpers.ml` compiles as part of the test build (`dune build test/test_main.exe`).
+- `with_memory_db` creates an initialized DB (tables present) and closes it after the callback.
+- `assert_ok (Ok 42)` returns `42` without calling `Alcotest.fail`.
+- `assert_ok (Error "oops")` calls `Alcotest.fail "oops"`.
+- The module is usable from at least one other test file without compilation errors.
+- `make test` passes.

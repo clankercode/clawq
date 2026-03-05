@@ -1,0 +1,63 @@
+complexity: medium
+depends_on: []
+estimate_hours: 480
+id: P2
+locked: false
+milestones:
+    - complexity: high
+      depends_on: []
+      description: Native LLM provider integrations (P2-01), OTP pairing (P2-06), and sandbox hardening (P2-08).
+      estimate_hours: 80
+      id: M1
+      locked: false
+      name: Providers & Security Core
+      path: 01-providers-security-core
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: Four high-priority channel adapters using established protocols (P2-02, P2-03).
+      estimate_hours: 100
+      id: M2
+      locked: false
+      name: 'Channels Tier 1: Signal, Matrix, IRC, Email'
+      path: 02-channels-tier-1-signal-matrix
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: 'WhatsApp Cloud API, Nostr, and remaining channels: Mattermost, Lark, LINE, DingTalk, iMessage, QQ/OneBot (P2-04, P2-05).'
+      estimate_hours: 120
+      id: M3
+      locked: false
+      name: 'Channels Tier 2: WhatsApp, Nostr & Remaining'
+      path: 03-channels-tier-2-whatsapp-nostr
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: Memory export/import with core category (P2-07) and WASM/WASI runtime (P2-09).
+      estimate_hours: 60
+      id: M4
+      locked: false
+      name: Memory, Runtime & Tooling
+      path: 04-memory-runtime-tooling
+      status: pending
+    - complexity: medium
+      depends_on: []
+      description: 'Embedded Chat UI (P2-10) and tunnel alternatives: Tailscale, ngrok, custom (P2-12).'
+      estimate_hours: 60
+      id: M5
+      locked: false
+      name: Ecosystem & UI
+      path: 05-ecosystem-ui
+      status: pending
+    - complexity: medium
+      depends_on: []
+      description: Systematic test expansion from ~226 to 800+ tests (P2-11).
+      estimate_hours: 60
+      id: M6
+      locked: false
+      name: Test Coverage Expansion
+      path: 06-test-coverage-expansion
+      status: pending
+name: 'Nullclaw Parity: Gap Closure'
+status: pending
+weeks: 16

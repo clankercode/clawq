@@ -1,0 +1,56 @@
+complexity: high
+depends_on: []
+estimate_hours: 28
+id: P2.M5.E1
+locked: false
+name: Embedded Chat UI
+status: pending
+tasks:
+    - complexity: high
+      depends_on: []
+      estimate_hours: 8
+      file: T001-create-static-index-html-stati.todo
+      id: T001
+      priority: high
+      status: pending
+      title: 'Create static/index.html, static/chat.js, static/chat.css: streaming chat with SSE, message history, input box'
+    - complexity: high
+      depends_on: []
+      estimate_hours: 4
+      file: T002-chat-js-tool-timeline-display.todo
+      id: T002
+      priority: high
+      status: pending
+      title: 'chat.js: tool timeline display (tool_start/tool_result events in SSE stream), collapsible per-turn panel'
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 3
+      file: T003-chat-js-pairing-modal-detect-4.todo
+      id: T003
+      priority: medium
+      status: pending
+      title: 'chat.js: pairing modal (detect 401/403, prompt for 6-digit code, store token in localStorage)'
+    - complexity: low
+      depends_on: []
+      estimate_hours: 2
+      file: T004-scripts-embed-ui-sh-generate-c.todo
+      id: T004
+      priority: high
+      status: pending
+      title: 'scripts/embed_ui.sh: generate chat_ui_assets.ml from static files; add embed-ui Makefile target'
+    - complexity: low
+      depends_on: []
+      estimate_hours: 2
+      file: T005-http-server-ml-serve-get-chat.todo
+      id: T005
+      priority: high
+      status: pending
+      title: 'http_server.ml: serve GET /, /chat.js, /chat.css from chat_ui_assets.ml string constants'
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 3
+      file: T006-agent-ml-turn-stream-emit-tool.todo
+      id: T006
+      priority: high
+      status: pending
+      title: 'agent.ml turn_stream: emit tool_start and tool_result JSON events inline in SSE stream'

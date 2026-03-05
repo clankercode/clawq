@@ -1,0 +1,34 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 3
+id: P2.M3.E2.T002
+priority: high
+status: pending
+tags: []
+title: 'nostr.ml: send via nak direct-message, NIP protocol mirroring (remember per-sender NIP)'
+---
+
+# nostr.ml: send via nak direct-message, NIP protocol mirroring (remember per-sender NIP)
+
+## Requirements
+
+- Implement `Nostr.send_message ~config ~recipient_pubkey ~text` that spawns `{nak_path} direct-message --key {privkey_hex} -p {recipient_pubkey} {relay} {content}` (or equivalent `nak event` form for NIP-17) as a subprocess via `Lwt_process.open_process_full`. Read stdout/stderr; log errors at warn level.
+- Track per-sender NIP version: maintain a `Hashtbl.t` mapping `sender_pubkey -> nip_version` (e.g., `14` or `4`). Populate on receive by checking the decrypted event kind. When sending, use the same NIP version the sender used. Default to NIP-17 (kind 14) for new senders.
+- Log the `nak` command invocation at debug level (redact private key).
+
+## Implementation Notes
+
+`nak direct-message` (NIP-17, kind 14+1059): `nak direct-message --sec {privkey} -p {pubkey} --relay {relay} "message text"`.
+
+NIP-4 (kind 4, deprecated but some clients still use it): `nak event --kind 4 --content {encrypted} -p {pubkey} --sec {privkey} {relay}`. NIP-4 requires manual content encryption (NIP-4 cipher = AES-256-CBC with ECDH shared secret); prefer delegating entirely to `nak` which handles this.
+
+Relay selection: use the first relay from `config.channels.nostr.relays` for sends. Could send to all relays; use first for simplicity.
+
+## Acceptance Criteria
+
+Done when:
+- `Nostr.send_message` invokes correct `nak` command with recipient pubkey and relay.
+- Private key is not logged.
+- Per-sender NIP version tracked; NIP-17 used by default for unknown senders.
+- `make test` passes.

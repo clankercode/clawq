@@ -1,0 +1,39 @@
+---
+complexity: high
+depends_on: []
+estimate_hours: 6
+id: P2.M4.E2.T001
+priority: medium
+status: pending
+tags: []
+title: 'Implement src/main_wasm.ml: minimal command dispatch (help, version, status, agent, memory list, identity)'
+---
+
+# Implement src/main_wasm.ml: minimal command dispatch (help, version, status, agent, memory list, identity)
+
+## Requirements
+
+- Create `src/main_wasm.ml` as a standalone OCaml file with no Lwt, no SQLite, no cohttp, no mirage-crypto dependencies.
+- Implement command dispatch via `Sys.argv` match:
+  - `help` (or no args): print help text listing all available WASM commands.
+  - `version`: print `"clawq {version}-wasm"`.
+  - `status`: print build info (version, build mode, supported commands list).
+  - `agent`: run a synchronous stdin→stdout single-turn loop: read one line from stdin, print a response line to stdout (LLM call deferred to future task; for now print `"[agent not yet connected to LLM in WASM mode]"`).
+  - `memory list`: call `read_memory_md ()` (see T004) and print entries.
+  - `identity`: read `AGENTS.md` from the current directory if it exists, print its contents; otherwise print a default identity stub.
+  - `onboard`: delegate to the onboard template writer (see T005).
+  - Any unknown command: print error to stderr and exit 1.
+- No use of `Lwt_main.run` or any async primitives.
+
+## Implementation Notes
+
+Analogous to `src/main_min.ml` which provides a stripped build. The WASM entrypoint avoids `Unix` module beyond `Sys.argv`, `stdin`, `stdout`. File I/O uses `open_in`/`open_out` from stdlib. The `identity` command reads `AGENTS.md` via `try open_in "AGENTS.md" with Sys_error _ -> ...`. Follow the dispatch pattern in `PLAN_P2_09_WASM_RUNTIME.md` section "Simpler Alternative: WASM Shim".
+
+## Acceptance Criteria
+
+Done when:
+- `src/main_wasm.ml` compiles with `dune build src/main_wasm.bc` (bytecode target, no wasm_of_ocaml needed).
+- Running `./main_wasm.bc help` prints a help text that mentions all supported commands.
+- Running `./main_wasm.bc version` prints a string containing `"wasm"`.
+- Running `./main_wasm.bc unknown` exits with code 1.
+- `make test` passes (no regressions in existing tests).

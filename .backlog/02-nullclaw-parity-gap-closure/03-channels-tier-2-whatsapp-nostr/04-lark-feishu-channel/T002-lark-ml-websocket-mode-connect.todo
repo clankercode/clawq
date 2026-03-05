@@ -1,0 +1,37 @@
+---
+complexity: high
+depends_on: []
+estimate_hours: 4
+id: P2.M3.E4.T002
+priority: medium
+status: pending
+tags: []
+title: 'lark.ml: WebSocket mode (connect to Lark event gateway WSS, ack events)'
+---
+
+# lark.ml: WebSocket mode (connect to Lark event gateway WSS, ack events)
+
+## Requirements
+
+- Implement `Lark.start_ws ~config ~session_manager` that fetches a WS endpoint and ticket via `POST https://open.feishu.cn/open-apis/event/v1/app_ticket/resend` (or the correct endpoint for Lark WS: `POST /open-apis/event/v1/new_ws_url`). Connect to the returned WSS URL using `Ws_client`.
+- Receive frames as JSON. Handle frame types: `type = 1` (event), `type = 2` (ping → pong). For event frames, parse `header.event_type = "im.message.receive_v1"`, extract `event.message.content` (JSON string, parse to get `text` key), `event.sender.sender_id.user_id`.
+- After processing each event, send an ack frame: `{"type":2,"message_id":"{message_id}"}` via `Ws_client.send_text` to prevent redelivery.
+- Reconnect on WS close; re-fetch the WS endpoint (ticket expires) on reconnect.
+
+## Implementation Notes
+
+Lark WS API endpoint for getting a new connection: `POST https://open.feishu.cn/open-apis/event/v1/new_ws_url` with `Authorization: Bearer {tenant_access_token}`. Response contains `url` for WSS connection. This is Lark's Long Connection (LC) API.
+
+Event frame format: `{"type":1,"data":{"schema":"2.0","header":{"event_type":"im.message.receive_v1",...},"event":{"message":{"content":"{\"text\":\"hello\"}","message_type":"text"},"sender":{"sender_id":{"user_id":"ou_xxx"}}}}}`.
+
+`event.message.content` is a JSON-encoded string: double-parse with `Yojson.Safe.from_string`.
+
+Use `Ws_client` module (matching `discord_gateway.ml` pattern) for the TLS WebSocket connection.
+
+## Acceptance Criteria
+
+Done when:
+- `Lark.start_ws` connects to Lark WS gateway, receives `im.message.receive_v1` events, extracts text and sender, routes to session_manager.
+- Ping frames receive pong responses.
+- Events are acked after processing.
+- `make test` passes.

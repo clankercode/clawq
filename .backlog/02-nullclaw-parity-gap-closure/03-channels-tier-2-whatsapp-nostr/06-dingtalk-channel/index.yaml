@@ -1,0 +1,24 @@
+complexity: medium
+depends_on: []
+estimate_hours: 10
+id: P2.M3.E6
+locked: false
+name: DingTalk Channel
+status: pending
+tasks:
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 4
+      file: T001-implement-dingtalk-ml-stream-m.todo
+      id: T001
+      priority: low
+      status: pending
+      title: 'Implement dingtalk.ml: Stream Mode WSS connect, HMAC-SHA256 auth header, event parse, ack format'
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 3
+      file: T002-dingtalk-ml-send-via-dingtalk.todo
+      id: T002
+      priority: low
+      status: pending
+      title: 'dingtalk.ml: send via DingTalk Open API; add dingtalk_config to runtime_config and daemon'

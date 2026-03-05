@@ -1,0 +1,36 @@
+---
+complexity: high
+depends_on: []
+estimate_hours: 5
+id: P2.M2.E4.T004
+priority: high
+status: pending
+tags: []
+title: 'email_channel.ml: SMTP outbound (EHLO, STARTTLS, AUTH LOGIN/PLAIN, MAIL FROM/RCPT TO/DATA)'
+---
+
+# email_channel.ml: SMTP outbound (EHLO, STARTTLS, AUTH LOGIN/PLAIN, MAIL FROM/RCPT TO/DATA)
+
+## Requirements
+
+- Implement `Email_channel.send_reply ~config ~to_addr ~subject ~body ~in_reply_to` that opens a TCP connection to `{smtp_host}:{smtp_port}`, upgrades to TLS via STARTTLS, authenticates, and sends an RFC 2822 message.
+- SMTP sequence: wait for `220` greeting → `EHLO clawq\r\n` → parse capabilities → `STARTTLS\r\n` → TLS upgrade via `Tls_lwt.Unix.client_of_fd` → `EHLO clawq\r\n` again → `AUTH LOGIN\r\n` (base64 user, then base64 password) or `AUTH PLAIN\r\n` based on server capability → `MAIL FROM:<{from}>\r\n` → `RCPT TO:<{to}>\r\n` → `DATA\r\n` → headers + body + `\r\n.\r\n` → `QUIT\r\n`.
+- Compose headers: `From: {smtp_user}`, `To: {to_addr}`, `Subject: Re: {subject}`, `Date: {RFC 2822 date}`, `Message-ID: <clawq-{timestamp}@{smtp_host}>`, `In-Reply-To: {in_reply_to}` (if provided), `Content-Type: text/plain; charset=utf-8`.
+
+## Implementation Notes
+
+Open a new TCP connection per email send rather than maintaining a persistent SMTP session. This avoids session timeout complexity. Use `Lwt_unix.getaddrinfo` then `Lwt_unix.connect` for the initial plaintext socket.
+
+RFC 2822 date format: `Thu, 06 Mar 2026 12:00:00 +0000`. Use `Unix.gmtime` and format manually or via `Printf.sprintf "%s, %02d %s %04d %02d:%02d:%02d +0000"`.
+
+Body must end with `\r\n` before the lone `.`. Lines starting with `.` must be escaped as `..` (dot-stuffing per RFC 5321).
+
+Alternative: spawn `sendmail -t` subprocess with pre-composed RFC 2822 message on stdin if raw SMTP implementation proves unwieldy. Document the chosen approach.
+
+## Acceptance Criteria
+
+Done when:
+- `Email_channel.send_reply` sends a properly formatted RFC 2822 email via STARTTLS SMTP.
+- `In-Reply-To` header is set when `in_reply_to` is provided.
+- SMTP errors (non-2xx/3xx responses) are logged at warn level; function returns `unit Lwt.t` without raising.
+- `make test` passes.

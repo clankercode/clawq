@@ -1,0 +1,35 @@
+complexity: medium
+depends_on: []
+epics:
+    - complexity: low
+      depends_on: []
+      description: Shared test helpers, dune config, bisect_ppx coverage target.
+      estimate_hours: 8
+      id: E1
+      locked: false
+      name: Test Infrastructure
+      path: 01-test-infrastructure
+      status: pending
+    - complexity: medium
+      depends_on: []
+      description: 'One test file per major module: pairing, rate_limiter, resilience, audit, memory, tools, config_loader, scheduler, provider, channel formats.'
+      estimate_hours: 36
+      id: E2
+      locked: false
+      name: Module Unit Tests
+      path: 02-module-unit-tests
+      status: pending
+    - complexity: medium
+      depends_on: []
+      description: Channel contract tests, tool contract tests, 18-command integration tests, coverage reporting.
+      estimate_hours: 12
+      id: E3
+      locked: false
+      name: Contract & Integration Tests
+      path: 03-contract-integration-tests
+      status: pending
+estimate_hours: 60
+id: P2.M6
+locked: false
+name: Test Coverage Expansion
+status: pending

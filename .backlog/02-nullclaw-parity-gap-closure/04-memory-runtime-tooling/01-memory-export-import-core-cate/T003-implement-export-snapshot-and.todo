@@ -1,0 +1,31 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 4
+id: P2.M4.E1.T003
+priority: high
+status: pending
+tags: []
+title: Implement export_snapshot and import_snapshot (versioned JSON, upsert on import) in memory.ml
+---
+
+# Implement export_snapshot and import_snapshot (versioned JSON, upsert on import) in memory.ml
+
+## Requirements
+
+- Add `val export_snapshot : db:Sqlite3.db -> Yojson.Safe.t` to `src/memory.ml`. Produce a JSON object: `{ "schema_version": 2, "core_memories": [{"key": ..., "value": ..., "updated_at": ...}, ...], "recent_messages": [{"role": ..., "content": ..., "session_key": ..., "created_at": ...}, ...] }`. Include all core_memories rows and the 500 most recent messages.
+- Add `val import_snapshot : db:Sqlite3.db -> Yojson.Safe.t -> unit`. Parse both `core_memories` and `recent_messages` arrays. For core_memories, call `store_core` for each entry (upsert). For messages, insert into `messages` table using `INSERT OR IGNORE` keyed on session_key+role+content+created_at to avoid duplicates.
+- Both functions use `Yojson.Safe` types throughout; parse errors are caught and logged via `Logs.warn`.
+
+## Implementation Notes
+
+`export_snapshot` queries `core_memories` with `SELECT key, value, updated_at FROM core_memories ORDER BY updated_at DESC` and `messages` with `SELECT role, content, session_key, created_at FROM messages ORDER BY id DESC LIMIT 500`. `import_snapshot` uses `Yojson.Safe.Util.member` and `to_list` to extract arrays. The import is idempotent: calling it twice with the same snapshot leaves the DB unchanged.
+
+## Acceptance Criteria
+
+Done when:
+- `export_snapshot` on a DB with 3 core memories returns JSON with `"core_memories"` array of length 3.
+- `import_snapshot` on a fresh DB with that JSON creates those 3 core memories.
+- Calling `import_snapshot` twice with the same JSON does not duplicate rows.
+- `export_snapshot` then `import_snapshot` roundtrip preserves all data (core memories + recent messages).
+- `make test` passes.

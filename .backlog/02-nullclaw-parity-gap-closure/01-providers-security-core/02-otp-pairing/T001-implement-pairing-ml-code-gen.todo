@@ -1,0 +1,33 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 4
+id: P2.M1.E2.T001
+priority: high
+status: pending
+tags: []
+title: 'Implement pairing.ml: code gen, brute-force lockout, token hashing, pair_result type'
+---
+
+# Implement pairing.ml: code gen, brute-force lockout, token hashing, pair_result type
+
+## Requirements
+
+- Create `src/pairing.ml` with the core state machine type and functions. Define `type t = { mutable code : string option; mutable fail_count : int; mutable lockout_until : float option; mutable token_hashes : string list; tokens_path : string }` and `type pair_result = Paired of string | AlreadyPaired | InvalidCode | LockedOut of int | Disabled`. Implement `create : tokens_path:string -> t` (loads existing hashes from JSON file if present).
+- Implement `generate_code : unit -> string` using `Mirage_crypto_rng.generate 4` — convert 4 bytes to a `nativeint`/`int32`, take `mod 1_000_000`, format as `Printf.sprintf "%06d"`. Implement `hash_token : string -> string` using `Digestif.SHA256.digest_string` returning lowercase hex. Implement `generate_bearer_token : unit -> string` using `Mirage_crypto_rng.generate 32 |> Base64.encode_string`.
+- Implement `attempt_pair : t -> code:string -> pair_result`. Logic: if `t.code = None` → `Disabled`; if `token_hashes <> []` → `AlreadyPaired`; if locked out (check `lockout_until` against `Unix.gettimeofday ()`) → `LockedOut seconds_remaining`; if code matches → generate bearer token, hash and append to `token_hashes`, set `code = None`, persist to `tokens_path`, return `Paired token`; else increment `fail_count`, if `>= max_attempts` set `lockout_until`, return `InvalidCode`.
+
+## Implementation Notes
+
+- `Eqaf.equal` must be used for code comparison (constant-time string equality) to prevent timing-based brute-force enumeration beyond the attempt counter.
+- Token persistence: `tokens_path` defaults to `~/.clawq/paired_tokens.json`. Format: `{"tokens": ["sha256hex...", ...]}`. Use `Yojson.Safe` for read/write. Create parent directory if missing.
+- Add `pairing` to `clawq_runtime_core` modules in `src/dune`. Dependencies already linked: `mirage-crypto-rng`, `digestif.c`, `eqaf`, `base64`.
+
+## Acceptance Criteria
+
+Done when:
+- `generate_code ()` always returns a 6-character string of digits in the range `"000000"`–`"999999"`.
+- `hash_token "hello"` returns the SHA-256 hex digest of `"hello"` (deterministic, verifiable against a known value).
+- After 5 `InvalidCode` results, the 6th `attempt_pair` call returns `LockedOut _` regardless of the code.
+- A successful `attempt_pair` sets `t.code = None` and `t.token_hashes` contains the SHA-256 of the returned token.
+- `make test` passes with a new `pairing` test suite in `test/test_main.ml`.

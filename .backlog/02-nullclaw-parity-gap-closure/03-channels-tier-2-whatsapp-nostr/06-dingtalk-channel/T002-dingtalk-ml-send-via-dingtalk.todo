@@ -1,0 +1,34 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 3
+id: P2.M3.E6.T002
+priority: low
+status: pending
+tags: []
+title: 'dingtalk.ml: send via DingTalk Open API; add dingtalk_config to runtime_config and daemon'
+---
+
+# dingtalk.ml: send via DingTalk Open API; add dingtalk_config to runtime_config and daemon
+
+## Requirements
+
+- Implement `Dingtalk.send_message ~config ~sender_staff_id ~text` that sends a reply via `POST https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend` with `x-acs-dingtalk-access-token: {access_token}` header and body `{"robotCode":"{app_key}","userIds":["{sender_staff_id}"],"msgKey":"sampleText","msgParam":"{\"content\":\"{text}\"}"}`.
+- Obtain `access_token` before sending via `POST https://api.dingtalk.com/v1.0/oauth2/accessToken` with body `{"appKey":"{app_key}","appSecret":"{app_secret}"}`. Cache the token (same 2h TTL pattern as Lark in T001-lark). Cache in a module-level `ref`.
+- Add `dingtalk_config` record to `src/runtime_config.ml`: `{ enabled: bool; app_key: string; app_secret: string }`. Parse from `channels.dingtalk` JSON. Required when enabled: `app_key`, `app_secret`. Wire into `daemon.ml` as `Lwt.async`. Add `"dingtalk"` to `write_state` components.
+
+## Implementation Notes
+
+DingTalk access token endpoint: `POST https://api.dingtalk.com/v1.0/oauth2/accessToken` returns `{"accessToken":"...","expireIn":7200}`. Cache with the same `expires_at` pattern as `Lark.get_tenant_token`.
+
+`msgParam` in the send body is a JSON-encoded string (not a nested object). Use `Yojson.Safe.to_string` to encode it: `{|{"content":"| ^ text ^ {|"}|}}` or `Yojson.Safe.to_string (`Assoc [("content", `String text)])`.
+
+Group conversation reply: DingTalk's group message sending uses a different endpoint (`robot/interactiveCards/send`). For simplicity, only implement private 1:1 replies via `oToMessages/batchSend` in this task.
+
+## Acceptance Criteria
+
+Done when:
+- `Dingtalk.send_message` obtains (or uses cached) access token and sends private message to `sender_staff_id`.
+- `dingtalk_config` parsed and daemon wires DingTalk channel when configured.
+- Token cache prevents redundant auth calls within the 2h TTL window.
+- `make test` passes.

@@ -1,0 +1,37 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 3
+id: P2.M6.E2.T009
+priority: high
+status: pending
+tags: []
+title: 'Write test/test_provider.ml: message format, tool-call parse, streaming chunk parse, provider kind detection (~30 tests)'
+---
+
+# Write test/test_provider.ml: message format, tool-call parse, streaming chunk parse, provider kind detection (~30 tests)
+
+## Requirements
+
+- Create `test/test_provider.ml`. Tests cover pure data formatting and parsing in `src/provider.ml` with no network calls.
+- Test `Provider.make_message ~role:"user" ~content:"hello"` produces a record with correct `role` and `content` fields and empty `tool_calls`.
+- Test `Provider.build_messages` (if it exists) with system + user + assistant sequence produces correctly ordered message list.
+- Test tool-call JSON round-trip: serialize a `Provider.tool_call` record to JSON and back via existing functions.
+- Test SSE chunk parsing: given raw SSE lines from an OpenAI-compatible stream (`data: {"choices":[{"delta":{"content":"hello"}}]}`), verify the delta content is extracted correctly.
+- Test `[DONE]` SSE terminator is recognized and stops parsing.
+- Test tool-call delta accumulation across multiple SSE chunks.
+- Test `Provider.make_message` with `tool_calls` populated serializes correctly for the API request.
+- Register as `("provider_format", Test_provider.suite)` in `test/test_main.ml`.
+
+## Implementation Notes
+
+`src/provider.ml` contains the `message` type (already used in `memory.ml`), `tool_call` type, and SSE parsing logic. No HTTP client mock is needed — test only the pure parsing functions. Look at how `streaming` tests in `test/test_streaming.ml` (if it exists) already cover SSE parsing and avoid duplication. Focus on data structure correctness, not network behavior. The `Provider.make_message` function is `~role:string -> ~content:string -> message`.
+
+## Acceptance Criteria
+
+Done when:
+- `test/test_provider.ml` has at least 20 test cases.
+- Message construction test: `make_message ~role:"user" ~content:"hi"` has `role = "user"` and `content = "hi"`.
+- SSE parse test: `data: {"choices":[{"delta":{"content":"world"}}]}` yields content `"world"`.
+- `[DONE]` terminator test: recognized as end of stream.
+- `make test` passes.

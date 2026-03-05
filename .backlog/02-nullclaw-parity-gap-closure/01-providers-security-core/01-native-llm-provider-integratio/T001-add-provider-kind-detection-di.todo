@@ -1,0 +1,34 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 4
+id: P2.M1.E1.T001
+priority: high
+status: pending
+tags: []
+title: Add provider_kind detection + dispatch skeleton in provider.ml
+---
+
+# Add provider_kind detection + dispatch skeleton in provider.ml
+
+## Requirements
+
+- Add a `provider_kind` variant type to `provider.ml` with constructors: `OpenAICompat | Anthropic | Ollama | Gemini | Vertex | Cohere`. Add a `detect_kind : Runtime_config.provider_config -> provider_kind` function that inspects the `api_key` prefix and `base_url` field.
+- Add a `provider_kind_of_config` dispatch point in both `complete` and `complete_stream`, currently calling the existing OpenAI-compatible path by default. Stub branches for each non-default kind that raise `Failure "not yet implemented"` until the corresponding provider module exists.
+- Wire detection heuristics per the plan: `sk-ant-*` key prefix → `Anthropic`; `AIzaSy*` prefix → `Gemini`; `base_url` containing `localhost:11434` or `"ollama"` → `Ollama`; explicit `kind` config field (T008) → use that; default → `OpenAICompat`.
+
+## Implementation Notes
+
+- `detect_kind` signature: `val detect_kind : Runtime_config.provider_config -> provider_kind`. The `provider_config` type currently has `api_key : string`, `base_url : string option`, and `default_model : string option`. After T008, it will also have a `kind : string` field; `detect_kind` should check that first.
+- The dispatch skeleton in `complete` can be a `match detect_kind provider with OpenAICompat -> <existing path> | _ -> Lwt.fail_with "provider not yet implemented"`. This keeps existing behavior intact.
+- `default_base_url_for` already exists for per-name URL mapping; `detect_kind` is a separate concept operating on provider config fields, not names.
+
+## Acceptance Criteria
+
+Done when:
+- `detect_kind` returns `Anthropic` for a config with `api_key = "sk-ant-abc123"`.
+- `detect_kind` returns `Ollama` for a config with `base_url = Some "http://localhost:11434"`.
+- `detect_kind` returns `Gemini` for a config with `api_key = "AIzaSyFoo"`.
+- `detect_kind` returns `OpenAICompat` for any config that matches no other heuristic.
+- All existing behavior preserved: `complete` and `complete_stream` continue to work for OpenAI-compatible providers.
+- `make test` passes.

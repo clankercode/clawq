@@ -1,0 +1,38 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 4
+id: P2.M4.E1.T006
+priority: medium
+status: pending
+tags: []
+title: 'Implement cmd_memory subcommands: export, import, list, store, forget, stats in command_bridge.ml'
+---
+
+# Implement cmd_memory subcommands: export, import, list, store, forget, stats in command_bridge.ml
+
+## Requirements
+
+- In `src/command_bridge.ml`, implement `cmd_memory` handling the following subcommands dispatched from `Sys.argv`:
+  - `memory set {key} {value}` — calls `Memory.store_core ~db ~key ~value`, prints `"Stored."`.
+  - `memory get {key}` — calls `Memory.recall_core ~db ~key`, prints value or `"(not found)"`.
+  - `memory forget {key}` — calls `Memory.forget_core ~db ~key`, prints `"Forgotten."`.
+  - `memory list` — calls `Memory.list_core ~db`, prints each `key: value` on its own line.
+  - `memory export [--output FILE]` — calls `Memory.export_snapshot ~db`, writes JSON to FILE or stdout.
+  - `memory import FILE` — reads JSON from FILE, calls `Memory.import_snapshot ~db`.
+- Wire `cmd_memory` into the command dispatch table alongside existing commands such as `cmd_status` and `cmd_audit`.
+- The `db` handle is opened from `config.memory.db_path` the same way other commands that use memory open it.
+
+## Implementation Notes
+
+Follow the pattern of `cmd_audit` in `command_bridge.ml` for subcommand dispatch (match on `Array.to_list Sys.argv`). Use `Yojson.Safe.to_string ~std:true` for JSON export output. For `--output FILE`, check `Array.exists` on argv or use Cmdliner if the rest of the command surface uses it. Keeping it simple with direct argv parsing is acceptable here.
+
+## Acceptance Criteria
+
+Done when:
+- `clawq memory set greeting hello` exits 0 and prints `"Stored."`.
+- `clawq memory get greeting` exits 0 and prints `"hello"`.
+- `clawq memory list` exits 0 and shows all entries.
+- `clawq memory export` exits 0 and prints valid JSON with `"core_memories"` field.
+- `clawq memory import snapshot.json` exits 0 and loads the snapshot.
+- `make test` passes.

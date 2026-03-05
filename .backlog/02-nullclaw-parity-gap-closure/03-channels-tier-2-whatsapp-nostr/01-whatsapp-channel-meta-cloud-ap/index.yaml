@@ -1,0 +1,32 @@
+complexity: medium
+depends_on: []
+estimate_hours: 12
+id: P2.M3.E1
+locked: false
+name: WhatsApp Channel (Meta Cloud API)
+status: pending
+tasks:
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 3
+      file: T001-add-get-whatsapp-webhook-verif.todo
+      id: T001
+      priority: high
+      status: pending
+      title: Add GET /whatsapp/webhook (verify token handshake) and POST /whatsapp/webhook (inbound JSON parse) to http_server.ml
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 3
+      file: T002-implement-whatsapp-ml-outbound.todo
+      id: T002
+      priority: high
+      status: pending
+      title: 'Implement whatsapp.ml: outbound POST to graph.facebook.com, message dedup set (LRU 500)'
+    - complexity: low
+      depends_on: []
+      estimate_hours: 2
+      file: T003-add-whatsapp-config-to-runtime.todo
+      id: T003
+      priority: high
+      status: pending
+      title: Add whatsapp_config to runtime_config; parse channels.whatsapp; wire into daemon/http_server

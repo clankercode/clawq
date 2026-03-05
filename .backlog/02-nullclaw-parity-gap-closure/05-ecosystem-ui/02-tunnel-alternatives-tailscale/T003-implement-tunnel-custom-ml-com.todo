@@ -1,0 +1,33 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 3
+id: P2.M5.E2.T003
+priority: low
+status: pending
+tags: []
+title: 'Implement tunnel_custom.ml: command template with {port} substitution, regex URL extraction from stdout'
+---
+
+# Implement tunnel_custom.ml: command template with {port} substitution, regex URL extraction from stdout
+
+## Requirements
+
+- Create `src/tunnel_custom.ml` following the structure of `src/tunnel_cloudflare.ml`.
+- `substitute_port : command:string -> port:int -> string`: replaces all occurrences of `{port}` in `command` with `string_of_int port`.
+- `start t ~custom_config`: run `substitute_port custom_config.command t.port` via `/bin/sh -c {cmd}` using `Lwt_process.open_process_in`. Read stdout lines. Apply `Re.Pcre.re custom_config.url_pattern |> Re.compile |> Re.exec_opt` to each line. Extract first capture group (or full match if no group) as the URL. Timeout after 30 seconds.
+- `extract_url_regex : pattern:string -> line:string -> string option`: compiles the regex pattern (catching `Re.Pcre.Parse_error`), applies to line, returns first match or `None`.
+- Add `re` to library dependencies in `src/dune` for `clawq_runtime_integrations` if not already present.
+
+## Implementation Notes
+
+The `re` library is `re` and `re.pcre` in opam. Check `clawq.opam` for whether it's already a dependency. `Re.Pcre.re pattern` compiles a PCRE regex; wrap in `try ... with _ -> None` to handle invalid patterns. `Re.exec_opt compiled_re line` returns `Some group_array` or `None`. Extract the match with `Re.Group.get groups 0` for the full match. The `custom_config` type will be defined in `runtime_config.ml` (see T004 for the type definition).
+
+## Acceptance Criteria
+
+Done when:
+- `substitute_port ~command:"bore local {port} --to bore.pub" ~port:8080` returns `"bore local 8080 --to bore.pub"`.
+- `extract_url_regex ~pattern:"https://[^\\s]+" ~line:"Forwarding: https://abc.bore.pub"` returns `Some "https://abc.bore.pub"`.
+- `extract_url_regex ~pattern:"https://[^\\s]+" ~line:"no url here"` returns `None`.
+- `extract_url_regex ~pattern:"[invalid" ~line:"anything"` returns `None` (no exception).
+- `make test` passes.

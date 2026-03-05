@@ -1,0 +1,35 @@
+---
+complexity: low
+depends_on:
+- P2.M1.E3.T001
+- P2.M1.E3.T002
+- P2.M1.E3.T003
+estimate_hours: 3
+id: P2.M1.E3.T004
+priority: medium
+status: pending
+tags: []
+title: Wire execute_shell in tools_builtin.ml through Sandbox.wrap_command
+---
+
+# Wire execute_shell in tools_builtin.ml through Sandbox.wrap_command
+
+## Requirements
+
+- In `tools_builtin.ml`, locate the `execute_shell` tool handler. Currently it spawns the shell command by constructing `[| "/bin/sh"; "-c"; command |]` and passing it to `Lwt_process.exec` or equivalent. Replace this with: `let argv = Sandbox.wrap_command sandbox [| "/bin/sh"; "-c"; command |] in Lwt_process.exec (argv.(0), argv) ...`.
+- Thread the `Sandbox.t` value through to `execute_shell`. The tools registration function (likely `register_tools` or equivalent) must accept a `sandbox : Sandbox.t` parameter and capture it in the tool handler closures. Update all call sites in `agent.ml` and `daemon.ml` that register or call tools to pass the sandbox value.
+- Preserve existing behavior when `sandbox.backend = None`: `Sandbox.wrap_command` returns argv unchanged, so the shell is spawned directly as before. No behavioral change for users without firejail/bubblewrap installed.
+
+## Implementation Notes
+
+- Check whether `tools_builtin.ml` uses `Lwt_process.exec`, `Unix.create_process`, or a custom wrapper. Use whatever the existing implementation uses; just replace the argv construction line.
+- `Sandbox.t` is initialized in `daemon.ml` (T005). For CLI invocations (`clawq chat`), pass `Sandbox.detect ~preferred:"none" ~workspace:config_workspace` as a no-op sandbox.
+- If `tools_builtin.ml` does not yet exist (tools may be inline in another module), locate the `execute_shell` implementation in the codebase via grep and apply the change there.
+
+## Acceptance Criteria
+
+Done when:
+- When `sandbox.backend = Firejail`, the process spawned by `execute_shell` has `firejail` as `argv.(0)`.
+- When `sandbox.backend = None`, `execute_shell` behavior is identical to before this change.
+- `make test` passes (existing tool tests must not regress).
+- `make build` succeeds — no unused variable warnings for the `sandbox` parameter.

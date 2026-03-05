@@ -1,0 +1,34 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 3
+id: P2.M3.E4.T003
+priority: low
+status: pending
+tags: []
+title: 'lark.ml: HTTP callback mode (add route to http_server.ml, verify X-Lark-Signature)'
+---
+
+# lark.ml: HTTP callback mode (add route to http_server.ml, verify X-Lark-Signature)
+
+## Requirements
+
+- Add `POST /lark/event` route to `src/http_server.ml` when `config.channels.lark.mode = "http"`. Read request body and verify `X-Lark-Signature` header: HMAC-SHA256 of `{timestamp}{nonce}{body}` with `verification_token` as key, hex-encoded. Use `Digestif.SHA256.hmac_string` (already in deps).
+- Handle the URL challenge handshake: if body JSON contains `"challenge"` key (first setup), respond `200 OK` with `{"challenge":"{value}"}`.
+- For event payloads, parse `header.event_type`. On `"im.message.receive_v1"`, extract `event.message.content.text` and `event.sender.sender_id.user_id`. Route to session_manager. Respond `200 OK` with empty body.
+
+## Implementation Notes
+
+Signature verification: headers are `X-Lark-Timestamp` (Unix seconds string), `X-Lark-Nonce` (random string), `X-Lark-Signature`. Compute `HMAC-SHA256(key=verification_token, data=timestamp || nonce || body)` and compare to the header value (hex). Use `Eqaf.equal` for constant-time comparison (already in deps).
+
+Follow the Slack HMAC verification pattern in `src/slack.ml` — same structure (extract headers, compute HMAC, compare).
+
+Reply to Lark event webhooks must be fast (within 3 seconds) per Lark API requirement. Route to session_manager and respond immediately; agent reply sent asynchronously.
+
+## Acceptance Criteria
+
+Done when:
+- Signature verification rejects requests with wrong or missing `X-Lark-Signature`.
+- URL challenge responds with `{"challenge":"..."}`.
+- Valid event webhooks route to session_manager and respond 200 OK.
+- `make test` passes.

@@ -1,0 +1,35 @@
+complexity: high
+depends_on: []
+epics:
+    - complexity: high
+      depends_on: []
+      description: Provider kind detection and native backends for Anthropic, Gemini, Vertex AI, Ollama, Cohere. See docs/PLAN_P2_01_PROVIDERS.md.
+      estimate_hours: 32
+      id: E1
+      locked: false
+      name: Native LLM Provider Integrations
+      path: 01-native-llm-provider-integratio
+      status: pending
+    - complexity: medium
+      depends_on: []
+      description: 6-digit one-time code, brute-force lockout, SHA-256 bearer tokens, /pair endpoints. See docs/PLAN_P2_06_OTP_PAIRING.md.
+      estimate_hours: 16
+      id: E2
+      locked: false
+      name: OTP Pairing
+      path: 02-otp-pairing
+      status: pending
+    - complexity: medium
+      depends_on: []
+      description: sandbox.ml dispatch layer, Firejail and Bubblewrap backends, auto-detect chain. See docs/PLAN_P2_08_SANDBOX_HARDENING.md.
+      estimate_hours: 12
+      id: E3
+      locked: false
+      name: 'Sandbox Hardening: Firejail & Bubblewrap'
+      path: 03-sandbox-hardening-firejail-bub
+      status: pending
+estimate_hours: 80
+id: P2.M1
+locked: false
+name: Providers & Security Core
+status: pending

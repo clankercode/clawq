@@ -1,0 +1,34 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 2
+id: P2.M2.E4.T005
+priority: medium
+status: pending
+tags: []
+title: 'email_channel.ml: In-Reply-To/References threading (track sender Message-ID)'
+---
+
+# email_channel.ml: In-Reply-To/References threading (track sender Message-ID)
+
+## Requirements
+
+- Maintain a `Hashtbl.t` mapping `session_key -> last_message_id` (module-level mutable state). When a message is received, extract its `Message-ID:` header and store it under the sender's session key.
+- When composing a reply via `Email_channel.send_reply`, pass the stored `last_message_id` as the `in_reply_to` parameter, which becomes the `In-Reply-To:` header. Also include it in `References:` header.
+- Update the stored `last_message_id` after each incoming message, so threading follows the most recent message in a conversation thread.
+
+## Implementation Notes
+
+Session key for email: use the sender's email address (from `From:` after allow_from processing) as the key, consistent with how other channels use sender identifiers as session keys.
+
+`In-Reply-To: {message_id}` and `References: {message_id}` headers are set in the reply when `last_message_id` is `Some id`. The `message_id` value from the incoming `Message-ID:` header includes angle brackets (e.g., `<abc@mail.example.com>`); preserve them verbatim.
+
+Hashtable is in-memory only; does not persist across daemon restarts. This is acceptable for the initial implementation.
+
+## Acceptance Criteria
+
+Done when:
+- Reply email contains `In-Reply-To: <original-message-id>` matching the sender's last received message.
+- `References:` header contains the same value.
+- Threading works correctly in standard email clients (verified by inspecting composed headers).
+- `make test` passes.

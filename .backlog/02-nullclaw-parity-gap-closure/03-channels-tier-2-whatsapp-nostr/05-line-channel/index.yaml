@@ -1,0 +1,32 @@
+complexity: medium
+depends_on: []
+estimate_hours: 10
+id: P2.M3.E5
+locked: false
+name: LINE Channel
+status: pending
+tasks:
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 4
+      file: T001-implement-line-channel-ml-add.todo
+      id: T001
+      priority: medium
+      status: pending
+      title: 'Implement line_channel.ml: add POST /line/webhook to http_server (verify X-Line-Signature HMAC-SHA256), parse events'
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 3
+      file: T002-line-channel-ml-reply-via-repl.todo
+      id: T002
+      priority: medium
+      status: pending
+      title: 'line_channel.ml: reply via replyToken API, push API for follow-up messages'
+    - complexity: low
+      depends_on: []
+      estimate_hours: 2
+      file: T003-add-line-config-to-runtime-con.todo
+      id: T003
+      priority: medium
+      status: pending
+      title: Add line_config to runtime_config; parse channels.line; wire into daemon

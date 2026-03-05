@@ -1,0 +1,24 @@
+complexity: medium
+depends_on: []
+estimate_hours: 10
+id: P2.M3.E3
+locked: false
+name: Mattermost Channel
+status: pending
+tasks:
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 4
+      file: T001-implement-mattermost-ml-ws-cli.todo
+      id: T001
+      priority: medium
+      status: pending
+      title: 'Implement mattermost.ml: Ws_client connect, auth challenge, parse event=posted, REST send'
+    - complexity: low
+      depends_on: []
+      estimate_hours: 2
+      file: T002-add-mattermost-config-to-runti.todo
+      id: T002
+      priority: medium
+      status: pending
+      title: Add mattermost_config to runtime_config; parse channels.mattermost; wire into daemon.ml

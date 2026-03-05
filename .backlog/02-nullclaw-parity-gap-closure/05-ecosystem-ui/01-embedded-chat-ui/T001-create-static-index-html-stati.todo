@@ -1,0 +1,38 @@
+---
+complexity: high
+depends_on: []
+estimate_hours: 8
+id: P2.M5.E1.T001
+priority: high
+status: pending
+tags: []
+title: 'Create static/index.html, static/chat.js, static/chat.css: streaming chat with SSE, message history, input box'
+---
+
+# Create static/index.html, static/chat.js, static/chat.css: streaming chat with SSE, message history, input box
+
+## Requirements
+
+- Create `static/index.html` with:
+  - A `#messages` div that is scrollable and displays chat bubbles with user/assistant distinction.
+  - A `#input` textarea where Enter sends the message and Shift+Enter inserts a newline.
+  - A `#status` bar showing connection state and model name.
+  - A `#tool-timeline` collapsible panel for tool call display (populated by T002).
+  - A pairing modal `#pairing-modal` (hidden by default, shown by T003 on 401/403).
+  - `marked.js` loaded from CDN with an `integrity` hash attribute for Markdown rendering.
+  - Script tag loading `chat.js` and link tag loading `chat.css`.
+- Create `static/chat.css` with minimal styling: dark/light theme variables, message bubble styles (user right-aligned, assistant left-aligned), responsive layout, tool timeline panel style.
+- Create `static/chat.js` skeleton with `DOMContentLoaded` listener, `sendMessage()` function stub, `appendMessage(role, content)` function.
+
+## Implementation Notes
+
+The plan (PLAN_P2_10_CHAT_UI.md) suggests `EventSource`, but `/chat` is a POST endpoint. Use `fetch('/chat', {method:'POST', body: JSON.stringify({message})})` with `response.body.getReader()` and a ReadableStream decoder for SSE-style `data:` lines instead. The textarea Enter handler: `if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }`. Load `marked.js` from `https://cdn.jsdelivr.net/npm/marked/marked.min.js`.
+
+## Acceptance Criteria
+
+Done when:
+- Opening `static/index.html` in a browser shows the chat UI without JavaScript errors (static only, no server needed).
+- `#messages`, `#input`, `#status` elements are all present in the DOM.
+- Shift+Enter in `#input` inserts a newline; Enter alone triggers `sendMessage()`.
+- `marked.js` CDN tag includes an `integrity` attribute.
+- `make test` passes (no OCaml regressions; these are static files).

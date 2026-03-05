@@ -1,0 +1,35 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 2
+id: P2.M4.E2.T005
+priority: low
+status: pending
+tags: []
+title: Write onboard template files for WASM mode (IDENTITY.md, USER.md, MEMORY.md, HEARTBEAT.md)
+---
+
+# Write onboard template files for WASM mode (IDENTITY.md, USER.md, MEMORY.md, HEARTBEAT.md)
+
+## Requirements
+
+- In `src/main_wasm.ml`, implement the `onboard` command as `run_onboard : unit -> unit`.
+- Write four template files to the current directory, each only if the file does not already exist:
+  - `IDENTITY.md`: default bot identity section (name placeholder, role, personality description stub).
+  - `USER.md`: user preferences template (name placeholder, communication style, language).
+  - `MEMORY.md`: empty Markdown table with `| Key | Value |` header and separator row.
+  - `HEARTBEAT.md`: periodic review checklist with placeholder items.
+- Each file write uses `open_out` and `output_string`. Existence check via `Sys.file_exists`.
+- After writing, print which files were created and which already existed.
+
+## Implementation Notes
+
+Template content should match nullclaw's WASM onboard templates in spirit. For `IDENTITY.md`: `# Identity\n\n**Name**: [Your Bot Name]\n**Role**: [Describe the bot's role]\n**Personality**: [Describe communication style]\n`. For `MEMORY.md`: `# Memory\n\n| Key | Value |\n| --- | --- |\n`. For `HEARTBEAT.md`: `# Heartbeat\n\n- [ ] Review recent conversations\n- [ ] Update memory entries\n- [ ] Check for unresolved tasks\n`. The idempotency check: `if not (Sys.file_exists "IDENTITY.md") then write_file "IDENTITY.md" identity_template`.
+
+## Acceptance Criteria
+
+Done when:
+- Running `./main_wasm.bc onboard` in an empty directory creates all four files.
+- Running `./main_wasm.bc onboard` again does not overwrite existing files (prints "already exists" for each).
+- `MEMORY.md` created by onboard is parseable by `read_memory_md ()` (returns `[]`).
+- `make test` passes.

@@ -1,0 +1,34 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 3
+id: P2.M5.E1.T003
+priority: medium
+status: pending
+tags: []
+title: 'chat.js: pairing modal (detect 401/403, prompt for 6-digit code, store token in localStorage)'
+---
+
+# chat.js: pairing modal (detect 401/403, prompt for 6-digit code, store token in localStorage)
+
+## Requirements
+
+- In `static/chat.js`, on every `fetch` call, check `response.status`. If 401 or 403, call `showPairingModal()`.
+- `showPairingModal()`: make `#pairing-modal` visible, focus the 6-digit code input field `#pairing-code`.
+- On pairing modal submit, POST `{code: value}` to `/auth`. If response is 200 with `{token: "..."}`, store the token in `localStorage['clawq_token']` and retry the original request with `Authorization: Bearer {token}` header.
+- If `/auth` returns non-200, show an error message in the modal (`"Invalid code, try again"`).
+- Include the stored token in all subsequent `fetch` calls: `const token = localStorage.getItem('clawq_token'); headers['Authorization'] = 'Bearer ' + token;`.
+- Add a "Logout" button in `static/index.html` that calls `localStorage.removeItem('clawq_token')` and reloads.
+
+## Implementation Notes
+
+The pairing flow: `GET /` → chat UI loads → user types message → `POST /chat` returns 401 (if no auth token) → pairing modal shown → user enters 6-digit code → `POST /auth {code}` → token stored → original `POST /chat` retried automatically. The modal HTML is in `index.html` (from T001) with `display:none` by default; `showPairingModal()` sets `display:block`. The `#pairing-code` input should have `maxlength="6"` and `pattern="[0-9]{6}"`.
+
+## Acceptance Criteria
+
+Done when:
+- A mock 401 response from `fetch` causes `#pairing-modal` to become visible.
+- Entering a 6-digit code and submitting POSTs to `/auth`.
+- A successful `/auth` response stores the token in `localStorage` and closes the modal.
+- Subsequent fetch calls include the `Authorization: Bearer {token}` header.
+- `make test` passes.

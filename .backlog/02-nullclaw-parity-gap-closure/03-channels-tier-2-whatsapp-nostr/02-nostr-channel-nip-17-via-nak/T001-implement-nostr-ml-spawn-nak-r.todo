@@ -1,0 +1,37 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 4
+id: P2.M3.E2.T001
+priority: high
+status: pending
+tags: []
+title: 'Implement nostr.ml: spawn nak req subprocess (Lwt_process), parse NIP-17 gift-wrap events, dedup by event ID (LRU 1000)'
+---
+
+# Implement nostr.ml: spawn nak req subprocess (Lwt_process), parse NIP-17 gift-wrap events, dedup by event ID (LRU 1000)
+
+## Requirements
+
+- Create `src/nostr.ml` implementing `Channel.S` with `val name = "nostr"` and `val start : config:Runtime_config.t -> session_manager:Session.t -> unit Lwt.t`.
+- Spawn `{nak_path} req --kind 1059 -p {pubkey_hex} {relays...}` via `Lwt_process.open_process_in`. Read NDJSON event lines from stdout. Each line is a Nostr event JSON object.
+- For each received kind 1059 (gift wrap) event, decrypt by spawning `{nak_path} decrypt --key {privkey_hex}` as a subprocess, piping the event JSON to stdin and reading the decrypted plaintext from stdout. The decrypted content is the kind 14 DM message text.
+- Maintain a dedup set (bounded Queue + Hashtbl, max 1000) keyed on `event.id`. Skip already-seen event IDs before decryption.
+
+## Implementation Notes
+
+NIP-17 flow: sender wraps a kind 14 DM inside a kind 1059 gift wrap addressed to the recipient's pubkey. The `nak` CLI handles the cryptographic unwrapping.
+
+`Lwt_process.open_process` with stdin/stdout: `let proc = Lwt_process.open_process ("nak", [|"nak"; "decrypt"; "--key"; privkey|]) in Lwt_io.write proc#stdin event_json >>= fun () -> Lwt_io.close proc#stdin >>= fun () -> Lwt_io.read proc#stdout`.
+
+Sender pubkey: extracted from the decrypted kind 14 event's `pubkey` field. Use it as the session key.
+
+Relay list from `config.channels.nostr.relays` as space-separated args to `nak req`.
+
+## Acceptance Criteria
+
+Done when:
+- `Nostr.start` spawns `nak req` subprocess, reads kind 1059 events, decrypts via `nak decrypt`, routes text to session_manager with sender pubkey as session key.
+- Already-seen event IDs are skipped (dedup by event.id, LRU 1000).
+- Subprocess restart on exit: if `nak req` exits, reconnect after 10s backoff.
+- `make test` passes.

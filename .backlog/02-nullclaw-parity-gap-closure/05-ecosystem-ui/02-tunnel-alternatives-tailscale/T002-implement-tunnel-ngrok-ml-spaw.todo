@@ -1,0 +1,32 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 4
+id: P2.M5.E2.T002
+priority: medium
+status: pending
+tags: []
+title: 'Implement tunnel_ngrok.ml: spawn ''ngrok http {port} --log stdout --log-format json'', parse JSON log for URL; query localhost:4040/api/tunnels for status'
+---
+
+# Implement tunnel_ngrok.ml: spawn 'ngrok http {port} --log stdout --log-format json', parse JSON log for URL; query localhost:4040/api/tunnels for status
+
+## Requirements
+
+- Create `src/tunnel_ngrok.ml` following the structure of `src/tunnel_cloudflare.ml`.
+- `start t`: spawn `ngrok http {port} --log stdout --log-format json` via `Lwt_process.open_process_in`. Read NDJSON lines from stdout. For each line, parse with `Yojson.Safe.from_string` and check for `{"msg":"started tunnel","url":"..."}` (field name may vary by ngrok version; also check `"public_url"` field). Extract URL when found. Timeout after 15 seconds.
+- `extract_url_ngrok_log : string -> string option`: parses one NDJSON line. Returns `Some url` if line contains a tunnel URL, `None` otherwise. Example input: `{"level":"info","msg":"started tunnel","name":"command_line","url":"https://abc123.ngrok-free.app"}`.
+- `status ()`: query `http://localhost:4040/api/tunnels` via `Http_client.get`, parse JSON, extract `tunnels[0].public_url`.
+- Add `tunnel_ngrok` to `clawq_runtime_integrations` in `src/dune`.
+
+## Implementation Notes
+
+Ngrok JSON log format: the `"msg"` field value is `"started tunnel"` when a tunnel is ready. The URL is in the `"url"` field (ngrok v3) or `"public_url"` field (ngrok v2). Check both. Use `Yojson.Safe.Util.member` for field access. For `status ()`, the local ngrok API response: `{"tunnels":[{"public_url":"https://...","proto":"https",...},...],"uri":"/api/tunnels"}`. The fallback: if JSON parsing fails, fall back to polling for 2 seconds.
+
+## Acceptance Criteria
+
+Done when:
+- `extract_url_ngrok_log {|{"level":"info","msg":"started tunnel","url":"https://abc123.ngrok-free.app"}|}` returns `Some "https://abc123.ngrok-free.app"`.
+- `extract_url_ngrok_log {|{"level":"info","msg":"heartbeat"}|}` returns `None`.
+- `extract_url_ngrok_log "not json"` returns `None` (no exception).
+- `make test` passes.

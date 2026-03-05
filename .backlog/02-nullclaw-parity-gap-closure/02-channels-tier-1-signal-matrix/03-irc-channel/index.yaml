@@ -1,0 +1,48 @@
+complexity: medium
+depends_on: []
+estimate_hours: 16
+id: P2.M2.E3
+locked: false
+name: IRC Channel
+status: pending
+tasks:
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 4
+      file: T001-implement-irc-ml-tls-connect-t.todo
+      id: T001
+      priority: high
+      status: pending
+      title: 'Implement irc.ml: TLS connect (tls-lwt/ca-certs), IRC line parser, PING->PONG handler'
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 3
+      file: T002-irc-ml-privmsg-receive-parse-s.todo
+      id: T002
+      priority: high
+      status: pending
+      title: 'irc.ml: PRIVMSG receive (parse sender/channel/text, apply allow_from), PRIVMSG send with 450-byte UTF-8 chunking'
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 3
+      file: T003-irc-ml-001-welcome-handler-aut.todo
+      id: T003
+      priority: medium
+      status: pending
+      title: 'irc.ml: 001 welcome handler (auto-JOIN channels), SASL PLAIN auth, 433 nick-in-use retry'
+    - complexity: low
+      depends_on: []
+      estimate_hours: 2
+      file: T004-irc-ml-exponential-reconnect-b.todo
+      id: T004
+      priority: medium
+      status: pending
+      title: 'irc.ml: exponential reconnect backoff (5s..120s), re-JOIN on reconnect'
+    - complexity: low
+      depends_on: []
+      estimate_hours: 2
+      file: T005-add-irc-config-to-runtime-conf.todo
+      id: T005
+      priority: high
+      status: pending
+      title: Add irc_config to runtime_config; parse channels.irc; wire into daemon.ml

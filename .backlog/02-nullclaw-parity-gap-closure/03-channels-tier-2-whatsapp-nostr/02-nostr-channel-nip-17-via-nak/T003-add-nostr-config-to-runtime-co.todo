@@ -1,0 +1,34 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 2
+id: P2.M3.E2.T003
+priority: high
+status: pending
+tags: []
+title: Add nostr_config to runtime_config; parse channels.nostr; wire into daemon.ml; doctor checks nak in PATH
+---
+
+# Add nostr_config to runtime_config; parse channels.nostr; wire into daemon.ml; doctor checks nak in PATH
+
+## Requirements
+
+- Add `nostr_config` record to `src/runtime_config.ml`: `{ enabled: bool; privkey_hex: string; pubkey_hex: string; relays: string list; nak_path: string }`.
+- Add `nostr: nostr_config option` to `channel_config`. Parse from `channels.nostr` JSON in `config_loader.ml`. Required when enabled: `privkey_hex`, `pubkey_hex`, `relays` (non-empty). Default: `nak_path = "nak"`. Yield `None` when disabled or absent.
+- In `src/daemon.ml`, if `config.channels.nostr` is `Some _`, call `Lwt.async (fun () -> Nostr.start ~config ~session_manager)`. Add `"nostr"` to `write_state` components.
+- In `cmd_doctor` (or equivalent health-check command), verify `nak` is findable in PATH by running `nak --version` via `Lwt_process` and reporting the result when nostr is configured.
+
+## Implementation Notes
+
+`privkey_hex` is the 64-character hex-encoded private key (nsec decoded). Treat it as a secret: redact in all logs (show only last 8 chars). `pubkey_hex` is the corresponding 64-character hex public key.
+
+Doctor check: `Unix.open_process_in (nak_path ^ " --version")` and check exit code. Report `"nak: ok (version X.Y.Z)"` or `"nak: NOT FOUND"`.
+
+## Acceptance Criteria
+
+Done when:
+- `Runtime_config.t` compiles with `nostr_config option` in `channel_config`.
+- Missing required fields produce descriptive errors; privkey redacted in error messages.
+- Daemon launches Nostr channel when configured.
+- Doctor command reports nak binary status when nostr enabled.
+- `make test` passes.

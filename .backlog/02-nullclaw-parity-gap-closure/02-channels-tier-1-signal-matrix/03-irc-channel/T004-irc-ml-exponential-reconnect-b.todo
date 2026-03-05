@@ -1,0 +1,34 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 2
+id: P2.M2.E3.T004
+priority: medium
+status: pending
+tags: []
+title: 'irc.ml: exponential reconnect backoff (5s..120s), re-JOIN on reconnect'
+---
+
+# irc.ml: exponential reconnect backoff (5s..120s), re-JOIN on reconnect
+
+## Requirements
+
+- Wrap the entire connect-handshake-receive loop in an outer `while true` loop with backoff state. On disconnect (any exception from `Lwt_io.read_line`, `End_of_file`, or TLS error), wait `min(5 * 2^attempts, 120)` seconds then reconnect. `attempts` increments on each failure.
+- Reset `attempts` to 0 after the connection has been alive for more than 60 seconds (track connection start time with `Unix.gettimeofday ()`).
+- On reconnect, repeat the full handshake sequence from T001/T003: NICK, USER, SASL (if configured), wait for `001`, JOIN channels.
+
+## Implementation Notes
+
+Backoff formula: `let delay = min (5.0 *. (2.0 ** float_of_int !attempts)) 120.0`. Cap is 120s (2 minutes), consistent with the title. `Lwt_unix.sleep delay` before reconnect attempt.
+
+Connection liveness check: `let connected_at = Unix.gettimeofday () in ... if Unix.gettimeofday () -. connected_at > 60.0 then attempts := 0`.
+
+Log reconnect attempts: `Logs.info (fun m -> m "IRC reconnecting in %.0fs (attempt %d)" delay !attempts)`.
+
+## Acceptance Criteria
+
+Done when:
+- On disconnect, reconnect is attempted after backoff delay (5s, 10s, 20s, 40s, 80s, 120s, 120s, ...).
+- After 60s of stable connection, backoff resets to 0 on next disconnect.
+- Full handshake (NICK/USER/JOIN) is repeated on each reconnect.
+- `make test` passes.

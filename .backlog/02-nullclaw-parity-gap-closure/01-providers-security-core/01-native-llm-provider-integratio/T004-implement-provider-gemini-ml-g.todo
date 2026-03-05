@@ -1,0 +1,34 @@
+---
+complexity: high
+depends_on:
+- P2.M1.E1.T001
+estimate_hours: 8
+id: P2.M1.E1.T004
+priority: medium
+status: pending
+tags: []
+title: Implement provider_gemini.ml (GenerateContent, streamGenerateContent, function declarations)
+---
+
+# Implement provider_gemini.ml (GenerateContent, streamGenerateContent, function declarations)
+
+## Requirements
+
+- Create `src/provider_gemini.ml` implementing `complete` against `POST https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}` and `complete_stream` against the `streamGenerateContent` endpoint. The message format uses `contents[].parts[].text` instead of OpenAI's `messages[].content`. System prompt is passed as `systemInstruction: {parts: [{text: "..."}]}` at the top level.
+- Parse the response structure: `candidates[0].content.parts[0].text` for text responses → `Provider.Text`. For function calls: `candidates[0].content.parts[0].functionCall.{name, args}` → `Provider.ToolCalls`. Tool definitions in requests use `tools[0].functionDeclarations[].{name, description, parameters}` where `parameters` is a JSON Schema object.
+- For streaming, `streamGenerateContent` returns a JSON array of response objects (or newline-delimited JSON objects). Accumulate `candidates[0].content.parts[0].text` deltas across chunks and emit `Provider.Delta`. Wire into `provider.ml` dispatch for `Gemini` kind from T001.
+
+## Implementation Notes
+
+- Key detection: `api_key` starting with `"AIzaSy"` → `Gemini`. Also applies when `kind` field = `"gemini"` (T008).
+- Endpoint construction: `base_url ^ "/v1beta/models/" ^ model ^ ":generateContent?key=" ^ api_key`. The API key goes in the query string, not a header.
+- Tool call `args` in Gemini responses is a JSON object (not a string). Serialize to string for `tool_call.arguments` to match `Provider.tool_call`.
+- Add `provider_gemini` to `clawq_runtime_core` in `src/dune`. No new dependencies.
+
+## Acceptance Criteria
+
+Done when:
+- A `Provider.message list` with a system message and user message is serialized to Gemini format with `systemInstruction` at top level and `contents` containing the user turn as `{role:"user", parts:[{text:"..."}]}`.
+- A response with `candidates[0].content.parts[0].functionCall.{name:"search", args:{query:"ocaml"}}` is parsed to `ToolCalls {calls=[{function_name="search"; arguments="{\"query\":\"ocaml\"}"}]}`.
+- `detect_kind` returns `Gemini` for `api_key = "AIzaSyAbc"`.
+- `make test` passes.

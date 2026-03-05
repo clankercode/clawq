@@ -1,0 +1,39 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 5
+id: P2.M6.E3.T002
+priority: medium
+status: pending
+tags: []
+title: 'Write test/test_commands.ml: each of 18 CLI commands returns non-error output (in-process invocation with mock config)'
+---
+
+# Write test/test_commands.ml: each of 18 CLI commands returns non-error output (in-process invocation with mock config)
+
+## Requirements
+
+- Create `test/test_commands.ml`. For each command exported from `Command_bridge`, invoke it with minimal valid arguments and verify it does not raise an unhandled exception or return an obvious error string.
+- Commands to test (check `src/command_bridge.ml` for the actual list; the Coq spec defines 18 commands):
+  - `cmd_status`: invoke, verify output contains `"status"` or `"ok"`.
+  - `cmd_version`: invoke, verify output contains a version string.
+  - `cmd_doctor`: invoke with a temp config, verify it prints some check results.
+  - `cmd_config`: invoke with a temp config file, verify config fields are printed.
+  - `cmd_memory list`: invoke with in-memory DB, verify no exception.
+  - `cmd_audit list`: invoke with in-memory DB, verify no exception.
+  - `cmd_tunnel status`: invoke without a running tunnel, verify it prints `"stopped"` or similar.
+- Commands that require network (e.g., `cmd_agent`, `cmd_chat`) should be tested only with mock providers or skipped with a clear `Alcotest.skip` annotation.
+- Register as `("commands", Test_commands.suite)` in `test/test_main.ml`.
+
+## Implementation Notes
+
+In-process invocation: rather than spawning a subprocess, call the command handler function directly from OCaml. This requires that `Command_bridge` exposes the handler functions, not just the `Cmdliner.Cmd.t` values. If handlers are not directly callable, use `Lwt_main.run (Command_bridge.cmd_status ~config ())` or equivalent. Use a temp config file written by the test with `{|{}|}` as content and load it. Capture stdout via `Buffer` + redirect if needed, or just verify no exception is raised.
+
+## Acceptance Criteria
+
+Done when:
+- `test/test_commands.ml` has at least 15 test cases.
+- `cmd_status` invocation does not raise.
+- `cmd_version` invocation prints a string containing the version.
+- `cmd_doctor` invocation does not raise (even if all checks fail).
+- `make test` passes.

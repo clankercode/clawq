@@ -1,0 +1,35 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 3
+id: P2.M3.E5.T002
+priority: medium
+status: pending
+tags: []
+title: 'line_channel.ml: reply via replyToken API, push API for follow-up messages'
+---
+
+# line_channel.ml: reply via replyToken API, push API for follow-up messages
+
+## Requirements
+
+- Implement `Line_channel.send_reply ~config ~user_id ~text` that: (1) checks the `replyToken` hashtable for `user_id`; (2) if a token exists, POST to `https://api.line.me/v2/bot/message/reply` with the token (single-use, clear after use); (3) if no token (follow-up message), POST to `https://api.line.me/v2/bot/message/push` with `user_id` instead.
+- Reply API body: `{"replyToken":"{token}","messages":[{"type":"text","text":"{text}"}]}`. Push API body: `{"to":"{user_id}","messages":[{"type":"text","text":"{text}"}]}`. Header: `Authorization: Bearer {channel_access_token}`.
+- Truncate message text to 5000 characters (LINE text message limit); split longer text into multiple messages in the `messages` array (up to 5 messages per API call).
+
+## Implementation Notes
+
+`replyToken` expires in 30 seconds after the webhook event. Because agent turns may take longer than 30s, the first reply attempt should prefer the push API if the token is likely stale (track token timestamp: `stored_at` alongside the token; if `Unix.gettimeofday () - stored_at > 25.0`, use push API instead).
+
+Use `Http_client.post_json_with_headers` for both reply and push endpoints.
+
+LINE push API requires the LINE Messaging API plan that supports push messages (not available on the free tier for some accounts). Log a warning if push API returns 403.
+
+## Acceptance Criteria
+
+Done when:
+- First reply uses `replyToken` if fresh (within 25s); subsequent replies use push API.
+- `replyToken` cleared from hashtable after use.
+- Messages longer than 5000 characters split into multiple entries in the `messages` array.
+- Push API 403 errors logged at warn level without raising.
+- `make test` passes.

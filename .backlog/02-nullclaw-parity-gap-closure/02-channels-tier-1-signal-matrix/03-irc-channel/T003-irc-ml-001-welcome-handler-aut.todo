@@ -1,0 +1,34 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 3
+id: P2.M2.E3.T003
+priority: medium
+status: pending
+tags: []
+title: 'irc.ml: 001 welcome handler (auto-JOIN channels), SASL PLAIN auth, 433 nick-in-use retry'
+---
+
+# irc.ml: 001 welcome handler (auto-JOIN channels), SASL PLAIN auth, 433 nick-in-use retry
+
+## Requirements
+
+- After connecting, send `NICK {nick}\r\nUSER {nick} 0 * :{nick}\r\n`. If `config.channels.irc.sasl_password` is `Some password`, also send `CAP REQ :sasl\r\n` before NICK/USER, then respond to `CAP * ACK :sasl` with `AUTHENTICATE PLAIN\r\n`, then to `AUTHENTICATE +` with the base64-encoded SASL PLAIN payload `"\x00{nick}\x00{password}"`.
+- On receiving numeric `001` (RPL_WELCOME), send `JOIN {channel}\r\n` for each channel in `config.channels.irc.channels`.
+- On receiving numeric `433` (ERR_NICKNAMEINUSE), retry with `{nick}_` (appending underscore). Retry up to 3 times before logging an error.
+
+## Implementation Notes
+
+SASL PLAIN base64: `Base64.encode_string ("\x00" ^ nick ^ "\x00" ^ password)` using the `base64` library already in deps. Send as `AUTHENTICATE {base64string}\r\n`. After server confirms authentication with `900`/`903`, proceed with NICK/USER.
+
+Handler dispatch: maintain a simple state machine with variants `type state = Connecting | Authenticating | Registered`. Transition on received numerics. This avoids complex callback nesting.
+
+NickServ alternative: if SASL is unavailable, after `001` send `PRIVMSG NickServ :IDENTIFY {password}\r\n` as fallback when `sasl_password` is set.
+
+## Acceptance Criteria
+
+Done when:
+- On `001`, bot joins all configured channels.
+- With `sasl_password` set, SASL PLAIN auth completes before JOIN.
+- On `433`, nick retried with underscore suffix up to 3 times.
+- `make test` passes.

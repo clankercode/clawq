@@ -1,0 +1,34 @@
+---
+complexity: medium
+depends_on:
+- P2.M1.E2.T001
+- P2.M1.E2.T002
+estimate_hours: 2
+id: P2.M1.E2.T004
+priority: high
+status: pending
+tags: []
+title: 'Daemon startup: print OTP code, initialize Pairing.t, persist/load paired_tokens.json'
+---
+
+# Daemon startup: print OTP code, initialize Pairing.t, persist/load paired_tokens.json
+
+## Requirements
+
+- In `daemon.ml`, after loading config, call `Pairing.create ~tokens_path:(Filename.concat home ".clawq/paired_tokens.json")`. If `config.gateway.pairing_required = true` (T006) and `pairing.token_hashes = []` (no previously paired clients), call `Pairing.generate_code ()`, set `pairing.code`, and print `"Pair code: {code}"` to stderr with `Printf.eprintf`. The code must also appear in `Logs.info`.
+- Pass the `Pairing.t` instance to `Http_server.handler` via the `?pairing` parameter added in T002. The daemon's gateway Lwt task must hold a reference to the same `Pairing.t` value throughout the daemon lifetime so code/token state is shared across requests.
+- If `config.gateway.pairing_required = false`, pass `pairing = None` to `Http_server.handler`; no code is printed.
+
+## Implementation Notes
+
+- `Pairing.create` loads `tokens_path` from disk if it exists, populating `token_hashes`. If the file is absent, `token_hashes = []` — the code is then generated and printed.
+- The code printout format should be distinct and hard to miss: `"\n=== Pair code: %s ===\n"`. Only printed on first startup without paired clients; not printed if `token_hashes <> []` (daemon restart with existing clients).
+- `daemon.ml` currently calls `Http_server.handler` inside `Cohttp_lwt_unix.Server.create`. The `Pairing.t` can be captured by closure. No Lwt-specific concerns for the state machine itself (it is synchronous mutable state, not Lwt-protected, which is acceptable for single-daemon use — one HTTP connection at a time completes its handler atomically in the Cohttp model).
+
+## Acceptance Criteria
+
+Done when:
+- On `clawq daemon` with `pairing_required = true` and no `paired_tokens.json`, the terminal shows `=== Pair code: {6 digits} ===`.
+- On daemon restart after a successful pairing (tokens file exists), no code is printed.
+- On `clawq daemon` with `pairing_required = false`, no code is printed and `pairing = None` is passed to the handler.
+- `make test` passes.

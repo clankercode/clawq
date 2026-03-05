@@ -1,0 +1,39 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 4
+id: P2.M3.E6.T001
+priority: low
+status: pending
+tags: []
+title: 'Implement dingtalk.ml: Stream Mode WSS connect, HMAC-SHA256 auth header, event parse, ack format'
+---
+
+# Implement dingtalk.ml: Stream Mode WSS connect, HMAC-SHA256 auth header, event parse, ack format
+
+## Requirements
+
+- Create `src/dingtalk.ml` implementing `Channel.S` with `val name = "dingtalk"` and `val start : config:Runtime_config.t -> session_manager:Session.t -> unit Lwt.t`.
+- Obtain WS endpoint and ticket: `POST https://api.dingtalk.com/v1.0/gateway/connections/open` with `Content-Type: application/json` body `{"clientId":"{app_key}","clientSecret":"{app_secret}"}`. Response: `{"endpoint":"{wss_url}","ticket":"{ticket}"}`. Connect to `{endpoint}?ticket={ticket}` using `Ws_client`.
+- Parse incoming JSON frames. On `type = "EVENT"` and `topic = "im-message"`: extract `data.content` (user message text), `data.senderStaffId` (sender ID), `data.conversationId` (channel ID). Route to session_manager with `senderStaffId` as session key.
+- After processing each event, send ack frame: `{"code":200,"headers":{"messageId":"{messageId}","topic":"{topic}"},"message":"OK"}`.
+
+## Implementation Notes
+
+DingTalk Stream Mode replaces the need for a public webhook URL. The WS connection is outbound from clawq to DingTalk's gateway, similar to Discord's gateway approach.
+
+Frame format: `{"specVersion":"1.0","type":"EVENT","headers":{"appId":"...","messageId":"...","topic":"im-message","timestamp":"..."},"data":"{\\"content\\":\\"hello\\",\\"senderStaffId\\":\\"user123\\"}"}`.
+
+`data` field is a JSON-encoded string; double-parse with `Yojson.Safe.from_string`.
+
+Auth for the initial POST: the `clientSecret` is not used as a header here (it's in the POST body). No separate HMAC header needed for this endpoint. However, DingTalk may send events with an `X-Ding-Signature` — verify if present using `HMAC-SHA256(app_secret, timestamp + nonce + body)`.
+
+Use `Ws_client` module for the WSS connection.
+
+## Acceptance Criteria
+
+Done when:
+- `Dingtalk.start` fetches WS endpoint, connects, receives `im-message` events, routes to session_manager.
+- Each event is acked with the correct messageId.
+- WS reconnect on close: re-fetch endpoint and ticket (they expire).
+- `make test` passes.

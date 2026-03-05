@@ -1,0 +1,35 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 2
+id: P2.M2.E2.T004
+priority: medium
+status: pending
+tags: []
+title: 'matrix.ml: allow_rooms/allow_users filters, skip own messages, 4000-byte chunking'
+---
+
+# matrix.ml: allow_rooms/allow_users filters, skip own messages, 4000-byte chunking
+
+## Requirements
+
+- After parsing each timeline event, apply two filters before routing to session_manager: (1) if `config.channels.matrix.allow_rooms` is non-empty, drop events from room IDs not in the list; (2) if `config.channels.matrix.allow_users` is non-empty, drop events from senders not in the list.
+- Always skip events where `sender = config.channels.matrix.bot_user_id` (own messages) regardless of filter lists.
+- Room IDs use `!` prefix format (e.g., `"!abc123:matrix.org"`); user IDs use `@` prefix (e.g., `"@user:matrix.org"`). Comparisons are exact string match.
+
+## Implementation Notes
+
+Filter logic order: (1) skip own messages, (2) check allow_rooms, (3) check allow_users. A message passes only if all applicable filters pass. Log dropped messages at debug level with room_id and truncated sender.
+
+The 4000-byte chunking for outbound messages is specified in T002 (`Matrix.send_message`); this task focuses on the inbound filter pipeline only.
+
+`List.mem sender allow_users` for filter check. Empty list means "allow all" (no filter applied).
+
+## Acceptance Criteria
+
+Done when:
+- Messages from rooms not in `allow_rooms` (when non-empty) are silently dropped.
+- Messages from users not in `allow_users` (when non-empty) are silently dropped.
+- Own bot messages are always skipped.
+- Messages passing all filters are routed to session_manager.
+- `make test` passes.

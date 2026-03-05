@@ -1,0 +1,33 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 3
+id: P2.M2.E2.T002
+priority: high
+status: pending
+tags: []
+title: 'matrix.ml: send messages (PUT /_matrix/client/v3/rooms/{roomId}/send/m.room.message/{txnId})'
+---
+
+# matrix.ml: send messages (PUT /_matrix/client/v3/rooms/{roomId}/send/m.room.message/{txnId})
+
+## Requirements
+
+- Implement `Matrix.send_message ~config ~room_id ~text` using `Http_client.put` (or `Http_client.post_json_with_headers` with method override) to `PUT {homeserver}/_matrix/client/v3/rooms/{room_id}/send/m.room.message/{txn_id}`.
+- Body: `{"msgtype":"m.text","body":"{text}"}`. Header: `Authorization: Bearer {access_token}`.
+- Transaction ID: use a module-level `ref int` counter, incremented on each send and formatted as `"clawq-{counter}"`. This prevents the homeserver from delivering duplicates on retry.
+- Chunk messages exceeding 4000 bytes (Matrix client display limit) at UTF-8 character boundaries; send each chunk as a separate PUT with a distinct txn_id.
+
+## Implementation Notes
+
+`Http_client` currently provides `post_json` and `post_json_with_headers`. For PUT, either add `put_json` to `http_client.ml` following the same pattern, or use Cohttp directly with `Cohttp_lwt_unix.Client.put`. The txn_id counter must be per-process monotonic, not per-session, to satisfy the Matrix spec idempotency requirement.
+
+Response JSON contains `{"event_id":"$..."}` on success. Log event_id at debug level.
+
+## Acceptance Criteria
+
+Done when:
+- `Matrix.send_message` sends PUT with correct URL, body, and Authorization header.
+- txn_id increments on each call; never reuses within a process run.
+- Messages over 4000 bytes split into multiple PUTs with distinct txn_ids.
+- `make test` passes.

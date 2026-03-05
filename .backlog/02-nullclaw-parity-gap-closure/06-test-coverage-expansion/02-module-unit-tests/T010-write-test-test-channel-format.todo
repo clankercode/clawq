@@ -1,0 +1,37 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 8
+id: P2.M6.E2.T010
+priority: medium
+status: pending
+tags: []
+title: 'Write test/test_channel_formats.ml: parse tests for Signal, Matrix, IRC, Email, WhatsApp, Nostr, Discord, Telegram, Slack (~185 tests)'
+---
+
+# Write test/test_channel_formats.ml: parse tests for Signal, Matrix, IRC, Email, WhatsApp, Nostr, Discord, Telegram, Slack (~185 tests)
+
+## Requirements
+
+- Create `test/test_channel_formats.ml`. Each section covers one channel's parse-only functions (no network, no process spawning).
+- Discord: parse a gateway dispatch event JSON (`{"t":"MESSAGE_CREATE","s":1,"d":{...}}`), verify author and content extraction. Parse rate limit headers (`X-RateLimit-Remaining`, `X-RateLimit-Reset-After`). (Tests for `discord.ml` / `discord_gateway.ml` — existing suites may partially cover this; add gaps here.)
+- Telegram: parse a Telegram update JSON (`{"update_id":1,"message":{"text":"hello","from":{"id":42}...}}`), verify text and user_id. Test allow_from filtering logic.
+- Slack: parse a Slack Events API event body JSON, verify event type and text. HMAC verification test with known secret, timestamp, and body.
+- Signal (if `src/signal.ml` exists): parse NDJSON message line from `signal-cli` output.
+- Matrix (if `src/matrix.ml` exists): parse a Matrix sync response JSON, extract room events with correct sender and content.
+- IRC (if `src/irc.ml` exists): parse a PRIVMSG line `":nick!user@host PRIVMSG #chan :hello world"` into sender, channel, and message.
+- Email (if `src/email_channel.ml` exists): test RFC 2047 encoded header decode, HTML strip from body.
+- Register as `("channel_formats", Test_channel_formats.suite)` in `test/test_main.ml`.
+
+## Implementation Notes
+
+Check which channel modules actually exist in `src/` before writing tests for them. From the memory file: `telegram.ml`, `discord.ml`, `discord_gateway.ml`, `slack.ml`, `slack_socket.ml` exist. Signal, Matrix, IRC, Email may not yet exist — skip those sections and add a placeholder comment. Existing `test_slack.ml`, `test_discord.ml`, `test_discord_gateway.ml`, `test_slack_socket.ml` are already registered. The new file should cover parse aspects not in those existing files (e.g., message content extraction, not connection management).
+
+## Acceptance Criteria
+
+Done when:
+- `test/test_channel_formats.ml` has at least 30 test cases covering the channels that exist.
+- Discord event parse test: `MESSAGE_CREATE` dispatch yields correct content string.
+- Telegram update parse test: `update.message.text` extracted correctly.
+- Slack HMAC verify test: known secret + timestamp + body → correct signature matches.
+- `make test` passes.

@@ -1,0 +1,33 @@
+---
+complexity: high
+depends_on:
+- P2.M1.E1.T001
+estimate_hours: 8
+id: P2.M1.E1.T002
+priority: high
+status: pending
+tags: []
+title: Implement provider_anthropic.ml (Messages API, streaming SSE, tool_use format)
+---
+
+# Implement provider_anthropic.ml (Messages API, streaming SSE, tool_use format)
+
+## Requirements
+
+- Create `src/provider_anthropic.ml` with `complete` and `complete_stream` functions targeting `POST /v1/messages`. Auth must use `x-api-key: {api_key}` and `anthropic-version: 2023-06-01` headers (not `Authorization: Bearer`). Extract any `role = "system"` message from the `Provider.message list` and pass it as the top-level `system` field; remaining messages form the `messages` array.
+- Handle the Anthropic response format: `content[].type = "text"` maps to `Provider.Text`; `content[].type = "tool_use"` (with `id`, `name`, `input` fields) maps to `Provider.ToolCalls`. Tool call `input` is a JSON object — serialize it to a string for `tool_call.arguments`.
+- Implement streaming via SSE: `content_block_delta` events carry `delta.type = "text_delta"` (with `delta.text`) or `delta.type = "input_json_delta"` (with partial tool JSON). Accumulate deltas and produce `Provider.stream_event` values (`Delta` for text, `ToolCallDelta` for tool JSON). Wire into `provider.ml` dispatch for the `Anthropic` kind from T001.
+
+## Implementation Notes
+
+- Base URL default: `https://api.anthropic.com`; endpoint: `base_url ^ "/v1/messages"`. Tool definitions use `input_schema` (JSON Schema object) in the request — map from the `tools` JSON already in OpenAI format by renaming `parameters` to `input_schema`.
+- For tool result messages (`role = "tool"`), the Anthropic format uses a `user` message with `content = [{type: "tool_result", tool_use_id: ..., content: ...}]`. Map `Provider.make_tool_result` accordingly.
+- Add `provider_anthropic` to `clawq_runtime_core` modules in `src/dune`. No new opam dependencies: `cohttp-lwt-unix` handles HTTP.
+
+## Acceptance Criteria
+
+Done when:
+- A `Provider.message list` containing a system message is serialized with `system` at top level and only user/assistant messages in `messages`.
+- A response body with `content:[{type:"tool_use",id:"tu_1",name:"read_file",input:{path:"/foo"}}]` is parsed to `ToolCalls {calls=[{id="tu_1"; function_name="read_file"; arguments="{\"path\":\"/foo\"}"}]}`.
+- `detect_kind` (T001) routes `sk-ant-*` api_key to this module.
+- `make test` passes.

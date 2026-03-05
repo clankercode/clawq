@@ -1,0 +1,30 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 2
+id: P2.M2.E1.T005
+priority: high
+status: pending
+tags: []
+title: Wire Signal into daemon.ml as Lwt.async task; add to cmd_status/doctor
+---
+
+# Wire Signal into daemon.ml as Lwt.async task; add to cmd_status/doctor
+
+## Requirements
+
+- In `src/daemon.ml` `run` function, after the Telegram/Discord/Slack launch block, check `config.channels.signal`. If `Some _`, call `Lwt.async (fun () -> Signal.start ~config ~session_manager)`. Follow the same pattern used for `telegram`.
+- Add `"signal"` to the `components` list passed to `write_state`: set status to `"running"` if signal config is `Some _`, else `"disabled"`.
+- In `cmd_status` (or equivalent doctor command handler), include signal enabled/disabled in the status output line alongside telegram/discord/slack.
+
+## Implementation Notes
+
+The daemon pattern for Telegram is `Lwt.async (fun () -> Telegram.start ~config ~session_manager)` guarded by `Option.is_some config.channels.telegram`. Replicate exactly for Signal. Signal's `start` function must not raise synchronously; wrap in `try ... with exn -> Logs.err ...; Lwt.return_unit` at the top level of `Signal.start`.
+
+## Acceptance Criteria
+
+Done when:
+- Daemon launches Signal channel when `channels.signal.enabled = true` in config.
+- Daemon starts normally (no signal config) without error.
+- `write_state` includes `"signal"` component key.
+- `make test` passes.

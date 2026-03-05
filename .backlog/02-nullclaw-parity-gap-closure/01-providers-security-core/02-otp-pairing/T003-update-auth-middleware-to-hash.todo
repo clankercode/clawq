@@ -1,0 +1,34 @@
+---
+complexity: medium
+depends_on:
+- P2.M1.E2.T001
+estimate_hours: 2
+id: P2.M1.E2.T003
+priority: high
+status: pending
+tags: []
+title: Update auth middleware to hash-compare bearer tokens via Eqaf constant-time
+---
+
+# Update auth middleware to hash-compare bearer tokens via Eqaf constant-time
+
+## Requirements
+
+- Replace the direct string comparison in `auth_ok` in `http_server.ml` with a hash-based lookup when `pairing_required = true`. Extract the bearer token from `Authorization: Bearer {token}` or `X-Api-Key: {token}`, compute `Pairing.hash_token token`, then check whether the hash appears in `pairing.token_hashes` using `List.exists (fun h -> Eqaf.equal h (Pairing.hash_token token))`.
+- Preserve the legacy path: when `pairing_required = false` and `auth_token = Some token`, retain the current direct comparison behavior (backward-compatible for users not using the pairing flow). When `pairing_required = false` and `auth_token = None`, allow all requests (existing behavior).
+- When `pairing_required = true` and `token_hashes = []` (no clients paired yet), allow only the `/pair*` and `/health` endpoints; reject all other endpoints with 403 and body `{"error":"no paired clients; use POST /pair to pair"}`.
+
+## Implementation Notes
+
+- `auth_ok` currently has signature `auth_token:string option -> Cohttp.Request.t -> bool`. Extend to `auth_ok ~pairing_required ~pairing:Pairing.t option ~auth_token req -> bool`. The function is called in the `POST /chat` and `POST /slack/events` branches; update all call sites.
+- The `Eqaf.equal` comparison must cover every stored hash individually to prevent short-circuit leakage — iterate the full `token_hashes` list even after finding a match using `List.fold_left (fun acc h -> acc || Eqaf.equal h presented_hash) false hashes`.
+- `Pairing.hash_token` (from T001) uses `Digestif.SHA256.digest_string` and returns lowercase hex.
+
+## Acceptance Criteria
+
+Done when:
+- A valid paired token (whose hash is in `token_hashes`) is accepted by `auth_ok`.
+- An invalid token of the same length is rejected without a timing difference detectable via the `Eqaf.equal` path.
+- When `token_hashes = []` and `pairing_required = true`, `POST /chat` returns 403.
+- Legacy `auth_token`-only config (no pairing) continues to work unchanged.
+- `make test` passes.

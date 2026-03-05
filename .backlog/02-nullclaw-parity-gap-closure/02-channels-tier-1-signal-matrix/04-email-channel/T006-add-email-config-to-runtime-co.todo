@@ -1,0 +1,32 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 2
+id: P2.M2.E4.T006
+priority: high
+status: pending
+tags: []
+title: Add email_config to runtime_config; parse channels.email; wire poll loop into daemon.ml
+---
+
+# Add email_config to runtime_config; parse channels.email; wire poll loop into daemon.ml
+
+## Requirements
+
+- Add `email_config` record to `src/runtime_config.ml`: `{ enabled: bool; imap_host: string; imap_port: int; imap_user: string; imap_password: string; smtp_host: string; smtp_port: int; smtp_from: string; allow_from: string list; poll_interval_s: int }`.
+- Add `email: email_config option` to `channel_config`. Parse from `channels.email` JSON in `config_loader.ml`. Defaults: `imap_port = 993`, `smtp_port = 587`, `allow_from = []`, `poll_interval_s = 60`. Required when enabled: `imap_host`, `imap_user`, `imap_password`, `smtp_host`, `smtp_from`. If `enabled = false` or key absent, yield `None`.
+- In `src/daemon.ml`, if `config.channels.email` is `Some _`, call `Lwt.async (fun () -> Email_channel.start ~config ~session_manager)`. Add `"email"` to `write_state` components.
+
+## Implementation Notes
+
+`smtp_from` is the `From:` address used in outbound emails (e.g., `"clawq@example.com"`). It may differ from `imap_user` if the IMAP and SMTP accounts use different addresses.
+
+Follow the `telegram_config` pattern for parsing and daemon wiring. The email module is named `Email_channel` (not `Email`) to avoid clashing with any future `Email` utility module.
+
+## Acceptance Criteria
+
+Done when:
+- `Runtime_config.t` compiles with `email_config option` in `channel_config`.
+- All required fields validated; missing fields produce descriptive errors.
+- Daemon launches email channel when configured; skips gracefully when absent.
+- `make test` passes.

@@ -1,0 +1,33 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 3
+id: P2.M4.E2.T002
+priority: medium
+status: pending
+tags: []
+title: Add wasm_of_ocaml build target to src/dune and build-wasm/run-wasm targets to Makefile
+---
+
+# Add wasm_of_ocaml build target to src/dune and build-wasm/run-wasm targets to Makefile
+
+## Requirements
+
+- Add a new `(executable ...)` stanza to `src/dune` for `main_wasm` with `(name main_wasm)`, `(libraries cmdliner)` (minimal, no clawq_runtime), and `(modes byte)`. Do not add `(modes wasm)` until `wasm_of_ocaml` availability is confirmed in CI; gate it behind a dune conditional or document it as a manual step.
+- Add to `Makefile`:
+  - `build-wasm`: runs `opam exec --switch=clawq-5.1 -- dune build src/main_wasm.bc` for the bytecode step; and optionally `dune build src/main_wasm.bc.wasm` if `wasm_of_ocaml` is installed.
+  - `run-wasm`: runs `wasmtime --dir . _build/default/src/main_wasm.bc.wasm` (or falls back to running the bytecode with `ocamlrun`).
+- The `build-wasm` target must not break `make build` for users who do not have `wasm_of_ocaml` installed. Add a guard: `@which wasm_of_ocaml >/dev/null 2>&1 || (echo "wasm_of_ocaml not installed; skipping WASM step"; exit 0)`.
+
+## Implementation Notes
+
+The `dune-workspace` already defines build profiles (`release-speed`, `release-size`). The WASM target should use neither — it's a standalone bytecode build. Consult the existing `main_min` stanza in `src/dune` for the minimal library pattern. The Makefile convention in this project uses `opam exec --switch=clawq-5.1 --` as prefix; follow that exactly.
+
+## Acceptance Criteria
+
+Done when:
+- `dune build src/main_wasm.bc` succeeds without `wasm_of_ocaml` installed.
+- `make build-wasm` runs without error when `wasm_of_ocaml` is absent (prints skip message and exits 0).
+- `make build-wasm` produces `_build/default/src/main_wasm.bc.wasm` when `wasm_of_ocaml` is installed.
+- Existing `make build` is unaffected.
+- `make test` passes.

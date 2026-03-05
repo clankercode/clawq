@@ -1,0 +1,39 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 3
+id: P2.M6.E2.T008
+priority: medium
+status: pending
+tags: []
+title: 'Write test/test_scheduler.ml: cron parse, interval, next-run, overdue detection (~25 tests)'
+---
+
+# Write test/test_scheduler.ml: cron parse, interval, next-run, overdue detection (~25 tests)
+
+## Requirements
+
+- `test/test_scheduler.ml` already exists with at least `test_parse_interval_minutes` (registered as `"scheduler"` in `test/test_main.ml`). Review current test count and identify gaps.
+- Add tests for missing coverage in `src/scheduler.ml`:
+  - `Scheduler.parse_schedule "every 5m"` → `Interval 300.0` (existing).
+  - `Scheduler.parse_schedule "every 1h"` → `Interval 3600.0`.
+  - `Scheduler.parse_schedule "every 24h"` → `Interval 86400.0`.
+  - Cron expression parsing: `Scheduler.parse_schedule "0 9 * * 1"` → `Cron ...` variant with correct fields.
+  - `Scheduler.next_run` after a Monday 08:00 timestamp for `"0 9 * * 1"` returns Monday 09:00 timestamp.
+  - `Scheduler.is_overdue` returns true when current time exceeds `next_run + grace_period`.
+  - Invalid schedule string returns `Error _`.
+  - Daily shorthand `"daily at 09:00"` (if supported) parses to cron or interval.
+- Ensure the `scheduler` suite has at least 20 test cases.
+
+## Implementation Notes
+
+Use fixed Unix timestamps for `next_run` tests to avoid time-zone sensitivity. `Unix.mktime` with explicit struct fields is safer than relative `Unix.time ()` calls. Check `src/scheduler.ml` for the `parse_schedule` return type (the existing test shows `Scheduler.Interval f` variant). The `Cron` variant may have fields for minute, hour, day_of_month, month, day_of_week. For `is_overdue`, test with `now > last_run + interval`.
+
+## Acceptance Criteria
+
+Done when:
+- The `scheduler` suite has at least 20 test cases.
+- Interval parse tests: 5m, 1h, 24h all produce correct seconds values.
+- Cron parse test: `"0 9 * * 1"` parsed without error.
+- Invalid schedule test: `Error _` returned for `"every -1m"` or `"not a schedule"`.
+- `make test` passes.

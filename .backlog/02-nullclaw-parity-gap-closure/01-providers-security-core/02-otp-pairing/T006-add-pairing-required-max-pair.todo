@@ -1,0 +1,34 @@
+---
+complexity: low
+depends_on:
+- P2.M1.E2.T001
+estimate_hours: 1
+id: P2.M1.E2.T006
+priority: high
+status: pending
+tags: []
+title: Add pairing_required, max_pair_attempts, pair_lockout_seconds to gateway_config
+---
+
+# Add pairing_required, max_pair_attempts, pair_lockout_seconds to gateway_config
+
+## Requirements
+
+- Add three fields to `Runtime_config.gateway_config`: `max_pair_attempts : int` (default 5 — number of wrong-code attempts before lockout), `pair_lockout_seconds : int` (default 300 — duration of lockout in seconds). The `pairing_required : bool` field already exists in `gateway_config`; no change needed to that field.
+- Update `Config_loader` to parse `gateway.max_pair_attempts` and `gateway.pair_lockout_seconds` from JSON. Both are optional and backward-compatible — if absent, use the defaults above.
+- Update `Runtime_config.to_json` to include both new fields in the `"gateway"` object so the config round-trips correctly. Pass `max_pair_attempts` and `pair_lockout_seconds` from config into `Pairing.attempt_pair` calls (T001) instead of hard-coded constants.
+
+## Implementation Notes
+
+- Current `gateway_config` in `runtime_config.ml`: `{ host : string; port : int; require_pairing : bool; auth_token : string option }`. Add the two new fields after `auth_token`.
+- The `Pairing.attempt_pair` function can accept `~max_attempts:int` and `~lockout_seconds:int` labeled parameters, or the values can be stored in `Pairing.t` at creation time via `Pairing.create`. Prefer storing in `Pairing.t` for cleaner call sites.
+- Update `default` in `runtime_config.ml` to include `max_pair_attempts = 5; pair_lockout_seconds = 300`.
+
+## Acceptance Criteria
+
+Done when:
+- A config with `"gateway": {"max_pair_attempts": 3, "pair_lockout_seconds": 60}` loads correctly with those values.
+- A config without these fields loads with defaults `max_pair_attempts = 5` and `pair_lockout_seconds = 300`.
+- Pairing lockout triggers after the configured number of attempts (not hard-coded 5).
+- `Runtime_config.to_json` includes `"max_pair_attempts"` and `"pair_lockout_seconds"` in the gateway section.
+- `make test` passes.

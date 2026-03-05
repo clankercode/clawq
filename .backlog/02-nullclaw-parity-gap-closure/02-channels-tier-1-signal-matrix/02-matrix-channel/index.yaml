@@ -1,0 +1,48 @@
+complexity: high
+depends_on: []
+estimate_hours: 20
+id: P2.M2.E2
+locked: false
+name: Matrix Channel
+status: pending
+tasks:
+    - complexity: high
+      depends_on: []
+      estimate_hours: 6
+      file: T001-implement-matrix-ml-long-poll.todo
+      id: T001
+      priority: high
+      status: pending
+      title: 'Implement matrix.ml: long-poll sync loop (/_matrix/client/v3/sync?timeout=30000), parse room timeline events'
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 3
+      file: T002-matrix-ml-send-messages-put-ma.todo
+      id: T002
+      priority: high
+      status: pending
+      title: 'matrix.ml: send messages (PUT /_matrix/client/v3/rooms/{roomId}/send/m.room.message/{txnId})'
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 3
+      file: T003-matrix-ml-sync-token-persisten.todo
+      id: T003
+      priority: high
+      status: pending
+      title: 'matrix.ml: sync token persistence to file, reconnect with exponential backoff'
+    - complexity: low
+      depends_on: []
+      estimate_hours: 2
+      file: T004-matrix-ml-allow-rooms-allow-us.todo
+      id: T004
+      priority: medium
+      status: pending
+      title: 'matrix.ml: allow_rooms/allow_users filters, skip own messages, 4000-byte chunking'
+    - complexity: low
+      depends_on: []
+      estimate_hours: 2
+      file: T005-add-matrix-config-to-runtime-c.todo
+      id: T005
+      priority: high
+      status: pending
+      title: Add matrix_config to runtime_config; parse channels.matrix; wire into daemon.ml

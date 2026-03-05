@@ -10,5 +10,15 @@ phases:
       priority: high
       status: pending
       weeks: 12
+    - depends_on: []
+      description: Close the remaining feature gaps vs nullclaw identified in NULLCLAW_COMPARISON_1.tmp.md. Covers native providers, 13 new channels, OTP pairing, memory export, sandbox hardening, WASM runtime, Chat UI, test coverage, and tunnel alternatives.
+      estimate_hours: 480
+      id: P2
+      locked: false
+      name: 'Nullclaw Parity: Gap Closure'
+      path: 02-nullclaw-parity-gap-closure
+      priority: high
+      status: pending
+      weeks: 16
 project: Clawq
 timeline_weeks: 0

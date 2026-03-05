@@ -1,0 +1,24 @@
+complexity: medium
+depends_on: []
+estimate_hours: 12
+id: P2.M3.E7
+locked: false
+name: QQ/OneBot Channel
+status: pending
+tasks:
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 4
+      file: T001-implement-onebot-ml-ws-client.todo
+      id: T001
+      priority: low
+      status: pending
+      title: 'Implement onebot.ml: Ws_client connect to OneBot server, parse message events (string + array format)'
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 3
+      file: T002-onebot-ml-send-via-http-api-se.todo
+      id: T002
+      priority: low
+      status: pending
+      title: 'onebot.ml: send via HTTP API (/send_private_msg, /send_group_msg); add onebot_config to runtime_config and daemon'

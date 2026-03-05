@@ -1,0 +1,38 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 4
+id: P2.M3.E8.T001
+priority: low
+status: pending
+tags: []
+title: 'Implement imessage.ml: macOS guard (check /usr/bin/osascript), poll chat.db by ROWID, AppleScript send'
+---
+
+# Implement imessage.ml: macOS guard (check /usr/bin/osascript), poll chat.db by ROWID, AppleScript send
+
+## Requirements
+
+- Create `src/imessage.ml` implementing `Channel.S` with `val name = "imessage"` and `val start : config:Runtime_config.t -> session_manager:Session.t -> unit Lwt.t`.
+- At startup, check if `/usr/bin/osascript` exists via `Sys.file_exists`. If not (Linux or non-macOS), log `"imessage: not available on this platform"` at info level and return `Lwt.return_unit` immediately.
+- On macOS: open `~/Library/Messages/chat.db` via the `sqlite3` OCaml library (already in deps). Poll every `poll_interval_s` seconds: `SELECT ROWID, text, handle_id FROM message WHERE ROWID > ? AND is_from_me = 0 ORDER BY ROWID ASC LIMIT 100`. Track `last_seen_rowid` (initialized from `SELECT MAX(ROWID) FROM message` at startup to avoid replaying history).
+- Send replies via AppleScript subprocess: `osascript -e 'tell application "Messages" to send "{text}" to buddy "{handle}" of service "iMessage"'`. Use `Lwt_process.exec` and check exit code.
+
+## Implementation Notes
+
+`handle_id` in chat.db is an integer foreign key to the `handle` table. Join to get the actual address: `SELECT id FROM handle WHERE ROWID = {handle_id}` where `id` is the phone number or Apple ID (e.g., `"+15555550100"` or `"user@icloud.com"`).
+
+SQLite access: use `Sqlite3` module (same as `src/memory.ml` or `src/audit.ml`). The `chat.db` path: `Filename.concat (Sys.getenv "HOME") "Library/Messages/chat.db"`. Open in read-only mode for polling; write to it only for the ROWID tracking.
+
+`text` field may be `NULL` for non-text messages (images, etc.). Filter with `WHERE text IS NOT NULL AND text != ''`.
+
+macOS Full Disk Access is required for the app running clawq to read `chat.db`. Document this requirement in the log message on first poll.
+
+## Acceptance Criteria
+
+Done when:
+- On Linux, `Imessage.start` returns immediately with a log message; no SQLite access attempted.
+- On macOS, new messages (ROWID > last_seen) are polled and routed to session_manager.
+- Replies sent via `osascript`; exit code != 0 logged at warn level.
+- `last_seen_rowid` initialized to current MAX(ROWID) at startup.
+- `make test` passes.

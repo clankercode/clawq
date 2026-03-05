@@ -1,0 +1,35 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 4
+id: P2.M5.E2.T001
+priority: medium
+status: pending
+tags: []
+title: 'Implement tunnel_tailscale.ml: spawn ''tailscale funnel --bg {port}'', extract https://*.ts.net URL from output'
+---
+
+# Implement tunnel_tailscale.ml: spawn 'tailscale funnel --bg {port}', extract https://*.ts.net URL from output
+
+## Requirements
+
+- Create `src/tunnel_tailscale.ml` following the type structure of `src/tunnel_cloudflare.ml`.
+- Define the same `tunnel_status` variant type and `t` record type as in `tunnel_cloudflare.ml`.
+- `start t`: spawn `tailscale funnel --bg {port}` via `Lwt_process.open_process_in`, read stdout lines, extract a URL matching `https://*.ts.net` or `https://*.tail*.ts.net`. Poll output for up to 10 seconds.
+- `stop t`: run `tailscale funnel --bg off` via `Lwt_process.pread`.
+- `status ()`: run `tailscale funnel status` and parse the first `https://` URL from output.
+- `extract_url_tailscale : string -> string option`: parses a single output line for `https://` followed by `*.ts.net`. Input example: `"  https://mymachine.tail12345.ts.net:8080"`.
+- Add `tunnel_tailscale` to `clawq_runtime_integrations` in `src/dune`.
+
+## Implementation Notes
+
+Follow `tunnel_cloudflare.ml` structure exactly: same `tunnel_status` type, same `t` record with `process`, `status`, `url`, `port` fields. The URL extraction: look for `https://` and verify the URL ends with `.ts.net` or `.ts.net:{port}`. `Lwt_process.open_process_in ("tailscale", [| "funnel"; "--bg"; string_of_int port |])` reads from process stdout. If `tailscale` binary is not in PATH, catch the exception and set status to `Error "tailscale not found"`.
+
+## Acceptance Criteria
+
+Done when:
+- `extract_url_tailscale "  https://mymachine.tail12345.ts.net:8080"` returns `Some "https://mymachine.tail12345.ts.net:8080"`.
+- `extract_url_tailscale "Funnel on:"` returns `None`.
+- `extract_url_tailscale "  https://example.trycloudflare.com"` returns `None` (not a ts.net URL).
+- `status_string t` returns `"running (https://...)"` when status is `Running url`.
+- `make test` passes.

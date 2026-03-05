@@ -1,0 +1,34 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 2
+id: P2.M2.E1.T004
+priority: high
+status: pending
+tags: []
+title: Add signal_config to runtime_config; parse channels.signal in config_loader
+---
+
+# Add signal_config to runtime_config; parse channels.signal in config_loader
+
+## Requirements
+
+- Add `signal_config` record type to `src/runtime_config.ml`: `{ enabled: bool; account: string; mode: string; rest_url: string; signal_cli_path: string; allow_from: string list; poll_interval_s: int; max_chunk_bytes: int }`.
+- Add `signal: signal_config option` field to `channel_config` record alongside existing `telegram`, `discord`, `slack` fields.
+- Parse `channels.signal` JSON object in `src/config_loader.ml` using `Yojson.Safe.Util`. Apply defaults: `mode = "subprocess"`, `rest_url = "http://localhost:8080"`, `signal_cli_path = "signal-cli"`, `poll_interval_s = 5`, `max_chunk_bytes = 1600`, `allow_from = []`. If `enabled = false` or key absent, set `signal = None`.
+
+## Implementation Notes
+
+Follow the exact pattern used for `telegram_config` in `runtime_config.ml` and `config_loader.ml`. The `account` field is the E.164 phone number registered with signal-cli (e.g., `"+15555550100"`). This is required when `enabled = true`; raise a descriptive error if absent.
+
+Config JSON shape:
+```json
+{"channels": {"signal": {"enabled": true, "account": "+15555550100", "mode": "subprocess"}}}
+```
+
+## Acceptance Criteria
+
+Done when:
+- `Runtime_config.t` compiles with `signal_config option` in `channel_config`.
+- `Config_loader` parses `channels.signal`; missing fields use defaults; absent or `enabled=false` yields `None`.
+- `make test` passes.

@@ -1,0 +1,32 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 3
+id: P2.M2.E1.T002
+priority: high
+status: pending
+tags: []
+title: 'signal.ml: JSON-RPC send (POST /api/v1/rpc), UTF-8 message chunking at max_chunk_bytes'
+---
+
+# signal.ml: JSON-RPC send (POST /api/v1/rpc), UTF-8 message chunking at max_chunk_bytes
+
+## Requirements
+
+- Implement `Signal.send_message ~config ~recipient ~text` that POSTs to the signal-cli JSON-RPC daemon at `http://localhost:7583/api/v1/rpc` with body `{"jsonrpc":"2.0","method":"send","params":{"recipient":["{recipient}"],"message":"{text}"},"id":1}`.
+- Chunk outbound text at `max_chunk_bytes` (default 1600, configurable) on UTF-8 character boundaries, not byte boundaries, to avoid splitting multi-byte codepoints. Send each chunk as a separate RPC call sequentially.
+- Use `Http_client.post_json` from the existing module. Log send errors at warn level with recipient redacted (keep only last 4 digits of E.164 number).
+
+## Implementation Notes
+
+Signal's max message size is ~2000 bytes for SMS fallback compatibility; 1600 bytes is a safe default. UTF-8 chunking: iterate `String.length` and find the last valid UTF-8 codepoint boundary before the limit using `Uchar` or manual byte inspection (0xC0-0xFF marks a start byte). For simplicity, split at the last space before the byte limit if the string is valid UTF-8 ASCII-dominated.
+
+JSON-RPC 2.0 body: `{"jsonrpc":"2.0","method":"send","params":{"recipient":["+15555550100"],"message":"hello"},"id":1}`.
+
+## Acceptance Criteria
+
+Done when:
+- `Signal.send_message` posts correct JSON-RPC body to localhost:7583.
+- Messages longer than `max_chunk_bytes` are split into multiple sequential sends.
+- Chunking never splits a UTF-8 multi-byte sequence.
+- `make test` passes.

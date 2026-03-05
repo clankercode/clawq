@@ -1,0 +1,40 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 4
+id: P2.M3.E7.T001
+priority: low
+status: pending
+tags: []
+title: 'Implement onebot.ml: Ws_client connect to OneBot server, parse message events (string + array format)'
+---
+
+# Implement onebot.ml: Ws_client connect to OneBot server, parse message events (string + array format)
+
+## Requirements
+
+- Create `src/onebot.ml` implementing `Channel.S` with `val name = "onebot"` and `val start : config:Runtime_config.t -> session_manager:Session.t -> unit Lwt.t`.
+- Connect to `ws://{host}:{port}` (plaintext, default 6700) using `Ws_client`. If `config.channels.onebot.access_token` is set, add `Authorization: Bearer {token}` header to the WS upgrade request.
+- Parse incoming JSON frames. Filter for `post_type = "message"`. Extract `message_type` (`"private"` or `"group"`), `user_id` (int, stringify), `group_id` (int, optional), `raw_message` (string, preferred) or parse `message` array for `type = "text"` segment's `data.text`.
+- Route to session_manager: session key is `"private:{user_id}"` for private messages, `"group:{group_id}:{user_id}"` for group messages.
+
+## Implementation Notes
+
+OneBot v11 WS event example:
+```json
+{"post_type":"message","message_type":"private","user_id":123456,"raw_message":"hello","message":[{"type":"text","data":{"text":"hello"}}]}
+```
+
+`raw_message` is available in most OneBot v11 implementations; prefer it over parsing the `message` array. Fall back to array parsing if `raw_message` is empty or absent.
+
+`Ws_client` currently requires WSS (TLS). For OneBot's plaintext WS, either: (a) add plaintext WS support to `Ws_client`, or (b) require TLS in the OneBot server config (go-cqhttp supports `wss://`). Prefer option (b) for simplicity; document the requirement.
+
+Reconnect on WS close with exponential backoff (5s..120s), same pattern as IRC T004.
+
+## Acceptance Criteria
+
+Done when:
+- `Onebot.start` connects to OneBot WS server, receives message events, routes to session_manager.
+- Both `private` and `group` message types handled with distinct session keys.
+- `raw_message` preferred over message array parsing.
+- `make test` passes.

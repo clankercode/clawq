@@ -1,0 +1,34 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 2
+id: P2.M3.E1.T003
+priority: high
+status: pending
+tags: []
+title: Add whatsapp_config to runtime_config; parse channels.whatsapp; wire into daemon/http_server
+---
+
+# Add whatsapp_config to runtime_config; parse channels.whatsapp; wire into daemon/http_server
+
+## Requirements
+
+- Add `whatsapp_config` record to `src/runtime_config.ml`: `{ enabled: bool; phone_number_id: string; access_token: string; verify_token: string; allow_from: string list }`.
+- Add `whatsapp: whatsapp_config option` to `channel_config`. Parse from `channels.whatsapp` JSON in `config_loader.ml`. Required when enabled: `phone_number_id`, `access_token`, `verify_token`. Default: `allow_from = []`. Yield `None` when disabled or absent.
+- In `src/daemon.ml`, if `config.channels.whatsapp` is `Some _`, call `Lwt.async (fun () -> Whatsapp.start ~config ~session_manager)`. In `http_server.ml`, register `GET /whatsapp/webhook` and `POST /whatsapp/webhook` routes when whatsapp config is present.
+
+## Implementation Notes
+
+`verify_token` is an arbitrary string set by the operator in the Meta developer console and in the clawq config — it must match exactly on webhook verification.
+
+`allow_from`: if non-empty, only route messages from phone numbers in the list (plain digit format, no `+`). Apply in the webhook dispatch callback before routing to session_manager.
+
+Follow the `slack_config` pattern for parsing and the Slack webhook registration pattern in `http_server.ml` for route setup.
+
+## Acceptance Criteria
+
+Done when:
+- `Runtime_config.t` compiles with `whatsapp_config option` in `channel_config`.
+- Config parses all four required fields; missing fields produce descriptive errors.
+- Webhook routes registered in http_server when whatsapp enabled.
+- `make test` passes.

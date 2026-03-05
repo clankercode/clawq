@@ -1,0 +1,36 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 3
+id: P2.M3.E7.T002
+priority: low
+status: pending
+tags: []
+title: 'onebot.ml: send via HTTP API (/send_private_msg, /send_group_msg); add onebot_config to runtime_config and daemon'
+---
+
+# onebot.ml: send via HTTP API (/send_private_msg, /send_group_msg); add onebot_config to runtime_config and daemon
+
+## Requirements
+
+- Implement `Onebot.send_message ~config ~message_type ~user_id ~group_id ~text` that calls the OneBot HTTP API: for `message_type = "private"`, `POST http://{host}:{http_port}/send_private_msg` with body `{"user_id":{user_id},"message":[{"type":"text","data":{"text":"{text}"}}]}`; for `"group"`, `POST /send_group_msg` with `{"group_id":{group_id},"message":[...]}`.
+- Add `onebot_config` record to `src/runtime_config.ml`: `{ enabled: bool; host: string; ws_port: int; http_port: int; access_token: string option; allow_users: string list }`. Parse from `channels.onebot`. Defaults: `ws_port = 6700`, `http_port = 5700`, `access_token = None`, `allow_users = []`.
+- Wire into `daemon.ml`: if `config.channels.onebot` is `Some _`, `Lwt.async (fun () -> Onebot.start ~config ~session_manager)`. Add `"onebot"` to `write_state` components.
+
+## Implementation Notes
+
+OneBot HTTP API response: `{"status":"ok","retcode":0,"data":{"message_id":12345}}`. Log `message_id` at debug level. Non-zero `retcode` logged at warn level.
+
+`user_id` and `group_id` are integers in the OneBot API. Store them as `int` in the session context (parsed from the WS event JSON with `to_int`). The send function receives them as `int` parameters.
+
+If `access_token` is set, include `Authorization: Bearer {token}` header in HTTP API calls (same token as WS).
+
+`allow_users`: if non-empty, only route messages from `user_id` strings (stringified ints) in the allow list.
+
+## Acceptance Criteria
+
+Done when:
+- `Onebot.send_message` posts to correct HTTP endpoint with array-format message body.
+- Private and group messages use distinct endpoints with correct JSON bodies.
+- `onebot_config` parsed; daemon launches OneBot channel when configured.
+- `make test` passes.

@@ -1,0 +1,34 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 2
+id: P2.M3.E5.T003
+priority: medium
+status: pending
+tags: []
+title: Add line_config to runtime_config; parse channels.line; wire into daemon
+---
+
+# Add line_config to runtime_config; parse channels.line; wire into daemon
+
+## Requirements
+
+- Add `line_config` record to `src/runtime_config.ml`: `{ enabled: bool; channel_secret: string; channel_access_token: string; allow_from: string list }`.
+- Add `line: line_config option` to `channel_config`. Parse from `channels.line` JSON in `config_loader.ml`. Required when enabled: `channel_secret`, `channel_access_token`. Default: `allow_from = []`. Yield `None` when disabled or absent.
+- In `src/daemon.ml`, if `config.channels.line` is `Some _`, call `Lwt.async (fun () -> Line_channel.start ~config ~session_manager)`. The `start` function registers the `/line/webhook` route in http_server and sleeps. Add `"line"` to `write_state` components.
+
+## Implementation Notes
+
+`channel_secret` is used for HMAC webhook signature verification (T001). `channel_access_token` is the long-lived token for sending messages (T002). Both are obtained from the LINE Developers console.
+
+`allow_from`: if non-empty, only route messages from `userId` values in the list. Apply in the webhook dispatch callback before routing to session_manager.
+
+Follow the `slack_config` pattern (also webhook-based) for structure and daemon wiring.
+
+## Acceptance Criteria
+
+Done when:
+- `Runtime_config.t` compiles with `line_config option` in `channel_config`.
+- Both required fields validated; missing fields produce descriptive errors.
+- Daemon registers LINE webhook and launches channel task when configured.
+- `make test` passes.

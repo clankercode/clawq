@@ -1,0 +1,33 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 4
+id: P2.M4.E1.T002
+priority: high
+status: pending
+tags: []
+title: Implement store_core, recall_core (FTS), forget_core, list_core in memory.ml
+---
+
+# Implement store_core, recall_core (FTS), forget_core, list_core in memory.ml
+
+## Requirements
+
+- Add `val store_core : db:Sqlite3.db -> key:string -> value:string -> unit` to `src/memory.ml`. Implement as an upsert: `INSERT INTO core_memories (key, value, updated_at) VALUES (?, ?, strftime('%s','now')) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`.
+- Add `val recall_core : db:Sqlite3.db -> key:string -> string option`. SELECT value FROM core_memories WHERE key=?; return None if no row.
+- Add `val forget_core : db:Sqlite3.db -> key:string -> unit`. DELETE FROM core_memories WHERE key=?.
+- Add `val list_core : db:Sqlite3.db -> (string * string) list`. SELECT key, value FROM core_memories ORDER BY updated_at DESC; return list of (key, value) pairs.
+- All four functions must use prepared statements (Sqlite3.prepare) and properly finalize.
+
+## Implementation Notes
+
+Follow the existing pattern from `store_message` and `load_history` in `memory.ml`. Use `Sqlite3.bind`, `Sqlite3.step`, `Sqlite3.column`. Bind `Sqlite3.Data.TEXT` for key and value. The `forget_core` function silently succeeds if the key does not exist. The `list_core` return order is newest-updated first.
+
+## Acceptance Criteria
+
+Done when:
+- `store_core ~db ~key:"greeting" ~value:"hello"` followed by `recall_core ~db ~key:"greeting"` returns `Some "hello"`.
+- `store_core` called twice with the same key overwrites the value (upsert semantics confirmed by `recall_core`).
+- `forget_core ~db ~key:"greeting"` followed by `recall_core ~db ~key:"greeting"` returns `None`.
+- `list_core ~db` returns all stored key-value pairs.
+- `make test` passes.

@@ -1,0 +1,35 @@
+---
+complexity: low
+depends_on:
+- P2.M1.E2.T001
+- P2.M1.E2.T002
+estimate_hours: 2
+id: P2.M1.E2.T005
+priority: medium
+status: pending
+tags: []
+title: 'Enhance cmd_auth: call /pair, save token to ~/.clawq/gateway_token (mode 0600)'
+---
+
+# Enhance cmd_auth: call /pair, save token to ~/.clawq/gateway_token (mode 0600)
+
+## Requirements
+
+- In `command_bridge.ml`, extend `cmd_auth` to implement the client-side pairing flow. When called as `clawq auth {6-digit-code}`, construct the gateway URL from config (`http://{host}:{port}/pair`), POST `{"code": "{code}"}` via `Http_client.post_json`, and handle each response status: 200 → extract `token` field, save to file; 423 → print "Locked out, retry in N seconds"; 403 → print "Invalid code"; 409 → print "Already paired (daemon has paired clients)"; 404 → print "Pairing disabled on this daemon".
+- Save the received bearer token to `~/.clawq/gateway_token` as plaintext (the token string only, no JSON wrapper). Set file permissions to mode 0600 using `Unix.chmod`. Print `"Token saved to ~/.clawq/gateway_token"` on success and note the user must keep the file secure.
+- Add a `clawq auth status` subcommand that reads `~/.clawq/gateway_token` if it exists and prints its creation time (via `Unix.stat`) and a redacted preview (first 4 chars + `...`). Add `clawq auth clear` to delete the file.
+
+## Implementation Notes
+
+- `Http_client.post_json` (in `http_client.ml`) returns `(int * string)`. Parse the response body as JSON with `Yojson.Safe.from_string`. The `token` field in a 200 response is a plain string.
+- `cmd_auth` currently exists in `command_bridge.ml` — locate it and extend rather than replace. The existing implementation may have a stub or legacy comparison behavior; replace that logic with the pairing flow.
+- `Unix.chmod path 0o600` must be called after writing the file. Use `open_out` then `close_out` then `chmod`, not `open_out_gen` with flags, to ensure the file is closed before chmod.
+
+## Acceptance Criteria
+
+Done when:
+- `clawq auth 123456` (with a running daemon showing that code) saves a token file at `~/.clawq/gateway_token` with mode 0600.
+- The token file permissions are exactly 0600 (verified via `Unix.stat` in test or `ls -la`).
+- `clawq auth status` prints the file path, creation time, and redacted token.
+- `clawq auth clear` removes `~/.clawq/gateway_token` and prints confirmation.
+- `make test` passes.

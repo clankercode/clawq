@@ -1,0 +1,31 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 2
+id: P2.M6.E1.T002
+priority: medium
+status: pending
+tags: []
+title: Update test/dune to include new test modules; add bisect_ppx to clawq.opam test deps
+---
+
+# Update test/dune to include new test modules; add bisect_ppx to clawq.opam test deps
+
+## Requirements
+
+- As new test files are created by other M6 tasks, update the `(modules ...)` stanza in `test/dune` to include each new module: `test_helpers`, `test_pairing`, `test_memory`, `test_tools`, `test_provider`, `test_channel_formats`, `test_contracts`, `test_commands`.
+- Add each new module to the `test_main.ml` `Alcotest.run` call with the appropriate suite name and suite value.
+- In `clawq.opam`, add `"bisect_ppx" {with-test}` to the `depends` section so CI installs it when running tests.
+- This task is essentially a coordination task: whenever a new test file is merged, this file must be updated. The acceptance criteria track the final state after all M6 test files exist.
+
+## Implementation Notes
+
+The current `test/dune` likely has a `(modules (...))` stanza listing all test module names. Add new entries alphabetically. The `(libraries ...)` stanza may need `sqlite3` if `test_helpers.ml` uses it directly (it does, via `Memory.init`). Check `test/dune` to see current library list. `bisect_ppx` in the opam file uses `{with-test}` flag so it's only installed in test environments.
+
+## Acceptance Criteria
+
+Done when:
+- `dune build test/test_main.exe` succeeds with all new test modules included.
+- `dune runtest` runs all new suites (they appear in the test output).
+- `opam install . --deps-only --with-test` installs `bisect_ppx`.
+- `make test` passes.

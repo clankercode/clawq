@@ -1,0 +1,39 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 3
+id: P2.M3.E1.T001
+priority: high
+status: pending
+tags: []
+title: Add GET /whatsapp/webhook (verify token handshake) and POST /whatsapp/webhook (inbound JSON parse) to http_server.ml
+---
+
+# Add GET /whatsapp/webhook (verify token handshake) and POST /whatsapp/webhook (inbound JSON parse) to http_server.ml
+
+## Requirements
+
+- Add a `GET /whatsapp/webhook` handler to `src/http_server.ml`. Extract query params `hub.mode`, `hub.verify_token`, and `hub.challenge`. If `hub.mode = "subscribe"` and `hub.verify_token` matches `config.channels.whatsapp.verify_token`, respond `200 OK` with `hub.challenge` as plain-text body. Otherwise respond `403 Forbidden`.
+- Add a `POST /whatsapp/webhook` handler that reads the request body, parses JSON, and invokes a caller-provided `dispatch` callback of type `sender:string -> text:string -> unit Lwt.t`. Parse path: `entry[0].changes[0].value.messages[0]` for `text.body` (sender text) and `from` (sender phone number). Skip if `messages` key is absent (status update webhooks).
+- Register both handlers only when `config.channels.whatsapp` is `Some _`.
+
+## Implementation Notes
+
+Follow the Slack events handler pattern in `http_server.ml` for routing and body parsing. Use `Yojson.Safe.Util` for JSON traversal. The verification token is a secret string configured by the operator in the Meta developer dashboard.
+
+Query param parsing: `Uri.get_query_param uri "hub.mode"` etc., where `uri` is extracted from the Cohttp request.
+
+WhatsApp webhook payload (abbreviated):
+```json
+{"entry":[{"changes":[{"value":{"messages":[{"from":"15555550100","text":{"body":"hello"}}]}}]}]}
+```
+
+Message dedup: WhatsApp may deliver the same webhook twice. Dedup by `messages[0].id` (a string like `"wamid.HBgL..."`). Pass this to the `Whatsapp` module for dedup handling (T002).
+
+## Acceptance Criteria
+
+Done when:
+- `GET /whatsapp/webhook` with correct verify_token responds with hub.challenge; wrong token returns 403.
+- `POST /whatsapp/webhook` parses message body and calls dispatch callback with sender and text.
+- Status-only webhooks (no `messages` key) return `200 OK` without calling dispatch.
+- `make test` passes.

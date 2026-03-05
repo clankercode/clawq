@@ -1,0 +1,34 @@
+---
+complexity: low
+depends_on:
+- P2.M1.E1.T001
+estimate_hours: 2
+id: P2.M1.E1.T007
+priority: medium
+status: pending
+tags: []
+title: Add explicit base_url defaults for Mistral, xAI, DeepSeek in runtime_config
+---
+
+# Add explicit base_url defaults for Mistral, xAI, DeepSeek in runtime_config
+
+## Requirements
+
+- Extend `default_base_url_for` in `provider.ml` to cover all OpenAI-compatible providers with known base URLs. Add: `"mistral"` → `"https://api.mistral.ai/v1"`, `"xai"` → `"https://api.x.ai/v1"`, `"deepseek"` → `"https://api.deepseek.com/v1"`. These providers use the existing OpenAI-compatible path (`complete`/`complete_stream`) — no new modules needed.
+- Add corresponding defaults for the native providers being implemented: `"anthropic"` → `"https://api.anthropic.com"`, `"ollama"` → `"http://localhost:11434"`, `"gemini"` → `"https://generativelanguage.googleapis.com"`, `"cohere"` → `"https://api.cohere.ai"`. These are used as fallbacks when `provider_config.base_url = None`.
+- Ensure `default_base_url_for` is called consistently in both `complete` and `complete_stream` before dispatching to the per-provider module. Each per-provider module (T002–T006) should call this or define its own `default_base_url` constant — document the convention.
+
+## Implementation Notes
+
+- The existing `default_base_url_for` function in `provider.ml` matches on provider name strings like `"zai_coding"`, `"zai"`, and falls through to `"https://openrouter.ai/api/v1"`. Extend this match with the new cases.
+- Provider name matching is based on the key in `config.providers` (e.g., `("mistral", {api_key=...; ...})`). Users configure provider names in `~/.clawq/config.json` under the `"providers"` object.
+- No new modules, no new opam packages. Change is confined to `provider.ml` and documentation.
+
+## Acceptance Criteria
+
+Done when:
+- `default_base_url_for "mistral"` returns `"https://api.mistral.ai/v1"`.
+- `default_base_url_for "xai"` returns `"https://api.x.ai/v1"`.
+- `default_base_url_for "deepseek"` returns `"https://api.deepseek.com/v1"`.
+- A provider named `"mistral"` with `base_url = None` uses the Mistral base URL in HTTP requests without requiring the user to set `base_url` explicitly.
+- `make test` passes.

@@ -1,0 +1,80 @@
+complexity: high
+depends_on: []
+epics:
+    - complexity: medium
+      depends_on: []
+      description: Webhook receive + outbound REST. See docs/PLAN_P2_04_CHANNELS_WHATSAPP_NOSTR.md.
+      estimate_hours: 12
+      id: E1
+      locked: false
+      name: WhatsApp Channel (Meta Cloud API)
+      path: 01-whatsapp-channel-meta-cloud-ap
+      status: pending
+    - complexity: medium
+      depends_on: []
+      description: Relay WebSocket via nak subprocess, NIP-17/NIP-04 DMs. See docs/PLAN_P2_04_CHANNELS_WHATSAPP_NOSTR.md.
+      estimate_hours: 12
+      id: E2
+      locked: false
+      name: Nostr Channel (NIP-17 via nak)
+      path: 02-nostr-channel-nip-17-via-nak
+      status: pending
+    - complexity: medium
+      depends_on: []
+      description: WebSocket + REST API. See docs/PLAN_P2_05_CHANNELS_REMAINING.md.
+      estimate_hours: 10
+      id: E3
+      locked: false
+      name: Mattermost Channel
+      path: 03-mattermost-channel
+      status: pending
+    - complexity: high
+      depends_on: []
+      description: WS or HTTP callback, tenant token cache, Lark/Feishu dual endpoint. See docs/PLAN_P2_05_CHANNELS_REMAINING.md.
+      estimate_hours: 16
+      id: E4
+      locked: false
+      name: Lark/Feishu Channel
+      path: 04-lark-feishu-channel
+      status: pending
+    - complexity: medium
+      depends_on: []
+      description: Webhook + X-Line-Signature HMAC verify, reply/push API. See docs/PLAN_P2_05_CHANNELS_REMAINING.md.
+      estimate_hours: 10
+      id: E5
+      locked: false
+      name: LINE Channel
+      path: 05-line-channel
+      status: pending
+    - complexity: medium
+      depends_on: []
+      description: Stream Mode WebSocket. See docs/PLAN_P2_05_CHANNELS_REMAINING.md.
+      estimate_hours: 10
+      id: E6
+      locked: false
+      name: DingTalk Channel
+      path: 06-dingtalk-channel
+      status: pending
+    - complexity: medium
+      depends_on: []
+      description: OneBot v11 WebSocket forward mode + HTTP API. See docs/PLAN_P2_05_CHANNELS_REMAINING.md.
+      estimate_hours: 12
+      id: E7
+      locked: false
+      name: QQ/OneBot Channel
+      path: 07-qq-onebot-channel
+      status: pending
+    - complexity: medium
+      depends_on: []
+      description: AppleScript + chat.db polling, macOS-only guard. See docs/PLAN_P2_05_CHANNELS_REMAINING.md.
+      estimate_hours: 8
+      id: E8
+      locked: false
+      name: iMessage Channel (macOS)
+      path: 08-imessage-channel-macos
+      status: pending
+estimate_hours: 120
+id: P2.M3
+locked: false
+name: 'Channels Tier 2: WhatsApp, Nostr & Remaining'
+status: pending

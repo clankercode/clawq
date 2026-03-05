@@ -1,0 +1,48 @@
+complexity: medium
+depends_on: []
+estimate_hours: 12
+id: P2.M1.E3
+locked: false
+name: 'Sandbox Hardening: Firejail & Bubblewrap'
+status: pending
+tasks:
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 4
+      file: T001-implement-sandbox-ml-backend-t.todo
+      id: T001
+      priority: high
+      status: pending
+      title: 'Implement sandbox.ml: backend type, wrap_command, is_available, detect with fallback chain'
+    - complexity: low
+      depends_on: []
+      estimate_hours: 2
+      file: T002-firejail-wrap-command-private.todo
+      id: T002
+      priority: high
+      status: pending
+      title: 'Firejail wrap_command: --private={workspace} --net=none --quiet --noprofile'
+    - complexity: low
+      depends_on: []
+      estimate_hours: 2
+      file: T003-bubblewrap-wrap-command-ro-bin.todo
+      id: T003
+      priority: high
+      status: pending
+      title: 'Bubblewrap wrap_command: --ro-bind /usr --unshare-all --bind {workspace} --die-with-parent'
+    - complexity: low
+      depends_on: []
+      estimate_hours: 2
+      file: T004-wire-execute-shell-in-tools-bu.todo
+      id: T004
+      priority: high
+      status: pending
+      title: Wire execute_shell in tools_builtin.ml through Sandbox.wrap_command
+    - complexity: low
+      depends_on: []
+      estimate_hours: 2
+      file: T005-add-sandbox-backend-field-to-s.todo
+      id: T005
+      priority: medium
+      status: pending
+      title: Add sandbox_backend field to security_config; initialize Sandbox.t in daemon.ml

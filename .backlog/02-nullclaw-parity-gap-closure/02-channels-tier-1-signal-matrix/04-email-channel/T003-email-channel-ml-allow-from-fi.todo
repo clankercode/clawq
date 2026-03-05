@@ -1,0 +1,35 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 2
+id: P2.M2.E4.T003
+priority: high
+status: pending
+tags: []
+title: 'email_channel.ml: allow_from filter (exact, @domain, bare domain), bounded seen-ID dedup set (LRU 1000)'
+---
+
+# email_channel.ml: allow_from filter (exact, @domain, bare domain), bounded seen-ID dedup set (LRU 1000)
+
+## Requirements
+
+- Implement `Email_channel.allow_from_matches : patterns:string list -> address:string -> bool`. Support three match styles: (1) exact match `"user@example.com"`, (2) domain suffix match starting with `@` (e.g., `"@example.com"` matches `"any@example.com"`), (3) bare domain match `"example.com"` also matches `"any@example.com"`. If `patterns` is empty, return true (allow all).
+- Implement a bounded dedup set for Message-IDs: a `Queue.t * Hashtbl.t` pair capped at 1000 entries. Before processing each fetched message, check if its `Message-ID:` header is in the set; if so, skip. After processing, add to the set; if size exceeds 1000, evict the oldest entry from the queue and remove from the hashtable.
+- Apply `allow_from_matches` after extracting the `From:` header address. Drop non-matching messages without routing to session_manager.
+
+## Implementation Notes
+
+Extract email address from `From:` header: handle both bare `user@example.com` and display-name form `"John Doe" <user@example.com>`. Simple extraction: find `<` and `>` delimiters; if absent, use the entire trimmed field value.
+
+Domain suffix match: `String.length address >= String.length pattern && String.sub address (String.length address - String.length pattern) (String.length pattern) = pattern` where pattern is `"@example.com"`.
+
+The dedup set prevents re-processing the same email on repeated IMAP sessions before the `\Seen` flag propagates.
+
+## Acceptance Criteria
+
+Done when:
+- `allow_from_matches ~patterns:["@example.com"] ~address:"bob@example.com"` returns `true`.
+- `allow_from_matches ~patterns:["@example.com"] ~address:"bob@other.com"` returns `false`.
+- Duplicate Message-IDs are skipped without re-routing.
+- Dedup set evicts oldest when exceeding 1000 entries.
+- `make test` passes.

@@ -1,0 +1,34 @@
+---
+complexity: low
+depends_on:
+- P2.M1.E3.T001
+estimate_hours: 2
+id: P2.M1.E3.T005
+priority: medium
+status: pending
+tags: []
+title: Add sandbox_backend field to security_config; initialize Sandbox.t in daemon.ml
+---
+
+# Add sandbox_backend field to security_config; initialize Sandbox.t in daemon.ml
+
+## Requirements
+
+- Add `sandbox_backend : string` to `Runtime_config.security_config` with default `"auto"`. Valid values: `"auto" | "landlock" | "firejail" | "bubblewrap" | "none"`. Update `Config_loader` to parse `security.sandbox_backend` from JSON (optional, backward-compatible). Update `Runtime_config.to_json` to include `"sandbox_backend"` in the security section.
+- In `daemon.ml`, after config load, call `Sandbox.detect ~preferred:config.security.sandbox_backend ~workspace:(Runtime_config.effective_workspace config)` and store the result. Log the chosen backend with `Logs.info`: `"sandbox backend: {backend_name}"`. Pass the `Sandbox.t` to the session/tools layer (T004).
+- Update `Runtime_config.default` to set `sandbox_backend = "auto"` in the `security` record.
+
+## Implementation Notes
+
+- `security_config` in `runtime_config.ml` currently ends with `landlock_extra_read_paths : string list`. Add `sandbox_backend : string` after that field.
+- `Sandbox.detect` returns immediately (synchronous). Call it once at startup, store as a `let sandbox = ...` binding in the daemon Lwt main, and pass it by value to all consumers.
+- The Landlock activation (`Landlock.activate`) in `daemon.ml` is a separate, orthogonal step that continues to run regardless of `sandbox_backend`. Note in a comment that Landlock process-level sandboxing and per-command wrapping are complementary.
+
+## Acceptance Criteria
+
+Done when:
+- A config with `"security": {"sandbox_backend": "firejail"}` loads with `config.security.sandbox_backend = "firejail"`.
+- A config without `sandbox_backend` loads with `"auto"` as the default.
+- `clawq daemon` startup logs include `"sandbox backend: firejail"` (or `"none"`) depending on what is installed.
+- `Runtime_config.to_json` includes `"sandbox_backend"` in the `"security"` object.
+- `make test` passes.

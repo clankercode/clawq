@@ -1,0 +1,37 @@
+---
+complexity: high
+depends_on: []
+estimate_hours: 6
+id: P2.M2.E4.T001
+priority: high
+status: pending
+tags: []
+title: 'Implement email_channel.ml IMAP client: TLS connect, LOGIN, SELECT INBOX, SEARCH UNSEEN, FETCH, STORE \Seen'
+---
+
+# Implement email_channel.ml IMAP client: TLS connect, LOGIN, SELECT INBOX, SEARCH UNSEEN, FETCH, STORE \Seen
+
+## Requirements
+
+- Create `src/email_channel.ml` implementing `Channel.S` with `val name = "email"` and `val start : config:Runtime_config.t -> session_manager:Session.t -> unit Lwt.t`.
+- Implement a minimal IMAP client using raw TLS sockets (`Tls_lwt` + `Ca_certs.authenticator`): send tagged commands and read responses via `Lwt_io.read_line`. Sequence: connect → wait for `* OK` greeting → `A1 LOGIN {user} {password}\r\n` → `A2 SELECT INBOX\r\n` → poll loop: `A{n} SEARCH UNSEEN\r\n` → for each UID: `A{n} FETCH {uid} (BODY[TEXT] RFC822.HEADER)\r\n` → `A{n} STORE {uid} +FLAGS (\Seen)\r\n`.
+- Parse FETCH response to extract `From:`, `Subject:`, `Message-ID:` headers and body text. Route to session_manager with sender address as session key.
+- Poll every `config.channels.email.poll_interval_s` seconds using `Lwt_unix.sleep` between iterations.
+
+## Implementation Notes
+
+IMAP tagged command format: each command has a unique tag `A{seq}` where seq is a module-level `ref int`. Read responses until a line starting with the same tag (final response). Untagged `*` lines are intermediate data.
+
+SEARCH UNSEEN response: `* SEARCH 1 3 7` gives space-separated UIDs. Parse with `String.split_on_char ' '` after stripping `* SEARCH `.
+
+FETCH body: response is multi-line until `A{n} OK`. Extract body between `{n}` literal size marker and closing paren.
+
+Alternative simpler approach: spawn `curl --imap-ssl imaps://{host}/INBOX --user {user}:{password} --request 'SEARCH UNSEEN'` subprocess if raw IMAP proves too complex. Document the chosen approach in the implementation.
+
+## Acceptance Criteria
+
+Done when:
+- `Email_channel.start` connects to IMAP server, finds UNSEEN messages, extracts From/Subject/body, routes to session_manager.
+- Processed messages are marked `\Seen`.
+- Poll loop runs at configured interval.
+- `make test` passes.

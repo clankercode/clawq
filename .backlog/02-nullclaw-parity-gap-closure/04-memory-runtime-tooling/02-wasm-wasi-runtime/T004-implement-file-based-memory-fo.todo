@@ -1,0 +1,33 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 4
+id: P2.M4.E2.T004
+priority: medium
+status: pending
+tags: []
+title: Implement file-based memory for WASM (read/write MEMORY.md in workspace, no SQLite)
+---
+
+# Implement file-based memory for WASM (read/write MEMORY.md in workspace, no SQLite)
+
+## Requirements
+
+- In `src/main_wasm.ml`, implement `read_memory_md : unit -> (string * string) list`. Reads `MEMORY.md` from the current directory. Parses a Markdown table with columns `| Key | Value |`. Returns list of `(key, value)` pairs. If the file does not exist or has no table, returns `[]`.
+- Implement `write_memory_md : (string * string) list -> unit`. Writes entries back to `MEMORY.md` as a Markdown table: header `| Key | Value |`, separator `| --- | --- |`, then one row per entry. Overwrites the file.
+- Implement `memory_wasm_store : key:string -> value:string -> unit`. Reads existing entries, upserts the given key, writes back.
+- Implement `memory_wasm_list : unit -> string`. Calls `read_memory_md`, formats as `"key: value\n..."` or `"(no memories)"`.
+- No SQLite, no Lwt, no external libraries — stdlib only.
+
+## Implementation Notes
+
+The Markdown table format: lines starting with `|` are table rows. Split on `|`, trim each cell. The header row has cells `Key` and `Value`. The separator row has cells containing only `-` characters. Skip both when parsing. Each data row: `cells.(1)` is key, `cells.(2)` is value (after trimming). For `write_memory_md`, use `open_out "MEMORY.md"` and `Printf.fprintf`. No locking needed (WASM is single-threaded in WASI).
+
+## Acceptance Criteria
+
+Done when:
+- `write_memory_md [("greeting", "hello")]` creates `MEMORY.md` with a valid Markdown table.
+- `read_memory_md ()` after that write returns `[("greeting", "hello")]`.
+- `memory_wasm_store ~key:"name" ~value:"bot"` followed by `read_memory_md ()` includes both entries.
+- `read_memory_md ()` on a missing `MEMORY.md` returns `[]` without error.
+- `make test` passes (WASM-specific; test via bytecode build).

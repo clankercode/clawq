@@ -1,0 +1,34 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 2
+id: P2.M4.E2.T003
+priority: medium
+status: pending
+tags: []
+title: Add wasm_of_ocaml as optional dependency in clawq.opam; document in QUICKSTART.md
+---
+
+# Add wasm_of_ocaml as optional dependency in clawq.opam; document in QUICKSTART.md
+
+## Requirements
+
+- In `clawq.opam`, add `"wasm_of_ocaml" {with-wasm}` to the `depends` section as an optional build dependency. This allows `opam install . --deps-only --with-wasm` to pull in `wasm_of_ocaml` while keeping the default install path free of it.
+- In `docs/QUICKSTART.md` (or create it if absent), add a "WASM Build" section documenting:
+  1. Install `wasm_of_ocaml`: `opam install wasm_of_ocaml`.
+  2. Build: `make build-wasm`.
+  3. Run: `wasmtime --dir . _build/default/src/main_wasm.bc.wasm {command}`.
+  4. Example: `wasmtime --dir . _build/default/src/main_wasm.bc.wasm memory list`.
+- `opam install . --deps-only` (without `--with-wasm`) must succeed and not attempt to install `wasm_of_ocaml`.
+
+## Implementation Notes
+
+The opam optional dependency syntax is `"package" {flag}` where `flag` is defined in the opam file's `flags` section or used as a build option. Verify the exact syntax by checking other opam files with optional deps. If `QUICKSTART.md` does not exist yet, create it only if the task description explicitly requires it (it does here for documentation of WASM usage).
+
+## Acceptance Criteria
+
+Done when:
+- `opam install . --deps-only` completes without pulling `wasm_of_ocaml`.
+- `opam install . --deps-only --with-wasm` pulls `wasm_of_ocaml`.
+- The QUICKSTART.md WASM section covers install, build, and run steps.
+- `make test` passes.

@@ -1,0 +1,38 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 3
+id: P2.M6.E2.T004
+priority: medium
+status: pending
+tags: []
+title: 'Write test/test_audit.ml: event types, chain verify, retention logic (~30 tests)'
+---
+
+# Write test/test_audit.ml: event types, chain verify, retention logic (~30 tests)
+
+## Requirements
+
+- `test/test_audit.ml` already exists with `test_audit_schema_init` and `test_audit_log_and_query`. Review the existing suite and identify coverage gaps.
+- The `audit` suite currently registered in `test/test_main.ml` as `Test_audit.suite`. Verify current test count via `dune exec test/test_main.exe -- list`.
+- Add tests for missing coverage in `src/audit.ml`:
+  - All event variant types (`ChatMessage`, `ToolInvocation`, `SystemEvent`, etc.) are logged and queryable.
+  - `Audit.verify_chain ~db` returns `Ok ()` on an intact chain and `Error msg` after a row is deleted or modified.
+  - `Audit.purge_before ~db ~before_ts` removes events older than `before_ts` and leaves newer ones intact.
+  - `Audit.export ~db` returns a list or JSON of all audit events.
+  - Double `init_schema` is idempotent (already tested, confirm it's there).
+  - Log order is preserved (events retrieved in insertion order).
+- Ensure the `audit` suite has at least 20 test cases.
+
+## Implementation Notes
+
+Uses `Memory.init ~db_path:":memory:" ()` + `Audit.init_schema db` pattern already established in the file. Chain verification requires at least 2 events (to form a chain). Tamper test: log two events, then directly execute a raw SQL `UPDATE audit_log SET ... WHERE id = 1` to corrupt the first entry, then call `Audit.verify_chain`. For retention/purge: insert events with explicit `created_at` timestamps in the past using direct SQL inserts if `Audit.log` does not accept a timestamp parameter.
+
+## Acceptance Criteria
+
+Done when:
+- The `audit` suite has at least 20 test cases.
+- Chain integrity test: tampered chain returns `Error _`.
+- Purge test: events before cutoff removed, events after preserved.
+- All event type variants are covered by at least one log+query test.
+- `make test` passes.

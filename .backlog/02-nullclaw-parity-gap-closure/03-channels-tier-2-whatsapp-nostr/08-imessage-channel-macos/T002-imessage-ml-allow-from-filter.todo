@@ -1,0 +1,35 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 2
+id: P2.M3.E8.T002
+priority: low
+status: pending
+tags: []
+title: 'imessage.ml: allow_from filter, last_seen_id tracking; add imessage_config to runtime_config and daemon'
+---
+
+# imessage.ml: allow_from filter, last_seen_id tracking; add imessage_config to runtime_config and daemon
+
+## Requirements
+
+- Add `imessage_config` record to `src/runtime_config.ml`: `{ enabled: bool; allow_from: string list; poll_interval_s: int; chat_db_path: string option }`. Parse from `channels.imessage`. Defaults: `allow_from = []`, `poll_interval_s = 10`, `chat_db_path = None` (uses default `~/Library/Messages/chat.db`).
+- In `Imessage.start`, after resolving sender address from the `handle` table, apply the `allow_from` filter: if `config.channels.imessage.allow_from` is non-empty, drop messages from addresses not in the list. Comparison is exact string match (including `+` prefix and case for Apple IDs).
+- Add `imessage: imessage_config option` to `channel_config`. Wire into `daemon.ml`: if `config.channels.imessage` is `Some _`, `Lwt.async (fun () -> Imessage.start ~config ~session_manager)`. Add `"imessage"` to `write_state` components.
+
+## Implementation Notes
+
+`last_seen_rowid` persistence: optionally write to `{workspace}/.imessage_last_rowid` (plain text integer) so restarts don't replay old messages. Read at startup; write after each poll batch. Use the same file-write pattern as Matrix T003.
+
+`chat_db_path` override: when `Some path` in config, use that path instead of the default. Useful if the user has Messages data at a non-standard location or is running via symlink.
+
+`allow_from` filter is the primary security control: without it, clawq would respond to iMessages from any contact. Strongly recommended in config for production deployments.
+
+## Acceptance Criteria
+
+Done when:
+- `imessage_config` parsed from `channels.imessage`; defaults applied correctly.
+- `allow_from` filter drops messages from non-listed addresses.
+- Daemon launches iMessage channel when configured.
+- `last_seen_rowid` persisted to workspace file across restarts.
+- `make test` passes.

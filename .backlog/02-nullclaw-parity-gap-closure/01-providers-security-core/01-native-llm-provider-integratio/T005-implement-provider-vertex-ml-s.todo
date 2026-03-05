@@ -1,0 +1,35 @@
+---
+complexity: high
+depends_on:
+- P2.M1.E1.T001
+- P2.M1.E1.T004
+estimate_hours: 8
+id: P2.M1.E1.T005
+priority: low
+status: pending
+tags: []
+title: Implement provider_vertex.ml (service-account JWT, OAuth token refresh, endpoint resolution)
+---
+
+# Implement provider_vertex.ml (service-account JWT, OAuth token refresh, endpoint resolution)
+
+## Requirements
+
+- Create `src/provider_vertex.ml`. Endpoint: `https://{location}-aiplatform.googleapis.com/v1/projects/{project_id}/locations/{location}/publishers/google/models/{model}:streamGenerateContent`. Config fields `vertex_project`, `vertex_region` (default `"us-central1"`), and `vertex_service_account` (path to service-account JSON file) must be populated (added in T008).
+- Implement OAuth2 token acquisition from a service-account JSON key file. Read the JSON file to extract `client_email` and `private_key`. Construct a JWT (header + claims) signed with HMAC-SHA256 via `Mirage_crypto.Hash.SHA256` or RS256 via available crypto. Claims: `iss = client_email`, `scope = "https://www.googleapis.com/auth/cloud-platform"`, `aud = "https://oauth2.googleapis.com/token"`, `iat`, `exp = iat + 3600`. POST the signed JWT to `https://oauth2.googleapis.com/token` to exchange for an access token. Cache with 120-second safety margin (refresh if `now + 120 > exp`).
+- Reuse the Gemini message format (from `provider_gemini.ml`) for request/response serialization — Vertex AI uses the same `contents`/`systemInstruction`/`functionDeclarations` shape. Fallback: check env vars `VERTEX_API_KEY`, `VERTEX_OAUTH_TOKEN`, `GOOGLE_OAUTH_ACCESS_TOKEN` before attempting JWT flow.
+
+## Implementation Notes
+
+- Token caching: store as a module-level `ref` of `(string * float) option` (token, expiry_unix). Check before each request; refresh if within 120s of expiry.
+- RS256 JWT signing requires RSA private key parsing. If only HMAC is available via `mirage-crypto`, document the limitation and require users to pre-generate OAuth tokens via `gcloud auth print-access-token` and set `VERTEX_OAUTH_TOKEN`. A full RS256 implementation can follow as a separate subtask.
+- `detect_kind`: `kind = "vertex"` config field (T008) or `vertex_project` field non-empty → `Vertex`.
+- Add `provider_vertex` to `clawq_runtime_core` in `src/dune`.
+
+## Acceptance Criteria
+
+Done when:
+- When `VERTEX_OAUTH_TOKEN` env var is set, a request to Vertex AI uses `Authorization: Bearer {env_token}` without attempting JWT signing.
+- Endpoint URL construction from `project_id = "my-project"`, `location = "us-central1"`, `model = "gemini-1.5-pro"` produces the correct Vertex AI URL.
+- Token cache ref is populated after first successful token fetch and reused for subsequent requests within the validity window.
+- `make test` passes (JWT construction and URL resolution tested; network calls skipped if no credentials).

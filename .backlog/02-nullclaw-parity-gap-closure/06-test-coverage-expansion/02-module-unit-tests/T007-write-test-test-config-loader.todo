@@ -1,0 +1,40 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 3
+id: P2.M6.E2.T007
+priority: medium
+status: pending
+tags: []
+title: 'Write test/test_config_loader.ml: JSON parse, env substitution, defaults, bad input (~30 tests)'
+---
+
+# Write test/test_config_loader.ml: JSON parse, env substitution, defaults, bad input (~30 tests)
+
+## Requirements
+
+- `test/test_config_loader.ml` already exists (registered as `"config_loader"` in `test/test_main.ml`). Review its current test count via `dune exec test/test_main.exe -- list`. This task covers gaps.
+- Add tests for any missing coverage in `src/config_loader.ml`:
+  - Minimal config `{}` loads with all defaults (no exceptions).
+  - `provider.model` field is correctly parsed from JSON.
+  - `provider.base_url` overrides default.
+  - `memory.db_path` parsed from JSON.
+  - `memory.max_messages_per_session` parsed as integer.
+  - Missing optional fields produce `None` or defaults.
+  - Invalid JSON (malformed) returns an error or raises a specific exception that can be caught.
+  - `$ENV_VAR` substitution: if `config_loader.ml` supports environment variable interpolation in string fields, test it by setting a known env var and verifying the config reflects it.
+  - New `tunnel.backend` field (added in T004) parsed correctly.
+  - Config with unknown keys does not fail (lenient parsing).
+- Ensure the `config_loader` suite has at least 20 test cases.
+
+## Implementation Notes
+
+The existing file uses `with_temp_file contents f` to write a JSON string to a temp file and load it. Follow that pattern for new tests. For env var substitution tests, use `Unix.putenv "TEST_VAR" "value"` before loading config and `Unix.putenv "TEST_VAR" ""` in cleanup. Check `src/config_loader.ml` to confirm whether env substitution is implemented before writing those tests.
+
+## Acceptance Criteria
+
+Done when:
+- The `config_loader` suite has at least 20 test cases.
+- Default values test: `{}` config produces a `Runtime_config.t` with expected defaults (e.g., `memory.max_messages_per_session = 200` or whatever the actual default is).
+- Invalid JSON test: an error is returned rather than an unhandled exception reaching the test runner.
+- `make test` passes.

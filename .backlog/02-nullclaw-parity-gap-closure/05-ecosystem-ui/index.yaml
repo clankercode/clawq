@@ -1,0 +1,26 @@
+complexity: medium
+depends_on: []
+epics:
+    - complexity: high
+      depends_on: []
+      description: Static HTML/JS/CSS served from gateway, SSE streaming with tool timeline, pairing modal. See docs/PLAN_P2_10_CHAT_UI.md.
+      estimate_hours: 28
+      id: E1
+      locked: false
+      name: Embedded Chat UI
+      path: 01-embedded-chat-ui
+      status: pending
+    - complexity: medium
+      depends_on: []
+      description: Tailscale Funnel, ngrok process mode, custom regex tunnel backends. See docs/PLAN_P2_12_TUNNEL_ALTERNATIVES.md.
+      estimate_hours: 20
+      id: E2
+      locked: false
+      name: 'Tunnel Alternatives: Tailscale & ngrok'
+      path: 02-tunnel-alternatives-tailscale
+      status: pending
+estimate_hours: 60
+id: P2.M5
+locked: false
+name: Ecosystem & UI
+status: pending

@@ -1,0 +1,32 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 3
+id: P2.M2.E2.T003
+priority: high
+status: pending
+tags: []
+title: 'matrix.ml: sync token persistence to file, reconnect with exponential backoff'
+---
+
+# matrix.ml: sync token persistence to file, reconnect with exponential backoff
+
+## Requirements
+
+- Persist the Matrix `next_batch` sync token to `{workspace}/.matrix_since` (plain text, one line). Read it at startup in `Matrix.start`; if the file exists and is non-empty, pass `since={token}` on the first sync call.
+- On network error or non-2xx HTTP response from the sync endpoint, apply exponential backoff: wait `min(5 * 2^attempts, 300)` seconds before retrying, where `attempts` resets to 0 after a successful response.
+- Write the `next_batch` token to the file after each successful sync response, before processing events. Use `open_out` / `output_string` / `close_out` with a `try ... with` guard; log write failures at warn level but do not abort the loop.
+
+## Implementation Notes
+
+Workspace path: `Runtime_config.effective_workspace config`. Token file: `Filename.concat workspace ".matrix_since"`. Read with `In_channel.with_open_text` or `open_in` + `input_line`.
+
+Backoff state: `let attempts = ref 0` in the loop body. On success: `attempts := 0`. On error: `let delay = min (5.0 *. (2.0 ** float_of_int !attempts)) 300.0 in incr attempts; Lwt_unix.sleep delay`.
+
+## Acceptance Criteria
+
+Done when:
+- After restart, sync begins from the persisted `next_batch` token; messages already processed are not re-delivered.
+- Network failures trigger backoff: first retry after ~5s, subsequent retries double up to 300s cap.
+- Token file write failure logs a warning but does not crash the loop.
+- `make test` passes.

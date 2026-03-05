@@ -1,0 +1,40 @@
+complexity: high
+depends_on: []
+estimate_hours: 16
+id: P2.M3.E4
+locked: false
+name: Lark/Feishu Channel
+status: pending
+tasks:
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 3
+      file: T001-implement-lark-ml-tenant-acces.todo
+      id: T001
+      priority: medium
+      status: pending
+      title: 'Implement lark.ml: tenant access token fetch + cache + refresh (2h TTL, 60s safety margin)'
+    - complexity: high
+      depends_on: []
+      estimate_hours: 4
+      file: T002-lark-ml-websocket-mode-connect.todo
+      id: T002
+      priority: medium
+      status: pending
+      title: 'lark.ml: WebSocket mode (connect to Lark event gateway WSS, ack events)'
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 3
+      file: T003-lark-ml-http-callback-mode-add.todo
+      id: T003
+      priority: low
+      status: pending
+      title: 'lark.ml: HTTP callback mode (add route to http_server.ml, verify X-Lark-Signature)'
+    - complexity: low
+      depends_on: []
+      estimate_hours: 2
+      file: T004-add-lark-config-to-runtime-con.todo
+      id: T004
+      priority: medium
+      status: pending
+      title: Add lark_config to runtime_config (dual endpoint lark/feishu); parse; wire into daemon

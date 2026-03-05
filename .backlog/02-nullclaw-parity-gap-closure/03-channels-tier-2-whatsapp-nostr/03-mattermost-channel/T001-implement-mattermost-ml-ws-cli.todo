@@ -1,0 +1,35 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 4
+id: P2.M3.E3.T001
+priority: medium
+status: pending
+tags: []
+title: 'Implement mattermost.ml: Ws_client connect, auth challenge, parse event=posted, REST send'
+---
+
+# Implement mattermost.ml: Ws_client connect, auth challenge, parse event=posted, REST send
+
+## Requirements
+
+- Create `src/mattermost.ml` implementing `Channel.S` with `val name = "mattermost"` and `val start : config:Runtime_config.t -> session_manager:Session.t -> unit Lwt.t`.
+- Connect to `wss://{host}/api/v4/websocket` using the existing `Ws_client` module. After connection, send the authentication challenge: `{"seq":1,"action":"authentication_challenge","data":{"token":"{bot_token}"}}`.
+- In the message receive loop, parse incoming JSON frames. On `event = "posted"`, extract `data.post` (a JSON-encoded string, double-parsed): get `channel_id`, `user_id`, `message`. Filter: skip messages from the bot's own user_id. If `channel_ids` config is non-empty, only process listed channels.
+- Send replies via `POST https://{host}/api/v4/posts` with `Authorization: Bearer {token}` and body `{"channel_id":"{channel_id}","message":"{text}"}`.
+
+## Implementation Notes
+
+The `data.post` field in Mattermost WS events is a JSON-encoded string (not a nested object): parse with `Yojson.Safe.from_string (Yojson.Safe.Util.to_string data_post_field)`.
+
+Bot user_id: obtain at startup via `GET /api/v4/users/me` with Bearer token; store as `bot_user_id ref`. Skip `posted` events where `user_id = !bot_user_id`.
+
+Use `Ws_client.connect` then `Ws_client.send_text` / `Ws_client.recv` as the pattern from `discord_gateway.ml`. Reconnect on WS close with the same exponential backoff pattern from IRC T004.
+
+## Acceptance Criteria
+
+Done when:
+- `Mattermost.start` connects, authenticates, receives `posted` events, routes to session_manager.
+- Own messages skipped; channel filter applied.
+- Replies posted via REST API.
+- `make test` passes.

@@ -1,0 +1,35 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 4
+id: P2.M2.E3.T001
+priority: high
+status: pending
+tags: []
+title: 'Implement irc.ml: TLS connect (tls-lwt/ca-certs), IRC line parser, PING->PONG handler'
+---
+
+# Implement irc.ml: TLS connect (tls-lwt/ca-certs), IRC line parser, PING->PONG handler
+
+## Requirements
+
+- Create `src/irc.ml` implementing `Channel.S` with `val name = "irc"` and `val start : config:Runtime_config.t -> session_manager:Session.t -> unit Lwt.t`.
+- Connect to `{host}:{port}` using TLS when `config.channels.irc.tls = true` (use `Tls_lwt` + `Ca_certs.authenticator` for certificate verification, matching the pattern in `ws_client.ml`). For plaintext, use `Lwt_unix` socket directly via `Lwt_io.open_connection`.
+- Parse IRC lines as raw strings via `Lwt_io.read_line`. Implement a `parse_message` function extracting prefix, command, and params from RFC 1459 format: `[:{prefix} ]{command}{ {param}}* [:{trailing}]`.
+- Respond to `PING {token}` with `PONG {token}` immediately, without routing to session_manager.
+
+## Implementation Notes
+
+IRC line format: `:nick!user@host COMMAND param1 param2 :trailing text`. Parser: if line starts with `:`, split on first space to get prefix, then split remainder to get command and params. The last param may be prefixed with `:` (trailing). Keep parser simple — no need for full RFC 1459 compliance, just prefix/command/trailing extraction.
+
+TLS setup mirrors `Ws_client.connect_tls`: `Ca_certs.authenticator ()` for the authenticator, `Tls.Config.client ~authenticator ()` for the TLS config. Use `Lwt_io` channels from the TLS flow for line reading/writing.
+
+Write to socket: `Lwt_io.write oc (line ^ "\r\n")`.
+
+## Acceptance Criteria
+
+Done when:
+- `Irc.start` establishes TLS connection to configured server/port.
+- IRC lines are read and parsed into prefix/command/params.
+- `PING` messages receive `PONG` responses; connection stays alive.
+- `make test` passes.

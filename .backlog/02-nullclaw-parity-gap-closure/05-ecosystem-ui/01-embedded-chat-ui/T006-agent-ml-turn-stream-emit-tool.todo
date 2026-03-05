@@ -1,0 +1,32 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 3
+id: P2.M5.E1.T006
+priority: high
+status: pending
+tags: []
+title: 'agent.ml turn_stream: emit tool_start and tool_result JSON events inline in SSE stream'
+---
+
+# agent.ml turn_stream: emit tool_start and tool_result JSON events inline in SSE stream
+
+## Requirements
+
+- In `src/agent.ml`, wherever tool calls are dispatched during an agent turn (the `run_turn` or equivalent streaming function), add `on_chunk` calls before and after each tool invocation:
+  - Before: `on_chunk (Printf.sprintf {|{"type":"tool_start","tool":"%s","args":%s}|} name args_json)` where `args_json` is the tool arguments as a JSON string.
+  - After: `on_chunk (Printf.sprintf {|{"type":"tool_result","tool":"%s","success":%b,"preview":"%s"}|} name success (String.escaped (String.sub result 0 (min 200 (String.length result)))))`.
+- The `on_chunk` callback is whatever callback is already used for streaming text chunks. If `Provider.chunk` is a variant type, add `ToolStart of {tool: string; args: string}` and `ToolResult of {tool: string; success: bool; preview: string}` variants, and serialize them in the SSE handler in `http_server.ml`.
+- Tool events must be emitted only when `on_chunk` is Some (streaming mode), not in non-streaming invocations.
+
+## Implementation Notes
+
+Check `src/agent.ml` for the current streaming callback type. In the existing code, `run_turn` takes an `on_chunk : string -> unit` callback (or similar). Tool invocation happens after the model returns `tool_calls` in the response. The tool result string comes from `Tool_registry.execute`. Escape the preview string with `String.escaped` to avoid JSON injection. The `success` bool is `true` when execution doesn't raise an exception.
+
+## Acceptance Criteria
+
+Done when:
+- A mocked agent turn that invokes one tool produces a `tool_start` JSON line via `on_chunk` before the tool runs.
+- The same turn produces a `tool_result` JSON line via `on_chunk` after the tool completes.
+- Non-streaming agent turns (no `on_chunk`) are unaffected.
+- `make test` passes.

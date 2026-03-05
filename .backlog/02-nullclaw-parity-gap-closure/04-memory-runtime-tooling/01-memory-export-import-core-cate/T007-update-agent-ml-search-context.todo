@@ -1,0 +1,31 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 2
+id: P2.M4.E1.T007
+priority: medium
+status: pending
+tags: []
+title: Update agent.ml search context injection to include top core memories alongside FTS results
+---
+
+# Update agent.ml search context injection to include top core memories alongside FTS results
+
+## Requirements
+
+- In `src/agent.ml`, in the `inject_search_context` function (currently around line 38), after collecting FTS keyword results and vector results, also call `Memory.list_core ~db` and include the top 5 core memories in the context.
+- Core memories should appear in the injected context as a prefixed block before FTS results: `# Stored Memories\n{key}: {value}\n...`.
+- The merged context block injected into the agent's system prompt or as a prepended user message should include: core memories section (if any), then FTS keyword matches, then vector matches (if any).
+- This is separate from the session-start auto-hydration in T004; this is per-turn context injection triggered by the user message.
+
+## Implementation Notes
+
+The existing `inject_search_context` in `agent.ml` already builds `merged` from `keyword_strings` and `vector_strings`. Add a `core_strings` value by calling `Memory.list_core ~db` and formatting as `"[memory] {key}: {value}"` per entry (limit to 5 entries). Prepend `core_strings` to the merged list before passing to `Prompt_builder` or the context injection logic. The `db` argument is already available in this function.
+
+## Acceptance Criteria
+
+Done when:
+- An agent turn with core memories set and search enabled includes core memory entries in the injected context string.
+- An agent turn with no core memories stored does not include the `# Stored Memories` section.
+- FTS search results still appear alongside core memories (not replaced by them).
+- `make test` passes.

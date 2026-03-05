@@ -1,0 +1,37 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 1
+id: P2.M6.E1.T003
+priority: low
+status: pending
+tags: []
+title: Add 'make coverage' target (BISECT_ENABLE=yes dune runtest && bisect-ppx-report html)
+---
+
+# Add 'make coverage' target (BISECT_ENABLE=yes dune runtest && bisect-ppx-report html)
+
+## Requirements
+
+- Add to `Makefile`:
+  ```makefile
+  coverage:
+  	opam exec --switch=clawq-5.1 -- env BISECT_ENABLE=yes dune runtest
+  	opam exec --switch=clawq-5.1 -- bisect-ppx-report html --output _coverage/
+  	@echo "Coverage report: _coverage/index.html"
+  ```
+- Add `(preprocess (pps bisect_ppx))` to the `clawq_runtime` library stanza in `src/dune`. This enables instrumentation. Gate it with a dune condition or add it unconditionally (bisect_ppx no-ops when `BISECT_ENABLE` is not set).
+- Add `_coverage/` to `.gitignore` if not already present.
+- The `bisect_ppx` dep is already added via T002; this task wires the Makefile.
+
+## Implementation Notes
+
+`bisect_ppx` instruments the source at compile time. When `BISECT_ENABLE=yes` is set in the environment, it writes `.coverage` files during test execution. `bisect-ppx-report html` reads those files and generates an HTML report. The `_coverage/` directory should not be committed. Check if `src/dune` already has a `(preprocess ...)` stanza; if so, extend it rather than adding a new one. The unconditional approach is simpler — bisect_ppx overhead is negligible when not instrumenting.
+
+## Acceptance Criteria
+
+Done when:
+- `make coverage` completes without error (requires `bisect_ppx` installed).
+- `_coverage/index.html` is generated and shows non-zero line coverage for `src/memory.ml`.
+- `make build` and `make test` are unaffected (bisect_ppx preprocess does not break normal builds).
+- `make test` passes.

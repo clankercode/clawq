@@ -1,0 +1,46 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 3
+id: P2.M5.E2.T004
+priority: medium
+status: pending
+tags: []
+title: Extend runtime_config tunnel_config with backend field + per-backend sub-configs; update cmd_tunnel dispatch
+---
+
+# Extend runtime_config tunnel_config with backend field + per-backend sub-configs; update cmd_tunnel dispatch
+
+## Requirements
+
+- In `src/runtime_config.ml`, extend the `tunnel_config` type (currently `{ provider : string; enabled : bool }`) to:
+  ```ocaml
+  type tailscale_tunnel_config = { tailscale_path : string; https_only : bool }
+  type ngrok_tunnel_config = { ngrok_path : string; auth_token : string option; region : string option }
+  type custom_tunnel_config = { command : string; url_pattern : string }
+  type tunnel_config = {
+    enabled : bool;
+    backend : string;  (* "cloudflare" | "tailscale" | "ngrok" | "custom" *)
+    port : int;
+    cloudflare : cloudflare_tunnel_config option;
+    tailscale : tailscale_tunnel_config option;
+    ngrok : ngrok_tunnel_config option;
+    custom : custom_tunnel_config option;
+  }
+  ```
+- Update `default_tunnel_config` to use `backend = "cloudflare"`, `port = 8080`, all sub-configs `None`.
+- In `src/config_loader.ml`, parse the new fields from JSON: `tunnel.backend`, `tunnel.port`, `tunnel.tailscale.*`, `tunnel.ngrok.*`, `tunnel.custom.*`. Missing optional fields produce `None`.
+- In `src/command_bridge.ml`, update `cmd_tunnel` to dispatch based on `config.tunnel.backend`: `"cloudflare"` → existing Cloudflare logic; `"tailscale"` → `Tunnel_tailscale.start`; `"ngrok"` → `Tunnel_ngrok.start`; `"custom"` → `Tunnel_custom.start`.
+
+## Implementation Notes
+
+The current `tunnel_config` has a `provider` field. Rename it to `backend` for clarity (or keep `provider` as an alias). If `provider` is used elsewhere, update those references. The existing `cloudflare_tunnel_config` type may need to be defined if not already present — check `runtime_config.ml`. The `port` field replaces any port that was previously hardcoded.
+
+## Acceptance Criteria
+
+Done when:
+- A config JSON with `"tunnel": {"backend": "tailscale", "port": 9090, "tailscale": {"tailscale_path": "tailscale", "https_only": true}}` parses correctly with `config.tunnel.backend = "tailscale"` and `config.tunnel.port = 9090`.
+- A config JSON with only `"tunnel": {"enabled": true}` uses `backend = "cloudflare"` as default.
+- `cmd_tunnel` dispatches to the Tailscale module when `backend = "tailscale"`.
+- Existing cloudflare tunnel behavior is unchanged when `backend = "cloudflare"`.
+- `make test` passes.

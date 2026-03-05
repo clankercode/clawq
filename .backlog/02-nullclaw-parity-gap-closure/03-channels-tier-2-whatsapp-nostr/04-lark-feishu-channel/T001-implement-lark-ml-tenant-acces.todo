@@ -1,0 +1,34 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 3
+id: P2.M3.E4.T001
+priority: medium
+status: pending
+tags: []
+title: 'Implement lark.ml: tenant access token fetch + cache + refresh (2h TTL, 60s safety margin)'
+---
+
+# Implement lark.ml: tenant access token fetch + cache + refresh (2h TTL, 60s safety margin)
+
+## Requirements
+
+- Create `src/lark.ml` with a token cache: `type token_cache = { mutable token: string; mutable expires_at: float }`. Initialize with empty token and `expires_at = 0.0`.
+- Implement `Lark.get_tenant_token ~config` that checks if `Unix.gettimeofday () < cache.expires_at -. 60.0`. If fresh, return cached token. Otherwise, `POST https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal` with body `{"app_id":"{app_id}","app_secret":"{app_secret}"}`. Parse response `tenant_access_token` and `expire` (seconds). Update cache: `expires_at = Unix.gettimeofday () +. float_of_int expire`.
+- The 60-second safety margin ensures the token is refreshed before actual expiry under normal latency.
+
+## Implementation Notes
+
+Lark/Feishu uses the same API endpoint regardless of whether the operator calls the product "Lark" (international) or "Feishu" (China). The `lark_region` config field (default `"feishu"`) selects the base URL: `"feishu"` → `open.feishu.cn`, `"lark"` → `open.larksuite.com`.
+
+Use `Http_client.post_json` for the token fetch. Response: `{"code":0,"msg":"ok","tenant_access_token":"...","expire":7200}`. Non-zero `code` should log an error and return the cached (possibly expired) token as fallback.
+
+The `token_cache` is a module-level `ref` so all calls within the process share the same cached value.
+
+## Acceptance Criteria
+
+Done when:
+- `Lark.get_tenant_token` returns cached token when fresh (no HTTP call).
+- Token is refreshed via POST when within 60s of expiry or expired.
+- Refreshed token stored with correct `expires_at` (current time + expire seconds).
+- `make test` passes.

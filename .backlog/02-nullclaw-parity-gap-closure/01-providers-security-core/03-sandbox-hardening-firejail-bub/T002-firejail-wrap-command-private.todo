@@ -1,0 +1,33 @@
+---
+complexity: low
+depends_on:
+- P2.M1.E3.T001
+estimate_hours: 2
+id: P2.M1.E3.T002
+priority: medium
+status: pending
+tags: []
+title: 'Firejail wrap_command: --private={workspace} --net=none --quiet --noprofile'
+---
+
+# Firejail wrap_command: --private={workspace} --net=none --quiet --noprofile
+
+## Requirements
+
+- In `sandbox.ml`, implement the `Firejail` branch of `wrap_command`. Prepend the following argv prefix to the input array: `[| "firejail"; "--private=" ^ t.workspace; "--net=none"; "--quiet"; "--noprofile" |]`. The result is `Array.append prefix argv`.
+- The firejail binary must be the first element so that `Lwt_process.exec (cmd.(0), cmd)` spawns firejail directly. Do not use `/bin/sh -c` wrapping for the firejail invocation itself — pass the original argv elements directly so firejail can exec them without a shell.
+- Document the semantics of each flag in an inline comment: `--private` isolates the home directory to `workspace`; `--net=none` disables all network access for the sandboxed process; `--quiet` suppresses the firejail startup banner; `--noprofile` skips default security profiles that might conflict with the workspace path.
+
+## Implementation Notes
+
+- `t.workspace` should be an absolute path (already enforced by `Runtime_config.effective_workspace`). No further path normalization needed here.
+- The function is pure (no I/O, no Lwt). Unit tests can call it directly without spawning a process.
+- Integration test (skipped if firejail not installed): spawn `firejail --version` via `wrap_command` and verify exit code 0.
+
+## Acceptance Criteria
+
+Done when:
+- `wrap_command {backend=Firejail; workspace="/tmp/ws"} [|"ls"; "-la"|]` returns `[|"firejail"; "--private=/tmp/ws"; "--net=none"; "--quiet"; "--noprofile"; "ls"; "-la"|]`.
+- The first element of the returned array is always `"firejail"`.
+- `wrap_command {backend=Firejail; workspace="/my/space"} [||]` returns the 5-element prefix with an empty trailing section (i.e., `[|"firejail";"--private=/my/space";"--net=none";"--quiet";"--noprofile"|]`).
+- `make test` passes.

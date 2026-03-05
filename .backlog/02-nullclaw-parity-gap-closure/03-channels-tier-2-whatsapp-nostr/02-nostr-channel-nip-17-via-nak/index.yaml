@@ -1,0 +1,32 @@
+complexity: medium
+depends_on: []
+estimate_hours: 12
+id: P2.M3.E2
+locked: false
+name: Nostr Channel (NIP-17 via nak)
+status: pending
+tasks:
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 4
+      file: T001-implement-nostr-ml-spawn-nak-r.todo
+      id: T001
+      priority: high
+      status: pending
+      title: 'Implement nostr.ml: spawn nak req subprocess (Lwt_process), parse NIP-17 gift-wrap events, dedup by event ID (LRU 1000)'
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 3
+      file: T002-nostr-ml-send-via-nak-direct-m.todo
+      id: T002
+      priority: high
+      status: pending
+      title: 'nostr.ml: send via nak direct-message, NIP protocol mirroring (remember per-sender NIP)'
+    - complexity: low
+      depends_on: []
+      estimate_hours: 2
+      file: T003-add-nostr-config-to-runtime-co.todo
+      id: T003
+      priority: high
+      status: pending
+      title: Add nostr_config to runtime_config; parse channels.nostr; wire into daemon.ml; doctor checks nak in PATH

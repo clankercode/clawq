@@ -1,0 +1,34 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 4
+id: P2.M2.E1.T003
+priority: medium
+status: pending
+tags: []
+title: 'signal.ml: REST API mode (GET /v1/receive/{phone}, POST /v2/send)'
+---
+
+# signal.ml: REST API mode (GET /v1/receive/{phone}, POST /v2/send)
+
+## Requirements
+
+- When `config.channels.signal.mode = "rest"`, poll `GET http://{rest_url}/v1/receive/{account}` every `poll_interval_s` seconds using `Http_client.get`. Response is a JSON array of message envelopes; parse identically to subprocess mode.
+- Send replies via `POST http://{rest_url}/v2/send` with body `{"message":"{text}","number":"{account}","recipients":["{recipient}"]}`. Content-Type: `application/json`.
+- Switch between modes via a variant type `type mode = Subprocess | Rest` derived from the `mode` config string. `Signal.start` pattern-matches on the mode.
+
+## Implementation Notes
+
+The signal-cli REST API server (https://github.com/bbernhard/signal-cli-rest-api) exposes:
+- `GET /v1/receive/{number}` — returns `[{"envelope":{...}}, ...]`
+- `POST /v2/send` — body `{"message":"...","number":"...","recipients":["..."]}`
+
+REST URL from config: `signal_config.rest_url` (default `"http://localhost:8080"`). Account phone number from `signal_config.account`. Poll interval from `signal_config.poll_interval_s` (default 5).
+
+## Acceptance Criteria
+
+Done when:
+- `mode = "rest"` polls `GET /v1/receive/{account}` at configured interval, routes messages to session_manager.
+- `mode = "subprocess"` (default) uses subprocess path from T001.
+- Both modes share the same `allow_from` filter logic.
+- `make test` passes.

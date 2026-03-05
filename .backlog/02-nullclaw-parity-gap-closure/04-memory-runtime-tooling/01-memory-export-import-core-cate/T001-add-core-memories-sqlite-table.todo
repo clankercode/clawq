@@ -1,0 +1,32 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 3
+id: P2.M4.E1.T001
+priority: high
+status: pending
+tags: []
+title: Add core_memories SQLite table (key, content, category, created_at, updated_at) to memory.ml + migrate.ml schema migration
+---
+
+# Add core_memories SQLite table (key, content, category, created_at, updated_at) to memory.ml + migrate.ml schema migration
+
+## Requirements
+
+- In `src/memory.ml`, add `CREATE TABLE IF NOT EXISTS core_memories (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at REAL)` to the `Memory.init` function alongside the existing `messages` table creation.
+- Increment the module-level `schema_version` constant from 1 to 2.
+- Add a migration path in `Memory.init`: check the stored `schema_version` value; if it is 1, run `CREATE TABLE IF NOT EXISTS core_memories (...)` and update `schema_version` to 2 without touching the `messages` table or its data.
+- In `src/migrate.ml`, register the v1→v2 migration step so it can also be invoked via the migrate path if that module is used for schema upgrades.
+- The `Memory.init` call must remain backward-compatible: calling it on a fresh `:memory:` DB creates both `messages` and `core_memories`; calling it on an existing v1 DB creates only `core_memories` and bumps version.
+
+## Implementation Notes
+
+Current `schema_version = 1` in `memory.ml` line 1. The init function creates `schema_version` table and inserts once. Migration check should be: `SELECT version FROM schema_version` → if result < 2, run `CREATE TABLE IF NOT EXISTS core_memories (...)` then `UPDATE schema_version SET version = 2`. The `core_memories` table schema: `key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at REAL NOT NULL DEFAULT (strftime('%s','now'))`.
+
+## Acceptance Criteria
+
+Done when:
+- `Memory.init ~db_path:":memory:" ()` on a fresh DB creates a `core_memories` table with columns `key`, `value`, `updated_at`.
+- `Memory.init` on an existing DB at schema_version=1 runs migration: `messages` rows survive intact, `core_memories` table is created.
+- `Memory.init` called twice on the same DB does not fail (idempotent).
+- `make test` passes.

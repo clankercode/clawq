@@ -1,0 +1,32 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 2
+id: P2.M2.E3.T005
+priority: high
+status: pending
+tags: []
+title: Add irc_config to runtime_config; parse channels.irc; wire into daemon.ml
+---
+
+# Add irc_config to runtime_config; parse channels.irc; wire into daemon.ml
+
+## Requirements
+
+- Add `irc_config` record to `src/runtime_config.ml`: `{ enabled: bool; host: string; port: int; tls: bool; nick: string; channels: string list; allow_from: string list; sasl_password: string option }`.
+- Add `irc: irc_config option` to `channel_config`. Parse from `channels.irc` JSON in `config_loader.ml`. Defaults: `port = 6697`, `tls = true`, `allow_from = []`, `sasl_password = None`. Required when enabled: `host`, `nick`, `channels` (must be non-empty list). If `enabled = false` or key absent, yield `None`.
+- In `src/daemon.ml`, if `config.channels.irc` is `Some _`, call `Lwt.async (fun () -> Irc.start ~config ~session_manager)`. Add `"irc"` to `write_state` components.
+
+## Implementation Notes
+
+`channels` field in config JSON is a JSON array of strings (e.g., `["#general", "#help"]`). Parse with `to_list |> List.map to_string`. The config field name `channels` shadows the OCaml module `channels` — name the record field `irc_channels` internally if needed to avoid shadowing.
+
+Follow the `telegram_config` pattern for parsing and daemon wiring.
+
+## Acceptance Criteria
+
+Done when:
+- `Runtime_config.t` compiles with `irc_config option` in `channel_config`.
+- Config parses `host`, `port`, `tls`, `nick`, `channels`, `allow_from`, `sasl_password` correctly.
+- Daemon launches IRC channel when configured; skips it gracefully when absent.
+- `make test` passes.

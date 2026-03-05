@@ -1,0 +1,35 @@
+---
+complexity: high
+depends_on: []
+estimate_hours: 4
+id: P2.M5.E1.T002
+priority: high
+status: pending
+tags: []
+title: 'chat.js: tool timeline display (tool_start/tool_result events in SSE stream), collapsible per-turn panel'
+---
+
+# chat.js: tool timeline display (tool_start/tool_result events in SSE stream), collapsible per-turn panel
+
+## Requirements
+
+- In `static/chat.js`, implement streaming via `fetch('/chat', {method:'POST', headers:{'Content-Type':'application/json', 'Authorization':'Bearer '+token}, body: JSON.stringify({message, session_id})})` and `response.body.getReader()`. Do NOT use `EventSource` — it cannot be used for POST endpoints.
+- Parse the response body as a stream of SSE-style lines (`data: {json}\n\n`). For each parsed JSON object:
+  - `type === 'text'`: append `content` to the current assistant bubble using `marked.parse()`.
+  - `type === 'tool_start'`: add a collapsible `<details>` entry to `#tool-timeline` with summary `"Tool: {tool}"` and content showing `args` JSON.
+  - `type === 'tool_result'`: update the matching tool entry with success/failure badge and `preview` text (first 200 chars).
+  - `type === 'done'`: finalize the current bubble, re-enable the input.
+- Implement `addToolStart(event)` and `addToolResult(event)` functions in `chat.js`.
+- Each tool entry in `#tool-timeline` is a `<details>` element with `data-tool="{name}"` for matching start to result.
+
+## Implementation Notes
+
+The SSE decode loop: `const reader = response.body.getReader(); const decoder = new TextDecoder(); let buf = ''; while(true) { const {done, value} = await reader.read(); if (done) break; buf += decoder.decode(value, {stream:true}); const lines = buf.split('\n'); buf = lines.pop(); for (const line of lines) { if (line.startsWith('data: ')) { const obj = JSON.parse(line.slice(6)); handleEvent(obj); } } }`. This is the correct approach for streaming POST responses.
+
+## Acceptance Criteria
+
+Done when:
+- A mock fetch response with `data: {"type":"text","content":"hello"}\n\ndata: {"type":"done"}\n\n` renders "hello" in an assistant bubble.
+- A `tool_start` event adds a `<details>` element to `#tool-timeline`.
+- A `tool_result` event for the same tool updates that `<details>` with preview text.
+- `make test` passes.

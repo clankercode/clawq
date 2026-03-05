@@ -1,0 +1,39 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 4
+id: P2.M6.E3.T001
+priority: medium
+status: pending
+tags: []
+title: 'Write test/test_contracts.ml: Channel.S contract, provider backend contract, tool JSON schema validity'
+---
+
+# Write test/test_contracts.ml: Channel.S contract, provider backend contract, tool JSON schema validity
+
+## Requirements
+
+- Create `test/test_contracts.ml`. This file tests that modules satisfy their interface contracts without running network code.
+- Channel.S contract: for each channel module accessible at test compile time (Telegram, Discord, Slack, Slack_socket), verify:
+  - `Module.name` is a non-empty string.
+  - `Module.name` does not contain spaces (use a simple `String.contains` check).
+- Tool contract: call `Tools_builtin.all_tools` (or `Tool_registry.default_tools`), for each tool verify:
+  - `tool.name` matches `[a-z_]+` pattern (no uppercase, no spaces, no hyphens).
+  - `tool.description` is non-empty.
+  - `tool.parameters` is a `\`Assoc` with a `"type"` field equal to `\`String "object"`.
+  - `tool.parameters` has a `"properties"` field of type `\`Assoc`.
+- Provider contract (if a provider registry exists): each registered provider has a non-empty `name` and `base_url`.
+- Register as `("contracts", Test_contracts.suite)` in `test/test_main.ml`.
+
+## Implementation Notes
+
+This file does not test runtime behavior, only structural validity of static data. Use `Alcotest.(check bool) "name non-empty" true (String.length Module.name > 0)`. For tool parameter schema, use `Yojson.Safe.Util.member "type" params |> Yojson.Safe.Util.to_string`. Check how `Tool_registry` or `Tools_builtin` exposes the tool list — it may be `Tools_builtin.tools` or `Tools_builtin.make_tool_registry config |> Tool_registry.all_tools`. Check `src/tools_builtin.ml` for the actual API.
+
+## Acceptance Criteria
+
+Done when:
+- `test/test_contracts.ml` has at least 15 test cases.
+- Every registered tool has a valid `parameters` JSON Schema (type=object, has properties field).
+- Every registered channel module has a non-empty, space-free `name`.
+- All contract tests pass.
+- `make test` passes.

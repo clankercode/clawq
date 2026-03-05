@@ -1,0 +1,39 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 4
+id: P2.M6.E2.T001
+priority: high
+status: pending
+tags: []
+title: 'Write test/test_pairing.ml: code gen, brute-force lockout, token hashing, pair_result states (~40 tests)'
+---
+
+# Write test/test_pairing.ml: code gen, brute-force lockout, token hashing, pair_result states (~40 tests)
+
+## Requirements
+
+- Note: `src/pairing.ml` does not currently exist. This task is blocked by the implementation of the pairing module (P2.M1.E2.T001 or equivalent). Once `src/pairing.ml` exists, create `test/test_pairing.ml`.
+- When unblocked, implement tests for:
+  - `Pairing.generate_code ()` returns a string of exactly 6 decimal digits (`"000000"` to `"999999"`).
+  - Calling `generate_code ()` twice returns different values with high probability (run 10 times, expect at least 2 distinct values).
+  - `Pairing.hash_token "abc"` returns a deterministic non-empty string that is not equal to `"abc"`.
+  - `Pairing.hash_token s` is consistent: same input always produces same output.
+  - Pairing state machine: `Pending` state created with expiry; `Expired` state after TTL passes; `Verified` state after correct code entry.
+  - Brute-force lockout: after N failed attempts (e.g. 5), further attempts return `Error Locked` regardless of code.
+  - Correct code after lockout is still rejected.
+  - Unlocked state after lockout TTL passes.
+- Register the suite in `test/test_main.ml` as `("pairing", Test_pairing.suite)`.
+
+## Implementation Notes
+
+`src/pairing.ml` is referenced in `src/http_server.ml` via `require_pairing` flag and in `src/command_bridge.ml` and `src/config_loader.ml`. The module likely implements a code generation and validation flow. Until it exists, this file cannot be written. Check for `src/pairing.ml` existence before starting. If the pairing implementation uses a global mutable state, tests must reset it between cases (use `Pairing.reset ()` or create a fresh pairing handle per test).
+
+## Acceptance Criteria
+
+Done when:
+- `src/pairing.ml` exists (prerequisite).
+- `test/test_pairing.ml` has at least 10 test cases covering code generation, hashing, and state transitions.
+- All pairing tests pass.
+- The suite is registered in `test/test_main.ml`.
+- `make test` passes.

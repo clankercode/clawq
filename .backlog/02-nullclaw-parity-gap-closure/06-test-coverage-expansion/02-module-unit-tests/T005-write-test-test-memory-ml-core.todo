@@ -1,0 +1,39 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 4
+id: P2.M6.E2.T005
+priority: high
+status: pending
+tags: []
+title: 'Write test/test_memory.ml: core memories CRUD, FTS search, export/import, auto-hydrate (~40 tests)'
+---
+
+# Write test/test_memory.ml: core memories CRUD, FTS search, export/import, auto-hydrate (~40 tests)
+
+## Requirements
+
+- Create `test/test_memory.ml`. Use `Memory.init ~db_path:":memory:" ()` for all tests (no file system).
+- Test `store_message` / `load_history` roundtrip for basic message storage (may partially exist in other suites; add here for completeness).
+- Test `store_core` / `recall_core` upsert semantics: store key once, recall; store same key again with new value, recall returns new value.
+- Test `forget_core`: stored key is None after forget; forgetting non-existent key does not error.
+- Test `list_core`: returns all stored pairs; empty DB returns `[]`.
+- Test `cleanup_session`: messages older than `max_age_days` are removed; messages within limit are preserved; `max_messages` cap trims oldest messages.
+- Test FTS `search`: insert messages with known content, search for a term, verify matching messages are returned; search for absent term returns `[]`.
+- Test `export_snapshot` / `import_snapshot` roundtrip: export from populated DB, import into fresh DB, core memories match.
+- Test schema migration: simulate a v1 DB (no core_memories table), call `Memory.init`, verify core_memories table is created.
+- Register as `("memory", Test_memory.suite)` in `test/test_main.ml`.
+
+## Implementation Notes
+
+FTS search requires `search_enabled:true` in `Memory.init`. Use `Memory.init ~db_path:":memory:" ~search_enabled:true ()` for FTS tests. The FTS5 `messages_fts` virtual table uses triggers, so inserts via `store_message` should populate it automatically. For migration test: open a raw `Sqlite3.db_open ":memory:"`, create `schema_version` and `messages` tables manually at version 1, then call `Memory.init` and check for `core_memories`.
+
+## Acceptance Criteria
+
+Done when:
+- `test/test_memory.ml` has at least 25 test cases.
+- `store_core` / `recall_core` upsert test passes.
+- FTS search test returns the correct matching message.
+- Export/import roundtrip preserves all core memories.
+- Schema migration test confirms `core_memories` table created on v1→v2 upgrade (requires T001 to be done first).
+- `make test` passes.

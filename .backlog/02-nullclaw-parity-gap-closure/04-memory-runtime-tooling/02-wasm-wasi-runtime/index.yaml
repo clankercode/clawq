@@ -1,0 +1,48 @@
+complexity: high
+depends_on: []
+estimate_hours: 20
+id: P2.M4.E2
+locked: false
+name: WASM/WASI Runtime
+status: pending
+tasks:
+    - complexity: high
+      depends_on: []
+      estimate_hours: 6
+      file: T001-implement-src-main-wasm-ml-min.todo
+      id: T001
+      priority: medium
+      status: pending
+      title: 'Implement src/main_wasm.ml: minimal command dispatch (help, version, status, agent, memory list, identity)'
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 3
+      file: T002-add-wasm-of-ocaml-build-target.todo
+      id: T002
+      priority: medium
+      status: pending
+      title: Add wasm_of_ocaml build target to src/dune and build-wasm/run-wasm targets to Makefile
+    - complexity: low
+      depends_on: []
+      estimate_hours: 2
+      file: T003-add-wasm-of-ocaml-as-optional.todo
+      id: T003
+      priority: medium
+      status: pending
+      title: Add wasm_of_ocaml as optional dependency in clawq.opam; document in QUICKSTART.md
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 4
+      file: T004-implement-file-based-memory-fo.todo
+      id: T004
+      priority: medium
+      status: pending
+      title: Implement file-based memory for WASM (read/write MEMORY.md in workspace, no SQLite)
+    - complexity: low
+      depends_on: []
+      estimate_hours: 2
+      file: T005-write-onboard-template-files-f.todo
+      id: T005
+      priority: low
+      status: pending
+      title: Write onboard template files for WASM mode (IDENTITY.md, USER.md, MEMORY.md, HEARTBEAT.md)

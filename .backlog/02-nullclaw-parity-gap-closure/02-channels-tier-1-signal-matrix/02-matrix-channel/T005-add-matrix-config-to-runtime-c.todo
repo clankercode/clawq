@@ -1,0 +1,32 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 2
+id: P2.M2.E2.T005
+priority: high
+status: pending
+tags: []
+title: Add matrix_config to runtime_config; parse channels.matrix; wire into daemon.ml
+---
+
+# Add matrix_config to runtime_config; parse channels.matrix; wire into daemon.ml
+
+## Requirements
+
+- Add `matrix_config` record to `src/runtime_config.ml`: `{ enabled: bool; homeserver: string; access_token: string; bot_user_id: string; room_ids: string list; allow_rooms: string list; allow_users: string list }`.
+- Add `matrix: matrix_config option` to `channel_config`. Parse from `channels.matrix` JSON in `config_loader.ml`. Required fields when enabled: `homeserver`, `access_token`, `bot_user_id`. Defaults: `room_ids = []`, `allow_rooms = []`, `allow_users = []`. If `enabled = false` or key absent, set `None`.
+- In `src/daemon.ml`, after signal channel launch: if `config.channels.matrix` is `Some _`, call `Lwt.async (fun () -> Matrix.start ~config ~session_manager)`. Add `"matrix"` to `write_state` components.
+
+## Implementation Notes
+
+`bot_user_id` is the Matrix user ID of the bot account (e.g., `"@clawq:matrix.org"`). It is used by T004 to skip own messages. It can be derived from the access token via `GET /_matrix/client/v3/account/whoami` but for simplicity, require it explicitly in config.
+
+Follow the `telegram_config` pattern exactly for parsing and daemon wiring.
+
+## Acceptance Criteria
+
+Done when:
+- `Runtime_config.t` compiles with `matrix_config option` in `channel_config`.
+- Missing `homeserver`/`access_token`/`bot_user_id` when enabled raises a descriptive config error.
+- Daemon launches Matrix channel when configured; omits it gracefully when absent.
+- `make test` passes.

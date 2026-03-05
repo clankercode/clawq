@@ -1,0 +1,32 @@
+complexity: low
+depends_on: []
+estimate_hours: 8
+id: P2.M6.E1
+locked: false
+name: Test Infrastructure
+status: pending
+tasks:
+    - complexity: low
+      depends_on: []
+      estimate_hours: 3
+      file: T001-create-test-test-helpers-ml-wi.todo
+      id: T001
+      priority: high
+      status: pending
+      title: 'Create test/test_helpers.ml: with_memory_db (SQLite :memory:), with_temp_dir, fixture loader, assert_ok/assert_error'
+    - complexity: low
+      depends_on: []
+      estimate_hours: 2
+      file: T002-update-test-dune-to-include-ne.todo
+      id: T002
+      priority: medium
+      status: pending
+      title: Update test/dune to include new test modules; add bisect_ppx to clawq.opam test deps
+    - complexity: low
+      depends_on: []
+      estimate_hours: 1
+      file: T003-add-make-coverage-target-bisec.todo
+      id: T003
+      priority: low
+      status: pending
+      title: Add 'make coverage' target (BISECT_ENABLE=yes dune runtest && bisect-ppx-report html)

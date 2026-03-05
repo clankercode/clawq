@@ -1,0 +1,32 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 2
+id: P2.M3.E4.T004
+priority: medium
+status: pending
+tags: []
+title: Add lark_config to runtime_config (dual endpoint lark/feishu); parse; wire into daemon
+---
+
+# Add lark_config to runtime_config (dual endpoint lark/feishu); parse; wire into daemon
+
+## Requirements
+
+- Add `lark_config` record to `src/runtime_config.ml`: `{ enabled: bool; app_id: string; app_secret: string; verification_token: string; mode: string (* "ws" | "http" *); region: string (* "feishu" | "lark" *); allow_users: string list }`.
+- Add `lark: lark_config option` to `channel_config`. Parse from `channels.lark` JSON in `config_loader.ml`. Required when enabled: `app_id`, `app_secret`, `verification_token`. Defaults: `mode = "ws"`, `region = "feishu"`, `allow_users = []`. Yield `None` when disabled or absent.
+- In `src/daemon.ml`, if `config.channels.lark` is `Some cfg`: if `cfg.mode = "ws"`, call `Lwt.async (fun () -> Lark.start_ws ~config ~session_manager)`. If `"http"`, the route is registered in http_server and `start` returns a never-resolving promise. Add `"lark"` to `write_state` components.
+
+## Implementation Notes
+
+`region` field maps to base URL: `"feishu"` → `"open.feishu.cn"`, `"lark"` → `"open.larksuite.com"`. Expose a helper `Lark.api_base ~config` that returns the correct base URL string.
+
+`verification_token` serves dual purpose: HMAC key for HTTP callback verification (T003) and used in the WS ticket fetch (T002). It is distinct from `app_secret`.
+
+## Acceptance Criteria
+
+Done when:
+- `Runtime_config.t` compiles with `lark_config option` in `channel_config`.
+- `region` field correctly selects API base URL.
+- Daemon launches correct Lark mode (WS or HTTP) based on config.
+- `make test` passes.

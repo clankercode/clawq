@@ -1,0 +1,33 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 2
+id: P2.M5.E1.T005
+priority: high
+status: pending
+tags: []
+title: 'http_server.ml: serve GET /, /chat.js, /chat.css from chat_ui_assets.ml string constants'
+---
+
+# http_server.ml: serve GET /, /chat.js, /chat.css from chat_ui_assets.ml string constants
+
+## Requirements
+
+- In `src/http_server.ml`, add three new route matches in the `handler` function's `match (meth, path)` expression:
+  - `| \`GET, "/"` → respond with `Chat_ui_assets.index_html`, `Content-Type: text/html; charset=utf-8`, status 200.
+  - `| \`GET, "/chat.js"` → respond with `Chat_ui_assets.chat_js`, `Content-Type: application/javascript`, status 200.
+  - `| \`GET, "/chat.css"` → respond with `Chat_ui_assets.chat_css`, `Content-Type: text/css`, status 200.
+- These routes require no authentication check (static assets are public).
+- Add `chat_ui_assets` to the `(modules ...)` list in `src/dune` for the `clawq_runtime` library (or `clawq_runtime_integrations` if `http_server.ml` belongs there).
+
+## Implementation Notes
+
+The existing `handler` function in `http_server.ml` uses `Cohttp_lwt_unix.Server.respond_string`. Follow the same pattern as the `/health` route. Create a `text_html_headers` value alongside existing `json_headers`. The `body` is the string constant from `Chat_ui_assets`. No `body` draining needed for GET requests that have no body. Check which dune library owns `http_server.ml` by looking at `src/dune` stanzas.
+
+## Acceptance Criteria
+
+Done when:
+- `curl -s http://localhost:{PORT}/` returns status 200 with `Content-Type: text/html` and the HTML body from `Chat_ui_assets.index_html`.
+- `curl -s http://localhost:{PORT}/chat.js` returns status 200 with `Content-Type: application/javascript`.
+- `curl -s http://localhost:{PORT}/chat.css` returns status 200 with `Content-Type: text/css`.
+- `make test` passes (including the existing `http_server` test suite).

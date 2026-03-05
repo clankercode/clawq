@@ -1,0 +1,34 @@
+---
+complexity: medium
+depends_on:
+- P2.M1.E2.T001
+estimate_hours: 4
+id: P2.M1.E2.T002
+priority: high
+status: pending
+tags: []
+title: Add /pair, /pair/regenerate, /pair/status HTTP endpoints in http_server.ml
+---
+
+# Add /pair, /pair/regenerate, /pair/status HTTP endpoints in http_server.ml
+
+## Requirements
+
+- Add three new routes to the `handler` function in `http_server.ml`. `POST /pair`: parse `{"code": "123456"}` from body, call `Pairing.attempt_pair`, return: 200 `{"token":"..."}` on `Paired`; 423 `{"error":"locked_out","retry_after_seconds":N}` on `LockedOut`; 403 `{"error":"invalid_code"}` on `InvalidCode`; 409 `{"error":"already_paired"}` on `AlreadyPaired`; 404 `{"error":"pairing_disabled"}` on `Disabled`.
+- `POST /pair/regenerate`: requires valid bearer token (use existing `auth_ok`). Call `Pairing.regenerate` which clears `token_hashes`, generates and sets a new code, returns the new code string. Response 200 `{"code":"654321"}`.
+- `GET /pair/status`: no auth required. Return `{"pairing_enabled": bool, "paired": bool, "locked_out": bool}` derived from the `Pairing.t` state. The `Pairing.t` instance must be threaded through to `handler` — add it as a labeled parameter `?pairing:Pairing.t option`.
+
+## Implementation Notes
+
+- The `/pair` and `/pair/status` endpoints must be accessible without a bearer token even when `pairing_required = true`. The `/pair/regenerate` endpoint requires an existing valid token.
+- `handler` currently takes `~require_pairing ~auth_token` parameters. Add `?pairing` of type `Pairing.t option`. When `pairing = None`, the `/pair` endpoint returns 404 (pairing disabled).
+- Update `daemon.ml` to pass the `Pairing.t` instance (created in T004) to `Http_server.handler` via the new parameter.
+
+## Acceptance Criteria
+
+Done when:
+- `POST /pair` with incorrect code 5 times returns 423 on the 6th attempt.
+- `POST /pair` with correct code returns 200 with a non-empty `token` field, and subsequent calls return 409.
+- `GET /pair/status` returns `{"pairing_enabled":true,"paired":false,"locked_out":false}` before any pairing and `{"paired":true}` after.
+- `POST /pair/regenerate` without a bearer token returns 401; with a valid token returns 200 with a new 6-digit code.
+- `make test` passes.

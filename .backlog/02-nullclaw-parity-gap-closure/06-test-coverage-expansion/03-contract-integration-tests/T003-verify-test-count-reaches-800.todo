@@ -1,0 +1,31 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 1
+id: P2.M6.E3.T003
+priority: low
+status: pending
+tags: []
+title: Verify test count reaches 800+ after all suites; document in README
+---
+
+# Verify test count reaches 800+ after all suites; document in README
+
+## Requirements
+
+- After all other M6 tasks are complete, run `opam exec --switch=clawq-5.1 -- dune exec test/test_main.exe -- list | wc -l` and verify the count is at least 800.
+- If the count is below 800, identify which suites are under-covered by comparing actual counts against the targets in `PLAN_P2_11_TEST_COVERAGE.md` (Table: Tier 1–5).
+- For each suite below target, add the minimum number of additional test cases needed to reach the target.
+- Update `docs/TEST_COVERAGE_REPORT.md` (or create it if requested) with the final test count broken down by suite, matching the format in `PLAN_P2_11_TEST_COVERAGE.md`. Note: only create this file if explicitly asked — per project conventions, do not create docs speculatively.
+- The verification command is: `opam exec --switch=clawq-5.1 -- dune exec test/test_main.exe -- list`.
+
+## Implementation Notes
+
+The target of 800 comes from: ~226 existing + ~598 new (per PLAN_P2_11_TEST_COVERAGE.md projections). The plan estimates ~824 total. The `list` subcommand output includes one line per test case, so `wc -l` gives the total count. If the count includes a header line, adjust by subtracting 1. This task is a meta-verification step, not an implementation task.
+
+## Acceptance Criteria
+
+Done when:
+- `opam exec --switch=clawq-5.1 -- dune exec test/test_main.exe -- list | wc -l` outputs a number >= 800.
+- `make test` passes with all 800+ tests.
+- Any under-covered suites have been supplemented with additional test cases.

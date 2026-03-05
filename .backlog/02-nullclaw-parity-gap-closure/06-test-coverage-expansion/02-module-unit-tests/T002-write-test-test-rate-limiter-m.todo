@@ -1,0 +1,36 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 2
+id: P2.M6.E2.T002
+priority: medium
+status: pending
+tags: []
+title: 'Write test/test_rate_limiter.ml: token bucket, burst, cleanup (~20 tests)'
+---
+
+# Write test/test_rate_limiter.ml: token bucket, burst, cleanup (~20 tests)
+
+## Requirements
+
+- `test/test_rate_limiter.ml` already exists with at least `test_within_limit` and `test_over_limit` cases. This task covers gaps in current coverage.
+- Verify existing tests cover: within-limit allows requests, exceeding rate rejects requests.
+- Add tests for any missing coverage:
+  - Burst capacity: create limiter with `burst_multiplier:2.0`, verify that burst allows 2x the base rate before rejecting.
+  - Per-key isolation: two different keys (`"ip1"`, `"ip2"`) have independent token buckets; exhausting one does not affect the other.
+  - `cleanup_expired`: creates multiple keys, calls cleanup after TTL, verifies stale keys are removed from the internal table.
+  - Zero-rate limiter: `rate_per_minute:0` — all requests rejected.
+  - Very high rate: `rate_per_minute:10000` — many consecutive requests all allowed.
+- Check the current test count via the `list` subcommand and ensure total for `rate_limiter` suite reaches at least 20 cases.
+
+## Implementation Notes
+
+The existing `run_lwt f = Lwt_main.run (f ())` helper at the top of the existing file can be reused. `Rate_limiter.cleanup_expired` may not exist yet — check `src/rate_limiter.ml`. If absent, omit that test. The `burst_multiplier` parameter controls maximum burst size as a multiple of `rate_per_minute / 60` tokens per second. Tests that advance simulated time must use `Lwt_unix.sleep` with small values.
+
+## Acceptance Criteria
+
+Done when:
+- The `rate_limiter` suite has at least 20 test cases listed by `dune exec test/test_main.exe -- list`.
+- Per-key isolation test passes: exhausting key "ip1" does not block key "ip2".
+- Burst multiplier test passes.
+- `make test` passes.

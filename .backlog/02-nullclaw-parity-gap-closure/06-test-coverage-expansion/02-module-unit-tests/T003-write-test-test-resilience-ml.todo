@@ -1,0 +1,38 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 2
+id: P2.M6.E2.T003
+priority: medium
+status: pending
+tags: []
+title: 'Write test/test_resilience.ml: timeout, retry backoff, fallback (~20 tests)'
+---
+
+# Write test/test_resilience.ml: timeout, retry backoff, fallback (~20 tests)
+
+## Requirements
+
+- `test/test_resilience.ml` already exists with `test_with_timeout_success` and `test_with_timeout_expired`. This task covers gaps.
+- Review existing test cases and identify missing coverage in the `resilience` suite.
+- Add tests for any missing behavior:
+  - `Resilience.with_timeout` returns `Ok value` when the computation completes in time.
+  - `Resilience.with_timeout` returns `Error "timeout"` (or similar) when the computation exceeds the deadline.
+  - Retry with backoff: a function that fails N-1 times then succeeds is retried until success.
+  - Retry exhausted: a function that always fails reaches max retries and returns the final error.
+  - Backoff delay increases between retries (verify via timing or call count).
+  - `Resilience.with_fallback`: returns the fallback value when the primary computation raises.
+  - `Resilience.with_fallback`: returns the primary value when the primary computation succeeds.
+- Ensure the `resilience` suite has at least 15 test cases.
+
+## Implementation Notes
+
+The file already has a `contains` substring helper. The existing timeout tests use `Lwt_unix.sleep` with small values. For retry tests, use a counter ref to count invocations. For backoff timing, use `Unix.gettimeofday` before and after to measure elapsed time (rough check). Check `src/resilience.ml` for the actual function signatures (`with_retry`, `with_fallback`, etc.) before writing tests.
+
+## Acceptance Criteria
+
+Done when:
+- The `resilience` suite has at least 15 test cases listed by `dune exec test/test_main.exe -- list`.
+- Retry-with-backoff test: function called 3 times before success, final result is Ok.
+- Fallback test: primary raises, fallback value returned.
+- `make test` passes.

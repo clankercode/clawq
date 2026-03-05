@@ -1,0 +1,35 @@
+---
+complexity: high
+depends_on: []
+estimate_hours: 6
+id: P2.M2.E1.T001
+priority: high
+status: pending
+tags: []
+title: 'Implement signal.ml: JSON-RPC mode SSE receive loop (parse envelope, filter allow_from)'
+---
+
+# Implement signal.ml: JSON-RPC mode SSE receive loop (parse envelope, filter allow_from)
+
+## Requirements
+
+- Create `src/signal.ml` implementing `Channel.S` with `val name : string = "signal"` and `val start : config:Runtime_config.t -> session_manager:Session.t -> unit Lwt.t`.
+- In subprocess mode, spawn `signal-cli --output=json receive` via `Lwt_process.open_process_in` using `Runtime_config.signal_config.signal_cli_path`. Read NDJSON lines via `Lwt_io.read_line` in a loop.
+- Parse each line as JSON: extract `envelope.source` (sender E.164 number) and `envelope.dataMessage.message` (body text). Skip non-dataMessage envelopes (receipts, typing indicators) silently.
+- Apply `allow_from` filter: if `config.channels.signal.allow_from` is non-empty, drop messages from senders not in the list. Log dropped messages at debug level with sender redacted.
+
+## Implementation Notes
+
+NDJSON envelope format from `signal-cli --output=json receive`:
+```json
+{"envelope":{"source":"+15555550100","sourceDevice":1,"timestamp":1700000000000,"dataMessage":{"timestamp":1700000000000,"message":"hello","expiresInSeconds":0,"viewOnce":false}}}
+```
+
+Use `Lwt_process.open_process_in ("signal-cli", [|"signal-cli"; "--output=json"; "receive"|])` then `Lwt_io.read_line proc#stdout` in a `while true` loop wrapped in `try ... with End_of_file -> reconnect`. Route to `Session.get_or_create session_manager sender` then `Session.send_message`.
+
+## Acceptance Criteria
+
+Done when:
+- `Signal.start` spawns subprocess, reads NDJSON lines, routes messages to session_manager for allow-listed senders.
+- Non-dataMessage envelopes (receipts, typing) are silently skipped without error.
+- `make test` passes.

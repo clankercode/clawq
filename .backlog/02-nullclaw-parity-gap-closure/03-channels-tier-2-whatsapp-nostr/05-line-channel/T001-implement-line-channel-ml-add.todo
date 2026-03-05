@@ -1,0 +1,38 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 4
+id: P2.M3.E5.T001
+priority: medium
+status: pending
+tags: []
+title: 'Implement line_channel.ml: add POST /line/webhook to http_server (verify X-Line-Signature HMAC-SHA256), parse events'
+---
+
+# Implement line_channel.ml: add POST /line/webhook to http_server (verify X-Line-Signature HMAC-SHA256), parse events
+
+## Requirements
+
+- Create `src/line_channel.ml` implementing `Channel.S` with `val name = "line"`. The `start` function registers the webhook route in `http_server.ml` and returns a never-resolving promise.
+- Add `POST /line/webhook` handler to `src/http_server.ml`. Verify `X-Line-Signature` header: HMAC-SHA256 of the raw request body using `channel_secret` as key, base64-encoded. Compare to header value using `Eqaf.equal` for constant-time comparison. Use `Base64.encode_string` (already in deps) and `Digestif.SHA256.hmac_string`.
+- Parse the verified body JSON. Iterate `events` array; for each event where `type = "message"` and `message.type = "text"`, extract `message.text` (string), `source.userId` (string), and `replyToken` (string). Route text to session_manager with `userId` as session key; store `replyToken` for send (T002).
+
+## Implementation Notes
+
+LINE webhook JSON structure:
+```json
+{"events":[{"type":"message","replyToken":"nHuyWiB7...","source":{"userId":"U4af4980629...","type":"user"},"message":{"type":"text","text":"hello"}}]}
+```
+
+HMAC-SHA256 verification: `Digestif.SHA256.hmac_string ~key:channel_secret (Cohttp_lwt.Body.to_string body_raw)` then `Base64.encode_string` the digest bytes. Compare to `X-Line-Signature` header.
+
+`replyToken` is single-use and expires in 30 seconds. Store it in a per-session `Hashtbl.t` keyed on `userId`. The send function (T002) reads and clears the stored token.
+
+## Acceptance Criteria
+
+Done when:
+- Requests with invalid `X-Line-Signature` receive `403 Forbidden`.
+- Valid webhooks parse text events and route to session_manager.
+- `replyToken` stored for use by send function.
+- Non-text message events (image, sticker) receive `200 OK` without error.
+- `make test` passes.

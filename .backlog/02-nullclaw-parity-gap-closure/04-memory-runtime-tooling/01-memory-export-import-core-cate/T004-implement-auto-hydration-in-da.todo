@@ -1,0 +1,31 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 2
+id: P2.M4.E1.T004
+priority: high
+status: pending
+tags: []
+title: Implement auto-hydration in daemon.ml (on empty DB + snapshot file present, call Memory.auto_hydrate)
+---
+
+# Implement auto-hydration in daemon.ml (on empty DB + snapshot file present, call Memory.auto_hydrate)
+
+## Requirements
+
+- In `src/session.ml` or `src/agent.ml`, when creating a new session (via `Agent.create`), call `Memory.list_core ~db` and prepend the resulting key-value pairs as a `# Core Memories` section to the agent's `system_prompt` field before the first LLM turn.
+- The core memories section format: `# Core Memories\n{key}: {value}\n{key}: {value}\n...` followed by a blank line separator before the rest of the system prompt.
+- If `list_core` returns an empty list, no section is prepended (no change to system prompt).
+- In `src/daemon.ml`, on startup check if a snapshot file exists at the path configured by `config.memory.snapshot_path` (or a default like `~/.clawq/memory_snapshot.json`); if it exists and the `messages` table is empty, call `Memory.import_snapshot ~db` with its contents.
+
+## Implementation Notes
+
+`Agent.create` currently calls `Prompt_builder.build ~config ~tool_registry` to produce `system_prompt`. The core memories injection should happen after `build` returns. The `db` handle must be threaded into the agent creation call or into a `hydrate` step called once per session start. Check `Session.ml` for where `Agent.create` is called with a `db` already in scope. For daemon auto-hydration, use `Sys.file_exists` before reading the snapshot file.
+
+## Acceptance Criteria
+
+Done when:
+- A new agent session with core memories set includes a `# Core Memories` section in the system prompt visible to the LLM.
+- An agent session with no core memories has an unchanged system prompt (no empty section).
+- On daemon startup with an empty DB and a present snapshot file, `Memory.import_snapshot` is called and core memories are loaded.
+- `make test` passes.

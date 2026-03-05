@@ -1,0 +1,33 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 1
+id: P2.M5.E2.T005
+priority: low
+status: pending
+tags: []
+title: Add doctor checks for tailscale/ngrok binaries when respective backend configured
+---
+
+# Add doctor checks for tailscale/ngrok binaries when respective backend configured
+
+## Requirements
+
+- In `src/command_bridge.ml`, in the `cmd_doctor` function, add conditional checks based on `config.tunnel.backend`:
+  - If `backend = "tailscale"`: run `which tailscale` (or check `Sys.command "tailscale --version >/dev/null 2>&1" = 0`). Print `"[OK] tailscale found"` or `"[FAIL] tailscale not found (required for tailscale tunnel backend)"`.
+  - If `backend = "ngrok"`: same pattern for `ngrok`.
+  - If `backend = "custom"`: extract the first token (binary name) from `config.tunnel.custom.command` and check with `which`. Print appropriate pass/fail.
+  - If `backend = "cloudflare"`: check for `cloudflared` binary (this check may already exist; extend it or leave it).
+- Doctor output format: one line per check, `[OK]` or `[FAIL]` prefix, matching the style of existing doctor checks.
+
+## Implementation Notes
+
+The existing `cmd_doctor` likely already checks for some binaries. Use `Sys.command "which {binary} >/dev/null 2>&1"` returning 0 as the presence check. Access the tunnel config via the loaded config: `config.tunnel.backend`. For the custom tunnel binary extraction, use `String.split_on_char ' ' config.tunnel.custom.command |> List.hd` (or equivalent safe extraction). Guard `custom` access with `match config.tunnel.custom with Some c -> ... | None -> ()`.
+
+## Acceptance Criteria
+
+Done when:
+- `clawq doctor` with `tunnel.backend = "tailscale"` prints a tailscale check line (`[OK]` if installed, `[FAIL]` if not).
+- `clawq doctor` with `tunnel.backend = "ngrok"` prints an ngrok check line.
+- `clawq doctor` with `tunnel.backend = "cloudflare"` does not print tailscale or ngrok lines.
+- `make test` passes.

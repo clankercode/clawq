@@ -1,0 +1,32 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 2
+id: P2.M1.E1.T008
+priority: high
+status: pending
+tags: []
+title: Extend runtime_config.provider_config with kind, service_account_json, project_id, location fields
+---
+
+# Extend runtime_config.provider_config with kind, service_account_json, project_id, location fields
+
+## Requirements
+
+- Add four optional fields to `Runtime_config.provider_config`: `kind : string option` (explicit backend override; values: `"anthropic" | "gemini" | "vertex" | "ollama" | "cohere" | "openai"`), `service_account_json : string option` (path to Google service-account JSON for Vertex), `project_id : string option` (GCP project ID for Vertex), `location : string option` (GCP region for Vertex; default `"us-central1"` when missing).
+- Update `Config_loader` to parse these new fields from the provider JSON object in `~/.clawq/config.json`. All fields are optional and backward-compatible — existing configs without these fields must continue to load without error, defaulting all new fields to `None`.
+- Update `Runtime_config.to_json` to serialize these fields when `Some`, so `clawq config show` reflects the full provider config and round-trip serialization is consistent.
+
+## Implementation Notes
+
+- Current `provider_config` in `runtime_config.ml`: `{ api_key : string; base_url : string option; default_model : string option }`. Add the four new fields after `default_model`.
+- In `config_loader.ml`, provider config is parsed per-entry in the `providers` JSON object. Add `let kind = ... |> member "kind" |> to_string_option` etc. for each new field.
+- The `default_base_url_for` function in `provider.ml` and `detect_kind` (T001) will read `kind` from `provider_config` — this task is the prerequisite for T001 to check the explicit kind field first.
+
+## Acceptance Criteria
+
+Done when:
+- A config JSON with `"providers": {"my_vertex": {"api_key":"...", "kind":"vertex", "project_id":"my-proj", "location":"europe-west4"}}` loads without error and `provider.kind = Some "vertex"`, `provider.project_id = Some "my-proj"`, `provider.location = Some "europe-west4"`.
+- A config JSON without any of the new fields loads with all four new fields as `None` (backward-compatible).
+- `Runtime_config.to_json` includes `"kind"`, `"project_id"`, etc. only when `Some`.
+- `make test` passes.

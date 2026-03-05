@@ -1,0 +1,36 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 3
+id: P2.M2.E3.T002
+priority: high
+status: pending
+tags: []
+title: 'irc.ml: PRIVMSG receive (parse sender/channel/text, apply allow_from), PRIVMSG send with 450-byte UTF-8 chunking'
+---
+
+# irc.ml: PRIVMSG receive (parse sender/channel/text, apply allow_from), PRIVMSG send with 450-byte UTF-8 chunking
+
+## Requirements
+
+- On `PRIVMSG` command, extract sender nick from prefix (part before `!`), target (first param, either channel `#name` or bot nick), and text (trailing param). If target is a channel, check if text starts with `{botnick}: ` and strip the prefix; otherwise ignore non-addressed messages. If target is the bot nick (private message), route directly.
+- Apply `allow_from` filter: if `config.channels.irc.allow_from` is non-empty, drop PRIVMSGs from nicks not in the list.
+- Implement `Irc.send_privmsg ~oc ~target ~text` that writes `PRIVMSG {target} :{chunk}\r\n` via `Lwt_io.write`. Chunk text at 450 bytes on UTF-8 character boundaries (IRC max line is 512 bytes; prefix + command overhead is ~60 bytes).
+
+## Implementation Notes
+
+IRC addressing in channels: message `"clawq: hello"` to `#channel` addresses the bot. Strip prefix `"{botnick}: "` before routing. Use `String.sub` for prefix check: `String.length text > prefix_len && String.sub text 0 prefix_len = botnick ^ ": "`.
+
+Session key: use sender nick for private messages; use `"#channel:" ^ sender_nick` for channel messages to give each channel user a separate session context.
+
+450-byte chunking: split at last space before byte 450 where possible, otherwise hard-split at UTF-8 boundary.
+
+## Acceptance Criteria
+
+Done when:
+- Channel PRIVMSG addressed to bot (with `botnick: ` prefix) is routed to session_manager with prefix stripped.
+- Non-addressed channel messages are ignored.
+- Private PRIVMSG (target = bot nick) is routed directly.
+- `allow_from` filter drops non-listed nicks.
+- Replies chunked to 450 bytes per PRIVMSG line.
+- `make test` passes.

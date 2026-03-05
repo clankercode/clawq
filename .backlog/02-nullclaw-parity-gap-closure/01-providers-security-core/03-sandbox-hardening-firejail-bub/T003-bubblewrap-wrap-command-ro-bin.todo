@@ -1,0 +1,32 @@
+---
+complexity: low
+depends_on:
+- P2.M1.E3.T001
+estimate_hours: 2
+id: P2.M1.E3.T003
+priority: medium
+status: pending
+tags: []
+title: 'Bubblewrap wrap_command: --ro-bind /usr --unshare-all --bind {workspace} --die-with-parent'
+---
+
+# Bubblewrap wrap_command: --ro-bind /usr --unshare-all --bind {workspace} --die-with-parent
+
+## Requirements
+
+- In `sandbox.ml`, implement the `Bubblewrap` branch of `wrap_command`. Prepend the following argv prefix: `[| "bwrap"; "--ro-bind"; "/usr"; "/usr"; "--dev"; "/dev"; "--proc"; "/proc"; "--bind"; "/tmp"; "/tmp"; "--bind"; t.workspace; "/workspace"; "--unshare-all"; "--die-with-parent" |]`. Append the original argv after this prefix.
+- Document each mount flag inline: `--ro-bind /usr /usr` provides read-only access to system binaries; `--dev /dev` and `--proc /proc` are needed for standard process operation; `--bind /tmp /tmp` allows temp file creation; `--bind {workspace} /workspace` mounts the workspace read-write at `/workspace`; `--unshare-all` creates new namespaces (user, pid, net, ipc, uts); `--die-with-parent` ensures the sandbox process exits if the parent exits.
+- The function is pure. The workspace path (`t.workspace`) is used as the source in the bind mount; the target inside the sandbox is always `/workspace`.
+
+## Implementation Notes
+
+- The `bwrap` binary is typically at `/usr/bin/bwrap`. `is_available Bubblewrap` (T001) checks for it. `wrap_command` itself does not check availability — it is the caller's responsibility to only call `wrap_command` when the backend was selected by `detect`.
+- On systems without user namespace support (some container environments), `--unshare-all` may fail. This is a known limitation. The plan does not require a fallback within bubblewrap mode.
+- Integration test (skipped if bwrap not installed): verify `bwrap --version` works via the wrapped argv.
+
+## Acceptance Criteria
+
+Done when:
+- `wrap_command {backend=Bubblewrap; workspace="/home/user/ws"} [|"/bin/sh"; "-c"; "echo hi"|]` returns an array beginning with `"bwrap"` and containing `"--unshare-all"`, `"--bind"`, `"/home/user/ws"`, `"/workspace"`, and `"--die-with-parent"` before the original argv elements.
+- `"--bind"` and `t.workspace` appear as consecutive elements (not combined into one string).
+- `make test` passes.

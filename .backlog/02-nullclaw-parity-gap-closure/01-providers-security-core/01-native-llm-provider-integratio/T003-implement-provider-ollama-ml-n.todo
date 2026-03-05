@@ -1,0 +1,33 @@
+---
+complexity: medium
+depends_on:
+- P2.M1.E1.T001
+estimate_hours: 5
+id: P2.M1.E1.T003
+priority: medium
+status: pending
+tags: []
+title: Implement provider_ollama.ml (NDJSON streaming, /api/chat)
+---
+
+# Implement provider_ollama.ml (NDJSON streaming, /api/chat)
+
+## Requirements
+
+- Create `src/provider_ollama.ml` implementing `complete` and `complete_stream` against the Ollama native API at `POST /api/chat`. Default base URL is `http://localhost:11434`. No auth header is required. The request body uses the same `messages` array shape as OpenAI (`role`, `content`, `tool_calls`) but is sent to `/api/chat` rather than `/chat/completions`.
+- For non-streaming responses, parse `{"message": {"role": "assistant", "content": "..."}}` from the response body and return `Provider.Text`. For tool calls, parse `message.tool_calls[].function.name` and `message.tool_calls[].function.arguments` mapping to `Provider.ToolCalls`.
+- For streaming, Ollama returns NDJSON (newline-delimited JSON), not SSE. Each line is `{"message":{"content":"..."},"done":false}` or `{"done":true}`. Accumulate `message.content` deltas and emit `Provider.Delta` events; emit `Provider.Done` on `done=true`. Wire into `provider.ml` dispatch for `Ollama` kind from T001.
+
+## Implementation Notes
+
+- NDJSON streaming requires a different parser from `process_sse_stream` in `provider.ml` — no `data: ` prefix stripping needed; split stream on `\n` and parse each non-empty line as JSON directly.
+- `detect_kind` heuristic: `base_url` containing `"localhost:11434"` or `"ollama"` → `Ollama`. Also applies when `kind` field = `"ollama"` (T008).
+- Add `provider_ollama` to `clawq_runtime_core` in `src/dune`. No new dependencies.
+
+## Acceptance Criteria
+
+Done when:
+- `complete` against a mock response `{"model":"llama3","message":{"role":"assistant","content":"Hello"},"done":true}` returns `Text {content="Hello"; ...}`.
+- NDJSON parser correctly accumulates three delta lines `{"message":{"content":"He"},"done":false}`, `{"message":{"content":"llo"},"done":false}`, `{"done":true}` into full content `"Hello"`.
+- `detect_kind` returns `Ollama` for `base_url = Some "http://localhost:11434"`.
+- `make test` passes.

@@ -1,0 +1,56 @@
+complexity: high
+depends_on: []
+estimate_hours: 24
+id: P2.M2.E4
+locked: false
+name: Email Channel
+status: pending
+tasks:
+    - complexity: high
+      depends_on: []
+      estimate_hours: 6
+      file: T001-implement-email-channel-ml-ima.todo
+      id: T001
+      priority: high
+      status: pending
+      title: 'Implement email_channel.ml IMAP client: TLS connect, LOGIN, SELECT INBOX, SEARCH UNSEEN, FETCH, STORE \Seen'
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 3
+      file: T002-email-channel-ml-rfc-2047-head.todo
+      id: T002
+      priority: high
+      status: pending
+      title: 'email_channel.ml: RFC 2047 header decoder (base64 + quoted-printable), HTML tag stripper'
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 2
+      file: T003-email-channel-ml-allow-from-fi.todo
+      id: T003
+      priority: high
+      status: pending
+      title: 'email_channel.ml: allow_from filter (exact, @domain, bare domain), bounded seen-ID dedup set (LRU 1000)'
+    - complexity: high
+      depends_on: []
+      estimate_hours: 5
+      file: T004-email-channel-ml-smtp-outbound.todo
+      id: T004
+      priority: high
+      status: pending
+      title: 'email_channel.ml: SMTP outbound (EHLO, STARTTLS, AUTH LOGIN/PLAIN, MAIL FROM/RCPT TO/DATA)'
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 2
+      file: T005-email-channel-ml-in-reply-to-r.todo
+      id: T005
+      priority: medium
+      status: pending
+      title: 'email_channel.ml: In-Reply-To/References threading (track sender Message-ID)'
+    - complexity: low
+      depends_on: []
+      estimate_hours: 2
+      file: T006-add-email-config-to-runtime-co.todo
+      id: T006
+      priority: high
+      status: pending
+      title: Add email_config to runtime_config; parse channels.email; wire poll loop into daemon.ml

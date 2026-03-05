@@ -1,0 +1,33 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 4
+id: P2.M1.E3.T001
+priority: high
+status: pending
+tags: []
+title: 'Implement sandbox.ml: backend type, wrap_command, is_available, detect with fallback chain'
+---
+
+# Implement sandbox.ml: backend type, wrap_command, is_available, detect with fallback chain
+
+## Requirements
+
+- Create `src/sandbox.ml` with `type backend = Landlock | Firejail | Bubblewrap | None` and `type t = { backend : backend; workspace : string }`. Implement `val is_available : backend -> bool` — for `Firejail`, try `Unix.access "/usr/bin/firejail" [Unix.X_OK]` and search `PATH` fallback; for `Bubblewrap`, check `bwrap`; for `Landlock`, always return `true` on Linux (it is in-process); for `None`, always return `true`.
+- Implement `val detect : preferred:string -> workspace:string -> t` following the priority chain: if `preferred = "landlock"` → `{backend=Landlock; workspace}`; if `preferred = "firejail"` or (`preferred = "auto"` and `is_available Firejail`) → `{backend=Firejail; workspace}`; if `preferred = "bubblewrap"` or (`preferred = "auto"` and `is_available Bubblewrap`) → `{backend=Bubblewrap; workspace}`; else → `{backend=None; workspace}`. If `preferred = "none"` → always `None`.
+- Implement `val wrap_command : t -> string array -> string array` — dispatch to the per-backend implementation (T002 for Firejail, T003 for Bubblewrap); for `Landlock` and `None`, return the argv unchanged.
+
+## Implementation Notes
+
+- `is_available` must not raise — wrap `Unix.access` in `try ... with _ -> false`. For PATH search, split `Sys.getenv "PATH"` on `':'` and check each directory for the binary.
+- `detect` with `preferred = "auto"` checks Firejail before Bubblewrap. Landlock is in-process (applied by `landlock.ml` at daemon startup) and does not affect per-command wrapping, so it is not auto-detected for `wrap_command` — return `None` in the auto-detect chain when only Landlock is available.
+- Add `sandbox` to `clawq_runtime_core` modules in `src/dune`. No new opam dependencies.
+
+## Acceptance Criteria
+
+Done when:
+- `detect ~preferred:"none" ~workspace:"/tmp"` returns `{backend=None; ...}` regardless of what binaries are installed.
+- `detect ~preferred:"auto" ~workspace:"/tmp"` returns `Firejail` if `/usr/bin/firejail` exists and is executable.
+- `wrap_command {backend=None; ...} [|"ls"; "-la"|]` returns `[|"ls"; "-la"|]` unchanged.
+- `is_available Firejail` returns `false` when firejail is not on the system without raising an exception.
+- `make test` passes with a new `sandbox` test suite.

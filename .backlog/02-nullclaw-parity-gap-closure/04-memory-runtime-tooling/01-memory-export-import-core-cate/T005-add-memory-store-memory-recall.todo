@@ -1,0 +1,34 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 4
+id: P2.M4.E1.T005
+priority: high
+status: pending
+tags: []
+title: Add memory_store, memory_recall, memory_forget, memory_list agent tools to tools_builtin.ml
+---
+
+# Add memory_store, memory_recall, memory_forget, memory_list agent tools to tools_builtin.ml
+
+## Requirements
+
+- In `src/tools_builtin.ml`, register four new tools in the tool list returned by `all_tools` (or equivalent registration function):
+  - `memory_store`: parameters `key` (string, required), `value` (string, required). Calls `Memory.store_core ~db ~key ~value`. Returns `"stored"` on success.
+  - `memory_recall`: parameter `key` (string, required). Calls `Memory.recall_core ~db ~key`. Returns the value string, or `"(not found)"` if None.
+  - `memory_forget`: parameter `key` (string, required). Calls `Memory.forget_core ~db ~key`. Returns `"forgotten"`.
+  - `memory_list`: no parameters. Calls `Memory.list_core ~db`. Returns a formatted string `"key: value\nkey2: value2\n..."`, or `"(no memories stored)"` if empty.
+- Each tool must have a valid JSON Schema `parameters` field with `type: object` and a `properties` object, following the pattern of existing tools in `tools_builtin.ml`.
+- The `db` handle must be available to the tool executor; check how existing I/O tools receive it (likely via a closure or a `Tool_registry` that captures `db`).
+
+## Implementation Notes
+
+Look at how existing tools like `read_file` or `list_dir` are structured in `tools_builtin.ml` and follow the same pattern. Tool names must match `[a-z_]+`. The `Tool.risk_level` for all four memory tools is `Tool.Low`. Descriptions: `memory_store` = "Store a persistent key-value memory", `memory_recall` = "Retrieve a stored memory by key", `memory_forget` = "Delete a stored memory by key", `memory_list` = "List all stored memories".
+
+## Acceptance Criteria
+
+Done when:
+- `Tool_registry.to_openai_json r` includes all four memory tools with correct `name`, `description`, and `parameters` fields.
+- An agent turn that invokes `memory_store` followed by `memory_recall` with the same key returns the stored value.
+- `memory_list` invocation returns a non-error string.
+- `make test` passes.

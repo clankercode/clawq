@@ -1,0 +1,88 @@
+complexity: medium
+depends_on: []
+estimate_hours: 36
+id: P2.M6.E2
+locked: false
+name: Module Unit Tests
+status: pending
+tasks:
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 4
+      file: T001-write-test-test-pairing-ml-cod.todo
+      id: T001
+      priority: high
+      status: pending
+      title: 'Write test/test_pairing.ml: code gen, brute-force lockout, token hashing, pair_result states (~40 tests)'
+    - complexity: low
+      depends_on: []
+      estimate_hours: 2
+      file: T002-write-test-test-rate-limiter-m.todo
+      id: T002
+      priority: medium
+      status: pending
+      title: 'Write test/test_rate_limiter.ml: token bucket, burst, cleanup (~20 tests)'
+    - complexity: low
+      depends_on: []
+      estimate_hours: 2
+      file: T003-write-test-test-resilience-ml.todo
+      id: T003
+      priority: medium
+      status: pending
+      title: 'Write test/test_resilience.ml: timeout, retry backoff, fallback (~20 tests)'
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 3
+      file: T004-write-test-test-audit-ml-event.todo
+      id: T004
+      priority: medium
+      status: pending
+      title: 'Write test/test_audit.ml: event types, chain verify, retention logic (~30 tests)'
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 4
+      file: T005-write-test-test-memory-ml-core.todo
+      id: T005
+      priority: high
+      status: pending
+      title: 'Write test/test_memory.ml: core memories CRUD, FTS search, export/import, auto-hydrate (~40 tests)'
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 4
+      file: T006-write-test-test-tools-ml-path.todo
+      id: T006
+      priority: high
+      status: pending
+      title: 'Write test/test_tools.ml: path safety, allowlist, file ops, sandbox wrapping (~35 tests)'
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 3
+      file: T007-write-test-test-config-loader.todo
+      id: T007
+      priority: medium
+      status: pending
+      title: 'Write test/test_config_loader.ml: JSON parse, env substitution, defaults, bad input (~30 tests)'
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 3
+      file: T008-write-test-test-scheduler-ml-c.todo
+      id: T008
+      priority: medium
+      status: pending
+      title: 'Write test/test_scheduler.ml: cron parse, interval, next-run, overdue detection (~25 tests)'
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 3
+      file: T009-write-test-test-provider-ml-me.todo
+      id: T009
+      priority: high
+      status: pending
+      title: 'Write test/test_provider.ml: message format, tool-call parse, streaming chunk parse, provider kind detection (~30 tests)'
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 8
+      file: T010-write-test-test-channel-format.todo
+      id: T010
+      priority: medium
+      status: pending
+      title: 'Write test/test_channel_formats.ml: parse tests for Signal, Matrix, IRC, Email, WhatsApp, Nostr, Discord, Telegram, Slack (~185 tests)'

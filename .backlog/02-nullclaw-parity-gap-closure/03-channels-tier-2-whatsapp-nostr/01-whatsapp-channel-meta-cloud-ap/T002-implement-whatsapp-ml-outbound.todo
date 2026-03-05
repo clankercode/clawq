@@ -1,0 +1,34 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 3
+id: P2.M3.E1.T002
+priority: high
+status: pending
+tags: []
+title: 'Implement whatsapp.ml: outbound POST to graph.facebook.com, message dedup set (LRU 500)'
+---
+
+# Implement whatsapp.ml: outbound POST to graph.facebook.com, message dedup set (LRU 500)
+
+## Requirements
+
+- Create `src/whatsapp.ml` implementing `Channel.S` with `val name = "whatsapp"`. The `start` function registers the dispatch callback with `http_server.ml` and returns a sleeping promise (the channel is webhook-driven, not polling).
+- Implement `Whatsapp.send_message ~config ~to_phone ~text` that `POST`s to `https://graph.facebook.com/v18.0/{phone_number_id}/messages` with header `Authorization: Bearer {access_token}` and body `{"messaging_product":"whatsapp","to":"{to_phone}","type":"text","text":{"body":"{text}"}}`.
+- Maintain a module-level dedup set (bounded `Queue.t` + `Hashtbl.t`, max 500 entries) keyed on WhatsApp `message.id` strings. In the webhook dispatch callback, check the dedup set before routing; add to the set after routing.
+
+## Implementation Notes
+
+`phone_number_id` from config identifies the WhatsApp Business account phone. The `to_phone` is the sender's phone number from the webhook `from` field (without `+` prefix; WhatsApp uses plain digits like `"15555550100"`).
+
+Use `Http_client.post_json_with_headers` for the outbound send. Parse the response for `{"messages":[{"id":"wamid..."}]}` to confirm delivery; log at debug level.
+
+The `start` function pattern for webhook-driven channels: register route in http_server, then `Lwt.wait ()` (return the promise that never resolves) so daemon treats it as a long-running task.
+
+## Acceptance Criteria
+
+Done when:
+- `Whatsapp.send_message` posts correct JSON to graph.facebook.com with Bearer auth.
+- Duplicate webhook message IDs (same `messages[0].id`) are not re-routed to session_manager.
+- Dedup set evicts oldest entry when exceeding 500.
+- `make test` passes.

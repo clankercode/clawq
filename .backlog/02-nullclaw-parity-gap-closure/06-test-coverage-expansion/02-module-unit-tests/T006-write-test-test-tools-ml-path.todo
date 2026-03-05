@@ -1,0 +1,38 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 4
+id: P2.M6.E2.T006
+priority: high
+status: pending
+tags: []
+title: 'Write test/test_tools.ml: path safety, allowlist, file ops, sandbox wrapping (~35 tests)'
+---
+
+# Write test/test_tools.ml: path safety, allowlist, file ops, sandbox wrapping (~35 tests)
+
+## Requirements
+
+- Note: `test/test_tools_security.ml` already exists (it is registered as `"tools_security"` in `test/test_main.ml`). The new `test/test_tools.ml` should cover different aspects not already in `test_tools_security.ml`.
+- Create `test/test_tools.ml`. Focus on:
+  - Path safety: verify that paths outside the workspace (e.g., `"/etc/passwd"`, `"../../../etc"`) are rejected by the path safety check in `tools_builtin.ml`.
+  - Allowlist enforcement: file operations within the workspace are allowed; outside are blocked.
+  - `read_file` tool behavior on an existing file vs a missing file.
+  - `list_dir` tool on a valid directory returns expected entries.
+  - `execute_shell` tool: verify the command string is passed correctly to the subprocess; verify exit code handling.
+  - Sandbox wrapping: if a `Sandbox` module exists, verify `Sandbox.wrap_command` prepends the expected sandbox prefix (e.g., Firejail args) to the argv array.
+  - Tool `name` field matches pattern `[a-z_]+` for all registered tools.
+- Register as `("tools", Test_tools.suite)` in `test/test_main.ml`.
+
+## Implementation Notes
+
+Check `src/tools_builtin.ml` for the actual function names (the grep shows no `path_is_safe` — the actual function may have a different name). Check `test/test_tools_security.ml` first to understand what is already covered, then fill the gaps. For path tests, use `Filename.concat` to construct test paths. For file ops tests, use `with_temp_dir` from `test_helpers.ml` (once T001 is done) or `Filename.temp_dir`. Skip sandbox wrapping tests if `src/sandbox.ml` does not exist.
+
+## Acceptance Criteria
+
+Done when:
+- `test/test_tools.ml` has at least 20 test cases distinct from `test_tools_security.ml`.
+- Path traversal (`"../../../etc/passwd"`) is rejected by whichever safety check function exists.
+- File read test: reading a file that exists returns its contents; reading a missing file returns an error.
+- Tool name format test: all tool names match `[a-z_]+` regex.
+- `make test` passes.

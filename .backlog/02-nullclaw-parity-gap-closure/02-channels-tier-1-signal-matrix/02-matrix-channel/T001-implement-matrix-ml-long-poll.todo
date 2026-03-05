@@ -1,0 +1,33 @@
+---
+complexity: high
+depends_on: []
+estimate_hours: 6
+id: P2.M2.E2.T001
+priority: high
+status: pending
+tags: []
+title: 'Implement matrix.ml: long-poll sync loop (/_matrix/client/v3/sync?timeout=30000), parse room timeline events'
+---
+
+# Implement matrix.ml: long-poll sync loop (/_matrix/client/v3/sync?timeout=30000), parse room timeline events
+
+## Requirements
+
+- Create `src/matrix.ml` implementing `Channel.S` with `val name = "matrix"` and `val start : config:Runtime_config.t -> session_manager:Session.t -> unit Lwt.t`.
+- Poll `GET {homeserver}/_matrix/client/v3/sync?timeout=30000&since={next_batch}` using `Http_client.get` with `Authorization: Bearer {access_token}` header. On first call, omit `since` to get initial state.
+- Parse response JSON: iterate `rooms.join` object, for each room_id extract `timeline.events` array, filter events where `type = "m.room.message"` and `content.msgtype = "m.text"`. Extract `sender` and `content.body`.
+- Advance `next_batch` from the top-level `next_batch` field after each successful response. Store in a `ref string option` per loop iteration.
+
+## Implementation Notes
+
+Use `Yojson.Safe.Util`: `json |> member "rooms" |> member "join" |> to_assoc` gives `(room_id * json) list`. For each, `|> member "timeline" |> member "events" |> to_list`. Skip own messages: compare `sender` against `config.channels.matrix.bot_user_id`.
+
+HTTP call uses `Http_client.get ~uri ~headers:[("Authorization", "Bearer " ^ token)]`. On non-2xx, log at warn level and sleep 5s before retry. On timeout or network error, sleep `min(2^attempts, 60)` seconds (exponential backoff, see T003).
+
+## Acceptance Criteria
+
+Done when:
+- `Matrix.start` loops: calls sync, parses `m.room.message` events, routes to session_manager with sender as session key.
+- Own bot messages (matching `bot_user_id`) are skipped.
+- `next_batch` advances correctly across iterations.
+- `make test` passes.
