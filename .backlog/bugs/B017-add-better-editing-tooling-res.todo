@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B017
+priority: high
+status: pending
+tags: []
+title: add better editing tooling (research what opencode provides among others)
+---
+
+add better editing tooling (research what opencode provides among others)
