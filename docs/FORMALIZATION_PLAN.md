@@ -52,6 +52,23 @@ Priority ordering for new phases:
 
 ---
 
+## Task Checklist (F1–F12)
+
+- [x] **F1** — ConfigProofs.v: config validation, weight invariants, secure-by-default security config (15 theorems)
+- [x] **F2** — PathSafety.v: directory traversal immunity, normalize_no_dotdot, idempotence, workspace containment (extracted)
+- [x] **F3** — AuditChain.v: HMAC chain verify_chain_append, build_chain validity, suffix monotonicity
+- [x] **F4** — RateLimiter.v: token bucket bounded refill, monotone refill, consume semantics (P1–P6)
+- [x] **F5** — Config.v + ConfigProofs.v: valid_port, valid_temperature, validate_config_full (P8–P15)
+- [ ] **F6** — QuoteParsing.v + ShellSafety.v: shell tokenizer correctness, metachar blacklist completeness, allowlist monotonicity (extract)
+- [ ] **F7** — SecretStore.v: encrypt/decrypt identity, nonce uniqueness bound, resolve_secret completeness (spec-only)
+- [ ] **F8** — ChannelAuth.v + SlackAuth.v: generic allowlist filtering, replay prevention window, HMAC basestring (extract allowlist)
+- [ ] **F9** — AuditRetention.v: purge_by_count/age correctness, purge preserves chain validity (extract)
+- [ ] **F10** — AgentLoop.v: agent loop termination in max_tool_iterations, history length bound, trim idempotence (spec-only)
+- [ ] **F11** — SessionIsolation.v: session key disjointness, get_or_create isolation, store_message non-interference (spec-only)
+- [ ] **F12** — LandlockPolicy.v: least-privilege access flags, path set closure, policy monotonicity (spec-only)
+
+---
+
 ## Phased Plan (F6–F12)
 
 ### F6: Shell Safety — `QuoteParsing.v` + `ShellSafety.v`
