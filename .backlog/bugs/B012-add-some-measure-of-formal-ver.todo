@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B012
+priority: high
+status: pending
+tags: []
+title: Add some measure of formal verification coverage. Show it off if we can (generate badge or something)
+---
+
+Add some measure of formal verification coverage. Show it off if we can (generate badge or something)

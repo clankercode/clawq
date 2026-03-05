@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B013
+priority: high
+status: pending
+tags: []
+title: 'relax auth requirements (see failure: Insecure gateway config: set gateway.require_pairing=true or configure gateway.auth_token)'
+---
+
+relax auth requirements (see failure: Insecure gateway config: set gateway.require_pairing=true or configure gateway.auth_token)
