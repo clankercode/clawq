@@ -27,7 +27,7 @@ let test_dynamic_prompt_disabled_uses_base_prompt () =
   with_temp_workspace (fun workspace ->
       let prompt_cfg = { Runtime_config.default.prompt with dynamic_enabled = false } in
       let cfg = { Runtime_config.default with workspace; prompt = prompt_cfg } in
-      let prompt = Prompt_builder.build ~config:cfg ~tool_registry:None in
+      let prompt = Prompt_builder.build ~config:cfg ~tool_registry:None () in
       Alcotest.(check string)
         "dynamic disabled returns base prompt" Prompt_builder.base_prompt prompt)
 
@@ -53,7 +53,7 @@ let test_dynamic_prompt_includes_workspace_files () =
       let cfg =
         { Runtime_config.default with workspace; prompt = prompt_cfg }
       in
-      let prompt = Prompt_builder.build ~config:cfg ~tool_registry:None in
+      let prompt = Prompt_builder.build ~config:cfg ~tool_registry:None () in
       Alcotest.(check bool) "has workspace section" true
         (contains prompt "## Workspace Context");
       Alcotest.(check bool) "includes EGO contents" true

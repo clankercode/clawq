@@ -44,8 +44,8 @@ let lookup_github_repo path (gc : Runtime_config.github_config) =
     gc.repos
 
 let handler ~session_manager ~require_pairing ~auth_token ?slack_config
-    ?github_config ?github_api_limiter ?ip_limiter ?session_limiter ?web_channel
-    _conn req body =
+    ?github_config ?github_api_limiter ?ip_limiter ?session_limiter
+    ?slack_event_limiter ?web_channel _conn req body =
   let open Lwt.Syntax in
   let uri = Cohttp.Request.uri req in
   let path = Uri.path uri in
@@ -347,12 +347,12 @@ let handler ~session_manager ~require_pairing ~auth_token ?slack_config
 
 let start ~port ~host ~require_pairing ~auth_token ~session_manager
     ?slack_config ?github_config ?github_api_limiter ?ip_limiter
-    ?session_limiter ?web_channel () =
+    ?session_limiter ?slack_event_limiter ?web_channel () =
   let open Lwt.Syntax in
   let callback =
     handler ~session_manager ~require_pairing ~auth_token ?slack_config
       ?github_config ?github_api_limiter ?ip_limiter ?session_limiter
-      ?web_channel
+      ?slack_event_limiter ?web_channel
   in
   let* ctx = Conduit_lwt_unix.init ~src:host () in
   let ctx = Cohttp_lwt_unix.Net.init ~ctx () in
