@@ -69,38 +69,65 @@ let tools_block tool_registry =
           in
           Printf.sprintf "- %s (risk=%s): %s" t.name risk t.description)
 
+let base_prompt =
+  "You are an autonomous AI assistant. Your identity, principles, and \
+   operating protocol are defined by the workspace files below. Embody them."
+
 let build ~(config : Runtime_config.t) ~tool_registry =
-  if not config.prompt.dynamic_enabled then config.agent_defaults.system_prompt
+  if not config.prompt.dynamic_enabled then
+    if config.agent_defaults.system_prompt <> "" then
+      config.agent_defaults.system_prompt
+    else base_prompt
   else
     let lines = ref [] in
     let add s = lines := s :: !lines in
     let workspace = Runtime_config.effective_workspace config in
-    add config.agent_defaults.system_prompt;
-    add "";
-    add "## Execution Contract";
-    add "- Prefer direct execution over speculative discussion.";
-    add "- Be precise, truthful, and explicit about verification status.";
-    add "- Minimize diff size while preserving readability and maintainability.";
+    if config.agent_defaults.system_prompt <> "" then begin
+      add config.agent_defaults.system_prompt;
+      add ""
+    end
+    else begin
+      add base_prompt;
+      add ""
+    end;
+    add "## Operating Stance";
+    add "- Act, then report. Prefer execution to speculation.";
+    add
+      "- State what you know, what you verified, and what remains uncertain — \
+       never conflate the three.";
+    add "- Scope every intervention to what was actually requested.";
     if config.prompt.include_safety_section then begin
       add "";
-      add "## Safety";
-      add "- Never reveal secrets, tokens, or private data.";
-      add "- Ask before destructive or irreversible actions.";
-      add "- Respect workspace boundaries and configured security policies."
+      add "## Safety Invariants";
+      add
+        "- Secrets, tokens, credentials, and private data are never revealed, \
+         logged, or echoed.";
+      add
+        "- Destructive or irreversible actions require explicit prior \
+         authorization.";
+      add
+        "- Workspace boundaries and configured security policies are hard \
+         constraints, not suggestions."
     end;
     if config.prompt.include_workspace_section then begin
       add "";
-      add "## Workspace";
-      add ("- Root: " ^ workspace);
-      add "- Treat workspace files as authoritative local context.";
+      add "## Workspace Context";
+      add ("Root: " ^ workspace);
       let docs = workspace_doc_blocks ~config in
-      if docs = [] then add "- No workspace identity docs found."
+      if docs = [] then
+        add "No workspace identity files found. Operating with defaults only."
       else begin
         add "";
-        add "### Workspace Docs";
+        add
+          "The following files define your identity, behavioral protocol, and \
+           local context. EGO.md governs who you are. AGENTS.md governs how \
+           you operate. All other files provide situational context. When \
+           instructions conflict, EGO.md takes precedence, then AGENTS.md, \
+           then the rest in order of appearance.";
+        add "";
         List.iter
           (fun (name, content) ->
-            add ("#### " ^ name);
+            add ("### " ^ name);
             add content;
             add "")
           docs

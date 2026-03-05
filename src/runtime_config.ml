@@ -166,8 +166,8 @@ let default_prompt =
     include_runtime_section = true;
     include_datetime_section = true;
     workspace_files = default_workspace_files;
-    max_workspace_file_chars = 3500;
-    max_workspace_total_chars = 12000;
+    max_workspace_file_chars = 8000;
+    max_workspace_total_chars = 20000;
   }
 
 let default =
@@ -179,9 +179,7 @@ let default =
     agent_defaults =
       {
         primary_model = "openai/gpt-4o";
-        system_prompt =
-          "You are clawq, a helpful AI assistant. Answer questions clearly and \
-           concisely.";
+        system_prompt = "";
         max_tool_iterations = 10;
       };
     prompt = default_prompt;
