@@ -1,0 +1,38 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 10
+id: I001
+priority: medium
+status: pending
+tags:
+    - idea
+    - planning
+title: 'Feature: use cloudflare tunnel to expose http endpoint for webhooks (register the webhooks to give them a unique URL). Then we should support github webhooks as a incoming messages *provided* the messages contain the string `/clawq`. The message for clawq is the paragraph starting with /clawq and everything after, but we should provide both the full context and extract the user message. Otherwise ignore the webhook. We want to react to comments and new PRs particularly. We should be able to specify which agent this gets routed to.'
+---
+
+# Original Idea
+
+Feature: use cloudflare tunnel to expose http endpoint for webhooks (register the webhooks to give them a unique URL). Then we should support github webhooks as a incoming messages *provided* the messages contain the string `/clawq`. The message for clawq is the paragraph starting with /clawq and everything after, but we should provide both the full context and extract the user message. Otherwise ignore the webhook. We want to react to comments and new PRs particularly. We should be able to specify which agent this gets routed to.
+
+## Planning Task (Equivalent of /plan-task)
+
+- Run `/plan-task I001` to decompose this idea into actionable work.
+- Confirm placement in the current backlog hierarchy before creating work items.
+
+## Ingest Plan Into backlog
+
+- Create implementation items with `backlog add` and related hierarchy commands (`backlog add-epic`, `backlog add-milestone`, `backlog add-phase`) as needed.
+- Create follow-up defects with `backlog bug` when bug-style work is identified.
+- Record all created IDs below and wire dependencies.
+
+## Created Work Items
+
+- Add created task IDs
+- Add created bug IDs (if any)
+
+## Completion Criteria
+
+- Idea has been decomposed into concrete backlog work items.
+- New items include clear acceptance criteria and dependencies.
+- This idea intake is updated with created IDs and marked done.
