@@ -34,7 +34,7 @@ let complete ~(config : Runtime_config.t) ~messages =
       [
         ("model", `String model);
         ("messages", messages_to_json messages);
-        ("temperature", `Float config.default_temperature);
+        ("temperature", `Float (max 1e-8 config.default_temperature));
       ]
     |> Yojson.Safe.to_string
   in

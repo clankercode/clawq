@@ -104,6 +104,17 @@ let parse_config json =
       ({ workspace_only; audit_enabled } : Runtime_config.security_config)
     with _ -> default.security
   in
+  let stt =
+    try
+      let s = json |> member "stt" in
+      let provider = s |> member "provider" |> to_string in
+      let model = s |> member "model" |> to_string in
+      let language =
+        try Some (s |> member "language" |> to_string) with _ -> None
+      in
+      Some ({ provider; model; language } : Runtime_config.stt_config)
+    with _ -> None
+  in
   {
     Runtime_config.default_temperature;
     providers;
@@ -112,6 +123,7 @@ let parse_config json =
     gateway;
     memory;
     security;
+    stt;
   }
 
 let load ?(path = "") () : Runtime_config.t =

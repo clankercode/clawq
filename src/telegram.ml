@@ -9,6 +9,7 @@ type update = {
   update_id : int;
   chat_id : string;
   text : string;
+  voice_file_id : string option;
 }
 
 let get_updates ~bot_token ~offset ~timeout =
@@ -37,7 +38,11 @@ let get_updates ~bot_token ~offset ~timeout =
             let text =
               try msg |> member "text" |> to_string with _ -> ""
             in
-            Some { update_id; chat_id; text }
+            let voice_file_id =
+              try Some (msg |> member "voice" |> member "file_id" |> to_string)
+              with _ -> None
+            in
+            Some { update_id; chat_id; text; voice_file_id }
           with _ -> None)
         results
     in
@@ -71,10 +76,48 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
         m "Telegram: ignoring message from unauthorized chat_id=%s"
           update.chat_id);
     Lwt.return_unit)
-  else if update.text = "" then Lwt.return_unit
   else
     let key = "telegram:" ^ update.chat_id in
-    match update.text with
+    let* user_text =
+      match update.voice_file_id with
+      | Some file_id -> (
+        Lwt.catch
+          (fun () ->
+            let get_file_uri =
+              Printf.sprintf "%s%s/getFile?file_id=%s" api_base bot_token
+                file_id
+            in
+            let* _status, file_body =
+              Http_client.get ~uri:get_file_uri ~headers:[]
+            in
+            let file_json = Yojson.Safe.from_string file_body in
+            let file_path =
+              Yojson.Safe.Util.(
+                file_json |> member "result" |> member "file_path" |> to_string)
+            in
+            let download_uri =
+              Printf.sprintf "https://api.telegram.org/file/bot%s/%s" bot_token
+                file_path
+            in
+            let* _status, audio_data =
+              Http_client.get ~uri:download_uri ~headers:[]
+            in
+            let filename = Filename.basename file_path in
+            let content_type = Stt.content_type_of_ext filename in
+            let config = Session.get_config session_mgr in
+            let* result =
+              Stt.transcribe ~config ~audio_data ~filename ~content_type ()
+            in
+            Lwt.return ("[Voice]: " ^ result.text))
+          (fun exn ->
+            Logs.err (fun m ->
+                m "Voice transcription failed: %s" (Printexc.to_string exn));
+            Lwt.return ""))
+      | None -> Lwt.return update.text
+    in
+    if user_text = "" then Lwt.return_unit
+    else
+    match user_text with
     | "/start" | "/help" ->
       let text =
         "clawq bot ready. Send me a message and I'll respond using AI.\n\

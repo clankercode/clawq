@@ -11,6 +11,45 @@ let post_json ~uri ~headers ~body =
   let* body_str = Cohttp_lwt.Body.to_string body in
   Lwt.return (status, body_str)
 
+type multipart_part =
+  | Field of { name : string; value : string }
+  | File of { name : string; filename : string; content_type : string; data : string }
+
+let post_multipart ~uri ~headers ~parts =
+  let open Lwt.Syntax in
+  let boundary =
+    Printf.sprintf "----clawq%08x%08x" (Random.bits ()) (Random.bits ())
+  in
+  let buf = Buffer.create 4096 in
+  List.iter
+    (fun part ->
+      Buffer.add_string buf ("--" ^ boundary ^ "\r\n");
+      (match part with
+       | Field { name; value } ->
+         Buffer.add_string buf
+           (Printf.sprintf "Content-Disposition: form-data; name=\"%s\"\r\n\r\n%s\r\n"
+              name value)
+       | File { name; filename; content_type; data } ->
+         Buffer.add_string buf
+           (Printf.sprintf
+              "Content-Disposition: form-data; name=\"%s\"; filename=\"%s\"\r\nContent-Type: %s\r\n\r\n"
+              name filename content_type);
+         Buffer.add_string buf data;
+         Buffer.add_string buf "\r\n"))
+    parts;
+  Buffer.add_string buf ("--" ^ boundary ^ "--\r\n");
+  let body_str = Buffer.contents buf in
+  let uri = Uri.of_string uri in
+  let headers =
+    Cohttp.Header.of_list
+      (("Content-Type", "multipart/form-data; boundary=" ^ boundary) :: headers)
+  in
+  let body = Cohttp_lwt.Body.of_string body_str in
+  let* response, body = Cohttp_lwt_unix.Client.post ~headers ~body uri in
+  let status = Cohttp.Response.status response |> Cohttp.Code.code_of_status in
+  let* body_str = Cohttp_lwt.Body.to_string body in
+  Lwt.return (status, body_str)
+
 let get ~uri ~headers =
   let open Lwt.Syntax in
   let uri = Uri.of_string uri in

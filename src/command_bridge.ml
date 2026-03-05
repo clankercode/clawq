@@ -98,7 +98,16 @@ let cmd_onboard () =
     "openrouter": {
       "api_key": "YOUR_API_KEY_HERE",
       "base_url": "https://openrouter.ai/api/v1"
+    },
+    "groq": {
+      "api_key": "YOUR_GROQ_API_KEY_HERE",
+      "base_url": "https://api.groq.com/openai/v1"
     }
+  },
+  "stt": {
+    "provider": "groq",
+    "model": "whisper-large-v3",
+    "language": "en"
   },
   "agent_defaults": {
     "primary_model": "openai/gpt-4o"
@@ -209,6 +218,33 @@ let cmd_auth () =
     in
     "API key status:\n" ^ String.concat "\n" lines
 
+let cmd_transcribe args =
+  match args with
+  | [] -> "Usage: clawq transcribe <audio_file>"
+  | file_path :: _ ->
+    if not (Sys.file_exists file_path) then
+      Printf.sprintf "File not found: %s" file_path
+    else
+      let cfg = get_config () in
+      let ic = open_in_bin file_path in
+      let n = in_channel_length ic in
+      let buf = Bytes.create n in
+      really_input ic buf 0 n;
+      close_in ic;
+      let audio_data = Bytes.to_string buf in
+      let filename = Filename.basename file_path in
+      let content_type = Stt.content_type_of_ext filename in
+      let result =
+        Lwt_main.run
+          (Stt.transcribe ~config:cfg ~audio_data ~filename ~content_type ())
+      in
+      result.text
+
+let cmd_mcp () =
+  let cfg = get_config () in
+  Lwt_main.run (Mcp_server.run ~config:cfg ());
+  ""
+
 let cmd_agent () =
   let cfg = get_config () in
   Lwt_main.run (Daemon.run ~config:cfg);
@@ -227,6 +263,8 @@ let handle args =
   | "workspace" :: _ -> cmd_workspace ()
   | "capabilities" :: _ -> cmd_capabilities ()
   | "auth" :: _ -> cmd_auth ()
+  | "transcribe" :: rest -> cmd_transcribe rest
+  | "mcp" :: _ -> cmd_mcp ()
   | "cron" :: _ -> "cron: not yet implemented"
   | "skills" :: _ -> "skills: not yet implemented"
   | "hardware" :: _ -> "hardware: deferred to Phase 2"

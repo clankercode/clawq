@@ -14,6 +14,12 @@ type memory_config = { backend : string; search_enabled : bool }
 
 type security_config = { workspace_only : bool; audit_enabled : bool }
 
+type stt_config = {
+  provider : string;
+  model : string;
+  language : string option;
+}
+
 type t = {
   default_temperature : float;
   providers : (string * provider_config) list;
@@ -22,6 +28,7 @@ type t = {
   gateway : gateway_config;
   memory : memory_config;
   security : security_config;
+  stt : stt_config option;
 }
 
 let default =
@@ -33,6 +40,7 @@ let default =
     gateway = { host = "127.0.0.1"; port = 3000; require_pairing = false };
     memory = { backend = "sqlite"; search_enabled = false };
     security = { workspace_only = true; audit_enabled = false };
+    stt = None;
   }
 
 let merge_with_coq (coq_cfg : Clawq_core.clawqConfig) (cfg : t) : t =

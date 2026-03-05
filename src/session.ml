@@ -19,5 +19,7 @@ let turn mgr ~key ~message =
   let agent, mutex = get_or_create mgr ~key in
   Lwt_mutex.with_lock mutex (fun () -> Agent.turn agent ~user_message:message)
 
+let get_config mgr = mgr.config
+
 let reset mgr ~key =
   Hashtbl.remove mgr.sessions key
