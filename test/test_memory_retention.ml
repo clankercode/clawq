@@ -80,6 +80,55 @@ let test_configurable_max_history () =
   Agent.trim_history agent;
   Alcotest.(check int) "10 messages after trim" 10 (List.length agent.history)
 
+let test_trim_history_count_only () =
+  (* trim_history should only trigger on message count, not tokens.
+     With a small number of messages below effective_max, it must be a no-op
+     even if those messages are very large (token-based trigger removed). *)
+  let config = make_config ~max_messages:50 () in
+  let agent = Agent.create ~config () in
+  (* Add 5 messages — well below effective_max of 50 *)
+  for i = 1 to 5 do
+    agent.history <-
+      Provider.make_message ~role:"user" ~content:(Printf.sprintf "Msg %d" i)
+      :: agent.history
+  done;
+  Agent.trim_history agent;
+  Alcotest.(check int) "5 messages unchanged" 5 (List.length agent.history)
+
+let test_force_compress_history () =
+  let config = make_config () in
+  let agent = Agent.create ~config () in
+  (* Add 10 messages (newest first) *)
+  for i = 1 to 10 do
+    agent.history <-
+      Provider.make_message ~role:"user" ~content:(Printf.sprintf "Msg %d" i)
+      :: agent.history
+  done;
+  let compressed = Agent.force_compress_history agent in
+  Alcotest.(check bool) "compression performed" true compressed;
+  (* force_compress_keep = 4: keep newest 4, which are msgs 10, 9, 8, 7 *)
+  Alcotest.(check int) "4 messages remain" 4 (List.length agent.history);
+  let contents =
+    List.map (fun (m : Provider.message) -> m.content) agent.history
+  in
+  Alcotest.(check (list string))
+    "newest 4 kept"
+    [ "Msg 10"; "Msg 9"; "Msg 8"; "Msg 7" ]
+    contents
+
+let test_force_compress_history_noop_when_small () =
+  let config = make_config () in
+  let agent = Agent.create ~config () in
+  (* Add only 4 messages — at or below context_recovery_min_history *)
+  for i = 1 to 4 do
+    agent.history <-
+      Provider.make_message ~role:"user" ~content:(Printf.sprintf "Msg %d" i)
+      :: agent.history
+  done;
+  let compressed = Agent.force_compress_history agent in
+  Alcotest.(check bool) "no compression on small history" false compressed;
+  Alcotest.(check int) "history unchanged" 4 (List.length agent.history)
+
 let test_cleanup_all () =
   let db = Memory.init ~db_path:":memory:" () in
   for i = 1 to 8 do
@@ -106,4 +155,10 @@ let suite =
     Alcotest.test_case "configurable max_history" `Quick
       test_configurable_max_history;
     Alcotest.test_case "cleanup_all" `Quick test_cleanup_all;
+    Alcotest.test_case "trim_history count only" `Quick
+      test_trim_history_count_only;
+    Alcotest.test_case "force_compress_history" `Quick
+      test_force_compress_history;
+    Alcotest.test_case "force_compress_history noop when small" `Quick
+      test_force_compress_history_noop_when_small;
   ]

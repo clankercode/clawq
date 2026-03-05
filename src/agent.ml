@@ -35,14 +35,84 @@ let effective_max_messages agent =
   let m = agent.config.memory.max_messages_per_session in
   if m <= 0 then 500 else min m 500
 
+(* Number of most-recent messages kept verbatim after compaction. *)
+let compaction_keep_recent = 20
+
+(* History must have more than this many messages before force-compression
+   is attempted (to avoid compressing already-tiny histories). *)
+let context_recovery_min_history = 6
+
+(* Number of most-recent messages to retain during force-compression. *)
+let force_compress_keep = 4
+
+(* Bound tool output persisted into conversation history. *)
+let max_tool_result_chars = 12000
+
+(* Backstop: enforce the hard message-count cap only. Token-based compaction
+   (with LLM summarisation) is handled by compact_history_if_needed before
+   each turn; this function is a cheap post-response safety net. *)
 let trim_history agent =
   let effective_max = effective_max_messages agent in
   let len = List.length agent.history in
-  let token_budget = context_window_for_agent agent in
-  let compaction_threshold = token_budget * 3 / 4 in
-  let current_tokens = estimate_history_tokens agent.history in
-  if len > effective_max || current_tokens > compaction_threshold then
+  if len > effective_max then
     agent.history <- List.filteri (fun i _ -> i < effective_max) agent.history
+
+(* Emergency context-exhaustion recovery: drop all but the last
+   force_compress_keep messages (no LLM call possible at this point).
+   Returns true if compression was performed. *)
+let force_compress_history agent =
+  let len = List.length agent.history in
+  if len > context_recovery_min_history then begin
+    let recent =
+      List.filteri (fun i _ -> i < force_compress_keep) agent.history
+    in
+    let bounded_recent =
+      List.map
+        (fun (m : Provider.message) ->
+          if String.length m.content <= max_tool_result_chars then m
+          else
+            {
+              m with
+              content =
+                String.sub m.content 0 max_tool_result_chars
+                ^ "\n\n[truncated during emergency context recovery]";
+            })
+        recent
+    in
+    agent.history <- bounded_recent;
+    true
+  end
+  else false
+
+let string_contains_ci s sub =
+  let sl = String.lowercase_ascii s in
+  let subl = String.lowercase_ascii sub in
+  let ls = String.length sl and lsub = String.length subl in
+  if lsub > ls then false
+  else
+    let found = ref false in
+    for i = 0 to ls - lsub do
+      if (not !found) && String.sub sl i lsub = subl then found := true
+    done;
+    !found
+
+let is_context_exhaustion_error msg =
+  List.exists (string_contains_ci msg)
+    [
+      "context length";
+      "too long";
+      "maximum context";
+      "context window";
+      "token limit";
+    ]
+
+let truncate_for_history s ~max_chars =
+  if String.length s <= max_chars then s
+  else
+    let omitted = String.length s - max_chars in
+    String.sub s 0 max_chars
+    ^ Printf.sprintf
+        "\n\n[truncated %d chars to keep context within model limits]" omitted
 
 let summarize_messages agent messages =
   let open Lwt.Syntax in
@@ -95,23 +165,41 @@ let compact_history_if_needed agent =
   if len > effective_max || current_tokens > compaction_threshold then begin
     let history_chrono = List.rev agent.history in
     let total = List.length history_chrono in
-    let mid = total / 2 in
-    let first_half = List.filteri (fun i _ -> i < mid) history_chrono in
-    let second_half = List.filteri (fun i _ -> i >= mid) history_chrono in
-    let* summary1 = summarize_messages agent first_half in
-    let* summary2 = summarize_messages agent second_half in
-    let merged_summary =
-      Printf.sprintf
-        "[Conversation history compacted]\n\n\
-         Earlier context:\n\
-         %s\n\n\
-         Recent context:\n\
-         %s"
-        summary1 summary2
-    in
-    agent.history <-
-      [ Provider.make_message ~role:"system" ~content:merged_summary ];
-    Lwt.return_unit
+    (* Keep the most-recent messages verbatim; only summarise older ones. *)
+    let keep = min compaction_keep_recent total in
+    let compact_count = total - keep in
+    if compact_count = 0 then Lwt.return_unit
+    else begin
+      let to_compact =
+        List.filteri (fun i _ -> i < compact_count) history_chrono
+      in
+      let to_keep =
+        List.filteri (fun i _ -> i >= compact_count) history_chrono
+      in
+      let mid = compact_count / 2 in
+      let first_half = List.filteri (fun i _ -> i < mid) to_compact in
+      let second_half = List.filteri (fun i _ -> i >= mid) to_compact in
+      let* summary1 = summarize_messages agent first_half in
+      let* summary2 = summarize_messages agent second_half in
+      let merged_summary =
+        Printf.sprintf
+          "[Conversation history compacted]\n\n\
+           Earlier context:\n\
+           %s\n\n\
+           Recent context:\n\
+           %s"
+          summary1 summary2
+      in
+      (* Use "assistant" role so build_messages produces exactly one
+         "system" message (the real system prompt prepended at call time).
+         A second "system"-role message here would confuse many LLM APIs. *)
+      let summary_msg =
+        Provider.make_message ~role:"assistant" ~content:merged_summary
+      in
+      (* Rebuild history (newest-first) as: recent messages then summary. *)
+      agent.history <- List.rev (summary_msg :: to_keep);
+      Lwt.return_unit
+    end
   end
   else Lwt.return_unit
 
@@ -197,9 +285,12 @@ let execute_tool_calls agent ~db ~audit_enabled ~session_key calls =
   (* Append results in original call order so history is deterministic *)
   List.iter
     (fun ((tc : Provider.tool_call), result) ->
+      let result_for_history =
+        truncate_for_history result ~max_chars:max_tool_result_chars
+      in
       let tool_msg =
         Provider.make_tool_result ~tool_call_id:tc.id ~name:tc.function_name
-          ~content:result
+          ~content:result_for_history
       in
       agent.history <- tool_msg :: agent.history)
     results;
@@ -314,8 +405,25 @@ let turn agent ~user_message ?db ?session_key () =
     | _ -> ()
   in
   let rec loop iteration =
-    let messages = build_messages agent in
-    let* response = resilient_complete agent.config messages tools in
+    let* response =
+      Lwt.catch
+        (fun () ->
+          let messages = build_messages agent in
+          resilient_complete agent.config messages tools)
+        (fun exn ->
+          if
+            is_context_exhaustion_error (Printexc.to_string exn)
+            && force_compress_history agent
+          then begin
+            Logs.warn (fun m ->
+                m
+                  "Context exhaustion detected; force-compressed history, \
+                   retrying turn");
+            let messages = build_messages agent in
+            resilient_complete agent.config messages tools
+          end
+          else Lwt.fail exn)
+    in
     track_cost response;
     match response with
     | Provider.Text { content; _ } ->
@@ -422,8 +530,25 @@ let turn_stream agent ~user_message ?db ?session_key ~on_chunk () =
     | _ -> ()
   in
   let rec loop iteration =
-    let messages = build_messages agent in
-    let* response = resilient_stream agent.config messages tools on_chunk in
+    let* response =
+      Lwt.catch
+        (fun () ->
+          let messages = build_messages agent in
+          resilient_stream agent.config messages tools on_chunk)
+        (fun exn ->
+          if
+            is_context_exhaustion_error (Printexc.to_string exn)
+            && force_compress_history agent
+          then begin
+            Logs.warn (fun m ->
+                m
+                  "Context exhaustion detected; force-compressed history, \
+                   retrying turn");
+            let messages = build_messages agent in
+            resilient_stream agent.config messages tools on_chunk
+          end
+          else Lwt.fail exn)
+    in
     track_cost response;
     match response with
     | Provider.Text { content; _ } ->
