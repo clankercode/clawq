@@ -58,6 +58,36 @@ make extract
 make extract-check
 ```
 
+### Run Daemon in Docker
+
+```bash
+# Build image
+make docker-build
+
+# Run daemon (foreground)
+make docker-run
+
+# Health check
+curl http://127.0.0.1:3000/health
+```
+
+Direct Docker command:
+
+```bash
+docker run -it --rm -p 3000:3000 \
+  -e CLAWQ_MASTER_KEY="your-passphrase" \
+  clawq:latest agent
+```
+
+To persist config/state across restarts:
+
+```bash
+docker run -it --rm -p 3000:3000 \
+  -v "$HOME/.clawq:/root/.clawq" \
+  -e CLAWQ_MASTER_KEY="your-passphrase" \
+  clawq:latest agent
+```
+
 ## Formal Verification
 
 Core properties are machine-checked in Coq and extracted to OCaml via `coq/theories/Clawq/Extract.v`.
