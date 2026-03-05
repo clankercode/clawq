@@ -65,7 +65,8 @@ let test_shell_rejects_command_chaining () =
 
 let test_shell_rejects_dollar_expansion () =
   let tool =
-    Tools_builtin.shell_exec ~workspace_only:true ~allowed_commands:[ "ls" ]
+    Tools_builtin.shell_exec ~workspace:(Sys.getcwd ()) ~workspace_only:true
+      ~allowed_commands:[ "ls" ]
   in
   let args = `Assoc [ ("command", `String "ls $HOME") ] in
   let out = Lwt_main.run (tool.invoke args) in
@@ -147,7 +148,10 @@ let test_file_edit_replaces_first_match () =
       let oc = open_out path in
       output_string oc "abc abc";
       close_out oc;
-      let tool = Tools_builtin.file_edit ~workspace ~workspace_only:true in
+      let tool =
+        Tools_builtin.file_edit ~workspace ~workspace_only:true
+          ~extra_allowed_paths:[]
+      in
       let args =
         `Assoc
           [
@@ -175,7 +179,10 @@ let test_file_read_uses_configured_workspace_root () =
   close_out oc;
   Fun.protect
     (fun () ->
-      let tool = Tools_builtin.file_read ~workspace ~workspace_only:true in
+      let tool =
+        Tools_builtin.file_read ~workspace ~workspace_only:true
+          ~extra_allowed_paths:[]
+      in
       let abs_out =
         Lwt_main.run (tool.invoke (`Assoc [ ("path", `String path) ]))
       in
@@ -183,11 +190,11 @@ let test_file_read_uses_configured_workspace_root () =
       let rel_out =
         Lwt_main.run (tool.invoke (`Assoc [ ("path", `String "EGO.md") ]))
       in
-      Alcotest.(check string) "relative path resolved in workspace" "identity"
-        rel_out)
+      Alcotest.(check string)
+        "relative path resolved in workspace" "identity" rel_out)
     ~finally:(fun () ->
       (try Unix.unlink path with _ -> ());
-      (try Unix.rmdir workspace with _ -> ()))
+      try Unix.rmdir workspace with _ -> ())
 
 let test_transcribe_rejects_outside_workspace () =
   with_temp_workspace (fun _workspace ->
@@ -198,6 +205,48 @@ let test_transcribe_rejects_outside_workspace () =
       Alcotest.(check bool)
         "outside workspace blocked" true
         (contains out "outside workspace"))
+
+let test_extra_allowed_paths_grants_access () =
+  let base = Filename.get_temp_dir_name () in
+  let workspace =
+    Filename.concat base
+      (Printf.sprintf "clawq_ws_%d_%d" (Unix.getpid ()) (Random.bits ()))
+  in
+  let extra_dir =
+    Filename.concat base
+      (Printf.sprintf "clawq_extra_%d_%d" (Unix.getpid ()) (Random.bits ()))
+  in
+  Unix.mkdir workspace 0o755;
+  Unix.mkdir extra_dir 0o755;
+  let extra_file = Filename.concat extra_dir "notes.txt" in
+  let oc = open_out extra_file in
+  output_string oc "extra content";
+  close_out oc;
+  Fun.protect
+    (fun () ->
+      let tool =
+        Tools_builtin.file_read ~workspace ~workspace_only:true
+          ~extra_allowed_paths:[ extra_dir ]
+      in
+      let out =
+        Lwt_main.run (tool.invoke (`Assoc [ ("path", `String extra_file) ]))
+      in
+      Alcotest.(check string) "extra allowed path readable" "extra content" out;
+      let tool_no_extra =
+        Tools_builtin.file_read ~workspace ~workspace_only:true
+          ~extra_allowed_paths:[]
+      in
+      let out2 =
+        Lwt_main.run
+          (tool_no_extra.invoke (`Assoc [ ("path", `String extra_file) ]))
+      in
+      Alcotest.(check bool)
+        "without extra_allowed_paths blocked" true
+        (contains out2 "outside workspace"))
+    ~finally:(fun () ->
+      (try Unix.unlink extra_file with _ -> ());
+      (try Unix.rmdir extra_dir with _ -> ());
+      try Unix.rmdir workspace with _ -> ())
 
 let test_is_localhost_url_accepts_loopback_hosts () =
   Alcotest.(check bool)
@@ -244,6 +293,8 @@ let suite =
       test_file_edit_replaces_first_match;
     Alcotest.test_case "file_read uses configured workspace" `Quick
       test_file_read_uses_configured_workspace_root;
+    Alcotest.test_case "extra_allowed_paths grants access" `Quick
+      test_extra_allowed_paths_grants_access;
     Alcotest.test_case "transcribe path policy" `Quick
       test_transcribe_rejects_outside_workspace;
     Alcotest.test_case "localhost url accepts loopback" `Quick

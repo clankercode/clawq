@@ -375,7 +375,17 @@ let shell_exec ~workspace ~workspace_only ~allowed_commands =
     risk_level = High;
   }
 
-let file_read ~workspace ~workspace_only =
+let is_path_allowed ~workspace ~workspace_only ~extra_allowed_paths path =
+  if not workspace_only then true
+  else if is_path_safe ~workspace path then true
+  else
+    List.exists
+      (fun extra ->
+        let extra = normalize_path extra in
+        is_path_safe ~workspace:extra path)
+      extra_allowed_paths
+
+let file_read ~workspace ~workspace_only ~extra_allowed_paths =
   {
     Tool.name = "file_read";
     description = "Read the contents of a file";
@@ -400,8 +410,11 @@ let file_read ~workspace ~workspace_only =
         let open Yojson.Safe.Util in
         let path = try args |> member "path" |> to_string with _ -> "" in
         if path = "" then Lwt.return "Error: path is required"
-        else if workspace_only && not (is_path_safe ~workspace path) then
-          Lwt.return "Error: path is outside workspace"
+        else if
+          not
+            (is_path_allowed ~workspace ~workspace_only ~extra_allowed_paths
+               path)
+        then Lwt.return "Error: path is outside workspace"
         else
           Lwt.catch
             (fun () ->
@@ -415,7 +428,7 @@ let file_read ~workspace ~workspace_only =
     risk_level = Low;
   }
 
-let file_write ~workspace ~workspace_only =
+let file_write ~workspace ~workspace_only ~extra_allowed_paths =
   {
     Tool.name = "file_write";
     description = "Write content to a file";
@@ -449,8 +462,11 @@ let file_write ~workspace ~workspace_only =
           try args |> member "content" |> to_string with _ -> ""
         in
         if path = "" then Lwt.return "Error: path is required"
-        else if workspace_only && not (is_path_safe ~workspace path) then
-          Lwt.return "Error: path is outside workspace"
+        else if
+          not
+            (is_path_allowed ~workspace ~workspace_only ~extra_allowed_paths
+               path)
+        then Lwt.return "Error: path is outside workspace"
         else
           Lwt.catch
             (fun () ->
@@ -467,7 +483,7 @@ let file_write ~workspace ~workspace_only =
     risk_level = Medium;
   }
 
-let file_edit ~workspace ~workspace_only =
+let file_edit ~workspace ~workspace_only ~extra_allowed_paths =
   {
     Tool.name = "file_edit";
     description =
@@ -513,8 +529,11 @@ let file_edit ~workspace ~workspace_only =
         in
         if path = "" then Lwt.return "Error: path is required"
         else if old_text = "" then Lwt.return "Error: old_text is required"
-        else if workspace_only && not (is_path_safe ~workspace path) then
-          Lwt.return "Error: path is outside workspace"
+        else if
+          not
+            (is_path_allowed ~workspace ~workspace_only ~extra_allowed_paths
+               path)
+        then Lwt.return "Error: path is outside workspace"
         else
           Lwt.catch
             (fun () ->
@@ -652,7 +671,12 @@ let transcribe ~(config : Runtime_config.t) =
           try args |> member "file_path" |> to_string with _ -> ""
         in
         if file_path = "" then Lwt.return "Error: file_path is required"
-        else if config.security.workspace_only && not (is_path_safe ~workspace file_path)
+        else if
+          not
+            (is_path_allowed ~workspace
+               ~workspace_only:config.security.workspace_only
+               ~extra_allowed_paths:config.security.extra_allowed_paths
+               file_path)
         then Lwt.return "Error: file_path is outside workspace"
         else
           Lwt.catch
@@ -678,12 +702,16 @@ let transcribe ~(config : Runtime_config.t) =
 let register_all ~(config : Runtime_config.t) registry =
   let workspace_only = config.security.workspace_only in
   let workspace = Runtime_config.effective_workspace config in
+  let extra_allowed_paths = config.security.extra_allowed_paths in
   Tool_registry.register registry
     (shell_exec ~workspace ~workspace_only
        ~allowed_commands:default_shell_allowlist);
-  Tool_registry.register registry (file_read ~workspace ~workspace_only);
-  Tool_registry.register registry (file_write ~workspace ~workspace_only);
-  Tool_registry.register registry (file_edit ~workspace ~workspace_only);
+  Tool_registry.register registry
+    (file_read ~workspace ~workspace_only ~extra_allowed_paths);
+  Tool_registry.register registry
+    (file_write ~workspace ~workspace_only ~extra_allowed_paths);
+  Tool_registry.register registry
+    (file_edit ~workspace ~workspace_only ~extra_allowed_paths);
   Tool_registry.register registry (http_get ~workspace_only);
   if config.stt <> None then
     Tool_registry.register registry (transcribe ~config)

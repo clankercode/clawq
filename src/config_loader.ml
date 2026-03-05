@@ -452,6 +452,10 @@ let parse_config ?(resolve_secrets = true) json =
           |> to_list |> List.map to_string
         with _ -> default.security.landlock_extra_read_paths
       in
+      let extra_allowed_paths =
+        try s |> member "extra_allowed_paths" |> to_list |> List.map to_string
+        with _ -> default.security.extra_allowed_paths
+      in
       ({
          workspace_only;
          audit_enabled;
@@ -462,6 +466,7 @@ let parse_config ?(resolve_secrets = true) json =
          audit_signing_enabled;
          landlock_enabled;
          landlock_extra_read_paths;
+         extra_allowed_paths;
        }
         : Runtime_config.security_config)
     with _ -> default.security

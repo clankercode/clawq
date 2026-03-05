@@ -107,6 +107,9 @@ type security_config = {
   audit_signing_enabled : bool;
   landlock_enabled : bool;
   landlock_extra_read_paths : string list;
+  extra_allowed_paths : string list;
+      (** Additional absolute paths the agent may access when
+          [workspace_only = true]. *)
 }
 
 type stt_config = {
@@ -250,6 +253,7 @@ let default =
         audit_signing_enabled = false;
         landlock_enabled = false;
         landlock_extra_read_paths = [];
+        extra_allowed_paths = [];
       };
     stt = None;
     mcp = { enabled = true; exposed_tools = None };
@@ -524,6 +528,11 @@ let to_json (cfg : t) : Yojson.Safe.t =
                   (List.map
                      (fun s -> `String s)
                      cfg.security.landlock_extra_read_paths) );
+              ( "extra_allowed_paths",
+                `List
+                  (List.map
+                     (fun s -> `String s)
+                     cfg.security.extra_allowed_paths) );
             ] );
       ]
   in
