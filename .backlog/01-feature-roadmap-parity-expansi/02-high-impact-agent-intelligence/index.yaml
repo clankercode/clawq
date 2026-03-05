@@ -9,7 +9,7 @@ epics:
       locked: false
       name: Agent Intelligence
       path: 01-agent-intelligence
-      status: pending
+      status: done
     - complexity: medium
       depends_on: []
       description: ""
@@ -18,7 +18,7 @@ epics:
       locked: false
       name: Security Hardening
       path: 02-security-hardening
-      status: pending
+      status: done
     - complexity: medium
       depends_on: []
       description: 'Bring prompt assembly to parity with nullclaw: per-message conversation context, channel-conditional sections, attachment syntax, skills distinction.'
@@ -36,9 +36,9 @@ epics:
       locked: false
       name: Prompt Context & Channel Awareness
       path: 04-prompt-context-channel-awarene
-      status: pending
+      status: done
 estimate_hours: 80
 id: P1.M2
 locked: false
 name: 'High Impact: Agent Intelligence & Security'
-status: pending
+status: done

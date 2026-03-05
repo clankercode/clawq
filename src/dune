@@ -26,6 +26,9 @@
   landlock
   channel
   slash_commands
+  totp
+  cost_tracker
+  agent_router
   command_bridge_min)
  (foreign_stubs
   (language c)
@@ -66,7 +69,15 @@
   discord
   ws_client
   discord_gateway
-  slack_socket)
+  slack_socket
+  github
+  github_webhook
+  github_api
+  cf_tunnel
+  mcp_client
+  telemetry
+  web_channel
+  tts)
  (wrapped false)
  (libraries
   clawq_runtime_core
@@ -87,6 +98,7 @@
   digestif.c
   base64
   eqaf
+  str
   httpun-ws-lwt-unix
   httpun-ws
   gluten-lwt-unix

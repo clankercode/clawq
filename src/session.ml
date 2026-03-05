@@ -38,7 +38,29 @@ let get_or_create mgr ~key =
       Hashtbl.replace mgr.sessions key pair;
       pair
 
-let turn mgr ~key ~message =
+let format_context_block ?channel_name ?channel_type ?sender_id ?sender_name ()
+    =
+  let cn = match channel_name with Some n -> n | None -> "cli" in
+  let ct = match channel_type with Some t -> t | None -> "dm" in
+  let sender_part =
+    match (sender_id, sender_name) with
+    | Some id, Some name -> Printf.sprintf " sender=@%s (%s)" id name
+    | Some id, None -> Printf.sprintf " sender=@%s" id
+    | None, Some name -> Printf.sprintf " sender=%s" name
+    | None, None -> ""
+  in
+  Printf.sprintf "[Context: channel=%s type=%s%s]" cn ct sender_part
+
+let inject_attachment_context agent attachments =
+  match Prompt_builder.attachment_syntax_block attachments with
+  | Some block ->
+      agent.Agent.history <-
+        Provider.make_message ~role:"system" ~content:block
+        :: agent.Agent.history
+  | None -> ()
+
+let turn mgr ~key ~message ?(attachments = []) ?channel_name ?channel_type
+    ?sender_id ?sender_name () =
   let open Lwt.Syntax in
   let agent, mutex = get_or_create mgr ~key in
   Lwt_mutex.with_lock mutex (fun () ->
@@ -48,9 +70,21 @@ let turn mgr ~key ~message =
             (ChatMessage
                { session_key = key; role = "user"; content_preview = message })
       | _ -> ());
+      inject_attachment_context agent attachments;
+      let effective_message =
+        match (channel_name, channel_type, sender_id, sender_name) with
+        | None, None, None, None -> message
+        | _ ->
+            let ctx =
+              format_context_block ?channel_name ?channel_type ?sender_id
+                ?sender_name ()
+            in
+            ctx ^ "\n" ^ message
+      in
       let history_before = List.length agent.history in
       let* response =
-        Agent.turn agent ~user_message:message ?db:mgr.db ~session_key:key ()
+        Agent.turn agent ~user_message:effective_message ?db:mgr.db
+          ~session_key:key ()
       in
       (match mgr.db with
       | Some db ->
@@ -82,7 +116,8 @@ let update_config mgr config =
   mgr.config <- config;
   Hashtbl.iter (fun _ (agent, _) -> agent.Agent.config <- config) mgr.sessions
 
-let turn_stream mgr ~key ~message ~on_chunk =
+let turn_stream mgr ~key ~message ?(attachments = []) ?channel_name
+    ?channel_type ?sender_id ?sender_name ~on_chunk () =
   let open Lwt.Syntax in
   let agent, mutex = get_or_create mgr ~key in
   Lwt_mutex.with_lock mutex (fun () ->
@@ -92,9 +127,20 @@ let turn_stream mgr ~key ~message ~on_chunk =
             (ChatMessage
                { session_key = key; role = "user"; content_preview = message })
       | _ -> ());
+      inject_attachment_context agent attachments;
+      let effective_message =
+        match (channel_name, channel_type, sender_id, sender_name) with
+        | None, None, None, None -> message
+        | _ ->
+            let ctx =
+              format_context_block ?channel_name ?channel_type ?sender_id
+                ?sender_name ()
+            in
+            ctx ^ "\n" ^ message
+      in
       let history_before = List.length agent.history in
       let* response =
-        Agent.turn_stream agent ~user_message:message ?db:mgr.db
+        Agent.turn_stream agent ~user_message:effective_message ?db:mgr.db
           ~session_key:key ~on_chunk ()
       in
       (match mgr.db with

@@ -50,6 +50,58 @@ let test_with_fallback_used () =
   in
   Alcotest.(check int) "fallback result" 7 result
 
+let test_circuit_breaker_closed () =
+  let cb = Resilience.create_circuit_breaker ~failure_threshold:3 () in
+  let now = Unix.gettimeofday () in
+  Alcotest.(check bool)
+    "initially closed" false
+    (Resilience.is_circuit_open cb ~now)
+
+let test_circuit_breaker_opens () =
+  let cb = Resilience.create_circuit_breaker ~failure_threshold:2 () in
+  let now = Unix.gettimeofday () in
+  Resilience.record_failure cb ~now;
+  Alcotest.(check bool)
+    "one failure not open" false
+    (Resilience.is_circuit_open cb ~now);
+  Resilience.record_failure cb ~now;
+  Alcotest.(check bool)
+    "two failures opens" true
+    (Resilience.is_circuit_open cb ~now)
+
+let test_circuit_breaker_half_open () =
+  let cb =
+    Resilience.create_circuit_breaker ~failure_threshold:1 ~cooldown_s:0.01 ()
+  in
+  let now = Unix.gettimeofday () in
+  Resilience.record_failure cb ~now;
+  Alcotest.(check bool) "open" true (Resilience.is_circuit_open cb ~now);
+  let later = now +. 0.02 in
+  Alcotest.(check bool)
+    "half-open after cooldown" false
+    (Resilience.is_circuit_open cb ~now:later)
+
+let test_circuit_breaker_reset_on_success () =
+  let cb = Resilience.create_circuit_breaker ~failure_threshold:2 () in
+  let now = Unix.gettimeofday () in
+  Resilience.record_failure cb ~now;
+  Resilience.record_success cb;
+  Resilience.record_failure cb ~now;
+  Alcotest.(check bool)
+    "reset after success" false
+    (Resilience.is_circuit_open cb ~now)
+
+let test_provider_chain () =
+  let pc = Resilience.create_provider_circuits ~failure_threshold:1 () in
+  let result =
+    Lwt_main.run
+      (Resilience.with_provider_chain ~pc
+         ~providers:[ ("a", 1); ("b", 2) ]
+         (fun id _p ->
+           if id = "a" then Lwt.fail_with "a failed" else Lwt.return "from b"))
+  in
+  Alcotest.(check string) "falls to b" "from b" result
+
 let suite =
   [
     Alcotest.test_case "with_timeout success" `Quick test_with_timeout_success;
@@ -57,4 +109,12 @@ let suite =
     Alcotest.test_case "with_retry eventual success" `Quick
       test_with_retry_eventual_success;
     Alcotest.test_case "with_fallback" `Quick test_with_fallback_used;
+    Alcotest.test_case "circuit breaker closed" `Quick
+      test_circuit_breaker_closed;
+    Alcotest.test_case "circuit breaker opens" `Quick test_circuit_breaker_opens;
+    Alcotest.test_case "circuit breaker half-open" `Quick
+      test_circuit_breaker_half_open;
+    Alcotest.test_case "circuit breaker reset" `Quick
+      test_circuit_breaker_reset_on_success;
+    Alcotest.test_case "provider chain fallback" `Quick test_provider_chain;
   ]

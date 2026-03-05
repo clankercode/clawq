@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-05T19:40:11Z"
+claimed_by: cli-user
+completed_at: "2026-03-05T20:23:59Z"
 complexity: high
 depends_on: []
+duration_minutes: 43.801066848766666
 estimate_hours: 30
 id: P1.M3.E1.T002
 priority: medium
-status: pending
+started_at: "2026-03-05T19:40:11Z"
+status: done
 tags: []
 title: Web channel (WebChannel v1) with pairing and relay
 ---

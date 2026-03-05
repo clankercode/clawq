@@ -10,7 +10,18 @@ type agent_defaults = {
   max_tool_iterations : int;
 }
 
-type telegram_account = { bot_token : string; allow_from : string list }
+type totp_config = {
+  totp_enabled : bool;
+  totp_secret : string;
+  session_ttl_hours : int;
+}
+
+type telegram_account = {
+  bot_token : string;
+  allow_from : string list;
+  totp : totp_config option;
+}
+
 type telegram_config = { accounts : (string * telegram_account) list }
 
 type discord_config = {
@@ -30,11 +41,26 @@ type slack_config = {
   socket_mode : bool;
 }
 
+type github_auth = GithubPat of string
+
+type github_repo_config = {
+  name : string;
+  webhook_secret : string;
+  webhook_path : string;
+  agent_name : string option;
+  allow_users : string list;
+  react_to : string list;
+  include_pr_files : bool;
+}
+
+type github_config = { auth : github_auth; repos : github_repo_config list }
+
 type channel_config = {
   cli : bool;
   telegram : telegram_config option;
   discord : discord_config option;
   slack : slack_config option;
+  github : github_config option;
 }
 
 type prompt_config = {
@@ -131,6 +157,29 @@ type mcp_config = {
       (** [None] = expose all registered tools; [Some names] = allowlist *)
 }
 
+type voice_config = {
+  stt_enabled : bool;
+  tts_enabled : bool;
+  stt_provider : string;
+  tts_provider : string;
+  tts_model : string;
+  tts_voice : string;
+  audio_dir : string;
+}
+
+type web_channel_config = {
+  enabled : bool;
+  path_prefix : string;
+  totp_secret : string option;
+  token_ttl_hours : int;
+}
+
+type telemetry_config = {
+  enabled : bool;
+  endpoint : string;
+  service_name : string;
+}
+
 type t = {
   workspace : string;
   default_temperature : float;
@@ -147,6 +196,10 @@ type t = {
   stt : stt_config option;
   mcp : mcp_config;
   resilience : resilience_config;
+  voice : voice_config option;
+  web_channel : web_channel_config option;
+  telemetry : telemetry_config option;
+  agent_bindings : Agent_router.binding list;
 }
 
 let default_workspace_files =
@@ -193,7 +246,14 @@ let default =
         max_tool_iterations = 10;
       };
     prompt = default_prompt;
-    channels = { cli = true; telegram = None; discord = None; slack = None };
+    channels =
+      {
+        cli = true;
+        telegram = None;
+        discord = None;
+        slack = None;
+        github = None;
+      };
     gateway =
       {
         host = "127.0.0.1";
@@ -264,6 +324,10 @@ let default =
         base_delay_s = 1.0;
         fallback_provider = None;
       };
+    voice = None;
+    web_channel = None;
+    telemetry = None;
+    agent_bindings = [];
   }
 
 let is_key_set key =
@@ -287,6 +351,78 @@ let effective_primary_target (ad : agent_defaults) : model_target =
       match split_at ':' with
       | Some t -> t
       | None -> { provider = None; model = raw })
+
+let context_window_table =
+  [
+    ("claude-opus-4-6", 200000);
+    ("claude-sonnet-4-6", 200000);
+    ("claude-haiku-4-5", 200000);
+    ("claude-3.5-sonnet", 200000);
+    ("claude-3.5-haiku", 200000);
+    ("claude-3-opus", 200000);
+    ("claude-3-sonnet", 200000);
+    ("claude-3-haiku", 200000);
+    ("gpt-4o", 128000);
+    ("gpt-4o-mini", 128000);
+    ("gpt-4-turbo", 128000);
+    ("gpt-4", 8192);
+    ("gpt-3.5-turbo", 16385);
+    ("o1", 200000);
+    ("o1-mini", 128000);
+    ("o1-preview", 128000);
+    ("o3", 200000);
+    ("o3-mini", 200000);
+    ("llama-3.3-70b", 128000);
+    ("llama-3.1-405b", 128000);
+    ("llama-3.1-70b", 128000);
+    ("llama-3.1-8b", 128000);
+    ("mistral-large", 128000);
+    ("mixtral-8x7b", 32768);
+    ("gemini-2.0-flash", 1048576);
+    ("gemini-1.5-pro", 2097152);
+    ("gemini-1.5-flash", 1048576);
+    ("deepseek-v3", 128000);
+    ("deepseek-r1", 128000);
+    ("command-r-plus", 128000);
+    ("command-r", 128000);
+  ]
+
+let strip_date_suffix_cfg s =
+  let len = String.length s in
+  if len >= 9 && s.[len - 9] = '-' then
+    let suffix = String.sub s (len - 8) 8 in
+    let all_digits =
+      try
+        String.iter (fun c -> if c < '0' || c > '9' then raise Exit) suffix;
+        true
+      with Exit -> false
+    in
+    if all_digits then String.sub s 0 (len - 9) else s
+  else s
+
+let context_window_for_model model_name =
+  let norm =
+    String.lowercase_ascii (strip_date_suffix_cfg (String.trim model_name))
+  in
+  let strip_provider s =
+    match String.index_opt s '/' with
+    | Some i when i + 1 < String.length s ->
+        String.sub s (i + 1) (String.length s - i - 1)
+    | _ -> s
+  in
+  let bare = strip_provider norm in
+  let find_prefix hay needle =
+    String.length hay >= String.length needle
+    && String.sub hay 0 (String.length needle) = needle
+  in
+  match List.find_opt (fun (k, _) -> bare = k) context_window_table with
+  | Some (_, v) -> Some v
+  | None -> (
+      match
+        List.find_opt (fun (k, _) -> find_prefix bare k) context_window_table
+      with
+      | Some (_, v) -> Some v
+      | None -> None)
 
 let effective_primary_model (ad : agent_defaults) =
   (effective_primary_target ad).model
@@ -334,13 +470,27 @@ let to_json (cfg : t) : Yojson.Safe.t =
                    (fun (name, (acct : telegram_account)) ->
                      ( name,
                        `Assoc
-                         [
-                           ("bot_token", `String acct.bot_token);
-                           ( "allow_from",
-                             `List
-                               (List.map (fun s -> `String s) acct.allow_from)
-                           );
-                         ] ))
+                         ([
+                            ("bot_token", `String acct.bot_token);
+                            ( "allow_from",
+                              `List
+                                (List.map (fun s -> `String s) acct.allow_from)
+                            );
+                          ]
+                         @
+                         match acct.totp with
+                         | None -> []
+                         | Some t ->
+                             [
+                               ( "totp",
+                                 `Assoc
+                                   [
+                                     ("enabled", `Bool t.totp_enabled);
+                                     ("secret", `String t.totp_secret);
+                                     ( "session_ttl_hours",
+                                       `Int t.session_ttl_hours );
+                                   ] );
+                             ]) ))
                    tg.accounts) );
           ]
   in
@@ -430,25 +580,64 @@ let to_json (cfg : t) : Yojson.Safe.t =
                           ("intents", `Int d.intents);
                         ] );
                   ])
+            @ (match cfg.channels.slack with
+              | None -> []
+              | Some s ->
+                  [
+                    ( "slack",
+                      `Assoc
+                        [
+                          ("bot_token", `String s.bot_token);
+                          ("signing_secret", `String s.signing_secret);
+                          ("events_path", `String s.events_path);
+                          ( "allow_channels",
+                            `List
+                              (List.map (fun c -> `String c) s.allow_channels)
+                          );
+                          ( "allow_users",
+                            `List (List.map (fun u -> `String u) s.allow_users)
+                          );
+                          ("app_token", `String s.app_token);
+                          ("socket_mode", `Bool s.socket_mode);
+                        ] );
+                  ])
             @
-            match cfg.channels.slack with
+            match cfg.channels.github with
             | None -> []
-            | Some s ->
+            | Some g ->
+                let auth_json =
+                  match g.auth with
+                  | GithubPat token ->
+                      `Assoc
+                        [ ("type", `String "pat"); ("token", `String token) ]
+                in
+                let repos_json =
+                  `List
+                    (List.map
+                       (fun (r : github_repo_config) ->
+                         `Assoc
+                           ([
+                              ("name", `String r.name);
+                              ("webhook_secret", `String r.webhook_secret);
+                              ("webhook_path", `String r.webhook_path);
+                              ( "allow_users",
+                                `List
+                                  (List.map (fun u -> `String u) r.allow_users)
+                              );
+                              ( "react_to",
+                                `List (List.map (fun e -> `String e) r.react_to)
+                              );
+                              ("include_pr_files", `Bool r.include_pr_files);
+                            ]
+                           @
+                           match r.agent_name with
+                           | Some n -> [ ("agent_name", `String n) ]
+                           | None -> []))
+                       g.repos)
+                in
                 [
-                  ( "slack",
-                    `Assoc
-                      [
-                        ("bot_token", `String s.bot_token);
-                        ("signing_secret", `String s.signing_secret);
-                        ("events_path", `String s.events_path);
-                        ( "allow_channels",
-                          `List (List.map (fun c -> `String c) s.allow_channels)
-                        );
-                        ( "allow_users",
-                          `List (List.map (fun u -> `String u) s.allow_users) );
-                        ("app_token", `String s.app_token);
-                        ("socket_mode", `Bool s.socket_mode);
-                      ] );
+                  ( "github",
+                    `Assoc [ ("auth", auth_json); ("repos", repos_json) ] );
                 ]) );
         ("gateway", `Assoc gateway_fields);
         ( "runtime",
@@ -461,14 +650,16 @@ let to_json (cfg : t) : Yojson.Safe.t =
             ] );
         ( "tunnel",
           `Assoc
-            [
-              ("provider", `String cfg.tunnel.provider);
-              ("enabled", `Bool cfg.tunnel.enabled);
-              ("url", `String cfg.tunnel.url);
-              ("managed", `Bool cfg.tunnel.managed);
-              ("tunnel_name", `String cfg.tunnel.tunnel_name);
-              ("config_dir", `String cfg.tunnel.config_dir);
-            ] );
+            ([
+               ("provider", `String cfg.tunnel.provider);
+               ("enabled", `Bool cfg.tunnel.enabled);
+               ("managed", `Bool cfg.tunnel.managed);
+               ("tunnel_name", `String cfg.tunnel.tunnel_name);
+               ("config_dir", `String cfg.tunnel.config_dir);
+             ]
+            @
+            if cfg.tunnel.url <> "" then [ ("url", `String cfg.tunnel.url) ]
+            else []) );
         ( "memory",
           `Assoc
             ([

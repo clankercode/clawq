@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-05T20:08:19Z"
+claimed_by: cli-user
+completed_at: "2026-03-05T20:08:19Z"
 complexity: low
 depends_on: []
+duration_minutes: 0.00709782225
 estimate_hours: 2
 id: P1.M3.E4.T001
 priority: high
-status: pending
+started_at: "2026-03-05T20:08:19Z"
+status: done
 tags: []
 title: 'Config: github_config types + loader + defaults'
 ---

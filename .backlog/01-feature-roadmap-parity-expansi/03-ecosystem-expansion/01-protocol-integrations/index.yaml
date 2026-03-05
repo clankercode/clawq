@@ -4,7 +4,7 @@ estimate_hours: 80
 id: P1.M3.E1
 locked: false
 name: Protocol Integrations
-status: pending
+status: done
 tasks:
     - complexity: high
       depends_on: []
@@ -12,7 +12,8 @@ tasks:
       file: T001-mcp-stdio-client-with-tool-dis.todo
       id: T001
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: MCP stdio client with tool discovery
     - complexity: high
       depends_on: []
@@ -20,7 +21,8 @@ tasks:
       file: T002-web-channel-webchannel-v1-with.todo
       id: T002
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: Web channel (WebChannel v1) with pairing and relay
     - complexity: medium
       depends_on: []
@@ -28,5 +30,6 @@ tasks:
       file: T003-voice-stt-tts-pipeline-integra.todo
       id: T003
       priority: low
-      status: pending
+      status: done
+      tags: []
       title: Voice STT/TTS pipeline integrated into agent loop

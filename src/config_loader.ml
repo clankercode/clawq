@@ -147,9 +147,29 @@ let parse_config ?(resolve_secrets = true) json =
                   try v |> member "allow_from" |> to_list |> List.map to_string
                   with _ -> [ "*" ]
                 in
+                let totp =
+                  try
+                    let t = v |> member "totp" in
+                    let totp_enabled =
+                      try t |> member "enabled" |> to_bool with _ -> false
+                    in
+                    let totp_secret =
+                      try t |> member "secret" |> to_string with _ -> ""
+                    in
+                    let session_ttl_hours =
+                      try t |> member "session_ttl_hours" |> to_int
+                      with _ -> 24
+                    in
+                    if totp_enabled && totp_secret <> "" then
+                      Some
+                        ({ totp_enabled; totp_secret; session_ttl_hours }
+                          : Runtime_config.totp_config)
+                    else None
+                  with _ -> None
+                in
                 ( name,
-                  ({ bot_token; allow_from } : Runtime_config.telegram_account)
-                ))
+                  ({ bot_token; allow_from; totp }
+                    : Runtime_config.telegram_account) ))
           in
           Some ({ accounts } : Runtime_config.telegram_config)
         with _ -> None
@@ -218,7 +238,73 @@ let parse_config ?(resolve_secrets = true) json =
               : Runtime_config.slack_config)
         with _ -> None
       in
-      ({ cli; telegram; discord; slack } : Runtime_config.channel_config)
+      let github =
+        try
+          let g = ch |> member "github" in
+          let auth =
+            try
+              let a = g |> member "auth" in
+              let typ = try a |> member "type" |> to_string with _ -> "pat" in
+              match typ with
+              | "pat" ->
+                  let token =
+                    try a |> member "token" |> to_string |> resolve_secret
+                    with _ -> ""
+                  in
+                  Runtime_config.GithubPat token
+              | other -> failwith ("Unknown github auth type: " ^ other)
+            with Failure msg -> failwith msg
+          in
+          let repos =
+            try
+              g |> member "repos" |> to_list
+              |> List.map (fun r ->
+                  let name =
+                    try r |> member "name" |> to_string with _ -> ""
+                  in
+                  let webhook_secret =
+                    try
+                      r |> member "webhook_secret" |> to_string
+                      |> resolve_secret
+                    with _ -> ""
+                  in
+                  let webhook_path =
+                    try r |> member "webhook_path" |> to_string with _ -> ""
+                  in
+                  let agent_name =
+                    try Some (r |> member "agent_name" |> to_string)
+                    with _ -> None
+                  in
+                  let allow_users =
+                    try
+                      r |> member "allow_users" |> to_list |> List.map to_string
+                    with _ -> [ "*" ]
+                  in
+                  let react_to =
+                    try r |> member "react_to" |> to_list |> List.map to_string
+                    with _ -> []
+                  in
+                  let include_pr_files =
+                    try r |> member "include_pr_files" |> to_bool
+                    with _ -> true
+                  in
+                  ({
+                     name;
+                     webhook_secret;
+                     webhook_path;
+                     agent_name;
+                     allow_users;
+                     react_to;
+                     include_pr_files;
+                   }
+                    : Runtime_config.github_repo_config))
+            with _ -> []
+          in
+          Some ({ auth; repos } : Runtime_config.github_config)
+        with _ -> None
+      in
+      ({ cli; telegram; discord; slack; github }
+        : Runtime_config.channel_config)
     with _ -> default.channels
   in
   let gateway =
@@ -542,6 +628,96 @@ let parse_config ?(resolve_secrets = true) json =
         | Some p when List.exists (fun (n, _) -> n = p) providers -> Some p
         | _ -> None)
   in
+  let agent_bindings =
+    try
+      let open Yojson.Safe.Util in
+      json |> member "agent_bindings" |> to_list
+      |> List.map (fun b ->
+          let pattern = b |> member "pattern" |> to_string in
+          let agent_name = b |> member "agent_name" |> to_string in
+          let priority = try b |> member "priority" |> to_int with _ -> 0 in
+          ({ pattern; agent_name; priority } : Agent_router.binding))
+    with _ -> []
+  in
+  let voice =
+    try
+      let v = json |> member "voice" in
+      let stt_enabled =
+        try v |> member "stt_enabled" |> to_bool with _ -> false
+      in
+      let tts_enabled =
+        try v |> member "tts_enabled" |> to_bool with _ -> false
+      in
+      let stt_provider =
+        try v |> member "stt_provider" |> to_string with _ -> ""
+      in
+      let tts_provider =
+        try v |> member "tts_provider" |> to_string with _ -> "openai"
+      in
+      let tts_model =
+        try v |> member "tts_model" |> to_string with _ -> "tts-1"
+      in
+      let tts_voice =
+        try v |> member "tts_voice" |> to_string with _ -> "alloy"
+      in
+      let audio_dir =
+        try v |> member "audio_dir" |> to_string
+        with _ ->
+          let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
+          Filename.concat (Filename.concat home ".clawq") "audio"
+      in
+      if stt_enabled || tts_enabled then
+        Some
+          ({
+             stt_enabled;
+             tts_enabled;
+             stt_provider;
+             tts_provider;
+             tts_model;
+             tts_voice;
+             audio_dir;
+           }
+            : Runtime_config.voice_config)
+      else None
+    with _ -> None
+  in
+  let web_channel =
+    try
+      let wc = json |> member "web_channel" in
+      let enabled = try wc |> member "enabled" |> to_bool with _ -> false in
+      if not enabled then None
+      else
+        let path_prefix =
+          try wc |> member "path_prefix" |> to_string with _ -> "/web"
+        in
+        let totp_secret =
+          try Some (wc |> member "totp_secret" |> to_string) with _ -> None
+        in
+        let token_ttl_hours =
+          try wc |> member "token_ttl_hours" |> to_int with _ -> 24
+        in
+        Some
+          ({ enabled; path_prefix; totp_secret; token_ttl_hours }
+            : Runtime_config.web_channel_config)
+    with _ -> None
+  in
+  let telemetry =
+    try
+      let t = json |> member "telemetry" in
+      let enabled = try t |> member "enabled" |> to_bool with _ -> false in
+      if not enabled then None
+      else
+        let endpoint = try t |> member "endpoint" |> to_string with _ -> "" in
+        let service_name =
+          try t |> member "service_name" |> to_string with _ -> "clawq"
+        in
+        if endpoint = "" then None
+        else
+          Some
+            ({ enabled; endpoint; service_name }
+              : Runtime_config.telemetry_config)
+    with _ -> None
+  in
   {
     workspace;
     Runtime_config.default_temperature;
@@ -558,6 +734,10 @@ let parse_config ?(resolve_secrets = true) json =
     stt;
     mcp;
     resilience;
+    voice;
+    web_channel;
+    telemetry;
+    agent_bindings;
   }
 
 let rec merge_json (original : Yojson.Safe.t) (complete : Yojson.Safe.t) :

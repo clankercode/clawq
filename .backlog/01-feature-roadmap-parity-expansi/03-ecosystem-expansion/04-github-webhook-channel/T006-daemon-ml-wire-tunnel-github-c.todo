@@ -1,13 +1,18 @@
 ---
+claimed_at: "2026-03-05T20:08:19Z"
+claimed_by: cli-user
+completed_at: "2026-03-05T20:08:19Z"
 complexity: low
 depends_on:
     - P1.M3.E3.T001
     - P1.M3.E3.T002
     - P1.M3.E4.T005
+duration_minutes: 0.00932457585
 estimate_hours: 1
 id: P1.M3.E4.T006
 priority: high
-status: pending
+started_at: "2026-03-05T20:08:19Z"
+status: done
 tags: []
 title: 'daemon.ml: wire tunnel + GitHub channel'
 ---

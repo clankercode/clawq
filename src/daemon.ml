@@ -16,6 +16,7 @@ let write_state ~(config : Runtime_config.t) ~components =
         ("telegram_enabled", `Bool (config.channels.telegram <> None));
         ("discord_enabled", `Bool (config.channels.discord <> None));
         ("slack_enabled", `Bool (config.channels.slack <> None));
+        ("github_enabled", `Bool (config.channels.github <> None));
         ("pid", `Int (Unix.getpid ()));
       ]
   in
@@ -67,10 +68,12 @@ let run ~(config : Runtime_config.t) =
         config.default_temperature);
   Logs.info (fun m -> m "Workspace: %s" workspace);
   Logs.info (fun m ->
-      m "Channels: cli=%b telegram=%b discord=%b slack=%b" config.channels.cli
+      m "Channels: cli=%b telegram=%b discord=%b slack=%b github=%b"
+        config.channels.cli
         (config.channels.telegram <> None)
         (config.channels.discord <> None)
-        (config.channels.slack <> None));
+        (config.channels.slack <> None)
+        (config.channels.github <> None));
   let tool_registry =
     if config.security.tools_enabled then begin
       let registry = Tool_registry.create () in
@@ -95,6 +98,69 @@ let run ~(config : Runtime_config.t) =
       None
     end
   in
+  (* Connect MCP stdio clients and register their tools *)
+  let mcp_clients = ref [] in
+  (match (tool_registry, config.mcp.enabled) with
+  | Some registry, true -> (
+      let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
+      let servers_path =
+        Filename.concat (Filename.concat home ".clawq") "mcp_servers.json"
+      in
+      if Sys.file_exists servers_path then
+        try
+          let json = Yojson.Safe.from_file servers_path in
+          let open Yojson.Safe.Util in
+          let servers = try json |> to_list with _ -> [] in
+          List.iter
+            (fun s ->
+              try
+                let name = s |> member "name" |> to_string in
+                let command = s |> member "command" |> to_string in
+                let args =
+                  try s |> member "args" |> to_list |> List.map to_string
+                  with _ -> []
+                in
+                let env =
+                  try
+                    s |> member "env" |> to_assoc
+                    |> List.map (fun (k, v) -> (k, to_string v))
+                  with _ -> []
+                in
+                let cfg = { Mcp_client.name; command; args; env } in
+                let client =
+                  Lwt_main.run
+                    (Lwt.catch
+                       (fun () ->
+                         let open Lwt.Syntax in
+                         let* c = Mcp_client.connect cfg in
+                         Lwt.return (Some c))
+                       (fun exn ->
+                         Logs.warn (fun m ->
+                             m "MCP client '%s' failed to connect: %s" name
+                               (Printexc.to_string exn));
+                         Lwt.return_none))
+                in
+                match client with
+                | None -> ()
+                | Some c ->
+                    mcp_clients := c :: !mcp_clients;
+                    List.iter
+                      (fun t ->
+                        Tool_registry.register registry t;
+                        Logs.info (fun m ->
+                            m "MCP tool registered: %s (from %s)" t.Tool.name
+                              name))
+                      (Mcp_client.discovered_tools c)
+              with exn ->
+                Logs.warn (fun m ->
+                    m "MCP server config parse error: %s"
+                      (Printexc.to_string exn)))
+            servers
+        with exn ->
+          Logs.warn (fun m ->
+              m "Failed to load MCP servers config: %s" (Printexc.to_string exn))
+      )
+  | _ -> ());
   let db =
     let db_path =
       if config.memory.db_path <> "" then config.memory.db_path
@@ -162,7 +228,54 @@ let run ~(config : Runtime_config.t) =
     Logs.info (fun m -> m "Landlock sandbox requested, activating...");
     Landlock.sandbox_workspace ~config
   end;
+  let telemetry =
+    match config.telemetry with
+    | Some tc when tc.enabled && tc.endpoint <> "" ->
+        let t =
+          Telemetry.create ~endpoint:tc.endpoint ~service_name:tc.service_name
+        in
+        Logs.info (fun m ->
+            m "OpenTelemetry enabled: endpoint=%s service=%s" tc.endpoint
+              tc.service_name);
+        Some t
+    | _ -> None
+  in
   let session_manager = Session.create ~config ?tool_registry ?db () in
+  let tunnel_url_ref = ref None in
+  let[@warning "-26"] tunnel_supervisor =
+    if config.tunnel.enabled then begin
+      let initial_url, supervisor =
+        Cf_tunnel.start ~config:config.tunnel ~on_url:(fun url ->
+            tunnel_url_ref := Some url;
+            Logs.info (fun m -> m "Tunnel URL: %s" url);
+            match config.channels.github with
+            | Some _ ->
+                Logs.info (fun m ->
+                    m "GitHub webhooks ready at: %s/github/webhook/..." url)
+            | None -> ())
+      in
+      tunnel_url_ref := initial_url;
+      supervisor
+    end
+    else Lwt.return_unit
+  in
+  if config.channels.github <> None && not config.tunnel.enabled then
+    Logs.warn (fun m ->
+        m
+          "GitHub channel configured but tunnel is disabled; webhooks may not \
+           be reachable");
+  let github_api_limiter =
+    Rate_limiter.create ~rate_per_minute:60 ~burst_multiplier:1.0
+  in
+  let web_channel_handler =
+    match config.web_channel with
+    | Some wc_cfg when wc_cfg.enabled ->
+        let wc = Web_channel.create ~config:wc_cfg ~session_manager in
+        Logs.info (fun m ->
+            m "WebChannel enabled at prefix: %s" wc_cfg.path_prefix);
+        Some wc
+    | _ -> None
+  in
   write_state ~config
     ~components:
       [
@@ -177,8 +290,9 @@ let run ~(config : Runtime_config.t) =
         Http_server.start ~port:config.gateway.port ~host:config.gateway.host
           ~require_pairing:config.gateway.require_pairing
           ~auth_token:config.gateway.auth_token ~session_manager
-          ?slack_config:config.channels.slack ~ip_limiter ~session_limiter
-          ~slack_event_limiter ())
+          ?slack_config:config.channels.slack
+          ?github_config:config.channels.github ~github_api_limiter ~ip_limiter
+          ~session_limiter ?web_channel:web_channel_handler ())
       (fun exn ->
         Logs.err (fun m ->
             m "Gateway server error: %s" (Printexc.to_string exn));
@@ -267,6 +381,13 @@ let run ~(config : Runtime_config.t) =
                   m "Slack Socket Mode error: %s" (Printexc.to_string exn));
               Lwt.return_unit))
   | _ -> ());
+  Lwt.async (fun () ->
+      Lwt.catch
+        (fun () -> tunnel_supervisor)
+        (fun exn ->
+          Logs.err (fun m ->
+              m "Tunnel supervisor error: %s" (Printexc.to_string exn));
+          Lwt.return_unit));
   (match db with
   | Some db ->
       Scheduler.init_schema db;
@@ -315,6 +436,11 @@ let run ~(config : Runtime_config.t) =
                   Rate_limiter.cleanup_expired slack_event_limiter
                     ~max_idle_seconds:300.0
                 in
+                let* () =
+                  match telemetry with
+                  | Some t -> Telemetry.maybe_flush t
+                  | None -> Lwt.return_unit
+                in
                 loop ()
               in
               loop ())
@@ -338,6 +464,17 @@ let run ~(config : Runtime_config.t) =
       Audit.log ~db ?signing_key
         (DaemonEvent { action = "stop"; details = "clean shutdown" })
   | _ -> ());
+  (* Flush telemetry on shutdown *)
+  let* () =
+    match telemetry with Some t -> Telemetry.flush t | None -> Lwt.return_unit
+  in
+  (* Disconnect MCP clients *)
+  let* () =
+    Lwt_list.iter_s
+      (fun c ->
+        Lwt.catch (fun () -> Mcp_client.disconnect c) (fun _ -> Lwt.return_unit))
+      !mcp_clients
+  in
   (* PID file cleanup is handled by service.ml after Daemon.run returns *)
   Logs.info (fun m -> m "clawq daemon stopped");
   Lwt.return_unit

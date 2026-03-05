@@ -1,11 +1,16 @@
 ---
+claimed_at: "2026-03-05T20:08:19Z"
+claimed_by: cli-user
+completed_at: "2026-03-05T20:08:19Z"
 complexity: medium
 depends_on:
     - P1.M3.E3.T001
+duration_minutes: 0.006679162466666667
 estimate_hours: 2
 id: P1.M3.E3.T002
 priority: medium
-status: pending
+started_at: "2026-03-05T20:08:19Z"
+status: done
 tags: []
 title: 'cf_tunnel.ml: managed named tunnel subprocess'
 ---

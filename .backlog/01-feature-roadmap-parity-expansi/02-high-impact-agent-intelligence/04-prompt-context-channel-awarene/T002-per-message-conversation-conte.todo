@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-05T20:30:02Z"
+claimed_by: cli-user
+completed_at: "2026-03-05T20:30:33Z"
 complexity: medium
 depends_on: []
+duration_minutes: 0.5274812796333334
 estimate_hours: 4
 id: P1.M2.E4.T002
 priority: medium
-status: pending
+started_at: "2026-03-05T20:30:02Z"
+status: done
 tags: []
 title: Per-message conversation context injection
 ---

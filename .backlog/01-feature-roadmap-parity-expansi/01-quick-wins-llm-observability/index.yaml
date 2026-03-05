@@ -9,7 +9,7 @@ epics:
       locked: false
       name: LLM Provider Routing
       path: 01-llm-provider-routing
-      status: pending
+      status: done
     - complexity: low
       depends_on: []
       description: ""
@@ -18,9 +18,9 @@ epics:
       locked: false
       name: 'Observability: Cost & Scheduler'
       path: 02-observability-cost-scheduler
-      status: pending
+      status: done
 estimate_hours: 35
 id: P1.M1
 locked: false
 name: 'Quick Wins: LLM & Observability'
-status: pending
+status: done

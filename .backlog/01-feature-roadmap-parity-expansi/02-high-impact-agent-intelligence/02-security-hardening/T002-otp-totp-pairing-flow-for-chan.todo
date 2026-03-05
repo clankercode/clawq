@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-05T19:23:33Z"
+claimed_by: cli-user
+completed_at: "2026-03-05T19:27:57Z"
 complexity: medium
 depends_on: []
+duration_minutes: 4.409814860616667
 estimate_hours: 15
 id: P1.M2.E2.T002
 priority: medium
-status: pending
+started_at: "2026-03-05T19:23:33Z"
+status: done
 tags: []
 title: OTP/TOTP pairing flow for channel access control
 ---

@@ -142,6 +142,8 @@ let handle_event ~(config : Runtime_config.slack_config)
                   (fun () ->
                     let* response =
                       Session.turn session_manager ~key ~message:text
+                        ~channel_name:channel_id ~channel_type:"group"
+                        ~sender_id:user_id ()
                     in
                     Lwt.return (Ok response))
                   (fun exn -> Lwt.return (Error (Printexc.to_string exn)))

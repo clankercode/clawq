@@ -73,6 +73,42 @@ let default_base_url_for name =
   | "zai" -> "https://api.z.ai/api/paas/v4"
   | _ -> "https://openrouter.ai/api/v1"
 
+let strip_date_suffix s =
+  let len = String.length s in
+  if len >= 9 && s.[len - 9] = '-' then
+    let suffix = String.sub s (len - 8) 8 in
+    let all_digits =
+      try
+        String.iter (fun c -> if c < '0' || c > '9' then raise Exit) suffix;
+        true
+      with Exit -> false
+    in
+    if all_digits then String.sub s 0 (len - 9) else s
+  else s
+
+let normalize_model_name s =
+  String.lowercase_ascii (strip_date_suffix (String.trim s))
+
+let find_provider_for_model ~providers ~model_name =
+  let norm = normalize_model_name model_name in
+  let match_provider (name, (p : Runtime_config.provider_config)) =
+    let norm_name = String.lowercase_ascii name in
+    if
+      String.length norm >= String.length norm_name
+      && String.sub norm 0 (String.length norm_name) = norm_name
+      && Runtime_config.is_key_set p.api_key
+    then Some (name, p)
+    else
+      match p.default_model with
+      | Some dm ->
+          let norm_dm = normalize_model_name dm in
+          if norm = norm_dm && Runtime_config.is_key_set p.api_key then
+            Some (name, p)
+          else None
+      | None -> None
+  in
+  List.find_map match_provider providers
+
 let select_provider ~(config : Runtime_config.t) =
   let find_named name =
     List.find_opt (fun (n, _) -> n = name) config.providers
@@ -102,25 +138,35 @@ let select_provider ~(config : Runtime_config.t) =
         | _ -> None)
     | None -> None
   in
+  let model_routed =
+    match model_target.provider with
+    | None ->
+        find_provider_for_model ~providers:config.providers
+          ~model_name:model_target.model
+    | Some _ -> None
+  in
   let chosen =
     match model_provider_preferred with
     | Some pair -> pair
     | None -> (
-        match config_provider_preferred with
+        match model_routed with
         | Some pair -> pair
         | None -> (
-            match with_key with
-            | (name, p) :: _ -> (name, p)
-            | [] -> (
-                match config.providers with
+            match config_provider_preferred with
+            | Some pair -> pair
+            | None -> (
+                match with_key with
                 | (name, p) :: _ -> (name, p)
-                | [] ->
-                    ( "default",
-                      {
-                        Runtime_config.api_key = "";
-                        base_url = None;
-                        default_model = None;
-                      } ))))
+                | [] -> (
+                    match config.providers with
+                    | (name, p) :: _ -> (name, p)
+                    | [] ->
+                        ( "default",
+                          {
+                            Runtime_config.api_key = "";
+                            base_url = None;
+                            default_model = None;
+                          } )))))
   in
   let provider_name, provider = chosen in
   let model =

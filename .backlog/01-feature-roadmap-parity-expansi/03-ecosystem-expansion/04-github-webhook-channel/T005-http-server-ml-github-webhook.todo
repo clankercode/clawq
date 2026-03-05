@@ -1,11 +1,16 @@
 ---
+claimed_at: "2026-03-05T20:08:19Z"
+claimed_by: cli-user
+completed_at: "2026-03-05T20:08:19Z"
 complexity: low
 depends_on:
     - P1.M3.E4.T004
+duration_minutes: 0.008812126466666667
 estimate_hours: 1
 id: P1.M3.E4.T005
 priority: high
-status: pending
+started_at: "2026-03-05T20:08:19Z"
+status: done
 tags: []
 title: 'http_server.ml: GitHub webhook routing'
 ---

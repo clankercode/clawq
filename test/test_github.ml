@@ -1,0 +1,482 @@
+let compute_signature ~secret ~body =
+  "sha256=" ^ Digestif.SHA256.(hmac_string ~key:secret body |> to_hex)
+
+let sig_valid () =
+  let secret = "It's a Secret to Everybody" in
+  let body = "Hello, World!" in
+  let header = compute_signature ~secret ~body in
+  Alcotest.(check bool)
+    "valid sig" true
+    (Github_webhook.verify_signature ~secret ~body ~signature_header:header)
+
+let sig_invalid () =
+  let secret = "It's a Secret to Everybody" in
+  let body = "Hello, World!" in
+  let header =
+    "sha256=0000000000000000000000000000000000000000000000000000000000000000"
+  in
+  Alcotest.(check bool)
+    "invalid sig" false
+    (Github_webhook.verify_signature ~secret ~body ~signature_header:header)
+
+let sig_wrong_secret () =
+  let body = "Hello, World!" in
+  let header = compute_signature ~secret:"correct_secret" ~body in
+  Alcotest.(check bool)
+    "wrong secret" false
+    (Github_webhook.verify_signature ~secret:"wrong_secret" ~body
+       ~signature_header:header)
+
+let sig_malformed () =
+  let secret = "test" in
+  let body = "test" in
+  Alcotest.(check bool)
+    "malformed header" false
+    (Github_webhook.verify_signature ~secret ~body
+       ~signature_header:"md5=abc123");
+  Alcotest.(check bool)
+    "empty header" false
+    (Github_webhook.verify_signature ~secret ~body ~signature_header:"")
+
+let sig_test_vector () =
+  let secret = "It's a Secret to Everybody" in
+  let body = "Hello, World!" in
+  let expected =
+    "sha256=757107ea0eb2509fc211221cce984b8a37570b6d7586c22c46f4379c8b043e17"
+  in
+  Alcotest.(check bool)
+    "test vector" true
+    (Github_webhook.verify_signature ~secret ~body ~signature_header:expected)
+
+let pr_opened_json =
+  {|{"action":"opened","number":2,"pull_request":{"number":2,"title":"Update the README","body":"Simple change to pull into master.","state":"open","html_url":"https://github.com/Codertocat/Hello-World/pull/2","user":{"login":"Codertocat"},"base":{"ref":"master"},"head":{"ref":"changes"}},"repository":{"name":"Hello-World","owner":{"login":"Codertocat"}}}|}
+
+let pr_sync_json =
+  {|{"action":"synchronize","number":2,"pull_request":{"number":2,"title":"Update","body":"test","state":"open","html_url":"https://github.com/x/y/pull/2","user":{"login":"x"},"base":{"ref":"main"},"head":{"ref":"fix"}},"repository":{"name":"y","owner":{"login":"x"}}}|}
+
+let issue_comment_json =
+  {|{"action":"created","issue":{"number":2,"title":"Update the README","state":"open","user":{"login":"Codertocat"},"pull_request":{"url":"https://api.github.com/repos/Codertocat/Hello-World/pulls/2"},"body":"body text"},"comment":{"id":492700500,"user":{"login":"octocat"},"body":"/clawq review this PR please","html_url":"https://github.com/Codertocat/Hello-World/pull/2#issuecomment-492700500"},"repository":{"name":"Hello-World","owner":{"login":"Codertocat"}}}|}
+
+let issue_comment_non_pr_json =
+  {|{"action":"created","issue":{"number":5,"title":"Bug report","state":"open","user":{"login":"alice"},"body":"something broken"},"comment":{"id":100,"user":{"login":"bob"},"body":"looking into it","html_url":"https://github.com/x/y/issues/5#issuecomment-100"},"repository":{"name":"y","owner":{"login":"x"}}}|}
+
+let review_comment_json =
+  {|{"action":"created","comment":{"id":284312630,"user":{"login":"Codertocat"},"body":"Maybe you should use more emoji.\n/clawq what do you think?","diff_hunk":"@@ -1 +1 @@\n-# Hello-World","path":"README.md","html_url":"https://github.com/Codertocat/Hello-World/pull/2#discussion_r284312630"},"pull_request":{"number":2,"title":"Update the README","body":"Simple change","state":"open","html_url":"https://github.com/Codertocat/Hello-World/pull/2","user":{"login":"Codertocat"},"base":{"ref":"master"},"head":{"ref":"changes"}},"repository":{"name":"Hello-World","owner":{"login":"Codertocat"}}}|}
+
+let parse_pr_opened () =
+  match
+    Github_webhook.parse_event ~event_type:"pull_request" ~body:pr_opened_json
+  with
+  | Github_webhook.PullRequest e ->
+      Alcotest.(check string) "action" "opened" e.action;
+      Alcotest.(check string) "owner" "Codertocat" e.owner;
+      Alcotest.(check string) "repo" "Hello-World" e.repo;
+      Alcotest.(check int) "pr_number" 2 e.pr_number;
+      Alcotest.(check string) "title" "Update the README" e.pr_title;
+      Alcotest.(check string) "author" "Codertocat" e.pr_author;
+      Alcotest.(check string) "base" "master" e.base_branch;
+      Alcotest.(check string) "head" "changes" e.head_branch
+  | _ -> Alcotest.fail "expected PullRequest"
+
+let parse_pr_synchronize () =
+  match
+    Github_webhook.parse_event ~event_type:"pull_request" ~body:pr_sync_json
+  with
+  | Github_webhook.Ignored -> ()
+  | _ -> Alcotest.fail "expected Ignored for synchronize action"
+
+let parse_issue_comment () =
+  match
+    Github_webhook.parse_event ~event_type:"issue_comment"
+      ~body:issue_comment_json
+  with
+  | Github_webhook.IssueComment e ->
+      Alcotest.(check string) "owner" "Codertocat" e.owner;
+      Alcotest.(check string) "repo" "Hello-World" e.repo;
+      Alcotest.(check int) "issue_number" 2 e.issue_number;
+      Alcotest.(check bool) "is_pr" true e.is_pr;
+      Alcotest.(check string) "comment_author" "octocat" e.comment_author;
+      Alcotest.(check string)
+        "comment_body" "/clawq review this PR please" e.comment_body
+  | _ -> Alcotest.fail "expected IssueComment"
+
+let parse_issue_comment_non_pr () =
+  match
+    Github_webhook.parse_event ~event_type:"issue_comment"
+      ~body:issue_comment_non_pr_json
+  with
+  | Github_webhook.IssueComment e ->
+      Alcotest.(check bool) "is_pr" false e.is_pr;
+      Alcotest.(check int) "issue_number" 5 e.issue_number
+  | _ -> Alcotest.fail "expected IssueComment"
+
+let parse_review_comment () =
+  match
+    Github_webhook.parse_event ~event_type:"pull_request_review_comment"
+      ~body:review_comment_json
+  with
+  | Github_webhook.PrReviewComment e ->
+      Alcotest.(check string) "owner" "Codertocat" e.owner;
+      Alcotest.(check string) "repo" "Hello-World" e.repo;
+      Alcotest.(check int) "pr_number" 2 e.pr_number;
+      Alcotest.(check int) "comment_id" 284312630 e.comment_id;
+      Alcotest.(check string) "author" "Codertocat" e.comment_author;
+      Alcotest.(check string) "file_path" "README.md" e.file_path;
+      Alcotest.(check string)
+        "diff_hunk" "@@ -1 +1 @@\n-# Hello-World" e.diff_hunk
+  | _ -> Alcotest.fail "expected PrReviewComment"
+
+let parse_review_submitted () =
+  let body =
+    {|{"action":"submitted","review":{"id":1,"user":{"login":"x"},"body":"LGTM"},"pull_request":{"number":1},"repository":{"name":"y","owner":{"login":"x"}}}|}
+  in
+  match Github_webhook.parse_event ~event_type:"pull_request_review" ~body with
+  | Github_webhook.Ignored -> ()
+  | _ -> Alcotest.fail "expected Ignored for pull_request_review"
+
+let parse_malformed () =
+  match
+    Github_webhook.parse_event ~event_type:"pull_request" ~body:"not json"
+  with
+  | Github_webhook.Ignored -> ()
+  | _ -> Alcotest.fail "expected Ignored for malformed JSON"
+
+let parse_unknown_event () =
+  match Github_webhook.parse_event ~event_type:"deployment" ~body:"{}" with
+  | Github_webhook.Ignored -> ()
+  | _ -> Alcotest.fail "expected Ignored for unknown event type"
+
+let parse_issue_comment_edited () =
+  let body =
+    {|{"action":"edited","issue":{"number":1,"title":"t","state":"open","user":{"login":"x"}},"comment":{"id":1,"user":{"login":"x"},"body":"b","html_url":"h"},"repository":{"name":"r","owner":{"login":"o"}}}|}
+  in
+  match Github_webhook.parse_event ~event_type:"issue_comment" ~body with
+  | Github_webhook.Ignored -> ()
+  | _ -> Alcotest.fail "expected Ignored for edited action"
+
+let make_pr_event ?(body = "") () =
+  Github_webhook.PullRequest
+    {
+      action = "opened";
+      owner = "acme";
+      repo = "backend";
+      pr_number = 42;
+      pr_title = "Fix bug";
+      pr_body = body;
+      pr_author = "alice";
+      base_branch = "main";
+      head_branch = "fix-bug";
+      html_url = "https://github.com/acme/backend/pull/42";
+    }
+
+let make_issue_comment_event ?(body = "") ?(is_pr = false) () =
+  Github_webhook.IssueComment
+    {
+      owner = "acme";
+      repo = "backend";
+      issue_number = 10;
+      is_pr;
+      comment_id = 100;
+      comment_author = "bob";
+      comment_body = body;
+      issue_title = "Bug report";
+      html_url = "https://github.com/acme/backend/issues/10#issuecomment-100";
+    }
+
+let extract_clawq_in_body () =
+  let event = make_pr_event ~body:"/clawq hello world" () in
+  match Github_webhook.extract_clawq ~event ~pr_files:[] with
+  | Some (msg, _preamble) -> Alcotest.(check string) "message" "hello world" msg
+  | None -> Alcotest.fail "expected Some"
+
+let extract_clawq_multiline () =
+  let event =
+    make_pr_event ~body:"Some intro text\n\n/clawq review this\nand fix it" ()
+  in
+  match Github_webhook.extract_clawq ~event ~pr_files:[] with
+  | Some (msg, _) ->
+      Alcotest.(check string) "multiline" "review this\nand fix it" msg
+  | None -> Alcotest.fail "expected Some"
+
+let extract_clawq_case_insensitive () =
+  let event = make_pr_event ~body:"/CLAWQ uppercase" () in
+  match Github_webhook.extract_clawq ~event ~pr_files:[] with
+  | Some (msg, _) -> Alcotest.(check string) "uppercase" "uppercase" msg
+  | None -> Alcotest.fail "expected Some"
+
+let extract_clawq_leading_whitespace () =
+  let event = make_pr_event ~body:"   /clawq with spaces" () in
+  match Github_webhook.extract_clawq ~event ~pr_files:[] with
+  | Some (msg, _) -> Alcotest.(check string) "whitespace" "with spaces" msg
+  | None -> Alcotest.fail "expected Some"
+
+let extract_clawq_none () =
+  let event = make_pr_event ~body:"no command here" () in
+  match Github_webhook.extract_clawq ~event ~pr_files:[] with
+  | None -> ()
+  | Some _ -> Alcotest.fail "expected None"
+
+let extract_clawq_empty_command () =
+  let event = make_pr_event ~body:"/clawq" () in
+  match Github_webhook.extract_clawq ~event ~pr_files:[] with
+  | Some (msg, _) -> Alcotest.(check string) "empty command" "" msg
+  | None -> Alcotest.fail "expected Some"
+
+let extract_clawq_stops_at_blank () =
+  let event =
+    make_pr_event ~body:"/clawq first paragraph\n\nSecond paragraph (ignored)"
+      ()
+  in
+  match Github_webhook.extract_clawq ~event ~pr_files:[] with
+  | Some (msg, _) ->
+      Alcotest.(check string) "stops at blank" "first paragraph" msg
+  | None -> Alcotest.fail "expected Some"
+
+let extract_clawq_with_files () =
+  let event = make_pr_event ~body:"/clawq review" () in
+  let files =
+    [ ("src/main.ml", "modified", 10, 3); ("README.md", "added", 5, 0) ]
+  in
+  match Github_webhook.extract_clawq ~event ~pr_files:files with
+  | Some (_msg, preamble) ->
+      let contains s sub =
+        try
+          ignore (Str.search_forward (Str.regexp_string sub) s 0);
+          true
+        with Not_found -> false
+      in
+      Alcotest.(check bool)
+        "contains files section" true
+        (contains preamble "Changed files (2)");
+      Alcotest.(check bool)
+        "contains main.ml" true
+        (contains preamble "src/main.ml")
+  | None -> Alcotest.fail "expected Some"
+
+let extract_from_comment () =
+  match
+    Github_webhook.parse_event ~event_type:"issue_comment"
+      ~body:issue_comment_json
+  with
+  | Github_webhook.IssueComment _ as event -> (
+      match Github_webhook.extract_clawq ~event ~pr_files:[] with
+      | Some (msg, _) ->
+          Alcotest.(check string) "from comment" "review this PR please" msg
+      | None -> Alcotest.fail "expected Some from comment")
+  | _ -> Alcotest.fail "parse failed"
+
+let extract_from_review_comment () =
+  match
+    Github_webhook.parse_event ~event_type:"pull_request_review_comment"
+      ~body:review_comment_json
+  with
+  | Github_webhook.PrReviewComment _ as event -> (
+      match Github_webhook.extract_clawq ~event ~pr_files:[] with
+      | Some (msg, _) ->
+          Alcotest.(check string) "from review" "what do you think?" msg
+      | None -> Alcotest.fail "expected Some from review comment")
+  | _ -> Alcotest.fail "parse failed"
+
+let session_key_pr () =
+  let event = make_pr_event () in
+  Alcotest.(check string)
+    "pr key" "github:acme/backend:pr:42"
+    (Github_webhook.session_key event)
+
+let session_key_issue () =
+  let event = make_issue_comment_event ~is_pr:false () in
+  Alcotest.(check string)
+    "issue key" "github:acme/backend:issue:10"
+    (Github_webhook.session_key event)
+
+let session_key_pr_comment () =
+  let event = make_issue_comment_event ~is_pr:true () in
+  Alcotest.(check string)
+    "pr comment key" "github:acme/backend:pr:10"
+    (Github_webhook.session_key event)
+
+let session_key_review_comment () =
+  let event =
+    Github_webhook.PrReviewComment
+      {
+        owner = "acme";
+        repo = "backend";
+        pr_number = 42;
+        comment_id = 200;
+        comment_author = "carol";
+        comment_body = "test";
+        in_reply_to_id = None;
+        diff_hunk = "@@ -1 +1 @@";
+        file_path = "src/foo.ml";
+        pr_title = "Fix";
+        html_url = "https://github.com/acme/backend/pull/42#discussion_r200";
+      }
+  in
+  Alcotest.(check string)
+    "review key" "github:acme/backend:pr:42"
+    (Github_webhook.session_key event)
+
+let format_reply_basic () =
+  let result = Github.format_reply ~command:"hello" ~response:"world" in
+  Alcotest.(check string) "format" "> /clawq hello\n\nworld" result
+
+let format_reply_empty_command () =
+  let result = Github.format_reply ~command:"" ~response:"world" in
+  Alcotest.(check string) "format empty" "world" result
+
+let config_github_roundtrip () =
+  let json =
+    Yojson.Safe.from_string
+      {|{"channels":{"github":{"auth":{"type":"pat","token":"ghp_test12345"},"repos":[{"name":"acme/backend","webhook_secret":"secret123","webhook_path":"/github/webhook/acme","allow_users":["*"],"react_to":[],"include_pr_files":true}]}}}|}
+  in
+  let config = Config_loader.parse_config ~resolve_secrets:false json in
+  match config.channels.github with
+  | Some g -> (
+      match g.auth with
+      | Runtime_config.GithubPat token ->
+          Alcotest.(check string) "token" "ghp_test12345" token;
+          Alcotest.(check int) "repos count" 1 (List.length g.repos);
+          let r = List.hd g.repos in
+          Alcotest.(check string) "name" "acme/backend" r.name;
+          Alcotest.(check string)
+            "webhook_path" "/github/webhook/acme" r.webhook_path;
+          Alcotest.(check bool) "include_pr_files" true r.include_pr_files)
+  | None -> Alcotest.fail "expected github config"
+
+let config_tunnel_roundtrip () =
+  let json =
+    Yojson.Safe.from_string
+      {|{"tunnel":{"provider":"cloudflare","enabled":true,"url":"https://example.com","managed":true,"tunnel_name":"my-tunnel","config_dir":"~/.cloudflared"}}|}
+  in
+  let config = Config_loader.parse_config ~resolve_secrets:false json in
+  Alcotest.(check bool) "enabled" true config.tunnel.enabled;
+  Alcotest.(check string) "url" "https://example.com" config.tunnel.url;
+  Alcotest.(check bool) "managed" true config.tunnel.managed;
+  Alcotest.(check string) "tunnel_name" "my-tunnel" config.tunnel.tunnel_name;
+  Alcotest.(check string) "config_dir" "~/.cloudflared" config.tunnel.config_dir
+
+let cf_tunnel_static_url () =
+  let config : Runtime_config.tunnel_config =
+    {
+      provider = "cloudflare";
+      enabled = true;
+      url = "https://mysite.example.com";
+      managed = false;
+      tunnel_name = "";
+      config_dir = "";
+    }
+  in
+  match Cf_tunnel.resolve_static ~config with
+  | Some url ->
+      Alcotest.(check string) "static url" "https://mysite.example.com" url
+  | None -> Alcotest.fail "expected Some url"
+
+let cf_tunnel_no_url () =
+  let config : Runtime_config.tunnel_config =
+    {
+      provider = "cloudflare";
+      enabled = true;
+      url = "";
+      managed = false;
+      tunnel_name = "";
+      config_dir = "";
+    }
+  in
+  match Cf_tunnel.resolve_static ~config with
+  | None -> ()
+  | Some _ -> Alcotest.fail "expected None"
+
+let cf_tunnel_start_static () =
+  let config : Runtime_config.tunnel_config =
+    {
+      provider = "cloudflare";
+      enabled = true;
+      url = "https://test.example.com";
+      managed = false;
+      tunnel_name = "";
+      config_dir = "";
+    }
+  in
+  let received_url = ref "" in
+  let initial_url, _supervisor =
+    Cf_tunnel.start ~config ~on_url:(fun url -> received_url := url)
+  in
+  Alcotest.(check (option string))
+    "initial" (Some "https://test.example.com") initial_url;
+  Alcotest.(check string) "callback" "https://test.example.com" !received_url
+
+let sig_suite =
+  [
+    Alcotest.test_case "valid signature" `Quick sig_valid;
+    Alcotest.test_case "invalid signature" `Quick sig_invalid;
+    Alcotest.test_case "wrong secret" `Quick sig_wrong_secret;
+    Alcotest.test_case "malformed header" `Quick sig_malformed;
+    Alcotest.test_case "test vector" `Quick sig_test_vector;
+  ]
+
+let parse_suite =
+  [
+    Alcotest.test_case "PR opened" `Quick parse_pr_opened;
+    Alcotest.test_case "PR synchronize ignored" `Quick parse_pr_synchronize;
+    Alcotest.test_case "issue comment" `Quick parse_issue_comment;
+    Alcotest.test_case "issue comment non-PR" `Quick parse_issue_comment_non_pr;
+    Alcotest.test_case "review comment" `Quick parse_review_comment;
+    Alcotest.test_case "review submitted ignored" `Quick parse_review_submitted;
+    Alcotest.test_case "malformed JSON" `Quick parse_malformed;
+    Alcotest.test_case "unknown event type" `Quick parse_unknown_event;
+    Alcotest.test_case "issue comment edited ignored" `Quick
+      parse_issue_comment_edited;
+  ]
+
+let extract_suite =
+  [
+    Alcotest.test_case "clawq in body" `Quick extract_clawq_in_body;
+    Alcotest.test_case "multiline" `Quick extract_clawq_multiline;
+    Alcotest.test_case "case insensitive" `Quick extract_clawq_case_insensitive;
+    Alcotest.test_case "leading whitespace" `Quick
+      extract_clawq_leading_whitespace;
+    Alcotest.test_case "no clawq" `Quick extract_clawq_none;
+    Alcotest.test_case "empty command" `Quick extract_clawq_empty_command;
+    Alcotest.test_case "stops at blank line" `Quick extract_clawq_stops_at_blank;
+    Alcotest.test_case "with pr files" `Quick extract_clawq_with_files;
+    Alcotest.test_case "from issue comment" `Quick extract_from_comment;
+    Alcotest.test_case "from review comment" `Quick extract_from_review_comment;
+  ]
+
+let session_key_suite =
+  [
+    Alcotest.test_case "PR" `Quick session_key_pr;
+    Alcotest.test_case "issue" `Quick session_key_issue;
+    Alcotest.test_case "PR comment" `Quick session_key_pr_comment;
+    Alcotest.test_case "review comment" `Quick session_key_review_comment;
+  ]
+
+let format_suite =
+  [
+    Alcotest.test_case "basic" `Quick format_reply_basic;
+    Alcotest.test_case "empty command" `Quick format_reply_empty_command;
+  ]
+
+let config_suite =
+  [
+    Alcotest.test_case "github config roundtrip" `Quick config_github_roundtrip;
+    Alcotest.test_case "tunnel config roundtrip" `Quick config_tunnel_roundtrip;
+  ]
+
+let tunnel_suite =
+  [
+    Alcotest.test_case "static url" `Quick cf_tunnel_static_url;
+    Alcotest.test_case "no url" `Quick cf_tunnel_no_url;
+    Alcotest.test_case "start static" `Quick cf_tunnel_start_static;
+  ]
+
+let suites =
+  [
+    ("github_webhook_sig", sig_suite);
+    ("github_webhook_parse", parse_suite);
+    ("github_webhook_extract", extract_suite);
+    ("github_session_key", session_key_suite);
+    ("github_format", format_suite);
+    ("github_config", config_suite);
+    ("cf_tunnel", tunnel_suite);
+  ]

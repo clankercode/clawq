@@ -1,13 +1,18 @@
 ---
+claimed_at: "2026-03-05T20:08:19Z"
+claimed_by: cli-user
+completed_at: "2026-03-05T20:08:19Z"
 complexity: medium
 depends_on:
     - P1.M3.E4.T003
     - P1.M3.E4.T004
     - P1.M3.E4.T005
+duration_minutes: 0.009788168
 estimate_hours: 2
 id: P1.M3.E4.T007
 priority: medium
-status: pending
+started_at: "2026-03-05T20:08:19Z"
+status: done
 tags: []
 title: 'test/test_github.ml: full test suite'
 ---

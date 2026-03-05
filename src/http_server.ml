@@ -8,12 +8,12 @@ let auth_ok ~auth_token req =
       let headers = Cohttp.Request.headers req in
       let bearer =
         match Cohttp.Header.get headers "authorization" with
-        | Some v -> String.trim v = "Bearer " ^ token
+        | Some v -> Eqaf.equal (String.trim v) ("Bearer " ^ token)
         | None -> false
       in
       let api_key =
         match Cohttp.Header.get headers "x-api-key" with
-        | Some v -> String.trim v = token
+        | Some v -> Eqaf.equal (String.trim v) token
         | None -> false
       in
       bearer || api_key
@@ -31,8 +31,21 @@ let rate_limit_response () =
   Cohttp_lwt_unix.Server.respond_string ~status:`Too_many_requests
     ~headers:json_headers ~body:{|{"error":"rate limit exceeded"}|} ()
 
+let is_github_webhook_path path = function
+  | None -> false
+  | Some (gc : Runtime_config.github_config) ->
+      List.exists
+        (fun (r : Runtime_config.github_repo_config) -> r.webhook_path = path)
+        gc.repos
+
+let lookup_github_repo path (gc : Runtime_config.github_config) =
+  List.find_opt
+    (fun (r : Runtime_config.github_repo_config) -> r.webhook_path = path)
+    gc.repos
+
 let handler ~session_manager ~require_pairing ~auth_token ?slack_config
-    ?ip_limiter ?session_limiter ?slack_event_limiter _conn req body =
+    ?github_config ?github_api_limiter ?ip_limiter ?session_limiter ?web_channel
+    _conn req body =
   let open Lwt.Syntax in
   let uri = Cohttp.Request.uri req in
   let path = Uri.path uri in
@@ -105,7 +118,7 @@ let handler ~session_manager ~require_pairing ~auth_token ?slack_config
                   Lwt.catch
                     (fun () ->
                       let* response =
-                        Session.turn session_manager ~key ~message
+                        Session.turn session_manager ~key ~message ()
                       in
                       Lwt.return (Ok response))
                     (fun exn -> Lwt.return (Error (Printexc.to_string exn)))
@@ -228,6 +241,7 @@ let handler ~session_manager ~require_pairing ~auth_token ?slack_config
                               in
                               push (Some (Printf.sprintf "data: %s\n\n" data));
                               Lwt.return_unit)
+                            ()
                         in
                         push (Some "data: [DONE]\n\n");
                         push None;
@@ -284,17 +298,61 @@ let handler ~session_manager ~require_pairing ~auth_token ?slack_config
         in
         Cohttp_lwt_unix.Server.respond_string ~status:`OK ~headers:json_headers
           ~body:result ()
+  | `POST, path when is_github_webhook_path path github_config -> (
+      let gc = Option.get github_config in
+      let* body_str = Cohttp_lwt.Body.to_string body in
+      match lookup_github_repo path gc with
+      | None ->
+          Cohttp_lwt_unix.Server.respond_string ~status:`Not_found
+            ~headers:json_headers ~body:{|{"error":"not found"}|} ()
+      | Some repo_config -> (
+          let event_type =
+            match
+              Cohttp.Header.get (Cohttp.Request.headers req) "x-github-event"
+            with
+            | Some v -> v
+            | None -> ""
+          in
+          let req_headers = Cohttp.Request.headers req in
+          let api_limiter = Option.get github_api_limiter in
+          let* result =
+            Github.handle_webhook ~repo_config ~github_config:gc
+              ~session_manager ~api_limiter ~event_type ~body:body_str
+              ~headers:req_headers
+          in
+          match result with
+          | Github.BadSignature ->
+              Cohttp_lwt_unix.Server.respond_string ~status:`Forbidden
+                ~headers:json_headers ~body:{|{"error":"invalid signature"}|} ()
+          | Github.Ok msg ->
+              Cohttp_lwt_unix.Server.respond_string ~status:`OK
+                ~headers:json_headers
+                ~body:
+                  (Yojson.Safe.to_string (`Assoc [ ("status", `String msg) ]))
+                ()))
+  | meth, path
+    when match web_channel with
+         | Some (wc : Web_channel.t) ->
+             let prefix = wc.config.path_prefix in
+             String.length path >= String.length prefix
+             && String.sub path 0 (String.length prefix) = prefix
+         | None -> false ->
+      let wc = Option.get web_channel in
+      let* body_str = Cohttp_lwt.Body.to_string body in
+      Web_channel.handle_request wc path meth req body_str
   | _ ->
       let* _ = Cohttp_lwt.Body.drain_body body in
       Cohttp_lwt_unix.Server.respond_string ~status:`Not_found
         ~headers:json_headers ~body:{|{"error":"not found"}|} ()
 
 let start ~port ~host ~require_pairing ~auth_token ~session_manager
-    ?slack_config ?ip_limiter ?session_limiter ?slack_event_limiter () =
+    ?slack_config ?github_config ?github_api_limiter ?ip_limiter
+    ?session_limiter ?web_channel () =
   let open Lwt.Syntax in
   let callback =
     handler ~session_manager ~require_pairing ~auth_token ?slack_config
-      ?ip_limiter ?session_limiter ?slack_event_limiter
+      ?github_config ?github_api_limiter ?ip_limiter ?session_limiter
+      ?web_channel
   in
   let* ctx = Conduit_lwt_unix.init ~src:host () in
   let ctx = Cohttp_lwt_unix.Net.init ~ctx () in

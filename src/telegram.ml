@@ -201,12 +201,90 @@ let set_my_commands ~bot_token =
 let is_allowed ~(account : Runtime_config.telegram_account) ~chat_id =
   match account.allow_from with [ "*" ] -> true | ids -> List.mem chat_id ids
 
+(* TOTP pairing state: chat_id -> expiry timestamp *)
+let _paired_sessions : (string, float) Hashtbl.t = Hashtbl.create 16
+
+let is_totp_paired ~chat_id ~now =
+  match Hashtbl.find_opt _paired_sessions chat_id with
+  | Some expiry -> now < expiry
+  | None -> false
+
+let pair_session ~chat_id ~ttl_hours =
+  let expiry = Unix.gettimeofday () +. (float_of_int ttl_hours *. 3600.0) in
+  Hashtbl.replace _paired_sessions chat_id expiry
+
+let cleanup_expired_sessions () =
+  let now = Unix.gettimeofday () in
+  let expired =
+    Hashtbl.fold
+      (fun k v acc -> if now >= v then k :: acc else acc)
+      _paired_sessions []
+  in
+  List.iter (Hashtbl.remove _paired_sessions) expired
+
 let _rate_limit_warnings : (string, float) Hashtbl.t = Hashtbl.create 16
+
+let handle_pair_command ~bot_token ~(account : Runtime_config.telegram_account)
+    ~chat_id ~code =
+  match account.totp with
+  | Some t when t.totp_enabled && t.totp_secret <> "" ->
+      let time = Unix.gettimeofday () in
+      if Totp.verify_totp ~secret:t.totp_secret ~code ~time then begin
+        pair_session ~chat_id ~ttl_hours:t.session_ttl_hours;
+        Logs.info (fun m ->
+            m "Telegram: TOTP pairing successful for chat_id=%s" chat_id);
+        send_message ~bot_token ~chat_id
+          ~text:
+            (Printf.sprintf "Pairing successful! Session valid for %d hours."
+               t.session_ttl_hours)
+      end
+      else begin
+        Logs.warn (fun m ->
+            m "Telegram: TOTP pairing failed for chat_id=%s" chat_id);
+        send_message ~bot_token ~chat_id
+          ~text:
+            "Invalid code. Please try again with a valid TOTP code from `clawq \
+             otp-show`."
+      end
+  | _ ->
+      send_message ~bot_token ~chat_id
+        ~text:"TOTP pairing is not configured for this account."
+
+let requires_totp_auth ~(account : Runtime_config.telegram_account) ~chat_id =
+  match account.totp with
+  | Some t when t.totp_enabled ->
+      let now = Unix.gettimeofday () in
+      if is_allowed ~account ~chat_id then false
+      else not (is_totp_paired ~chat_id ~now)
+  | _ -> false
 
 let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
     ~(session_mgr : Session.t) ?chat_limiter update =
   let open Lwt.Syntax in
-  if not (is_allowed ~account ~chat_id:update.chat_id) then (
+  (* Check /pair command first (before auth checks) *)
+  let trimmed = String.trim update.text in
+  let is_pair_cmd =
+    String.length trimmed > 6
+    && String.lowercase_ascii (String.sub trimmed 0 6) = "/pair "
+  in
+  if is_pair_cmd then
+    let code = String.trim (String.sub trimmed 6 (String.length trimmed - 6)) in
+    handle_pair_command ~bot_token ~account ~chat_id:update.chat_id ~code
+  else if
+    (not (is_allowed ~account ~chat_id:update.chat_id))
+    && requires_totp_auth ~account ~chat_id:update.chat_id
+  then (
+    Logs.warn (fun m ->
+        m "Telegram: unauthenticated chat_id=%s, requesting pairing"
+          update.chat_id);
+    send_message ~bot_token ~chat_id:update.chat_id
+      ~text:
+        "Please pair first: type `/pair <6-digit-code>`.\n\
+         Get the code from `clawq otp-show` command.")
+  else if
+    (not (is_allowed ~account ~chat_id:update.chat_id))
+    && not (is_totp_paired ~chat_id:update.chat_id ~now:(Unix.gettimeofday ()))
+  then (
     Logs.warn (fun m ->
         m "Telegram: ignoring message from unauthorized chat_id=%s"
           update.chat_id);
@@ -310,7 +388,10 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
             let* result =
               Lwt.catch
                 (fun () ->
-                  let turn_p = Session.turn session_mgr ~key ~message:msg in
+                  let turn_p =
+                    Session.turn session_mgr ~key ~message:msg
+                      ~channel_name:"telegram" ~channel_type:"dm" ()
+                  in
                   let* response =
                     with_typing ~bot_token ~chat_id:update.chat_id turn_p
                   in

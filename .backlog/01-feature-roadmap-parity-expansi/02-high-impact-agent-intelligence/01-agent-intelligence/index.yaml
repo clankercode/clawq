@@ -4,7 +4,7 @@ estimate_hours: 50
 id: P1.M2.E1
 locked: false
 name: Agent Intelligence
-status: pending
+status: done
 tasks:
     - complexity: medium
       depends_on: []
@@ -12,7 +12,8 @@ tasks:
       file: T001-token-aware-history-compaction.todo
       id: T001
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Token-aware history compaction with LLM summarization
     - complexity: high
       depends_on: []
@@ -20,5 +21,6 @@ tasks:
       file: T002-multi-agent-routing-with-tiere.todo
       id: T002
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Multi-agent routing with tiered context bindings

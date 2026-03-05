@@ -243,11 +243,17 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
           send_message ~bot_token:discord_config.bot_token
             ~channel_id:msg.channel_id ~text:Slash_commands.reset_message
       | NotACommand -> (
+          let discord_channel_type =
+            match msg.guild_id with Some _ -> "group" | None -> "dm"
+          in
           let* result =
             Lwt.catch
               (fun () ->
                 let* response =
                   Session.turn session_mgr ~key ~message:msg.content
+                    ~channel_name:msg.channel_id
+                    ~channel_type:discord_channel_type
+                    ~sender_id:msg.author_id ()
                 in
                 Lwt.return (Ok response))
               (fun exn -> Lwt.return (Error (Printexc.to_string exn)))

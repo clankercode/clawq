@@ -4,7 +4,7 @@ estimate_hours: 30
 id: P1.M2.E2
 locked: false
 name: Security Hardening
-status: pending
+status: done
 tasks:
     - complexity: low
       depends_on: []
@@ -12,7 +12,8 @@ tasks:
       file: T001-cryptographically-signed-audit.todo
       id: T001
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Cryptographically signed audit trail
     - complexity: medium
       depends_on: []
@@ -20,5 +21,6 @@ tasks:
       file: T002-otp-totp-pairing-flow-for-chan.todo
       id: T002
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: OTP/TOTP pairing flow for channel access control

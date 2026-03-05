@@ -73,7 +73,81 @@ let base_prompt =
   "You are an autonomous AI assistant. Your identity, principles, and \
    operating protocol are defined by the workspace files below. Embody them."
 
-let build ~(config : Runtime_config.t) ~tool_registry =
+let group_chat_section ~channel_type =
+  match channel_type with
+  | "group" ->
+      Some
+        "## Group Chat Conduct\n\
+         In group channels, only respond when directly addressed or when your \
+         input is clearly relevant.\n\
+         You may use [NO_REPLY] as your entire response to indicate you \
+         intentionally decline to reply."
+  | _ -> None
+
+let skills_section ~workspace_dir =
+  let skills_dir = Filename.concat workspace_dir ".claude-p/skills" in
+  if not (Sys.file_exists skills_dir) then None
+  else
+    let skills = try Sys.readdir skills_dir |> Array.to_list with _ -> [] in
+    let skills = List.filter (fun s -> s.[0] <> '.') skills in
+    if skills = [] then None
+    else
+      Some
+        (Printf.sprintf "## Available Skills\n%s"
+           (String.concat "\n" (List.map (fun s -> "- " ^ s) skills)))
+
+type scheduled_job_info = {
+  sj_name : string;
+  sj_schedule : string;
+  sj_description : string option;
+}
+
+let scheduled_tasks_section ~jobs =
+  match jobs with
+  | [] -> None
+  | _ ->
+      let lines =
+        List.map
+          (fun j ->
+            Printf.sprintf "- %s: `%s` — %s" j.sj_name j.sj_schedule
+              (match j.sj_description with
+              | Some d -> d
+              | None -> "(no description)"))
+          jobs
+      in
+      Some ("## Scheduled Tasks\n" ^ String.concat "\n" lines)
+
+let attachment_syntax_block attachments =
+  if attachments = [] then None
+  else
+    let types_present =
+      List.sort_uniq String.compare
+        (List.map (fun (atype, _path) -> atype) attachments)
+    in
+    let syntax_lines =
+      List.map
+        (fun atype ->
+          Printf.sprintf "- [%s:/path] — reference a %s attachment"
+            (String.uppercase_ascii atype)
+            atype)
+        types_present
+    in
+    let refs =
+      List.map
+        (fun (atype, path) ->
+          Printf.sprintf "  [%s:%s]" (String.uppercase_ascii atype) path)
+        attachments
+    in
+    Some
+      (String.concat "\n"
+         ([
+            "## Attachments";
+            "This message includes attachments. Reference syntax:";
+          ]
+         @ syntax_lines @ [ ""; "Attached:" ] @ refs))
+
+let build ~(config : Runtime_config.t) ~tool_registry ?(attachments = [])
+    ?(channel_type = "dm") ?(workspace = None) ?(scheduled_jobs = []) () =
   if not config.prompt.dynamic_enabled then
     if config.agent_defaults.system_prompt <> "" then
       config.agent_defaults.system_prompt
@@ -81,7 +155,8 @@ let build ~(config : Runtime_config.t) ~tool_registry =
   else
     let lines = ref [] in
     let add s = lines := s :: !lines in
-    let workspace = Runtime_config.effective_workspace config in
+    let ws = Runtime_config.effective_workspace config in
+    let effective_ws = match workspace with Some w -> w | None -> ws in
     if config.agent_defaults.system_prompt <> "" then begin
       add config.agent_defaults.system_prompt;
       add ""
@@ -92,7 +167,7 @@ let build ~(config : Runtime_config.t) ~tool_registry =
     end;
     if config.prompt.include_workspace_section then begin
       add "## Workspace Context";
-      add ("Root: " ^ workspace);
+      add ("Root: " ^ ws);
       let docs = workspace_doc_blocks ~config in
       if docs = [] then
         add "No workspace identity files found. Operating with defaults only."
@@ -162,4 +237,24 @@ let build ~(config : Runtime_config.t) ~tool_registry =
       add "## DateTime";
       add ("- Current UTC: " ^ now_utc_iso8601 ())
     end;
+    (match group_chat_section ~channel_type with
+    | Some s ->
+        add "";
+        add s
+    | None -> ());
+    (match skills_section ~workspace_dir:effective_ws with
+    | Some s ->
+        add "";
+        add s
+    | None -> ());
+    (match scheduled_tasks_section ~jobs:scheduled_jobs with
+    | Some s ->
+        add "";
+        add s
+    | None -> ());
+    (match attachment_syntax_block attachments with
+    | Some s ->
+        add "";
+        add s
+    | None -> ());
     String.concat "\n" (List.rev !lines)

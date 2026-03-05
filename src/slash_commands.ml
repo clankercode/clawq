@@ -7,6 +7,7 @@ let commands =
     { name = "help"; description = "Show available commands" };
     { name = "new"; description = "Start a new conversation" };
     { name = "status"; description = "Show bot status" };
+    { name = "pair"; description = "Pair with TOTP code: /pair <6-digit-code>" };
   ]
 
 let help_text =

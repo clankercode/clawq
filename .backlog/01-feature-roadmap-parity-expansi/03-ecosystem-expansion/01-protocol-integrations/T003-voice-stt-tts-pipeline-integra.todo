@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-05T19:40:11Z"
+claimed_by: cli-user
+completed_at: "2026-03-05T20:23:59Z"
 complexity: medium
 depends_on: []
+duration_minutes: 43.8013620592
 estimate_hours: 18
 id: P1.M3.E1.T003
 priority: low
-status: pending
+started_at: "2026-03-05T19:40:11Z"
+status: done
 tags: []
 title: Voice STT/TTS pipeline integrated into agent loop
 ---

@@ -571,7 +571,7 @@ let cmd_cron args =
       if Scheduler.remove_job ~db ~name then
         Printf.sprintf "Removed job '%s'" name
       else Printf.sprintf "No job found with name '%s'" name
-  | "history" :: name :: _ ->
+  | "history" :: name :: _ | "runs" :: name :: _ ->
       let db = get_db () in
       Scheduler.init_schema db;
       let runs = Scheduler.get_history ~db ~name ~limit:10 in
@@ -593,12 +593,34 @@ let cmd_cron args =
         in
         Printf.sprintf "Run history for '%s':\n%s\n%s" name header
           (String.concat "\n" rows)
+  | [ "runs" ] ->
+      let db = get_db () in
+      Scheduler.init_schema db;
+      let runs = Scheduler.list_runs ~db ~limit:20 () in
+      if runs = [] then "No run history."
+      else
+        let header =
+          Printf.sprintf "  %-5s %-15s %-20s %-8s %s" "ID" "JOB" "STARTED"
+            "STATUS" "PREVIEW"
+        in
+        let rows =
+          List.map
+            (fun (r : Scheduler.run) ->
+              Printf.sprintf "  %-5d %-15s %-20s %-8s %s" r.run_id r.job_name
+                r.started_at r.status
+                (match r.result_preview with
+                | Some p -> String.sub p 0 (min 40 (String.length p))
+                | None -> ""))
+            runs
+        in
+        "Run history:\n" ^ header ^ "\n" ^ String.concat "\n" rows
   | _ ->
-      "Usage: clawq cron <list|add|remove|history>\n\
+      "Usage: clawq cron <list|add|remove|history|runs>\n\
       \  cron list                                    - List all jobs\n\
       \  cron add <name> <session> <schedule> <msg>   - Add a job\n\
       \  cron remove <name>                           - Remove a job\n\
-      \  cron history <name>                          - Show run history"
+      \  cron history <name>                          - Show run history\n\
+      \  cron runs [name]                             - Show all run history"
 
 let cmd_audit args =
   let cfg = get_config () in
@@ -960,6 +982,32 @@ let cmd_reset_agent () =
     "Agent reset complete."
   end
 
+let cmd_otp_show () =
+  let cfg = get_config () in
+  match cfg.channels.telegram with
+  | None ->
+      "No Telegram config found. TOTP pairing requires a Telegram account with \
+       totp configured."
+  | Some tg ->
+      let results =
+        List.filter_map
+          (fun (name, (acct : Runtime_config.telegram_account)) ->
+            match acct.totp with
+            | Some t when t.totp_enabled && t.totp_secret <> "" ->
+                let time = Unix.gettimeofday () in
+                let code = Totp.generate_totp ~secret:t.totp_secret ~time in
+                let remaining = Totp.time_remaining ~time in
+                Some
+                  (Printf.sprintf "  %s: %s (expires in %ds)" name code
+                     remaining)
+            | _ -> None)
+          tg.accounts
+      in
+      if results = [] then
+        "No TOTP-enabled accounts found. Configure totp.enabled and \
+         totp.secret in a Telegram account."
+      else "Current TOTP codes:\n" ^ String.concat "\n" results
+
 let handle args =
   match args with
   | "phase2" :: _ -> Phase2.render ()
@@ -984,4 +1032,5 @@ let handle args =
   | "migrate" :: rest -> Migrate.cmd_migrate rest
   | "service" :: rest -> cmd_service rest
   | "reset-agent" :: _ -> cmd_reset_agent ()
+  | "otp-show" :: _ -> cmd_otp_show ()
   | _ -> Clawq_core.dispatch args

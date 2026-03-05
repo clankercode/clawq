@@ -12,7 +12,7 @@ milestones:
       locked: false
       name: 'Quick Wins: LLM & Observability'
       path: 01-quick-wins-llm-observability
-      status: pending
+      status: done
     - complexity: medium
       depends_on: []
       description: 'Medium-effort features: history compaction, multi-agent routing, signed audit trail, OTP channel pairing.'
@@ -21,7 +21,7 @@ milestones:
       locked: false
       name: 'High Impact: Agent Intelligence & Security'
       path: 02-high-impact-agent-intelligence
-      status: pending
+      status: done
     - complexity: medium
       depends_on: []
       description: 'Higher-effort integrations: MCP stdio client, web channel, voice STT/TTS, OpenTelemetry tracing.'
@@ -30,7 +30,7 @@ milestones:
       locked: false
       name: Ecosystem Expansion
       path: 03-ecosystem-expansion
-      status: pending
+      status: done
     - complexity: medium
       depends_on: []
       description: 'Coq proof work and extraction improvements: formal shell safety (F6), native type mapping optimizations.'

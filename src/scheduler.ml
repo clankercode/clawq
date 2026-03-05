@@ -15,6 +15,7 @@ type job = {
   message : string;
   schedule_str : string;
   enabled : bool;
+  agent_name : string option;
 }
 
 type run = {
@@ -43,8 +44,10 @@ let init_schema db =
     \  message TEXT NOT NULL,\n\
     \  schedule TEXT NOT NULL,\n\
     \  enabled INTEGER NOT NULL DEFAULT 1,\n\
+    \  agent_name TEXT,\n\
     \  created_at TEXT NOT NULL DEFAULT (datetime('now'))\n\
      )";
+  (try exec "ALTER TABLE cron_jobs ADD COLUMN agent_name TEXT" with _ -> ());
   exec
     "CREATE TABLE IF NOT EXISTS cron_runs (\n\
     \  id INTEGER PRIMARY KEY AUTOINCREMENT,\n\
@@ -131,8 +134,8 @@ let should_run schedule ~last_run ~now =
 
 let list_jobs ~db =
   let sql =
-    "SELECT id, name, session_key, message, schedule, enabled FROM cron_jobs \
-     ORDER BY id"
+    "SELECT id, name, session_key, message, schedule, enabled, agent_name FROM \
+     cron_jobs ORDER BY id"
   in
   let stmt = Sqlite3.prepare db sql in
   let jobs = ref [] in
@@ -159,7 +162,14 @@ let list_jobs ~db =
       | Sqlite3.Data.INT i -> i <> 0L
       | _ -> true
     in
-    jobs := { id; name; session_key; message; schedule_str; enabled } :: !jobs
+    let agent_name =
+      match Sqlite3.column stmt 6 with
+      | Sqlite3.Data.TEXT s -> Some s
+      | _ -> None
+    in
+    jobs :=
+      { id; name; session_key; message; schedule_str; enabled; agent_name }
+      :: !jobs
   done;
   ignore (Sqlite3.finalize stmt);
   List.rev !jobs
@@ -185,6 +195,54 @@ let add_job ~db ~name ~session_key ~message ~schedule =
           ignore (Sqlite3.finalize stmt);
           Error
             (Printf.sprintf "Failed to add job: %s" (Sqlite3.Rc.to_string rc)))
+
+let list_runs ~db ?job_name ~limit () =
+  let sql, bindings =
+    match job_name with
+    | Some name ->
+        ( "SELECT id, job_name, started_at, finished_at, status, \
+           result_preview FROM cron_runs WHERE job_name = ? ORDER BY id DESC \
+           LIMIT ?",
+          [ Sqlite3.Data.TEXT name; Sqlite3.Data.INT (Int64.of_int limit) ] )
+    | None ->
+        ( "SELECT id, job_name, started_at, finished_at, status, \
+           result_preview FROM cron_runs ORDER BY id DESC LIMIT ?",
+          [ Sqlite3.Data.INT (Int64.of_int limit) ] )
+  in
+  let stmt = Sqlite3.prepare db sql in
+  List.iteri (fun i v -> ignore (Sqlite3.bind stmt (i + 1) v)) bindings;
+  let runs = ref [] in
+  while Sqlite3.step stmt = Sqlite3.Rc.ROW do
+    let run_id =
+      match Sqlite3.column stmt 0 with
+      | Sqlite3.Data.INT i -> Int64.to_int i
+      | _ -> 0
+    in
+    let job_name =
+      match Sqlite3.column stmt 1 with Sqlite3.Data.TEXT s -> s | _ -> ""
+    in
+    let started_at =
+      match Sqlite3.column stmt 2 with Sqlite3.Data.TEXT s -> s | _ -> ""
+    in
+    let finished_at =
+      match Sqlite3.column stmt 3 with
+      | Sqlite3.Data.TEXT s -> Some s
+      | _ -> None
+    in
+    let status =
+      match Sqlite3.column stmt 4 with Sqlite3.Data.TEXT s -> s | _ -> ""
+    in
+    let result_preview =
+      match Sqlite3.column stmt 5 with
+      | Sqlite3.Data.TEXT s -> Some s
+      | _ -> None
+    in
+    runs :=
+      { run_id; job_name; started_at; finished_at; status; result_preview }
+      :: !runs
+  done;
+  ignore (Sqlite3.finalize stmt);
+  List.rev !runs
 
 let remove_job ~db ~name =
   let sql = "DELETE FROM cron_jobs WHERE name = ?" in
@@ -307,7 +365,7 @@ let tick ~db ~session_mgr =
                     (fun () ->
                       let* result =
                         Session.turn session_mgr ~key:job.session_key
-                          ~message:job.message
+                          ~message:job.message ()
                       in
                       record_run_finish ~db ~run_id ~status:"ok"
                         ~result_preview:result;

@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-05T20:08:19Z"
+claimed_by: cli-user
+completed_at: "2026-03-05T20:08:19Z"
 complexity: low
 depends_on: []
+duration_minutes: 0.006245901383333334
 estimate_hours: 1
 id: P1.M3.E3.T001
 priority: medium
-status: pending
+started_at: "2026-03-05T20:08:19Z"
+status: done
 tags: []
 title: 'cf_tunnel.ml: static URL resolution'
 ---

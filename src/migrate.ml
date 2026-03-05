@@ -68,8 +68,8 @@ let convert (json : Yojson.Safe.t) =
                   with _ -> []
                 in
                 ( name,
-                  ({ bot_token; allow_from } : Runtime_config.telegram_account)
-                ))
+                  ({ bot_token; allow_from; totp = None }
+                    : Runtime_config.telegram_account) ))
           in
           Some ({ accounts } : Runtime_config.telegram_config)
         with _ -> None
@@ -79,7 +79,7 @@ let convert (json : Yojson.Safe.t) =
          ignore (ch |> member "irc");
          warn "IRC channel not supported, skipping"
        with _ -> ());
-      ({ cli; telegram; discord = None; slack = None }
+      ({ cli; telegram; discord = None; slack = None; github = None }
         : Runtime_config.channel_config)
     with _ -> default.channels
   in
@@ -146,6 +146,10 @@ let convert (json : Yojson.Safe.t) =
       stt = None;
       mcp = default.mcp;
       resilience = default.resilience;
+      voice = None;
+      web_channel = None;
+      telemetry = None;
+      agent_bindings = [];
     }
   in
   (config, List.rev !warnings)

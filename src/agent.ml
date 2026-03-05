@@ -6,23 +6,114 @@ type t = {
 }
 
 let create ~config ?tool_registry () =
-  let system_prompt = Prompt_builder.build ~config ~tool_registry in
+  let system_prompt = Prompt_builder.build ~config ~tool_registry () in
   { history = []; config; system_prompt; tool_registry }
 
 let build_messages agent =
   agent.system_prompt <-
-    Prompt_builder.build ~config:agent.config ~tool_registry:agent.tool_registry;
+    Prompt_builder.build ~config:agent.config ~tool_registry:agent.tool_registry
+      ();
   Provider.make_message ~role:"system" ~content:agent.system_prompt
   :: List.rev agent.history
 
-let trim_history agent =
-  let effective_max =
-    let m = agent.config.memory.max_messages_per_session in
-    if m <= 0 then 500 else min m 500
+let estimate_tokens content = (String.length content + 3) / 4
+
+let estimate_history_tokens history =
+  List.fold_left
+    (fun acc (m : Provider.message) -> acc + estimate_tokens m.content)
+    0 history
+
+let context_window_for_agent agent =
+  let model =
+    Runtime_config.effective_primary_model agent.config.agent_defaults
   in
+  match Runtime_config.context_window_for_model model with
+  | Some w -> w
+  | None -> 128000
+
+let effective_max_messages agent =
+  let m = agent.config.memory.max_messages_per_session in
+  if m <= 0 then 500 else min m 500
+
+let trim_history agent =
+  let effective_max = effective_max_messages agent in
   let len = List.length agent.history in
-  if len > effective_max then
+  let token_budget = context_window_for_agent agent in
+  let compaction_threshold = token_budget * 3 / 4 in
+  let current_tokens = estimate_history_tokens agent.history in
+  if len > effective_max || current_tokens > compaction_threshold then
     agent.history <- List.filteri (fun i _ -> i < effective_max) agent.history
+
+let summarize_messages agent messages =
+  let open Lwt.Syntax in
+  let content =
+    List.map
+      (fun (m : Provider.message) ->
+        Printf.sprintf "[%s]: %s" m.role
+          (if String.length m.content > 2000 then
+             String.sub m.content 0 2000 ^ "..."
+           else m.content))
+      messages
+    |> String.concat "\n"
+  in
+  let prompt =
+    "Summarize the following conversation excerpt concisely. Preserve key \
+     facts, decisions, and context that would be needed to continue the \
+     conversation. Output only the summary, no preamble.\n\n" ^ content
+  in
+  let msgs =
+    [
+      Provider.make_message ~role:"system"
+        ~content:
+          "You are a conversation summarizer. Be concise but preserve all \
+           important context.";
+      Provider.make_message ~role:"user" ~content:prompt;
+    ]
+  in
+  Lwt.catch
+    (fun () ->
+      let* response =
+        Provider.complete ~config:agent.config ~messages:msgs ()
+      in
+      match response with
+      | Provider.Text { content; _ } -> Lwt.return content
+      | Provider.ToolCalls _ -> Lwt.return content)
+    (fun exn ->
+      Logs.warn (fun m ->
+          m "History summarization failed: %s" (Printexc.to_string exn));
+      Lwt.return
+        (Printf.sprintf "[Summary of %d messages - summarization failed]"
+           (List.length messages)))
+
+let compact_history_if_needed agent =
+  let open Lwt.Syntax in
+  let effective_max = effective_max_messages agent in
+  let len = List.length agent.history in
+  let token_budget = context_window_for_agent agent in
+  let compaction_threshold = token_budget * 3 / 4 in
+  let current_tokens = estimate_history_tokens agent.history in
+  if len > effective_max || current_tokens > compaction_threshold then begin
+    let history_chrono = List.rev agent.history in
+    let total = List.length history_chrono in
+    let mid = total / 2 in
+    let first_half = List.filteri (fun i _ -> i < mid) history_chrono in
+    let second_half = List.filteri (fun i _ -> i >= mid) history_chrono in
+    let* summary1 = summarize_messages agent first_half in
+    let* summary2 = summarize_messages agent second_half in
+    let merged_summary =
+      Printf.sprintf
+        "[Conversation history compacted]\n\n\
+         Earlier context:\n\
+         %s\n\n\
+         Recent context:\n\
+         %s"
+        summary1 summary2
+    in
+    agent.history <-
+      [ Provider.make_message ~role:"system" ~content:merged_summary ];
+    Lwt.return_unit
+  end
+  else Lwt.return_unit
 
 let tools_json agent =
   match agent.tool_registry with
@@ -181,6 +272,7 @@ let turn agent ~user_message ?db ?session_key () =
   in
   agent.history <-
     Provider.make_message ~role:"user" ~content:user_message :: agent.history;
+  let* () = compact_history_if_needed agent in
   let audit_enabled = agent.config.security.audit_enabled in
   let max_iters = agent.config.agent_defaults.max_tool_iterations in
   let tools = tools_json agent in
@@ -209,9 +301,22 @@ let turn agent ~user_message ?db ?session_key () =
     in
     match timed with Ok v -> Lwt.return v | Error e -> Lwt.fail_with e
   in
+  let track_cost response =
+    let usage, model =
+      match response with
+      | Provider.Text { usage; model; _ } -> (usage, model)
+      | Provider.ToolCalls { usage; model; _ } -> (usage, model)
+    in
+    match (usage, session_key) with
+    | Some (pt, ct), Some sid ->
+        Cost_tracker.record_turn ~model ~prompt_tokens:pt ~completion_tokens:ct
+          ~session_id:sid
+    | _ -> ()
+  in
   let rec loop iteration =
     let messages = build_messages agent in
     let* response = resilient_complete agent.config messages tools in
+    track_cost response;
     match response with
     | Provider.Text { content; _ } ->
         agent.history <-
@@ -272,6 +377,7 @@ let turn_stream agent ~user_message ?db ?session_key ~on_chunk () =
   in
   agent.history <-
     Provider.make_message ~role:"user" ~content:user_message :: agent.history;
+  let* () = compact_history_if_needed agent in
   let audit_enabled = agent.config.security.audit_enabled in
   let max_iters = agent.config.agent_defaults.max_tool_iterations in
   let tools = tools_json agent in
@@ -303,9 +409,22 @@ let turn_stream agent ~user_message ?db ?session_key ~on_chunk () =
     in
     match timed with Ok v -> Lwt.return v | Error e -> Lwt.fail_with e
   in
+  let track_cost response =
+    let usage, model =
+      match response with
+      | Provider.Text { usage; model; _ } -> (usage, model)
+      | Provider.ToolCalls { usage; model; _ } -> (usage, model)
+    in
+    match (usage, session_key) with
+    | Some (pt, ct), Some sid ->
+        Cost_tracker.record_turn ~model ~prompt_tokens:pt ~completion_tokens:ct
+          ~session_id:sid
+    | _ -> ()
+  in
   let rec loop iteration =
     let messages = build_messages agent in
     let* response = resilient_stream agent.config messages tools on_chunk in
+    track_cost response;
     match response with
     | Provider.Text { content; _ } ->
         agent.history <-

@@ -4,7 +4,7 @@ estimate_hours: 4
 id: P1.M2.E4
 locked: false
 name: Prompt Context & Channel Awareness
-status: pending
+status: done
 tasks:
     - complexity: low
       depends_on: []
@@ -12,7 +12,8 @@ tasks:
       file: T001-inject-channel-attachment-synt.todo
       id: T001
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: Inject channel attachment syntax into prompt
     - complexity: medium
       depends_on: []
@@ -20,7 +21,8 @@ tasks:
       file: T002-per-message-conversation-conte.todo
       id: T002
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: Per-message conversation context injection
     - complexity: medium
       depends_on:
@@ -29,7 +31,8 @@ tasks:
       file: T003-channel-conditional-group-chat.todo
       id: T003
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: Channel-conditional group chat section in prompt
     - complexity: medium
       depends_on: []
@@ -37,7 +40,8 @@ tasks:
       file: T004-skills-section-with-always-loa.todo
       id: T004
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: Skills section with always-loaded vs available distinction
     - complexity: low
       depends_on: []
@@ -45,7 +49,8 @@ tasks:
       file: T005-scheduled-tasks-guidance-secti.todo
       id: T005
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: Scheduled tasks guidance section in prompt
     - complexity: low
       depends_on:
@@ -54,7 +59,8 @@ tasks:
       file: T006-remove-no-reply-from-agents-md.todo
       id: T006
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: Remove [NO_REPLY] from AGENTS.md; make fully channel-conditional
     - complexity: medium
       depends_on: []

@@ -350,6 +350,7 @@ let handle args =
   | "cron" :: rest -> cmd_cron rest
   | "skills" :: rest -> cmd_skills rest
   | "audit" :: rest -> cmd_audit rest
+  | "otp-show" :: _ -> unsupported "otp-show"
   | "agent" :: _ -> unsupported "agent"
   | "transcribe" :: _ -> unsupported "transcribe"
   | "mcp" :: _ -> unsupported "mcp"
