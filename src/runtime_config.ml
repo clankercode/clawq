@@ -254,12 +254,20 @@ type model_target = { provider : string option; model : string }
 
 let effective_primary_target (ad : agent_defaults) : model_target =
   let raw = String.trim ad.primary_model in
-  match String.index_opt raw '/' with
-  | Some i when i > 0 && i + 1 < String.length raw ->
-      let provider = String.sub raw 0 i in
-      let model = String.sub raw (i + 1) (String.length raw - i - 1) in
-      { provider = Some provider; model }
-  | _ -> { provider = None; model = raw }
+  let split_at delim =
+    match String.index_opt raw delim with
+    | Some i when i > 0 && i + 1 < String.length raw ->
+        let provider = String.sub raw 0 i in
+        let model = String.sub raw (i + 1) (String.length raw - i - 1) in
+        Some { provider = Some provider; model }
+    | _ -> None
+  in
+  match split_at '/' with
+  | Some t -> t
+  | None -> (
+      match split_at ':' with
+      | Some t -> t
+      | None -> { provider = None; model = raw })
 
 let effective_primary_model (ad : agent_defaults) =
   (effective_primary_target ad).model

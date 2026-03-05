@@ -126,6 +126,34 @@ let test_provider_config_default_model () =
        true
      with Not_found -> false)
 
+let test_select_provider_prefers_colon_model_provider () =
+  let config : Runtime_config.t =
+    {
+      Runtime_config.default with
+      providers =
+        [
+          ( "groq",
+            {
+              api_key = "sk-groq";
+              base_url = Some "https://api.groq.com/openai/v1";
+              default_model = Some "llama-3.3-70b-versatile";
+            } );
+          ( "zai_coding",
+            {
+              api_key = "sk-zai";
+              base_url = Some "https://api.z.ai/api/coding/paas/v4";
+              default_model = Some "glm-5";
+            } );
+        ];
+      default_provider = Some "groq";
+      agent_defaults = { Runtime_config.default.agent_defaults with primary_model = "zai_coding:glm-5" };
+    }
+  in
+  let provider_name, _, model = Provider.select_provider ~config in
+  Alcotest.(check string) "provider chosen from model target" "zai_coding"
+    provider_name;
+  Alcotest.(check string) "model parsed from colon target" "glm-5" model
+
 let suite =
   [
     Alcotest.test_case "SSE parse delta line" `Quick test_parse_sse_line_delta;
@@ -142,4 +170,6 @@ let suite =
       test_process_sse_stream_partial_chunks;
     Alcotest.test_case "provider config default_model" `Quick
       test_provider_config_default_model;
+    Alcotest.test_case "select provider with colon target" `Quick
+      test_select_provider_prefers_colon_model_provider;
   ]

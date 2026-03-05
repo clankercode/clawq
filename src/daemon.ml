@@ -54,28 +54,10 @@ let run ~(config : Runtime_config.t) =
   Logs.info (fun m -> m "clawq daemon starting (pid=%d)" (Unix.getpid ()));
   let workspace = Runtime_config.effective_workspace config in
   Workspace_scaffold.ensure_dir workspace;
-  let active_provider =
-    let with_key =
-      List.filter
-        (fun (_, p) -> Runtime_config.is_key_set p.Runtime_config.api_key)
-        config.providers
-    in
-    let preferred =
-      match config.default_provider with
-      | Some name -> (
-          match List.find_opt (fun (n, _) -> n = name) config.providers with
-          | Some (n, p) when Runtime_config.is_key_set p.api_key -> Some n
-          | _ -> None)
-      | None -> None
-    in
-    match preferred with
-    | Some n -> n
-    | None -> ( match with_key with (n, _) :: _ -> n | [] -> "(none)")
-  in
+  let active_provider, _, active_model = Provider.select_provider ~config in
   Logs.info (fun m ->
       m "Provider: %s | Model: %s | Temp: %.2f" active_provider
-        (Runtime_config.effective_primary_model config.agent_defaults)
-        config.default_temperature);
+        active_model config.default_temperature);
   Logs.info (fun m -> m "Workspace: %s" workspace);
   Logs.info (fun m ->
       m "Channels: cli=%b telegram=%b discord=%b slack=%b" config.channels.cli
