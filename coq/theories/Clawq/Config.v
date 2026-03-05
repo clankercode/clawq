@@ -57,3 +57,18 @@ Definition valid_weights (m : MemoryConfig) : bool :=
 
 Definition validate_config (cfg : ClawqConfig) : bool :=
   valid_weights (config_memory cfg).
+
+(* F5: extended validation *)
+
+(* Valid TCP port: 1..65535 *)
+Definition valid_port (n : nat) : bool :=
+  Nat.leb 1 n && Nat.leb n 65535.
+
+(* Valid temperature stored as nat*100 (e.g. 70 = 0.7): 0..200 *)
+Definition valid_temperature (t : nat) : bool :=
+  Nat.leb t 200.
+
+Definition validate_config_full (cfg : ClawqConfig) : bool :=
+  valid_weights (config_memory cfg)
+  && valid_port (gateway_port (config_gateway cfg))
+  && valid_temperature (config_default_temperature cfg).

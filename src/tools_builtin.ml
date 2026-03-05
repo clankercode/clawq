@@ -13,7 +13,16 @@ let normalize_path path =
   let joined = String.concat "/" resolved in
   if is_abs then "/" ^ joined else joined
 
-let is_path_safe ~workspace path =
+(* Coq-extracted pure path safety check (F2).
+   Uses the formally verified normalize + is_prefix logic from PathSafety.v. *)
+let is_path_safe_coq ~workspace resolved_path =
+  let ws_segs = String.split_on_char '/' workspace in
+  let path_segs = String.split_on_char '/' resolved_path in
+  Clawq_core.is_path_safe_segs ws_segs path_segs
+
+(* OCaml path safety check using realpath (handles symlinks).
+   Kept as defense-in-depth alongside the Coq-extracted check. *)
+let is_path_safe_ocaml ~workspace path =
   let real_workspace =
     try Unix.realpath workspace
     with Unix.Unix_error _ -> normalize_path workspace
@@ -37,6 +46,25 @@ let is_path_safe ~workspace path =
   String.length real_path >= wlen
   && String.sub real_path 0 wlen = real_workspace
   && (String.length real_path = wlen || real_path.[wlen] = '/')
+
+(* Primary gate: require BOTH Coq-verified pure check AND OCaml realpath check.
+   - Coq check: formally verified immunity to ".." traversal in segment space
+   - OCaml check: resolves symlinks (defense-in-depth, beyond Coq scope)
+   Log warnings when they disagree to surface model/implementation drift. *)
+let is_path_safe ~workspace path =
+  let resolved_for_coq =
+    if Filename.is_relative path then Filename.concat workspace path
+    else path
+  in
+  let coq_ok = is_path_safe_coq ~workspace resolved_for_coq in
+  let ocaml_ok = is_path_safe_ocaml ~workspace path in
+  (if coq_ok && not ocaml_ok then
+    Logs.warn (fun m ->
+      m "PathSafety: Coq=safe, OCaml=unsafe for '%s' (symlink or realpath edge case)" path));
+  (if not coq_ok && ocaml_ok then
+    Logs.debug (fun m ->
+      m "PathSafety: Coq=unsafe, OCaml=safe for '%s' (conservative Coq model)" path));
+  coq_ok && ocaml_ok
 
 let default_shell_allowlist =
   [
