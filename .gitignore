@@ -16,6 +16,5 @@ _opam
 .env
 
 **/*.tmp.*
-dune-workspace
 main.stripped.test
 .backlog/.context.yaml

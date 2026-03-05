@@ -1,0 +1,7 @@
+(lang dune 3.21)
+
+(env
+ (release-speed
+  (ocamlopt_flags (:standard -O3)))
+ (release-size
+  (ocamlopt_flags (:standard -O2 -compact -nodynlink))))
