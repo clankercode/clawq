@@ -1,0 +1,24 @@
+complexity: high
+depends_on: []
+estimate_hours: 40
+id: P1.M4.E1
+locked: false
+name: Coq Proofs and Extraction
+status: pending
+tasks:
+    - complexity: high
+      depends_on: []
+      estimate_hours: 30
+      file: T001-formal-shell-injection-prevent.todo
+      id: T001
+      priority: high
+      status: pending
+      title: Formal shell injection prevention proof (F6)
+    - complexity: low
+      depends_on: []
+      estimate_hours: 4
+      file: T002-coq-extraction-native-type-map.todo
+      id: T002
+      priority: low
+      status: pending
+      title: Coq extraction native type mapping optimizations

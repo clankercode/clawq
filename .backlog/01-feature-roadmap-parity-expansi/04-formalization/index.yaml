@@ -1,6 +1,15 @@
 complexity: medium
 depends_on: []
-epics: []
+epics:
+    - complexity: high
+      depends_on: []
+      description: ""
+      estimate_hours: 40
+      id: E1
+      locked: false
+      name: Coq Proofs and Extraction
+      path: 01-coq-proofs-and-extraction
+      status: pending
 estimate_hours: 40
 id: P1.M4
 locked: false

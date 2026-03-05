@@ -1,0 +1,11 @@
+---
+complexity: high
+depends_on: []
+estimate_hours: 30
+id: P1.M4.E1.T001
+priority: high
+status: pending
+tags: []
+title: Formal shell injection prevention proof (F6)
+---
+Prove in Coq that the shell command tokenizer is immune to injection via metachar blacklist; extract to replace the OCaml version. Shell execution is highest-risk tool surface. Documented as F6 in docs/FORMALIZATION_PLAN.md. Coq targets: QuoteParsing.v + ShellSafety.v. Core extraction pipeline.

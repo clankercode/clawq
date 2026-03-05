@@ -1,0 +1,11 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 4
+id: P1.M4.E1.T002
+priority: low
+status: pending
+tags: []
+title: Coq extraction native type mapping optimizations
+---
+Add Extract Inlined Constant directives in coq/theories/Clawq/Extract.v for Nat.eqb, Nat.leb, and basic arithmetic to use native OCaml operators instead of Coq-emulated Nat. Documented in docs/MINIMIZATION_STRATS.md as 3-5% code size savings. Config-only change, no proof work.
