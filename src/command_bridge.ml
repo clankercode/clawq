@@ -56,7 +56,7 @@ let cmd_doctor () =
   if cfg.providers = [] then add "WARNING: No providers configured";
   List.iter
     (fun (name, (p : Runtime_config.provider_config)) ->
-      if p.api_key = "" then
+      if not (Runtime_config.is_key_set p.api_key) then
         add (Printf.sprintf "WARNING: Provider '%s' has no API key" name))
     cfg.providers;
   (match cfg.channels.telegram with
@@ -161,7 +161,7 @@ let cmd_models () =
             match p.base_url with Some u -> u | None -> "(default)"
           in
           Printf.sprintf "  %s: %s (key: %s)" name url
-            (if p.api_key = "" then "not set" else "configured"))
+            (if Runtime_config.is_key_set p.api_key then "configured" else "not set"))
         providers
     in
     "Configured providers:\n" ^ String.concat "\n" lines
@@ -212,8 +212,8 @@ let cmd_auth () =
       List.map
         (fun (name, (p : Runtime_config.provider_config)) ->
           Printf.sprintf "  %s: %s" name
-            (if p.api_key = "" then "not set"
-             else redact_key p.api_key))
+            (if Runtime_config.is_key_set p.api_key then redact_key p.api_key
+             else "not set"))
         providers
     in
     "API key status:\n" ^ String.concat "\n" lines

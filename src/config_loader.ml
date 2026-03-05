@@ -25,7 +25,15 @@ let parse_config json =
         try ad |> member "primary_model" |> to_string
         with _ -> default.agent_defaults.primary_model
       in
-      ({ primary_model } : Runtime_config.agent_defaults)
+      let system_prompt =
+        try ad |> member "system_prompt" |> to_string
+        with _ -> default.agent_defaults.system_prompt
+      in
+      let max_tool_iterations =
+        try ad |> member "max_tool_iterations" |> to_int
+        with _ -> default.agent_defaults.max_tool_iterations
+      in
+      ({ primary_model; system_prompt; max_tool_iterations } : Runtime_config.agent_defaults)
     with _ -> default.agent_defaults
   in
   let channels =
@@ -87,7 +95,11 @@ let parse_config json =
         try m |> member "search_enabled" |> to_bool
         with _ -> default.memory.search_enabled
       in
-      ({ backend; search_enabled } : Runtime_config.memory_config)
+      let db_path =
+        try m |> member "db_path" |> to_string
+        with _ -> default.memory.db_path
+      in
+      ({ backend; search_enabled; db_path } : Runtime_config.memory_config)
     with _ -> default.memory
   in
   let security =
@@ -101,7 +113,11 @@ let parse_config json =
         try s |> member "audit_enabled" |> to_bool
         with _ -> default.security.audit_enabled
       in
-      ({ workspace_only; audit_enabled } : Runtime_config.security_config)
+      let tools_enabled =
+        try s |> member "tools_enabled" |> to_bool
+        with _ -> default.security.tools_enabled
+      in
+      ({ workspace_only; audit_enabled; tools_enabled } : Runtime_config.security_config)
     with _ -> default.security
   in
   let stt =

@@ -1,27 +1,81 @@
-type message = { role : string; content : string }
-
-type completion_response = {
+type message = {
+  role : string;
   content : string;
-  model : string;
-  usage : (int * int) option;
+  tool_calls : tool_call list;
+  tool_call_id : string option;
+  name : string option;
 }
 
-let messages_to_json messages =
-  `List
-    (List.map
-       (fun m ->
-         `Assoc [ ("role", `String m.role); ("content", `String m.content) ])
-       messages)
+and tool_call = { id : string; function_name : string; arguments : string }
 
-let complete ~(config : Runtime_config.t) ~messages =
+type completion_response =
+  | Text of { content : string; model : string; usage : (int * int) option }
+  | ToolCalls of {
+      calls : tool_call list;
+      model : string;
+      usage : (int * int) option;
+    }
+
+let make_message ~role ~content =
+  { role; content; tool_calls = []; tool_call_id = None; name = None }
+
+let make_tool_result ~tool_call_id ~name ~content =
+  { role = "tool"; content; tool_calls = []; tool_call_id = Some tool_call_id; name = Some name }
+
+let message_to_json m =
+  let fields = [ ("role", `String m.role) ] in
+  let fields =
+    match m.role with
+    | "tool" ->
+      let fields = fields @ [ ("content", `String m.content) ] in
+      let fields =
+        match m.tool_call_id with
+        | Some id -> fields @ [ ("tool_call_id", `String id) ]
+        | None -> fields
+      in
+      (match m.name with
+       | Some n -> fields @ [ ("name", `String n) ]
+       | None -> fields)
+    | "assistant" when m.tool_calls <> [] ->
+      let tc_json =
+        `List
+          (List.map
+             (fun tc ->
+               `Assoc
+                 [
+                   ("id", `String tc.id);
+                   ("type", `String "function");
+                   ( "function",
+                     `Assoc
+                       [
+                         ("name", `String tc.function_name);
+                         ("arguments", `String tc.arguments);
+                       ] );
+                 ])
+             m.tool_calls)
+      in
+      fields @ [ ("tool_calls", tc_json) ]
+    | _ -> fields @ [ ("content", `String m.content) ]
+  in
+  `Assoc fields
+
+let messages_to_json messages = `List (List.map message_to_json messages)
+
+let complete ~(config : Runtime_config.t) ~messages ?tools () =
   let open Lwt.Syntax in
   let model = config.agent_defaults.primary_model in
   let provider_name, provider =
-    match config.providers with
+    let with_key =
+      List.filter (fun (_, p) -> Runtime_config.is_key_set p.Runtime_config.api_key) config.providers
+    in
+    match with_key with
     | (name, p) :: _ -> (name, p)
     | [] ->
-      ( "default",
-        { Runtime_config.api_key = ""; base_url = None } )
+      (match config.providers with
+       | (name, p) :: _ -> (name, p)
+       | [] ->
+         ( "default",
+           { Runtime_config.api_key = ""; base_url = None } ))
   in
   let base_url =
     match provider.base_url with
@@ -29,15 +83,19 @@ let complete ~(config : Runtime_config.t) ~messages =
     | None -> "https://openrouter.ai/api/v1"
   in
   let uri = base_url ^ "/chat/completions" in
-  let body =
-    `Assoc
-      [
-        ("model", `String model);
-        ("messages", messages_to_json messages);
-        ("temperature", `Float (max 1e-8 config.default_temperature));
-      ]
-    |> Yojson.Safe.to_string
+  let body_fields =
+    [
+      ("model", `String model);
+      ("messages", messages_to_json messages);
+      ("temperature", `Float (max 1e-8 config.default_temperature));
+    ]
   in
+  let body_fields =
+    match tools with
+    | Some t when t <> `List [] -> body_fields @ [ ("tools", t) ]
+    | _ -> body_fields
+  in
+  let body = `Assoc body_fields |> Yojson.Safe.to_string in
   let headers =
     [ ("Authorization", "Bearer " ^ provider.api_key) ]
   in
@@ -58,24 +116,43 @@ let complete ~(config : Runtime_config.t) ~messages =
       Lwt.fail_with ("Failed to parse LLM response JSON: " ^ msg)
     | Ok json ->
       let open Yojson.Safe.Util in
-      let content =
-        try
-          json |> member "choices" |> index 0 |> member "message"
-          |> member "content" |> to_string
-        with _ -> ""
+      let choice =
+        try json |> member "choices" |> index 0 |> member "message"
+        with _ -> `Null
       in
-      if content = "" then
-        Lwt.fail_with "Failed to extract content from LLM response"
+      let tool_calls_json =
+        try choice |> member "tool_calls" |> to_list with _ -> []
+      in
+      let resp_model =
+        try json |> member "model" |> to_string with _ -> model
+      in
+      let usage =
+        try
+          let u = json |> member "usage" in
+          let pt = u |> member "prompt_tokens" |> to_int in
+          let ct = u |> member "completion_tokens" |> to_int in
+          Some (pt, ct)
+        with _ -> None
+      in
+      if tool_calls_json <> [] then
+        let calls =
+          List.filter_map
+            (fun tc ->
+              try
+                let id = tc |> member "id" |> to_string in
+                let fn = tc |> member "function" in
+                let function_name = fn |> member "name" |> to_string in
+                let arguments = fn |> member "arguments" |> to_string in
+                Some { id; function_name; arguments }
+              with _ -> None)
+            tool_calls_json
+        in
+        Lwt.return (ToolCalls { calls; model = resp_model; usage })
       else
-        let resp_model =
-          try json |> member "model" |> to_string with _ -> model
+        let content =
+          try choice |> member "content" |> to_string with _ -> ""
         in
-        let usage =
-          try
-            let u = json |> member "usage" in
-            let pt = u |> member "prompt_tokens" |> to_int in
-            let ct = u |> member "completion_tokens" |> to_int in
-            Some (pt, ct)
-          with _ -> None
-        in
-        Lwt.return { content; model = resp_model; usage }
+        if content = "" then
+          Lwt.fail_with "Failed to extract content from LLM response"
+        else
+          Lwt.return (Text { content; model = resp_model; usage })

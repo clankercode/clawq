@@ -1,6 +1,10 @@
 type provider_config = { api_key : string; base_url : string option }
 
-type agent_defaults = { primary_model : string }
+type agent_defaults = {
+  primary_model : string;
+  system_prompt : string;
+  max_tool_iterations : int;
+}
 
 type telegram_account = { bot_token : string; allow_from : string list }
 
@@ -10,9 +14,9 @@ type channel_config = { cli : bool; telegram : telegram_config option }
 
 type gateway_config = { host : string; port : int; require_pairing : bool }
 
-type memory_config = { backend : string; search_enabled : bool }
+type memory_config = { backend : string; search_enabled : bool; db_path : string }
 
-type security_config = { workspace_only : bool; audit_enabled : bool }
+type security_config = { workspace_only : bool; audit_enabled : bool; tools_enabled : bool }
 
 type stt_config = {
   provider : string;
@@ -35,13 +39,20 @@ let default =
   {
     default_temperature = 0.7;
     providers = [];
-    agent_defaults = { primary_model = "openai/gpt-4o" };
+    agent_defaults = {
+      primary_model = "openai/gpt-4o";
+      system_prompt = "You are clawq, a helpful AI assistant. Answer questions clearly and concisely.";
+      max_tool_iterations = 10;
+    };
     channels = { cli = true; telegram = None };
     gateway = { host = "127.0.0.1"; port = 3000; require_pairing = false };
-    memory = { backend = "sqlite"; search_enabled = false };
-    security = { workspace_only = true; audit_enabled = false };
+    memory = { backend = "sqlite"; search_enabled = false; db_path = "" };
+    security = { workspace_only = true; audit_enabled = false; tools_enabled = false };
     stt = None;
   }
+
+let is_key_set key =
+  key <> "" && not (String.length key > 4 && String.sub key 0 4 = "YOUR")
 
 let merge_with_coq (coq_cfg : Clawq_core.clawqConfig) (cfg : t) : t =
   let gw = coq_cfg.config_gateway in
@@ -51,7 +62,10 @@ let merge_with_coq (coq_cfg : Clawq_core.clawqConfig) (cfg : t) : t =
     cfg with
     default_temperature =
       float_of_int coq_cfg.config_default_temperature /. 100.0;
-    agent_defaults = { primary_model = coq_cfg.config_default_model };
+    agent_defaults = {
+      cfg.agent_defaults with
+      primary_model = coq_cfg.config_default_model;
+    };
     gateway =
       {
         host = gw.gateway_host;
@@ -60,11 +74,13 @@ let merge_with_coq (coq_cfg : Clawq_core.clawqConfig) (cfg : t) : t =
       };
     memory =
       {
+        cfg.memory with
         backend = mem.memory_backend;
         search_enabled = mem.memory_search_enabled;
       };
     security =
       {
+        cfg.security with
         workspace_only = sec.security_workspace_only_cfg;
         audit_enabled = sec.security_audit_enabled_cfg;
       };

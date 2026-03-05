@@ -34,13 +34,46 @@ let run ~(config : Runtime_config.t) =
   Logs.set_reporter (Logs_fmt.reporter ());
   Logs.set_level (Some Logs.Info);
   Logs.info (fun m -> m "clawq daemon starting (pid=%d)" (Unix.getpid ()));
-  let session_manager = Session.create ~config in
+  let tool_registry =
+    if config.security.tools_enabled then begin
+      let registry = Tool_registry.create () in
+      Tools_builtin.register_all ~config registry;
+      Logs.info (fun m -> m "Tools enabled, registered built-in tools");
+      Some registry
+    end else begin
+      Logs.info (fun m -> m "Tools disabled (set security.tools_enabled to enable)");
+      None
+    end
+  in
+  let db =
+    let db_path =
+      if config.memory.db_path <> "" then config.memory.db_path
+      else
+        let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
+        Filename.concat (Filename.concat home ".clawq") "memory.db"
+    in
+    try
+      let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
+      let clawq_dir = Filename.concat home ".clawq" in
+      (try
+         if not (Sys.file_exists clawq_dir) then Sys.mkdir clawq_dir 0o755
+       with _ -> ());
+      let db = Memory.init ~db_path in
+      Logs.info (fun m -> m "SQLite memory initialized at %s" db_path);
+      Some db
+    with exn ->
+      Logs.warn (fun m ->
+          m "Failed to initialize SQLite memory: %s" (Printexc.to_string exn));
+      None
+  in
+  let session_manager = Session.create ~config ?tool_registry ?db () in
   write_state ~config
     ~components:[ ("gateway", "starting"); ("telegram", "starting") ];
   let gateway =
     Lwt.catch
       (fun () ->
-        Http_server.start ~port:config.gateway.port ~host:config.gateway.host)
+        Http_server.start ~port:config.gateway.port ~host:config.gateway.host
+          ~session_manager)
       (fun exn ->
         Logs.err (fun m ->
             m "Gateway server error: %s" (Printexc.to_string exn));
