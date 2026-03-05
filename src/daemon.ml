@@ -33,6 +33,11 @@ let run ~(config : Runtime_config.t) =
   let open Lwt.Syntax in
   Logs.set_reporter (Logs_fmt.reporter ());
   Logs.set_level (Some Logs.Info);
+  List.iter (fun src ->
+    let name = Logs.Src.name src in
+    if String.length name >= 6 && String.sub name 0 6 = "cohttp" then
+      Logs.Src.set_level src (Some Logs.Warning)
+  ) (Logs.Src.list ());
   Logs.info (fun m -> m "clawq daemon starting (pid=%d)" (Unix.getpid ()));
   let active_provider =
     let with_key =
@@ -121,13 +126,32 @@ let run ~(config : Runtime_config.t) =
   let _ = Lwt_unix.on_signal Sys.sigint do_shutdown in
   let _ = Lwt_unix.on_signal Sys.sigterm do_shutdown in
   write_state ~config
-    ~components:[ ("gateway", "running"); ("telegram", "running") ];
+    ~components:[ ("gateway", "running"); ("telegram", "running"); ("cron", "running") ];
   Logs.info (fun m ->
       m "Daemon ready. Gateway on %s:%d" config.gateway.host
         config.gateway.port);
   Lwt.async (fun () -> telegram);
+  (match db with
+   | Some db ->
+     Scheduler.init_schema db;
+     Lwt.async (fun () ->
+       Lwt.catch
+         (fun () ->
+           let rec loop () =
+             let open Lwt.Syntax in
+             let* () = Lwt_unix.sleep 60.0 in
+             let* () = Scheduler.tick ~db ~session_mgr:session_manager in
+             loop ()
+           in loop ())
+         (fun exn ->
+           Logs.err (fun m -> m "Cron scheduler error: %s" (Printexc.to_string exn));
+           Lwt.return_unit));
+     Logs.info (fun m -> m "Cron scheduler started")
+   | None ->
+     Logs.info (fun m -> m "Cron scheduler disabled (no database)"));
   let* () = Lwt.pick [ shutdown_waiter; gateway ] in
   write_state ~config
     ~components:[ ("gateway", "stopped"); ("telegram", "stopped") ];
+  (* PID file cleanup is handled by service.ml after Daemon.run returns *)
   Logs.info (fun m -> m "clawq daemon stopped");
   Lwt.return_unit

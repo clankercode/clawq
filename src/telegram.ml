@@ -165,7 +165,13 @@ let start_polling ~(config : Runtime_config.t)
         let bot_token = account.bot_token in
         Logs.info (fun m -> m "Starting Telegram polling for account '%s'" name);
         let offset = ref 0 in
+        let poll_count = ref 0 in
         let rec poll () =
+          incr poll_count;
+          (if !poll_count <= 3 then
+             Logs.info (fun m -> m "Telegram poll #%d for account '%s'" !poll_count name)
+           else if !poll_count = 4 then
+             Logs.info (fun m -> m "Telegram polling stable, suppressing routine poll logs"));
           let* updates =
             Lwt.catch
               (fun () -> get_updates ~bot_token ~offset:!offset ~timeout:30)
