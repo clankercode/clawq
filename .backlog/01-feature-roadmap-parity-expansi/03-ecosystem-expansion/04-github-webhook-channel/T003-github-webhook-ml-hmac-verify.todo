@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on:
+    - P1.M3.E4.T001
+estimate_hours: 3
+id: P1.M3.E4.T003
+priority: high
+status: pending
+tags: []
+title: 'github_webhook.ml: HMAC verify, event parse, /clawq extract'
+---
+Create src/github_webhook.ml. Pure logic, no I/O, no Lwt — fully unit-testable. Types: parsed_event (PullRequest | IssueComment | PrReviewComment | Ignored). verify_signature: digestif SHA256 hmac_string + eqaf constant-time, header format sha256=<hex>. parse_event: handle pull_request (opened/edited/reopened only), issue_comment (created), pull_request_review_comment (created); Ignored for all other actions/types. extract_clawq: scan for first /clawq line (case-insensitive), extract to next blank line or EOF, strip prefix, build full_context_preamble (repo, PR#, title, body, author, event, diff_hunk if review, files list, gh pr diff instruction, URL). session_key: github:{owner}/{repo}:pr:{n} or :issue:{n}. See api-examples/github/ for payload shapes and .plan/.../component-design.md for full spec.

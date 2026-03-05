@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on:
+    - P1.M3.E3.T001
+estimate_hours: 2
+id: P1.M3.E3.T002
+priority: medium
+status: pending
+tags: []
+title: 'cf_tunnel.ml: managed named tunnel subprocess'
+---
+Extend cf_tunnel.ml with managed cloudflared named tunnel subprocess. Spawn: cloudflared tunnel --no-autoupdate --grace-period 5s run {tunnel_name}. Watch stderr for 4x 'Connection registered connIndex=' lines → readiness → call on_url config.tunnel.url. Restart loop with exponential backoff (1s/2s/4s/8s/max 60s), reset after 5min stable. Use Lwt_process.open_process_full, read stderr via Lwt_io. Static URL takes priority (skip subprocess if config.tunnel.url set). Guard: if managed=true and tunnel_name empty → log error, skip. See api-examples/cloudflare/ for output format details.

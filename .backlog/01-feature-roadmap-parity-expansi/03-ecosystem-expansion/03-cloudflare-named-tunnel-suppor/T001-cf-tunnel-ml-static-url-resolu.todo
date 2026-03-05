@@ -1,0 +1,11 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 1
+id: P1.M3.E3.T001
+priority: medium
+status: pending
+tags: []
+title: 'cf_tunnel.ml: static URL resolution'
+---
+Implement Cf_tunnel.resolve_static and Cf_tunnel.start (static path). Priority: config.tunnel.url → CLAWQ_TUNNEL_URL env var → None. Calls on_url immediately if Some. Returns (initial_url_option, Lwt.return_unit) for non-managed. Module lives in clawq_runtime_integrations.

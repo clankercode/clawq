@@ -1,0 +1,11 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 2
+id: P1.M3.E4.T001
+priority: high
+status: pending
+tags: []
+title: 'Config: github_config types + loader + defaults'
+---
+Add to runtime_config.ml: github_auth (GithubPat of string), github_repo_config (name, webhook_secret, webhook_path, agent_name option, allow_users, react_to, include_pr_files), github_config (auth, repos list). Extend tunnel_config with url, managed, tunnel_name, config_dir. Extend channel_config with github option. Wire in config_loader.ml JSON parsing. Add to_json roundtrip. Defaults: react_to=[] means all supported, allow_users=[*], include_pr_files=true. Auth JSON: {type: pat, token: ...}. See .plan/2026-03-06-github-webhook-cloudflare-tunnel/config-schema.md.

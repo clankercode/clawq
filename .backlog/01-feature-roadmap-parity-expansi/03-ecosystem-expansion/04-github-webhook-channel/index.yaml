@@ -1,0 +1,85 @@
+complexity: medium
+depends_on:
+    - P1.M3.E3
+estimate_hours: 14
+id: P1.M3.E4
+locked: false
+name: GitHub Webhook Channel
+status: pending
+tasks:
+    - complexity: low
+      depends_on: []
+      estimate_hours: 2
+      file: T001-config-github-config-types-loa.todo
+      id: T001
+      priority: high
+      status: pending
+      title: 'Config: github_config types + loader + defaults'
+    - complexity: low
+      depends_on:
+        - P1.M3.E4.T001
+      estimate_hours: 2
+      file: T002-github-api-ml-github-rest-clie.todo
+      id: T002
+      priority: high
+      status: pending
+      title: 'github_api.ml: GitHub REST client'
+    - complexity: medium
+      depends_on:
+        - P1.M3.E4.T001
+      estimate_hours: 3
+      file: T003-github-webhook-ml-hmac-verify.todo
+      id: T003
+      priority: high
+      status: pending
+      title: 'github_webhook.ml: HMAC verify, event parse, /clawq extract'
+    - complexity: medium
+      depends_on:
+        - P1.M3.E4.T002
+        - P1.M3.E4.T003
+      estimate_hours: 2
+      file: T004-github-ml-webhook-orchestratio.todo
+      id: T004
+      priority: high
+      status: pending
+      title: 'github.ml: webhook orchestration (parse → session → reply)'
+    - complexity: low
+      depends_on:
+        - P1.M3.E4.T004
+      estimate_hours: 1
+      file: T005-http-server-ml-github-webhook.todo
+      id: T005
+      priority: high
+      status: pending
+      title: 'http_server.ml: GitHub webhook routing'
+    - complexity: low
+      depends_on:
+        - P1.M3.E3.T001
+        - P1.M3.E3.T002
+        - P1.M3.E4.T005
+      estimate_hours: 1
+      file: T006-daemon-ml-wire-tunnel-github-c.todo
+      id: T006
+      priority: high
+      status: pending
+      title: 'daemon.ml: wire tunnel + GitHub channel'
+    - complexity: medium
+      depends_on:
+        - P1.M3.E4.T003
+        - P1.M3.E4.T004
+        - P1.M3.E4.T005
+      estimate_hours: 2
+      file: T007-test-test-github-ml-full-test.todo
+      id: T007
+      priority: medium
+      status: pending
+      title: 'test/test_github.ml: full test suite'
+    - complexity: low
+      depends_on:
+        - P1.M3.E4.T006
+      estimate_hours: 1
+      file: T008-docs-github-webhook-cloudflare.todo
+      id: T008
+      priority: low
+      status: pending
+      title: 'docs: GitHub webhook + Cloudflare tunnel setup guide'

@@ -1,0 +1,25 @@
+complexity: medium
+depends_on: []
+estimate_hours: 3
+id: P1.M3.E3
+locked: false
+name: Cloudflare Named Tunnel Support
+status: pending
+tasks:
+    - complexity: low
+      depends_on: []
+      estimate_hours: 1
+      file: T001-cf-tunnel-ml-static-url-resolu.todo
+      id: T001
+      priority: medium
+      status: pending
+      title: 'cf_tunnel.ml: static URL resolution'
+    - complexity: medium
+      depends_on:
+        - P1.M3.E3.T001
+      estimate_hours: 2
+      file: T002-cf-tunnel-ml-managed-named-tun.todo
+      id: T002
+      priority: medium
+      status: pending
+      title: 'cf_tunnel.ml: managed named tunnel subprocess'

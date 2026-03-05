@@ -1,0 +1,12 @@
+---
+complexity: low
+depends_on:
+    - P1.M3.E4.T001
+estimate_hours: 2
+id: P1.M3.E4.T002
+priority: high
+status: pending
+tags: []
+title: 'github_api.ml: GitHub REST client'
+---
+Create src/github_api.ml. Functions: auth_headers (GithubPat → [(Authorization, Bearer ...)]); post_comment (auth, owner, repo, issue_number, body → unit Lwt.t); reply_to_review_comment (auth, owner, repo, pull_number, comment_id, body → unit Lwt.t); get_pr_files (auth, owner, repo, pull_number → (filename * status * additions * deletions) list Lwt.t, paginated up to 300 files). Uses existing Http_client. Rate-limit outgoing calls at 1/s per repo. Redact token in logs. On non-2xx: log warn, return unit. See api-examples/github/api-post-issue-comment.md, api-reply-review-comment.md, api-get-pr-files.md. Auth abstraction designed for GitHub App future support: see .plan/.../auth-abstraction.md.

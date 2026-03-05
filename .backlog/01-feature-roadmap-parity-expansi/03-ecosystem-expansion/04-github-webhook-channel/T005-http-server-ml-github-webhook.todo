@@ -1,0 +1,12 @@
+---
+complexity: low
+depends_on:
+    - P1.M3.E4.T004
+estimate_hours: 1
+id: P1.M3.E4.T005
+priority: high
+status: pending
+tags: []
+title: 'http_server.ml: GitHub webhook routing'
+---
+Extend http_server.ml with optional ?github_config and ?github_api_limiter params in handler and start. Match POST /github/webhook/{*} against configured repo webhook_paths. Unknown path → 404. BadSignature result → 403. Route to Github.handle_webhook with event_type from X-GitHub-Event header. Always drain body before early returns. No regression on existing routes. See component-design.md.

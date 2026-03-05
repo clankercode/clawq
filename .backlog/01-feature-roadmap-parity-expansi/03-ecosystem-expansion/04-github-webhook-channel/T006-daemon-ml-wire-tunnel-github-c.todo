@@ -1,0 +1,14 @@
+---
+complexity: low
+depends_on:
+    - P1.M3.E3.T001
+    - P1.M3.E3.T002
+    - P1.M3.E4.T005
+estimate_hours: 1
+id: P1.M3.E4.T006
+priority: high
+status: pending
+tags: []
+title: 'daemon.ml: wire tunnel + GitHub channel'
+---
+Wire Cf_tunnel.start into daemon startup after session_manager creation. Call on_url to log tunnel URL and GitHub webhook paths. Warn if channels.github non-None but no tunnel URL. Create github_api_limiter (Rate_limiter, 60 rpm). Pass ?github_config and github_api_limiter to Http_server.start. Run tunnel supervisor via Lwt.async. Add github_enabled and tunnel_url to write_state JSON. Add github= to channels log line. See component-design.md daemon section.

@@ -1,0 +1,13 @@
+---
+complexity: medium
+depends_on:
+    - P1.M3.E4.T002
+    - P1.M3.E4.T003
+estimate_hours: 2
+id: P1.M3.E4.T004
+priority: high
+status: pending
+tags: []
+title: 'github.ml: webhook orchestration (parse → session → reply)'
+---
+Create src/github.ml. handle_webhook: verify sig → parse event → react_to filter → allow_users filter → extract_clawq → optionally fetch pr_files → Session.turn → format_reply → post reply. PR review comments → reply_to_review_comment (in-thread). Issue comments and PR body events → post_comment (top-level). format_reply: blockquote of /clawq command + agent response. Error handling: agent failure → post error comment, log error, return ok. pr_files fetch failure: non-fatal, continue without files. agent_name: log at Debug that it is parsed but not yet routed. webhook_result type: Ok of string | BadSignature (for http_server to set 403). See component-design.md for full flow.

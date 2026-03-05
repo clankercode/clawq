@@ -1,0 +1,14 @@
+---
+complexity: medium
+depends_on:
+    - P1.M3.E4.T003
+    - P1.M3.E4.T004
+    - P1.M3.E4.T005
+estimate_hours: 2
+id: P1.M3.E4.T007
+priority: medium
+status: pending
+tags: []
+title: 'test/test_github.ml: full test suite'
+---
+Create test/test_github.ml with 5 suites: github_webhook_sig (verify_signature: valid/invalid/wrong-secret/malformed), github_webhook_parse (all event types + ignored actions + malformed JSON), github_webhook_extract (/clawq detection, multi-paragraph, case-insensitive, leading whitespace, missing), github_session_key (PR/issue/review-comment key generation), github_http_handler (routing, 404/403, no /clawq ignored, valid trigger calls session). Use api-examples/github/*.json as fixtures. Mock session manager in-process. See component-design.md test section.

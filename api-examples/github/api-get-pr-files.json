@@ -1,0 +1,62 @@
+[
+  {
+    "sha": "bbcd538c8e72b8c175046e27cc8f907076331401",
+    "filename": "src/connection.ml",
+    "status": "modified",
+    "additions": 12,
+    "deletions": 3,
+    "changes": 15,
+    "blob_url": "https://github.com/octocat/Hello-World/blob/6dcb09b5b57875f334f61aebed695e2e4193db5e/src%2Fconnection.ml",
+    "raw_url": "https://github.com/octocat/Hello-World/raw/6dcb09b5b57875f334f61aebed695e2e4193db5e/src%2Fconnection.ml",
+    "contents_url": "https://api.github.com/repos/octocat/Hello-World/contents/src%2Fconnection.ml?ref=6dcb09b5b57875f334f61aebed695e2e4193db5e",
+    "patch": "@@ -16,6 +16,15 @@ module Connection = struct\n   let connect host port =\n-    let addr = Unix.inet_addr_of_string host in\n+    let addr =\n+      try Unix.inet_addr_of_string host\n+      with Failure _ ->\n+        let entry = Unix.gethostbyname host in\n+        entry.Unix.h_addr_list.(0)\n+    in\n     let sock = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in\n     Unix.connect sock (Unix.ADDR_INET (addr, port));\n     sock"
+  },
+  {
+    "sha": "e4a9df8daf4ca0b29de3c1b57c0c1f20f9e5ab3d",
+    "filename": "src/utils.ml",
+    "status": "added",
+    "additions": 45,
+    "deletions": 0,
+    "changes": 45,
+    "blob_url": "https://github.com/octocat/Hello-World/blob/6dcb09b5b57875f334f61aebed695e2e4193db5e/src%2Futils.ml",
+    "raw_url": "https://github.com/octocat/Hello-World/raw/6dcb09b5b57875f334f61aebed695e2e4193db5e/src%2Futils.ml",
+    "contents_url": "https://api.github.com/repos/octocat/Hello-World/contents/src%2Futils.ml?ref=6dcb09b5b57875f334f61aebed695e2e4193db5e",
+    "patch": "@@ -0,0 +1,45 @@\n+let trim_whitespace s =\n+  let len = String.length s in\n+  let i = ref 0 in\n+  while !i < len && s.[!i] = ' ' do incr i done;\n+  (* ... rest of implementation ... *)"
+  },
+  {
+    "sha": "a84d88e7554fc1fa21a9a04c812ab6e5d1e34b7e",
+    "filename": "src/old_module.ml",
+    "status": "removed",
+    "additions": 0,
+    "deletions": 120,
+    "changes": 120,
+    "blob_url": "https://github.com/octocat/Hello-World/blob/6dcb09b5b57875f334f61aebed695e2e4193db5e/src%2Fold_module.ml",
+    "raw_url": "https://github.com/octocat/Hello-World/raw/6dcb09b5b57875f334f61aebed695e2e4193db5e/src%2Fold_module.ml",
+    "contents_url": "https://api.github.com/repos/octocat/Hello-World/contents/src%2Fold_module.ml?ref=6dcb09b5b57875f334f61aebed695e2e4193db5e",
+    "patch": "@@ -1,10 +0,0 @@\n-let deprecated_fn x =\n-  (* This module was removed in favor of utils.ml *)\n-  x + 1"
+  },
+  {
+    "sha": "c3d8e1a2b4f567890abcdef1234567890abcdef12",
+    "filename": "src/new_name.ml",
+    "status": "renamed",
+    "additions": 2,
+    "deletions": 1,
+    "changes": 3,
+    "blob_url": "https://github.com/octocat/Hello-World/blob/6dcb09b5b57875f334f61aebed695e2e4193db5e/src%2Fnew_name.ml",
+    "raw_url": "https://github.com/octocat/Hello-World/raw/6dcb09b5b57875f334f61aebed695e2e4193db5e/src%2Fnew_name.ml",
+    "contents_url": "https://api.github.com/repos/octocat/Hello-World/contents/src%2Fnew_name.ml?ref=6dcb09b5b57875f334f61aebed695e2e4193db5e",
+    "previous_filename": "src/old_name.ml",
+    "patch": "@@ -1,3 +1,4 @@\n let hello () =\n-  print_endline \"hello\"\n+  print_endline \"hello world\";\n+  flush stdout"
+  },
+  {
+    "sha": "d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4",
+    "filename": "assets/logo.png",
+    "status": "modified",
+    "additions": 0,
+    "deletions": 0,
+    "changes": 0,
+    "blob_url": "https://github.com/octocat/Hello-World/blob/6dcb09b5b57875f334f61aebed695e2e4193db5e/assets%2Flogo.png",
+    "raw_url": "https://github.com/octocat/Hello-World/raw/6dcb09b5b57875f334f61aebed695e2e4193db5e/assets%2Flogo.png",
+    "contents_url": "https://api.github.com/repos/octocat/Hello-World/contents/assets%2Flogo.png?ref=6dcb09b5b57875f334f61aebed695e2e4193db5e"
+  }
+]

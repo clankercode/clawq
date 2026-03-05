@@ -19,6 +19,25 @@ epics:
       name: 'Observability: Tracing'
       path: 02-observability-tracing
       status: pending
+    - complexity: medium
+      depends_on: []
+      description: 'Expose the gateway via Cloudflare named tunnel: static URL resolution from config/env, and managed cloudflared subprocess with named tunnel readiness detection and restart loop.'
+      estimate_hours: 3
+      id: E3
+      locked: false
+      name: Cloudflare Named Tunnel Support
+      path: 03-cloudflare-named-tunnel-suppor
+      status: pending
+    - complexity: medium
+      depends_on:
+        - P1.M3.E3
+      description: 'Full GitHub webhook channel: HMAC verification, pull_request/issue_comment/pr_review_comment parsing, /clawq extraction, per-PR session threading, GitHub API reply (in-thread for review comments, top-level for others), PR files context, auth abstraction (PAT now, GitHub App later).'
+      estimate_hours: 14
+      id: E4
+      locked: false
+      name: GitHub Webhook Channel
+      path: 04-github-webhook-channel
+      status: pending
 estimate_hours: 120
 id: P1.M3
 locked: false

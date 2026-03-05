@@ -1,0 +1,12 @@
+---
+complexity: low
+depends_on:
+    - P1.M3.E4.T006
+estimate_hours: 1
+id: P1.M3.E4.T008
+priority: low
+status: pending
+tags: []
+title: 'docs: GitHub webhook + Cloudflare tunnel setup guide'
+---
+Create docs/github-webhook-setup.md. Sections: prerequisites (cloudflared, GitHub PAT with repo scope), Cloudflare named tunnel setup (cloudflared login, tunnel create, tunnel route dns, config.yml), clawq config (annotated tunnel + channels.github JSON), GitHub webhook registration (URL, content type, secret, event selection: Pull requests + Issue comments + Pull request review comments), testing (post /clawq hello on a PR, verify reply), troubleshooting (signature mismatch, tunnel not running, wrong event type, allow_users blocked).
