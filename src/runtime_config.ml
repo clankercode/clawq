@@ -16,7 +16,12 @@ type gateway_config = { host : string; port : int; require_pairing : bool }
 
 type memory_config = { backend : string; search_enabled : bool; db_path : string }
 
-type security_config = { workspace_only : bool; audit_enabled : bool; tools_enabled : bool }
+type security_config = {
+  workspace_only : bool;
+  audit_enabled : bool;
+  tools_enabled : bool;
+  encrypt_secrets : bool;
+}
 
 type stt_config = {
   provider : string;
@@ -49,7 +54,7 @@ let default =
     channels = { cli = true; telegram = None };
     gateway = { host = "127.0.0.1"; port = 3000; require_pairing = false };
     memory = { backend = "sqlite"; search_enabled = false; db_path = "" };
-    security = { workspace_only = true; audit_enabled = false; tools_enabled = false };
+    security = { workspace_only = true; audit_enabled = false; tools_enabled = true; encrypt_secrets = false };
     stt = None;
   }
 
@@ -114,6 +119,7 @@ let to_json (cfg : t) : Yojson.Safe.t =
       ("workspace_only", `Bool cfg.security.workspace_only);
       ("audit_enabled", `Bool cfg.security.audit_enabled);
       ("tools_enabled", `Bool cfg.security.tools_enabled);
+      ("encrypt_secrets", `Bool cfg.security.encrypt_secrets);
     ]);
   ] in
   let fields = match stt_json with
@@ -152,5 +158,6 @@ let merge_with_coq (coq_cfg : Clawq_core.clawqConfig) (cfg : t) : t =
         cfg.security with
         workspace_only = sec.security_workspace_only_cfg;
         audit_enabled = sec.security_audit_enabled_cfg;
+        encrypt_secrets = sec.security_encrypt_secrets_cfg;
       };
   }

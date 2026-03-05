@@ -82,6 +82,15 @@ let cmd_doctor () =
             (Printf.sprintf
                "WARNING: Telegram account '%s' has no allow_from entries" name))
       tg.accounts);
+  if cfg.security.encrypt_secrets then
+    List.iter (fun (name, (p : Runtime_config.provider_config)) ->
+      if Runtime_config.is_key_set p.api_key
+         && String.length p.api_key > 0
+         && p.api_key.[0] <> '$' then
+        add (Printf.sprintf
+               "WARNING: Provider '%s' has plaintext API key but encrypt_secrets is enabled. \
+                Use \"$ENV_VAR\" syntax to reference environment variables." name))
+      cfg.providers;
   let result =
     match List.rev !issues with
     | [] -> "doctor: all checks passed"
@@ -144,7 +153,8 @@ let cmd_onboard () =
   },
   "security": {
     "workspace_only": true,
-    "audit_enabled": false
+    "audit_enabled": false,
+    "tools_enabled": true
   }
 }|}
     in
@@ -262,6 +272,138 @@ let cmd_agent () =
   Lwt_main.run (Daemon.run ~config:cfg);
   "Daemon stopped."
 
+let get_db () =
+  let cfg = get_config () in
+  let db_path =
+    if cfg.memory.db_path <> "" then cfg.memory.db_path
+    else
+      let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
+      Filename.concat (Filename.concat home ".clawq") "memory.db"
+  in
+  let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
+  let clawq_dir = Filename.concat home ".clawq" in
+  (try if not (Sys.file_exists clawq_dir) then Sys.mkdir clawq_dir 0o755
+   with _ -> ());
+  Memory.init ~db_path ~search_enabled:cfg.memory.search_enabled ()
+
+let cmd_cron args =
+  match args with
+  | [ "list" ] | [] ->
+    let db = get_db () in
+    Scheduler.init_schema db;
+    let jobs = Scheduler.list_jobs ~db in
+    if jobs = [] then "No cron jobs configured."
+    else
+      let header = Printf.sprintf "  %-20s %-15s %-20s %s" "NAME" "SESSION" "SCHEDULE" "ENABLED" in
+      let rows = List.map (fun (j : Scheduler.job) ->
+        Printf.sprintf "  %-20s %-15s %-20s %s" j.name j.session_key j.schedule_str
+          (if j.enabled then "yes" else "no")
+      ) jobs in
+      "Cron jobs:\n" ^ header ^ "\n" ^ String.concat "\n" rows
+  | "add" :: name :: session_key :: schedule :: message ->
+    let db = get_db () in
+    Scheduler.init_schema db;
+    let msg = String.concat " " message in
+    (match Scheduler.add_job ~db ~name ~session_key ~message:msg ~schedule with
+     | Ok () -> Printf.sprintf "Added cron job '%s'" name
+     | Error e -> Printf.sprintf "Error: %s" e)
+  | [ "remove"; name ] ->
+    let db = get_db () in
+    Scheduler.init_schema db;
+    if Scheduler.remove_job ~db ~name then
+      Printf.sprintf "Removed job '%s'" name
+    else
+      Printf.sprintf "No job found with name '%s'" name
+  | "history" :: name :: _ ->
+    let db = get_db () in
+    Scheduler.init_schema db;
+    let runs = Scheduler.get_history ~db ~name ~limit:10 in
+    if runs = [] then Printf.sprintf "No run history for '%s'" name
+    else
+      let header = Printf.sprintf "  %-5s %-20s %-8s %s" "ID" "STARTED" "STATUS" "PREVIEW" in
+      let rows = List.map (fun (r : Scheduler.run) ->
+        Printf.sprintf "  %-5d %-20s %-8s %s" r.run_id r.started_at r.status
+          (match r.result_preview with Some p -> String.sub p 0 (min 40 (String.length p)) | None -> "")
+      ) runs in
+      Printf.sprintf "Run history for '%s':\n%s\n%s" name header (String.concat "\n" rows)
+  | _ ->
+    "Usage: clawq cron <list|add|remove|history>\n\
+    \  cron list                                    - List all jobs\n\
+    \  cron add <name> <session> <schedule> <msg>   - Add a job\n\
+    \  cron remove <name>                           - Remove a job\n\
+    \  cron history <name>                          - Show run history"
+
+let cmd_audit args =
+  let cfg = get_config () in
+  if not cfg.security.audit_enabled then
+    "Audit trail is disabled. Set security.audit_enabled to true in config."
+  else
+    let db = get_db () in
+    Audit.init_schema db;
+    match args with
+    | [ "list" ] | [] ->
+      let rows = Audit.query ~db ~limit:20 () in
+      if rows = [] then "No audit log entries."
+      else
+        let header = Printf.sprintf "  %-5s %-20s %-18s %-10s %s"
+            "ID" "TIMESTAMP" "EVENT" "TOOL" "DETAILS" in
+        let lines = List.map (fun (r : Audit.row) ->
+          Printf.sprintf "  %-5d %-20s %-18s %-10s %s"
+            r.id r.timestamp r.event_type
+            (match r.tool_name with Some n -> n | None -> "")
+            (match r.details with Some d ->
+               if String.length d > 50 then String.sub d 0 50 ^ "..." else d
+             | None -> "")
+        ) rows in
+        "Audit log:\n" ^ header ^ "\n" ^ String.concat "\n" lines
+    | [ "list"; "--limit"; n ] ->
+      let limit = try int_of_string n with _ -> 20 in
+      let rows = Audit.query ~db ~limit () in
+      if rows = [] then "No audit log entries."
+      else
+        let header = Printf.sprintf "  %-5s %-20s %-18s %-10s %s"
+            "ID" "TIMESTAMP" "EVENT" "TOOL" "DETAILS" in
+        let lines = List.map (fun (r : Audit.row) ->
+          Printf.sprintf "  %-5d %-20s %-18s %-10s %s"
+            r.id r.timestamp r.event_type
+            (match r.tool_name with Some n -> n | None -> "")
+            (match r.details with Some d ->
+               if String.length d > 50 then String.sub d 0 50 ^ "..." else d
+             | None -> "")
+        ) rows in
+        "Audit log:\n" ^ header ^ "\n" ^ String.concat "\n" lines
+    | _ ->
+      "Usage: clawq audit <list|list --limit N>"
+
+let cmd_skills args =
+  match args with
+  | [ "list" ] | [] ->
+    let files = Skills.list_skills () in
+    if files = [] then
+      "No skills found in " ^ Skills.skills_dir ()
+    else
+      "Skills:\n" ^ String.concat "\n"
+        (List.map (fun f -> "  " ^ f) files)
+  | [ "path" ] ->
+    "Skills directory: " ^ Skills.skills_dir ()
+  | [ "init" ] ->
+    Skills.create_example ()
+  | _ ->
+    "Usage: clawq skills <list|path|init>"
+
+let cmd_service args =
+  match args with
+  | [ "start" ] ->
+    let cfg = get_config () in
+    Service.cmd_start ~config:cfg
+  | [ "stop" ] -> Service.cmd_stop ()
+  | [ "status" ] | [] -> Service.cmd_status ()
+  | [ "restart" ] ->
+    let cfg = get_config () in
+    Service.cmd_restart ~config:cfg
+  | _ ->
+    "Usage: clawq service <start|stop|status|restart>"
+
 let handle args =
   match args with
   | "phase2" :: _ -> Phase2.render ()
@@ -277,9 +419,10 @@ let handle args =
   | "auth" :: _ -> cmd_auth ()
   | "transcribe" :: rest -> cmd_transcribe rest
   | "mcp" :: _ -> cmd_mcp ()
-  | "cron" :: _ -> "cron: not yet implemented"
-  | "skills" :: _ -> "skills: not yet implemented"
+  | "cron" :: rest -> cmd_cron rest
+  | "skills" :: rest -> cmd_skills rest
+  | "audit" :: rest -> cmd_audit rest
   | "hardware" :: _ -> "hardware: deferred to Phase 2"
-  | "migrate" :: _ -> "migrate: not yet implemented"
-  | "service" :: _ -> "service: not yet implemented"
+  | "migrate" :: rest -> Migrate.cmd_migrate rest
+  | "service" :: rest -> cmd_service rest
   | _ -> Clawq_core.dispatch args

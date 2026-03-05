@@ -2,7 +2,8 @@
  (name clawq_runtime)
  (modules command_bridge phase2 runtime_config config_loader
           http_client http_server provider agent session telegram daemon
-          stt mcp_server tool tool_registry tools_builtin memory)
+          stt mcp_server tool tool_registry tools_builtin memory
+          scheduler service migrate audit skills)
  (wrapped false)
  (libraries yojson sqlite3 clawq_extracted
             lwt lwt.unix cohttp-lwt-unix conduit-lwt-unix logs logs.fmt fmt))

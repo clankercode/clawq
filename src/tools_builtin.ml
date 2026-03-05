@@ -12,10 +12,16 @@ let is_path_safe ~workspace path =
   String.length real_path >= String.length real_workspace
   && String.sub real_path 0 (String.length real_workspace) = real_workspace
 
-let shell_exec =
+let shell_exec ~workspace_only =
+  let description =
+    if workspace_only then
+      "Execute a shell command from the workspace directory and return stdout and stderr"
+    else
+      "Execute a shell command and return stdout and stderr"
+  in
   {
     Tool.name = "shell_exec";
-    description = "Execute a shell command and return stdout and stderr";
+    description;
     parameters_schema =
       `Assoc
         [
@@ -42,9 +48,17 @@ let shell_exec =
         if command = "" then Lwt.return "Error: command is required"
         else
           let open Lwt.Syntax in
+          let env =
+            if workspace_only then
+              [| "HOME=" ^ (try Sys.getenv "HOME" with Not_found -> "/tmp");
+                 "PATH=" ^ (try Sys.getenv "PATH" with Not_found -> "/usr/bin:/bin") |]
+            else
+              Unix.environment ()
+          in
+          let cwd = if workspace_only then Some (Sys.getcwd ()) else None in
+          let cmd = ("", [| "/bin/sh"; "-c"; command |]) in
           let proc =
-            Lwt_process.open_process_full
-              ("", [| "/bin/sh"; "-c"; command |])
+            Lwt_process.open_process_full ?cwd ~env cmd
           in
           let timeout = Lwt_unix.sleep 30.0 in
           let* result =
@@ -161,10 +175,29 @@ let file_write ~workspace_only =
     risk_level = Medium;
   }
 
-let http_get =
+let is_localhost_url url =
+  let url_lower = String.lowercase_ascii url in
+  let starts_with prefix s =
+    String.length s >= String.length prefix
+    && String.sub s 0 (String.length prefix) = prefix
+  in
+  starts_with "http://localhost" url_lower
+  || starts_with "http://127.0.0.1" url_lower
+  || starts_with "http://[::1]" url_lower
+  || starts_with "https://localhost" url_lower
+  || starts_with "https://127.0.0.1" url_lower
+  || starts_with "https://[::1]" url_lower
+
+let http_get ~workspace_only =
+  let description =
+    if workspace_only then
+      "Fetch a localhost URL and return the response body (workspace policy: external URLs restricted)"
+    else
+      "Fetch a URL and return the response body"
+  in
   {
     Tool.name = "http_get";
-    description = "Fetch a URL and return the response body";
+    description;
     parameters_schema =
       `Assoc
         [
@@ -188,6 +221,8 @@ let http_get =
           try args |> member "url" |> to_string with _ -> ""
         in
         if url = "" then Lwt.return "Error: url is required"
+        else if workspace_only && not (is_localhost_url url) then
+          Lwt.return "Error: workspace policy restricts HTTP access to localhost only"
         else
           Lwt.catch
             (fun () ->
@@ -251,9 +286,9 @@ let transcribe ~(config : Runtime_config.t) =
 
 let register_all ~(config : Runtime_config.t) registry =
   let workspace_only = config.security.workspace_only in
-  Tool_registry.register registry shell_exec;
+  Tool_registry.register registry (shell_exec ~workspace_only);
   Tool_registry.register registry (file_read ~workspace_only);
   Tool_registry.register registry (file_write ~workspace_only);
-  Tool_registry.register registry http_get;
+  Tool_registry.register registry (http_get ~workspace_only);
   if config.stt <> None then
     Tool_registry.register registry (transcribe ~config)

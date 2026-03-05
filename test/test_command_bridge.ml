@@ -78,7 +78,55 @@ let test_handle_not_implemented () =
         (cmd ^ " returns not implemented")
         true
         (String.length result > 0))
-    [ "cron"; "skills"; "hardware"; "migrate"; "service" ]
+    [ "hardware" ]
+
+let test_handle_cron () =
+  let result = Command_bridge.handle [ "cron" ] in
+  Alcotest.(check bool)
+    "cron returns output" true
+    (String.length result > 0)
+
+let test_handle_cron_list () =
+  let result = Command_bridge.handle [ "cron"; "list" ] in
+  Alcotest.(check bool)
+    "cron list returns output" true
+    (String.length result > 0)
+
+let test_handle_service () =
+  let result = Command_bridge.handle [ "service" ] in
+  Alcotest.(check bool)
+    "service returns status output" true
+    (String.length result > 0
+     && let prefix = "Service status:" in
+        String.length result >= String.length prefix
+        && String.sub result 0 (String.length prefix) = prefix)
+
+let test_handle_migrate_no_source () =
+  let result = Command_bridge.handle [ "migrate" ] in
+  Alcotest.(check bool)
+    "migrate returns output" true
+    (String.length result > 0)
+
+let test_handle_skills () =
+  let result = Command_bridge.handle [ "skills" ] in
+  Alcotest.(check bool)
+    "skills returns output" true
+    (String.length result > 0)
+
+let test_handle_skills_path () =
+  let result = Command_bridge.handle [ "skills"; "path" ] in
+  Alcotest.(check bool)
+    "skills path contains directory" true
+    (String.length result > 0
+     && let re = Str.regexp_string "skills" in
+        try ignore (Str.search_forward re result 0); true
+        with Not_found -> false)
+
+let test_handle_audit () =
+  let result = Command_bridge.handle [ "audit" ] in
+  Alcotest.(check bool)
+    "audit returns output" true
+    (String.length result > 0)
 
 let suite =
   [
@@ -95,4 +143,12 @@ let suite =
     Alcotest.test_case "handle auth" `Quick test_handle_auth;
     Alcotest.test_case "handle not-impl commands" `Quick
       test_handle_not_implemented;
+    Alcotest.test_case "handle cron" `Quick test_handle_cron;
+    Alcotest.test_case "handle cron list" `Quick test_handle_cron_list;
+    Alcotest.test_case "handle service" `Quick test_handle_service;
+    Alcotest.test_case "handle migrate no source" `Quick
+      test_handle_migrate_no_source;
+    Alcotest.test_case "handle skills" `Quick test_handle_skills;
+    Alcotest.test_case "handle skills path" `Quick test_handle_skills_path;
+    Alcotest.test_case "handle audit" `Quick test_handle_audit;
   ]

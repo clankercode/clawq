@@ -106,7 +106,7 @@ let test_tool_invocation () =
 
 (* Test: memory store and load roundtrip *)
 let test_memory_roundtrip () =
-  let db = Memory.init ~db_path:":memory:" in
+  let db = Memory.init ~db_path:":memory:" () in
   let msg1 = Provider.make_message ~role:"user" ~content:"hello" in
   let msg2 = Provider.make_message ~role:"assistant" ~content:"hi there" in
   Memory.store_message ~db ~session_key:"test_session" msg1;
@@ -122,7 +122,7 @@ let test_memory_roundtrip () =
 
 (* Test: memory clear session *)
 let test_memory_clear () =
-  let db = Memory.init ~db_path:":memory:" in
+  let db = Memory.init ~db_path:":memory:" () in
   Memory.store_message ~db ~session_key:"s1"
     (Provider.make_message ~role:"user" ~content:"a");
   Memory.store_message ~db ~session_key:"s2"
@@ -135,7 +135,7 @@ let test_memory_clear () =
 
 (* Test: memory list sessions *)
 let test_memory_list_sessions () =
-  let db = Memory.init ~db_path:":memory:" in
+  let db = Memory.init ~db_path:":memory:" () in
   Memory.store_message ~db ~session_key:"alpha"
     (Provider.make_message ~role:"user" ~content:"a");
   Memory.store_message ~db ~session_key:"beta"
@@ -151,7 +151,7 @@ let test_memory_list_sessions () =
 
 (* Test: memory with tool calls *)
 let test_memory_tool_calls () =
-  let db = Memory.init ~db_path:":memory:" in
+  let db = Memory.init ~db_path:":memory:" () in
   let tool_msg =
     {
       Provider.role = "assistant";

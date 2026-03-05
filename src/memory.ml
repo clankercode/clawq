@@ -1,6 +1,6 @@
 let schema_version = 1
 
-let init ~db_path =
+let init ~db_path ?(search_enabled = false) () =
   let db = Sqlite3.db_open db_path in
   let exec sql =
     match Sqlite3.exec db sql with
@@ -33,6 +33,21 @@ let init ~db_path =
   exec
     "CREATE INDEX IF NOT EXISTS idx_messages_session_key ON messages \
      (session_key)";
+  if search_enabled then begin
+    exec
+      "CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts \
+       USING fts5(content, session_key, content=messages, content_rowid=id)";
+    exec
+      "CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN \
+       INSERT INTO messages_fts(rowid, content, session_key) \
+       VALUES (new.id, new.content, new.session_key); \
+       END";
+    exec
+      "CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN \
+       INSERT INTO messages_fts(messages_fts, rowid, content, session_key) \
+       VALUES('delete', old.id, old.content, old.session_key); \
+       END"
+  end;
   db
 
 let store_message ~db ~session_key (msg : Provider.message) =
@@ -151,3 +166,54 @@ let list_sessions ~db =
   done;
   ignore (Sqlite3.finalize stmt);
   List.rev !keys
+
+let search ~db ~query ?session_key ~limit () =
+  let sql, has_session =
+    match session_key with
+    | Some _ ->
+      ("SELECT m.role, m.content, m.tool_call_id, m.tool_name, m.tool_calls_json \
+        FROM messages m JOIN messages_fts f ON m.id = f.rowid \
+        WHERE messages_fts MATCH ? AND f.session_key = ? \
+        ORDER BY f.rank LIMIT ?", true)
+    | None ->
+      ("SELECT m.role, m.content, m.tool_call_id, m.tool_name, m.tool_calls_json \
+        FROM messages m JOIN messages_fts f ON m.id = f.rowid \
+        WHERE messages_fts MATCH ? \
+        ORDER BY f.rank LIMIT ?", false)
+  in
+  let stmt = Sqlite3.prepare db sql in
+  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT query));
+  if has_session then begin
+    ignore (Sqlite3.bind stmt 2
+              (Sqlite3.Data.TEXT (match session_key with Some s -> s | None -> "")));
+    ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.INT (Int64.of_int limit)))
+  end else
+    ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int limit)));
+  let messages = ref [] in
+  while Sqlite3.step stmt = Sqlite3.Rc.ROW do
+    let role = match Sqlite3.column stmt 0 with
+      | Sqlite3.Data.TEXT s -> s | _ -> "" in
+    let content = match Sqlite3.column stmt 1 with
+      | Sqlite3.Data.TEXT s -> s | _ -> "" in
+    let tool_call_id = match Sqlite3.column stmt 2 with
+      | Sqlite3.Data.TEXT s -> Some s | _ -> None in
+    let name = match Sqlite3.column stmt 3 with
+      | Sqlite3.Data.TEXT s -> Some s | _ -> None in
+    let tool_calls = match Sqlite3.column stmt 4 with
+      | Sqlite3.Data.TEXT s -> (
+        try
+          let json = Yojson.Safe.from_string s in
+          let open Yojson.Safe.Util in
+          json |> to_list
+          |> List.map (fun tc ->
+                 { Provider.id = tc |> member "id" |> to_string;
+                   function_name = tc |> member "function_name" |> to_string;
+                   arguments = tc |> member "arguments" |> to_string })
+        with _ -> [])
+      | _ -> []
+    in
+    messages :=
+      { Provider.role; content; tool_calls; tool_call_id; name } :: !messages
+  done;
+  ignore (Sqlite3.finalize stmt);
+  List.rev !messages

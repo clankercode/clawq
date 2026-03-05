@@ -31,8 +31,15 @@ let turn mgr ~key ~message =
   let open Lwt.Syntax in
   let agent, mutex = get_or_create mgr ~key in
   Lwt_mutex.with_lock mutex (fun () ->
+      (match mgr.db with
+       | Some db when mgr.config.security.audit_enabled ->
+         Audit.log ~db (ChatMessage {
+           session_key = key; role = "user";
+           content_preview = message })
+       | _ -> ());
       let history_before = List.length agent.history in
-      let* response = Agent.turn agent ~user_message:message in
+      let* response = Agent.turn agent ~user_message:message
+          ?db:mgr.db ~session_key:key () in
       (match mgr.db with
        | Some db ->
          let new_messages = List.length agent.history - history_before in
@@ -43,7 +50,11 @@ let turn mgr ~key ~message =
              List.filteri (fun i _ -> i >= skip) reversed
            in
            List.iter (fun msg -> Memory.store_message ~db ~session_key:key msg) to_persist
-         end
+         end;
+         if mgr.config.security.audit_enabled then
+           Audit.log ~db (ChatMessage {
+             session_key = key; role = "assistant";
+             content_preview = response })
        | None -> ());
       Lwt.return response)
 

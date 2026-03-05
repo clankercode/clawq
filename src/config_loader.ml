@@ -9,12 +9,19 @@ let parse_config json =
     try Some (json |> member "default_provider" |> to_string)
     with _ -> default.default_provider
   in
+let resolve_secret s =
+    if String.length s > 1 && s.[0] = '$' then
+      let var_name = String.sub s 1 (String.length s - 1) in
+      (try Sys.getenv var_name with Not_found -> s)
+    else s
+  in
   let providers =
     try
       json |> member "providers" |> to_assoc
       |> List.map (fun (name, v) ->
              let api_key =
-               try v |> member "api_key" |> to_string with _ -> ""
+               try v |> member "api_key" |> to_string |> resolve_secret
+               with _ -> ""
              in
              let base_url =
                try Some (v |> member "base_url" |> to_string) with _ -> None
@@ -121,7 +128,11 @@ let parse_config json =
         try s |> member "tools_enabled" |> to_bool
         with _ -> default.security.tools_enabled
       in
-      ({ workspace_only; audit_enabled; tools_enabled } : Runtime_config.security_config)
+      let encrypt_secrets =
+        try s |> member "encrypt_secrets" |> to_bool
+        with _ -> default.security.encrypt_secrets
+      in
+      ({ workspace_only; audit_enabled; tools_enabled; encrypt_secrets } : Runtime_config.security_config)
     with _ -> default.security
   in
   let stt =

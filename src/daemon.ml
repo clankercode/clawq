@@ -62,7 +62,13 @@ let run ~(config : Runtime_config.t) =
     if config.security.tools_enabled then begin
       let registry = Tool_registry.create () in
       Tools_builtin.register_all ~config registry;
-      Logs.info (fun m -> m "Tools enabled, registered built-in tools");
+      let skills = Skills.load_all () in
+      List.iter (fun s ->
+        Tool_registry.register registry s;
+        Logs.info (fun m -> m "Loaded skill: %s" s.Tool.name)
+      ) skills;
+      Logs.info (fun m -> m "Tools enabled, registered built-in tools + %d skills"
+                    (List.length skills));
       Some registry
     end else begin
       Logs.info (fun m -> m "Tools disabled (set security.tools_enabled to enable)");
@@ -82,7 +88,11 @@ let run ~(config : Runtime_config.t) =
       (try
          if not (Sys.file_exists clawq_dir) then Sys.mkdir clawq_dir 0o755
        with _ -> ());
-      let db = Memory.init ~db_path in
+      let db = Memory.init ~db_path ~search_enabled:config.memory.search_enabled () in
+      if config.security.audit_enabled then begin
+        Audit.init_schema db;
+        Logs.info (fun m -> m "Audit trail enabled")
+      end;
       Logs.info (fun m -> m "SQLite memory initialized at %s" db_path);
       Some db
     with exn ->
@@ -127,6 +137,12 @@ let run ~(config : Runtime_config.t) =
   let _ = Lwt_unix.on_signal Sys.sigterm do_shutdown in
   write_state ~config
     ~components:[ ("gateway", "running"); ("telegram", "running"); ("cron", "running") ];
+  (match db with
+   | Some db when config.security.audit_enabled ->
+     Audit.log ~db (DaemonEvent { action = "start";
+       details = Printf.sprintf "pid=%d gateway=%s:%d"
+         (Unix.getpid ()) config.gateway.host config.gateway.port })
+   | _ -> ());
   Logs.info (fun m ->
       m "Daemon ready. Gateway on %s:%d" config.gateway.host
         config.gateway.port);
@@ -152,6 +168,10 @@ let run ~(config : Runtime_config.t) =
   let* () = Lwt.pick [ shutdown_waiter; gateway ] in
   write_state ~config
     ~components:[ ("gateway", "stopped"); ("telegram", "stopped") ];
+  (match db with
+   | Some db when config.security.audit_enabled ->
+     Audit.log ~db (DaemonEvent { action = "stop"; details = "clean shutdown" })
+   | _ -> ());
   (* PID file cleanup is handled by service.ml after Daemon.run returns *)
   Logs.info (fun m -> m "clawq daemon stopped");
   Lwt.return_unit

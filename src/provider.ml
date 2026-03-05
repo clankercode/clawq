@@ -117,10 +117,27 @@ let complete ~(config : Runtime_config.t) ~messages ?tools () =
       m "LLM request to %s provider=%s model=%s msgs=%d" uri provider_name
         model (List.length messages));
   let* status, response_body = Http_client.post_json ~uri ~headers ~body in
-  if status < 200 || status >= 300 then
-    Lwt.fail_with
-      (Printf.sprintf "LLM API error (HTTP %d): %s" status response_body)
-  else
+  if status < 200 || status >= 300 then begin
+    if status = 400 then
+      try
+        let err_json = Yojson.Safe.from_string response_body in
+        let open Yojson.Safe.Util in
+        let failed_gen =
+          try err_json |> member "error" |> member "failed_generation" |> to_string
+          with _ -> ""
+        in
+        if failed_gen <> "" then
+          Lwt.return (Text { content = failed_gen; model; usage = None })
+        else
+          Lwt.fail_with
+            (Printf.sprintf "LLM API error (HTTP %d): %s" status response_body)
+      with _ ->
+        Lwt.fail_with
+          (Printf.sprintf "LLM API error (HTTP %d): %s" status response_body)
+    else
+      Lwt.fail_with
+        (Printf.sprintf "LLM API error (HTTP %d): %s" status response_body)
+  end else
     let json =
       try Ok (Yojson.Safe.from_string response_body)
       with exn -> Error (Printexc.to_string exn)
