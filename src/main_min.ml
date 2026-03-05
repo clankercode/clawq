@@ -15,26 +15,129 @@ let unescape_newlines s =
   done;
   Buffer.contents buf
 
-let run cmd args =
-  let all = cmd :: args in
-  print_string (unescape_newlines (Command_bridge_min.handle all));
+let run name args =
+  print_string (unescape_newlines (Command_bridge_min.handle (name :: args)));
   `Ok ()
 
-let cmd_t =
-  let cmd =
-    let doc = "Subcommand to run (for example: onboard, status, phase2)." in
-    Arg.(required & pos 0 (some string) None & info [] ~docv:"COMMAND" ~doc)
-  in
-  let args =
-    let doc = "Additional command arguments." in
-    Arg.(value & pos_right 0 string [] & info [] ~docv:"ARGS" ~doc)
-  in
-  Term.(ret (const run $ cmd $ args))
+let rest_args docv =
+  Arg.(value & pos_all string [] & info [] ~docv)
 
-let info =
+let simple name doc =
+  Cmd.v (Cmd.info name ~doc) Term.(ret (const (run name) $ const []))
+
+let with_args name doc man =
+  let args = rest_args "ARGS" in
+  Cmd.v (Cmd.info name ~doc ~man) Term.(ret (const (run name) $ args))
+
+let status_cmd =
+  simple "status" "Show runtime configuration summary."
+
+let doctor_cmd =
+  simple "doctor" "Check configuration for common issues."
+
+let onboard_cmd =
+  simple "onboard"
+    "Create a starter config file at ~/.clawq/config.json if none exists."
+
+let models_cmd =
+  simple "models" "List configured LLM providers and their default models."
+
+let channel_cmd =
+  simple "channel" "List configured channels."
+
+let memory_cmd =
+  simple "memory" "Show memory backend configuration."
+
+let workspace_cmd =
+  simple "workspace" "Print the current workspace directory."
+
+let capabilities_cmd =
+  simple "capabilities" "List active runtime capabilities."
+
+let phase2_cmd =
+  simple "phase2" "Show Phase 2 feature status."
+
+let auth_cmd =
+  with_args "auth"
+    "Show API key status or encrypt plaintext secrets in config."
+    [ `S "SUBCOMMANDS"
+    ; `I ("(no args)", "Print redacted API key status for all providers.")
+    ; `I ("encrypt", "Encrypt plaintext API keys in config using the master key.")
+    ]
+
+let cron_cmd =
+  with_args "cron" "Manage cron jobs for scheduled agent messages."
+    [ `S "SUBCOMMANDS"
+    ; `I ("list", "List all configured cron jobs (default).")
+    ; `I ("add NAME SESSION SCHEDULE MSG", "Add a cron job.")
+    ; `I ("remove NAME", "Remove a cron job by name.")
+    ]
+
+let audit_cmd =
+  with_args "audit" "View the security audit log."
+    [ `S "SUBCOMMANDS"
+    ; `I ("list", "Show the 20 most recent audit entries (default).")
+    ]
+
+let skills_cmd =
+  with_args "skills" "Manage agent skills."
+    [ `S "SUBCOMMANDS"
+    ; `I ("list", "List available skills (default).")
+    ; `I ("path", "Print the skills directory path.")
+    ; `I ("init", "Create an example skill file.")
+    ]
+
+let migrate_cmd =
+  with_args "migrate" "Run database migrations." []
+
+(* Disabled-in-minimal stubs — shown in help but print a clear message at runtime *)
+let disabled name doc =
+  simple name (doc ^ " (disabled in minimal build; use full clawq binary).")
+
+let agent_cmd = disabled "agent" "Start the clawq daemon"
+let mcp_cmd = disabled "mcp" "Start the MCP server"
+let transcribe_cmd = disabled "transcribe" "Transcribe an audio file"
+let runtime_cmd = disabled "runtime" "Manage native and Docker runtimes"
+let tunnel_cmd = disabled "tunnel" "Manage public tunnel"
+let service_cmd = disabled "service" "Manage the clawq system service"
+let hardware_cmd = disabled "hardware" "Hardware integration (deferred)"
+
+let main_info =
   Cmd.info "clawq-min"
     ~version:"0.1.0-dev"
-    ~doc:"Minimal clawq CLI (core-only runtime)"
-    ~exits:Cmd.Exit.defaults
+    ~doc:"Minimal clawq CLI (core-only, no network integrations)"
+    ~man:
+      [ `S Manpage.s_description
+      ; `P
+          "clawq-min is the core-only build of clawq. \
+           Network integrations (daemon, gateway, Telegram, Discord, Slack, MCP) \
+           are disabled. Use the full $(b,clawq) binary for those features."
+      ; `P "Run $(b,clawq-min COMMAND --help) for per-command usage."
+      ]
 
-let () = exit (Cmd.eval (Cmd.v info cmd_t))
+let () =
+  let cmds =
+    [ status_cmd
+    ; doctor_cmd
+    ; onboard_cmd
+    ; models_cmd
+    ; channel_cmd
+    ; memory_cmd
+    ; workspace_cmd
+    ; capabilities_cmd
+    ; auth_cmd
+    ; cron_cmd
+    ; audit_cmd
+    ; skills_cmd
+    ; migrate_cmd
+    ; phase2_cmd
+    ; agent_cmd
+    ; mcp_cmd
+    ; transcribe_cmd
+    ; runtime_cmd
+    ; tunnel_cmd
+    ; service_cmd
+    ; hardware_cmd
+    ]
+  in
+  exit (Cmd.eval (Cmd.group main_info cmds))
