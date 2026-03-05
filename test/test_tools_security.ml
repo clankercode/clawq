@@ -10,8 +10,10 @@ let contains hay needle =
 
 let with_temp_workspace f =
   let base = Filename.get_temp_dir_name () in
-  let dir = Filename.concat base
-    (Printf.sprintf "clawq_tools_%d_%d" (Unix.getpid ()) (Random.bits ())) in
+  let dir =
+    Filename.concat base
+      (Printf.sprintf "clawq_tools_%d_%d" (Unix.getpid ()) (Random.bits ()))
+  in
   (try Unix.rmdir dir with _ -> ());
   Unix.mkdir dir 0o755;
   let cwd = Sys.getcwd () in
@@ -21,73 +23,103 @@ let with_temp_workspace f =
       f dir)
     ~finally:(fun () ->
       Sys.chdir cwd;
-      (try Unix.rmdir dir with _ -> ()))
+      try Unix.rmdir dir with _ -> ())
 
 let test_path_traversal_rejected () =
   with_temp_workspace (fun workspace ->
-      Alcotest.(check bool) "../ rejected" false
+      Alcotest.(check bool)
+        "../ rejected" false
         (Tools_builtin.is_path_safe ~workspace "../etc/passwd");
-      Alcotest.(check bool) "prefix escape rejected" false
+      Alcotest.(check bool)
+        "prefix escape rejected" false
         (Tools_builtin.is_path_safe ~workspace (workspace ^ "2/outside.txt")))
 
 let test_shell_allowlist_rejects_disallowed () =
-  let tool = Tools_builtin.shell_exec ~workspace_only:true ~allowed_commands:[ "ls" ] in
+  let tool =
+    Tools_builtin.shell_exec ~workspace_only:true ~allowed_commands:[ "ls" ]
+  in
   let args = `Assoc [ ("command", `String "echo hi") ] in
   let out = Lwt_main.run (tool.invoke args) in
   Alcotest.(check bool) "blocked" true (contains out "not in the allowlist")
 
 let test_shell_allowlist_allows_command () =
-  let tool = Tools_builtin.shell_exec ~workspace_only:true ~allowed_commands:[ "ls" ] in
+  let tool =
+    Tools_builtin.shell_exec ~workspace_only:true ~allowed_commands:[ "ls" ]
+  in
   let args = `Assoc [ ("command", `String "ls .") ] in
   let out = Lwt_main.run (tool.invoke args) in
   Alcotest.(check bool) "success" true (contains out "exit_code: 0")
 
 let test_shell_rejects_command_chaining () =
-  let tool = Tools_builtin.shell_exec ~workspace_only:true ~allowed_commands:[ "ls" ] in
+  let tool =
+    Tools_builtin.shell_exec ~workspace_only:true ~allowed_commands:[ "ls" ]
+  in
   let args = `Assoc [ ("command", `String "ls && whoami") ] in
   let out = Lwt_main.run (tool.invoke args) in
-  Alcotest.(check bool) "unsafe syntax blocked" true
+  Alcotest.(check bool)
+    "unsafe syntax blocked" true
     (contains out "unsafe shell syntax")
 
 let test_shell_handles_quoted_args () =
-  let tool = Tools_builtin.shell_exec ~workspace_only:true ~allowed_commands:[ "ls" ] in
+  let tool =
+    Tools_builtin.shell_exec ~workspace_only:true ~allowed_commands:[ "ls" ]
+  in
   let args = `Assoc [ ("command", `String "ls \".\"") ] in
   let out = Lwt_main.run (tool.invoke args) in
   Alcotest.(check bool) "quoted arg success" true (contains out "exit_code: 0")
 
 let test_shell_rejects_absolute_path_arg () =
-  let tool = Tools_builtin.shell_exec ~workspace_only:true ~allowed_commands:[ "cat" ] in
+  let tool =
+    Tools_builtin.shell_exec ~workspace_only:true ~allowed_commands:[ "cat" ]
+  in
   let args = `Assoc [ ("command", `String "cat /etc/passwd") ] in
   let out = Lwt_main.run (tool.invoke args) in
-  Alcotest.(check bool) "absolute path blocked" true
+  Alcotest.(check bool)
+    "absolute path blocked" true
     (contains out "disallowed in workspace_only mode")
 
 let test_shell_rejects_url_arg () =
-  let tool = Tools_builtin.shell_exec ~workspace_only:true ~allowed_commands:[ "git" ] in
-  let args = `Assoc [ ("command", `String "git clone https://example.com/repo") ] in
+  let tool =
+    Tools_builtin.shell_exec ~workspace_only:true ~allowed_commands:[ "git" ]
+  in
+  let args =
+    `Assoc [ ("command", `String "git clone https://example.com/repo") ]
+  in
   let out = Lwt_main.run (tool.invoke args) in
-  Alcotest.(check bool) "url blocked" true
+  Alcotest.(check bool)
+    "url blocked" true
     (contains out "disallowed in workspace_only mode")
 
 let test_shell_rejects_binary_path_bypass () =
-  let tool = Tools_builtin.shell_exec ~workspace_only:true ~allowed_commands:[ "ls" ] in
+  let tool =
+    Tools_builtin.shell_exec ~workspace_only:true ~allowed_commands:[ "ls" ]
+  in
   let args = `Assoc [ ("command", `String "./ls") ] in
   let out = Lwt_main.run (tool.invoke args) in
-  Alcotest.(check bool) "binary path blocked" true
+  Alcotest.(check bool)
+    "binary path blocked" true
     (contains out "binary path is disallowed")
 
 let test_shell_rejects_option_assigned_absolute_path () =
-  let tool = Tools_builtin.shell_exec ~workspace_only:true ~allowed_commands:[ "tar" ] in
-  let args = `Assoc [ ("command", `String "tar --file=/tmp/out.tar -cf out.tar .") ] in
+  let tool =
+    Tools_builtin.shell_exec ~workspace_only:true ~allowed_commands:[ "tar" ]
+  in
+  let args =
+    `Assoc [ ("command", `String "tar --file=/tmp/out.tar -cf out.tar .") ]
+  in
   let out = Lwt_main.run (tool.invoke args) in
-  Alcotest.(check bool) "assigned path blocked" true
+  Alcotest.(check bool)
+    "assigned path blocked" true
     (contains out "disallowed in workspace_only mode")
 
 let test_shell_rejects_git_network_subcommand () =
-  let tool = Tools_builtin.shell_exec ~workspace_only:true ~allowed_commands:[ "git" ] in
+  let tool =
+    Tools_builtin.shell_exec ~workspace_only:true ~allowed_commands:[ "git" ]
+  in
   let args = `Assoc [ ("command", `String "git clone repo") ] in
   let out = Lwt_main.run (tool.invoke args) in
-  Alcotest.(check bool) "git clone blocked" true
+  Alcotest.(check bool)
+    "git clone blocked" true
     (contains out "disallowed in workspace_only mode")
 
 let test_file_edit_replaces_first_match () =
@@ -117,38 +149,43 @@ let test_transcribe_rejects_outside_workspace () =
       let tool = Tools_builtin.transcribe ~config:cfg in
       let args = `Assoc [ ("file_path", `String "/etc/passwd") ] in
       let out = Lwt_main.run (tool.invoke args) in
-      Alcotest.(check bool) "outside workspace blocked" true
+      Alcotest.(check bool)
+        "outside workspace blocked" true
         (contains out "outside workspace"))
 
 let test_is_localhost_url_accepts_loopback_hosts () =
-  Alcotest.(check bool) "localhost accepted" true
+  Alcotest.(check bool)
+    "localhost accepted" true
     (Tools_builtin.is_localhost_url "http://localhost:3000/health");
-  Alcotest.(check bool) "ipv4 loopback accepted" true
+  Alcotest.(check bool)
+    "ipv4 loopback accepted" true
     (Tools_builtin.is_localhost_url "https://127.0.0.1/api");
-  Alcotest.(check bool) "ipv6 loopback accepted" true
+  Alcotest.(check bool)
+    "ipv6 loopback accepted" true
     (Tools_builtin.is_localhost_url "http://[::1]/health")
 
 let test_is_localhost_url_rejects_host_spoofing () =
-  Alcotest.(check bool) "suffix host rejected" false
+  Alcotest.(check bool)
+    "suffix host rejected" false
     (Tools_builtin.is_localhost_url "http://localhost.evil.com/x");
-  Alcotest.(check bool) "userinfo spoof rejected" false
+  Alcotest.(check bool)
+    "userinfo spoof rejected" false
     (Tools_builtin.is_localhost_url "http://localhost@evil.com/x")
 
 let suite =
   [
-    Alcotest.test_case "path traversal rejected" `Quick test_path_traversal_rejected;
+    Alcotest.test_case "path traversal rejected" `Quick
+      test_path_traversal_rejected;
     Alcotest.test_case "shell allowlist rejects" `Quick
       test_shell_allowlist_rejects_disallowed;
     Alcotest.test_case "shell allowlist allows" `Quick
       test_shell_allowlist_allows_command;
     Alcotest.test_case "shell chaining rejected" `Quick
       test_shell_rejects_command_chaining;
-    Alcotest.test_case "shell quoted args" `Quick
-      test_shell_handles_quoted_args;
+    Alcotest.test_case "shell quoted args" `Quick test_shell_handles_quoted_args;
     Alcotest.test_case "shell absolute path arg blocked" `Quick
       test_shell_rejects_absolute_path_arg;
-    Alcotest.test_case "shell url arg blocked" `Quick
-      test_shell_rejects_url_arg;
+    Alcotest.test_case "shell url arg blocked" `Quick test_shell_rejects_url_arg;
     Alcotest.test_case "shell binary path bypass blocked" `Quick
       test_shell_rejects_binary_path_bypass;
     Alcotest.test_case "shell assigned absolute path blocked" `Quick

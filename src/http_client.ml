@@ -2,8 +2,7 @@ let post_json ~uri ~headers ~body =
   let open Lwt.Syntax in
   let uri = Uri.of_string uri in
   let headers =
-    Cohttp.Header.of_list
-      (("Content-Type", "application/json") :: headers)
+    Cohttp.Header.of_list (("Content-Type", "application/json") :: headers)
   in
   let body = Cohttp_lwt.Body.of_string body in
   let* response, body = Cohttp_lwt_unix.Client.post ~headers ~body uri in
@@ -15,8 +14,7 @@ let post_json_with_headers ~uri ~headers ~body =
   let open Lwt.Syntax in
   let uri = Uri.of_string uri in
   let headers =
-    Cohttp.Header.of_list
-      (("Content-Type", "application/json") :: headers)
+    Cohttp.Header.of_list (("Content-Type", "application/json") :: headers)
   in
   let body = Cohttp_lwt.Body.of_string body in
   let* response, body = Cohttp_lwt_unix.Client.post ~headers ~body uri in
@@ -27,7 +25,12 @@ let post_json_with_headers ~uri ~headers ~body =
 
 type multipart_part =
   | Field of { name : string; value : string }
-  | File of { name : string; filename : string; content_type : string; data : string }
+  | File of {
+      name : string;
+      filename : string;
+      content_type : string;
+      data : string;
+    }
 
 let post_multipart ~uri ~headers ~parts =
   let open Lwt.Syntax in
@@ -38,18 +41,21 @@ let post_multipart ~uri ~headers ~parts =
   List.iter
     (fun part ->
       Buffer.add_string buf ("--" ^ boundary ^ "\r\n");
-      (match part with
-       | Field { name; value } ->
-         Buffer.add_string buf
-           (Printf.sprintf "Content-Disposition: form-data; name=\"%s\"\r\n\r\n%s\r\n"
-              name value)
-       | File { name; filename; content_type; data } ->
-         Buffer.add_string buf
-           (Printf.sprintf
-              "Content-Disposition: form-data; name=\"%s\"; filename=\"%s\"\r\nContent-Type: %s\r\n\r\n"
-              name filename content_type);
-         Buffer.add_string buf data;
-         Buffer.add_string buf "\r\n"))
+      match part with
+      | Field { name; value } ->
+          Buffer.add_string buf
+            (Printf.sprintf
+               "Content-Disposition: form-data; name=\"%s\"\r\n\r\n%s\r\n" name
+               value)
+      | File { name; filename; content_type; data } ->
+          Buffer.add_string buf
+            (Printf.sprintf
+               "Content-Disposition: form-data; name=\"%s\"; filename=\"%s\"\r\n\
+                Content-Type: %s\r\n\
+                \r\n"
+               name filename content_type);
+          Buffer.add_string buf data;
+          Buffer.add_string buf "\r\n")
     parts;
   Buffer.add_string buf ("--" ^ boundary ^ "--\r\n");
   let body_str = Buffer.contents buf in
@@ -68,8 +74,7 @@ let post_stream ~uri ~headers ~body =
   let open Lwt.Syntax in
   let uri = Uri.of_string uri in
   let headers =
-    Cohttp.Header.of_list
-      (("Content-Type", "application/json") :: headers)
+    Cohttp.Header.of_list (("Content-Type", "application/json") :: headers)
   in
   let body = Cohttp_lwt.Body.of_string body in
   let* response, body = Cohttp_lwt_unix.Client.post ~headers ~body uri in

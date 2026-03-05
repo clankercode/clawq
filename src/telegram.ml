@@ -21,12 +21,11 @@ let get_updates ~bot_token ~offset ~timeout =
   let* status, body = Http_client.get ~uri ~headers:[] in
   if status >= 200 && status < 300 then
     let json =
-      try Yojson.Safe.from_string body with _ -> `Assoc [ ("result", `List []) ]
+      try Yojson.Safe.from_string body
+      with _ -> `Assoc [ ("result", `List []) ]
     in
     let open Yojson.Safe.Util in
-    let results =
-      try json |> member "result" |> to_list with _ -> []
-    in
+    let results = try json |> member "result" |> to_list with _ -> [] in
     let updates =
       List.filter_map
         (fun u ->
@@ -35,9 +34,7 @@ let get_updates ~bot_token ~offset ~timeout =
             let msg = u |> member "message" in
             let chat = msg |> member "chat" in
             let chat_id = chat |> member "id" |> to_int |> string_of_int in
-            let text =
-              try msg |> member "text" |> to_string with _ -> ""
-            in
+            let text = try msg |> member "text" |> to_string with _ -> "" in
             let voice_file_id =
               try Some (msg |> member "voice" |> member "file_id" |> to_string)
               with _ -> None
@@ -48,7 +45,9 @@ let get_updates ~bot_token ~offset ~timeout =
     in
     Lwt.return updates
   else (
-    Logs.warn (fun m -> m "Telegram getUpdates error (HTTP %d) for token=%s" status (redact_token bot_token));
+    Logs.warn (fun m ->
+        m "Telegram getUpdates error (HTTP %d) for token=%s" status
+          (redact_token bot_token));
     Lwt.return [])
 
 let send_message ~bot_token ~chat_id ~text =
@@ -58,15 +57,11 @@ let send_message ~bot_token ~chat_id ~text =
     `Assoc [ ("chat_id", `String chat_id); ("text", `String text) ]
     |> Yojson.Safe.to_string
   in
-  let* _status, _body =
-    Http_client.post_json ~uri ~headers:[] ~body
-  in
+  let* _status, _body = Http_client.post_json ~uri ~headers:[] ~body in
   Lwt.return_unit
 
 let is_allowed ~(account : Runtime_config.telegram_account) ~chat_id =
-  match account.allow_from with
-  | [ "*" ] -> true
-  | ids -> List.mem chat_id ids
+  match account.allow_from with [ "*" ] -> true | ids -> List.mem chat_id ids
 
 let _rate_limit_warnings : (string, float) Hashtbl.t = Hashtbl.create 16
 
@@ -79,90 +74,101 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
           update.chat_id);
     Lwt.return_unit)
   else
-    let* rate_ok = match chat_limiter with
+    let* rate_ok =
+      match chat_limiter with
       | Some lim -> Rate_limiter.check_and_consume lim ~key:update.chat_id
       | None -> Lwt.return true
     in
     if not rate_ok then begin
       let now = Unix.gettimeofday () in
-      let should_warn = match Hashtbl.find_opt _rate_limit_warnings update.chat_id with
+      let should_warn =
+        match Hashtbl.find_opt _rate_limit_warnings update.chat_id with
         | Some last -> now -. last >= 60.0
         | None -> true
       in
       if should_warn then begin
         Hashtbl.replace _rate_limit_warnings update.chat_id now;
-        let* () = send_message ~bot_token ~chat_id:update.chat_id
-          ~text:"Please slow down, I can only process a limited number of messages per minute." in
+        let* () =
+          send_message ~bot_token ~chat_id:update.chat_id
+            ~text:
+              "Please slow down, I can only process a limited number of \
+               messages per minute."
+        in
         Lwt.return_unit
-      end else
-        Lwt.return_unit
-    end else
-    let key = "telegram:" ^ update.chat_id in
-    let* user_text =
-      match update.voice_file_id with
-      | Some file_id -> (
-        Lwt.catch
-          (fun () ->
-            let get_file_uri =
-              Printf.sprintf "%s%s/getFile?file_id=%s" api_base bot_token
-                file_id
-            in
-            let* _status, file_body =
-              Http_client.get ~uri:get_file_uri ~headers:[]
-            in
-            let file_json = Yojson.Safe.from_string file_body in
-            let file_path =
-              Yojson.Safe.Util.(
-                file_json |> member "result" |> member "file_path" |> to_string)
-            in
-            let download_uri =
-              Printf.sprintf "https://api.telegram.org/file/bot%s/%s" bot_token
-                file_path
-            in
-            let* _status, audio_data =
-              Http_client.get ~uri:download_uri ~headers:[]
-            in
-            let filename = Filename.basename file_path in
-            let content_type = Stt.content_type_of_ext filename in
-            let config = Session.get_config session_mgr in
-            let* result =
-              Stt.transcribe ~config ~audio_data ~filename ~content_type ()
-            in
-            Lwt.return ("[Voice]: " ^ result.text))
-          (fun exn ->
-            Logs.err (fun m ->
-                m "Voice transcription failed: %s" (Printexc.to_string exn));
-            Lwt.return ""))
-      | None -> Lwt.return update.text
-    in
-    if user_text = "" then Lwt.return_unit
+      end
+      else Lwt.return_unit
+    end
     else
-    match user_text with
-    | "/start" | "/help" ->
-      let text =
-        "clawq bot ready. Send me a message and I'll respond using AI.\n\
-         Commands: /new (reset session), /help"
+      let key = "telegram:" ^ update.chat_id in
+      let* user_text =
+        match update.voice_file_id with
+        | Some file_id ->
+            Lwt.catch
+              (fun () ->
+                let get_file_uri =
+                  Printf.sprintf "%s%s/getFile?file_id=%s" api_base bot_token
+                    file_id
+                in
+                let* _status, file_body =
+                  Http_client.get ~uri:get_file_uri ~headers:[]
+                in
+                let file_json = Yojson.Safe.from_string file_body in
+                let file_path =
+                  Yojson.Safe.Util.(
+                    file_json |> member "result" |> member "file_path"
+                    |> to_string)
+                in
+                let download_uri =
+                  Printf.sprintf "https://api.telegram.org/file/bot%s/%s"
+                    bot_token file_path
+                in
+                let* _status, audio_data =
+                  Http_client.get ~uri:download_uri ~headers:[]
+                in
+                let filename = Filename.basename file_path in
+                let content_type = Stt.content_type_of_ext filename in
+                let config = Session.get_config session_mgr in
+                let* result =
+                  Stt.transcribe ~config ~audio_data ~filename ~content_type ()
+                in
+                Lwt.return ("[Voice]: " ^ result.text))
+              (fun exn ->
+                Logs.err (fun m ->
+                    m "Voice transcription failed: %s" (Printexc.to_string exn));
+                Lwt.return "")
+        | None -> Lwt.return update.text
       in
-      send_message ~bot_token ~chat_id:update.chat_id ~text
-    | "/new" ->
-      Session.reset session_mgr ~key;
-      send_message ~bot_token ~chat_id:update.chat_id
-        ~text:"Session reset. Send a new message to start fresh."
-    | msg -> (
-      let* result =
-        Lwt.catch
-          (fun () ->
-            let* response = Session.turn session_mgr ~key ~message:msg in
-            Lwt.return (Ok response))
-          (fun exn -> Lwt.return (Error (Printexc.to_string exn)))
-      in
-      match result with
-      | Ok response ->
-        send_message ~bot_token ~chat_id:update.chat_id ~text:response
-      | Error err ->
-        Logs.err (fun m -> m "Agent error for chat_id=%s: %s" update.chat_id err);
-        send_message ~bot_token ~chat_id:update.chat_id
-          ~text:"Sorry, an error occurred processing your message. Please try again.")
+      if user_text = "" then Lwt.return_unit
+      else
+        match user_text with
+        | "/start" | "/help" ->
+            let text =
+              "clawq bot ready. Send me a message and I'll respond using AI.\n\
+               Commands: /new (reset session), /help"
+            in
+            send_message ~bot_token ~chat_id:update.chat_id ~text
+        | "/new" ->
+            Session.reset session_mgr ~key;
+            send_message ~bot_token ~chat_id:update.chat_id
+              ~text:"Session reset. Send a new message to start fresh."
+        | msg -> (
+            let* result =
+              Lwt.catch
+                (fun () ->
+                  let* response = Session.turn session_mgr ~key ~message:msg in
+                  Lwt.return (Ok response))
+                (fun exn -> Lwt.return (Error (Printexc.to_string exn)))
+            in
+            match result with
+            | Ok response ->
+                send_message ~bot_token ~chat_id:update.chat_id ~text:response
+            | Error err ->
+                Logs.err (fun m ->
+                    m "Agent error for chat_id=%s: %s" update.chat_id err);
+                send_message ~bot_token ~chat_id:update.chat_id
+                  ~text:
+                    "Sorry, an error occurred processing your message. Please \
+                     try again.")
 
 let poll_account ~bot_token ~(account : Runtime_config.telegram_account) ~name
     ~(session_mgr : Session.t) ?chat_limiter () =
@@ -172,10 +178,13 @@ let poll_account ~bot_token ~(account : Runtime_config.telegram_account) ~name
   let poll_count = ref 0 in
   let rec poll () =
     incr poll_count;
-    (if !poll_count <= 3 then
-       Logs.info (fun m -> m "Telegram poll #%d for account '%s'" !poll_count name)
-     else if !poll_count = 4 then
-       Logs.info (fun m -> m "Telegram polling stable, suppressing routine poll logs for '%s'" name));
+    if !poll_count <= 3 then
+      Logs.info (fun m ->
+          m "Telegram poll #%d for account '%s'" !poll_count name)
+    else if !poll_count = 4 then
+      Logs.info (fun m ->
+          m "Telegram polling stable, suppressing routine poll logs for '%s'"
+            name);
     let* updates =
       Lwt.catch
         (fun () -> get_updates ~bot_token ~offset:!offset ~timeout:30)
@@ -196,29 +205,34 @@ let poll_account ~bot_token ~(account : Runtime_config.telegram_account) ~name
   in
   poll ()
 
-let start_polling ~(config : Runtime_config.t)
-    ~(session_manager : Session.t) ?chat_limiter () =
+let start_polling ~(config : Runtime_config.t) ~(session_manager : Session.t)
+    ?chat_limiter () =
   match config.channels.telegram with
   | None ->
-    Logs.info (fun m -> m "No Telegram config found, skipping polling");
-    Lwt.return_unit
-  | Some tg_config ->
-    match tg_config.accounts with
-    | [] ->
-      Logs.info (fun m -> m "No Telegram accounts configured");
+      Logs.info (fun m -> m "No Telegram config found, skipping polling");
       Lwt.return_unit
-    | accounts ->
-      let poll_loops = List.filter_map (fun (name, (account : Runtime_config.telegram_account)) ->
-        if account.bot_token = "" then (
-          Logs.warn (fun m ->
-              m "Telegram account '%s' has empty bot_token, skipping" name);
-          None)
-        else
-          Some (poll_account ~bot_token:account.bot_token ~account ~name
-                  ~session_mgr:session_manager ?chat_limiter ())
-      ) accounts in
-      match poll_loops with
+  | Some tg_config -> (
+      match tg_config.accounts with
       | [] ->
-        Logs.info (fun m -> m "No Telegram accounts with valid bot_token");
-        Lwt.return_unit
-      | loops -> Lwt.join loops
+          Logs.info (fun m -> m "No Telegram accounts configured");
+          Lwt.return_unit
+      | accounts -> (
+          let poll_loops =
+            List.filter_map
+              (fun (name, (account : Runtime_config.telegram_account)) ->
+                if account.bot_token = "" then (
+                  Logs.warn (fun m ->
+                      m "Telegram account '%s' has empty bot_token, skipping"
+                        name);
+                  None)
+                else
+                  Some
+                    (poll_account ~bot_token:account.bot_token ~account ~name
+                       ~session_mgr:session_manager ?chat_limiter ()))
+              accounts
+          in
+          match poll_loops with
+          | [] ->
+              Logs.info (fun m -> m "No Telegram accounts with valid bot_token");
+              Lwt.return_unit
+          | loops -> Lwt.join loops))

@@ -20,41 +20,47 @@ let make_message ~role ~content =
   { role; content; tool_calls = []; tool_call_id = None; name = None }
 
 let make_tool_result ~tool_call_id ~name ~content =
-  { role = "tool"; content; tool_calls = []; tool_call_id = Some tool_call_id; name = Some name }
+  {
+    role = "tool";
+    content;
+    tool_calls = [];
+    tool_call_id = Some tool_call_id;
+    name = Some name;
+  }
 
 let message_to_json m =
   let fields = [ ("role", `String m.role) ] in
   let fields =
     match m.role with
-    | "tool" ->
-      let fields = fields @ [ ("content", `String m.content) ] in
-      let fields =
-        match m.tool_call_id with
-        | Some id -> fields @ [ ("tool_call_id", `String id) ]
-        | None -> fields
-      in
-      (match m.name with
-       | Some n -> fields @ [ ("name", `String n) ]
-       | None -> fields)
+    | "tool" -> (
+        let fields = fields @ [ ("content", `String m.content) ] in
+        let fields =
+          match m.tool_call_id with
+          | Some id -> fields @ [ ("tool_call_id", `String id) ]
+          | None -> fields
+        in
+        match m.name with
+        | Some n -> fields @ [ ("name", `String n) ]
+        | None -> fields)
     | "assistant" when m.tool_calls <> [] ->
-      let tc_json =
-        `List
-          (List.map
-             (fun tc ->
-               `Assoc
-                 [
-                   ("id", `String tc.id);
-                   ("type", `String "function");
-                   ( "function",
-                     `Assoc
-                       [
-                         ("name", `String tc.function_name);
-                         ("arguments", `String tc.arguments);
-                       ] );
-                 ])
-             m.tool_calls)
-      in
-      fields @ [ ("tool_calls", tc_json) ]
+        let tc_json =
+          `List
+            (List.map
+               (fun tc ->
+                 `Assoc
+                   [
+                     ("id", `String tc.id);
+                     ("type", `String "function");
+                     ( "function",
+                       `Assoc
+                         [
+                           ("name", `String tc.function_name);
+                           ("arguments", `String tc.arguments);
+                         ] );
+                   ])
+               m.tool_calls)
+        in
+        fields @ [ ("tool_calls", tc_json) ]
     | _ -> fields @ [ ("content", `String m.content) ]
   in
   `Assoc fields
@@ -64,8 +70,8 @@ let messages_to_json messages = `List (List.map message_to_json messages)
 let default_base_url_for name =
   match name with
   | "zai_coding" -> "https://api.z.ai/api/coding/paas/v4"
-  | "zai"        -> "https://api.z.ai/api/paas/v4"
-  | _            -> "https://openrouter.ai/api/v1"
+  | "zai" -> "https://api.z.ai/api/paas/v4"
+  | _ -> "https://openrouter.ai/api/v1"
 
 let select_provider ~(config : Runtime_config.t) =
   let find_named name =
@@ -76,47 +82,53 @@ let select_provider ~(config : Runtime_config.t) =
       (fun (_, p) -> Runtime_config.is_key_set p.Runtime_config.api_key)
       config.providers
   in
-  let model_target = Runtime_config.effective_primary_target config.agent_defaults in
+  let model_target =
+    Runtime_config.effective_primary_target config.agent_defaults
+  in
   let model_provider_preferred =
     match model_target.provider with
-    | Some name ->
-      (match find_named name with
-       | Some (n, p) when Runtime_config.is_key_set p.api_key -> Some (n, p)
-       | _ -> None)
+    | Some name -> (
+        match find_named name with
+        | Some (n, p) when Runtime_config.is_key_set p.api_key -> Some (n, p)
+        | _ -> None)
     | None -> None
   in
   let config_provider_preferred =
     match config.default_provider with
-    | Some name ->
-      (match find_named name with
-       | Some (n, p) when Runtime_config.is_key_set p.api_key -> Some (n, p)
-       | _ -> None)
+    | Some name -> (
+        match find_named name with
+        | Some (n, p) when Runtime_config.is_key_set p.api_key -> Some (n, p)
+        | _ -> None)
     | None -> None
   in
   let chosen =
     match model_provider_preferred with
     | Some pair -> pair
     | None -> (
-      match config_provider_preferred with
-      | Some pair -> pair
-      | None ->
-        match with_key with
-        | (name, p) :: _ -> (name, p)
-        | [] ->
-          match config.providers with
-          | (name, p) :: _ -> (name, p)
-          | [] ->
-            ( "default",
-              { Runtime_config.api_key = ""; base_url = None; default_model = None } ))
+        match config_provider_preferred with
+        | Some pair -> pair
+        | None -> (
+            match with_key with
+            | (name, p) :: _ -> (name, p)
+            | [] -> (
+                match config.providers with
+                | (name, p) :: _ -> (name, p)
+                | [] ->
+                    ( "default",
+                      {
+                        Runtime_config.api_key = "";
+                        base_url = None;
+                        default_model = None;
+                      } ))))
   in
   let provider_name, provider = chosen in
   let model =
     match model_target.provider with
     | Some requested when requested = provider_name -> model_target.model
-    | _ ->
-      (match provider.default_model with
-       | Some m -> m
-       | None -> model_target.model)
+    | _ -> (
+        match provider.default_model with
+        | Some m -> m
+        | None -> model_target.model)
   in
   (provider_name, provider, model)
 
@@ -142,12 +154,10 @@ let complete ~(config : Runtime_config.t) ~messages ?tools () =
     | _ -> body_fields
   in
   let body = `Assoc body_fields |> Yojson.Safe.to_string in
-  let headers =
-    [ ("Authorization", "Bearer " ^ provider.api_key) ]
-  in
+  let headers = [ ("Authorization", "Bearer " ^ provider.api_key) ] in
   Logs.info (fun m ->
-      m "LLM request to %s provider=%s model=%s msgs=%d" uri provider_name
-        model (List.length messages));
+      m "LLM request to %s provider=%s model=%s msgs=%d" uri provider_name model
+        (List.length messages));
   let* status, response_body = Http_client.post_json ~uri ~headers ~body in
   if status < 200 || status >= 300 then begin
     if status = 400 then
@@ -155,7 +165,9 @@ let complete ~(config : Runtime_config.t) ~messages ?tools () =
         let err_json = Yojson.Safe.from_string response_body in
         let open Yojson.Safe.Util in
         let failed_gen =
-          try err_json |> member "error" |> member "failed_generation" |> to_string
+          try
+            err_json |> member "error" |> member "failed_generation"
+            |> to_string
           with _ -> ""
         in
         if failed_gen <> "" then
@@ -169,60 +181,64 @@ let complete ~(config : Runtime_config.t) ~messages ?tools () =
     else
       Lwt.fail_with
         (Printf.sprintf "LLM API error (HTTP %d): %s" status response_body)
-  end else
+  end
+  else
     let json =
       try Ok (Yojson.Safe.from_string response_body)
       with exn -> Error (Printexc.to_string exn)
     in
     match json with
-    | Error msg ->
-      Lwt.fail_with ("Failed to parse LLM response JSON: " ^ msg)
+    | Error msg -> Lwt.fail_with ("Failed to parse LLM response JSON: " ^ msg)
     | Ok json ->
-      let open Yojson.Safe.Util in
-      let choice =
-        try json |> member "choices" |> index 0 |> member "message"
-        with _ -> `Null
-      in
-      let tool_calls_json =
-        try choice |> member "tool_calls" |> to_list with _ -> []
-      in
-      let resp_model =
-        try json |> member "model" |> to_string with _ -> model
-      in
-      let usage =
-        try
-          let u = json |> member "usage" in
-          let pt = u |> member "prompt_tokens" |> to_int in
-          let ct = u |> member "completion_tokens" |> to_int in
-          Some (pt, ct)
-        with _ -> None
-      in
-      if tool_calls_json <> [] then
-        let calls =
-          List.filter_map
-            (fun tc ->
-              try
-                let id = tc |> member "id" |> to_string in
-                let fn = tc |> member "function" in
-                let function_name = fn |> member "name" |> to_string in
-                let arguments = fn |> member "arguments" |> to_string in
-                Some { id; function_name; arguments }
-              with _ -> None)
-            tool_calls_json
+        let open Yojson.Safe.Util in
+        let choice =
+          try json |> member "choices" |> index 0 |> member "message"
+          with _ -> `Null
         in
-        Lwt.return (ToolCalls { calls; model = resp_model; usage })
-      else
-        let content =
-          try choice |> member "content" |> to_string with _ -> ""
+        let tool_calls_json =
+          try choice |> member "tool_calls" |> to_list with _ -> []
         in
-        if content = "" then
-          Lwt.fail_with "Failed to extract content from LLM response"
+        let resp_model =
+          try json |> member "model" |> to_string with _ -> model
+        in
+        let usage =
+          try
+            let u = json |> member "usage" in
+            let pt = u |> member "prompt_tokens" |> to_int in
+            let ct = u |> member "completion_tokens" |> to_int in
+            Some (pt, ct)
+          with _ -> None
+        in
+        if tool_calls_json <> [] then
+          let calls =
+            List.filter_map
+              (fun tc ->
+                try
+                  let id = tc |> member "id" |> to_string in
+                  let fn = tc |> member "function" in
+                  let function_name = fn |> member "name" |> to_string in
+                  let arguments = fn |> member "arguments" |> to_string in
+                  Some { id; function_name; arguments }
+                with _ -> None)
+              tool_calls_json
+          in
+          Lwt.return (ToolCalls { calls; model = resp_model; usage })
         else
-          Lwt.return (Text { content; model = resp_model; usage })
+          let content =
+            try choice |> member "content" |> to_string with _ -> ""
+          in
+          if content = "" then
+            Lwt.fail_with "Failed to extract content from LLM response"
+          else Lwt.return (Text { content; model = resp_model; usage })
 
 type stream_event =
   | Delta of string
-  | ToolCallDelta of { index : int; id : string option; function_name : string option; arguments : string option }
+  | ToolCallDelta of {
+      index : int;
+      id : string option;
+      function_name : string option;
+      arguments : string option;
+    }
   | Done
 
 let parse_sse_line line =
@@ -231,9 +247,7 @@ let parse_sse_line line =
   if String.length line >= plen && String.sub line 0 plen = prefix then
     let data = String.sub line plen (String.length line - plen) in
     if data = "[DONE]" then Some `Done
-    else
-      (try Some (`Json (Yojson.Safe.from_string data))
-       with _ -> None)
+    else try Some (`Json (Yojson.Safe.from_string data)) with _ -> None
   else None
 
 let process_sse_stream stream ~on_chunk =
@@ -246,57 +260,88 @@ let process_sse_stream stream ~on_chunk =
   let process_line line =
     match parse_sse_line line with
     | Some `Done -> on_chunk Done
-    | Some (`Json json) ->
-      let open Yojson.Safe.Util in
-      (try resp_model := json |> member "model" |> to_string with _ -> ());
-      (try
-         let u = json |> member "usage" in
-         let pt = u |> member "prompt_tokens" |> to_int in
-         let ct = u |> member "completion_tokens" |> to_int in
-         usage_acc := Some (pt, ct)
-       with _ -> ());
-      let delta =
-        try json |> member "choices" |> index 0 |> member "delta"
-        with _ -> `Null
-      in
-      let content_delta =
-        try Some (delta |> member "content" |> to_string)
-        with _ -> None
-      in
-      (match content_delta with
-       | Some c when c <> "" ->
-         Buffer.add_string content_acc c;
-         on_chunk (Delta c)
-       | _ ->
-         let tc_deltas =
-           try delta |> member "tool_calls" |> to_list with _ -> []
-         in
-          if tc_deltas <> [] then begin
-            let* () = Lwt_list.iter_s (fun tc ->
-              let idx = try tc |> member "index" |> to_int with _ -> 0 in
-              let id = try Some (tc |> member "id" |> to_string) with _ -> None in
-              let fn_name =
-                try Some (tc |> member "function" |> member "name" |> to_string) with _ -> None
+    | Some (`Json json) -> (
+        let open Yojson.Safe.Util in
+        (try resp_model := json |> member "model" |> to_string with _ -> ());
+        (try
+           let u = json |> member "usage" in
+           let pt = u |> member "prompt_tokens" |> to_int in
+           let ct = u |> member "completion_tokens" |> to_int in
+           usage_acc := Some (pt, ct)
+         with _ -> ());
+        let delta =
+          try json |> member "choices" |> index 0 |> member "delta"
+          with _ -> `Null
+        in
+        let content_delta =
+          try Some (delta |> member "content" |> to_string) with _ -> None
+        in
+        match content_delta with
+        | Some c when c <> "" ->
+            Buffer.add_string content_acc c;
+            on_chunk (Delta c)
+        | _ ->
+            let tc_deltas =
+              try delta |> member "tool_calls" |> to_list with _ -> []
+            in
+            if tc_deltas <> [] then begin
+              let* () =
+                Lwt_list.iter_s
+                  (fun tc ->
+                    let idx =
+                      try tc |> member "index" |> to_int with _ -> 0
+                    in
+                    let id =
+                      try Some (tc |> member "id" |> to_string) with _ -> None
+                    in
+                    let fn_name =
+                      try
+                        Some
+                          (tc |> member "function" |> member "name" |> to_string)
+                      with _ -> None
+                    in
+                    let fn_args =
+                      try
+                        Some
+                          (tc |> member "function" |> member "arguments"
+                         |> to_string)
+                      with _ -> None
+                    in
+                    (* accumulate tool call data *)
+                    let existing =
+                      List.find_opt
+                        (fun (i, _, _, _) -> i = idx)
+                        !tool_calls_acc
+                    in
+                    (match existing with
+                    | None ->
+                        let args_buf = Buffer.create 256 in
+                        (match fn_args with
+                        | Some a -> Buffer.add_string args_buf a
+                        | None -> ());
+                        let tc_id = match id with Some i -> i | None -> "" in
+                        let tc_name =
+                          match fn_name with Some n -> n | None -> ""
+                        in
+                        tool_calls_acc :=
+                          !tool_calls_acc @ [ (idx, tc_id, tc_name, args_buf) ]
+                    | Some (_, _, _, args_buf) -> (
+                        match fn_args with
+                        | Some a -> Buffer.add_string args_buf a
+                        | None -> ()));
+                    on_chunk
+                      (ToolCallDelta
+                         {
+                           index = idx;
+                           id;
+                           function_name = fn_name;
+                           arguments = fn_args;
+                         }))
+                  tc_deltas
               in
-              let fn_args =
-                try Some (tc |> member "function" |> member "arguments" |> to_string) with _ -> None
-              in
-              (* accumulate tool call data *)
-              let existing = List.find_opt (fun (i, _, _, _) -> i = idx) !tool_calls_acc in
-              (match existing with
-               | None ->
-                 let args_buf = Buffer.create 256 in
-                 (match fn_args with Some a -> Buffer.add_string args_buf a | None -> ());
-                 let tc_id = match id with Some i -> i | None -> "" in
-                 let tc_name = match fn_name with Some n -> n | None -> "" in
-                 tool_calls_acc := !tool_calls_acc @ [(idx, tc_id, tc_name, args_buf)]
-               | Some (_, _, _, args_buf) ->
-                 (match fn_args with Some a -> Buffer.add_string args_buf a | None -> ()));
-              on_chunk (ToolCallDelta { index = idx; id; function_name = fn_name; arguments = fn_args })
-            ) tc_deltas in
-            Lwt.return_unit
-          end else
-            Lwt.return_unit)
+              Lwt.return_unit
+            end
+            else Lwt.return_unit)
     | None -> Lwt.return_unit
   in
   let process_buffer () =
@@ -305,34 +350,44 @@ let process_sse_stream stream ~on_chunk =
     let lines = String.split_on_char '\n' s in
     let rec process_lines = function
       | [] -> Lwt.return_unit
-      | [last] ->
-        (* last element may be incomplete - put back in buffer *)
-        Buffer.add_string buf last;
-        Lwt.return_unit
+      | [ last ] ->
+          (* last element may be incomplete - put back in buffer *)
+          Buffer.add_string buf last;
+          Lwt.return_unit
       | line :: rest ->
-        let line = if String.length line > 0 && line.[String.length line - 1] = '\r'
-          then String.sub line 0 (String.length line - 1) else line in
-        let* () = if line <> "" then process_line line else Lwt.return_unit in
-        process_lines rest
+          let line =
+            if String.length line > 0 && line.[String.length line - 1] = '\r'
+            then String.sub line 0 (String.length line - 1)
+            else line
+          in
+          let* () = if line <> "" then process_line line else Lwt.return_unit in
+          process_lines rest
     in
     process_lines lines
   in
-  let* () = Lwt_stream.iter_s (fun chunk ->
-    Buffer.add_string buf chunk;
-    process_buffer ()
-  ) stream in
+  let* () =
+    Lwt_stream.iter_s
+      (fun chunk ->
+        Buffer.add_string buf chunk;
+        process_buffer ())
+      stream
+  in
   (* process any remaining data in buffer *)
   let remaining = Buffer.contents buf in
-  let* () = if remaining <> "" then process_line remaining else Lwt.return_unit in
+  let* () =
+    if remaining <> "" then process_line remaining else Lwt.return_unit
+  in
   let content = Buffer.contents content_acc in
   let model = if !resp_model <> "" then !resp_model else "unknown" in
-  let tool_calls = List.map (fun (_, id, name, args_buf) ->
-    { id; function_name = name; arguments = Buffer.contents args_buf }
-  ) !tool_calls_acc in
+  let tool_calls =
+    List.map
+      (fun (_, id, name, args_buf) ->
+        { id; function_name = name; arguments = Buffer.contents args_buf })
+      !tool_calls_acc
+  in
   if tool_calls <> [] then
     Lwt.return (ToolCalls { calls = tool_calls; model; usage = !usage_acc })
-  else
-    Lwt.return (Text { content; model; usage = !usage_acc })
+  else Lwt.return (Text { content; model; usage = !usage_acc })
 
 let complete_stream ~(config : Runtime_config.t) ~messages ?tools ~on_chunk () =
   let open Lwt.Syntax in
@@ -357,12 +412,10 @@ let complete_stream ~(config : Runtime_config.t) ~messages ?tools ~on_chunk () =
     | _ -> body_fields
   in
   let body = `Assoc body_fields |> Yojson.Safe.to_string in
-  let headers =
-    [ ("Authorization", "Bearer " ^ provider.api_key) ]
-  in
+  let headers = [ ("Authorization", "Bearer " ^ provider.api_key) ] in
   Logs.info (fun m ->
-      m "LLM stream request to %s provider=%s model=%s msgs=%d" uri provider_name
-        model (List.length messages));
+      m "LLM stream request to %s provider=%s model=%s msgs=%d" uri
+        provider_name model (List.length messages));
   let* status, stream = Http_client.post_stream ~uri ~headers ~body in
   if status < 200 || status >= 300 then begin
     (* collect error body from stream *)
@@ -370,5 +423,5 @@ let complete_stream ~(config : Runtime_config.t) ~messages ?tools ~on_chunk () =
     let response_body = String.concat "" chunks in
     Lwt.fail_with
       (Printf.sprintf "LLM API error (HTTP %d): %s" status response_body)
-  end else
-    process_sse_stream stream ~on_chunk
+  end
+  else process_sse_stream stream ~on_chunk

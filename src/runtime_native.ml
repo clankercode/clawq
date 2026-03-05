@@ -3,29 +3,27 @@
 type status = Running of int | Stopped | Unknown of string
 
 let name = "native"
-
-let pid_path () =
-  Service.pid_path ()
+let pid_path () = Service.pid_path ()
 
 let start ~(config : Runtime_config.t) =
   let result = Service.cmd_start ~config in
-  if String.length result >= 7 && String.sub result 0 7 = "Started"
-     || String.length result >= 7 && String.sub result 0 7 = "Daemon " then
-    Ok ()
+  if
+    (String.length result >= 7 && String.sub result 0 7 = "Started")
+    || (String.length result >= 7 && String.sub result 0 7 = "Daemon ")
+  then Ok ()
   else if String.length result >= 7 && String.sub result 0 7 = "Already" then
     Error "Daemon is already running"
-  else
-    Error result
+  else Error result
 
 let stop () =
   let result = Service.cmd_stop () in
-  if String.length result >= 7 && String.sub result 0 7 = "Stopped"
-     || String.length result >= 4 && String.sub result 0 4 = "Stop" then
-    Ok ()
+  if
+    (String.length result >= 7 && String.sub result 0 7 = "Stopped")
+    || (String.length result >= 4 && String.sub result 0 4 = "Stop")
+  then Ok ()
   else if String.length result >= 3 && String.sub result 0 3 = "No " then
     Error "Daemon is not running"
-  else
-    Error result
+  else Error result
 
 let status () =
   let path = pid_path () in
@@ -36,10 +34,10 @@ let status () =
       let line = input_line ic in
       close_in ic;
       let pid = int_of_string (String.trim line) in
-      (try
-         Unix.kill pid 0;
-         Running pid
-       with Unix.Unix_error _ -> Stopped)
+      try
+        Unix.kill pid 0;
+        Running pid
+      with Unix.Unix_error _ -> Stopped
     with _ -> Unknown "Failed to read PID file"
 
 let health ~(config : Runtime_config.t) =

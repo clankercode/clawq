@@ -21,8 +21,7 @@ let test_handle_status () =
   let result = Command_bridge.handle [ "status" ] in
   Alcotest.(check bool)
     "status contains 'clawq status'" true
-    (String.length result > 0
-    && String.sub result 0 12 = "clawq status")
+    (String.length result > 0 && String.sub result 0 12 = "clawq status")
 
 let test_handle_doctor () =
   let result = Command_bridge.handle [ "doctor" ] in
@@ -32,25 +31,23 @@ let test_handle_doctor () =
 
 let test_handle_models () =
   let result = Command_bridge.handle [ "models" ] in
-  Alcotest.(check bool)
-    "models returns output" true
-    (String.length result > 0)
+  Alcotest.(check bool) "models returns output" true (String.length result > 0)
 
 let test_handle_channel () =
   let result = Command_bridge.handle [ "channel" ] in
   Alcotest.(check bool)
     "channel contains 'Configured channels'" true
     (String.length result > 0
-    && let prefix = "Configured channels" in
-       String.length result >= String.length prefix
-       && String.sub result 0 (String.length prefix) = prefix)
+    &&
+    let prefix = "Configured channels" in
+    String.length result >= String.length prefix
+    && String.sub result 0 (String.length prefix) = prefix)
 
 let test_handle_memory () =
   let result = Command_bridge.handle [ "memory" ] in
   Alcotest.(check bool)
     "memory contains 'Memory backend'" true
-    (String.length result > 0
-    && String.sub result 0 14 = "Memory backend")
+    (String.length result > 0 && String.sub result 0 14 = "Memory backend")
 
 let test_handle_workspace () =
   let result = Command_bridge.handle [ "workspace" ] in
@@ -66,9 +63,7 @@ let test_handle_capabilities () =
 
 let test_handle_auth () =
   let result = Command_bridge.handle [ "auth" ] in
-  Alcotest.(check bool)
-    "auth returns output" true
-    (String.length result > 0)
+  Alcotest.(check bool) "auth returns output" true (String.length result > 0)
 
 let test_handle_not_implemented () =
   List.iter
@@ -82,9 +77,7 @@ let test_handle_not_implemented () =
 
 let test_handle_cron () =
   let result = Command_bridge.handle [ "cron" ] in
-  Alcotest.(check bool)
-    "cron returns output" true
-    (String.length result > 0)
+  Alcotest.(check bool) "cron returns output" true (String.length result > 0)
 
 let test_handle_cron_list () =
   let result = Command_bridge.handle [ "cron"; "list" ] in
@@ -97,58 +90,57 @@ let test_handle_service () =
   Alcotest.(check bool)
     "service returns status output" true
     (String.length result > 0
-     && let prefix = "Service status:" in
-        String.length result >= String.length prefix
-        && String.sub result 0 (String.length prefix) = prefix)
+    &&
+    let prefix = "Service status:" in
+    String.length result >= String.length prefix
+    && String.sub result 0 (String.length prefix) = prefix)
 
 let test_handle_migrate_no_source () =
   let result = Command_bridge.handle [ "migrate" ] in
-  Alcotest.(check bool)
-    "migrate returns output" true
-    (String.length result > 0)
+  Alcotest.(check bool) "migrate returns output" true (String.length result > 0)
 
 let test_handle_skills () =
   let result = Command_bridge.handle [ "skills" ] in
-  Alcotest.(check bool)
-    "skills returns output" true
-    (String.length result > 0)
+  Alcotest.(check bool) "skills returns output" true (String.length result > 0)
 
 let test_handle_skills_path () =
   let result = Command_bridge.handle [ "skills"; "path" ] in
   Alcotest.(check bool)
     "skills path contains directory" true
     (String.length result > 0
-     && let re = Str.regexp_string "skills" in
-        try ignore (Str.search_forward re result 0); true
-        with Not_found -> false)
+    &&
+    let re = Str.regexp_string "skills" in
+    try
+      ignore (Str.search_forward re result 0);
+      true
+    with Not_found -> false)
 
 let test_handle_audit () =
   let result = Command_bridge.handle [ "audit" ] in
-  Alcotest.(check bool)
-    "audit returns output" true
-    (String.length result > 0)
+  Alcotest.(check bool) "audit returns output" true (String.length result > 0)
 
 let test_handle_tunnel_status () =
   let result = Command_bridge.handle [ "tunnel"; "status" ] in
   Alcotest.(check bool)
     "tunnel status returns output" true
     (String.length result > 0
-     &&
-     ((try
-         let re = Str.regexp_string "Tunnel provider" in
-         ignore (Str.search_forward re result 0);
-         true
-       with Not_found -> false)
-      ||
-      (try
-         let re = Str.regexp_string "Tunnel is disabled" in
-         ignore (Str.search_forward re result 0);
-         true
-        with Not_found -> false)))
+    && ((try
+           let re = Str.regexp_string "Tunnel provider" in
+           ignore (Str.search_forward re result 0);
+           true
+         with Not_found -> false)
+       ||
+         try
+           let re = Str.regexp_string "Tunnel is disabled" in
+           ignore (Str.search_forward re result 0);
+           true
+         with Not_found -> false))
 
 let with_temp_home f =
   let base = Filename.get_temp_dir_name () in
-  let dir = Filename.concat base ("clawq_home_" ^ string_of_int (Random.bits ())) in
+  let dir =
+    Filename.concat base ("clawq_home_" ^ string_of_int (Random.bits ()))
+  in
   Unix.mkdir dir 0o755;
   let old_home = try Some (Sys.getenv "HOME") with Not_found -> None in
   Unix.putenv "HOME" dir;
@@ -156,10 +148,10 @@ let with_temp_home f =
     (fun () -> f dir)
     ~finally:(fun () ->
       (match old_home with
-       | Some v -> Unix.putenv "HOME" v
-       | None -> Unix.putenv "HOME" "");
+      | Some v -> Unix.putenv "HOME" v
+      | None -> Unix.putenv "HOME" "");
       (try Unix.rmdir (Filename.concat dir ".clawq") with _ -> ());
-      (try Unix.rmdir dir with _ -> ()))
+      try Unix.rmdir dir with _ -> ())
 
 let test_status_cleans_stale_daemon_state () =
   with_temp_home (fun home ->
@@ -177,7 +169,9 @@ let test_status_cleans_stale_daemon_state () =
         with Not_found -> false
       in
       Alcotest.(check bool) "reports stale state" true has_stale;
-      Alcotest.(check bool) "state file removed" false (Sys.file_exists state_path))
+      Alcotest.(check bool)
+        "state file removed" false
+        (Sys.file_exists state_path))
 
 let suite =
   [

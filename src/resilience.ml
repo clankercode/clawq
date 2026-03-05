@@ -1,11 +1,13 @@
 let src = Logs.Src.create "clawq.resilience" ~doc:"Resilience policies"
+
 module Log = (val Logs.src_log src : Logs.LOG)
 
 let with_timeout ~timeout_s f =
   let open Lwt.Syntax in
   let timeout =
     let* () = Lwt_unix.sleep timeout_s in
-    Lwt.return (Error (Printf.sprintf "Operation timed out after %gs" timeout_s))
+    Lwt.return
+      (Error (Printf.sprintf "Operation timed out after %gs" timeout_s))
   in
   let operation =
     let* result = f () in
@@ -24,13 +26,13 @@ let with_retry ~max_retries ~base_delay_s f =
       Lwt.catch
         (fun () -> f ())
         (fun exn ->
-          if attempt = max_retries then
-            Lwt.fail exn
+          if attempt = max_retries then Lwt.fail exn
           else begin
             let delay = base_delay_s *. Float.pow 2.0 (Float.of_int attempt) in
             let delay = Float.min delay 30.0 in
-            Log.warn (fun m -> m "Attempt %d/%d failed (%s), retrying in %.1fs"
-              (attempt + 1) (max_retries + 1) (Printexc.to_string exn) delay);
+            Log.warn (fun m ->
+                m "Attempt %d/%d failed (%s), retrying in %.1fs" (attempt + 1)
+                  (max_retries + 1) (Printexc.to_string exn) delay);
             let* () = Lwt_unix.sleep delay in
             loop (attempt + 1) (Some exn)
           end)
@@ -42,8 +44,9 @@ let with_fallback ~primary ~fallback =
   Lwt.catch
     (fun () -> primary ())
     (fun exn ->
-      Log.info (fun m -> m "Primary operation failed (%s), falling back"
-        (Printexc.to_string exn));
+      Log.info (fun m ->
+          m "Primary operation failed (%s), falling back"
+            (Printexc.to_string exn));
       let* result = fallback () in
       Lwt.return result)
 

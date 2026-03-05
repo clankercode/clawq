@@ -28,7 +28,7 @@ let test_with_timeout_expired () =
   match out with
   | Ok _ -> Alcotest.fail "expected timeout"
   | Error msg ->
-    Alcotest.(check bool) "timeout msg" true (contains msg "timed out")
+      Alcotest.(check bool) "timeout msg" true (contains msg "timed out")
 
 let test_with_retry_eventual_success () =
   let attempts = ref 0 in
@@ -36,8 +36,7 @@ let test_with_retry_eventual_success () =
     Lwt_main.run
       (Resilience.with_retry ~max_retries:3 ~base_delay_s:0.0 (fun () ->
            incr attempts;
-           if !attempts < 3 then Lwt.fail (Failure "boom")
-           else Lwt.return "ok"))
+           if !attempts < 3 then Lwt.fail (Failure "boom") else Lwt.return "ok"))
   in
   Alcotest.(check string) "result" "ok" result;
   Alcotest.(check int) "attempt count" 3 !attempts

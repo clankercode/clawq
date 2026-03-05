@@ -10,18 +10,14 @@ let contains_sub s sub =
 
 let now_utc_iso8601 () =
   let tm = Unix.gmtime (Unix.gettimeofday ()) in
-  Printf.sprintf "%04d-%02d-%02dT%02d:%02d:%02dZ"
-    (tm.Unix.tm_year + 1900)
-    (tm.Unix.tm_mon + 1)
-    tm.Unix.tm_mday
-    tm.Unix.tm_hour
-    tm.Unix.tm_min
+  Printf.sprintf "%04d-%02d-%02dT%02d:%02d:%02dZ" (tm.Unix.tm_year + 1900)
+    (tm.Unix.tm_mon + 1) tm.Unix.tm_mday tm.Unix.tm_hour tm.Unix.tm_min
     tm.Unix.tm_sec
 
 let safe_prompt_filename name =
   name <> ""
-  && not (contains_sub name "..")
-  && not (contains_sub name "/")
+  && (not (contains_sub name ".."))
+  && (not (contains_sub name "/"))
   && not (contains_sub name "\\")
 
 let read_file_limited path limit =
@@ -44,9 +40,9 @@ let workspace_doc_blocks ~(config : Runtime_config.t) =
   let blocks = ref [] in
   List.iter
     (fun file ->
-      if safe_prompt_filename file
-         && !budget > 0
-         && not (file = "SOUL.md" && ego_exists)
+      if
+        safe_prompt_filename file && !budget > 0
+        && not (file = "SOUL.md" && ego_exists)
       then
         let path = Filename.concat workspace file in
         if Sys.file_exists path then
@@ -63,14 +59,15 @@ let tools_block tool_registry =
   match tool_registry with
   | None -> []
   | Some registry ->
-    Tool_registry.list registry
-    |> List.map (fun (t : Tool.t) ->
-           let risk = match t.risk_level with
-             | Tool.Low -> "low"
-             | Tool.Medium -> "medium"
-             | Tool.High -> "high"
-           in
-           Printf.sprintf "- %s (risk=%s): %s" t.name risk t.description)
+      Tool_registry.list registry
+      |> List.map (fun (t : Tool.t) ->
+          let risk =
+            match t.risk_level with
+            | Tool.Low -> "low"
+            | Tool.Medium -> "medium"
+            | Tool.High -> "high"
+          in
+          Printf.sprintf "- %s (risk=%s): %s" t.name risk t.description)
 
 let build ~(config : Runtime_config.t) ~tool_registry =
   if not config.prompt.dynamic_enabled then config.agent_defaults.system_prompt
@@ -89,7 +86,7 @@ let build ~(config : Runtime_config.t) ~tool_registry =
       add "## Safety";
       add "- Never reveal secrets, tokens, or private data.";
       add "- Ask before destructive or irreversible actions.";
-      add "- Respect workspace boundaries and configured security policies.";
+      add "- Respect workspace boundaries and configured security policies."
     end;
     if config.prompt.include_workspace_section then begin
       add "";
@@ -119,15 +116,19 @@ let build ~(config : Runtime_config.t) ~tool_registry =
     if config.prompt.include_runtime_section then begin
       add "";
       add "## Runtime";
-      add (Printf.sprintf "- Provider preference: %s"
-             (match Runtime_config.effective_primary_provider config.agent_defaults with
-              | Some p -> p
-              | None -> "(automatic)"));
-      add (Printf.sprintf "- Model preference: %s"
-             (Runtime_config.effective_primary_model config.agent_defaults));
+      add
+        (Printf.sprintf "- Provider preference: %s"
+           (match
+              Runtime_config.effective_primary_provider config.agent_defaults
+            with
+           | Some p -> p
+           | None -> "(automatic)"));
+      add
+        (Printf.sprintf "- Model preference: %s"
+           (Runtime_config.effective_primary_model config.agent_defaults));
       add (Printf.sprintf "- Temperature: %.2f" config.default_temperature);
       add (Printf.sprintf "- Tools enabled: %b" config.security.tools_enabled);
-      add (Printf.sprintf "- Workspace only: %b" config.security.workspace_only);
+      add (Printf.sprintf "- Workspace only: %b" config.security.workspace_only)
     end;
     if config.prompt.include_datetime_section then begin
       add "";

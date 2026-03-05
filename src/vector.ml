@@ -5,18 +5,18 @@ let init_schema db =
     match Sqlite3.exec db sql with
     | Sqlite3.Rc.OK -> ()
     | rc ->
-      failwith
-        (Printf.sprintf "SQLite error: %s (sql: %s)" (Sqlite3.Rc.to_string rc) sql)
+        failwith
+          (Printf.sprintf "SQLite error: %s (sql: %s)" (Sqlite3.Rc.to_string rc)
+             sql)
   in
   exec
-    "CREATE TABLE IF NOT EXISTS embeddings (\
-     id INTEGER PRIMARY KEY AUTOINCREMENT, \
-     message_id INTEGER NOT NULL, \
-     session_key TEXT NOT NULL, \
-     content_preview TEXT NOT NULL, \
-     embedding BLOB NOT NULL, \
-     created_at TEXT NOT NULL DEFAULT (datetime('now')))";
-  exec "CREATE INDEX IF NOT EXISTS idx_embeddings_session_key ON embeddings (session_key)"
+    "CREATE TABLE IF NOT EXISTS embeddings (id INTEGER PRIMARY KEY \
+     AUTOINCREMENT, message_id INTEGER NOT NULL, session_key TEXT NOT NULL, \
+     content_preview TEXT NOT NULL, embedding BLOB NOT NULL, created_at TEXT \
+     NOT NULL DEFAULT (datetime('now')))";
+  exec
+    "CREATE INDEX IF NOT EXISTS idx_embeddings_session_key ON embeddings \
+     (session_key)"
 
 (* --- Cosine similarity --- *)
 
@@ -34,8 +34,7 @@ let cosine_similarity a b =
       norm_b := !norm_b +. (b.(i) *. b.(i))
     done;
     let denom = sqrt !norm_a *. sqrt !norm_b in
-    if denom = 0.0 then 0.0
-    else !dot /. denom
+    if denom = 0.0 then 0.0 else !dot /. denom
 
 (* --- Embedding serialization --- *)
 
@@ -54,7 +53,7 @@ let deserialize_embedding (s : string) : float array =
     let len = byte_len / 8 in
     let buf = Bytes.of_string s in
     Array.init len (fun i ->
-      Int64.float_of_bits (Bytes.get_int64_le buf (i * 8)))
+        Int64.float_of_bits (Bytes.get_int64_le buf (i * 8)))
 
 (* --- Embeddings API client --- *)
 
@@ -63,15 +62,14 @@ let fetch_embedding ~(config : Runtime_config.t) ~text =
   let provider_name =
     match config.memory.embedding_provider with
     | Some p -> p
-    | None ->
-      (match config.default_provider with
-       | Some p -> p
-       | None -> "openai")
+    | None -> (
+        match config.default_provider with Some p -> p | None -> "openai")
   in
   let provider =
     match List.assoc_opt provider_name config.providers with
     | Some p -> p
-    | None -> failwith (Printf.sprintf "Vector: provider %S not found" provider_name)
+    | None ->
+        failwith (Printf.sprintf "Vector: provider %S not found" provider_name)
   in
   let base_url =
     match provider.base_url with
@@ -81,10 +79,10 @@ let fetch_embedding ~(config : Runtime_config.t) ~text =
   let model =
     match config.memory.embedding_model with
     | Some m -> m
-    | None ->
-      (match provider.default_model with
-       | Some m -> m
-       | None -> "text-embedding-3-small")
+    | None -> (
+        match provider.default_model with
+        | Some m -> m
+        | None -> "text-embedding-3-small")
   in
   let uri = base_url ^ "/v1/embeddings" in
   let headers = [ ("Authorization", "Bearer " ^ provider.api_key) ] in
@@ -105,11 +103,11 @@ let fetch_embedding ~(config : Runtime_config.t) ~text =
       match data with
       | [] -> Lwt.fail_with "Vector: empty data array in embeddings response"
       | first :: _ ->
-        let embedding =
-          first |> member "embedding" |> to_list
-          |> List.map to_float |> Array.of_list
-        in
-        Lwt.return embedding
+          let embedding =
+            first |> member "embedding" |> to_list |> List.map to_float
+            |> Array.of_list
+          in
+          Lwt.return embedding
     with exn ->
       Lwt.fail_with
         (Printf.sprintf "Vector: failed to parse embeddings response: %s"
@@ -119,19 +117,20 @@ let fetch_embedding ~(config : Runtime_config.t) ~text =
 
 let store ~db ~session_key ~message_id ~content_preview ~embedding =
   let sql =
-    "INSERT INTO embeddings (message_id, session_key, content_preview, embedding) \
-     VALUES (?, ?, ?, ?)"
+    "INSERT INTO embeddings (message_id, session_key, content_preview, \
+     embedding) VALUES (?, ?, ?, ?)"
   in
   let stmt = Sqlite3.prepare db sql in
   ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.INT message_id));
   ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT session_key));
   ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.TEXT content_preview));
-  ignore (Sqlite3.bind stmt 4 (Sqlite3.Data.BLOB (serialize_embedding embedding)));
+  ignore
+    (Sqlite3.bind stmt 4 (Sqlite3.Data.BLOB (serialize_embedding embedding)));
   (match Sqlite3.step stmt with
-   | Sqlite3.Rc.DONE -> ()
-   | rc ->
-     Logs.warn (fun m ->
-       m "Vector: failed to store embedding: %s" (Sqlite3.Rc.to_string rc)));
+  | Sqlite3.Rc.DONE -> ()
+  | rc ->
+      Logs.warn (fun m ->
+          m "Vector: failed to store embedding: %s" (Sqlite3.Rc.to_string rc)));
   ignore (Sqlite3.finalize stmt)
 
 (* --- Vector search --- *)
@@ -140,10 +139,10 @@ let search ~db ~query_embedding ?session_key ~limit () =
   let sql, bind_session =
     match session_key with
     | Some _sk ->
-      ( "SELECT content_preview, embedding FROM embeddings WHERE session_key = ?",
-        true )
-    | None ->
-      ("SELECT content_preview, embedding FROM embeddings", false)
+        ( "SELECT content_preview, embedding FROM embeddings WHERE session_key \
+           = ?",
+          true )
+    | None -> ("SELECT content_preview, embedding FROM embeddings", false)
   in
   let stmt = Sqlite3.prepare db sql in
   (if bind_session then
@@ -153,14 +152,10 @@ let search ~db ~query_embedding ?session_key ~limit () =
   let results = ref [] in
   while Sqlite3.step stmt = Sqlite3.Rc.ROW do
     let content_preview =
-      match Sqlite3.column stmt 0 with
-      | Sqlite3.Data.TEXT s -> s
-      | _ -> ""
+      match Sqlite3.column stmt 0 with Sqlite3.Data.TEXT s -> s | _ -> ""
     in
     let embedding_blob =
-      match Sqlite3.column stmt 1 with
-      | Sqlite3.Data.BLOB s -> s
-      | _ -> ""
+      match Sqlite3.column stmt 1 with Sqlite3.Data.BLOB s -> s | _ -> ""
     in
     let emb = deserialize_embedding embedding_blob in
     let sim = cosine_similarity query_embedding emb in
@@ -170,12 +165,12 @@ let search ~db ~query_embedding ?session_key ~limit () =
   let sorted =
     List.sort (fun (_, s1) (_, s2) -> Float.compare s2 s1) !results
   in
-  if limit > 0 then List.filteri (fun i _ -> i < limit) sorted
-  else sorted
+  if limit > 0 then List.filteri (fun i _ -> i < limit) sorted else sorted
 
 (* --- Hybrid search merge --- *)
 
-let merge_results ~keyword_results ~vector_results ~keyword_weight ~vector_weight =
+let merge_results ~keyword_results ~vector_results ~keyword_weight
+    ~vector_weight =
   let kw_w = Float.of_int keyword_weight /. 100.0 in
   let vec_w = Float.of_int vector_weight /. 100.0 in
   (* Assign rank-based scores to keyword results: 1.0, 0.9, 0.8, ... *)
@@ -195,21 +190,22 @@ let merge_results ~keyword_results ~vector_results ~keyword_weight ~vector_weigh
     match vector_results with
     | [] -> []
     | _ ->
-      let max_sim =
-        List.fold_left (fun acc (_, s) -> Float.max acc s) Float.neg_infinity vector_results
-      in
-      let min_sim =
-        List.fold_left (fun acc (_, s) -> Float.min acc s) Float.infinity vector_results
-      in
-      let range = max_sim -. min_sim in
-      List.map
-        (fun (content, sim) ->
-          let norm =
-            if range = 0.0 then 1.0
-            else (sim -. min_sim) /. range
-          in
-          (content, norm))
-        vector_results
+        let max_sim =
+          List.fold_left
+            (fun acc (_, s) -> Float.max acc s)
+            Float.neg_infinity vector_results
+        in
+        let min_sim =
+          List.fold_left
+            (fun acc (_, s) -> Float.min acc s)
+            Float.infinity vector_results
+        in
+        let range = max_sim -. min_sim in
+        List.map
+          (fun (content, sim) ->
+            let norm = if range = 0.0 then 1.0 else (sim -. min_sim) /. range in
+            (content, norm))
+          vector_results
   in
   (* Build a map from content -> (kw_score, vec_score) *)
   let tbl = Hashtbl.create 64 in

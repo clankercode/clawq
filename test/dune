@@ -1,3 +1,12 @@
 (test
  (name test_main)
- (libraries clawq_extracted clawq_runtime_core clawq_runtime_integrations alcotest str unix cohttp lwt lwt.unix))
+ (libraries
+  clawq_extracted
+  clawq_runtime_core
+  clawq_runtime_integrations
+  alcotest
+  str
+  unix
+  cohttp
+  lwt
+  lwt.unix))

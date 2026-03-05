@@ -31,11 +31,7 @@ let test_tool_registry_serialization () =
       Tool.name = "test_tool";
       description = "A test tool";
       parameters_schema =
-        `Assoc
-          [
-            ("type", `String "object");
-            ("properties", `Assoc []);
-          ];
+        `Assoc [ ("type", `String "object"); ("properties", `Assoc []) ];
       invoke = (fun _ -> Lwt.return "test result");
       risk_level = Tool.Low;
     }
@@ -98,8 +94,7 @@ let test_tool_invocation () =
     }
   in
   let result =
-    Lwt_main.run
-      (test_tool.invoke (`Assoc [ ("value", `String "hello") ]))
+    Lwt_main.run (test_tool.invoke (`Assoc [ ("value", `String "hello") ]))
   in
   Alcotest.(check bool) "tool was invoked" true !invoked;
   Alcotest.(check string) "tool result" "got: hello" result
@@ -144,10 +139,8 @@ let test_memory_list_sessions () =
     (Provider.make_message ~role:"assistant" ~content:"c");
   let sessions = Memory.list_sessions ~db in
   Alcotest.(check int) "2 unique sessions" 2 (List.length sessions);
-  Alcotest.(check bool)
-    "contains alpha" true (List.mem "alpha" sessions);
-  Alcotest.(check bool)
-    "contains beta" true (List.mem "beta" sessions)
+  Alcotest.(check bool) "contains alpha" true (List.mem "alpha" sessions);
+  Alcotest.(check bool) "contains beta" true (List.mem "beta" sessions)
 
 (* Test: memory with tool calls *)
 let test_memory_tool_calls () =
@@ -222,7 +215,8 @@ let test_config_new_fields () =
     "max_tool_iterations" 5 config.agent_defaults.max_tool_iterations;
   Alcotest.(check string) "db_path" "/tmp/test.db" config.memory.db_path;
   Alcotest.(check bool) "tools_enabled" true config.security.tools_enabled;
-  Alcotest.(check string) "docker_image" "clawq:test" config.runtime.docker_image;
+  Alcotest.(check string)
+    "docker_image" "clawq:test" config.runtime.docker_image;
   Alcotest.(check int) "docker_port" 4000 config.runtime.docker_port;
   Alcotest.(check bool) "tunnel_enabled" true config.tunnel.enabled
 
@@ -234,9 +228,12 @@ let test_provider_message_json () =
   Alcotest.(check bool)
     "contains role" true
     (String.length json_str > 0
-     && let re = Str.regexp_string "user" in
-        try ignore (Str.search_forward re json_str 0); true
-        with Not_found -> false)
+    &&
+    let re = Str.regexp_string "user" in
+    try
+      ignore (Str.search_forward re json_str 0);
+      true
+    with Not_found -> false)
 
 let test_provider_tool_result_json () =
   let msg =
@@ -248,7 +245,9 @@ let test_provider_tool_result_json () =
   Alcotest.(check bool)
     "contains tool_call_id" true
     (let re = Str.regexp_string "tc_1" in
-     try ignore (Str.search_forward re json_str 0); true
+     try
+       ignore (Str.search_forward re json_str 0);
+       true
      with Not_found -> false)
 
 (* Test: status command shows system prompt info *)
@@ -256,8 +255,7 @@ let test_status_shows_prompt () =
   let result = Command_bridge.handle [ "status" ] in
   Alcotest.(check bool)
     "status contains clawq status" true
-    (String.length result > 0
-     && String.sub result 0 12 = "clawq status")
+    (String.length result > 0 && String.sub result 0 12 = "clawq status")
 
 let test_config_nullclaw_compat_paths () =
   let json_str =
@@ -282,29 +280,28 @@ let test_config_nullclaw_compat_paths () =
   in
   let json = Yojson.Safe.from_string json_str in
   let config = Config_loader.parse_config json in
-  Alcotest.(check int) "providers from models.providers" 1
+  Alcotest.(check int)
+    "providers from models.providers" 1
     (List.length config.providers);
-  Alcotest.(check string) "primary model from agents.defaults.model.primary"
-    "openai/gpt-4.1" config.agent_defaults.primary_model
+  Alcotest.(check string)
+    "primary model from agents.defaults.model.primary" "openai/gpt-4.1"
+    config.agent_defaults.primary_model
 
 let suite =
   [
     Alcotest.test_case "system prompt from config" `Quick
       test_system_prompt_from_config;
-    Alcotest.test_case "default system prompt" `Quick
-      test_default_system_prompt;
+    Alcotest.test_case "default system prompt" `Quick test_default_system_prompt;
     Alcotest.test_case "tool registry serialization" `Quick
       test_tool_registry_serialization;
     Alcotest.test_case "tool registry find" `Quick test_tool_registry_find;
     Alcotest.test_case "tool invocation" `Quick test_tool_invocation;
     Alcotest.test_case "memory roundtrip" `Quick test_memory_roundtrip;
     Alcotest.test_case "memory clear" `Quick test_memory_clear;
-    Alcotest.test_case "memory list sessions" `Quick
-      test_memory_list_sessions;
+    Alcotest.test_case "memory list sessions" `Quick test_memory_list_sessions;
     Alcotest.test_case "memory tool calls" `Quick test_memory_tool_calls;
     Alcotest.test_case "config new fields" `Quick test_config_new_fields;
-    Alcotest.test_case "provider message json" `Quick
-      test_provider_message_json;
+    Alcotest.test_case "provider message json" `Quick test_provider_message_json;
     Alcotest.test_case "provider tool result json" `Quick
       test_provider_tool_result_json;
     Alcotest.test_case "status shows prompt" `Quick test_status_shows_prompt;

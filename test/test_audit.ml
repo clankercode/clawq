@@ -7,28 +7,38 @@ let test_audit_schema_init () =
 let test_audit_log_and_query () =
   let db = Memory.init ~db_path:":memory:" () in
   Audit.init_schema db;
-  Audit.log ~db (ChatMessage {
-    session_key = "s1"; role = "user"; content_preview = "hello world" });
-  Audit.log ~db (ToolInvocation {
-    session_key = "s1"; tool_name = "shell_exec";
-    risk_level = "high"; args_preview = "{\"command\":\"ls\"}" });
-  Audit.log ~db (ToolResult {
-    session_key = "s1"; tool_name = "shell_exec"; success = true });
-  Audit.log ~db (DaemonEvent {
-    action = "start"; details = "pid=1234" });
+  Audit.log ~db
+    (ChatMessage
+       { session_key = "s1"; role = "user"; content_preview = "hello world" });
+  Audit.log ~db
+    (ToolInvocation
+       {
+         session_key = "s1";
+         tool_name = "shell_exec";
+         risk_level = "high";
+         args_preview = "{\"command\":\"ls\"}";
+       });
+  Audit.log ~db
+    (ToolResult { session_key = "s1"; tool_name = "shell_exec"; success = true });
+  Audit.log ~db (DaemonEvent { action = "start"; details = "pid=1234" });
   let rows = Audit.query ~db ~limit:10 () in
   Alcotest.(check int) "4 audit entries" 4 (List.length rows)
 
 let test_audit_query_filter () =
   let db = Memory.init ~db_path:":memory:" () in
   Audit.init_schema db;
-  Audit.log ~db (ChatMessage {
-    session_key = "s1"; role = "user"; content_preview = "msg1" });
-  Audit.log ~db (ChatMessage {
-    session_key = "s2"; role = "user"; content_preview = "msg2" });
-  Audit.log ~db (ToolInvocation {
-    session_key = "s1"; tool_name = "file_read";
-    risk_level = "low"; args_preview = "{}" });
+  Audit.log ~db
+    (ChatMessage { session_key = "s1"; role = "user"; content_preview = "msg1" });
+  Audit.log ~db
+    (ChatMessage { session_key = "s2"; role = "user"; content_preview = "msg2" });
+  Audit.log ~db
+    (ToolInvocation
+       {
+         session_key = "s1";
+         tool_name = "file_read";
+         risk_level = "low";
+         args_preview = "{}";
+       });
   let chat_rows = Audit.query ~db ~event_type:"chat_message" ~limit:10 () in
   Alcotest.(check int) "2 chat entries" 2 (List.length chat_rows);
   let s1_rows = Audit.query ~db ~session_key:"s1" ~limit:10 () in
@@ -37,17 +47,24 @@ let test_audit_query_filter () =
 let test_audit_config_change () =
   let db = Memory.init ~db_path:":memory:" () in
   Audit.init_schema db;
-  Audit.log ~db (ConfigChange {
-    field = "model"; old_value = "gpt-3.5"; new_value = "gpt-4" });
+  Audit.log ~db
+    (ConfigChange
+       { field = "model"; old_value = "gpt-3.5"; new_value = "gpt-4" });
   let rows = Audit.query ~db ~event_type:"config_change" ~limit:10 () in
   Alcotest.(check int) "1 config change" 1 (List.length rows);
   let row = List.hd rows in
-  Alcotest.(check bool) "details contains field" true
+  Alcotest.(check bool)
+    "details contains field" true
     (match row.details with
-     | Some d -> String.length d > 0
-       && let re = Str.regexp_string "model" in
-          (try ignore (Str.search_forward re d 0); true with Not_found -> false)
-     | None -> false)
+    | Some d -> (
+        String.length d > 0
+        &&
+        let re = Str.regexp_string "model" in
+        try
+          ignore (Str.search_forward re d 0);
+          true
+        with Not_found -> false)
+    | None -> false)
 
 (* --- Retention tests --- *)
 
@@ -55,11 +72,15 @@ let test_purge_by_age () =
   let db = Memory.init ~db_path:":memory:" () in
   Audit.init_schema db;
   (* Insert old entries directly *)
-  let sql = "INSERT INTO audit_log (timestamp, event_type, details) \
-             VALUES (datetime('now', '-100 days'), 'test', 'old entry 1')" in
+  let sql =
+    "INSERT INTO audit_log (timestamp, event_type, details) VALUES \
+     (datetime('now', '-100 days'), 'test', 'old entry 1')"
+  in
   ignore (Sqlite3.exec db sql);
-  let sql2 = "INSERT INTO audit_log (timestamp, event_type, details) \
-              VALUES (datetime('now', '-100 days'), 'test', 'old entry 2')" in
+  let sql2 =
+    "INSERT INTO audit_log (timestamp, event_type, details) VALUES \
+     (datetime('now', '-100 days'), 'test', 'old entry 2')"
+  in
   ignore (Sqlite3.exec db sql2);
   (* Insert a recent entry *)
   Audit.log ~db (DaemonEvent { action = "test"; details = "recent" });
@@ -74,8 +95,8 @@ let test_purge_by_count () =
   let db = Memory.init ~db_path:":memory:" () in
   Audit.init_schema db;
   for i = 1 to 10 do
-    Audit.log ~db (DaemonEvent { action = "test";
-      details = Printf.sprintf "entry %d" i })
+    Audit.log ~db
+      (DaemonEvent { action = "test"; details = Printf.sprintf "entry %d" i })
   done;
   let before = Audit.query ~db ~limit:100 () in
   Alcotest.(check int) "10 entries before purge" 10 (List.length before);
@@ -85,7 +106,8 @@ let test_purge_by_count () =
   Alcotest.(check int) "3 entries after purge" 3 (List.length after);
   (* Verify newest entries remain - query returns newest first *)
   let newest = List.hd after in
-  Alcotest.(check bool) "newest entry is entry 10" true
+  Alcotest.(check bool)
+    "newest entry is entry 10" true
     (match newest.details with Some d -> d = "test: entry 10" | None -> false)
 
 let test_export_jsonl () =
@@ -99,38 +121,51 @@ let test_export_jsonl () =
   Alcotest.(check int) "exported 2 entries" 2 count;
   let ic = open_in path in
   let lines = ref [] in
-  (try while true do lines := input_line ic :: !lines done with End_of_file -> ());
+  (try
+     while true do
+       lines := input_line ic :: !lines
+     done
+   with End_of_file -> ());
   close_in ic;
   let lines = List.rev !lines in
   Alcotest.(check int) "2 lines in file" 2 (List.length lines);
   (* Verify each line is valid JSON *)
-  List.iter (fun line ->
-    let _json = Yojson.Safe.from_string line in
-    ()
-  ) lines;
+  List.iter
+    (fun line ->
+      let _json = Yojson.Safe.from_string line in
+      ())
+    lines;
   (* Cleanup *)
   Sys.remove path;
-  (try Sys.rmdir tmpdir with _ -> ())
+  try Sys.rmdir tmpdir with _ -> ()
 
 let test_retention_tick () =
   let db = Memory.init ~db_path:":memory:" () in
   Audit.init_schema db;
   (* Insert old entries *)
-  let sql = "INSERT INTO audit_log (timestamp, event_type, details) \
-             VALUES (datetime('now', '-200 days'), 'test', 'very old')" in
+  let sql =
+    "INSERT INTO audit_log (timestamp, event_type, details) VALUES \
+     (datetime('now', '-200 days'), 'test', 'very old')"
+  in
   ignore (Sqlite3.exec db sql);
   Audit.log ~db (DaemonEvent { action = "test"; details = "recent" });
-  let config = { Runtime_config.default with
-    security = { Runtime_config.default.security with
-      audit_enabled = true;
-      audit_retention = {
-        max_age_days = 30;
-        max_entries = 1000000;
-        export_before_purge = false;
-        export_path = "/tmp";
-      };
+  let config =
+    {
+      Runtime_config.default with
+      security =
+        {
+          Runtime_config.default.security with
+          audit_enabled = true;
+          audit_retention =
+            {
+              max_age_days = 30;
+              max_entries = 1000000;
+              export_before_purge = false;
+              export_path = "/tmp";
+            };
+        };
     }
-  } in
+  in
   let deleted = Audit.retention_tick ~db ~config in
   Alcotest.(check int) "1 old entry purged" 1 deleted;
   let after = Audit.query ~db ~limit:100 () in
@@ -144,28 +179,33 @@ let test_signed_valid_chain () =
   let db = Memory.init ~db_path:":memory:" () in
   Audit.init_schema db;
   let key = Audit.derive_signing_key test_key in
-  Audit.log_signed ~db ~key (DaemonEvent { action = "start"; details = "pid=1" });
-  Audit.log_signed ~db ~key (ChatMessage {
-    session_key = "s1"; role = "user"; content_preview = "hello" });
+  Audit.log_signed ~db ~key
+    (DaemonEvent { action = "start"; details = "pid=1" });
+  Audit.log_signed ~db ~key
+    (ChatMessage
+       { session_key = "s1"; role = "user"; content_preview = "hello" });
   Audit.log_signed ~db ~key (DaemonEvent { action = "stop"; details = "clean" });
   match Audit.verify_chain ~db ~key with
   | Ok () -> ()
   | Error (id, reason) ->
-    Alcotest.fail (Printf.sprintf "Chain verify failed at id=%d: %s" id reason)
+      Alcotest.fail
+        (Printf.sprintf "Chain verify failed at id=%d: %s" id reason)
 
 let test_signed_tampered_entry () =
   let db = Memory.init ~db_path:":memory:" () in
   Audit.init_schema db;
   let key = Audit.derive_signing_key test_key in
-  Audit.log_signed ~db ~key (DaemonEvent { action = "start"; details = "pid=1" });
-  Audit.log_signed ~db ~key (DaemonEvent { action = "test"; details = "original" });
+  Audit.log_signed ~db ~key
+    (DaemonEvent { action = "start"; details = "pid=1" });
+  Audit.log_signed ~db ~key
+    (DaemonEvent { action = "test"; details = "original" });
   Audit.log_signed ~db ~key (DaemonEvent { action = "stop"; details = "clean" });
   (* Tamper with entry 2 *)
-  ignore (Sqlite3.exec db "UPDATE audit_log SET details = 'tampered' WHERE id = 2");
+  ignore
+    (Sqlite3.exec db "UPDATE audit_log SET details = 'tampered' WHERE id = 2");
   match Audit.verify_chain ~db ~key with
   | Ok () -> Alcotest.fail "Expected verification to fail after tamper"
-  | Error (id, _reason) ->
-    Alcotest.(check int) "tampered entry id" 2 id
+  | Error (id, _reason) -> Alcotest.(check int) "tampered entry id" 2 id
 
 let test_signed_deleted_entry () =
   let db = Memory.init ~db_path:":memory:" () in
@@ -179,21 +219,27 @@ let test_signed_deleted_entry () =
   match Audit.verify_chain ~db ~key with
   | Ok () -> Alcotest.fail "Expected verification to fail after delete"
   | Error (id, reason) ->
-    Alcotest.(check int) "broken at entry 3" 3 id;
-    Alcotest.(check bool) "prev_hash mismatch" true
-      (let re = Str.regexp_string "prev_hash mismatch" in
-       try ignore (Str.search_forward re reason 0); true with Not_found -> false)
+      Alcotest.(check int) "broken at entry 3" 3 id;
+      Alcotest.(check bool)
+        "prev_hash mismatch" true
+        (let re = Str.regexp_string "prev_hash mismatch" in
+         try
+           ignore (Str.search_forward re reason 0);
+           true
+         with Not_found -> false)
 
 let test_signed_genesis () =
   let db = Memory.init ~db_path:":memory:" () in
   Audit.init_schema db;
   let key = Audit.derive_signing_key test_key in
-  Audit.log_signed ~db ~key (DaemonEvent { action = "first"; details = "genesis test" });
-  let stmt = Sqlite3.prepare db "SELECT prev_hash FROM audit_log WHERE id = 1" in
+  Audit.log_signed ~db ~key
+    (DaemonEvent { action = "first"; details = "genesis test" });
+  let stmt =
+    Sqlite3.prepare db "SELECT prev_hash FROM audit_log WHERE id = 1"
+  in
   let prev_hash =
     if Sqlite3.step stmt = Sqlite3.Rc.ROW then
-      match Sqlite3.column stmt 0 with
-      | Sqlite3.Data.TEXT s -> s | _ -> ""
+      match Sqlite3.column stmt 0 with Sqlite3.Data.TEXT s -> s | _ -> ""
     else ""
   in
   ignore (Sqlite3.finalize stmt);
@@ -205,13 +251,16 @@ let test_unsigned_entries () =
   let key = Audit.derive_signing_key test_key in
   (* Mix unsigned and signed entries *)
   Audit.log ~db (DaemonEvent { action = "unsigned1"; details = "no sig" });
-  Audit.log_signed ~db ~key (DaemonEvent { action = "signed1"; details = "with sig" });
+  Audit.log_signed ~db ~key
+    (DaemonEvent { action = "signed1"; details = "with sig" });
   Audit.log ~db (DaemonEvent { action = "unsigned2"; details = "no sig" });
-  Audit.log_signed ~db ~key (DaemonEvent { action = "signed2"; details = "with sig" });
+  Audit.log_signed ~db ~key
+    (DaemonEvent { action = "signed2"; details = "with sig" });
   match Audit.verify_chain ~db ~key with
   | Ok () -> ()
   | Error (id, reason) ->
-    Alcotest.fail (Printf.sprintf "Chain verify failed at id=%d: %s" id reason)
+      Alcotest.fail
+        (Printf.sprintf "Chain verify failed at id=%d: %s" id reason)
 
 let suite =
   [

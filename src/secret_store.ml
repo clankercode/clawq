@@ -32,19 +32,18 @@ let encrypt ~key plaintext =
 let decrypt ~key encoded =
   match Base64.decode encoded with
   | Error _ -> Error "Failed to decode base64"
-  | Ok combined ->
-    if String.length combined < 13 then
-      Error "Encrypted data too short"
-    else
-      let nonce = String.sub combined 0 12 in
-      let ciphertext = String.sub combined 12 (String.length combined - 12) in
-      let gcm_key = Mirage_crypto.AES.GCM.of_secret key in
-      (match
-         Mirage_crypto.AES.GCM.authenticate_decrypt ~key:gcm_key ~nonce
-           ciphertext
-       with
-      | None -> Error "Decryption failed (wrong key or corrupted data)"
-      | Some plaintext -> Ok plaintext)
+  | Ok combined -> (
+      if String.length combined < 13 then Error "Encrypted data too short"
+      else
+        let nonce = String.sub combined 0 12 in
+        let ciphertext = String.sub combined 12 (String.length combined - 12) in
+        let gcm_key = Mirage_crypto.AES.GCM.of_secret key in
+        match
+          Mirage_crypto.AES.GCM.authenticate_decrypt ~key:gcm_key ~nonce
+            ciphertext
+        with
+        | None -> Error "Decryption failed (wrong key or corrupted data)"
+        | Some plaintext -> Ok plaintext)
 
 (* Encrypted secret prefix used in config values *)
 let encrypted_prefix = "$ENC:"
@@ -55,14 +54,14 @@ let is_encrypted value =
   && String.sub value 0 (String.length encrypted_prefix) = encrypted_prefix
 
 (* Encrypt a secret and return it with the $ENC: prefix *)
-let encrypt_secret ~key plaintext =
-  encrypted_prefix ^ encrypt ~key plaintext
+let encrypt_secret ~key plaintext = encrypted_prefix ^ encrypt ~key plaintext
 
 (* Decrypt a $ENC: prefixed secret *)
 let decrypt_secret ~key value =
   if is_encrypted value then
     let encoded =
-      String.sub value (String.length encrypted_prefix)
+      String.sub value
+        (String.length encrypted_prefix)
         (String.length value - String.length encrypted_prefix)
     in
     decrypt ~key encoded
@@ -75,24 +74,25 @@ let resolve_secret ~encrypt_secrets value =
       if encrypt_secrets then
         match get_master_key () with
         | Error msg ->
-          Logs.warn (fun m -> m "Cannot decrypt secret: %s" msg);
-          value
-        | Ok key ->
-          (match decrypt_secret ~key value with
-           | Ok plaintext -> plaintext
-           | Error msg ->
-             Logs.warn (fun m -> m "Secret decryption failed: %s" msg);
-             value)
+            Logs.warn (fun m -> m "Cannot decrypt secret: %s" msg);
+            value
+        | Ok key -> (
+            match decrypt_secret ~key value with
+            | Ok plaintext -> plaintext
+            | Error msg ->
+                Logs.warn (fun m -> m "Secret decryption failed: %s" msg);
+                value)
       else
         (* encrypt_secrets disabled, cannot decrypt *)
         value
-    end else begin
+    end
+    else begin
       (* $ENV_VAR indirection *)
       let var_name = String.sub value 1 (String.length value - 1) in
-      (try Sys.getenv var_name with Not_found -> value)
+      try Sys.getenv var_name with Not_found -> value
     end
-  end else
-    value
+  end
+  else value
 
 (* Encrypt all provider API keys in config and return updated JSON *)
 let encrypt_config_secrets ~key json =
@@ -105,31 +105,36 @@ let encrypt_config_secrets ~key json =
           let api_key =
             try provider_json |> member "api_key" |> to_string with _ -> ""
           in
-          if api_key <> "" && not (is_encrypted api_key)
-             && String.length api_key > 1 && api_key.[0] <> '$' then begin
+          if
+            api_key <> ""
+            && (not (is_encrypted api_key))
+            && String.length api_key > 1
+            && api_key.[0] <> '$'
+          then begin
             let encrypted = encrypt_secret ~key api_key in
             let fields =
               match provider_json with
               | `Assoc fields ->
-                List.map
-                  (fun (k, v) ->
-                    if k = "api_key" then (k, `String encrypted) else (k, v))
-                  fields
+                  List.map
+                    (fun (k, v) ->
+                      if k = "api_key" then (k, `String encrypted) else (k, v))
+                    fields
               | other -> [ ("api_key", `String encrypted); ("_rest", other) ]
             in
             (name, `Assoc fields)
-          end else (name, provider_json))
+          end
+          else (name, provider_json))
         providers
     in
     let new_json =
       match json with
       | `Assoc fields ->
-        `Assoc
-          (List.map
-             (fun (k, v) ->
-               if k = "providers" then (k, `Assoc encrypted_providers)
-               else (k, v))
-             fields)
+          `Assoc
+            (List.map
+               (fun (k, v) ->
+                 if k = "providers" then (k, `Assoc encrypted_providers)
+                 else (k, v))
+               fields)
       | other -> other
     in
     Ok new_json

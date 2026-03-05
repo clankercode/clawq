@@ -23,8 +23,7 @@ let test_memory_load_1000 () =
   let db = Memory.init ~db_path:":memory:" ~search_enabled:false () in
   for i = 0 to 999 do
     Memory.store_message ~db ~session_key:"bench"
-      (Provider.make_message ~role:"user"
-         ~content:("msg " ^ string_of_int i))
+      (Provider.make_message ~role:"user" ~content:("msg " ^ string_of_int i))
   done;
   let _, elapsed =
     time (fun () ->
@@ -39,8 +38,7 @@ let test_fts_search_100 () =
   let db = Memory.init ~db_path:":memory:" ~search_enabled:true () in
   for i = 0 to 99 do
     Memory.store_message ~db ~session_key:"bench"
-      (Provider.make_message ~role:"user"
-         ~content:("msg " ^ string_of_int i))
+      (Provider.make_message ~role:"user" ~content:("msg " ^ string_of_int i))
   done;
   let _, elapsed =
     time (fun () ->
@@ -93,8 +91,7 @@ let test_config_parse () =
   Printf.printf "[perf] config_parse_1000: %.4f s\n%!" elapsed;
   Alcotest.(check bool) "completes in time" true (elapsed < 5.0)
 
-let make_random_vector dim =
-  Array.init dim (fun _ -> Random.float 2.0 -. 1.0)
+let make_random_vector dim = Array.init dim (fun _ -> Random.float 2.0 -. 1.0)
 
 let test_vector_cosine_10000 () =
   Random.self_init ();

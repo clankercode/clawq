@@ -1,9 +1,12 @@
 let make_config ?(max_messages = 500) ?(max_age_days = 30) () =
-  { Runtime_config.default with
-    memory = { Runtime_config.default.memory with
-      max_messages_per_session = max_messages;
-      max_message_age_days = max_age_days;
-    }
+  {
+    Runtime_config.default with
+    memory =
+      {
+        Runtime_config.default.memory with
+        max_messages_per_session = max_messages;
+        max_message_age_days = max_age_days;
+      };
   }
 
 let test_cleanup_by_count () =
@@ -25,8 +28,9 @@ let test_cleanup_by_age () =
   let insert_old sql_db session_key content age_days =
     let sql =
       Printf.sprintf
-        "INSERT INTO messages (session_key, role, content, created_at) \
-         VALUES (?, 'user', ?, datetime('now', '-%d days'))" age_days
+        "INSERT INTO messages (session_key, role, content, created_at) VALUES \
+         (?, 'user', ?, datetime('now', '-%d days'))"
+        age_days
     in
     let stmt = Sqlite3.prepare sql_db sql in
     ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT session_key));
@@ -44,8 +48,8 @@ let test_cleanup_by_age () =
   Memory.cleanup_session ~db ~session_key:"s1" ~max_messages:0 ~max_age_days:1;
   let after = Memory.load_history ~db ~session_key:"s1" in
   Alcotest.(check int) "1 message after age cleanup" 1 (List.length after);
-  Alcotest.(check string) "recent message preserved" "Recent message"
-    (List.hd after).content
+  Alcotest.(check string)
+    "recent message preserved" "Recent message" (List.hd after).content
 
 let test_preserves_newest () =
   let db = Memory.init ~db_path:":memory:" () in
@@ -58,8 +62,10 @@ let test_preserves_newest () =
   let after = Memory.load_history ~db ~session_key:"s1" in
   Alcotest.(check int) "3 messages remain" 3 (List.length after);
   let contents = List.map (fun (m : Provider.message) -> m.content) after in
-  Alcotest.(check (list string)) "newest messages kept"
-    ["Message 8"; "Message 9"; "Message 10"] contents
+  Alcotest.(check (list string))
+    "newest messages kept"
+    [ "Message 8"; "Message 9"; "Message 10" ]
+    contents
 
 let test_configurable_max_history () =
   let config = make_config ~max_messages:10 () in
@@ -67,8 +73,7 @@ let test_configurable_max_history () =
   (* Add 20 messages to history (stored reversed, newest first) *)
   for i = 1 to 20 do
     agent.history <-
-      (Provider.make_message ~role:"user"
-         ~content:(Printf.sprintf "Msg %d" i))
+      Provider.make_message ~role:"user" ~content:(Printf.sprintf "Msg %d" i)
       :: agent.history
   done;
   Alcotest.(check int) "20 messages before trim" 20 (List.length agent.history);
@@ -98,6 +103,7 @@ let suite =
     Alcotest.test_case "cleanup by count" `Quick test_cleanup_by_count;
     Alcotest.test_case "cleanup by age" `Quick test_cleanup_by_age;
     Alcotest.test_case "preserves newest" `Quick test_preserves_newest;
-    Alcotest.test_case "configurable max_history" `Quick test_configurable_max_history;
+    Alcotest.test_case "configurable max_history" `Quick
+      test_configurable_max_history;
     Alcotest.test_case "cleanup_all" `Quick test_cleanup_all;
   ]

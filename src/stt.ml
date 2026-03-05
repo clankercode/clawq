@@ -17,44 +17,48 @@ let transcribe ~(config : Runtime_config.t) ~audio_data ~filename ~content_type
   match config.stt with
   | None -> Lwt.fail_with "No STT config found"
   | Some stt_cfg -> (
-    match List.assoc_opt stt_cfg.provider config.providers with
-    | None ->
-      Lwt.fail_with
-        (Printf.sprintf "STT provider '%s' not found" stt_cfg.provider)
-    | Some provider ->
-      let base_url =
-        match provider.base_url with
-        | Some url -> url
-        | None -> "https://api.groq.com/openai/v1"
-      in
-      let uri = base_url ^ "/audio/transcriptions" in
-      let headers = [ ("Authorization", "Bearer " ^ provider.api_key) ] in
-      let parts =
-        [
-          Http_client.File
-            { name = "file"; filename; content_type; data = audio_data };
-          Http_client.Field { name = "model"; value = stt_cfg.model };
-        ]
-        @ (match stt_cfg.language with
-           | Some lang ->
-             [ Http_client.Field { name = "language"; value = lang } ]
-           | None -> [])
-      in
-      Logs.info (fun m ->
-          m "STT request to %s model=%s file=%s" uri stt_cfg.model filename);
-      let* status, body = Http_client.post_multipart ~uri ~headers ~parts in
-      if status < 200 || status >= 300 then
-        Lwt.fail_with
-          (Printf.sprintf "STT API error (HTTP %d): %s" status body)
-      else
-        let json =
-          try Ok (Yojson.Safe.from_string body)
-          with exn -> Error (Printexc.to_string exn)
-        in
-        match json with
-        | Error msg -> Lwt.fail_with ("Failed to parse STT response: " ^ msg)
-        | Ok json -> (
-          try
-            let text = Yojson.Safe.Util.(json |> member "text" |> to_string) in
-            Lwt.return { text }
-          with _ -> Lwt.fail_with "Failed to extract text from STT response"))
+      match List.assoc_opt stt_cfg.provider config.providers with
+      | None ->
+          Lwt.fail_with
+            (Printf.sprintf "STT provider '%s' not found" stt_cfg.provider)
+      | Some provider -> (
+          let base_url =
+            match provider.base_url with
+            | Some url -> url
+            | None -> "https://api.groq.com/openai/v1"
+          in
+          let uri = base_url ^ "/audio/transcriptions" in
+          let headers = [ ("Authorization", "Bearer " ^ provider.api_key) ] in
+          let parts =
+            [
+              Http_client.File
+                { name = "file"; filename; content_type; data = audio_data };
+              Http_client.Field { name = "model"; value = stt_cfg.model };
+            ]
+            @
+            match stt_cfg.language with
+            | Some lang ->
+                [ Http_client.Field { name = "language"; value = lang } ]
+            | None -> []
+          in
+          Logs.info (fun m ->
+              m "STT request to %s model=%s file=%s" uri stt_cfg.model filename);
+          let* status, body = Http_client.post_multipart ~uri ~headers ~parts in
+          if status < 200 || status >= 300 then
+            Lwt.fail_with
+              (Printf.sprintf "STT API error (HTTP %d): %s" status body)
+          else
+            let json =
+              try Ok (Yojson.Safe.from_string body)
+              with exn -> Error (Printexc.to_string exn)
+            in
+            match json with
+            | Error msg -> Lwt.fail_with ("Failed to parse STT response: " ^ msg)
+            | Ok json -> (
+                try
+                  let text =
+                    Yojson.Safe.Util.(json |> member "text" |> to_string)
+                  in
+                  Lwt.return { text }
+                with _ ->
+                  Lwt.fail_with "Failed to extract text from STT response")))

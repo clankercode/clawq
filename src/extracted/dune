@@ -2,4 +2,5 @@
  (name clawq_extracted)
  (modules clawq_core)
  (wrapped false)
- (flags (:standard -w -39)))
+ (flags
+  (:standard -w -39)))

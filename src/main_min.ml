@@ -8,7 +8,8 @@ let unescape_newlines s =
     if !i + 1 < len && s.[!i] = '\\' && s.[!i + 1] = 'n' then begin
       Buffer.add_char buf '\n';
       i := !i + 2
-    end else begin
+    end
+    else begin
       Buffer.add_char buf s.[!i];
       i := !i + 1
     end
@@ -19,8 +20,7 @@ let run name args =
   print_string (unescape_newlines (Command_bridge_min.handle (name :: args)));
   `Ok ()
 
-let rest_args docv =
-  Arg.(value & pos_all string [] & info [] ~docv)
+let rest_args docv = Arg.(value & pos_all string [] & info [] ~docv)
 
 let simple name doc =
   Cmd.v (Cmd.info name ~doc) Term.(ret (const (run name) $ const []))
@@ -29,11 +29,8 @@ let with_args name doc man =
   let args = rest_args "ARGS" in
   Cmd.v (Cmd.info name ~doc ~man) Term.(ret (const (run name) $ args))
 
-let status_cmd =
-  simple "status" "Show runtime configuration summary."
-
-let doctor_cmd =
-  simple "doctor" "Check configuration for common issues."
+let status_cmd = simple "status" "Show runtime configuration summary."
+let doctor_cmd = simple "doctor" "Check configuration for common issues."
 
 let onboard_cmd =
   simple "onboard"
@@ -42,53 +39,47 @@ let onboard_cmd =
 let models_cmd =
   simple "models" "List configured LLM providers and their default models."
 
-let channel_cmd =
-  simple "channel" "List configured channels."
-
-let memory_cmd =
-  simple "memory" "Show memory backend configuration."
-
-let workspace_cmd =
-  simple "workspace" "Print the current workspace directory."
-
-let capabilities_cmd =
-  simple "capabilities" "List active runtime capabilities."
-
-let phase2_cmd =
-  simple "phase2" "Show Phase 2 feature status."
+let channel_cmd = simple "channel" "List configured channels."
+let memory_cmd = simple "memory" "Show memory backend configuration."
+let workspace_cmd = simple "workspace" "Print the current workspace directory."
+let capabilities_cmd = simple "capabilities" "List active runtime capabilities."
+let phase2_cmd = simple "phase2" "Show Phase 2 feature status."
 
 let auth_cmd =
-  with_args "auth"
-    "Show API key status or encrypt plaintext secrets in config."
-    [ `S "SUBCOMMANDS"
-    ; `I ("(no args)", "Print redacted API key status for all providers.")
-    ; `I ("encrypt", "Encrypt plaintext API keys in config using the master key.")
+  with_args "auth" "Show API key status or encrypt plaintext secrets in config."
+    [
+      `S "SUBCOMMANDS";
+      `I ("(no args)", "Print redacted API key status for all providers.");
+      `I
+        ("encrypt", "Encrypt plaintext API keys in config using the master key.");
     ]
 
 let cron_cmd =
   with_args "cron" "Manage cron jobs for scheduled agent messages."
-    [ `S "SUBCOMMANDS"
-    ; `I ("list", "List all configured cron jobs (default).")
-    ; `I ("add NAME SESSION SCHEDULE MSG", "Add a cron job.")
-    ; `I ("remove NAME", "Remove a cron job by name.")
+    [
+      `S "SUBCOMMANDS";
+      `I ("list", "List all configured cron jobs (default).");
+      `I ("add NAME SESSION SCHEDULE MSG", "Add a cron job.");
+      `I ("remove NAME", "Remove a cron job by name.");
     ]
 
 let audit_cmd =
   with_args "audit" "View the security audit log."
-    [ `S "SUBCOMMANDS"
-    ; `I ("list", "Show the 20 most recent audit entries (default).")
+    [
+      `S "SUBCOMMANDS";
+      `I ("list", "Show the 20 most recent audit entries (default).");
     ]
 
 let skills_cmd =
   with_args "skills" "Manage agent skills."
-    [ `S "SUBCOMMANDS"
-    ; `I ("list", "List available skills (default).")
-    ; `I ("path", "Print the skills directory path.")
-    ; `I ("init", "Create an example skill file.")
+    [
+      `S "SUBCOMMANDS";
+      `I ("list", "List available skills (default).");
+      `I ("path", "Print the skills directory path.");
+      `I ("init", "Create an example skill file.");
     ]
 
-let migrate_cmd =
-  with_args "migrate" "Run database migrations." []
+let migrate_cmd = with_args "migrate" "Run database migrations." []
 
 (* Disabled-in-minimal stubs — shown in help but print a clear message at runtime *)
 let disabled name doc =
@@ -103,41 +94,42 @@ let service_cmd = disabled "service" "Manage the clawq system service"
 let hardware_cmd = disabled "hardware" "Hardware integration (deferred)"
 
 let main_info =
-  Cmd.info "clawq-min"
-    ~version:"0.1.0-dev"
+  Cmd.info "clawq-min" ~version:"0.1.0-dev"
     ~doc:"Minimal clawq CLI (core-only, no network integrations)"
     ~man:
-      [ `S Manpage.s_description
-      ; `P
-          "clawq-min is the core-only build of clawq. \
-           Network integrations (daemon, gateway, Telegram, Discord, Slack, MCP) \
-           are disabled. Use the full $(b,clawq) binary for those features."
-      ; `P "Run $(b,clawq-min COMMAND --help) for per-command usage."
+      [
+        `S Manpage.s_description;
+        `P
+          "clawq-min is the core-only build of clawq. Network integrations \
+           (daemon, gateway, Telegram, Discord, Slack, MCP) are disabled. Use \
+           the full $(b,clawq) binary for those features.";
+        `P "Run $(b,clawq-min COMMAND --help) for per-command usage.";
       ]
 
 let () =
   let cmds =
-    [ status_cmd
-    ; doctor_cmd
-    ; onboard_cmd
-    ; models_cmd
-    ; channel_cmd
-    ; memory_cmd
-    ; workspace_cmd
-    ; capabilities_cmd
-    ; auth_cmd
-    ; cron_cmd
-    ; audit_cmd
-    ; skills_cmd
-    ; migrate_cmd
-    ; phase2_cmd
-    ; agent_cmd
-    ; mcp_cmd
-    ; transcribe_cmd
-    ; runtime_cmd
-    ; tunnel_cmd
-    ; service_cmd
-    ; hardware_cmd
+    [
+      status_cmd;
+      doctor_cmd;
+      onboard_cmd;
+      models_cmd;
+      channel_cmd;
+      memory_cmd;
+      workspace_cmd;
+      capabilities_cmd;
+      auth_cmd;
+      cron_cmd;
+      audit_cmd;
+      skills_cmd;
+      migrate_cmd;
+      phase2_cmd;
+      agent_cmd;
+      mcp_cmd;
+      transcribe_cmd;
+      runtime_cmd;
+      tunnel_cmd;
+      service_cmd;
+      hardware_cmd;
     ]
   in
   exit (Cmd.eval (Cmd.group main_info cmds))

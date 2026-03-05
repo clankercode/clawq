@@ -14,52 +14,60 @@ let test_sandbox_graceful_when_unavailable () =
   else begin
     (* On a kernel without Landlock, sandbox_workspace should log and return *)
     let config = Runtime_config.default in
-    (try
-       Landlock.sandbox_workspace ~config;
-       Alcotest.(check pass) "no exception" () ()
-     with _exn ->
-       Alcotest.fail "sandbox_workspace should not raise exceptions")
+    try
+      Landlock.sandbox_workspace ~config;
+      Alcotest.(check pass) "no exception" () ()
+    with _exn -> Alcotest.fail "sandbox_workspace should not raise exceptions"
   end
 
 let test_config_paths_empty () =
   (* Verify config with empty extra paths is accepted without crash *)
   let config =
-    { Runtime_config.default with
+    {
+      Runtime_config.default with
       security =
-        { Runtime_config.default.security with
-          landlock_extra_read_paths = [] } }
+        { Runtime_config.default.security with landlock_extra_read_paths = [] };
+    }
   in
-  Alcotest.(check (list string)) "empty extra paths"
-    [] config.security.landlock_extra_read_paths
+  Alcotest.(check (list string))
+    "empty extra paths" [] config.security.landlock_extra_read_paths
 
 let test_config_paths_nonempty () =
   (* Verify config with non-empty extra paths is properly constructed *)
   let paths = [ "/usr/share"; "~/documents" ] in
   let config =
-    { Runtime_config.default with
+    {
+      Runtime_config.default with
       security =
-        { Runtime_config.default.security with
-          landlock_extra_read_paths = paths } }
+        {
+          Runtime_config.default.security with
+          landlock_extra_read_paths = paths;
+        };
+    }
   in
-  Alcotest.(check (list string)) "nonempty extra paths"
-    paths config.security.landlock_extra_read_paths
+  Alcotest.(check (list string))
+    "nonempty extra paths" paths config.security.landlock_extra_read_paths
 
 let test_access_constants () =
-  Alcotest.(check bool) "access_fs_read non-zero"
-    true (Landlock.access_fs_read > 0);
-  Alcotest.(check bool) "access_fs_rw non-zero"
-    true (Landlock.access_fs_rw > 0);
-  Alcotest.(check bool) "access_fs_all non-zero"
-    true (Landlock.access_fs_all > 0);
-  Alcotest.(check bool) "access_fs_rw > access_fs_read"
-    true (Landlock.access_fs_rw > Landlock.access_fs_read)
+  Alcotest.(check bool)
+    "access_fs_read non-zero" true
+    (Landlock.access_fs_read > 0);
+  Alcotest.(check bool) "access_fs_rw non-zero" true (Landlock.access_fs_rw > 0);
+  Alcotest.(check bool)
+    "access_fs_all non-zero" true
+    (Landlock.access_fs_all > 0);
+  Alcotest.(check bool)
+    "access_fs_rw > access_fs_read" true
+    (Landlock.access_fs_rw > Landlock.access_fs_read)
 
 let suite =
   [
-    Alcotest.test_case "available returns bool" `Quick test_available_returns_bool;
+    Alcotest.test_case "available returns bool" `Quick
+      test_available_returns_bool;
     Alcotest.test_case "sandbox graceful when unavailable" `Quick
       test_sandbox_graceful_when_unavailable;
     Alcotest.test_case "config empty extra paths" `Quick test_config_paths_empty;
-    Alcotest.test_case "config nonempty extra paths" `Quick test_config_paths_nonempty;
+    Alcotest.test_case "config nonempty extra paths" `Quick
+      test_config_paths_nonempty;
     Alcotest.test_case "access constants" `Quick test_access_constants;
   ]

@@ -8,16 +8,18 @@ type docker_config = {
 }
 
 let default_docker_config =
-  { image = "clawq:latest"; container_name = "clawq"; port = 3000; extra_args = [] }
+  {
+    image = "clawq:latest";
+    container_name = "clawq";
+    port = 3000;
+    extra_args = [];
+  }
 
 let name = "docker"
 
 let run_cmd argv =
   let open Lwt.Syntax in
-  let proc =
-    Lwt_process.open_process_full
-      ("", Array.of_list argv)
-  in
+  let proc = Lwt_process.open_process_full ("", Array.of_list argv) in
   let* stdout = Lwt_io.read proc#stdout in
   let* stderr = Lwt_io.read proc#stderr in
   let* ps = proc#close in
@@ -31,11 +33,20 @@ let run_cmd argv =
 
 let start ~(docker_config : docker_config) ~(config : Runtime_config.t) =
   let open Lwt.Syntax in
-  let port_map = Printf.sprintf "%d:%d" docker_config.port config.gateway.port in
+  let port_map =
+    Printf.sprintf "%d:%d" docker_config.port config.gateway.port
+  in
   let argv =
-    [ "docker"; "run"; "-d"; "--name"; docker_config.container_name; "-p"; port_map ]
-    @ docker_config.extra_args
-    @ [ docker_config.image ]
+    [
+      "docker";
+      "run";
+      "-d";
+      "--name";
+      docker_config.container_name;
+      "-p";
+      port_map;
+    ]
+    @ docker_config.extra_args @ [ docker_config.image ]
   in
   let* exit_code, stdout, stderr = run_cmd argv in
   if exit_code = 0 then
@@ -56,20 +67,30 @@ let stop ~(docker_config : docker_config) =
     run_cmd [ "docker"; "rm"; docker_config.container_name ]
   in
   if stop_code = 0 || rm_code = 0 then
-    Lwt.return (Printf.sprintf "Container stopped: %s" docker_config.container_name)
+    Lwt.return
+      (Printf.sprintf "Container stopped: %s" docker_config.container_name)
   else
     let err = String.trim (String.concat "\n" [ stop_stderr; rm_stderr ]) in
-    Lwt.return (Printf.sprintf "Stop result (stop=%d rm=%d): %s" stop_code rm_code err)
+    Lwt.return
+      (Printf.sprintf "Stop result (stop=%d rm=%d): %s" stop_code rm_code err)
 
 let status ~(docker_config : docker_config) =
   let open Lwt.Syntax in
   let* exit_code, stdout, _stderr =
-    run_cmd [ "docker"; "inspect"; "--format={{.State.Status}}"; docker_config.container_name ]
+    run_cmd
+      [
+        "docker";
+        "inspect";
+        "--format={{.State.Status}}";
+        docker_config.container_name;
+      ]
   in
   if exit_code = 0 then
-    Lwt.return (Printf.sprintf "Container %s: %s" docker_config.container_name stdout)
+    Lwt.return
+      (Printf.sprintf "Container %s: %s" docker_config.container_name stdout)
   else
-    Lwt.return (Printf.sprintf "Container %s: not found" docker_config.container_name)
+    Lwt.return
+      (Printf.sprintf "Container %s: not found" docker_config.container_name)
 
 let health ~(docker_config : docker_config) =
   let open Lwt.Syntax in

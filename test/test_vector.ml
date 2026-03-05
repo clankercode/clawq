@@ -13,7 +13,7 @@ let test_cosine_opposite () =
   let a = [| 1.0; 0.0 |] in
   let b = [| -1.0; 0.0 |] in
   let sim = Vector.cosine_similarity a b in
-  Alcotest.(check bool) "opposite vectors" true (Float.abs (sim -. (-1.0)) < 1e-9)
+  Alcotest.(check bool) "opposite vectors" true (Float.abs (sim -. -1.0) < 1e-9)
 
 let test_cosine_empty () =
   let a = [||] in
@@ -38,10 +38,13 @@ let test_serialize_roundtrip () =
   let blob = Vector.serialize_embedding v in
   let v2 = Vector.deserialize_embedding blob in
   Alcotest.(check int) "same length" (Array.length v) (Array.length v2);
-  Array.iteri (fun i x ->
-    Alcotest.(check bool) (Printf.sprintf "elem %d" i) true
-      (Float.abs (x -. v2.(i)) < 1e-15)
-  ) v
+  Array.iteri
+    (fun i x ->
+      Alcotest.(check bool)
+        (Printf.sprintf "elem %d" i)
+        true
+        (Float.abs (x -. v2.(i)) < 1e-15))
+    v
 
 let test_serialize_empty () =
   let v = [||] in
@@ -61,61 +64,73 @@ let test_store_and_search () =
   let emb1 = [| 1.0; 0.0; 0.0 |] in
   let emb2 = [| 0.0; 1.0; 0.0 |] in
   let emb3 = [| 0.9; 0.1; 0.0 |] in
-  Vector.store ~db ~session_key:"s1" ~message_id:1L ~content_preview:"hello world" ~embedding:emb1;
-  Vector.store ~db ~session_key:"s1" ~message_id:2L ~content_preview:"goodbye" ~embedding:emb2;
-  Vector.store ~db ~session_key:"s1" ~message_id:3L ~content_preview:"hi there" ~embedding:emb3;
+  Vector.store ~db ~session_key:"s1" ~message_id:1L
+    ~content_preview:"hello world" ~embedding:emb1;
+  Vector.store ~db ~session_key:"s1" ~message_id:2L ~content_preview:"goodbye"
+    ~embedding:emb2;
+  Vector.store ~db ~session_key:"s1" ~message_id:3L ~content_preview:"hi there"
+    ~embedding:emb3;
   let query = [| 1.0; 0.0; 0.0 |] in
   let results = Vector.search ~db ~query_embedding:query ~limit:2 () in
   Alcotest.(check int) "top 2 results" 2 (List.length results);
   let top_content, top_score = List.hd results in
   Alcotest.(check string) "best match" "hello world" top_content;
-  Alcotest.(check bool) "perfect match score" true (Float.abs (top_score -. 1.0) < 1e-9);
+  Alcotest.(check bool)
+    "perfect match score" true
+    (Float.abs (top_score -. 1.0) < 1e-9);
   ignore (Sqlite3.db_close db)
 
 let test_search_session_filter () =
   let db = Sqlite3.db_open ":memory:" in
   Vector.init_schema db;
-  Vector.store ~db ~session_key:"s1" ~message_id:1L ~content_preview:"in s1" ~embedding:[| 1.0; 0.0 |];
-  Vector.store ~db ~session_key:"s2" ~message_id:2L ~content_preview:"in s2" ~embedding:[| 0.9; 0.1 |];
+  Vector.store ~db ~session_key:"s1" ~message_id:1L ~content_preview:"in s1"
+    ~embedding:[| 1.0; 0.0 |];
+  Vector.store ~db ~session_key:"s2" ~message_id:2L ~content_preview:"in s2"
+    ~embedding:[| 0.9; 0.1 |];
   let query = [| 1.0; 0.0 |] in
-  let results = Vector.search ~db ~query_embedding:query ~session_key:"s2" ~limit:10 () in
+  let results =
+    Vector.search ~db ~query_embedding:query ~session_key:"s2" ~limit:10 ()
+  in
   Alcotest.(check int) "only s2 results" 1 (List.length results);
   let content, _ = List.hd results in
   Alcotest.(check string) "s2 content" "in s2" content;
   ignore (Sqlite3.db_close db)
 
 let test_merge_keyword_only () =
-  let merged = Vector.merge_results
-      ~keyword_results:["a"; "b"; "c"]
-      ~vector_results:[]
-      ~keyword_weight:100 ~vector_weight:0 in
+  let merged =
+    Vector.merge_results ~keyword_results:[ "a"; "b"; "c" ] ~vector_results:[]
+      ~keyword_weight:100 ~vector_weight:0
+  in
   Alcotest.(check int) "3 results" 3 (List.length merged);
   Alcotest.(check string) "first is a" "a" (List.hd merged)
 
 let test_merge_vector_only () =
-  let merged = Vector.merge_results
-      ~keyword_results:[]
-      ~vector_results:[("x", 0.9); ("y", 0.5)]
-      ~keyword_weight:0 ~vector_weight:100 in
+  let merged =
+    Vector.merge_results ~keyword_results:[]
+      ~vector_results:[ ("x", 0.9); ("y", 0.5) ]
+      ~keyword_weight:0 ~vector_weight:100
+  in
   Alcotest.(check int) "2 results" 2 (List.length merged);
   Alcotest.(check string) "first is x" "x" (List.hd merged)
 
 let test_merge_hybrid () =
   (* "a" is top keyword result (kw_score=1.0), "b" is top vector result (vec_score=1.0) *)
-  let merged = Vector.merge_results
-      ~keyword_results:["a"; "b"]
-      ~vector_results:[("b", 0.95); ("a", 0.3)]
-      ~keyword_weight:50 ~vector_weight:50 in
+  let merged =
+    Vector.merge_results ~keyword_results:[ "a"; "b" ]
+      ~vector_results:[ ("b", 0.95); ("a", 0.3) ]
+      ~keyword_weight:50 ~vector_weight:50
+  in
   Alcotest.(check int) "2 results" 2 (List.length merged);
   (* "a": kw=1.0, vec_norm=(0.3-0.3)/(0.95-0.3)=0.0 -> 0.5*1.0 + 0.5*0.0 = 0.5 *)
   (* "b": kw=0.9, vec_norm=(0.95-0.3)/(0.95-0.3)=1.0 -> 0.5*0.9 + 0.5*1.0 = 0.95 *)
   Alcotest.(check string) "b wins with vector boost" "b" (List.hd merged)
 
 let test_merge_dedup () =
-  let merged = Vector.merge_results
-      ~keyword_results:["same"; "other"]
-      ~vector_results:[("same", 0.8)]
-      ~keyword_weight:50 ~vector_weight:50 in
+  let merged =
+    Vector.merge_results ~keyword_results:[ "same"; "other" ]
+      ~vector_results:[ ("same", 0.8) ]
+      ~keyword_weight:50 ~vector_weight:50
+  in
   Alcotest.(check int) "deduplicated" 2 (List.length merged)
 
 let test_init_schema () =

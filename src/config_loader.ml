@@ -2,13 +2,9 @@ let parse_config ?(resolve_secrets = true) json =
   let open Yojson.Safe.Util in
   let default = Runtime_config.default in
   let providers_node =
-    let top =
-      try json |> member "providers" with _ -> `Null
-    in
-    if top <> `Null then
-      top
-    else
-      (try json |> member "models" |> member "providers" with _ -> `Null)
+    let top = try json |> member "providers" with _ -> `Null in
+    if top <> `Null then top
+    else try json |> member "models" |> member "providers" with _ -> `Null
   in
   let default_temperature =
     try json |> member "default_temperature" |> to_float
@@ -19,28 +15,30 @@ let parse_config ?(resolve_secrets = true) json =
     with _ -> default.default_provider
   in
   let encrypt_secrets =
-    try
-      json |> member "security" |> member "encrypt_secrets" |> to_bool
+    try json |> member "security" |> member "encrypt_secrets" |> to_bool
     with _ -> Runtime_config.default.security.encrypt_secrets
   in
   let resolve_secret s =
-    if resolve_secrets then Secret_store.resolve_secret ~encrypt_secrets s else s
+    if resolve_secrets then Secret_store.resolve_secret ~encrypt_secrets s
+    else s
   in
   let providers =
     try
       providers_node |> to_assoc
       |> List.map (fun (name, v) ->
-             let api_key =
-               try v |> member "api_key" |> to_string |> resolve_secret
-               with _ -> ""
-             in
-             let base_url =
-               try Some (v |> member "base_url" |> to_string) with _ -> None
-             in
-             let default_model =
-               try Some (v |> member "default_model" |> to_string) with _ -> None
-             in
-             (name, ({ api_key; base_url; default_model } : Runtime_config.provider_config)))
+          let api_key =
+            try v |> member "api_key" |> to_string |> resolve_secret
+            with _ -> ""
+          in
+          let base_url =
+            try Some (v |> member "base_url" |> to_string) with _ -> None
+          in
+          let default_model =
+            try Some (v |> member "default_model" |> to_string) with _ -> None
+          in
+          ( name,
+            ({ api_key; base_url; default_model }
+              : Runtime_config.provider_config) ))
     with _ -> []
   in
   let agent_defaults =
@@ -58,12 +56,12 @@ let parse_config ?(resolve_secrets = true) json =
         try ad |> member "max_tool_iterations" |> to_int
         with _ -> default.agent_defaults.max_tool_iterations
       in
-      ({ primary_model; system_prompt; max_tool_iterations } : Runtime_config.agent_defaults)
+      ({ primary_model; system_prompt; max_tool_iterations }
+        : Runtime_config.agent_defaults)
     with _ -> default.agent_defaults
   in
   let workspace =
-    try json |> member "workspace" |> to_string
-    with _ -> default.workspace
+    try json |> member "workspace" |> to_string with _ -> default.workspace
   in
   let prompt =
     try
@@ -127,8 +125,7 @@ let parse_config ?(resolve_secrets = true) json =
         with _ -> default.agent_defaults.primary_model
       in
       { agent_defaults with primary_model }
-    else
-      agent_defaults
+    else agent_defaults
   in
   let channels =
     try
@@ -142,18 +139,17 @@ let parse_config ?(resolve_secrets = true) json =
           let accounts =
             tg |> member "accounts" |> to_assoc
             |> List.map (fun (name, v) ->
-                    let bot_token =
-                      try v |> member "bot_token" |> to_string |> resolve_secret with _ -> ""
-                    in
-                   let allow_from =
-                     try
-                       v |> member "allow_from" |> to_list
-                       |> List.map to_string
-                     with _ -> []
-                   in
-                   ( name,
-                     ({ bot_token; allow_from }
-                       : Runtime_config.telegram_account) ))
+                let bot_token =
+                  try v |> member "bot_token" |> to_string |> resolve_secret
+                  with _ -> ""
+                in
+                let allow_from =
+                  try v |> member "allow_from" |> to_list |> List.map to_string
+                  with _ -> []
+                in
+                ( name,
+                  ({ bot_token; allow_from } : Runtime_config.telegram_account)
+                ))
           in
           Some ({ accounts } : Runtime_config.telegram_config)
         with _ -> None
@@ -162,46 +158,64 @@ let parse_config ?(resolve_secrets = true) json =
         try
           let d = ch |> member "discord" in
           let bot_token =
-            try d |> member "bot_token" |> to_string |> resolve_secret with _ -> ""
+            try d |> member "bot_token" |> to_string |> resolve_secret
+            with _ -> ""
           in
           let allow_guilds =
-            try d |> member "allow_guilds" |> to_list |> List.map to_string with _ -> ["*"]
+            try d |> member "allow_guilds" |> to_list |> List.map to_string
+            with _ -> [ "*" ]
           in
           let allow_users =
-            try d |> member "allow_users" |> to_list |> List.map to_string with _ -> ["*"]
+            try d |> member "allow_users" |> to_list |> List.map to_string
+            with _ -> [ "*" ]
           in
-          let intents =
-            try d |> member "intents" |> to_int with _ -> 33281
-          in
-          Some ({ bot_token; allow_guilds; allow_users; intents } : Runtime_config.discord_config)
+          let intents = try d |> member "intents" |> to_int with _ -> 33281 in
+          Some
+            ({ bot_token; allow_guilds; allow_users; intents }
+              : Runtime_config.discord_config)
         with _ -> None
       in
       let slack =
         try
           let s = ch |> member "slack" in
           let bot_token =
-            try s |> member "bot_token" |> to_string |> resolve_secret with _ -> ""
+            try s |> member "bot_token" |> to_string |> resolve_secret
+            with _ -> ""
           in
           let signing_secret =
-            try s |> member "signing_secret" |> to_string |> resolve_secret with _ -> ""
+            try s |> member "signing_secret" |> to_string |> resolve_secret
+            with _ -> ""
           in
           let events_path =
-            try s |> member "events_path" |> to_string with _ -> "/slack/events"
+            try s |> member "events_path" |> to_string
+            with _ -> "/slack/events"
           in
           let allow_channels =
-            try s |> member "allow_channels" |> to_list |> List.map to_string with _ -> ["*"]
+            try s |> member "allow_channels" |> to_list |> List.map to_string
+            with _ -> [ "*" ]
           in
           let allow_users =
-            try s |> member "allow_users" |> to_list |> List.map to_string with _ -> ["*"]
+            try s |> member "allow_users" |> to_list |> List.map to_string
+            with _ -> [ "*" ]
           in
           let app_token =
-            try s |> member "app_token" |> to_string |> resolve_secret with _ -> ""
+            try s |> member "app_token" |> to_string |> resolve_secret
+            with _ -> ""
           in
           let socket_mode =
             try s |> member "socket_mode" |> to_bool with _ -> false
           in
-          Some ({ bot_token; signing_secret; events_path; allow_channels; allow_users;
-                  app_token; socket_mode } : Runtime_config.slack_config)
+          Some
+            ({
+               bot_token;
+               signing_secret;
+               events_path;
+               allow_channels;
+               allow_users;
+               app_token;
+               socket_mode;
+             }
+              : Runtime_config.slack_config)
         with _ -> None
       in
       ({ cli; telegram; discord; slack } : Runtime_config.channel_config)
@@ -211,8 +225,7 @@ let parse_config ?(resolve_secrets = true) json =
     try
       let gw = json |> member "gateway" in
       let host =
-        try gw |> member "host" |> to_string
-        with _ -> default.gateway.host
+        try gw |> member "host" |> to_string with _ -> default.gateway.host
       in
       let port =
         try gw |> member "port" |> to_int with _ -> default.gateway.port
@@ -227,7 +240,8 @@ let parse_config ?(resolve_secrets = true) json =
           if String.trim v = "" then None else Some v
         with _ -> default.gateway.auth_token
       in
-      ({ host; port; require_pairing; auth_token } : Runtime_config.gateway_config)
+      ({ host; port; require_pairing; auth_token }
+        : Runtime_config.gateway_config)
     with _ -> default.gateway
   in
   let runtime =
@@ -257,8 +271,7 @@ let parse_config ?(resolve_secrets = true) json =
         with _ -> default.tunnel.provider
       in
       let enabled =
-        try t |> member "enabled" |> to_bool
-        with _ -> default.tunnel.enabled
+        try t |> member "enabled" |> to_bool with _ -> default.tunnel.enabled
       in
       ({ provider; enabled } : Runtime_config.tunnel_config)
     with _ -> default.tunnel
@@ -272,9 +285,9 @@ let parse_config ?(resolve_secrets = true) json =
       in
       let search_enabled =
         try m |> member "search_enabled" |> to_bool
-        with _ ->
+        with _ -> (
           try m |> member "search" |> member "enabled" |> to_bool
-          with _ -> default.memory.search_enabled
+          with _ -> default.memory.search_enabled)
       in
       let db_path =
         try m |> member "db_path" |> to_string
@@ -301,8 +314,7 @@ let parse_config ?(resolve_secrets = true) json =
       let vector_weight, keyword_weight =
         if vector_weight + keyword_weight = 100 then
           (vector_weight, keyword_weight)
-        else
-          (default.memory.vector_weight, default.memory.keyword_weight)
+        else (default.memory.vector_weight, default.memory.keyword_weight)
       in
       let embedding_model =
         try Some (m |> member "embedding_model" |> to_string)
@@ -320,10 +332,18 @@ let parse_config ?(resolve_secrets = true) json =
         try m |> member "max_message_age_days" |> to_int
         with _ -> default.memory.max_message_age_days
       in
-      ({ backend; search_enabled; db_path;
-         vector_weight; keyword_weight;
-         embedding_model; embedding_provider;
-         max_messages_per_session; max_message_age_days } : Runtime_config.memory_config)
+      ({
+         backend;
+         search_enabled;
+         db_path;
+         vector_weight;
+         keyword_weight;
+         embedding_model;
+         embedding_provider;
+         max_messages_per_session;
+         max_message_age_days;
+       }
+        : Runtime_config.memory_config)
     with _ -> default.memory
   in
   let security =
@@ -331,21 +351,21 @@ let parse_config ?(resolve_secrets = true) json =
       let s = json |> member "security" in
       let workspace_only =
         try s |> member "workspace_only" |> to_bool
-        with _ ->
+        with _ -> (
           try json |> member "autonomy" |> member "workspace_only" |> to_bool
-          with _ -> default.security.workspace_only
+          with _ -> default.security.workspace_only)
       in
       let audit_enabled =
         try s |> member "audit_enabled" |> to_bool
-        with _ ->
+        with _ -> (
           try s |> member "audit" |> member "enabled" |> to_bool
-          with _ -> default.security.audit_enabled
+          with _ -> default.security.audit_enabled)
       in
       let tools_enabled =
         try s |> member "tools_enabled" |> to_bool
-        with _ ->
+        with _ -> (
           try s |> member "tools" |> member "enabled" |> to_bool
-          with _ -> default.security.tools_enabled
+          with _ -> default.security.tools_enabled)
       in
       let encrypt_secrets =
         try s |> member "encrypt_secrets" |> to_bool
@@ -356,18 +376,27 @@ let parse_config ?(resolve_secrets = true) json =
           let rl = s |> member "rate_limit" in
           let gateway_per_ip_rpm =
             try rl |> member "gateway_per_ip_rpm" |> to_int
-            with _ -> default.security.rate_limit.gateway_per_ip_rpm in
+            with _ -> default.security.rate_limit.gateway_per_ip_rpm
+          in
           let gateway_per_session_rpm =
             try rl |> member "gateway_per_session_rpm" |> to_int
-            with _ -> default.security.rate_limit.gateway_per_session_rpm in
+            with _ -> default.security.rate_limit.gateway_per_session_rpm
+          in
           let telegram_per_chat_rpm =
             try rl |> member "telegram_per_chat_rpm" |> to_int
-            with _ -> default.security.rate_limit.telegram_per_chat_rpm in
+            with _ -> default.security.rate_limit.telegram_per_chat_rpm
+          in
           let burst_multiplier =
             try rl |> member "burst_multiplier" |> to_float
-            with _ -> default.security.rate_limit.burst_multiplier in
-          ({ gateway_per_ip_rpm; gateway_per_session_rpm;
-             telegram_per_chat_rpm; burst_multiplier } : Runtime_config.rate_limit_config)
+            with _ -> default.security.rate_limit.burst_multiplier
+          in
+          ({
+             gateway_per_ip_rpm;
+             gateway_per_session_rpm;
+             telegram_per_chat_rpm;
+             burst_multiplier;
+           }
+            : Runtime_config.rate_limit_config)
         with _ -> default.security.rate_limit
       in
       let audit_retention =
@@ -375,16 +404,20 @@ let parse_config ?(resolve_secrets = true) json =
           let ar = s |> member "audit_retention" in
           let max_age_days =
             try ar |> member "max_age_days" |> to_int
-            with _ -> default.security.audit_retention.max_age_days in
+            with _ -> default.security.audit_retention.max_age_days
+          in
           let max_entries =
             try ar |> member "max_entries" |> to_int
-            with _ -> default.security.audit_retention.max_entries in
+            with _ -> default.security.audit_retention.max_entries
+          in
           let export_before_purge =
             try ar |> member "export_before_purge" |> to_bool
-            with _ -> default.security.audit_retention.export_before_purge in
+            with _ -> default.security.audit_retention.export_before_purge
+          in
           let export_path =
             try ar |> member "export_path" |> to_string
-            with _ -> default.security.audit_retention.export_path in
+            with _ -> default.security.audit_retention.export_path
+          in
           ({ max_age_days; max_entries; export_before_purge; export_path }
             : Runtime_config.audit_retention_config)
         with _ -> default.security.audit_retention
@@ -398,12 +431,24 @@ let parse_config ?(resolve_secrets = true) json =
         with _ -> default.security.landlock_enabled
       in
       let landlock_extra_read_paths =
-        try s |> member "landlock_extra_read_paths" |> to_list |> List.map to_string
+        try
+          s
+          |> member "landlock_extra_read_paths"
+          |> to_list |> List.map to_string
         with _ -> default.security.landlock_extra_read_paths
       in
-      ({ workspace_only; audit_enabled; tools_enabled; encrypt_secrets;
-         rate_limit; audit_retention; audit_signing_enabled;
-         landlock_enabled; landlock_extra_read_paths } : Runtime_config.security_config)
+      ({
+         workspace_only;
+         audit_enabled;
+         tools_enabled;
+         encrypt_secrets;
+         rate_limit;
+         audit_retention;
+         audit_signing_enabled;
+         landlock_enabled;
+         landlock_extra_read_paths;
+       }
+        : Runtime_config.security_config)
     with _ -> default.security
   in
   let stt =
@@ -421,12 +466,13 @@ let parse_config ?(resolve_secrets = true) json =
     try
       let m = json |> member "mcp" in
       let enabled =
-        try m |> member "enabled" |> to_bool
-        with _ -> default.mcp.enabled
+        try m |> member "enabled" |> to_bool with _ -> default.mcp.enabled
       in
       let exposed_tools =
         try
-          let tools = m |> member "exposed_tools" |> to_list |> List.map to_string in
+          let tools =
+            m |> member "exposed_tools" |> to_list |> List.map to_string
+          in
           Some tools
         with _ -> None
       in
@@ -474,20 +520,24 @@ let parse_config ?(resolve_secrets = true) json =
     resilience;
   }
 
-let rec merge_json (original : Yojson.Safe.t) (complete : Yojson.Safe.t) : Yojson.Safe.t =
-  match original, complete with
+let rec merge_json (original : Yojson.Safe.t) (complete : Yojson.Safe.t) :
+    Yojson.Safe.t =
+  match (original, complete) with
   | `Assoc orig_fields, `Assoc comp_fields ->
-    let merged =
-      List.map (fun (k, v) ->
-        match List.assoc_opt k comp_fields with
-        | Some cv -> (k, merge_json v cv)
-        | None -> (k, v))
-        orig_fields
-    in
-    let new_fields =
-      List.filter (fun (k, _) -> not (List.mem_assoc k orig_fields)) comp_fields
-    in
-    `Assoc (merged @ new_fields)
+      let merged =
+        List.map
+          (fun (k, v) ->
+            match List.assoc_opt k comp_fields with
+            | Some cv -> (k, merge_json v cv)
+            | None -> (k, v))
+          orig_fields
+      in
+      let new_fields =
+        List.filter
+          (fun (k, _) -> not (List.mem_assoc k orig_fields))
+          comp_fields
+      in
+      `Assoc (merged @ new_fields)
   | _ -> complete
 
 let backfill_config ~path ~original_json ~config =
@@ -507,9 +557,7 @@ let load ?(path = "") () : Runtime_config.t =
   let config_path =
     if path <> "" then path
     else
-      let home =
-        try Sys.getenv "HOME" with Not_found -> "/tmp"
-      in
+      let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
       Filename.concat (Filename.concat home ".clawq") "config.json"
   in
   if not (Sys.file_exists config_path) then Runtime_config.default
@@ -524,7 +572,8 @@ let load ?(path = "") () : Runtime_config.t =
     match json with
     | None -> Runtime_config.default
     | Some json ->
-      let config = parse_config ~resolve_secrets:true json in
-      let backfill_cfg = parse_config ~resolve_secrets:false json in
-      backfill_config ~path:config_path ~original_json:json ~config:backfill_cfg;
-      config
+        let config = parse_config ~resolve_secrets:true json in
+        let backfill_cfg = parse_config ~resolve_secrets:false json in
+        backfill_config ~path:config_path ~original_json:json
+          ~config:backfill_cfg;
+        config

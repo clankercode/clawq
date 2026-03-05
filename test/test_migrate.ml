@@ -1,4 +1,5 @@
-let nullclaw_json = {|{
+let nullclaw_json =
+  {|{
   "default_temperature": 0.8,
   "models": {
     "providers": {
@@ -58,14 +59,15 @@ let test_convert_providers () =
   let or_cfg = List.assoc "openrouter" config.providers in
   Alcotest.(check string) "openrouter key" "sk-test-123" or_cfg.api_key;
   let vx_cfg = List.assoc "vertex" config.providers in
-  Alcotest.(check bool) "vertex key is stringified object" true
+  Alcotest.(check bool)
+    "vertex key is stringified object" true
     (String.length vx_cfg.api_key > 5)
 
 let test_convert_agent_defaults () =
   let json = Yojson.Safe.from_string nullclaw_json in
   let config, _ = Migrate.convert json in
-  Alcotest.(check string) "primary model"
-    "openrouter/anthropic/claude-sonnet-4"
+  Alcotest.(check string)
+    "primary model" "openrouter/anthropic/claude-sonnet-4"
     config.agent_defaults.primary_model
 
 let test_convert_channels () =
@@ -73,25 +75,38 @@ let test_convert_channels () =
   let config, warnings = Migrate.convert json in
   Alcotest.(check bool) "cli enabled" true config.channels.cli;
   (match config.channels.telegram with
-   | None -> Alcotest.fail "expected telegram config"
-   | Some tg ->
-     Alcotest.(check int) "1 telegram account" 1 (List.length tg.accounts);
-     let _, acct = List.hd tg.accounts in
-     Alcotest.(check string) "bot token" "123:ABC" acct.bot_token);
-  Alcotest.(check bool) "IRC skip warning" true
-    (List.exists (fun w -> let re = Str.regexp_string "IRC" in
-       try ignore (Str.search_forward re w 0); true
-       with Not_found -> false) warnings)
+  | None -> Alcotest.fail "expected telegram config"
+  | Some tg ->
+      Alcotest.(check int) "1 telegram account" 1 (List.length tg.accounts);
+      let _, acct = List.hd tg.accounts in
+      Alcotest.(check string) "bot token" "123:ABC" acct.bot_token);
+  Alcotest.(check bool)
+    "IRC skip warning" true
+    (List.exists
+       (fun w ->
+         let re = Str.regexp_string "IRC" in
+         try
+           ignore (Str.search_forward re w 0);
+           true
+         with Not_found -> false)
+       warnings)
 
 let test_convert_memory () =
   let json = Yojson.Safe.from_string nullclaw_json in
   let config, warnings = Migrate.convert json in
-  Alcotest.(check string) "backend mapped to sqlite" "sqlite" config.memory.backend;
+  Alcotest.(check string)
+    "backend mapped to sqlite" "sqlite" config.memory.backend;
   Alcotest.(check bool) "search enabled" true config.memory.search_enabled;
-  Alcotest.(check bool) "markdown->sqlite warning" true
-    (List.exists (fun w -> let re = Str.regexp_string "markdown" in
-       try ignore (Str.search_forward re w 0); true
-       with Not_found -> false) warnings)
+  Alcotest.(check bool)
+    "markdown->sqlite warning" true
+    (List.exists
+       (fun w ->
+         let re = Str.regexp_string "markdown" in
+         try
+           ignore (Str.search_forward re w 0);
+           true
+         with Not_found -> false)
+       warnings)
 
 let test_convert_gateway () =
   let json = Yojson.Safe.from_string nullclaw_json in
@@ -103,10 +118,10 @@ let test_convert_gateway () =
 let test_convert_security () =
   let json = Yojson.Safe.from_string nullclaw_json in
   let config, _ = Migrate.convert json in
-  Alcotest.(check bool) "workspace_only from autonomy" false
-    config.security.workspace_only;
-  Alcotest.(check bool) "audit_enabled from security.audit" true
-    config.security.audit_enabled
+  Alcotest.(check bool)
+    "workspace_only from autonomy" false config.security.workspace_only;
+  Alcotest.(check bool)
+    "audit_enabled from security.audit" true config.security.audit_enabled
 
 let test_convert_temperature () =
   let json = Yojson.Safe.from_string nullclaw_json in
@@ -116,7 +131,8 @@ let test_convert_temperature () =
 let suite =
   [
     Alcotest.test_case "convert providers" `Quick test_convert_providers;
-    Alcotest.test_case "convert agent defaults" `Quick test_convert_agent_defaults;
+    Alcotest.test_case "convert agent defaults" `Quick
+      test_convert_agent_defaults;
     Alcotest.test_case "convert channels" `Quick test_convert_channels;
     Alcotest.test_case "convert memory" `Quick test_convert_memory;
     Alcotest.test_case "convert gateway" `Quick test_convert_gateway;

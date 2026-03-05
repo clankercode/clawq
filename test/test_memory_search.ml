@@ -9,20 +9,28 @@ let test_fts_init_disabled () =
 let test_search_basic () =
   let db = Memory.init ~db_path:":memory:" ~search_enabled:true () in
   Memory.store_message ~db ~session_key:"s1"
-    (Provider.make_message ~role:"user" ~content:"Tell me about OCaml programming");
+    (Provider.make_message ~role:"user"
+       ~content:"Tell me about OCaml programming");
   Memory.store_message ~db ~session_key:"s1"
-    (Provider.make_message ~role:"assistant" ~content:"OCaml is a functional programming language");
+    (Provider.make_message ~role:"assistant"
+       ~content:"OCaml is a functional programming language");
   Memory.store_message ~db ~session_key:"s1"
     (Provider.make_message ~role:"user" ~content:"What about Python?");
   Memory.store_message ~db ~session_key:"s1"
-    (Provider.make_message ~role:"assistant" ~content:"Python is a dynamic language");
+    (Provider.make_message ~role:"assistant"
+       ~content:"Python is a dynamic language");
   let results = Memory.search ~db ~query:"OCaml" ~limit:5 () in
   Alcotest.(check bool) "found OCaml results" true (List.length results > 0);
-  Alcotest.(check bool) "results mention OCaml" true
-    (List.exists (fun (m : Provider.message) ->
-       let re = Str.regexp_string "OCaml" in
-       try ignore (Str.search_forward re m.content 0); true
-       with Not_found -> false) results)
+  Alcotest.(check bool)
+    "results mention OCaml" true
+    (List.exists
+       (fun (m : Provider.message) ->
+         let re = Str.regexp_string "OCaml" in
+         try
+           ignore (Str.search_forward re m.content 0);
+           true
+         with Not_found -> false)
+       results)
 
 let test_search_session_filter () =
   let db = Memory.init ~db_path:":memory:" ~search_enabled:true () in
@@ -30,7 +38,9 @@ let test_search_session_filter () =
     (Provider.make_message ~role:"user" ~content:"OCaml programming");
   Memory.store_message ~db ~session_key:"s2"
     (Provider.make_message ~role:"user" ~content:"OCaml types");
-  let s1_results = Memory.search ~db ~query:"OCaml" ~session_key:"s1" ~limit:5 () in
+  let s1_results =
+    Memory.search ~db ~query:"OCaml" ~session_key:"s1" ~limit:5 ()
+  in
   Alcotest.(check int) "1 result for s1" 1 (List.length s1_results)
 
 let test_search_limit () =
