@@ -33,15 +33,16 @@ let run ~(config : Runtime_config.t) =
     let h = String.lowercase_ascii (String.trim host) in
     h = "127.0.0.1" || h = "localhost" || h = "::1"
   in
-  if (not config.gateway.require_pairing) && config.gateway.auth_token = None
-  then
-    failwith
-      "Insecure gateway config: set gateway.require_pairing=true or configure \
-       gateway.auth_token";
   if
     (not (is_loopback_host config.gateway.host))
     && config.gateway.auth_token = None
   then failwith "Refusing non-loopback gateway bind without gateway.auth_token";
+  if (not config.gateway.require_pairing) && config.gateway.auth_token = None
+  then
+    Logs.warn (fun m ->
+        m
+          "Gateway running without require_pairing or auth_token; suitable \
+           only for local development on loopback");
   Logs.set_reporter (Logs_fmt.reporter ());
   Logs.set_level (Some Logs.Info);
   List.iter
