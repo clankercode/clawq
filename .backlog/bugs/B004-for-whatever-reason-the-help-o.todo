@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-05T17:18:33Z"
+claimed_by: cli-user
+completed_at: "2026-03-05T17:40:29Z"
 complexity: medium
 depends_on: []
+duration_minutes: 21.941745404483335
 estimate_hours: 1
 id: B004
 priority: high
-status: pending
+started_at: "2026-03-05T17:18:33Z"
+status: done
 tags: []
 title: |-
     for whatever reason, the --help outputs escape codes as text:

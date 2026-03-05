@@ -171,6 +171,11 @@ let main_info =
         `P "Run $(b,clawq COMMAND --help) for per-command usage.";
       ]
 
+(* Clear MANPAGER so Cmdliner's pager selection does not pick up user-defined
+   pipelines (e.g. col -bx | bat) that strip ANSI escape sequences from groff
+   output and render help as raw escape codes. *)
+let help_env var = match var with "MANPAGER" -> None | _ -> Sys.getenv_opt var
+
 let () =
   let cmds =
     [
@@ -197,4 +202,4 @@ let () =
       hardware_cmd;
     ]
   in
-  exit (Cmd.eval (Cmd.group main_info cmds))
+  exit (Cmd.eval ~env:help_env (Cmd.group main_info cmds))
