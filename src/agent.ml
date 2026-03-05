@@ -35,6 +35,85 @@ let risk_level_to_string = function
   | Tool.Medium -> "medium"
   | Tool.High -> "high"
 
+(* Execute all tool calls in parallel, then append results to history in the
+   original call order. Parallel execution reduces latency when the LLM issues
+   multiple independent tool calls in a single turn. *)
+let execute_tool_calls agent ~db ~audit_enabled ~session_key calls =
+  let open Lwt.Syntax in
+  let* results =
+    Lwt_list.map_p
+      (fun (tc : Provider.tool_call) ->
+        Logs.info (fun m ->
+            m "Tool call: %s (id=%s) args=%s" tc.function_name tc.id
+              tc.arguments);
+        (match (db, audit_enabled, session_key) with
+        | Some db, true, Some sk ->
+            let risk =
+              match agent.tool_registry with
+              | Some reg -> (
+                  match Tool_registry.find reg tc.function_name with
+                  | Some t -> risk_level_to_string t.risk_level
+                  | None -> "unknown")
+              | None -> "unknown"
+            in
+            Audit.log ~db
+              (ToolInvocation
+                 {
+                   session_key = sk;
+                   tool_name = tc.function_name;
+                   risk_level = risk;
+                   args_preview = tc.arguments;
+                 })
+        | _ -> ());
+        let* result =
+          match agent.tool_registry with
+          | None -> Lwt.return "Error: no tool registry available"
+          | Some registry -> (
+              match Tool_registry.find registry tc.function_name with
+              | None ->
+                  Lwt.return
+                    (Printf.sprintf "Error: unknown tool '%s'" tc.function_name)
+              | Some tool ->
+                  Lwt.catch
+                    (fun () ->
+                      let args =
+                        try Yojson.Safe.from_string tc.arguments
+                        with _ -> `Assoc []
+                      in
+                      tool.invoke args)
+                    (fun exn ->
+                      Lwt.return
+                        ("Error invoking tool: " ^ Printexc.to_string exn)))
+        in
+        let success =
+          not (String.length result >= 6 && String.sub result 0 6 = "Error:")
+        in
+        (match (db, audit_enabled, session_key) with
+        | Some db, true, Some sk ->
+            Audit.log ~db
+              (ToolResult
+                 { session_key = sk; tool_name = tc.function_name; success })
+        | _ -> ());
+        let truncated =
+          if String.length result > 200 then String.sub result 0 200 ^ "..."
+          else result
+        in
+        Logs.info (fun m ->
+            m "Tool result: %s -> %s" tc.function_name truncated);
+        Lwt.return (tc, result))
+      calls
+  in
+  (* Append results in original call order so history is deterministic *)
+  List.iter
+    (fun ((tc : Provider.tool_call), result) ->
+      let tool_msg =
+        Provider.make_tool_result ~tool_call_id:tc.id ~name:tc.function_name
+          ~content:result
+      in
+      agent.history <- tool_msg :: agent.history)
+    results;
+  Lwt.return_unit
+
 let inject_search_context agent ~db ~user_message =
   let open Lwt.Syntax in
   if agent.config.memory.search_enabled then
@@ -172,80 +251,7 @@ let turn agent ~user_message ?db ?session_key () =
         in
         agent.history <- assistant_msg :: agent.history;
         let* () =
-          Lwt_list.iter_s
-            (fun (tc : Provider.tool_call) ->
-              Logs.info (fun m ->
-                  m "Tool call: %s (id=%s) args=%s" tc.function_name tc.id
-                    tc.arguments);
-              (match (db, audit_enabled, session_key) with
-              | Some db, true, Some sk ->
-                  let risk =
-                    match agent.tool_registry with
-                    | Some reg -> (
-                        match Tool_registry.find reg tc.function_name with
-                        | Some t -> risk_level_to_string t.risk_level
-                        | None -> "unknown")
-                    | None -> "unknown"
-                  in
-                  Audit.log ~db
-                    (ToolInvocation
-                       {
-                         session_key = sk;
-                         tool_name = tc.function_name;
-                         risk_level = risk;
-                         args_preview = tc.arguments;
-                       })
-              | _ -> ());
-              let* result =
-                match agent.tool_registry with
-                | None -> Lwt.return "Error: no tool registry available"
-                | Some registry -> (
-                    match Tool_registry.find registry tc.function_name with
-                    | None ->
-                        Lwt.return
-                          (Printf.sprintf "Error: unknown tool '%s'"
-                             tc.function_name)
-                    | Some tool ->
-                        Lwt.catch
-                          (fun () ->
-                            let args =
-                              try Yojson.Safe.from_string tc.arguments
-                              with _ -> `Assoc []
-                            in
-                            tool.invoke args)
-                          (fun exn ->
-                            Lwt.return
-                              ("Error invoking tool: " ^ Printexc.to_string exn))
-                    )
-              in
-              let success =
-                not
-                  (String.length result >= 6 && String.sub result 0 6 = "Error:")
-              in
-              (match (db, audit_enabled, session_key) with
-              | Some db, true, Some sk ->
-                  Audit.log ~db
-                    (ToolResult
-                       {
-                         session_key = sk;
-                         tool_name = tc.function_name;
-                         success;
-                       })
-              | _ -> ());
-              let truncated =
-                if String.length result > 200 then
-                  String.sub result 0 200 ^ "..."
-                else result
-              in
-              Logs.info (fun m ->
-                  m "Tool result: %s -> %s" tc.function_name truncated);
-              let tool_msg =
-                Provider.make_tool_result ~tool_call_id:tc.id
-                  ~name:tc.function_name ~content:result
-              in
-              agent.history <- tool_msg :: agent.history;
-              Lwt.return_unit)
-            calls
+          execute_tool_calls agent ~db ~audit_enabled ~session_key calls
         in
         loop (iteration + 1)
   in
@@ -327,73 +333,7 @@ let turn_stream agent ~user_message ?db ?session_key ~on_chunk () =
         in
         agent.history <- assistant_msg :: agent.history;
         let* () =
-          Lwt_list.iter_s
-            (fun (tc : Provider.tool_call) ->
-              Logs.info (fun m ->
-                  m "Tool call: %s (id=%s) args=%s" tc.function_name tc.id
-                    tc.arguments);
-              (match (db, audit_enabled, session_key) with
-              | Some db, true, Some sk ->
-                  let risk =
-                    match agent.tool_registry with
-                    | Some reg -> (
-                        match Tool_registry.find reg tc.function_name with
-                        | Some t -> risk_level_to_string t.risk_level
-                        | None -> "unknown")
-                    | None -> "unknown"
-                  in
-                  Audit.log ~db
-                    (ToolInvocation
-                       {
-                         session_key = sk;
-                         tool_name = tc.function_name;
-                         risk_level = risk;
-                         args_preview = tc.arguments;
-                       })
-              | _ -> ());
-              let* result =
-                match agent.tool_registry with
-                | None -> Lwt.return "Error: no tool registry available"
-                | Some registry -> (
-                    match Tool_registry.find registry tc.function_name with
-                    | None ->
-                        Lwt.return
-                          (Printf.sprintf "Error: unknown tool '%s'"
-                             tc.function_name)
-                    | Some tool ->
-                        Lwt.catch
-                          (fun () ->
-                            let args =
-                              try Yojson.Safe.from_string tc.arguments
-                              with _ -> `Assoc []
-                            in
-                            tool.invoke args)
-                          (fun exn ->
-                            Lwt.return
-                              ("Error invoking tool: " ^ Printexc.to_string exn))
-                    )
-              in
-              let success =
-                not
-                  (String.length result >= 6 && String.sub result 0 6 = "Error:")
-              in
-              (match (db, audit_enabled, session_key) with
-              | Some db, true, Some sk ->
-                  Audit.log ~db
-                    (ToolResult
-                       {
-                         session_key = sk;
-                         tool_name = tc.function_name;
-                         success;
-                       })
-              | _ -> ());
-              let tool_msg =
-                Provider.make_tool_result ~tool_call_id:tc.id
-                  ~name:tc.function_name ~content:result
-              in
-              agent.history <- tool_msg :: agent.history;
-              Lwt.return_unit)
-            calls
+          execute_tool_calls agent ~db ~audit_enabled ~session_key calls
         in
         loop (iteration + 1)
   in

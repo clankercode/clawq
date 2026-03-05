@@ -10,6 +10,10 @@ type update = {
   chat_id : string;
   text : string;
   voice_file_id : string option;
+  photo_file_id : string option;
+  document_file_id : string option;
+  document_name : string option;
+  caption : string option;
 }
 
 let get_updates ~bot_token ~offset ~timeout =
@@ -39,7 +43,39 @@ let get_updates ~bot_token ~offset ~timeout =
               try Some (msg |> member "voice" |> member "file_id" |> to_string)
               with _ -> None
             in
-            Some { update_id; chat_id; text; voice_file_id }
+            (* Photos arrive as an array sorted by size; take the last (largest) *)
+            let photo_file_id =
+              try
+                let photos = msg |> member "photo" |> to_list in
+                let last = List.nth photos (List.length photos - 1) in
+                Some (last |> member "file_id" |> to_string)
+              with _ -> None
+            in
+            let document_file_id =
+              try
+                Some (msg |> member "document" |> member "file_id" |> to_string)
+              with _ -> None
+            in
+            let document_name =
+              try
+                Some
+                  (msg |> member "document" |> member "file_name" |> to_string)
+              with _ -> None
+            in
+            let caption =
+              try Some (msg |> member "caption" |> to_string) with _ -> None
+            in
+            Some
+              {
+                update_id;
+                chat_id;
+                text;
+                voice_file_id;
+                photo_file_id;
+                document_file_id;
+                document_name;
+                caption;
+              }
           with _ -> None)
         results
     in
@@ -50,6 +86,35 @@ let get_updates ~bot_token ~offset ~timeout =
           (redact_token bot_token));
     Lwt.return [])
 
+let telegram_max_message_len = 4096
+
+(* Split text into chunks no larger than max_len, preferring newline boundaries *)
+let chunk_text ?(max_len = telegram_max_message_len) text =
+  let len = String.length text in
+  if len <= max_len then [ text ]
+  else
+    let rec go off acc =
+      if off >= len then List.rev acc
+      else
+        let remaining = len - off in
+        if remaining <= max_len then
+          go len (String.sub text off remaining :: acc)
+        else
+          (* Try to find a newline to break on *)
+          let limit = off + max_len in
+          let break_at =
+            let rec find i =
+              if i <= off then limit
+              else if text.[i] = '\n' then i + 1
+              else find (i - 1)
+            in
+            find (limit - 1)
+          in
+          let chunk_len = break_at - off in
+          go break_at (String.sub text off chunk_len :: acc)
+    in
+    go 0 []
+
 let send_message ~bot_token ~chat_id ~text =
   let open Lwt.Syntax in
   let uri = Printf.sprintf "%s%s/sendMessage" api_base bot_token in
@@ -59,6 +124,12 @@ let send_message ~bot_token ~chat_id ~text =
   in
   let* _status, _body = Http_client.post_json ~uri ~headers:[] ~body in
   Lwt.return_unit
+
+let send_chunked ~bot_token ~chat_id ~text =
+  let open Lwt.Syntax in
+  Lwt_list.iter_s
+    (fun chunk -> send_message ~bot_token ~chat_id ~text:chunk)
+    (chunk_text text)
 
 let set_my_commands ~bot_token =
   let open Lwt.Syntax in
@@ -162,7 +233,28 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                 Logs.err (fun m ->
                     m "Voice transcription failed: %s" (Printexc.to_string exn));
                 Lwt.return "")
-        | None -> Lwt.return update.text
+        | None -> (
+            match update.photo_file_id with
+            | Some _ ->
+                let cap =
+                  match update.caption with Some c -> " — " ^ c | None -> ""
+                in
+                Lwt.return ("[Photo received" ^ cap ^ "]")
+            | None -> (
+                match update.document_file_id with
+                | Some _ ->
+                    let name =
+                      match update.document_name with
+                      | Some n -> ": " ^ n
+                      | None -> ""
+                    in
+                    let cap =
+                      match update.caption with
+                      | Some c -> " — " ^ c
+                      | None -> ""
+                    in
+                    Lwt.return ("[Document" ^ name ^ cap ^ "]")
+                | None -> Lwt.return update.text))
       in
       if user_text = "" then Lwt.return_unit
       else
@@ -183,7 +275,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
             in
             match result with
             | Ok response ->
-                send_message ~bot_token ~chat_id:update.chat_id ~text:response
+                send_chunked ~bot_token ~chat_id:update.chat_id ~text:response
             | Error err ->
                 Logs.err (fun m ->
                     m "Agent error for chat_id=%s: %s" update.chat_id err);
