@@ -10,3 +10,4 @@ title: 'task: add slash command support with common slash commands. also: popula
 ---
 
 task: add slash command support with common slash commands. also: populate telgram's command list with them (overwrite all existing if they don't match).
+also integrate with discord etc.
