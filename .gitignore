@@ -12,3 +12,5 @@ _opam
 **/*.aux
 **/*swp
 .env
+
+**/*.tmp.*
