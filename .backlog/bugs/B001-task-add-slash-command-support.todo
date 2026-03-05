@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-05T17:28:16Z"
+claimed_by: cli-user
+completed_at: "2026-03-05T17:57:19Z"
 complexity: medium
 depends_on: []
+duration_minutes: 29.057652637316668
 estimate_hours: 1
 id: B001
 priority: high
-status: pending
+started_at: "2026-03-05T17:28:16Z"
+status: done
 tags: []
 title: 'task: add slash command support with common slash commands. also: populate telgram''s command list with them (overwrite all existing if they don''t match).'
 ---

@@ -207,24 +207,35 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
   else if msg.content = "" then Lwt.return_unit
   else
     let key = session_key ~channel_id:msg.channel_id ~author_id:msg.author_id in
-    let* result =
-      Lwt.catch
-        (fun () ->
-          let* response = Session.turn session_mgr ~key ~message:msg.content in
-          Lwt.return (Ok response))
-        (fun exn -> Lwt.return (Error (Printexc.to_string exn)))
-    in
-    match result with
-    | Ok response ->
+    match Slash_commands.handle msg.content with
+    | Reply text ->
         send_message ~bot_token:discord_config.bot_token
-          ~channel_id:msg.channel_id ~text:response
-    | Error err ->
-        Logs.err (fun m ->
-            m "Discord agent error for channel=%s user=%s: %s" msg.channel_id
-              msg.author_id err);
+          ~channel_id:msg.channel_id ~text
+    | Reset ->
+        Session.reset session_mgr ~key;
         send_message ~bot_token:discord_config.bot_token
-          ~channel_id:msg.channel_id
-          ~text:"Sorry, an error occurred processing your message."
+          ~channel_id:msg.channel_id ~text:Slash_commands.reset_message
+    | NotACommand -> (
+        let* result =
+          Lwt.catch
+            (fun () ->
+              let* response =
+                Session.turn session_mgr ~key ~message:msg.content
+              in
+              Lwt.return (Ok response))
+            (fun exn -> Lwt.return (Error (Printexc.to_string exn)))
+        in
+        match result with
+        | Ok response ->
+            send_message ~bot_token:discord_config.bot_token
+              ~channel_id:msg.channel_id ~text:response
+        | Error err ->
+            Logs.err (fun m ->
+                m "Discord agent error for channel=%s user=%s: %s"
+                  msg.channel_id msg.author_id err);
+            send_message ~bot_token:discord_config.bot_token
+              ~channel_id:msg.channel_id
+              ~text:"Sorry, an error occurred processing your message.")
 
 (* Close code classification for reconnect behavior *)
 let is_fatal_close_code code =

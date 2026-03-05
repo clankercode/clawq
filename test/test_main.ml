@@ -25,4 +25,5 @@ let () =
       ("discord", Test_discord.suite);
       ("discord_gateway", Test_discord_gateway.suite);
       ("slack_socket", Test_slack_socket.suite);
+      ("slash_commands", Test_slash_commands.suite);
     ]

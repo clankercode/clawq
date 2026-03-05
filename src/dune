@@ -25,6 +25,7 @@
   resilience
   landlock
   channel
+  slash_commands
   command_bridge_min)
  (foreign_stubs
   (language c)

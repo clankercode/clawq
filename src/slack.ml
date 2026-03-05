@@ -90,28 +90,45 @@ let handle_event ~(config : Runtime_config.slack_config)
       end
       else begin
         let key = "slack:" ^ channel_id ^ ":" ^ user_id in
-        let* result =
-          Lwt.catch
-            (fun () ->
-              let* response = Session.turn session_manager ~key ~message:text in
-              Lwt.return (Ok response))
-            (fun exn -> Lwt.return (Error (Printexc.to_string exn)))
-        in
-        match result with
-        | Ok response ->
+        match Slash_commands.handle text with
+        | Reply reply_text ->
             let* () =
               send_message ~bot_token:config.bot_token ~channel_id
-                ~text:response
+                ~text:reply_text
             in
             Lwt.return "ok"
-        | Error err ->
-            Logs.err (fun m ->
-                m "Slack agent error for channel=%s user=%s: %s" channel_id
-                  user_id err);
+        | Reset ->
+            Session.reset session_manager ~key;
             let* () =
               send_message ~bot_token:config.bot_token ~channel_id
-                ~text:"Sorry, an error occurred processing your message."
+                ~text:Slash_commands.reset_message
             in
             Lwt.return "ok"
+        | NotACommand -> (
+            let* result =
+              Lwt.catch
+                (fun () ->
+                  let* response =
+                    Session.turn session_manager ~key ~message:text
+                  in
+                  Lwt.return (Ok response))
+                (fun exn -> Lwt.return (Error (Printexc.to_string exn)))
+            in
+            match result with
+            | Ok response ->
+                let* () =
+                  send_message ~bot_token:config.bot_token ~channel_id
+                    ~text:response
+                in
+                Lwt.return "ok"
+            | Error err ->
+                Logs.err (fun m ->
+                    m "Slack agent error for channel=%s user=%s: %s" channel_id
+                      user_id err);
+                let* () =
+                  send_message ~bot_token:config.bot_token ~channel_id
+                    ~text:"Sorry, an error occurred processing your message."
+                in
+                Lwt.return "ok")
       end
   | Some Other | None -> Lwt.return "ok"

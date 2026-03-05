@@ -60,6 +60,32 @@ let send_message ~bot_token ~chat_id ~text =
   let* _status, _body = Http_client.post_json ~uri ~headers:[] ~body in
   Lwt.return_unit
 
+let set_my_commands ~bot_token =
+  let open Lwt.Syntax in
+  let cmds =
+    `List
+      (List.map
+         (fun (c : Slash_commands.command) ->
+           `Assoc
+             [
+               ("command", `String c.name);
+               ("description", `String c.description);
+             ])
+         Slash_commands.commands)
+  in
+  let uri = Printf.sprintf "%s%s/setMyCommands" api_base bot_token in
+  let body = `Assoc [ ("commands", cmds) ] |> Yojson.Safe.to_string in
+  let* status, _body = Http_client.post_json ~uri ~headers:[] ~body in
+  if status >= 200 && status < 300 then
+    Logs.info (fun m ->
+        m "Telegram: registered %d slash commands"
+          (List.length Slash_commands.commands))
+  else
+    Logs.warn (fun m ->
+        m "Telegram: setMyCommands failed (HTTP %d) for token=%s" status
+          (redact_token bot_token));
+  Lwt.return_unit
+
 let is_allowed ~(account : Runtime_config.telegram_account) ~chat_id =
   match account.allow_from with [ "*" ] -> true | ids -> List.mem chat_id ids
 
@@ -140,18 +166,14 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
       in
       if user_text = "" then Lwt.return_unit
       else
-        match user_text with
-        | "/start" | "/help" ->
-            let text =
-              "clawq bot ready. Send me a message and I'll respond using AI.\n\
-               Commands: /new (reset session), /help"
-            in
-            send_message ~bot_token ~chat_id:update.chat_id ~text
-        | "/new" ->
+        match Slash_commands.handle user_text with
+        | Reply text -> send_message ~bot_token ~chat_id:update.chat_id ~text
+        | Reset ->
             Session.reset session_mgr ~key;
             send_message ~bot_token ~chat_id:update.chat_id
-              ~text:"Session reset. Send a new message to start fresh."
-        | msg -> (
+              ~text:Slash_commands.reset_message
+        | NotACommand -> (
+            let msg = user_text in
             let* result =
               Lwt.catch
                 (fun () ->
@@ -174,6 +196,15 @@ let poll_account ~bot_token ~(account : Runtime_config.telegram_account) ~name
     ~(session_mgr : Session.t) ?chat_limiter () =
   let open Lwt.Syntax in
   Logs.info (fun m -> m "Starting Telegram polling for account '%s'" name);
+  let* () =
+    Lwt.catch
+      (fun () -> set_my_commands ~bot_token)
+      (fun exn ->
+        Logs.warn (fun m ->
+            m "Telegram: setMyCommands failed for '%s': %s" name
+              (Printexc.to_string exn));
+        Lwt.return_unit)
+  in
   let offset = ref 0 in
   let poll_count = ref 0 in
   let rec poll () =
