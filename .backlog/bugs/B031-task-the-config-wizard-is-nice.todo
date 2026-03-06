@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B031
+priority: high
+status: pending
+tags: []
+title: 'task: the config wizard is nice but it should show us what our current config is if we have something set already (so we don''t accidentally change settings)'
+---
+
+task: the config wizard is nice but it should show us what our current config is if we have something set already (so we don't accidentally change settings)

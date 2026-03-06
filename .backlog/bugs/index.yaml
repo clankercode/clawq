@@ -29,3 +29,4 @@ bugs:
     - file: B028-openai-codex-oauth-doesn-t-wor.todo
     - file: B029-task-add-to-config-wizard-tool.todo
     - file: B030-task-update-codex-associated-m.todo
+    - file: B031-task-the-config-wizard-is-nice.todo
