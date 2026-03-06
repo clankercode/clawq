@@ -8,3 +8,5 @@ ideas:
       status: done
       tags: []
       title: 'Feature: use cloudflare tunnel to expose http endpoint for webhooks (register the webhooks to give them a unique URL). Then we should support github webhooks as a incoming messages *provided* the messages contain the string `/clawq`. The message for clawq is the paragraph starting with /clawq and everything after, but we should provide both the full context and extract the user message. Otherwise ignore the webhook. We want to react to comments and new PRs particularly. We should be able to specify which agent this gets routed to.'
+    - file: I002-web-ui-chat-interface-heavily.todo
+      id: I002
