@@ -16,3 +16,4 @@ bugs:
     - file: B015-the-agent-is-locked-to-the-wor.todo
     - file: B016-add-safety-check-to-read-file.todo
     - file: B017-add-better-editing-tooling-res.todo
+    - file: B018-task-if-user-sends-a-message-s.todo
