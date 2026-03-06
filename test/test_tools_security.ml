@@ -530,6 +530,153 @@ let test_file_edit_lines_replaces_range () =
       Alcotest.(check string)
         "line range replaced" "one\nTWO\nTHREE\nfour" content)
 
+let find_tool_exn registry name =
+  match Tool_registry.find registry name with
+  | Some tool -> tool
+  | None -> Alcotest.fail ("expected tool not found: " ^ name)
+
+let test_register_all_file_read_path_policy_tracks_security_config () =
+  let base = Filename.get_temp_dir_name () in
+  let workspace =
+    Filename.concat base
+      (Printf.sprintf "clawq_reg_ws_%d_%d" (Unix.getpid ()) (Random.bits ()))
+  in
+  let extra_dir =
+    Filename.concat base
+      (Printf.sprintf "clawq_reg_extra_%d_%d" (Unix.getpid ()) (Random.bits ()))
+  in
+  Unix.mkdir workspace 0o755;
+  Unix.mkdir extra_dir 0o755;
+  let extra_file = Filename.concat extra_dir "outside.txt" in
+  let oc = open_out extra_file in
+  output_string oc "outside content";
+  close_out oc;
+  let mk_cfg ~dynamic_enabled ~workspace_only ~extra_allowed_paths =
+    {
+      Runtime_config.default with
+      workspace;
+      prompt = { Runtime_config.default.prompt with dynamic_enabled };
+      security =
+        {
+          Runtime_config.default.security with
+          workspace_only;
+          extra_allowed_paths;
+        };
+    }
+  in
+  Fun.protect
+    (fun () ->
+      let cfg_blocked =
+        mk_cfg ~dynamic_enabled:false ~workspace_only:true
+          ~extra_allowed_paths:[]
+      in
+      let blocked_registry = Tool_registry.create () in
+      Tools_builtin.register_all ~config:cfg_blocked blocked_registry;
+      let blocked_tool = find_tool_exn blocked_registry "file_read" in
+      let blocked_out =
+        Lwt_main.run
+          (blocked_tool.invoke (`Assoc [ ("path", `String extra_file) ]))
+      in
+      Alcotest.(check bool)
+        "workspace_only blocks outside file" true
+        (contains blocked_out "outside workspace");
+
+      let cfg_extra_allowed =
+        mk_cfg ~dynamic_enabled:true ~workspace_only:true
+          ~extra_allowed_paths:[ extra_dir ]
+      in
+      let extra_registry = Tool_registry.create () in
+      Tools_builtin.register_all ~config:cfg_extra_allowed extra_registry;
+      let extra_tool = find_tool_exn extra_registry "file_read" in
+      let extra_out =
+        Lwt_main.run
+          (extra_tool.invoke (`Assoc [ ("path", `String extra_file) ]))
+      in
+      Alcotest.(check string)
+        "extra_allowed_paths permits outside file" "outside content" extra_out;
+
+      let cfg_workspace_off =
+        mk_cfg ~dynamic_enabled:true ~workspace_only:false
+          ~extra_allowed_paths:[]
+      in
+      let open_registry = Tool_registry.create () in
+      Tools_builtin.register_all ~config:cfg_workspace_off open_registry;
+      let open_tool = find_tool_exn open_registry "file_read" in
+      let open_out =
+        Lwt_main.run
+          (open_tool.invoke (`Assoc [ ("path", `String extra_file) ]))
+      in
+      Alcotest.(check string)
+        "workspace_only=false allows outside file" "outside content" open_out)
+    ~finally:(fun () ->
+      (try Unix.unlink extra_file with _ -> ());
+      (try Unix.rmdir extra_dir with _ -> ());
+      try Unix.rmdir workspace with _ -> ())
+
+let test_register_all_shell_path_policy_tracks_security_config () =
+  let base = Filename.get_temp_dir_name () in
+  let workspace =
+    Filename.concat base
+      (Printf.sprintf "clawq_reg_shell_ws_%d_%d" (Unix.getpid ())
+         (Random.bits ()))
+  in
+  let extra_dir =
+    Filename.concat base
+      (Printf.sprintf "clawq_reg_shell_extra_%d_%d" (Unix.getpid ())
+         (Random.bits ()))
+  in
+  Unix.mkdir workspace 0o755;
+  Unix.mkdir extra_dir 0o755;
+  let mk_cfg ~dynamic_enabled ~workspace_only ~extra_allowed_paths =
+    {
+      Runtime_config.default with
+      workspace;
+      prompt = { Runtime_config.default.prompt with dynamic_enabled };
+      security =
+        {
+          Runtime_config.default.security with
+          workspace_only;
+          extra_allowed_paths;
+        };
+    }
+  in
+  Fun.protect
+    (fun () ->
+      let cfg_blocked =
+        mk_cfg ~dynamic_enabled:false ~workspace_only:true
+          ~extra_allowed_paths:[]
+      in
+      let blocked_registry = Tool_registry.create () in
+      Tools_builtin.register_all ~config:cfg_blocked blocked_registry;
+      let blocked_tool = find_tool_exn blocked_registry "shell_exec" in
+      let blocked_out =
+        Lwt_main.run
+          (blocked_tool.invoke
+             (`Assoc [ ("command", `String ("ls " ^ extra_dir)) ]))
+      in
+      Alcotest.(check bool)
+        "workspace_only blocks outside path arg" true
+        (contains blocked_out "disallowed in workspace_only mode");
+
+      let cfg_extra_allowed =
+        mk_cfg ~dynamic_enabled:true ~workspace_only:true
+          ~extra_allowed_paths:[ extra_dir ]
+      in
+      let extra_registry = Tool_registry.create () in
+      Tools_builtin.register_all ~config:cfg_extra_allowed extra_registry;
+      let extra_tool = find_tool_exn extra_registry "shell_exec" in
+      let extra_out =
+        Lwt_main.run
+          (extra_tool.invoke
+             (`Assoc [ ("command", `String ("ls " ^ extra_dir)) ]))
+      in
+      Alcotest.(check bool)
+        "extra_allowed_paths permits shell path arg" true
+        (contains extra_out "exit_code: 0"))
+    ~finally:(fun () ->
+      (try Unix.rmdir extra_dir with _ -> ());
+      try Unix.rmdir workspace with _ -> ())
+
 let suite =
   [
     Alcotest.test_case "path traversal rejected" `Quick
@@ -573,6 +720,10 @@ let suite =
     Alcotest.test_case "file_edit replace_all" `Quick test_file_edit_replace_all;
     Alcotest.test_case "file_edit_lines range replace" `Quick
       test_file_edit_lines_replaces_range;
+    Alcotest.test_case "register_all file_read path policy" `Quick
+      test_register_all_file_read_path_policy_tracks_security_config;
+    Alcotest.test_case "register_all shell path policy" `Quick
+      test_register_all_shell_path_policy_tracks_security_config;
     Alcotest.test_case "extra_allowed_paths grants access" `Quick
       test_extra_allowed_paths_grants_access;
     Alcotest.test_case "transcribe path policy" `Quick
