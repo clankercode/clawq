@@ -15,6 +15,43 @@ title: Config wizard for intuitive CLI and chat-based setup
 
 Config wizard for intuitive CLI and chat-based setup
 
+## Problem
+
+Several config options are non-intuitive and require manual edits to `~/.clawq/config.json` for expected behavior:
+
+1. **`security.workspace_only`** — defaults to `true`, which restricts file/shell access to workspace only. Users often want to access files outside workspace but don't know to set this to `false`.
+
+2. **`security.tools_enabled`** — must be `true` for any tool use
+
+3. **`security.extra_allowed_paths`** — can grant access to specific paths while keeping `workspace_only=true`
+
+4. **Provider setup** — API keys need to be configured, but the format (`providers.<name>.api_key`) isn't obvious
+
+5. **Channel setup** — Telegram/Discord/Slack all have different config shapes
+
+6. **Gateway auth** — `require_pairing` and `auth_token` interaction is confusing
+
+## Proposed Solution
+
+Interactive wizard accessible via:
+- **CLI**: `clawq config wizard` or `clawq onboard --interactive`
+- **Chat**: Triggered via Telegram/Discord/Slack with `/config` or similar command
+
+Wizard should:
+1. Detect current config state
+2. Ask clarifying questions about intended usage
+3. Recommend and apply config changes
+4. Explain what each change does
+5. Optionally: validate API keys, test channel connectivity
+
+## Key Config Items to Cover
+
+- `security.workspace_only` → explain restriction, offer to disable or add `extra_allowed_paths`
+- `security.tools_enabled` → ensure enabled if user wants tool use
+- Provider API keys → prompt for each provider user wants to use
+- Default model selection → help pick appropriate model
+- Channel setup → guide through Telegram/Discord/Slack setup
+
 ## Planning Task (Equivalent of /plan-task)
 
 - Run `/plan-task I004` to decompose this idea into actionable work.
