@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B028
+priority: high
+status: pending
+tags: []
+title: openai codex oauth doesn't work
+---
+
+openai codex oauth doesn't work

@@ -26,3 +26,4 @@ bugs:
     - file: B025-continue-and-improve-formal-ve.todo
     - file: B026-we-need-a-simple-command-prefe.todo
     - file: B027-find-out-how-gpt-5-4-tool-sear.todo
+    - file: B028-openai-codex-oauth-doesn-t-wor.todo
