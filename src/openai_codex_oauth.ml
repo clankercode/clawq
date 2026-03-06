@@ -1,7 +1,11 @@
 let authorization_endpoint = "https://auth.openai.com/oauth/authorize"
 let token_endpoint = "https://auth.openai.com/oauth/token"
-let redirect_uri = "http://localhost:1455/auth/callback"
-let callback_port = 1455
+let default_callback_port = 1455
+let callback_port_candidates = [ 1455; 1456; 1457; 1458; 1459 ]
+
+let redirect_uri_for_port port =
+  Printf.sprintf "http://localhost:%d/auth/callback" port
+
 let client_id = "app_EMoamEEZ73f0CkXaXp7hrann"
 let scopes = "openid profile email offline_access"
 let codex_base_url = "https://chatgpt.com/backend-api/codex"
@@ -91,12 +95,12 @@ let extract_account_id ~access_token ~id_token =
   | None ->
       Option.bind (parse_jwt_claims access_token) extract_account_id_from_claims
 
-let build_authorization_url ~code_challenge ~state =
+let build_authorization_url ~port ~code_challenge ~state =
   let uri = Uri.of_string authorization_endpoint in
   Uri.with_query' uri
     [
       ("client_id", client_id);
-      ("redirect_uri", redirect_uri);
+      ("redirect_uri", redirect_uri_for_port port);
       ("scope", scopes);
       ("code_challenge", code_challenge);
       ("code_challenge_method", "S256");
@@ -344,7 +348,7 @@ let describe_oauth_error body =
     err
   with _ -> body
 
-let exchange_code_for_tokens ~code ~code_verifier =
+let exchange_code_for_tokens ~port ~code ~code_verifier =
   let open Lwt.Syntax in
   let* status, body =
     form_post ~uri:token_endpoint
@@ -353,7 +357,7 @@ let exchange_code_for_tokens ~code ~code_verifier =
           ("grant_type", [ "authorization_code" ]);
           ("client_id", [ client_id ]);
           ("code", [ code ]);
-          ("redirect_uri", [ redirect_uri ]);
+          ("redirect_uri", [ redirect_uri_for_port port ]);
           ("code_verifier", [ code_verifier ]);
         ]
   in
@@ -439,73 +443,122 @@ let try_open_browser url =
   in
   List.exists (fun cmd -> Sys.command cmd = 0) commands
 
-let wait_for_callback ~expected_state =
+let callback_page_ok =
+  Html_page.render ~title:"Auth Complete" ~extra_css:""
+    ~body_html:
+      {|<h1>Auth Complete</h1>
+  <span class="label label-ok">authenticated</span>
+  <p>You can close this tab and return to the terminal.</p>
+  <div class="qed">&#9632;</div>|}
+
+let callback_page_error title message =
+  Html_page.render ~title ~extra_css:""
+    ~body_html:
+      (Printf.sprintf
+         {|<h1>%s</h1>
+  <span class="label label-error">authentication error</span>
+  <p>%s</p>
+  <div class="qed">&#9632;</div>|}
+         title message)
+
+let try_bind_callback_server ~expected_state port =
   let open Lwt.Syntax in
   let result, wakener = Lwt.wait () in
   let stopped = ref false in
-  let* server =
-    Lwt_io.establish_server_with_client_address
-      (Unix.ADDR_INET (Unix.inet_addr_loopback, callback_port))
-      (fun _addr (ic, oc) ->
-        let finish response body payload =
-          if not !stopped then begin
-            stopped := true;
-            Lwt.wakeup_later wakener payload
-          end;
-          let* () = Lwt_io.write oc response in
-          let* () = Lwt_io.write oc body in
-          Lwt.return_unit
+  let handler _addr (ic, oc) =
+    let finish response body payload =
+      let* () = Lwt_io.write oc response in
+      let* () = Lwt_io.write oc body in
+      let* () = Lwt_io.flush oc in
+      if not !stopped then begin
+        stopped := true;
+        Lwt.wakeup_later wakener payload
+      end;
+      Lwt.return_unit
+    in
+    Lwt.catch
+      (fun () ->
+        let* request_line = Lwt_io.read_line ic in
+        let path =
+          match String.split_on_char ' ' request_line with
+          | _method :: target :: _ -> target
+          | _ -> "/"
         in
-        Lwt.catch
-          (fun () ->
-            let* request_line = Lwt_io.read_line ic in
-            let path =
-              match String.split_on_char ' ' request_line with
-              | _method :: target :: _ -> target
-              | _ -> "/"
-            in
-            let uri = Uri.of_string ("http://localhost" ^ path) in
-            let code = Uri.get_query_param uri "code" in
-            let state = Uri.get_query_param uri "state" in
-            let body, payload =
-              match code with
-              | Some code when state = Some expected_state ->
-                  ( "<html><body><h1>clawq auth complete</h1><p>You can return \
-                     to the terminal.</p></body></html>",
-                    Ok code )
-              | Some _ ->
-                  ( "<html><body><h1>State mismatch</h1><p>Please retry the \
-                     login flow.</p></body></html>",
-                    Error "OAuth state mismatch" )
-              | None ->
-                  ( "<html><body><h1>Missing code</h1><p>Please retry the \
-                     login flow.</p></body></html>",
-                    Error "OAuth callback did not include a code" )
-            in
-            finish
-              "HTTP/1.1 200 OK\r\n\
-               Content-Type: text/html\r\n\
-               Connection: close\r\n\
-               \r\n"
-              body payload)
-          (fun exn ->
-            finish
-              "HTTP/1.1 500 Internal Server Error\r\n\
-               Content-Type: text/plain\r\n\
-               Connection: close\r\n\
-               \r\n"
-              "OAuth callback failed"
-              (Error (Printexc.to_string exn))))
+        let uri = Uri.of_string ("http://localhost" ^ path) in
+        let code = Uri.get_query_param uri "code" in
+        let state = Uri.get_query_param uri "state" in
+        let body, payload =
+          match code with
+          | Some code when state = Some expected_state ->
+              (callback_page_ok, Ok code)
+          | Some _ ->
+              ( callback_page_error "State mismatch"
+                  "The OAuth state parameter did not match. Please retry the \
+                   login flow.",
+                Error "OAuth state mismatch" )
+          | None ->
+              ( callback_page_error "Missing code"
+                  "The callback did not include an authorization code. Please \
+                   retry the login flow.",
+                Error "OAuth callback did not include a code" )
+        in
+        finish
+          "HTTP/1.1 200 OK\r\n\
+           Content-Type: text/html\r\n\
+           Connection: close\r\n\
+           \r\n"
+          body payload)
+      (fun exn ->
+        finish
+          "HTTP/1.1 500 Internal Server Error\r\n\
+           Content-Type: text/plain\r\n\
+           Connection: close\r\n\
+           \r\n"
+          "OAuth callback failed"
+          (Error (Printexc.to_string exn)))
   in
+  let try_bind addr =
+    Lwt.catch
+      (fun () ->
+        let* server =
+          Lwt_io.establish_server_with_client_address addr handler
+        in
+        Lwt.return_some server)
+      (fun _exn -> Lwt.return_none)
+  in
+  let* v6 = try_bind (Unix.ADDR_INET (Unix.inet6_addr_loopback, port)) in
+  let* v4 = try_bind (Unix.ADDR_INET (Unix.inet_addr_loopback, port)) in
+  let servers = List.filter_map Fun.id [ v6; v4 ] in
+  if servers = [] then
+    Lwt.return_error (Printf.sprintf "Could not bind port %d" port)
+  else Lwt.return_ok (servers, result)
+
+let start_callback_server ~expected_state =
+  let open Lwt.Syntax in
+  let rec try_ports = function
+    | [] ->
+        Lwt.return_error
+          "Could not bind any callback port (tried 1455-1459). Is another \
+           login flow running?"
+    | port :: rest -> (
+        let* result = try_bind_callback_server ~expected_state port in
+        match result with
+        | Ok (servers, waiter) -> Lwt.return_ok (port, servers, waiter)
+        | Error _ -> try_ports rest)
+  in
+  try_ports callback_port_candidates
+
+let wait_for_callback_result servers waiter =
+  let open Lwt.Syntax in
   let* result =
     Lwt.pick
       [
-        result;
+        waiter;
         (let* () = Lwt_unix.sleep 120.0 in
          Lwt.return (Error "timeout"));
       ]
   in
-  let* () = Lwt_io.shutdown_server server in
+  let* () = Lwt.join (List.map Lwt_io.shutdown_server servers) in
   Lwt.return result
 
 let provider_from_disk provider_name =
@@ -546,40 +599,75 @@ let login ?(provider_name = default_provider_name) () =
   | Ok () -> (
       let code_verifier = generate_code_verifier () in
       let state = generate_state () in
-      let auth_url =
-        build_authorization_url
-          ~code_challenge:(generate_code_challenge code_verifier)
-          ~state
-      in
-      print_endline "OpenAI Codex OAuth";
-      print_endline "Open this URL in your browser to continue:";
-      print_endline auth_url;
-      ignore (try_open_browser auth_url);
-      let callback_result =
-        try Some (Lwt_main.run (wait_for_callback ~expected_state:state))
+      let server_result =
+        try Some (Lwt_main.run (start_callback_server ~expected_state:state))
         with _ -> None
       in
-      let code_result =
-        match callback_result with
-        | Some (Ok code) -> Ok code
-        | _ ->
-            print_string
-              "Paste the full redirect URL or the authorization code: ";
-            flush stdout;
-            let input = read_line () in
-            parse_callback_input ~expected_state:state input
-      in
-      match code_result with
-      | Error msg -> Error msg
-      | Ok code -> (
-          match
-            Lwt_main.run (exchange_code_for_tokens ~code ~code_verifier)
-          with
+      match server_result with
+      | Some (Ok (port, servers, waiter)) -> (
+          let auth_url =
+            build_authorization_url ~port
+              ~code_challenge:(generate_code_challenge code_verifier)
+              ~state
+          in
+          print_endline "OpenAI Codex OAuth";
+          print_endline "Open this URL in your browser to continue:";
+          print_endline auth_url;
+          ignore (try_open_browser auth_url);
+          let callback_result =
+            try Some (Lwt_main.run (wait_for_callback_result servers waiter))
+            with _ -> None
+          in
+          let code_result =
+            match callback_result with
+            | Some (Ok code) -> Ok code
+            | _ ->
+                print_string
+                  "Paste the full redirect URL or the authorization code: ";
+                flush stdout;
+                let input = read_line () in
+                parse_callback_input ~expected_state:state input
+          in
+          match code_result with
           | Error msg -> Error msg
-          | Ok creds -> (
-              match save_provider_credentials ~provider_name creds with
-              | Ok () -> Ok creds
-              | Error msg -> Error msg)))
+          | Ok code -> (
+              match
+                Lwt_main.run
+                  (exchange_code_for_tokens ~port ~code ~code_verifier)
+              with
+              | Error msg -> Error msg
+              | Ok creds -> (
+                  match save_provider_credentials ~provider_name creds with
+                  | Ok () -> Ok creds
+                  | Error msg -> Error msg)))
+      | _ -> (
+          let port = default_callback_port in
+          let auth_url =
+            build_authorization_url ~port
+              ~code_challenge:(generate_code_challenge code_verifier)
+              ~state
+          in
+          print_endline "OpenAI Codex OAuth";
+          print_endline "Could not start callback server; manual flow required.";
+          print_endline "Open this URL in your browser to continue:";
+          print_endline auth_url;
+          ignore (try_open_browser auth_url);
+          print_string "Paste the full redirect URL or the authorization code: ";
+          flush stdout;
+          let input = read_line () in
+          let code_result = parse_callback_input ~expected_state:state input in
+          match code_result with
+          | Error msg -> Error msg
+          | Ok code -> (
+              match
+                Lwt_main.run
+                  (exchange_code_for_tokens ~port ~code ~code_verifier)
+              with
+              | Error msg -> Error msg
+              | Ok creds -> (
+                  match save_provider_credentials ~provider_name creds with
+                  | Ok () -> Ok creds
+                  | Error msg -> Error msg))))
 
 let status ?(provider_name = default_provider_name) () =
   let provider = provider_from_disk provider_name in

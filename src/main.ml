@@ -173,6 +173,15 @@ let tunnel_cmd =
 
 let migrate_cmd = with_args "migrate" "Run database migrations." []
 
+let debug_cmd =
+  with_args "debug" "Internal debugging utilities."
+    [
+      `S "SUBCOMMANDS";
+      `I
+        ( "html-preview [PORT]",
+          "Serve Html_page test pages on localhost (default port 8099)." );
+    ]
+
 let reset_agent_cmd =
   simple "reset-agent"
     "Wipe all session history, cron jobs, and workspace files, then redeploy \
@@ -222,6 +231,7 @@ let () =
       reset_agent_cmd;
       phase2_cmd;
       hardware_cmd;
+      debug_cmd;
     ]
   in
   exit (Cmd.eval ~env:help_env (Cmd.group main_info cmds))

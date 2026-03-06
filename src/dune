@@ -22,6 +22,7 @@
   skills
   vector
   secret_store
+  html_page
   openai_codex_oauth
   resilience
   landlock

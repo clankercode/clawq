@@ -276,6 +276,8 @@ let cmd_models () =
             in
             Printf.sprintf "  %s: %s (key: %s)%s" name url
               (if Runtime_config.is_key_set p.api_key then "configured"
+               else if Runtime_config.provider_has_codex_oauth p then
+                 "codex-oauth"
                else "not set")
               model_info)
           providers
@@ -1229,6 +1231,97 @@ let cmd_otp_show () =
          totp.secret in a Telegram account."
       else "Current TOTP codes:\n" ^ String.concat "\n" results
 
+let debug_html_preview_pages =
+  [
+    ( "/",
+      Html_page.render ~title:"Index" ~extra_css:""
+        ~body_html:
+          {|<h1>Html_page Preview</h1>
+  <span class="label label-ok">index</span>
+  <p><a href="/ok">Auth success page</a></p>
+  <p><a href="/error">Auth error page</a></p>
+  <p><a href="/custom">Custom content</a></p>
+  <div class="qed">&#9632;</div>|}
+    );
+    ("/ok", Openai_codex_oauth.callback_page_ok);
+    ( "/error",
+      Openai_codex_oauth.callback_page_error "State Mismatch"
+        "The OAuth state parameter did not match. Please retry the login flow."
+    );
+    ( "/custom",
+      Html_page.render ~title:"Custom Example" ~extra_css:""
+        ~body_html:
+          {|<h1>Custom Page</h1>
+  <span class="label label-ok">example</span>
+  <p>This demonstrates using Html_page.render with arbitrary content.</p>
+  <p><a href="/">Back to index</a></p>
+  <div class="qed">&#9632;</div>|}
+    );
+  ]
+
+let cmd_debug args =
+  match args with
+  | [ "html-preview" ] | [ "html-preview"; _ ] ->
+      let port =
+        match args with
+        | [ _; p ] -> ( try int_of_string p with _ -> 8099)
+        | _ -> 8099
+      in
+      Printf.printf "Serving Html_page preview on http://localhost:%d\n%!" port;
+      Printf.printf "Pages: /  /ok  /error  /custom\n%!";
+      Printf.printf "Press Ctrl-C to stop.\n%!";
+      let _ : string =
+        Lwt_main.run
+          (let open Lwt.Syntax in
+           let* _server =
+             Lwt_io.establish_server_with_client_address
+               (Unix.ADDR_INET (Unix.inet_addr_loopback, port))
+               (fun _addr (ic, oc) ->
+                 Lwt.catch
+                   (fun () ->
+                     let* request_line = Lwt_io.read_line ic in
+                     let path =
+                       match String.split_on_char ' ' request_line with
+                       | _ :: target :: _ -> target
+                       | _ -> "/"
+                     in
+                     let body =
+                       match List.assoc_opt path debug_html_preview_pages with
+                       | Some page -> page
+                       | None ->
+                           Html_page.render ~title:"Not Found" ~extra_css:""
+                             ~body_html:
+                               (Printf.sprintf
+                                  {|<h1>Not Found</h1>
+  <span class="label label-error">404</span>
+  <p>No page at <code>%s</code>.</p>
+  <p><a href="/">Back to index</a></p>
+  <div class="qed">&#9632;</div>|}
+                                  path)
+                     in
+                     let* () =
+                       Lwt_io.write oc
+                         (Printf.sprintf
+                            "HTTP/1.1 200 OK\r\n\
+                             Content-Type: text/html; charset=utf-8\r\n\
+                             Content-Length: %d\r\n\
+                             Connection: close\r\n\
+                             \r\n\
+                             %s"
+                            (String.length body) body)
+                     in
+                     Lwt_io.flush oc)
+                   (fun _exn -> Lwt.return_unit))
+           in
+           let waiter, _wakener = Lwt.wait () in
+           let* () = waiter in
+           Lwt.return "debug html-preview: stopped")
+      in
+      "debug html-preview: stopped"
+  | _ ->
+      "Usage: clawq debug html-preview [PORT]\n\
+       Serves Html_page test pages on localhost (default port 8099)."
+
 let handle args =
   match args with
   | "phase2" :: _ -> Phase2.render ()
@@ -1255,4 +1348,5 @@ let handle args =
   | "service" :: rest -> cmd_service rest
   | "reset-agent" :: _ -> cmd_reset_agent ()
   | "otp-show" :: _ -> cmd_otp_show ()
+  | "debug" :: rest -> cmd_debug rest
   | _ -> Clawq_core.dispatch args
