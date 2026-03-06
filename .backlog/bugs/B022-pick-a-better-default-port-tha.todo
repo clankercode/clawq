@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B022
+priority: high
+status: pending
+tags: []
+title: pick a better default port than 3000. eg 13451, use that.
+---
+
+pick a better default port than 3000. eg 13451, use that.
