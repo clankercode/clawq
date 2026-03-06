@@ -17,7 +17,14 @@ ideas:
       status: in_progress
       tags: []
       title: 'Web UI chat interface. Heavily research requirements and existing web UI features based on nullclaw and other projects (see ~/src/pag-server/ref-projects/*). Should support all normal expected things: show tool calls, show thinking, stream messages from LLM (including thinking), support slash commands with autocomplete menu and suggestions, etc.'
-    - file: I003-support-self-restarting-this-s.todo
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 14
+      file: I003-support-self-restarting-this-s.todo
       id: I003
+      priority: medium
+      status: in_progress
+      tags: []
+      title: 'Support self-restarting; this should function correctly within this workflow: update code -> recompile -> self-restart daemon/service -> new code loaded.'
     - file: I004-config-wizard-for-intuitive-cl.todo
       id: I004

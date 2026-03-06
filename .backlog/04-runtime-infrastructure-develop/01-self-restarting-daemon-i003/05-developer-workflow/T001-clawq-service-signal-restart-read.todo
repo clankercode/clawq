@@ -1,0 +1,12 @@
+
+## Implementation
+
+- Files: `src/service.ml`, `src/command_bridge.ml`
+- service.ml: `let cmd_signal_restart () = match read_pid () with | None -> "Daemon is not running" | Some pid -> Unix.kill pid Sys.sigusr1; "Restart signal sent to PID " ^ string_of_int pid`
+- command_bridge.ml: add "signal-restart" case to service subcommand dispatch
+
+## Acceptance Criteria
+
+- [ ] `clawq service signal-restart` with running daemon: sends SIGUSR1, prints PID confirmation
+- [ ] `clawq service signal-restart` with no daemon: prints error, exits non-zero
+- [ ] Does NOT auto-start the daemon if not running

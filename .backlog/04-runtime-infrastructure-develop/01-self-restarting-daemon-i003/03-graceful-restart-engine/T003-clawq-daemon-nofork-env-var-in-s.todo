@@ -1,0 +1,22 @@
+
+## Implementation
+
+- File: `src/service.ml` in cmd_start
+- Check: `if Sys.getenv_opt "CLAWQ_DAEMON_NOFORK" = Some "1" then`
+  - Unix.putenv "CLAWQ_DAEMON_NOFORK" ""  (* clear for children *)
+  - Logs.info restart message
+  - let result = Lwt_main.run (Daemon.run ~config) in
+  - (match result with
+     | Daemon.Restart -> Unix.execv Sys.executable_name [| Sys.executable_name; "service"; "start" |]
+     | Daemon.Shutdown -> ())
+  - return ""
+- Skip: Unix.fork, Unix.setsid, FD redirects, write_pid, remove_pid
+- PID file remains valid (execv preserves PID and start ticks)
+- CRITICAL: Unix.execv is called here, AFTER Lwt_main.run returns, not from within the Lwt scheduler
+
+## Acceptance Criteria
+
+- [ ] With CLAWQ_DAEMON_NOFORK=1: daemon starts without forking (same PID as caller)
+- [ ] Without CLAWQ_DAEMON_NOFORK: existing fork/daemonize path unchanged
+- [ ] CLAWQ_DAEMON_NOFORK is cleared (unset) before Daemon.run so child processes don't inherit it
+- [ ] PID file from original daemon start remains valid (not overwritten)

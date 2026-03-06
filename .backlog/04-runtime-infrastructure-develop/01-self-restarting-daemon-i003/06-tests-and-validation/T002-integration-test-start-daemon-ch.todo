@@ -1,0 +1,23 @@
+
+## Implementation
+
+- File: shell script `test/test_integration_restart.sh` or OCaml integration test
+- Steps:
+  1. Start daemon (clawq service start)
+  2. Wait for health endpoint to respond
+  3. POST test message to /chat endpoint, capture session_key
+  4. Verify message in SQLite messages table
+  5. Run `clawq service signal-restart`
+  6. Poll health endpoint until responsive (max 30s)
+  7. Verify session history still present in DB for session_key
+  8. POST another message, verify history context used (response refers to prior exchange)
+  9. Cleanup: clawq service stop
+
+## Acceptance Criteria
+
+- [ ] Full restart cycle completes without manual intervention
+- [ ] History persists across restart (DB query confirms rows)
+- [ ] Post-restart message uses prior context (agent references earlier exchange)
+- [ ] Daemon PID unchanged after signal-restart (same PID in daemon.pid before and after)
+- [ ] At least one drain warning message is delivered to an active session during drain sequence
+- [ ] Test can run in CI (no interactive input, fixed timeouts)

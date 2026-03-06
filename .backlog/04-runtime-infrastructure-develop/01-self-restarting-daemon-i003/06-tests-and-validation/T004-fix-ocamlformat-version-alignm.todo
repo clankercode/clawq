@@ -1,0 +1,38 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 1
+id: P4.M1.E6.T004
+priority: medium
+status: pending
+tags: []
+title: 'Fix ocamlformat version alignment: local 0.28.1 vs CI 0.27.0'
+---
+
+# Fix ocamlformat version alignment: local 0.28.1 vs CI 0.27.0
+
+## Requirements
+
+- Local dev environment uses ocamlformat 0.28.1 (specified in .ocamlformat `version` field)
+- CI installs ocamlformat 0.27.0 (observed from CI setup)
+- Any new .ml files formatted locally with 0.28.1 will fail `make fmt-check` in CI with 0.27.0
+- Must resolve before any new OCaml files in P4.M1 are added to the repo
+
+## Implementation
+
+Option A (preferred): Align .ocamlformat to match CI version (downgrade local)
+- Edit `.ocamlformat`: change `version = 0.28.1` to `version = 0.27.0`
+- Re-run `make fmt` to reformat all files under the 0.27.0 rules
+- Verify `make fmt-check` passes
+
+Option B: Upgrade CI to 0.28.1
+- Update CI yaml to install `ocamlformat.0.28.1` instead of current pinned version
+- Verify CI fmt-check passes
+
+Check: `grep -r ocamlformat .github/` and `cat .ocamlformat` to confirm current state before deciding.
+
+## Acceptance Criteria
+
+- [ ] `make fmt-check` passes both locally and in CI using the same ocamlformat version
+- [ ] .ocamlformat `version` field matches the version installed in CI
+- [ ] No formatting diff introduced on existing files (or intentional reformat committed cleanly)

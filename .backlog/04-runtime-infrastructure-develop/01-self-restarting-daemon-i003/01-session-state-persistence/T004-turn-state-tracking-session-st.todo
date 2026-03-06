@@ -1,0 +1,41 @@
+---
+completed_at: null
+complexity: medium
+depends_on:
+    - P4.M1.E1.T001
+estimate_hours: 1
+id: P4.M1.E1.T004
+priority: medium
+started_at: null
+status: pending
+tags: []
+title: 'Turn state tracking: session_state turn=agent before LLM, mark_response_sent after channel send'
+---
+
+# Turn state tracking: session_state turn=agent before LLM, mark_response_sent after channel send
+
+## Requirements
+
+- TODO: Add requirements
+
+## Acceptance Criteria
+
+- TODO: Add acceptance criteria
+
+## Implementation
+
+- Files: `src/session.ml`, channel handlers (telegram.ml, discord.ml, slack.ml, slack_socket.ml)
+- Add helper functions (inline in session.ml or new session_persistence.ml):
+  - `upsert_session_state ~db ~session_key ~turn ?channel ?channel_id ()`
+  - `mark_response_sent ~db ~session_key ()`
+  - `load_pending_agent_sessions ~db ~max_age_seconds` → `(string * string option * string option) list`
+- In session.ml `turn` and `turn_stream`: call upsert_session_state with turn="agent" BEFORE Agent.turn call; pass channel/channel_id via new optional params
+- In each channel handler: call mark_response_sent AFTER successful channel send
+- Thread channel_id through session.ml:turn as optional parameter
+
+## Acceptance Criteria
+
+- [ ] session_state row created/updated with turn="agent" before every LLM call
+- [ ] session_state.response_sent_at set and turn="user" after successful channel send
+- [ ] load_pending_agent_sessions returns sessions with turn="agent" AND response_sent_at IS NULL AND last_active > cutoff
+- [ ] channel and channel_id stored correctly for Telegram, Discord, Slack sessions

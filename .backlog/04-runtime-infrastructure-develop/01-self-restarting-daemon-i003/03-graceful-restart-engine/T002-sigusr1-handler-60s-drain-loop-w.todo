@@ -1,0 +1,30 @@
+
+## Implementation
+
+- Files: `src/daemon.ml`, optionally `src/restart.ml`
+- Register: `let _ = Lwt_unix.on_signal Sys.sigusr1 (fun _ -> Lwt.wakeup_later restart_wakeup ()) in`
+- Wire restart_waiter into main Lwt.pick alongside shutdown_waiter
+- On restart_waiter resolved:
+  1. draining := true (global ref; all channel handlers check !draining BEFORE Lwt_mutex.lock, not inside)
+  2. in_flight_count: atomic int, inc before Agent.turn, dec after (use try/finally to guarantee decrement)
+  3. channel_notifiers: (string, string -> unit Lwt.t) Hashtbl.t; channels register send fn per session_key
+  4. Warning loop (concurrent Lwt.async): send messages at t=0,5,10,15,30,45,60s to all notifiers
+  5. Wait loop: poll !in_flight_count = 0 every 100ms for up to 600 iterations (60s)
+  6. Flush: MCP disconnect, telemetry flush, audit log "daemon restart execv"
+  7. Unix.putenv "CLAWQ_DAEMON_NOFORK" "1"
+  8. Return `Restart` from drain (do NOT call Unix.execv here — Lwt_main.run must return first)
+- Daemon.run return type: variant `type exit_intent = Shutdown | Restart`
+- service.ml (E3.T003) calls Unix.execv AFTER Lwt_main.run returns, only when result = Restart
+- CRITICAL: execv cannot be called from within Lwt_main.run (open FDs, pending I/O, undefined state)
+- update_tool.ml and restart.ml must be placed in clawq_runtime_integrations in src/dune (not core)
+- See `.plan/2026-03-06-amber-circuit/restart-mechanism.md`
+
+## Acceptance Criteria
+
+- [ ] SIGUSR1 triggers drain sequence (not immediate kill)
+- [ ] Warning messages sent to active sessions at correct intervals
+- [ ] Drain waits for in_flight_count = 0 (up to 60s), then proceeds regardless
+- [ ] draining=true prevents new messages from being dispatched during drain
+- [ ] !draining checked BEFORE Lwt_mutex.lock in all session dispatch paths (not inside mutex)
+- [ ] Daemon.run returns exit_intent variant (Shutdown | Restart); does NOT call Unix.execv directly
+- [ ] update_tool.ml and any restart helper modules are in clawq_runtime_integrations in src/dune

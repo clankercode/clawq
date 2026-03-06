@@ -1,0 +1,38 @@
+---
+complexity: low
+depends_on:
+    - P4.M1.E5.T003
+estimate_hours: 1
+id: P4.M1.E6.T003
+priority: medium
+status: pending
+tags: []
+title: 'Unit tests for update_tool.ml: find_repo_root, git-fail-continue, build-fail-abort'
+---
+
+# Unit tests for update_tool.ml: find_repo_root, git-fail-continue, build-fail-abort
+
+## Requirements
+
+- `update_tool.ml` logic must be testable in isolation without running actual git or make processes
+- Tests cover: repo root discovery, git failure handling (non-fatal), build failure handling (fatal/abort), guard when already draining
+
+## Implementation
+
+- File: `test/test_update_tool.ml` (new), `test/dune`
+- Use process-injection pattern: pass `~run_git` and `~run_make` as optional parameters (or use a functor/ref) so tests can substitute mock runners
+- Test cases:
+  1. `find_repo_root`: found (dune-project in parent), not found (returns None), stops at filesystem root
+  2. git pull succeeds: output forwarded, build proceeds
+  3. git pull exits non-zero: output forwarded with warning, build still proceeds (non-fatal)
+  4. make build exits non-zero: error reported, SIGUSR1 NOT sent (fatal)
+  5. make build succeeds: "Build complete" message sent, SIGUSR1 triggered
+  6. update called while draining=true: returns "Restart already in progress" immediately, no git/make invoked
+
+## Acceptance Criteria
+
+- [ ] All 6 test cases pass under `make test`
+- [ ] Git failure (non-zero exit) does NOT abort — build step is still invoked
+- [ ] Build failure (non-zero exit) does NOT trigger SIGUSR1
+- [ ] find_repo_root returns None when no dune-project or .git found
+- [ ] make fmt-check passes on new test file

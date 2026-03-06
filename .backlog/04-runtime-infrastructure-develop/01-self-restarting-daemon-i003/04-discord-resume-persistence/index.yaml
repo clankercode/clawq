@@ -1,0 +1,18 @@
+complexity: medium
+depends_on: []
+estimate_hours: 2
+id: P4.M1.E4
+locked: false
+name: Discord RESUME Persistence
+status: pending
+tasks:
+    - complexity: medium
+      depends_on:
+        - P4.M1.E1.T001
+      estimate_hours: 2
+      file: T001-persist-discord-resume-state-se.todo
+      id: T001
+      priority: medium
+      status: pending
+      tags: []
+      title: Persist Discord RESUME state (session_id, seq, resume_url) to discord_resume_state table; load on startup to enable RESUME vs IDENTIFY

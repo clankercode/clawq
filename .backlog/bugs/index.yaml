@@ -17,3 +17,4 @@ bugs:
     - file: B016-add-safety-check-to-read-file.todo
     - file: B017-add-better-editing-tooling-res.todo
     - file: B018-task-if-user-sends-a-message-s.todo
+    - file: B019-task-update-binary-download-mo.todo

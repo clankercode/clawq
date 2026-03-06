@@ -22,3 +22,4 @@ main.stripped.test
 **/*.o
 **/*.cmx
 **/*.cmi
+reviews/

@@ -1,0 +1,21 @@
+
+## Implementation
+
+- Files: `src/discord.ml`
+- New helpers (inline in discord.ml or separate discord_db.ml):
+  - `save_resume_state ~db ~session_id ~seq ~resume_gateway_url` — INSERT OR REPLACE INTO discord_resume_state (id=1)
+  - `load_resume_state ~db` — SELECT from discord_resume_state WHERE id=1
+  - `clear_resume_state ~db` — DELETE FROM discord_resume_state WHERE id=1
+- Read path: at start of Discord.start, before reconnect loop, load from DB and initialize resume_session_id/seq/url refs
+- Write path: after disconnect (lines 325-327), save updated refs to DB
+- Clear path: on fatal close code (4004, 4010-4014, lines 345-348), call clear_resume_state
+- Thread `db: Sqlite3.db option` through Discord.start signature
+- See `.plan/2026-03-06-amber-circuit/discord-resume.md`
+
+## Acceptance Criteria
+
+- [ ] After daemon restart, Discord reconnects via RESUME (not IDENTIFY) when prior session exists
+- [ ] resume_gateway_url, session_id, and seq correctly restored from DB
+- [ ] Fatal close codes clear the DB state (next connect uses IDENTIFY)
+- [ ] No DB state = IDENTIFY on fresh start (existing behavior preserved)
+- [ ] save/load round-trip test in test_session_persistence.ml

@@ -1,0 +1,53 @@
+complexity: medium
+depends_on: []
+epics:
+    - complexity: medium
+      depends_on: []
+      description: ""
+      estimate_hours: 3
+      id: E1
+      locked: false
+      name: Session State Persistence
+      path: 01-session-state-persistence
+      status: pending
+    - complexity: medium
+      depends_on: []
+      description: ""
+      estimate_hours: 5
+      id: E3
+      locked: false
+      name: Graceful Restart Engine
+      path: 03-graceful-restart-engine
+      status: pending
+    - complexity: medium
+      depends_on: []
+      description: ""
+      estimate_hours: 2
+      id: E4
+      locked: false
+      name: Discord RESUME Persistence
+      path: 04-discord-resume-persistence
+      status: pending
+    - complexity: medium
+      depends_on: []
+      description: ""
+      estimate_hours: 3
+      id: E5
+      locked: false
+      name: Developer Workflow
+      path: 05-developer-workflow
+      status: pending
+    - complexity: medium
+      depends_on: []
+      description: ""
+      estimate_hours: 3
+      id: E6
+      locked: false
+      name: Tests and Validation
+      path: 06-tests-and-validation
+      status: pending
+estimate_hours: 14
+id: P4.M1
+locked: false
+name: Self-Restarting Daemon (I003)
+status: pending

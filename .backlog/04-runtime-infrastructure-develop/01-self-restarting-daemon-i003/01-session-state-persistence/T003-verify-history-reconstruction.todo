@@ -1,0 +1,33 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 1
+id: P4.M1.E1.T003
+priority: medium
+status: pending
+tags: []
+title: 'Verify history reconstruction: get_or_create auto-loads from DB after NOFORK execv'
+---
+
+# Verify history reconstruction: get_or_create auto-loads from DB after NOFORK execv
+
+## Requirements
+
+- TODO: Add requirements
+
+## Acceptance Criteria
+
+- TODO: Add acceptance criteria
+
+## Implementation
+
+- File: `src/session.ml` lines 11-39 (get_or_create)
+- Confirm: when daemon restarts with CLAWQ_DAEMON_NOFORK=1, the db handle is properly opened before any session operation
+- Confirm: get_or_create loads history from DB for existing session_key (already implemented at line 20)
+- Document in `.plan/2026-03-06-amber-circuit/index.md` that T-SR2/T-SR3 were pre-existing
+
+## Acceptance Criteria
+
+- [ ] After daemon restart (NOFORK path), existing session history is visible in new agent.history
+- [ ] New sessions (no prior messages) start with empty history as before
+- [ ] db is opened before session_manager is created in daemon.ml NOFORK path

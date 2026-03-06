@@ -42,6 +42,6 @@ jobs:
       - name: Format check
         run: |
           eval "$(opam env)"
-          opam install -y ocamlformat.0.27.0
+          opam install -y ocamlformat.0.28.1
           dune fmt 2>&1 || true
           git diff --exit-code

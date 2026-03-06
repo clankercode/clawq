@@ -1,0 +1,37 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 1
+id: P4.M1.E1.T001
+priority: medium
+status: pending
+tags: []
+title: "DB schema migration v1 to v2: add session_state and discord_resume_state tables"
+---
+
+# DB schema migration v2
+
+## Requirements
+
+- TODO: Add requirements
+
+## Acceptance Criteria
+
+- TODO: Add acceptance criteria
+
+## Implementation
+
+- File: `src/memory.ml`
+- Bump `current_schema_version` from 1 to 2
+- Add migration branch `| 1 -> ...` that executes CREATE TABLE IF NOT EXISTS for both new tables
+- `session_state`: session_key TEXT PK, turn TEXT DEFAULT 'user', channel TEXT, channel_id TEXT, response_sent_at TEXT, last_active TEXT DEFAULT datetime('now')
+- `discord_resume_state`: id INTEGER PK CHECK(id=1), session_id TEXT, seq INTEGER, resume_gateway_url TEXT, updated_at TEXT DEFAULT datetime('now')
+- See `.plan/2026-03-06-amber-circuit/session-persistence.md` for exact DDL
+
+## Acceptance Criteria
+
+- [ ] `memory.ml` schema_version is 2
+- [ ] Migration runs cleanly on a fresh DB (no errors)
+- [ ] Migration runs cleanly on an existing v1 DB (adds tables, does not drop data)
+- [ ] Both new tables queryable via sqlite3 after migration
+- [ ] Test case covers both fresh and v1→v2 migration paths

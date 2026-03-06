@@ -1,0 +1,33 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 1
+id: P4.M1.E1.T002
+priority: medium
+status: pending
+tags: []
+title: 'Verify message persistence completeness: tool_calls round-trip'
+---
+
+# Verify message persistence completeness: tool_calls round-trip
+
+## Requirements
+
+- TODO: Add requirements
+
+## Acceptance Criteria
+
+- TODO: Add acceptance criteria
+
+## Implementation
+
+- Files: `src/session.ml`, `src/memory.ml`
+- Read `Memory.store_message` signature — verify tool_call_id, tool_name, tool_calls_json fields are populated for tool role messages
+- Read `Memory.load_history` — verify it reconstructs Provider.message including tool_calls list
+- No code changes likely needed; add test if round-trip not already covered
+
+## Acceptance Criteria
+
+- [ ] Tool call messages (role=tool) round-trip through store_message → load_history preserving tool_call_id and tool_calls_json
+- [ ] Assistant messages with tool_calls field round-trip correctly
+- [ ] At least one test case covering tool_call round-trip exists

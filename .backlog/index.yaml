@@ -30,5 +30,15 @@ phases:
       priority: high
       status: pending
       weeks: 3
+    - depends_on: []
+      description: ""
+      estimate_hours: 14
+      id: P4
+      locked: false
+      name: Runtime Infrastructure & Developer Experience
+      path: 04-runtime-infrastructure-develop
+      priority: medium
+      status: pending
+      weeks: 2
 project: Clawq
 timeline_weeks: 0

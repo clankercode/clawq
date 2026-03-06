@@ -1,0 +1,13 @@
+
+## Implementation
+
+- File: `Makefile`
+- Add CLAWQ_BIN variable defaulting to ./_build/default/src/main.exe
+- Add `restart` target: $(CLAWQ_BIN) service signal-restart
+- Add `build-restart` target: depends on build and restart
+
+## Acceptance Criteria
+
+- [ ] `make restart` sends signal-restart to running daemon
+- [ ] `make build-restart` builds then restarts (end-to-end dev loop works)
+- [ ] Targets appear in `make help` output (if help target exists)

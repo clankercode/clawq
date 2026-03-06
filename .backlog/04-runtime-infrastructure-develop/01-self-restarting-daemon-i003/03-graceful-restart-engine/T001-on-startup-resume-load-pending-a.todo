@@ -1,0 +1,16 @@
+
+## Implementation
+
+- File: `src/daemon.ml`
+- At top of Daemon.run, after DB open, before channel starts:
+  1. Call load_pending_agent_sessions ~db ~max_age_seconds:3600
+  2. For each (session_key, channel, channel_id): get_or_create session (auto-loads history), invoke Agent.turn, route response via channel dispatch table
+  3. Channel dispatch: match channel with "telegram" -> Telegram.send_message, "discord" -> Discord.send_message, "slack" -> Slack.send_message
+  4. If channel/channel_id missing: log warning, call mark_response_sent to avoid infinite retry
+
+## Acceptance Criteria
+
+- [ ] On restart with pending agent session, LLM is re-invoked and response delivered to original channel
+- [ ] Sessions where response_sent_at IS NOT NULL are not resumed
+- [ ] Sessions older than 1h are not resumed
+- [ ] Missing channel info results in warning log + mark_response_sent (not a crash)

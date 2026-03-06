@@ -1,0 +1,39 @@
+complexity: medium
+depends_on: []
+estimate_hours: 3
+id: P4.M1.E5
+locked: false
+name: Developer Workflow
+status: pending
+tasks:
+    - complexity: low
+      depends_on:
+        - P4.M1.E3.T002
+      estimate_hours: 1
+      file: T001-clawq-service-signal-restart-read.todo
+      id: T001
+      priority: medium
+      status: pending
+      tags: []
+      title: 'clawq service signal-restart: read PID file, send SIGUSR1; error if not running'
+    - complexity: low
+      depends_on:
+        - P4.M1.E5.T001
+      estimate_hours: 1
+      file: T002-make-restart-and-make-build-resta.todo
+      id: T002
+      priority: medium
+      status: pending
+      tags: []
+      title: make restart and make build-restart Makefile targets
+    - complexity: medium
+      depends_on:
+        - P4.M1.E5.T001
+        - P4.M1.E3.T002
+      estimate_hours: 2
+      file: T003-update-agent-tool-chat-command-g.todo
+      id: T003
+      priority: medium
+      status: pending
+      tags: []
+      title: '/update agent tool + chat command: git pull (non-fatal) + make build (fatal) + SIGUSR1; stream progress; guard on draining'

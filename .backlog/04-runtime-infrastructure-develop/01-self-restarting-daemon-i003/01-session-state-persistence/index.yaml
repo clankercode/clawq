@@ -1,0 +1,44 @@
+complexity: medium
+depends_on: []
+estimate_hours: 3
+id: P4.M1.E1
+locked: false
+name: Session State Persistence
+status: pending
+tasks:
+    - complexity: low
+      depends_on: []
+      estimate_hours: 1
+      file: T001-db-schema-migration-v2.todo
+      id: T001
+      priority: medium
+      status: pending
+      title: DB schema migration v2
+    - complexity: low
+      depends_on:
+        - P4.M1.E1.T001
+      estimate_hours: 1
+      file: T002-verify-message-persistence-com.todo
+      id: T002
+      priority: medium
+      status: pending
+      title: 'Verify message persistence completeness: tool_calls round-trip'
+    - complexity: low
+      depends_on:
+        - P4.M1.E1.T001
+      estimate_hours: 1
+      file: T003-verify-history-reconstruction.todo
+      id: T003
+      priority: medium
+      status: pending
+      title: 'Verify history reconstruction: get_or_create auto-loads from DB after NOFORK execv'
+    - complexity: medium
+      depends_on:
+        - P4.M1.E1.T001
+      estimate_hours: 1
+      file: T004-turn-state-tracking-session-st.todo
+      id: T004
+      priority: medium
+      status: pending
+      tags: []
+      title: 'Turn state tracking: session_state turn=agent before LLM, mark_response_sent after channel send'

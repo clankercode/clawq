@@ -1,0 +1,23 @@
+
+## Implementation
+
+- Files: `src/update_tool.ml` (new), `src/tool_registry.ml`, channel handlers, `src/dune`
+- find_repo_root: walk up from Sys.executable_name looking for dune-project or .git
+- run_update ~send_progress:
+  1. git -C root pull via Lwt_process — non-fatal on non-zero, stream output
+  2. make -C root build via Lwt_process.pread_lines — fatal on non-zero (do NOT restart)
+  3. On success: send "Build complete. Restarting..." then Unix.kill (Unix.getpid ()) Sys.sigusr1
+- Guard: if !draining then return "Restart already in progress"
+- Register as tool "update_clawq" in tool_registry.ml
+- Add /update pre-dispatch check in channel message handlers (before routing to agent)
+- See `.plan/2026-03-06-amber-circuit/update-command.md`
+
+## Acceptance Criteria
+
+- [ ] /update in any channel triggers git pull + make build + restart
+- [ ] git pull failure is reported but does not abort build
+- [ ] make build failure aborts with error message, does NOT restart
+- [ ] Agent can call update_clawq tool to self-update
+- [ ] Output streamed progressively (not buffered until end)
+- [ ] Guard: /update while draining returns immediate error
+- [ ] find_repo_root returns None gracefully when not in a repo

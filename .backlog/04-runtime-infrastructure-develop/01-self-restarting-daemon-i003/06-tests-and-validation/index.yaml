@@ -1,0 +1,49 @@
+complexity: medium
+depends_on: []
+estimate_hours: 3
+id: P4.M1.E6
+locked: false
+name: Tests and Validation
+status: pending
+tasks:
+    - complexity: medium
+      depends_on:
+        - P4.M1.E1.T004
+        - P4.M1.E3.T003
+        - P4.M1.E4.T001
+      estimate_hours: 2
+      file: T001-unit-tests-schema-migration-v1-v.todo
+      id: T001
+      priority: medium
+      status: pending
+      tags: []
+      title: 'Unit tests: schema migration v1→v2, session_state CRUD, tool_call round-trip, NOFORK detection, Discord RESUME save/load'
+    - complexity: medium
+      depends_on:
+        - P4.M1.E5.T002
+        - P4.M1.E3.T001
+        - P4.M1.E3.T002
+      estimate_hours: 1
+      file: T002-integration-test-start-daemon-ch.todo
+      id: T002
+      priority: medium
+      status: pending
+      tags: []
+      title: 'Integration test: start daemon → chat → signal-restart → verify history intact → continue chat'
+    - complexity: low
+      depends_on:
+        - P4.M1.E5.T003
+      estimate_hours: 1
+      file: T003-unit-tests-for-update-tool-ml.todo
+      id: T003
+      priority: medium
+      status: pending
+      title: 'Unit tests for update_tool.ml: find_repo_root, git-fail-continue, build-fail-abort'
+    - complexity: low
+      depends_on: []
+      estimate_hours: 1
+      file: T004-fix-ocamlformat-version-alignm.todo
+      id: T004
+      priority: medium
+      status: pending
+      title: 'Fix ocamlformat version alignment: local 0.28.1 vs CI 0.27.0'

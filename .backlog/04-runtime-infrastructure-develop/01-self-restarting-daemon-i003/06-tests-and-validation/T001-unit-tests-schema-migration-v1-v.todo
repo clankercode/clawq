@@ -1,0 +1,17 @@
+
+## Implementation
+
+- Files: `test/test_session_persistence.ml` (new), `test/test_restart.ml` (new), `test/dune`
+- Test suites to add:
+  - "schema_migration": fresh DB gets both new tables; v1 DB migrates without data loss
+  - "session_state": upsert_session_state, mark_response_sent, load_pending_agent_sessions
+  - "tool_call_roundtrip": store_message with tool_calls_json → load_history preserves calls
+  - "nofork_detection": Sys.getenv_opt "CLAWQ_DAEMON_NOFORK" branch in service.ml (mock env)
+  - "discord_resume": save_resume_state → load_resume_state → clear_resume_state round-trip
+
+## Acceptance Criteria
+
+- [ ] All 5 test suites pass under `make test`
+- [ ] Schema migration tested on both fresh and existing v1 DB
+- [ ] Tool call round-trip covers assistant+tool_calls field and tool role messages
+- [ ] make fmt-check passes after adding new test files
