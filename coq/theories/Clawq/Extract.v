@@ -7,6 +7,7 @@ Require Import Clawq.Config.
 Require Import Clawq.PathSafety.
 Require Import Clawq.QuoteParsing.
 Require Import Clawq.ShellSafety.
+Require Import Clawq.ChannelAuth.
 
 Extraction Language OCaml.
 
@@ -99,4 +100,6 @@ Extraction "src/extracted/clawq_core.ml"
   (* Shell safety (F6) *)
   Clawq.QuoteParsing.split_words
   Clawq.QuoteParsing.is_shell_safe
-  Clawq.ShellSafety.is_allowed.
+  Clawq.ShellSafety.is_allowed
+  (* Channel auth (F8) *)
+  Clawq.ChannelAuth.is_allowed.

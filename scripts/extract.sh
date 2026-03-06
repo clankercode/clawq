@@ -21,6 +21,12 @@ ${COQC} -R coq/theories Clawq coq/theories/Clawq/AuditChain.v
 ${COQC} -R coq/theories Clawq coq/theories/Clawq/RateLimiter.v
 ${COQC} -R coq/theories Clawq coq/theories/Clawq/QuoteParsing.v
 ${COQC} -R coq/theories Clawq coq/theories/Clawq/ShellSafety.v
+${COQC} -R coq/theories Clawq coq/theories/Clawq/SecretStore.v
+${COQC} -R coq/theories Clawq coq/theories/Clawq/ChannelAuth.v
+${COQC} -R coq/theories Clawq coq/theories/Clawq/AuditRetention.v
+${COQC} -R coq/theories Clawq coq/theories/Clawq/AgentLoop.v
+${COQC} -R coq/theories Clawq coq/theories/Clawq/SessionIsolation.v
+${COQC} -R coq/theories Clawq coq/theories/Clawq/LandlockPolicy.v
 
 # Proof files (depend on core definitions; compiled for verification only)
 ${COQC} -R coq/theories Clawq coq/theories/Clawq/ConfigProofs.v
