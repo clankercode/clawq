@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B025
+priority: high
+status: pending
+tags: []
+title: Continue and improve formal verification (eg improving docs, improving theorems, adding therems, planning new theorems, etc. if you come up with an idea for osmething else, ask the user)
+---
+
+Continue and improve formal verification (eg improving docs, improving theorems, adding therems, planning new theorems, etc. if you come up with an idea for osmething else, ask the user)
