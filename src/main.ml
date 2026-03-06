@@ -62,6 +62,16 @@ let mcp_cmd =
     "Start the MCP server (exposes configured tools over the Model Context \
      Protocol)."
 
+let config_cmd =
+  with_args "config" "View or modify clawq configuration."
+    [
+      `S "SUBCOMMANDS";
+      `I ("wizard", "Interactive configuration wizard (TUI).");
+      `I ("set KEY VALUE", "Set a config value by dot-path.");
+      `I ("get KEY", "Get a config value by dot-path.");
+      `I ("show [SECTION]", "Display current config (secrets redacted).");
+    ]
+
 let phase2_cmd = simple "phase2" "Show Phase 2 feature status."
 
 let hardware_cmd =
@@ -185,6 +195,7 @@ let help_env var = match var with "MANPAGER" -> None | _ -> Sys.getenv_opt var
 let () =
   let cmds =
     [
+      config_cmd;
       agent_cmd;
       status_cmd;
       doctor_cmd;

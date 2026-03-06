@@ -32,7 +32,13 @@
   command_bridge_min
   sandbox
   pairing
-  chat_ui_assets)
+  chat_ui_assets
+  config_set
+  config_show
+  config_wizard_model
+  config_wizard_update
+  config_wizard_view
+  config_wizard_tui)
  (foreign_stubs
   (language c)
   (names landlock_stubs))
@@ -101,7 +107,8 @@
   provider_gemini
   provider_ollama
   provider_vertex
-  provider_init)
+  provider_init
+  config_validate)
  (wrapped false)
  (libraries
   clawq_runtime_core

@@ -26,5 +26,12 @@ ideas:
       status: in_progress
       tags: []
       title: 'Support self-restarting; this should function correctly within this workflow: update code -> recompile -> self-restart daemon/service -> new code loaded.'
-    - file: I004-config-wizard-for-intuitive-cl.todo
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 10
+      file: I004-config-wizard-for-intuitive-cl.todo
       id: I004
+      priority: medium
+      status: done
+      tags: []
+      title: Config wizard for intuitive CLI and chat-based setup

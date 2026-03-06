@@ -67,7 +67,11 @@ let cmd_onboard () =
   let config_path = Filename.concat config_dir "config.json" in
   if Sys.file_exists config_path then
     "Config already exists at " ^ config_path
-    ^ "\nEdit it directly or delete to re-onboard."
+    ^ "\nRun 'clawq-min config wizard' to reconfigure, or edit directly."
+  else if Unix.isatty Unix.stdin then begin
+    Config_wizard_tui.run_wizard Config_wizard_model.Onboard;
+    ""
+  end
   else begin
     (try if not (Sys.file_exists config_dir) then Sys.mkdir config_dir 0o755
      with _ -> ());
@@ -84,16 +88,8 @@ let cmd_onboard () =
   "agent_defaults": {
     "primary_model": "openai/gpt-4o"
   },
-  "channels": {
-    "cli": true
-  },
-  "memory": {
-    "backend": "sqlite",
-    "search_enabled": false
-  },
   "security": {
     "workspace_only": true,
-    "audit_enabled": false,
     "tools_enabled": true
   }
 }|}
@@ -108,6 +104,22 @@ let cmd_onboard () =
     "Created config template at " ^ config_path
     ^ "\nEdit it to add your API keys."
   end
+
+let cmd_config args =
+  match args with
+  | [ "wizard" ] ->
+      Config_wizard_tui.run_wizard Config_wizard_model.Onboard;
+      ""
+  | "set" :: key :: value :: _ -> Config_set.set_value key value
+  | [ "get"; key ] -> Config_set.get_value key
+  | "show" :: rest -> Config_show.show (List.nth_opt rest 0)
+  | _ ->
+      "Usage: clawq-min config <subcommand>\n\n\
+       Subcommands:\n\
+      \  wizard           Interactive configuration wizard\n\
+      \  set KEY VALUE    Set a config value by dot-path\n\
+      \  get KEY          Get a config value by dot-path\n\
+      \  show [SECTION]   Display current config (secrets redacted)"
 
 let cmd_models () =
   let cfg = get_config () in
@@ -341,6 +353,7 @@ let handle args =
   match args with
   | "phase2" :: _ -> Phase2.render ()
   | "status" :: _ -> cmd_status ()
+  | "config" :: rest -> cmd_config rest
   | "doctor" :: _ -> cmd_doctor ()
   | "onboard" :: _ -> cmd_onboard ()
   | "models" :: _ -> cmd_models ()
