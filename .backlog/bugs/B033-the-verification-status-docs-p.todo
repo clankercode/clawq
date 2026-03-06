@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B033
+priority: high
+status: pending
+tags: []
+title: the verification status docs page does not auto udpate when I run `make update-fv`
+---
+
+the verification status docs page does not auto udpate when I run `make update-fv`
