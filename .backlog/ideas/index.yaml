@@ -44,3 +44,5 @@ ideas:
       status: in_progress
       tags: []
       title: We should generate some docs to build with github pages, and as part of that we should have a formal verification page that shows the current status of what is formally verified and what is not (plus a bit of a roadmap for what order we'll do formal verification in). These files should be referenced in the formal verification plan so that we know wehre they are. We should have a table on the docs web page with an up to date list of formal verification tasks and which are complete, pending, etc.
+    - file: I006-add-support-for-using-codex-pr.todo
+      id: I006
