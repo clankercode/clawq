@@ -1,10 +1,12 @@
 ---
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 3
 id: P2.M6.E2.T008
 priority: medium
-status: pending
+started_at: null
+status: done
 tags: []
 title: 'Write test/test_scheduler.ml: cron parse, interval, next-run, overdue detection (~25 tests)'
 ---

@@ -1,10 +1,12 @@
 ---
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 3
 id: P2.M3.E5.T002
 priority: medium
-status: pending
+started_at: null
+status: done
 tags: []
 title: 'line_channel.ml: reply via replyToken API, push API for follow-up messages'
 ---

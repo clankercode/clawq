@@ -12,7 +12,8 @@ tasks:
       file: T001-implement-pairing-ml-code-gen.todo
       id: T001
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: 'Implement pairing.ml: code gen, brute-force lockout, token hashing, pair_result type'
     - complexity: medium
       depends_on: []

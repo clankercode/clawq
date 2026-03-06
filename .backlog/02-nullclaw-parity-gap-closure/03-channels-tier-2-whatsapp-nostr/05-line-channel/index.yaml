@@ -20,7 +20,8 @@ tasks:
       file: T002-line-channel-ml-reply-via-repl.todo
       id: T002
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: 'line_channel.ml: reply via replyToken API, push API for follow-up messages'
     - complexity: low
       depends_on: []

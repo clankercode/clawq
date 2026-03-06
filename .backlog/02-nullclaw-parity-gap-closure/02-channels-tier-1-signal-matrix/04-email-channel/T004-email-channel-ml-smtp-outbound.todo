@@ -1,10 +1,12 @@
 ---
+completed_at: null
 complexity: high
 depends_on: []
 estimate_hours: 5
 id: P2.M2.E4.T004
 priority: high
-status: pending
+started_at: null
+status: done
 tags: []
 title: 'email_channel.ml: SMTP outbound (EHLO, STARTTLS, AUTH LOGIN/PLAIN, MAIL FROM/RCPT TO/DATA)'
 ---

@@ -12,7 +12,8 @@ tasks:
       file: T001-create-static-index-html-stati.todo
       id: T001
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: 'Create static/index.html, static/chat.js, static/chat.css: streaming chat with SSE, message history, input box'
     - complexity: high
       depends_on: []
@@ -28,7 +29,8 @@ tasks:
       file: T003-chat-js-pairing-modal-detect-4.todo
       id: T003
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: 'chat.js: pairing modal (detect 401/403, prompt for 6-digit code, store token in localStorage)'
     - complexity: low
       depends_on: []
@@ -44,7 +46,8 @@ tasks:
       file: T005-http-server-ml-serve-get-chat.todo
       id: T005
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: 'http_server.ml: serve GET /, /chat.js, /chat.css from chat_ui_assets.ml string constants'
     - complexity: medium
       depends_on: []

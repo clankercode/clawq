@@ -12,7 +12,8 @@ tasks:
       file: T001-implement-matrix-ml-long-poll.todo
       id: T001
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: 'Implement matrix.ml: long-poll sync loop (/_matrix/client/v3/sync?timeout=30000), parse room timeline events'
     - complexity: medium
       depends_on: []
@@ -20,7 +21,8 @@ tasks:
       file: T002-matrix-ml-send-messages-put-ma.todo
       id: T002
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: 'matrix.ml: send messages (PUT /_matrix/client/v3/rooms/{roomId}/send/m.room.message/{txnId})'
     - complexity: medium
       depends_on: []
@@ -28,7 +30,8 @@ tasks:
       file: T003-matrix-ml-sync-token-persisten.todo
       id: T003
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: 'matrix.ml: sync token persistence to file, reconnect with exponential backoff'
     - complexity: low
       depends_on: []
@@ -36,7 +39,8 @@ tasks:
       file: T004-matrix-ml-allow-rooms-allow-us.todo
       id: T004
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: 'matrix.ml: allow_rooms/allow_users filters, skip own messages, 4000-byte chunking'
     - complexity: low
       depends_on: []

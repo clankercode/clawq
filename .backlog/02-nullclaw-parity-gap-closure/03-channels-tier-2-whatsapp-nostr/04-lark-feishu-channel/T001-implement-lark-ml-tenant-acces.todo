@@ -1,10 +1,12 @@
 ---
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 3
 id: P2.M3.E4.T001
 priority: medium
-status: pending
+started_at: null
+status: done
 tags: []
 title: 'Implement lark.ml: tenant access token fetch + cache + refresh (2h TTL, 60s safety margin)'
 ---

@@ -12,7 +12,8 @@ tasks:
       file: T001-implement-irc-ml-tls-connect-t.todo
       id: T001
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: 'Implement irc.ml: TLS connect (tls-lwt/ca-certs), IRC line parser, PING->PONG handler'
     - complexity: medium
       depends_on: []
@@ -20,7 +21,8 @@ tasks:
       file: T002-irc-ml-privmsg-receive-parse-s.todo
       id: T002
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: 'irc.ml: PRIVMSG receive (parse sender/channel/text, apply allow_from), PRIVMSG send with 450-byte UTF-8 chunking'
     - complexity: medium
       depends_on: []
@@ -28,7 +30,8 @@ tasks:
       file: T003-irc-ml-001-welcome-handler-aut.todo
       id: T003
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: 'irc.ml: 001 welcome handler (auto-JOIN channels), SASL PLAIN auth, 433 nick-in-use retry'
     - complexity: low
       depends_on: []
@@ -36,7 +39,8 @@ tasks:
       file: T004-irc-ml-exponential-reconnect-b.todo
       id: T004
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: 'irc.ml: exponential reconnect backoff (5s..120s), re-JOIN on reconnect'
     - complexity: low
       depends_on: []

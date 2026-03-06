@@ -12,7 +12,8 @@ tasks:
       file: T001-implement-nostr-ml-spawn-nak-r.todo
       id: T001
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: 'Implement nostr.ml: spawn nak req subprocess (Lwt_process), parse NIP-17 gift-wrap events, dedup by event ID (LRU 1000)'
     - complexity: medium
       depends_on: []
@@ -20,7 +21,8 @@ tasks:
       file: T002-nostr-ml-send-via-nak-direct-m.todo
       id: T002
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: 'nostr.ml: send via nak direct-message, NIP protocol mirroring (remember per-sender NIP)'
     - complexity: low
       depends_on: []

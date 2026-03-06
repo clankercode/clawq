@@ -1,10 +1,12 @@
 ---
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 3
 id: P2.M2.E4.T002
 priority: high
-status: pending
+started_at: null
+status: done
 tags: []
 title: 'email_channel.ml: RFC 2047 header decoder (base64 + quoted-printable), HTML tag stripper'
 ---

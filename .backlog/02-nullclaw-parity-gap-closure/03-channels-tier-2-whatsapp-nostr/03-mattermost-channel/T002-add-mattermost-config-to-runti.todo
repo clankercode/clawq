@@ -1,10 +1,12 @@
 ---
+completed_at: null
 complexity: low
 depends_on: []
 estimate_hours: 2
 id: P2.M3.E3.T002
 priority: medium
-status: pending
+started_at: null
+status: done
 tags: []
 title: Add mattermost_config to runtime_config; parse channels.mattermost; wire into daemon.ml
 ---

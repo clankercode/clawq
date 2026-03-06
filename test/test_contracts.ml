@@ -21,6 +21,7 @@ let test_provider_config_has_required_fields () =
       default_model = None;
       project_id = None;
       location = None;
+      service_account_json = None;
     }
   in
   Alcotest.(check bool)
@@ -36,6 +37,7 @@ let test_provider_config_base_url_some () =
       default_model = None;
       project_id = None;
       location = None;
+      service_account_json = None;
     }
   in
   Alcotest.(check (option string))

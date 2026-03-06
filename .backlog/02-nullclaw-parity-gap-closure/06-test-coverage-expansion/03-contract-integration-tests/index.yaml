@@ -4,7 +4,7 @@ estimate_hours: 12
 id: P2.M6.E3
 locked: false
 name: Contract & Integration Tests
-status: pending
+status: done
 tasks:
     - complexity: medium
       depends_on: []
@@ -12,7 +12,8 @@ tasks:
       file: T001-write-test-test-contracts-ml-c.todo
       id: T001
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: 'Write test/test_contracts.ml: Channel.S contract, provider backend contract, tool JSON schema validity'
     - complexity: medium
       depends_on: []
@@ -20,7 +21,8 @@ tasks:
       file: T002-write-test-test-commands-ml-ea.todo
       id: T002
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: 'Write test/test_commands.ml: each of 18 CLI commands returns non-error output (in-process invocation with mock config)'
     - complexity: low
       depends_on: []
@@ -28,5 +30,6 @@ tasks:
       file: T003-verify-test-count-reaches-800.todo
       id: T003
       priority: low
-      status: pending
+      status: done
+      tags: []
       title: Verify test count reaches 800+ after all suites; document in README

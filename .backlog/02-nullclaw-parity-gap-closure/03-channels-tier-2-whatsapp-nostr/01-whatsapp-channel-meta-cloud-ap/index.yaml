@@ -20,7 +20,8 @@ tasks:
       file: T002-implement-whatsapp-ml-outbound.todo
       id: T002
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: 'Implement whatsapp.ml: outbound POST to graph.facebook.com, message dedup set (LRU 500)'
     - complexity: low
       depends_on: []

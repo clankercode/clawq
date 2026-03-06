@@ -43,6 +43,7 @@ let convert (json : Yojson.Safe.t) =
                  default_model = None;
                  project_id = None;
                  location = None;
+                 service_account_json = None;
                }
                 : Runtime_config.provider_config) ))
         models

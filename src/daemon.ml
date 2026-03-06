@@ -68,12 +68,22 @@ let run ~(config : Runtime_config.t) =
         config.default_temperature);
   Logs.info (fun m -> m "Workspace: %s" workspace);
   Logs.info (fun m ->
-      m "Channels: cli=%b telegram=%b discord=%b slack=%b github=%b"
+      m
+        "Channels: cli=%b telegram=%b discord=%b slack=%b github=%b signal=%b \
+         matrix=%b irc=%b email=%b nostr=%b dingtalk=%b onebot=%b lark=%b"
         config.channels.cli
         (config.channels.telegram <> None)
         (config.channels.discord <> None)
         (config.channels.slack <> None)
-        (config.channels.github <> None));
+        (config.channels.github <> None)
+        (config.channels.signal <> None)
+        (config.channels.matrix <> None)
+        (config.channels.irc <> None)
+        (config.channels.email <> None)
+        (config.channels.nostr <> None)
+        (config.channels.dingtalk <> None)
+        (config.channels.onebot <> None)
+        (config.channels.lark <> None));
   let tool_registry =
     if config.security.tools_enabled then begin
       let registry = Tool_registry.create () in
@@ -283,6 +293,14 @@ let run ~(config : Runtime_config.t) =
         ("telegram", "starting");
         ("discord", "starting");
         ("slack", "starting");
+        ("signal", "starting");
+        ("matrix", "starting");
+        ("irc", "starting");
+        ("email", "starting");
+        ("nostr", "starting");
+        ("dingtalk", "starting");
+        ("onebot", "starting");
+        ("lark", "starting");
       ];
   let gateway =
     Lwt.catch
@@ -345,6 +363,14 @@ let run ~(config : Runtime_config.t) =
          ("discord", "running");
          ("slack", "running");
          ("cron", "running");
+         ("signal", "running");
+         ("matrix", "running");
+         ("irc", "running");
+         ("email", "running");
+         ("nostr", "running");
+         ("dingtalk", "running");
+         ("onebot", "running");
+         ("lark", "running");
        ]
       @ if slack_socket_enabled then [ ("slack_socket", "running") ] else []);
   (match db with
@@ -403,6 +429,86 @@ let run ~(config : Runtime_config.t) =
           Logs.err (fun m ->
               m "iMessage channel error: %s" (Printexc.to_string exn));
           Lwt.return_unit));
+  (match config.channels.signal with
+  | Some _ ->
+      Lwt.async (fun () ->
+          Lwt.catch
+            (fun () -> Signal.start ~config ~session_manager)
+            (fun exn ->
+              Logs.err (fun m ->
+                  m "Signal channel error: %s" (Printexc.to_string exn));
+              Lwt.return_unit))
+  | None -> ());
+  (match config.channels.matrix with
+  | Some _ ->
+      Lwt.async (fun () ->
+          Lwt.catch
+            (fun () -> Matrix.start ~config ~session_manager)
+            (fun exn ->
+              Logs.err (fun m ->
+                  m "Matrix channel error: %s" (Printexc.to_string exn));
+              Lwt.return_unit))
+  | None -> ());
+  (match config.channels.irc with
+  | Some _ ->
+      Lwt.async (fun () ->
+          Lwt.catch
+            (fun () -> Irc.start ~config ~session_manager)
+            (fun exn ->
+              Logs.err (fun m ->
+                  m "IRC channel error: %s" (Printexc.to_string exn));
+              Lwt.return_unit))
+  | None -> ());
+  (match config.channels.email with
+  | Some _ ->
+      Lwt.async (fun () ->
+          Lwt.catch
+            (fun () -> Email_channel.start ~config ~session_manager)
+            (fun exn ->
+              Logs.err (fun m ->
+                  m "Email channel error: %s" (Printexc.to_string exn));
+              Lwt.return_unit))
+  | None -> ());
+  (match config.channels.nostr with
+  | Some _ ->
+      Lwt.async (fun () ->
+          Lwt.catch
+            (fun () -> Nostr.start ~config ~session_manager)
+            (fun exn ->
+              Logs.err (fun m ->
+                  m "Nostr channel error: %s" (Printexc.to_string exn));
+              Lwt.return_unit))
+  | None -> ());
+  (match config.channels.dingtalk with
+  | Some _ ->
+      Lwt.async (fun () ->
+          Lwt.catch
+            (fun () -> Dingtalk.start ~config ~session_manager)
+            (fun exn ->
+              Logs.err (fun m ->
+                  m "DingTalk channel error: %s" (Printexc.to_string exn));
+              Lwt.return_unit))
+  | None -> ());
+  (match config.channels.onebot with
+  | Some _ ->
+      Lwt.async (fun () ->
+          Lwt.catch
+            (fun () -> Onebot.start ~config ~session_manager)
+            (fun exn ->
+              Logs.err (fun m ->
+                  m "OneBot channel error: %s" (Printexc.to_string exn));
+              Lwt.return_unit))
+  | None -> ());
+  (match config.channels.lark with
+  | Some _ ->
+      Lwt.async (fun () ->
+          Lwt.catch
+            (fun () -> Lark.start ~config ~session_manager)
+            (fun exn ->
+              Logs.err (fun m ->
+                  m "Lark channel error: %s" (Printexc.to_string exn));
+              Lwt.return_unit))
+  | None -> ());
   (match db with
   | Some db ->
       Scheduler.init_schema db;

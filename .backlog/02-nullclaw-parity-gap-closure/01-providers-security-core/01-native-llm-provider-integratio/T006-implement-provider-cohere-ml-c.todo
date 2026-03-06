@@ -1,11 +1,13 @@
 ---
+completed_at: null
 complexity: medium
 depends_on:
-- P2.M1.E1.T001
+    - P2.M1.E1.T001
 estimate_hours: 5
 id: P2.M1.E1.T006
 priority: low
-status: pending
+started_at: null
+status: done
 tags: []
 title: Implement provider_cohere.ml (Command R+ /v2/chat, tool-use format)
 ---

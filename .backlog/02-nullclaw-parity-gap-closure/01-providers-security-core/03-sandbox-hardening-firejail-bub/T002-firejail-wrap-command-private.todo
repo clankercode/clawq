@@ -1,11 +1,13 @@
 ---
+completed_at: null
 complexity: low
 depends_on:
-- P2.M1.E3.T001
+    - P2.M1.E3.T001
 estimate_hours: 2
 id: P2.M1.E3.T002
 priority: medium
-status: pending
+started_at: null
+status: done
 tags: []
 title: 'Firejail wrap_command: --private={workspace} --net=none --quiet --noprofile'
 ---

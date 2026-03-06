@@ -12,31 +12,38 @@ tasks:
       file: T001-add-provider-kind-detection-di.todo
       id: T001
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Add provider_kind detection + dispatch skeleton in provider.ml
     - complexity: high
-      depends_on: []
-      estimate_hours: 6
+      depends_on:
+        - P2.M1.E1.T001
+      estimate_hours: 8
       file: T002-implement-provider-anthropic-m.todo
       id: T002
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Implement provider_anthropic.ml (Messages API, streaming SSE, tool_use format)
     - complexity: medium
-      depends_on: []
-      estimate_hours: 4
+      depends_on:
+        - P2.M1.E1.T001
+      estimate_hours: 5
       file: T003-implement-provider-ollama-ml-n.todo
       id: T003
-      priority: high
-      status: pending
+      priority: medium
+      status: done
+      tags: []
       title: Implement provider_ollama.ml (NDJSON streaming, /api/chat)
     - complexity: high
-      depends_on: []
-      estimate_hours: 5
+      depends_on:
+        - P2.M1.E1.T001
+      estimate_hours: 8
       file: T004-implement-provider-gemini-ml-g.todo
       id: T004
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: Implement provider_gemini.ml (GenerateContent, streamGenerateContent, function declarations)
     - complexity: high
       depends_on: []
@@ -47,12 +54,14 @@ tasks:
       status: pending
       title: Implement provider_vertex.ml (service-account JWT, OAuth token refresh, endpoint resolution)
     - complexity: medium
-      depends_on: []
-      estimate_hours: 4
+      depends_on:
+        - P2.M1.E1.T001
+      estimate_hours: 5
       file: T006-implement-provider-cohere-ml-c.todo
       id: T006
       priority: low
-      status: pending
+      status: done
+      tags: []
       title: Implement provider_cohere.ml (Command R+ /v2/chat, tool-use format)
     - complexity: low
       depends_on: []

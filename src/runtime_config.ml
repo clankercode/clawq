@@ -4,6 +4,7 @@ type provider_config = {
   default_model : string option;
   project_id : string option;
   location : string option;
+  service_account_json : string option;
 }
 
 type agent_defaults = {
@@ -573,6 +574,11 @@ let to_json (cfg : t) : Yojson.Safe.t =
     let fields =
       match p.default_model with
       | Some m -> fields @ [ ("default_model", `String m) ]
+      | None -> fields
+    in
+    let fields =
+      match p.service_account_json with
+      | Some saj -> fields @ [ ("service_account_json", `String saj) ]
       | None -> fields
     in
     `Assoc fields

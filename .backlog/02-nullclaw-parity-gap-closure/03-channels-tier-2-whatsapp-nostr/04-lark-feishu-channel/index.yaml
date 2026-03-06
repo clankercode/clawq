@@ -12,7 +12,8 @@ tasks:
       file: T001-implement-lark-ml-tenant-acces.todo
       id: T001
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: 'Implement lark.ml: tenant access token fetch + cache + refresh (2h TTL, 60s safety margin)'
     - complexity: high
       depends_on: []

@@ -1,10 +1,12 @@
 ---
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 4
 id: P2.M2.E1.T003
 priority: medium
-status: pending
+started_at: null
+status: done
 tags: []
 title: 'signal.ml: REST API mode (GET /v1/receive/{phone}, POST /v2/send)'
 ---

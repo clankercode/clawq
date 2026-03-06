@@ -114,6 +114,7 @@ let test_provider_config_default_model () =
               default_model = Some "custom-model";
               project_id = None;
               location = None;
+              service_account_json = None;
             } );
         ];
       default_provider = Some "test";
@@ -141,6 +142,7 @@ let test_select_provider_prefers_colon_model_provider () =
               default_model = Some "llama-3.3-70b-versatile";
               project_id = None;
               location = None;
+              service_account_json = None;
             } );
           ( "zai_coding",
             {
@@ -149,6 +151,7 @@ let test_select_provider_prefers_colon_model_provider () =
               default_model = Some "glm-5";
               project_id = None;
               location = None;
+              service_account_json = None;
             } );
         ];
       default_provider = Some "groq";
@@ -177,6 +180,7 @@ let test_select_provider_keeps_raw_model_when_target_provider_missing () =
               default_model = None;
               project_id = None;
               location = None;
+              service_account_json = None;
             } );
         ];
       default_provider = Some "groq";

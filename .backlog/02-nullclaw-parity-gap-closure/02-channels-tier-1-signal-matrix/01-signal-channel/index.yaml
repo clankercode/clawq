@@ -12,7 +12,8 @@ tasks:
       file: T001-implement-signal-ml-json-rpc-m.todo
       id: T001
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: 'Implement signal.ml: JSON-RPC mode SSE receive loop (parse envelope, filter allow_from)'
     - complexity: medium
       depends_on: []
@@ -20,7 +21,8 @@ tasks:
       file: T002-signal-ml-json-rpc-send-post-a.todo
       id: T002
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: 'signal.ml: JSON-RPC send (POST /api/v1/rpc), UTF-8 message chunking at max_chunk_bytes'
     - complexity: medium
       depends_on: []
@@ -28,7 +30,8 @@ tasks:
       file: T003-signal-ml-rest-api-mode-get-v1.todo
       id: T003
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: 'signal.ml: REST API mode (GET /v1/receive/{phone}, POST /v2/send)'
     - complexity: low
       depends_on: []
@@ -36,7 +39,8 @@ tasks:
       file: T004-add-signal-config-to-runtime-c.todo
       id: T004
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Add signal_config to runtime_config; parse channels.signal in config_loader
     - complexity: low
       depends_on: []

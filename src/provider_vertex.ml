@@ -26,20 +26,76 @@ let vertex_stream_endpoint ~project_id ~location ~model =
     "https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/google/models/%s:streamGenerateContent?alt=sse"
     location project_id location model
 
-(* TODO: not yet implemented - JWT RS256 signing for service account auth.
-   For now, attempt to use GOOGLE_APPLICATION_CREDENTIALS via gcloud ADC token
-   or accept a pre-generated token in the api_key field. *)
+let run_gcloud_print_access_token () =
+  let open Lwt.Syntax in
+  Lwt.catch
+    (fun () ->
+      let proc =
+        Lwt_process.open_process_in
+          ("gcloud", [| "gcloud"; "auth"; "print-access-token" |])
+      in
+      let* token_str = Lwt_io.read proc#stdout in
+      let* _ = proc#close in
+      let token = String.trim token_str in
+      if token <> "" then Lwt.return token else Lwt.return "")
+    (fun _ -> Lwt.return "")
+
 let get_access_token (provider : Runtime_config.provider_config) =
   let open Lwt.Syntax in
   (* If api_key is set and looks like an OAuth token, use it directly *)
   if provider.api_key <> "" && String.length provider.api_key > 20 then
     Lwt.return provider.api_key
   else begin
-    (* TODO: implement proper service account JWT flow *)
-    (* For now fall back to GOOGLE_APPLICATION_CREDENTIALS / gcloud token *)
-    Logs.warn (fun m ->
-        m "Vertex: no access token configured; JWT flow not yet implemented");
-    Lwt.return ""
+    (* Try service_account_json: write to temp file, activate, print token *)
+    let* result =
+      match provider.service_account_json with
+      | Some saj when saj <> "" ->
+          Lwt.catch
+            (fun () ->
+              let tmp = Filename.temp_file "clawq_sa" ".json" in
+              (try
+                 let oc = open_out tmp in
+                 output_string oc saj;
+                 close_out oc
+               with _ -> ());
+              let* activate_ok =
+                Lwt.catch
+                  (fun () ->
+                    let proc =
+                      Lwt_process.open_process_none
+                        ( "gcloud",
+                          [|
+                            "gcloud";
+                            "auth";
+                            "activate-service-account";
+                            "--key-file=" ^ tmp;
+                          |] )
+                    in
+                    let* status = proc#close in
+                    match status with
+                    | Unix.WEXITED 0 -> Lwt.return true
+                    | _ -> Lwt.return false)
+                  (fun _ -> Lwt.return false)
+              in
+              (try Sys.remove tmp with _ -> ());
+              if activate_ok then run_gcloud_print_access_token ()
+              else Lwt.return "")
+            (fun _ -> Lwt.return "")
+      | _ -> Lwt.return ""
+    in
+    if result <> "" then Lwt.return result
+    else begin
+      (* Try Application Default Credentials via gcloud *)
+      let* adc_result = run_gcloud_print_access_token () in
+      if adc_result <> "" then Lwt.return adc_result
+      else begin
+        Logs.warn (fun m ->
+            m
+              "Vertex: no access token available (set api_key to OAuth token \
+               or configure gcloud ADC)");
+        Lwt.return ""
+      end
+    end
   end
 
 (* Reuse Gemini content format since Vertex uses identical structure *)

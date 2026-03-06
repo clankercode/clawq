@@ -42,8 +42,19 @@ let parse_config ?(resolve_secrets = true) json =
           let location =
             try Some (v |> member "location" |> to_string) with _ -> None
           in
+          let service_account_json =
+            try Some (v |> member "service_account_json" |> to_string)
+            with _ -> None
+          in
           ( name,
-            ({ api_key; base_url; default_model; project_id; location }
+            ({
+               api_key;
+               base_url;
+               default_model;
+               project_id;
+               location;
+               service_account_json;
+             }
               : Runtime_config.provider_config) ))
     with _ -> []
   in

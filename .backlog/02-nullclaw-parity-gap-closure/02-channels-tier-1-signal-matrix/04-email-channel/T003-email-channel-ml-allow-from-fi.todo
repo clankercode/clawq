@@ -1,10 +1,12 @@
 ---
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 2
 id: P2.M2.E4.T003
 priority: high
-status: pending
+started_at: null
+status: done
 tags: []
 title: 'email_channel.ml: allow_from filter (exact, @domain, bare domain), bounded seen-ID dedup set (LRU 1000)'
 ---

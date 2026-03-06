@@ -1,10 +1,12 @@
 ---
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 3
 id: P2.M6.E2.T007
 priority: medium
-status: pending
+started_at: null
+status: done
 tags: []
 title: 'Write test/test_config_loader.ml: JSON parse, env substitution, defaults, bad input (~30 tests)'
 ---

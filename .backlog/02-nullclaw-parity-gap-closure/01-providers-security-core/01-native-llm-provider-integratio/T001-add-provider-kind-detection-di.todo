@@ -1,10 +1,12 @@
 ---
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 4
 id: P2.M1.E1.T001
 priority: high
-status: pending
+started_at: null
+status: done
 tags: []
 title: Add provider_kind detection + dispatch skeleton in provider.ml
 ---

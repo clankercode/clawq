@@ -1,11 +1,13 @@
 ---
+completed_at: null
 complexity: high
 depends_on:
-- P2.M1.E1.T001
+    - P2.M1.E1.T001
 estimate_hours: 8
 id: P2.M1.E1.T002
 priority: high
-status: pending
+started_at: null
+status: done
 tags: []
 title: Implement provider_anthropic.ml (Messages API, streaming SSE, tool_use format)
 ---

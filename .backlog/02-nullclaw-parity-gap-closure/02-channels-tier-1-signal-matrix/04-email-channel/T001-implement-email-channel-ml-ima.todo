@@ -1,10 +1,12 @@
 ---
+completed_at: null
 complexity: high
 depends_on: []
 estimate_hours: 6
 id: P2.M2.E4.T001
 priority: high
-status: pending
+started_at: null
+status: done
 tags: []
 title: 'Implement email_channel.ml IMAP client: TLS connect, LOGIN, SELECT INBOX, SEARCH UNSEEN, FETCH, STORE \Seen'
 ---

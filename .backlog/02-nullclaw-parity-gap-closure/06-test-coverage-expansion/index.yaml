@@ -18,7 +18,7 @@ epics:
       locked: false
       name: Module Unit Tests
       path: 02-module-unit-tests
-      status: pending
+      status: done
     - complexity: medium
       depends_on: []
       description: Channel contract tests, tool contract tests, 18-command integration tests, coverage reporting.
@@ -27,7 +27,7 @@ epics:
       locked: false
       name: Contract & Integration Tests
       path: 03-contract-integration-tests
-      status: pending
+      status: done
 estimate_hours: 60
 id: P2.M6
 locked: false

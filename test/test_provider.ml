@@ -19,6 +19,7 @@ let test_find_provider_for_model () =
           default_model = None;
           project_id = None;
           location = None;
+          service_account_json = None;
         } );
       ( "openai",
         {
@@ -27,6 +28,7 @@ let test_find_provider_for_model () =
           default_model = None;
           project_id = None;
           location = None;
+          service_account_json = None;
         } );
     ]
   in
@@ -59,6 +61,7 @@ let test_find_provider_no_key () =
           default_model = None;
           project_id = None;
           location = None;
+          service_account_json = None;
         } );
     ]
   in
@@ -78,6 +81,7 @@ let test_find_provider_date_suffix () =
           default_model = None;
           project_id = None;
           location = None;
+          service_account_json = None;
         } );
     ]
   in
@@ -124,6 +128,7 @@ let make_provider ?(base_url = None) api_key =
     default_model = None;
     project_id = None;
     location = None;
+    service_account_json = None;
   }
 
 let test_detect_kind_anthropic () =
@@ -224,6 +229,7 @@ let test_find_provider_first_wins () =
           default_model = None;
           project_id = None;
           location = None;
+          service_account_json = None;
         } );
       ( "anthropic2",
         {
@@ -232,6 +238,7 @@ let test_find_provider_first_wins () =
           default_model = None;
           project_id = None;
           location = None;
+          service_account_json = None;
         } );
     ]
   in

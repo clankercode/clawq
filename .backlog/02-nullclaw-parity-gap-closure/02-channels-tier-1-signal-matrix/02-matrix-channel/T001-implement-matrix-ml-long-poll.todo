@@ -1,10 +1,12 @@
 ---
+completed_at: null
 complexity: high
 depends_on: []
 estimate_hours: 6
 id: P2.M2.E2.T001
 priority: high
-status: pending
+started_at: null
+status: done
 tags: []
 title: 'Implement matrix.ml: long-poll sync loop (/_matrix/client/v3/sync?timeout=30000), parse room timeline events'
 ---

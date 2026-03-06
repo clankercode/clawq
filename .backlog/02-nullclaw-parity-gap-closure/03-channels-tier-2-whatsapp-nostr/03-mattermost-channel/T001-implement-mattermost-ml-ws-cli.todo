@@ -1,10 +1,12 @@
 ---
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 4
 id: P2.M3.E3.T001
 priority: medium
-status: pending
+started_at: null
+status: done
 tags: []
 title: 'Implement mattermost.ml: Ws_client connect, auth challenge, parse event=posted, REST send'
 ---

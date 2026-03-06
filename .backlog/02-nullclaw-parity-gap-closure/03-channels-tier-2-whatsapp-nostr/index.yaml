@@ -27,7 +27,7 @@ epics:
       locked: false
       name: Mattermost Channel
       path: 03-mattermost-channel
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: WS or HTTP callback, tenant token cache, Lark/Feishu dual endpoint. See docs/PLAN_P2_05_CHANNELS_REMAINING.md.
@@ -72,7 +72,7 @@ epics:
       locked: false
       name: iMessage Channel (macOS)
       path: 08-imessage-channel-macos
-      status: pending
+      status: done
 estimate_hours: 120
 id: P2.M3
 locked: false

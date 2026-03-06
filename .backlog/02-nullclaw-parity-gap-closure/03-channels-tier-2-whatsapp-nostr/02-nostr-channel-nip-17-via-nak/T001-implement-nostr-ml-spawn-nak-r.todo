@@ -1,10 +1,12 @@
 ---
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 4
 id: P2.M3.E2.T001
 priority: high
-status: pending
+started_at: null
+status: done
 tags: []
 title: 'Implement nostr.ml: spawn nak req subprocess (Lwt_process), parse NIP-17 gift-wrap events, dedup by event ID (LRU 1000)'
 ---

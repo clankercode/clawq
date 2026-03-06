@@ -1,10 +1,12 @@
 ---
+completed_at: null
 complexity: high
 depends_on: []
 estimate_hours: 8
 id: P2.M5.E1.T001
 priority: high
-status: pending
+started_at: null
+status: done
 tags: []
 title: 'Create static/index.html, static/chat.js, static/chat.css: streaming chat with SSE, message history, input box'
 ---

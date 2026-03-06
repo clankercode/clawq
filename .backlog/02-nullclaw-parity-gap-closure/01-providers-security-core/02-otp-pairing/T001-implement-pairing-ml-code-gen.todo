@@ -1,10 +1,12 @@
 ---
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 4
 id: P2.M1.E2.T001
 priority: high
-status: pending
+started_at: null
+status: done
 tags: []
 title: 'Implement pairing.ml: code gen, brute-force lockout, token hashing, pair_result type'
 ---

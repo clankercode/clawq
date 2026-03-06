@@ -12,7 +12,8 @@ tasks:
       file: T001-create-test-test-helpers-ml-wi.todo
       id: T001
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: 'Create test/test_helpers.ml: with_memory_db (SQLite :memory:), with_temp_dir, fixture loader, assert_ok/assert_error'
     - complexity: low
       depends_on: []

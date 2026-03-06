@@ -12,7 +12,8 @@ tasks:
       file: T001-implement-tunnel-tailscale-ml.todo
       id: T001
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: 'Implement tunnel_tailscale.ml: spawn ''tailscale funnel --bg {port}'', extract https://*.ts.net URL from output'
     - complexity: medium
       depends_on: []
@@ -20,7 +21,8 @@ tasks:
       file: T002-implement-tunnel-ngrok-ml-spaw.todo
       id: T002
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: 'Implement tunnel_ngrok.ml: spawn ''ngrok http {port} --log stdout --log-format json'', parse JSON log for URL; query localhost:4040/api/tunnels for status'
     - complexity: medium
       depends_on: []
@@ -28,7 +30,8 @@ tasks:
       file: T003-implement-tunnel-custom-ml-com.todo
       id: T003
       priority: low
-      status: pending
+      status: done
+      tags: []
       title: 'Implement tunnel_custom.ml: command template with {port} substitution, regex URL extraction from stdout'
     - complexity: medium
       depends_on: []

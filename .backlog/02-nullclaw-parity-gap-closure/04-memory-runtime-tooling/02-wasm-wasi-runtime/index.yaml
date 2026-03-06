@@ -12,7 +12,8 @@ tasks:
       file: T001-implement-src-main-wasm-ml-min.todo
       id: T001
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: 'Implement src/main_wasm.ml: minimal command dispatch (help, version, status, agent, memory list, identity)'
     - complexity: medium
       depends_on: []
@@ -36,7 +37,8 @@ tasks:
       file: T004-implement-file-based-memory-fo.todo
       id: T004
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: Implement file-based memory for WASM (read/write MEMORY.md in workspace, no SQLite)
     - complexity: low
       depends_on: []

@@ -141,6 +141,9 @@ let default_base_url_for name =
   match name with
   | "zai_coding" -> "https://api.z.ai/api/coding/paas/v4"
   | "zai" -> "https://api.z.ai/api/paas/v4"
+  | "mistral" -> "https://api.mistral.ai/v1"
+  | "xai" | "x_ai" -> "https://api.x.ai/v1"
+  | "deepseek" -> "https://api.deepseek.com/v1"
   | _ -> "https://openrouter.ai/api/v1"
 
 let strip_date_suffix s =
@@ -238,6 +241,7 @@ let select_provider ~(config : Runtime_config.t) =
                             default_model = None;
                             project_id = None;
                             location = None;
+                            service_account_json = None;
                           } )))))
   in
   let provider_name, provider = chosen in

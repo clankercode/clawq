@@ -1,10 +1,12 @@
 ---
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 4
 id: P2.M6.E2.T006
 priority: high
-status: pending
+started_at: null
+status: done
 tags: []
 title: 'Write test/test_tools.ml: path safety, allowlist, file ops, sandbox wrapping (~35 tests)'
 ---

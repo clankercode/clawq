@@ -1,10 +1,12 @@
 ---
+completed_at: null
 complexity: low
 depends_on: []
 estimate_hours: 2
 id: P2.M6.E2.T002
 priority: medium
-status: pending
+started_at: null
+status: done
 tags: []
 title: 'Write test/test_rate_limiter.ml: token bucket, burst, cleanup (~20 tests)'
 ---

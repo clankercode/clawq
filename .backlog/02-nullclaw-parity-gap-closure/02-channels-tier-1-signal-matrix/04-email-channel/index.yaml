@@ -12,7 +12,8 @@ tasks:
       file: T001-implement-email-channel-ml-ima.todo
       id: T001
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: 'Implement email_channel.ml IMAP client: TLS connect, LOGIN, SELECT INBOX, SEARCH UNSEEN, FETCH, STORE \Seen'
     - complexity: medium
       depends_on: []
@@ -20,7 +21,8 @@ tasks:
       file: T002-email-channel-ml-rfc-2047-head.todo
       id: T002
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: 'email_channel.ml: RFC 2047 header decoder (base64 + quoted-printable), HTML tag stripper'
     - complexity: medium
       depends_on: []
@@ -28,7 +30,8 @@ tasks:
       file: T003-email-channel-ml-allow-from-fi.todo
       id: T003
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: 'email_channel.ml: allow_from filter (exact, @domain, bare domain), bounded seen-ID dedup set (LRU 1000)'
     - complexity: high
       depends_on: []
@@ -36,7 +39,8 @@ tasks:
       file: T004-email-channel-ml-smtp-outbound.todo
       id: T004
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: 'email_channel.ml: SMTP outbound (EHLO, STARTTLS, AUTH LOGIN/PLAIN, MAIL FROM/RCPT TO/DATA)'
     - complexity: medium
       depends_on: []
@@ -44,7 +48,8 @@ tasks:
       file: T005-email-channel-ml-in-reply-to-r.todo
       id: T005
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: 'email_channel.ml: In-Reply-To/References threading (track sender Message-ID)'
     - complexity: low
       depends_on: []

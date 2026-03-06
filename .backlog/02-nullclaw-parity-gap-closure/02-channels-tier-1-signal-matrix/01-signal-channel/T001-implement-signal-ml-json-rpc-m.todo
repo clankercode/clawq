@@ -1,10 +1,12 @@
 ---
+completed_at: null
 complexity: high
 depends_on: []
 estimate_hours: 6
 id: P2.M2.E1.T001
 priority: high
-status: pending
+started_at: null
+status: done
 tags: []
 title: 'Implement signal.ml: JSON-RPC mode SSE receive loop (parse envelope, filter allow_from)'
 ---

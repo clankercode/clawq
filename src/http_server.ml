@@ -45,7 +45,8 @@ let lookup_github_repo path (gc : Runtime_config.github_config) =
 
 let handler ~session_manager ~require_pairing ~auth_token ?slack_config
     ?github_config ?github_api_limiter ?ip_limiter ?session_limiter
-    ?slack_event_limiter ?web_channel _conn req body =
+    ?slack_event_limiter ?web_channel ?whatsapp_config ?line_config ?pairing
+    _conn req body =
   let open Lwt.Syntax in
   let uri = Cohttp.Request.uri req in
   let path = Uri.path uri in
@@ -340,6 +341,144 @@ let handler ~session_manager ~require_pairing ~auth_token ?slack_config
       let wc = Option.get web_channel in
       let* body_str = Cohttp_lwt.Body.to_string body in
       Web_channel.handle_request wc path meth req body_str
+  | `GET, "/whatsapp/webhook" -> (
+      let* _ = Cohttp_lwt.Body.drain_body body in
+      match whatsapp_config with
+      | None ->
+          Cohttp_lwt_unix.Server.respond_string ~status:`Not_found
+            ~headers:json_headers ~body:{|{"error":"not configured"}|} ()
+      | Some wc -> (
+          let uri = Cohttp.Request.uri req in
+          match Whatsapp.handle_verify ~config:wc uri with
+          | Some challenge ->
+              Cohttp_lwt_unix.Server.respond_string ~status:`OK
+                ~headers:json_headers ~body:challenge ()
+          | None ->
+              Cohttp_lwt_unix.Server.respond_string ~status:`Forbidden
+                ~headers:json_headers ~body:{|{"error":"verification failed"}|}
+                ()))
+  | `POST, "/whatsapp/webhook" -> (
+      match whatsapp_config with
+      | None ->
+          let* _ = Cohttp_lwt.Body.drain_body body in
+          Cohttp_lwt_unix.Server.respond_string ~status:`Not_found
+            ~headers:json_headers ~body:{|{"error":"not configured"}|} ()
+      | Some wc ->
+          let* body_str = Cohttp_lwt.Body.to_string body in
+          let* () =
+            Whatsapp.handle_inbound ~config:wc ~session_mgr:session_manager
+              body_str
+          in
+          Cohttp_lwt_unix.Server.respond_string ~status:`OK
+            ~headers:json_headers ~body:{|{"status":"ok"}|} ())
+  | `POST, "/line/webhook" -> (
+      match line_config with
+      | None ->
+          let* _ = Cohttp_lwt.Body.drain_body body in
+          Cohttp_lwt_unix.Server.respond_string ~status:`Not_found
+            ~headers:json_headers ~body:{|{"error":"not configured"}|} ()
+      | Some lc ->
+          let* body_str = Cohttp_lwt.Body.to_string body in
+          let headers = Cohttp.Request.headers req in
+          let signature =
+            Cohttp.Header.get headers "x-line-signature"
+            |> Option.value ~default:""
+          in
+          let* ok =
+            Line_channel.handle_webhook ~config:lc ~session_mgr:session_manager
+              ~signature body_str
+          in
+          if ok then
+            Cohttp_lwt_unix.Server.respond_string ~status:`OK
+              ~headers:json_headers ~body:{|{"status":"ok"}|} ()
+          else
+            Cohttp_lwt_unix.Server.respond_string ~status:`Unauthorized
+              ~headers:json_headers ~body:{|{"error":"invalid signature"}|} ())
+  | `GET, "/pair" -> (
+      let* _ = Cohttp_lwt.Body.drain_body body in
+      match pairing with
+      | None ->
+          Cohttp_lwt_unix.Server.respond_string ~status:`Not_found
+            ~headers:json_headers ~body:{|{"error":"not configured"}|} ()
+      | Some p ->
+          let s = Pairing.status p in
+          let body =
+            `Assoc
+              [
+                ("code", `String s.code);
+                ("attempts", `Int s.attempts);
+                ("locked", `Bool s.locked);
+                ("paired_count", `Int s.paired_count);
+              ]
+            |> Yojson.Safe.to_string
+          in
+          Cohttp_lwt_unix.Server.respond_string ~status:`OK
+            ~headers:json_headers ~body ())
+  | `POST, "/pair" -> (
+      match pairing with
+      | None ->
+          let* _ = Cohttp_lwt.Body.drain_body body in
+          Cohttp_lwt_unix.Server.respond_string ~status:`Not_found
+            ~headers:json_headers ~body:{|{"error":"not configured"}|} ()
+      | Some p -> (
+          let* body_str = Cohttp_lwt.Body.to_string body in
+          let code =
+            try
+              let json = Yojson.Safe.from_string body_str in
+              Yojson.Safe.Util.(json |> member "code" |> to_string)
+            with _ -> ""
+          in
+          if code = "" then
+            Cohttp_lwt_unix.Server.respond_string ~status:`Bad_request
+              ~headers:json_headers ~body:{|{"error":"code is required"}|} ()
+          else
+            match Pairing.try_pair p ~code with
+            | Pairing.Paired token ->
+                let body =
+                  `Assoc
+                    [ ("status", `String "paired"); ("token", `String token) ]
+                  |> Yojson.Safe.to_string
+                in
+                Cohttp_lwt_unix.Server.respond_string ~status:`OK
+                  ~headers:json_headers ~body ()
+            | Pairing.WrongCode ->
+                Cohttp_lwt_unix.Server.respond_string ~status:`Forbidden
+                  ~headers:json_headers ~body:{|{"error":"wrong code"}|} ()
+            | Pairing.Locked until ->
+                let body =
+                  `Assoc
+                    [
+                      ("error", `String "locked"); ("locked_until", `Float until);
+                    ]
+                  |> Yojson.Safe.to_string
+                in
+                Cohttp_lwt_unix.Server.respond_string ~status:`Too_many_requests
+                  ~headers:json_headers ~body ()
+            | Pairing.AlreadyPaired ->
+                Cohttp_lwt_unix.Server.respond_string ~status:`Conflict
+                  ~headers:json_headers ~body:{|{"error":"already paired"}|} ())
+      )
+  | `POST, "/pair/regenerate" -> (
+      let* _ = Cohttp_lwt.Body.drain_body body in
+      match pairing with
+      | None ->
+          Cohttp_lwt_unix.Server.respond_string ~status:`Not_found
+            ~headers:json_headers ~body:{|{"error":"not configured"}|} ()
+      | Some p ->
+          if not (auth_ok ~auth_token req) then
+            Cohttp_lwt_unix.Server.respond_string ~status:`Unauthorized
+              ~headers:json_headers ~body:{|{"error":"unauthorized"}|} ()
+          else begin
+            Pairing.regenerate_code p;
+            let s = Pairing.status p in
+            let body =
+              `Assoc
+                [ ("code", `String s.code); ("status", `String "regenerated") ]
+              |> Yojson.Safe.to_string
+            in
+            Cohttp_lwt_unix.Server.respond_string ~status:`OK
+              ~headers:json_headers ~body ()
+          end)
   | _ ->
       let* _ = Cohttp_lwt.Body.drain_body body in
       Cohttp_lwt_unix.Server.respond_string ~status:`Not_found
@@ -347,12 +486,13 @@ let handler ~session_manager ~require_pairing ~auth_token ?slack_config
 
 let start ~port ~host ~require_pairing ~auth_token ~session_manager
     ?slack_config ?github_config ?github_api_limiter ?ip_limiter
-    ?session_limiter ?slack_event_limiter ?web_channel () =
+    ?session_limiter ?slack_event_limiter ?web_channel ?whatsapp_config
+    ?line_config ?pairing () =
   let open Lwt.Syntax in
   let callback =
     handler ~session_manager ~require_pairing ~auth_token ?slack_config
       ?github_config ?github_api_limiter ?ip_limiter ?session_limiter
-      ?slack_event_limiter ?web_channel
+      ?slack_event_limiter ?web_channel ?whatsapp_config ?line_config ?pairing
   in
   let* ctx = Conduit_lwt_unix.init ~src:host () in
   let ctx = Cohttp_lwt_unix.Net.init ~ctx () in

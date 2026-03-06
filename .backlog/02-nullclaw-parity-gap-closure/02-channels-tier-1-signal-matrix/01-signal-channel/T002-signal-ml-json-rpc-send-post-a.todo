@@ -1,10 +1,12 @@
 ---
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 3
 id: P2.M2.E1.T002
 priority: high
-status: pending
+started_at: null
+status: done
 tags: []
 title: 'signal.ml: JSON-RPC send (POST /api/v1/rpc), UTF-8 message chunking at max_chunk_bytes'
 ---
