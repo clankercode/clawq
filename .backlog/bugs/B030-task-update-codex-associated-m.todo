@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B030
+priority: high
+status: pending
+tags: []
+title: 'task: update codex associated models: gpt-5.2, gpt-5.3-codex, gpt-5.3-codex-spark, gpt-5.4, etc.'
+---
+
+task: update codex associated models: gpt-5.2, gpt-5.3-codex, gpt-5.3-codex-spark, gpt-5.4, etc.
