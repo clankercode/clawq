@@ -11,7 +11,6 @@ let test_system_prompt_from_config () =
           default_config.agent_defaults with
           system_prompt = "You are a test bot.";
         };
-      prompt = { default_config.prompt with dynamic_enabled = false };
     }
   in
   let agent = Agent.create ~config () in

@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-06T06:45:15Z"
+claimed_by: cli-user
+completed_at: "2026-03-06T06:45:25Z"
 complexity: medium
 depends_on: []
+duration_minutes: 0.17487511326666666
 estimate_hours: 1
 id: B018
 priority: high
-status: pending
+started_at: "2026-03-06T06:45:15Z"
+status: done
 tags: []
 title: 'Task: if user sends a message starting with `!`, that should immediately interrupt the agent and send them that message. Partial messages should be saved and appended to chat log with an explanation that it was interrupted added to the end (eg, `partial_response + '' --- [NOTE: interrupted by user]''`)'
 ---

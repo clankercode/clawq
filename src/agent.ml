@@ -5,6 +5,8 @@ type t = {
   tool_registry : Tool_registry.t option;
 }
 
+exception Interrupted of string
+
 let create ~config ?tool_registry () =
   let system_prompt = Prompt_builder.build ~config ~tool_registry () in
   { history = []; config; system_prompt; tool_registry }
@@ -357,7 +359,7 @@ let inject_search_context agent ~db ~user_message =
       (fun _ -> Lwt.return_unit)
   else Lwt.return_unit
 
-let turn agent ~user_message ?db ?session_key () =
+let turn agent ~user_message ?db ?session_key ?interrupt_check () =
   let open Lwt.Syntax in
   let* () =
     match db with
@@ -461,7 +463,7 @@ let turn agent ~user_message ?db ?session_key () =
           Provider.make_message ~role:"assistant" ~content :: agent.history;
         trim_history agent;
         Lwt.return content
-    | Provider.ToolCalls { calls; _ } ->
+    | Provider.ToolCalls { calls; _ } -> (
         let assistant_msg =
           {
             Provider.role = "assistant";
@@ -475,11 +477,26 @@ let turn agent ~user_message ?db ?session_key () =
         let* () =
           execute_tool_calls agent ~db ~audit_enabled ~session_key calls
         in
-        loop (iteration + 1)
+        match interrupt_check with
+        | Some check -> (
+            match check () with
+            | Some _ ->
+                let partial =
+                  "[Agent was interrupted mid-task] --- [NOTE: interrupted by \
+                   user]"
+                in
+                agent.history <-
+                  Provider.make_message ~role:"assistant" ~content:partial
+                  :: agent.history;
+                trim_history agent;
+                Lwt.return partial
+            | None -> loop (iteration + 1))
+        | None -> loop (iteration + 1))
   in
   loop 0
 
-let turn_stream agent ~user_message ?db ?session_key ~on_chunk () =
+let turn_stream agent ~user_message ?db ?session_key ?interrupt_check ~on_chunk
+    () =
   let open Lwt.Syntax in
   let* () =
     match db with
@@ -492,9 +509,29 @@ let turn_stream agent ~user_message ?db ?session_key ~on_chunk () =
   let audit_enabled = agent.config.security.audit_enabled in
   let max_iters = agent.config.agent_defaults.max_tool_iterations in
   let tools = tools_json agent in
+  (* Buffer to accumulate streamed content for interrupt annotation. *)
+  let partial_buf = Buffer.create 256 in
+  let wrapped_on_chunk chunk =
+    let open Lwt.Syntax in
+    match chunk with
+    | Provider.Delta text -> (
+        Buffer.add_string partial_buf text;
+        let* () = on_chunk chunk in
+        match interrupt_check with
+        | Some check -> (
+            match check () with
+            | Some _ ->
+                let note = " --- [NOTE: interrupted by user]" in
+                let* () = on_chunk (Provider.Delta note) in
+                Lwt.fail (Interrupted (Buffer.contents partial_buf))
+            | None -> Lwt.return_unit)
+        | None -> Lwt.return_unit)
+    | Provider.Done | Provider.ToolCallDelta _ -> on_chunk chunk
+  in
   let resilient_stream config messages tools on_chunk =
     let res = config.Runtime_config.resilience in
     let open Lwt.Syntax in
+    Buffer.clear partial_buf;
     let primary () =
       Provider.complete_stream ~config ~messages ?tools ~on_chunk ()
     in
@@ -533,67 +570,93 @@ let turn_stream agent ~user_message ?db ?session_key ~on_chunk () =
     | _ -> ()
   in
   let rec loop iteration =
-    let* response =
-      Lwt.catch
-        (fun () ->
-          let messages = build_messages agent in
-          resilient_stream agent.config messages tools on_chunk)
-        (fun exn ->
-          if
-            is_context_exhaustion_error (Printexc.to_string exn)
-            && force_compress_history agent
-          then begin
-            Logs.warn (fun m ->
-                m
-                  "Context exhaustion detected; force-compressed history, \
-                   retrying turn");
-            let messages = build_messages agent in
-            resilient_stream agent.config messages tools on_chunk
-          end
-          else Lwt.fail exn)
-    in
-    track_cost response;
-    match response with
-    | Provider.Text { content; _ } ->
-        agent.history <-
-          Provider.make_message ~role:"assistant" ~content :: agent.history;
-        trim_history agent;
-        Lwt.return content
-    | Provider.ToolCalls { calls; _ } when tools = None ->
-        let content =
-          "I attempted to use tools ("
-          ^ String.concat ", "
-              (List.map
-                 (fun (tc : Provider.tool_call) -> tc.function_name)
-                 calls)
-          ^ ") but tools are disabled."
+    Lwt.catch
+      (fun () ->
+        let* response =
+          Lwt.catch
+            (fun () ->
+              let messages = build_messages agent in
+              resilient_stream agent.config messages tools wrapped_on_chunk)
+            (fun exn ->
+              if
+                is_context_exhaustion_error (Printexc.to_string exn)
+                && force_compress_history agent
+              then begin
+                Logs.warn (fun m ->
+                    m
+                      "Context exhaustion detected; force-compressed history, \
+                       retrying turn");
+                let messages = build_messages agent in
+                resilient_stream agent.config messages tools wrapped_on_chunk
+              end
+              else Lwt.fail exn)
         in
-        agent.history <-
-          Provider.make_message ~role:"assistant" ~content :: agent.history;
-        trim_history agent;
-        let* () = on_chunk (Provider.Delta content) in
-        Lwt.return content
-    | Provider.ToolCalls { calls; _ } when iteration >= max_iters ->
-        let content = "I've reached the maximum number of tool iterations." in
-        agent.history <-
-          Provider.make_message ~role:"assistant" ~content :: agent.history;
-        trim_history agent;
-        let* () = on_chunk (Provider.Delta content) in
-        Lwt.return content
-    | Provider.ToolCalls { calls; _ } ->
-        let assistant_msg =
-          {
-            Provider.role = "assistant";
-            content = "";
-            tool_calls = calls;
-            tool_call_id = None;
-            name = None;
-          }
-        in
-        agent.history <- assistant_msg :: agent.history;
-        let* () =
-          execute_tool_calls agent ~db ~audit_enabled ~session_key calls
-        in
-        loop (iteration + 1)
+        track_cost response;
+        match response with
+        | Provider.Text { content; _ } ->
+            agent.history <-
+              Provider.make_message ~role:"assistant" ~content :: agent.history;
+            trim_history agent;
+            Lwt.return content
+        | Provider.ToolCalls { calls; _ } when tools = None ->
+            let content =
+              "I attempted to use tools ("
+              ^ String.concat ", "
+                  (List.map
+                     (fun (tc : Provider.tool_call) -> tc.function_name)
+                     calls)
+              ^ ") but tools are disabled."
+            in
+            agent.history <-
+              Provider.make_message ~role:"assistant" ~content :: agent.history;
+            trim_history agent;
+            let* () = on_chunk (Provider.Delta content) in
+            Lwt.return content
+        | Provider.ToolCalls { calls; _ } when iteration >= max_iters ->
+            let content =
+              "I've reached the maximum number of tool iterations."
+            in
+            agent.history <-
+              Provider.make_message ~role:"assistant" ~content :: agent.history;
+            trim_history agent;
+            let* () = on_chunk (Provider.Delta content) in
+            Lwt.return content
+        | Provider.ToolCalls { calls; _ } -> (
+            let assistant_msg =
+              {
+                Provider.role = "assistant";
+                content = "";
+                tool_calls = calls;
+                tool_call_id = None;
+                name = None;
+              }
+            in
+            agent.history <- assistant_msg :: agent.history;
+            let* () =
+              execute_tool_calls agent ~db ~audit_enabled ~session_key calls
+            in
+            match interrupt_check with
+            | Some check -> (
+                match check () with
+                | Some _ ->
+                    let partial = " --- [NOTE: interrupted by user]" in
+                    agent.history <-
+                      Provider.make_message ~role:"assistant" ~content:partial
+                      :: agent.history;
+                    trim_history agent;
+                    let* () = on_chunk (Provider.Delta partial) in
+                    Lwt.return partial
+                | None -> loop (iteration + 1))
+            | None -> loop (iteration + 1)))
+      (fun exn ->
+        match exn with
+        | Interrupted partial ->
+            let annotated = partial ^ " --- [NOTE: interrupted by user]" in
+            agent.history <-
+              Provider.make_message ~role:"assistant" ~content:annotated
+              :: agent.history;
+            trim_history agent;
+            Lwt.return annotated
+        | exn -> Lwt.fail exn)
   in
   loop 0
