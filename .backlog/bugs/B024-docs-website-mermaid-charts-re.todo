@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B024
+priority: high
+status: pending
+tags: []
+title: 'docs website: mermaid charts redraw when dark-light mode toggled.'
+---
+
+docs website: mermaid charts redraw when dark-light mode toggled.

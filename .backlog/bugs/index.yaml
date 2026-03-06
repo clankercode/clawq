@@ -22,3 +22,4 @@ bugs:
     - file: B021-ci-run-eval-set-gx-opam-last-e.todo
     - file: B022-pick-a-better-default-port-tha.todo
     - file: B023-docs-website-gears-in-bottom-r.todo
+    - file: B024-docs-website-mermaid-charts-re.todo
