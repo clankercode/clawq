@@ -21,6 +21,7 @@ type agent_defaults = {
   primary_model : string;
   system_prompt : string;
   max_tool_iterations : int;
+  tool_search_enabled : bool;
 }
 
 type totp_config = {
@@ -368,6 +369,7 @@ let default =
         primary_model = "openai/gpt-4o";
         system_prompt = "";
         max_tool_iterations = 10;
+        tool_search_enabled = false;
       };
     prompt = default_prompt;
     channels =
@@ -730,6 +732,7 @@ let to_json (cfg : t) : Yojson.Safe.t =
               ("primary_model", `String ad.primary_model);
               ("system_prompt", `String ad.system_prompt);
               ("max_tool_iterations", `Int ad.max_tool_iterations);
+              ("tool_search_enabled", `Bool ad.tool_search_enabled);
             ] );
         ( "prompt",
           `Assoc

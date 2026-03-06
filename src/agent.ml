@@ -211,13 +211,40 @@ let compact_history_if_needed agent =
 let tools_json agent =
   match agent.tool_registry with
   | Some r when agent.config.security.tools_enabled ->
-      Some (Tool_registry.to_openai_json r)
+      if agent.config.agent_defaults.tool_search_enabled then
+        Some (Tool_registry.to_openai_json_with_search r)
+      else Some (Tool_registry.to_openai_json r)
   | _ -> None
 
 let risk_level_to_string = function
   | Tool.Low -> "low"
   | Tool.Medium -> "medium"
   | Tool.High -> "high"
+
+(* Handle a tool_search call by searching the registry and returning
+   matching tool definitions as a tool_search_output message. *)
+let resolve_tool_search agent (tc : Provider.tool_call) =
+  let query =
+    try
+      let args = Yojson.Safe.from_string tc.arguments in
+      let open Yojson.Safe.Util in
+      try args |> member "query" |> to_string
+      with _ -> (
+        try args |> member "goal" |> to_string
+        with _ -> Yojson.Safe.to_string args)
+    with _ -> tc.arguments
+  in
+  match agent.tool_registry with
+  | None ->
+      Provider.make_tool_result ~tool_call_id:tc.id ~name:"tool_search"
+        ~content:"No tool registry available"
+  | Some registry ->
+      let results = Tool_registry.search registry ~query in
+      let top = List.filteri (fun i _ -> i < 10) results in
+      let tools_json = `List (List.map Tool_registry.tool_to_openai_json top) in
+      Logs.info (fun m ->
+          m "Tool search query=%S found=%d tools" query (List.length top));
+      Provider.make_tool_search_result ~tool_call_id:tc.id ~tools_json
 
 (* Execute all tool calls in parallel, then append results to history in the
    original call order. Parallel execution reduces latency when the LLM issues
@@ -261,26 +288,39 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key ~on_chunk
                ])
         in
         let* () = on_chunk (Provider.Delta tool_start_json) in
-        let* result =
-          match agent.tool_registry with
-          | None -> Lwt.return "Error: no tool registry available"
-          | Some registry -> (
-              match Tool_registry.find registry tc.function_name with
-              | None ->
-                  Lwt.return
-                    (Printf.sprintf "Error: unknown tool '%s'" tc.function_name)
-              | Some tool ->
-                  Lwt.catch
-                    (fun () ->
-                      let args =
-                        try Yojson.Safe.from_string tc.arguments
-                        with _ -> `Assoc []
-                      in
-                      tool.invoke args)
-                    (fun exn ->
+        let is_tool_search = tc.function_name = "tool_search" in
+        let* result_msg =
+          if is_tool_search then Lwt.return (resolve_tool_search agent tc)
+          else
+            let* result =
+              match agent.tool_registry with
+              | None -> Lwt.return "Error: no tool registry available"
+              | Some registry -> (
+                  match Tool_registry.find registry tc.function_name with
+                  | None ->
                       Lwt.return
-                        ("Error invoking tool: " ^ Printexc.to_string exn)))
+                        (Printf.sprintf "Error: unknown tool '%s'"
+                           tc.function_name)
+                  | Some tool ->
+                      Lwt.catch
+                        (fun () ->
+                          let args =
+                            try Yojson.Safe.from_string tc.arguments
+                            with _ -> `Assoc []
+                          in
+                          tool.invoke args)
+                        (fun exn ->
+                          Lwt.return
+                            ("Error invoking tool: " ^ Printexc.to_string exn)))
+            in
+            let result_for_history =
+              truncate_for_history result ~max_chars:max_tool_result_chars
+            in
+            Lwt.return
+              (Provider.make_tool_result ~tool_call_id:tc.id
+                 ~name:tc.function_name ~content:result_for_history)
         in
+        let result = result_msg.Provider.content in
         let success =
           not (String.length result >= 6 && String.sub result 0 6 = "Error:")
         in
@@ -307,18 +347,11 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key ~on_chunk
                ])
         in
         let* () = on_chunk (Provider.Delta tool_result_json) in
-        Lwt.return (tc, result))
+        Lwt.return (tc, result_msg))
       calls
   in
   List.iter
-    (fun ((tc : Provider.tool_call), result) ->
-      let result_for_history =
-        truncate_for_history result ~max_chars:max_tool_result_chars
-      in
-      let tool_msg =
-        Provider.make_tool_result ~tool_call_id:tc.id ~name:tc.function_name
-          ~content:result_for_history
-      in
+    (fun ((_tc : Provider.tool_call), tool_msg) ->
       agent.history <- tool_msg :: agent.history)
     results;
   Lwt.return_unit
@@ -350,26 +383,39 @@ let execute_tool_calls agent ~db ~audit_enabled ~session_key calls =
                    args_preview = tc.arguments;
                  })
         | _ -> ());
-        let* result =
-          match agent.tool_registry with
-          | None -> Lwt.return "Error: no tool registry available"
-          | Some registry -> (
-              match Tool_registry.find registry tc.function_name with
-              | None ->
-                  Lwt.return
-                    (Printf.sprintf "Error: unknown tool '%s'" tc.function_name)
-              | Some tool ->
-                  Lwt.catch
-                    (fun () ->
-                      let args =
-                        try Yojson.Safe.from_string tc.arguments
-                        with _ -> `Assoc []
-                      in
-                      tool.invoke args)
-                    (fun exn ->
+        let is_tool_search = tc.function_name = "tool_search" in
+        let* result_msg =
+          if is_tool_search then Lwt.return (resolve_tool_search agent tc)
+          else
+            let* result =
+              match agent.tool_registry with
+              | None -> Lwt.return "Error: no tool registry available"
+              | Some registry -> (
+                  match Tool_registry.find registry tc.function_name with
+                  | None ->
                       Lwt.return
-                        ("Error invoking tool: " ^ Printexc.to_string exn)))
+                        (Printf.sprintf "Error: unknown tool '%s'"
+                           tc.function_name)
+                  | Some tool ->
+                      Lwt.catch
+                        (fun () ->
+                          let args =
+                            try Yojson.Safe.from_string tc.arguments
+                            with _ -> `Assoc []
+                          in
+                          tool.invoke args)
+                        (fun exn ->
+                          Lwt.return
+                            ("Error invoking tool: " ^ Printexc.to_string exn)))
+            in
+            let result_for_history =
+              truncate_for_history result ~max_chars:max_tool_result_chars
+            in
+            Lwt.return
+              (Provider.make_tool_result ~tool_call_id:tc.id
+                 ~name:tc.function_name ~content:result_for_history)
         in
+        let result = result_msg.Provider.content in
         let success =
           not (String.length result >= 6 && String.sub result 0 6 = "Error:")
         in
@@ -385,19 +431,12 @@ let execute_tool_calls agent ~db ~audit_enabled ~session_key calls =
         in
         Logs.info (fun m ->
             m "Tool result: %s -> %s" tc.function_name truncated);
-        Lwt.return (tc, result))
+        Lwt.return (tc, result_msg))
       calls
   in
   (* Append results in original call order so history is deterministic *)
   List.iter
-    (fun ((tc : Provider.tool_call), result) ->
-      let result_for_history =
-        truncate_for_history result ~max_chars:max_tool_result_chars
-      in
-      let tool_msg =
-        Provider.make_tool_result ~tool_call_id:tc.id ~name:tc.function_name
-          ~content:result_for_history
-      in
+    (fun ((_tc : Provider.tool_call), tool_msg) ->
       agent.history <- tool_msg :: agent.history)
     results;
   Lwt.return_unit

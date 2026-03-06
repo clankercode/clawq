@@ -111,7 +111,16 @@ let parse_config ?(resolve_secrets = true) json =
         try ad |> member "max_tool_iterations" |> to_int
         with _ -> default.agent_defaults.max_tool_iterations
       in
-      ({ primary_model; system_prompt; max_tool_iterations }
+      let tool_search_enabled =
+        try ad |> member "tool_search_enabled" |> to_bool
+        with _ -> default.agent_defaults.tool_search_enabled
+      in
+      ({
+         primary_model;
+         system_prompt;
+         max_tool_iterations;
+         tool_search_enabled;
+       }
         : Runtime_config.agent_defaults)
     with _ -> default.agent_defaults
   in

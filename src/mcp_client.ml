@@ -127,6 +127,7 @@ let tool_of_mcp_definition ~client (tool_json : Yojson.Safe.t) : Tool.t option =
         parameters_schema;
         invoke;
         risk_level = Tool.Medium;
+        deferred = false;
       }
   with _ -> None
 

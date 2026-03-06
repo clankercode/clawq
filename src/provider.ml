@@ -28,6 +28,24 @@ let make_tool_result ~tool_call_id ~name ~content =
     name = Some name;
   }
 
+let make_tool_search_result ~tool_call_id ~tools_json =
+  let content =
+    Yojson.Safe.to_string
+      (`Assoc
+         [
+           ("type", `String "tool_search_output");
+           ("call_id", `String tool_call_id);
+           ("tools", tools_json);
+         ])
+  in
+  {
+    role = "tool";
+    content;
+    tool_calls = [];
+    tool_call_id = Some tool_call_id;
+    name = Some "tool_search";
+  }
+
 let message_to_json m =
   let fields = [ ("role", `String m.role) ] in
   let fields =

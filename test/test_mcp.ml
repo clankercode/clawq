@@ -15,6 +15,7 @@ let dummy_tool =
         let text = try args |> member "text" |> to_string with _ -> "" in
         Lwt.return ("echo: " ^ text));
     risk_level = Tool.Low;
+    deferred = false;
   }
 
 let test_initialize () =

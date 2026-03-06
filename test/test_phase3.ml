@@ -35,6 +35,7 @@ let test_tool_registry_serialization () =
         `Assoc [ ("type", `String "object"); ("properties", `Assoc []) ];
       invoke = (fun _ -> Lwt.return "test result");
       risk_level = Tool.Low;
+      deferred = false;
     }
   in
   Tool_registry.register registry test_tool;
@@ -65,6 +66,7 @@ let test_tool_registry_find () =
       parameters_schema = `Assoc [];
       invoke = (fun _ -> Lwt.return "ok");
       risk_level = Tool.Low;
+      deferred = false;
     }
   in
   Tool_registry.register registry test_tool;
@@ -92,6 +94,7 @@ let test_tool_invocation () =
           in
           Lwt.return ("got: " ^ v));
       risk_level = Tool.Low;
+      deferred = false;
     }
   in
   let result =
@@ -288,6 +291,209 @@ let test_config_nullclaw_compat_paths () =
     "primary model from agents.defaults.model.primary" "openai/gpt-4.1"
     config.agent_defaults.primary_model
 
+let test_tool_search_basic () =
+  let registry = Tool_registry.create () in
+  let tool1 =
+    {
+      Tool.name = "file_read";
+      description = "Read a file from disk";
+      parameters_schema = `Assoc [ ("type", `String "object") ];
+      invoke = (fun _ -> Lwt.return "ok");
+      risk_level = Tool.Low;
+      deferred = true;
+    }
+  in
+  let tool2 =
+    {
+      Tool.name = "web_search";
+      description = "Search the web for information";
+      parameters_schema = `Assoc [ ("type", `String "object") ];
+      invoke = (fun _ -> Lwt.return "ok");
+      risk_level = Tool.Low;
+      deferred = true;
+    }
+  in
+  Tool_registry.register registry tool1;
+  Tool_registry.register registry tool2;
+  let results = Tool_registry.search registry ~query:"file read" in
+  Alcotest.(check int) "search found 1 match" 1 (List.length results);
+  Alcotest.(check string)
+    "matched file_read" "file_read" (List.hd results).Tool.name
+
+let test_tool_search_all_match () =
+  let registry = Tool_registry.create () in
+  let tool1 =
+    {
+      Tool.name = "file_read";
+      description = "Read a file";
+      parameters_schema = `Assoc [];
+      invoke = (fun _ -> Lwt.return "ok");
+      risk_level = Tool.Low;
+      deferred = true;
+    }
+  in
+  let tool2 =
+    {
+      Tool.name = "file_write";
+      description = "Write a file";
+      parameters_schema = `Assoc [];
+      invoke = (fun _ -> Lwt.return "ok");
+      risk_level = Tool.Low;
+      deferred = true;
+    }
+  in
+  Tool_registry.register registry tool1;
+  Tool_registry.register registry tool2;
+  let results = Tool_registry.search registry ~query:"file" in
+  Alcotest.(check int) "search found 2 matches" 2 (List.length results)
+
+let test_tool_deferred_json () =
+  let registry = Tool_registry.create () in
+  let tool1 =
+    {
+      Tool.name = "fast_tool";
+      description = "Always loaded";
+      parameters_schema =
+        `Assoc [ ("type", `String "object"); ("properties", `Assoc []) ];
+      invoke = (fun _ -> Lwt.return "ok");
+      risk_level = Tool.Low;
+      deferred = false;
+    }
+  in
+  let tool2 =
+    {
+      Tool.name = "slow_tool";
+      description = "Deferred tool";
+      parameters_schema =
+        `Assoc [ ("type", `String "object"); ("properties", `Assoc []) ];
+      invoke = (fun _ -> Lwt.return "ok");
+      risk_level = Tool.Low;
+      deferred = true;
+    }
+  in
+  Tool_registry.register registry tool1;
+  Tool_registry.register registry tool2;
+  let json = Tool_registry.to_openai_json_with_search registry in
+  let json_str = Yojson.Safe.to_string json in
+  (* tool_search entry is a proper function tool *)
+  Alcotest.(check bool)
+    "contains tool_search entry" true
+    (let re = Str.regexp_string "tool_search" in
+     try
+       ignore (Str.search_forward re json_str 0);
+       true
+     with Not_found -> false);
+  (* deferred tool has nested function structure, no defer_loading *)
+  let deferred_json = Tool_registry.tool_to_deferred_json tool2 in
+  let open Yojson.Safe.Util in
+  Alcotest.(check string)
+    "deferred type is function" "function"
+    (deferred_json |> member "type" |> to_string);
+  let fn = deferred_json |> member "function" in
+  Alcotest.(check string)
+    "deferred function.name" "slow_tool"
+    (fn |> member "name" |> to_string);
+  Alcotest.(check string)
+    "deferred function.description" "Deferred tool"
+    (fn |> member "description" |> to_string);
+  (* no parameters key in deferred *)
+  (match fn |> member "parameters" with
+  | `Null -> ()
+  | _ -> Alcotest.fail "deferred should not have parameters");
+  (* no defer_loading field *)
+  (match deferred_json |> member "defer_loading" with
+  | `Null -> ()
+  | _ -> Alcotest.fail "should not have defer_loading field");
+  Alcotest.(check bool)
+    "contains fast_tool with parameters" true
+    (let re = Str.regexp_string "fast_tool" in
+     try
+       ignore (Str.search_forward re json_str 0);
+       true
+     with Not_found -> false)
+
+let test_tool_search_empty_query () =
+  let registry = Tool_registry.create () in
+  let tool1 =
+    {
+      Tool.name = "file_read";
+      description = "Read a file";
+      parameters_schema = `Assoc [];
+      invoke = (fun _ -> Lwt.return "ok");
+      risk_level = Tool.Low;
+      deferred = true;
+    }
+  in
+  Tool_registry.register registry tool1;
+  let results = Tool_registry.search registry ~query:"" in
+  Alcotest.(check int) "empty query returns empty" 0 (List.length results)
+
+let test_tool_search_no_deferred_omits_search_entry () =
+  let registry = Tool_registry.create () in
+  let tool1 =
+    {
+      Tool.name = "fast_tool";
+      description = "Always loaded";
+      parameters_schema =
+        `Assoc [ ("type", `String "object"); ("properties", `Assoc []) ];
+      invoke = (fun _ -> Lwt.return "ok");
+      risk_level = Tool.Low;
+      deferred = false;
+    }
+  in
+  Tool_registry.register registry tool1;
+  let json = Tool_registry.to_openai_json_with_search registry in
+  let json_str = Yojson.Safe.to_string json in
+  Alcotest.(check bool)
+    "no tool_search when no deferred tools" false
+    (let re = Str.regexp_string "tool_search" in
+     try
+       ignore (Str.search_forward re json_str 0);
+       true
+     with Not_found -> false)
+
+let test_tool_search_deferred_only () =
+  let registry = Tool_registry.create () in
+  let tool1 =
+    {
+      Tool.name = "file_read";
+      description = "Read a file from disk";
+      parameters_schema = `Assoc [];
+      invoke = (fun _ -> Lwt.return "ok");
+      risk_level = Tool.Low;
+      deferred = false;
+    }
+  in
+  let tool2 =
+    {
+      Tool.name = "file_write";
+      description = "Write a file to disk";
+      parameters_schema = `Assoc [];
+      invoke = (fun _ -> Lwt.return "ok");
+      risk_level = Tool.Low;
+      deferred = true;
+    }
+  in
+  Tool_registry.register registry tool1;
+  Tool_registry.register registry tool2;
+  let results = Tool_registry.search registry ~query:"file" in
+  Alcotest.(check int) "only deferred tool matched" 1 (List.length results);
+  Alcotest.(check string)
+    "matched deferred tool" "file_write" (List.hd results).Tool.name
+
+let test_tool_search_config () =
+  let json_str =
+    {|{
+      "agent_defaults": {
+        "tool_search_enabled": true
+      }
+    }|}
+  in
+  let json = Yojson.Safe.from_string json_str in
+  let config = Config_loader.parse_config json in
+  Alcotest.(check bool)
+    "tool_search_enabled" true config.agent_defaults.tool_search_enabled
+
 let suite =
   [
     Alcotest.test_case "system prompt from config" `Quick
@@ -308,4 +514,14 @@ let suite =
     Alcotest.test_case "status shows prompt" `Quick test_status_shows_prompt;
     Alcotest.test_case "config nullclaw compat paths" `Quick
       test_config_nullclaw_compat_paths;
+    Alcotest.test_case "tool search basic" `Quick test_tool_search_basic;
+    Alcotest.test_case "tool search all match" `Quick test_tool_search_all_match;
+    Alcotest.test_case "tool deferred json" `Quick test_tool_deferred_json;
+    Alcotest.test_case "tool search config" `Quick test_tool_search_config;
+    Alcotest.test_case "tool search empty query" `Quick
+      test_tool_search_empty_query;
+    Alcotest.test_case "no deferred omits search entry" `Quick
+      test_tool_search_no_deferred_omits_search_entry;
+    Alcotest.test_case "tool search deferred only" `Quick
+      test_tool_search_deferred_only;
   ]

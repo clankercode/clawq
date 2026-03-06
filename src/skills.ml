@@ -142,6 +142,7 @@ let load_skill ?(workspace_only = true)
                       in
                       Lwt.return result));
         risk_level;
+        deferred = false;
       }
     in
     Some tool

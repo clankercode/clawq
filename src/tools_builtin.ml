@@ -480,6 +480,7 @@ let shell_exec ~workspace ~workspace_only ~allowed_commands ~extra_allowed_paths
                   in
                   Lwt.return result));
     risk_level = High;
+    deferred = false;
   }
 
 let is_path_allowed ~workspace ~workspace_only ~extra_allowed_paths path =
@@ -586,6 +587,7 @@ let file_read ~workspace ~workspace_only ~extra_allowed_paths =
                       (fun exn ->
                         Lwt.return ("Error: " ^ Printexc.to_string exn))));
     risk_level = Low;
+    deferred = false;
   }
 
 let file_append ~workspace ~workspace_only ~extra_allowed_paths =
@@ -647,6 +649,7 @@ let file_append ~workspace ~workspace_only ~extra_allowed_paths =
                    (String.length content) path))
             (fun exn -> Lwt.return ("Error: " ^ Printexc.to_string exn)));
     risk_level = Medium;
+    deferred = false;
   }
 
 let file_write ~workspace ~workspace_only ~extra_allowed_paths =
@@ -702,6 +705,7 @@ let file_write ~workspace ~workspace_only ~extra_allowed_paths =
                    path))
             (fun exn -> Lwt.return ("Error: " ^ Printexc.to_string exn)));
     risk_level = Medium;
+    deferred = false;
   }
 
 let file_edit ~workspace ~workspace_only ~extra_allowed_paths =
@@ -831,6 +835,7 @@ let file_edit ~workspace ~workspace_only ~extra_allowed_paths =
                       else "s")))
             (fun exn -> Lwt.return ("Error: " ^ Printexc.to_string exn)));
     risk_level = Medium;
+    deferred = false;
   }
 
 let file_edit_lines ~workspace ~workspace_only ~extra_allowed_paths =
@@ -932,6 +937,7 @@ let file_edit_lines ~workspace ~workspace_only ~extra_allowed_paths =
                      start_line end_line))
             (fun exn -> Lwt.return ("Error: " ^ Printexc.to_string exn)));
     risk_level = Medium;
+    deferred = false;
   }
 
 let is_localhost_url url =
@@ -1002,6 +1008,7 @@ let http_get ~workspace_only =
                     else body)))
             (fun exn -> Lwt.return ("Error: " ^ Printexc.to_string exn)));
     risk_level = Medium;
+    deferred = false;
   }
 
 let transcribe ~(config : Runtime_config.t) =
@@ -1059,6 +1066,7 @@ let transcribe ~(config : Runtime_config.t) =
               Lwt.return result.text)
             (fun exn -> Lwt.return ("Error: " ^ Printexc.to_string exn)));
     risk_level = Low;
+    deferred = false;
   }
 
 let memory_store ~db =
@@ -1112,6 +1120,7 @@ let memory_store ~db =
           Lwt.return (Printf.sprintf "Stored memory: %s" key)
         end);
     risk_level = Low;
+    deferred = false;
   }
 
 let memory_recall ~db =
@@ -1159,6 +1168,7 @@ let memory_recall ~db =
             in
             Lwt.return (String.concat "\n" lines));
     risk_level = Low;
+    deferred = false;
   }
 
 let memory_forget ~db =
@@ -1191,6 +1201,7 @@ let memory_forget ~db =
           if deleted then Lwt.return (Printf.sprintf "Deleted memory: %s" key)
           else Lwt.return (Printf.sprintf "No memory found with key: %s" key));
     risk_level = Low;
+    deferred = false;
   }
 
 let memory_list ~db =
@@ -1231,6 +1242,7 @@ let memory_list ~db =
           in
           Lwt.return (String.concat "\n" lines));
     risk_level = Low;
+    deferred = false;
   }
 
 let register_all ~(config : Runtime_config.t) ~sandbox ?(db = None) registry =
