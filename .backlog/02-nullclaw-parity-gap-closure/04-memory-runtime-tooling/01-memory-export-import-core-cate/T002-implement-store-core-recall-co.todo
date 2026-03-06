@@ -1,10 +1,12 @@
 ---
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 4
 id: P2.M4.E1.T002
 priority: high
-status: pending
+started_at: null
+status: done
 tags: []
 title: Implement store_core, recall_core (FTS), forget_core, list_core in memory.ml
 ---

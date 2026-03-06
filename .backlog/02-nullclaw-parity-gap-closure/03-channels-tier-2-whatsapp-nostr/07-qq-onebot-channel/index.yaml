@@ -20,5 +20,6 @@ tasks:
       file: T002-onebot-ml-send-via-http-api-se.todo
       id: T002
       priority: low
-      status: pending
+      status: done
+      tags: []
       title: 'onebot.ml: send via HTTP API (/send_private_msg, /send_group_msg); add onebot_config to runtime_config and daemon'

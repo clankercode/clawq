@@ -1,10 +1,12 @@
 ---
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 4
 id: P2.M4.E1.T006
 priority: medium
-status: pending
+started_at: null
+status: done
 tags: []
 title: 'Implement cmd_memory subcommands: export, import, list, store, forget, stats in command_bridge.ml'
 ---

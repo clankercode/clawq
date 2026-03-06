@@ -9,7 +9,7 @@ epics:
       locked: false
       name: WhatsApp Channel (Meta Cloud API)
       path: 01-whatsapp-channel-meta-cloud-ap
-      status: pending
+      status: done
     - complexity: medium
       depends_on: []
       description: Relay WebSocket via nak subprocess, NIP-17/NIP-04 DMs. See docs/PLAN_P2_04_CHANNELS_WHATSAPP_NOSTR.md.
@@ -18,7 +18,7 @@ epics:
       locked: false
       name: Nostr Channel (NIP-17 via nak)
       path: 02-nostr-channel-nip-17-via-nak
-      status: pending
+      status: done
     - complexity: medium
       depends_on: []
       description: WebSocket + REST API. See docs/PLAN_P2_05_CHANNELS_REMAINING.md.
@@ -45,7 +45,7 @@ epics:
       locked: false
       name: LINE Channel
       path: 05-line-channel
-      status: pending
+      status: done
     - complexity: medium
       depends_on: []
       description: Stream Mode WebSocket. See docs/PLAN_P2_05_CHANNELS_REMAINING.md.

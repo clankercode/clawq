@@ -1,11 +1,13 @@
 ---
+completed_at: null
 complexity: low
 depends_on:
-- P2.M1.E2.T001
+    - P2.M1.E2.T001
 estimate_hours: 1
 id: P2.M1.E2.T006
 priority: high
-status: pending
+started_at: null
+status: done
 tags: []
 title: Add pairing_required, max_pair_attempts, pair_lockout_seconds to gateway_config
 ---

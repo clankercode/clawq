@@ -4,7 +4,7 @@ estimate_hours: 16
 id: P2.M1.E2
 locked: false
 name: OTP Pairing
-status: pending
+status: done
 tasks:
     - complexity: medium
       depends_on: []
@@ -26,34 +26,44 @@ tasks:
       tags: []
       title: Add /pair, /pair/regenerate, /pair/status HTTP endpoints in http_server.ml
     - complexity: medium
-      depends_on: []
+      depends_on:
+        - P2.M1.E2.T001
       estimate_hours: 2
       file: T003-update-auth-middleware-to-hash.todo
       id: T003
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Update auth middleware to hash-compare bearer tokens via Eqaf constant-time
     - complexity: medium
-      depends_on: []
+      depends_on:
+        - P2.M1.E2.T001
+        - P2.M1.E2.T002
       estimate_hours: 2
       file: T004-daemon-startup-print-otp-code.todo
       id: T004
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: 'Daemon startup: print OTP code, initialize Pairing.t, persist/load paired_tokens.json'
     - complexity: low
-      depends_on: []
+      depends_on:
+        - P2.M1.E2.T001
+        - P2.M1.E2.T002
       estimate_hours: 2
       file: T005-enhance-cmd-auth-call-pair-sav.todo
       id: T005
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: 'Enhance cmd_auth: call /pair, save token to ~/.clawq/gateway_token (mode 0600)'
     - complexity: low
-      depends_on: []
+      depends_on:
+        - P2.M1.E2.T001
       estimate_hours: 1
       file: T006-add-pairing-required-max-pair.todo
       id: T006
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Add pairing_required, max_pair_attempts, pair_lockout_seconds to gateway_config

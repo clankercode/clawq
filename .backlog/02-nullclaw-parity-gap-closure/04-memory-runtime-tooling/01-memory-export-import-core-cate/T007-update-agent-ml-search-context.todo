@@ -1,10 +1,12 @@
 ---
+completed_at: null
 complexity: low
 depends_on: []
 estimate_hours: 2
 id: P2.M4.E1.T007
 priority: medium
-status: pending
+started_at: null
+status: done
 tags: []
 title: Update agent.ml search context injection to include top core memories alongside FTS results
 ---

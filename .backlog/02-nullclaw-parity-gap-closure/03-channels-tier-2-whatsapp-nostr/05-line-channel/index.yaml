@@ -4,7 +4,7 @@ estimate_hours: 10
 id: P2.M3.E5
 locked: false
 name: LINE Channel
-status: pending
+status: done
 tasks:
     - complexity: medium
       depends_on: []
@@ -30,5 +30,6 @@ tasks:
       file: T003-add-line-config-to-runtime-con.todo
       id: T003
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: Add line_config to runtime_config; parse channels.line; wire into daemon

@@ -4,7 +4,7 @@ estimate_hours: 12
 id: P2.M3.E1
 locked: false
 name: WhatsApp Channel (Meta Cloud API)
-status: pending
+status: done
 tasks:
     - complexity: medium
       depends_on: []
@@ -30,5 +30,6 @@ tasks:
       file: T003-add-whatsapp-config-to-runtime.todo
       id: T003
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Add whatsapp_config to runtime_config; parse channels.whatsapp; wire into daemon/http_server

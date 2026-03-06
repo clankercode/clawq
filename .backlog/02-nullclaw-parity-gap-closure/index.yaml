@@ -12,7 +12,7 @@ milestones:
       locked: false
       name: Providers & Security Core
       path: 01-providers-security-core
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: Four high-priority channel adapters using established protocols (P2-02, P2-03).

@@ -18,7 +18,7 @@ epics:
       locked: false
       name: OTP Pairing
       path: 02-otp-pairing
-      status: pending
+      status: done
     - complexity: medium
       depends_on: []
       description: sandbox.ml dispatch layer, Firejail and Bubblewrap backends, auto-detect chain. See docs/PLAN_P2_08_SANDBOX_HARDENING.md.
@@ -27,9 +27,9 @@ epics:
       locked: false
       name: 'Sandbox Hardening: Firejail & Bubblewrap'
       path: 03-sandbox-hardening-firejail-bub
-      status: pending
+      status: done
 estimate_hours: 80
 id: P2.M1
 locked: false
 name: Providers & Security Core
-status: pending
+status: done

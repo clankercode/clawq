@@ -1,10 +1,12 @@
 ---
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 3
 id: P2.M3.E7.T002
 priority: low
-status: pending
+started_at: null
+status: done
 tags: []
 title: 'onebot.ml: send via HTTP API (/send_private_msg, /send_group_msg); add onebot_config to runtime_config and daemon'
 ---

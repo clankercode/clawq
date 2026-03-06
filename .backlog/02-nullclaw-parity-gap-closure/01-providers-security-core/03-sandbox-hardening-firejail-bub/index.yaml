@@ -4,7 +4,7 @@ estimate_hours: 12
 id: P2.M1.E3
 locked: false
 name: 'Sandbox Hardening: Firejail & Bubblewrap'
-status: pending
+status: done
 tasks:
     - complexity: medium
       depends_on: []
@@ -36,18 +36,24 @@ tasks:
       tags: []
       title: 'Bubblewrap wrap_command: --ro-bind /usr --unshare-all --bind {workspace} --die-with-parent'
     - complexity: low
-      depends_on: []
-      estimate_hours: 2
+      depends_on:
+        - P2.M1.E3.T001
+        - P2.M1.E3.T002
+        - P2.M1.E3.T003
+      estimate_hours: 3
       file: T004-wire-execute-shell-in-tools-bu.todo
       id: T004
-      priority: high
-      status: pending
+      priority: medium
+      status: done
+      tags: []
       title: Wire execute_shell in tools_builtin.ml through Sandbox.wrap_command
     - complexity: low
-      depends_on: []
+      depends_on:
+        - P2.M1.E3.T001
       estimate_hours: 2
       file: T005-add-sandbox-backend-field-to-s.todo
       id: T005
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: Add sandbox_backend field to security_config; initialize Sandbox.t in daemon.ml

@@ -9,7 +9,7 @@ epics:
       locked: false
       name: Memory Export/Import & Core Category
       path: 01-memory-export-import-core-cate
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: wasm_of_ocaml build target, minimal main_wasm.ml entrypoint, wasmtime execution. See docs/PLAN_P2_09_WASM_RUNTIME.md.

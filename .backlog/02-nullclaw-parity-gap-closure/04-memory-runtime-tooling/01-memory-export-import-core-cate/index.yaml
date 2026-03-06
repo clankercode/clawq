@@ -4,7 +4,7 @@ estimate_hours: 28
 id: P2.M4.E1
 locked: false
 name: Memory Export/Import & Core Category
-status: pending
+status: done
 tasks:
     - complexity: medium
       depends_on: []
@@ -12,7 +12,8 @@ tasks:
       file: T001-add-core-memories-sqlite-table.todo
       id: T001
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Add core_memories SQLite table (key, content, category, created_at, updated_at) to memory.ml + migrate.ml schema migration
     - complexity: medium
       depends_on: []
@@ -20,7 +21,8 @@ tasks:
       file: T002-implement-store-core-recall-co.todo
       id: T002
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Implement store_core, recall_core (FTS), forget_core, list_core in memory.ml
     - complexity: medium
       depends_on: []
@@ -28,7 +30,8 @@ tasks:
       file: T003-implement-export-snapshot-and.todo
       id: T003
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Implement export_snapshot and import_snapshot (versioned JSON, upsert on import) in memory.ml
     - complexity: low
       depends_on: []
@@ -36,7 +39,8 @@ tasks:
       file: T004-implement-auto-hydration-in-da.todo
       id: T004
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Implement auto-hydration in daemon.ml (on empty DB + snapshot file present, call Memory.auto_hydrate)
     - complexity: medium
       depends_on: []
@@ -44,7 +48,8 @@ tasks:
       file: T005-add-memory-store-memory-recall.todo
       id: T005
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Add memory_store, memory_recall, memory_forget, memory_list agent tools to tools_builtin.ml
     - complexity: medium
       depends_on: []
@@ -52,7 +57,8 @@ tasks:
       file: T006-implement-cmd-memory-subcomman.todo
       id: T006
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: 'Implement cmd_memory subcommands: export, import, list, store, forget, stats in command_bridge.ml'
     - complexity: low
       depends_on: []
@@ -60,5 +66,6 @@ tasks:
       file: T007-update-agent-ml-search-context.todo
       id: T007
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: Update agent.ml search context injection to include top core memories alongside FTS results

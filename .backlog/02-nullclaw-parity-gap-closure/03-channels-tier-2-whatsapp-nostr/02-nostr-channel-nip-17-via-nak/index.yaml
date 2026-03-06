@@ -4,7 +4,7 @@ estimate_hours: 12
 id: P2.M3.E2
 locked: false
 name: Nostr Channel (NIP-17 via nak)
-status: pending
+status: done
 tasks:
     - complexity: medium
       depends_on: []
@@ -30,5 +30,6 @@ tasks:
       file: T003-add-nostr-config-to-runtime-co.todo
       id: T003
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Add nostr_config to runtime_config; parse channels.nostr; wire into daemon.ml; doctor checks nak in PATH

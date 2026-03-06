@@ -1,10 +1,12 @@
 ---
+completed_at: null
 complexity: low
 depends_on: []
 estimate_hours: 2
 id: P2.M4.E1.T004
 priority: high
-status: pending
+started_at: null
+status: done
 tags: []
 title: Implement auto-hydration in daemon.ml (on empty DB + snapshot file present, call Memory.auto_hydrate)
 ---
