@@ -79,8 +79,8 @@ generate_badge() {
     <rect width="${total_width}" height="20" fill="url(#s)"/>
   </g>
   <g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" text-rendering="geometricPrecision" font-size="11">
-    <text aria-hidden="true" x="${label_x}" y="150" fill="#010101" fill-opacity=".3" transform="scale(.1)" textLength="${label_width}0">${label}</text>
-    <text x="${label_x}" y="140" transform="scale(.1)" fill="#fff" textLength="${label_width}0">${label}</text>
+    <text aria-hidden="true" x="${label_x}0" y="150" fill="#010101" fill-opacity=".3" transform="scale(.1)" textLength="${label_width}0">${label}</text>
+    <text x="${label_x}0" y="140" transform="scale(.1)" fill="#fff" textLength="${label_width}0">${label}</text>
     <text aria-hidden="true" x="${value_x}0" y="150" fill="#010101" fill-opacity=".3" transform="scale(.1)" textLength="${value_width}0">${value}</text>
     <text x="${value_x}0" y="140" transform="scale(.1)" fill="#fff" textLength="${value_width}0">${value}</text>
   </g>
