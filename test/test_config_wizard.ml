@@ -184,6 +184,140 @@ let test_openai_codex_skips_api_key_prompt () =
   Alcotest.check check_step "codex goes to base url" ProviderBaseUrl m.step;
   Alcotest.(check string) "provider name" "openai-codex" m.current_provider.name
 
+let test_prepopulated_model_preserves_tools_enabled () =
+  (* Simulate a model pre-populated from existing config with tools disabled *)
+  let m = { (initial_model FullWizard) with tools_enabled = false } in
+  let m, _ = update KeyEnter m in
+  (* Navigate through provider flow *)
+  let m, _ = update KeyDown m in
+  let m, _ = update KeyEnter m in
+  let m, _ = update (KeyChar 'k') m in
+  let m, _ = update KeyEnter m in
+  let m, _ = update KeyEnter m in
+  let m, _ = update (KeyChar 'n') m in
+  let m, _ = update KeyEnter m in
+  (* Accept default model *)
+  let m, _ = update KeyEnter m in
+  Alcotest.check check_step "security tools" SecurityTools m.step;
+  (* The confirm widget should reflect the pre-populated tools_enabled=false *)
+  match m.widget with
+  | ConfirmInput ci ->
+      Alcotest.(check bool) "tools default false" false ci.value
+  | _ -> Alcotest.fail "expected ConfirmInput widget"
+
+let test_prepopulated_model_preserves_workspace_only () =
+  let m = { (initial_model FullWizard) with workspace_only = false } in
+  let m, _ = update KeyEnter m in
+  let m, _ = update KeyDown m in
+  let m, _ = update KeyEnter m in
+  let m, _ = update (KeyChar 'k') m in
+  let m, _ = update KeyEnter m in
+  let m, _ = update KeyEnter m in
+  let m, _ = update (KeyChar 'n') m in
+  let m, _ = update KeyEnter m in
+  let m, _ = update KeyEnter m in
+  let m, _ = update KeyEnter m in
+  Alcotest.check check_step "security workspace" SecurityWorkspace m.step;
+  match m.widget with
+  | ConfirmInput ci ->
+      Alcotest.(check bool) "workspace default false" false ci.value
+  | _ -> Alcotest.fail "expected ConfirmInput widget"
+
+let test_prepopulated_existing_provider_prefills_api_key () =
+  let existing_provider =
+    {
+      name = "openrouter";
+      kind = None;
+      api_key = "sk-existing-key";
+      base_url = "https://openrouter.ai/api/v1";
+      default_model = "";
+    }
+  in
+  let m = { (initial_model Onboard) with providers = [ existing_provider ] } in
+  let m, _ = update KeyEnter m in
+  (* Select openrouter (second option) *)
+  let m, _ = update KeyDown m in
+  let m, _ = update KeyEnter m in
+  Alcotest.check check_step "api key" ProviderApiKey m.step;
+  match m.widget with
+  | TextInput ti ->
+      Alcotest.(check string) "api key prefilled" "sk-existing-key" ti.value
+  | _ -> Alcotest.fail "expected TextInput widget"
+
+let test_prepopulated_provider_replaces_not_duplicates () =
+  let existing_provider =
+    {
+      name = "openrouter";
+      kind = None;
+      api_key = "old-key";
+      base_url = "https://openrouter.ai/api/v1";
+      default_model = "";
+    }
+  in
+  let m = { (initial_model Onboard) with providers = [ existing_provider ] } in
+  let m, _ = update KeyEnter m in
+  (* Select openrouter *)
+  let m, _ = update KeyDown m in
+  let m, _ = update KeyEnter m in
+  (* Clear and type new key *)
+  let m, _ = update KeyBackspace m in
+  let m, _ = update KeyBackspace m in
+  let m, _ = update KeyBackspace m in
+  let m, _ = update KeyBackspace m in
+  let m, _ = update KeyBackspace m in
+  let m, _ = update KeyBackspace m in
+  let m, _ = update KeyBackspace m in
+  let m, _ = update KeyBackspace m in
+  let m, _ = update KeyBackspace m in
+  let m, _ = update KeyBackspace m in
+  let m, _ = update KeyBackspace m in
+  let m, _ = update KeyBackspace m in
+  let m, _ = update KeyBackspace m in
+  let m, _ = update KeyBackspace m in
+  let m, _ = update KeyBackspace m in
+  let m, _ = update (KeyChar 'n') m in
+  let m, _ = update (KeyChar 'e') m in
+  let m, _ = update (KeyChar 'w') m in
+  let m, _ = update KeyEnter m in
+  (* Accept base url *)
+  let m, _ = update KeyEnter m in
+  (* Decline test *)
+  let m, _ = update (KeyChar 'n') m in
+  let m, _ = update KeyEnter m in
+  Alcotest.check check_step "model select" ModelSelect m.step;
+  (* Should have exactly 1 provider, not 2 *)
+  Alcotest.(check int) "one provider" 1 (List.length m.providers);
+  let p = List.hd m.providers in
+  Alcotest.(check string) "updated key" "new" p.api_key
+
+let test_prepopulated_channel_token_prefills () =
+  let m =
+    {
+      (initial_model FullWizard) with
+      telegram_token = "123:EXISTING";
+      channel_sel = { telegram = true; discord = false; slack = false };
+    }
+  in
+  let m, _ = update KeyEnter m in
+  let m, _ = update KeyDown m in
+  let m, _ = update KeyEnter m in
+  let m, _ = update (KeyChar 'k') m in
+  let m, _ = update KeyEnter m in
+  let m, _ = update KeyEnter m in
+  let m, _ = update (KeyChar 'n') m in
+  let m, _ = update KeyEnter m in
+  let m, _ = update KeyEnter m in
+  let m, _ = update KeyEnter m in
+  let m, _ = update KeyEnter m in
+  Alcotest.check check_step "channel menu" ChannelMenu m.step;
+  (* Select Telegram *)
+  let m, _ = update KeyEnter m in
+  Alcotest.check check_step "channel telegram" ChannelTelegram m.step;
+  match m.widget with
+  | TextInput ti ->
+      Alcotest.(check string) "telegram token prefilled" "123:EXISTING" ti.value
+  | _ -> Alcotest.fail "expected TextInput widget"
+
 let suite =
   [
     Alcotest.test_case "welcome -> provider select" `Quick
@@ -201,4 +335,14 @@ let suite =
       test_full_wizard_has_channel_menu;
     Alcotest.test_case "openai codex skips api key prompt" `Quick
       test_openai_codex_skips_api_key_prompt;
+    Alcotest.test_case "prepopulated preserves tools_enabled" `Quick
+      test_prepopulated_model_preserves_tools_enabled;
+    Alcotest.test_case "prepopulated preserves workspace_only" `Quick
+      test_prepopulated_model_preserves_workspace_only;
+    Alcotest.test_case "prepopulated provider prefills api key" `Quick
+      test_prepopulated_existing_provider_prefills_api_key;
+    Alcotest.test_case "prepopulated provider replaces not duplicates" `Quick
+      test_prepopulated_provider_replaces_not_duplicates;
+    Alcotest.test_case "prepopulated channel token prefills" `Quick
+      test_prepopulated_channel_token_prefills;
   ]

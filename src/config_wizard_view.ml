@@ -117,15 +117,21 @@ let render_text_input (ti : text_input) =
       Printf.sprintf "%s%s\xe2\x96\x8b%s" fg_amber bold reset
     else ""
   in
+  let hint =
+    if v <> "" then
+      Printf.sprintf "  %s(current value shown — press Enter to keep)%s" dim
+        reset
+    else ""
+  in
   String.concat "\n"
-    [
-      Printf.sprintf "  %s%s%s%s" fg_teal bold ti.label reset;
-      "";
-      Printf.sprintf "  %s%s%s  %s%s" fg_cream underline display_val reset
-        cursor_char;
-      "";
-      Printf.sprintf "  %s[Enter] confirm  [Esc] back%s" dim reset;
-    ]
+    ([
+       Printf.sprintf "  %s%s%s%s" fg_teal bold ti.label reset;
+       "";
+       Printf.sprintf "  %s%s%s  %s%s" fg_cream underline display_val reset
+         cursor_char;
+     ]
+    @ (if hint <> "" then [ hint ] else [])
+    @ [ ""; Printf.sprintf "  %s[Enter] confirm  [Esc] back%s" dim reset ])
 
 let render_select (si : select_input) : string =
   let options =
@@ -234,8 +240,21 @@ let render_done () =
       "";
     ]
 
+let render_existing_config_note (m : model) =
+  if m.providers <> [] then
+    let names =
+      String.concat ", "
+        (List.map (fun (p : provider_draft) -> p.name) m.providers)
+    in
+    Printf.sprintf "\n  %s%sExisting config detected%s %s(providers: %s)%s\n"
+      fg_amber bold reset dim names reset
+  else ""
+
 let view (m : model) =
   let parts = [ render_header (); render_step_indicator m.step; "" ] in
+  let existing_note =
+    match m.step with Welcome -> render_existing_config_note m | _ -> ""
+  in
   let body =
     match m.step with
     | Review | Confirm -> [ render_review m; ""; render_widget m.widget ]
@@ -254,4 +273,7 @@ let view (m : model) =
     | _ -> [ render_widget m.widget ]
   in
   let msgs = render_messages m.messages in
-  String.concat "\n" (parts @ body @ [ msgs; "" ])
+  String.concat "\n"
+    (parts
+    @ (if existing_note <> "" then [ existing_note ] else [])
+    @ body @ [ msgs; "" ])

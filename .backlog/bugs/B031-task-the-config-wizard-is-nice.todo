@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-06T19:31:09Z"
+claimed_by: cli-user
+completed_at: "2026-03-06T19:37:03Z"
 complexity: medium
 depends_on: []
+duration_minutes: 5.901736552116667
 estimate_hours: 1
 id: B031
 priority: high
-status: pending
+started_at: "2026-03-06T19:31:09Z"
+status: done
 tags: []
 title: 'task: the config wizard is nice but it should show us what our current config is if we have something set already (so we don''t accidentally change settings)'
 ---

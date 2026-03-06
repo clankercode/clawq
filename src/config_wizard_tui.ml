@@ -182,6 +182,80 @@ let write_wizard_config (m : model) =
   close_out oc;
   config_path
 
+let model_from_config mode (config : Runtime_config.t) =
+  let providers =
+    List.map
+      (fun (name, (p : Runtime_config.provider_config)) ->
+        {
+          Config_wizard_model.name;
+          kind = p.kind;
+          api_key = p.api_key;
+          base_url = (match p.base_url with Some u -> u | None -> "");
+          default_model =
+            (match p.default_model with Some m -> m | None -> "");
+        })
+      config.providers
+  in
+  let channel_sel =
+    {
+      Config_wizard_model.telegram =
+        (match config.channels.telegram with Some _ -> true | None -> false);
+      discord =
+        (match config.channels.discord with Some _ -> true | None -> false);
+      slack =
+        (match config.channels.slack with Some _ -> true | None -> false);
+    }
+  in
+  let telegram_token =
+    match config.channels.telegram with
+    | Some tg -> (
+        match tg.accounts with (_, a) :: _ -> a.bot_token | [] -> "")
+    | None -> ""
+  in
+  let discord_token =
+    match config.channels.discord with Some d -> d.bot_token | None -> ""
+  in
+  let slack_bot_token =
+    match config.channels.slack with Some s -> s.bot_token | None -> ""
+  in
+  let slack_app_token =
+    match config.channels.slack with Some s -> s.app_token | None -> ""
+  in
+  let slack_signing_secret =
+    match config.channels.slack with Some s -> s.signing_secret | None -> ""
+  in
+  let gateway_auth_token =
+    match config.gateway.auth_token with Some t -> t | None -> ""
+  in
+  {
+    (initial_model mode) with
+    providers;
+    primary_model = config.agent_defaults.primary_model;
+    tools_enabled = config.security.tools_enabled;
+    workspace_only = config.security.workspace_only;
+    channel_sel;
+    telegram_token;
+    discord_token;
+    slack_bot_token;
+    slack_app_token;
+    slack_signing_secret;
+    gateway_host = config.gateway.host;
+    gateway_port = string_of_int config.gateway.port;
+    gateway_auth_token;
+  }
+
+let load_initial_model mode =
+  let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
+  let config_path =
+    Filename.concat (Filename.concat home ".clawq") "config.json"
+  in
+  if Sys.file_exists config_path then
+    try
+      let config = Config_loader.load () in
+      model_from_config mode config
+    with _ -> initial_model mode
+  else initial_model mode
+
 let run_wizard mode =
   if not (Unix.isatty Unix.stdin) then
     print_endline
@@ -189,7 +263,7 @@ let run_wizard mode =
        Use 'clawq config set KEY VALUE' for non-interactive configuration."
   else begin
     let old_attr = set_raw_mode () in
-    let m = ref (initial_model mode) in
+    let m = ref (load_initial_model mode) in
     (try
        while !m.step <> Done do
          clear_screen ();

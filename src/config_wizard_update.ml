@@ -37,6 +37,23 @@ let model_presets =
 let push_history m = { m with history = m.step :: m.history }
 let goto step widget m = { (push_history m) with step; widget }
 
+let index_of item lst =
+  let rec go i = function
+    | [] -> None
+    | x :: _ when x = item -> Some i
+    | _ :: rest -> go (i + 1) rest
+  in
+  go 0 lst
+
+let add_or_replace_provider providers (p : provider_draft) =
+  if List.exists (fun (q : provider_draft) -> q.name = p.name) providers then
+    List.map
+      (fun (q : provider_draft) -> if q.name = p.name then p else q)
+      providers
+  else providers @ [ p ]
+
+let make_select_at label options selected = Select { label; options; selected }
+
 let text_input_update msg (ti : text_input) : text_input =
   match msg with
   | KeyChar c ->
@@ -83,23 +100,31 @@ let transition_from_provider_select m (si : select_input) =
     | Some n -> n
     | None -> "custom"
   in
+  let existing =
+    List.find_opt (fun (p : provider_draft) -> p.name = name) m.providers
+  in
   let cp =
-    {
-      empty_provider with
-      name;
-      kind =
-        (match name with "openai-codex" -> Some "openai-codex" | _ -> None);
-      default_model =
-        (match name with
-        | "openai-codex" -> Openai_codex_oauth.default_model
-        | _ -> "");
-    }
+    match existing with
+    | Some p -> p
+    | None ->
+        {
+          empty_provider with
+          name;
+          kind =
+            (match name with
+            | "openai-codex" -> Some "openai-codex"
+            | _ -> None);
+          default_model =
+            (match name with
+            | "openai-codex" -> Openai_codex_oauth.default_model
+            | _ -> "");
+        }
   in
   let m = { m with current_provider = cp } in
   if name = "openai-codex" then
+    let url = if cp.base_url <> "" then cp.base_url else preset_url name in
     goto ProviderBaseUrl
-      (make_text_input ~value:(preset_url name) ~placeholder:"https://..."
-         "Base URL")
+      (make_text_input ~value:url ~placeholder:"https://..." "Base URL")
       m
   else if name = "custom" then
     goto ProviderApiKey
@@ -107,7 +132,8 @@ let transition_from_provider_select m (si : select_input) =
       m
   else
     goto ProviderApiKey
-      (make_text_input ~secret:true ~placeholder:"sk-..." "API key")
+      (make_text_input ~secret:true ~value:cp.api_key ~placeholder:"sk-..."
+         "API key")
       m
 
 let transition_from_api_key m (ti : text_input) =
@@ -123,7 +149,7 @@ let transition_from_api_key m (ti : text_input) =
       (make_text_input ~secret:true ~placeholder:"sk-..." "API key")
       { m with current_provider = { cp with api_key = "" } }
   else
-    let url = preset_url cp.name in
+    let url = if cp.base_url <> "" then cp.base_url else preset_url cp.name in
     goto ProviderBaseUrl
       (make_text_input ~value:url ~placeholder:"https://..." "Base URL")
       m
@@ -133,7 +159,7 @@ let transition_from_base_url m (ti : text_input) =
   let m = { m with current_provider = cp } in
   match cp.kind with
   | Some "openai-codex" ->
-      let providers = m.providers @ [ cp ] in
+      let providers = add_or_replace_provider m.providers cp in
       let m =
         {
           m with
@@ -155,14 +181,23 @@ let transition_from_test_offer m (ci : confirm_input) =
     ( { m with step = ProviderTestResult; widget = make_confirm "..." },
       TestProvider (cp.name, cp.api_key, cp.base_url) )
   else
-    let providers = m.providers @ [ cp ] in
+    let providers = add_or_replace_provider m.providers cp in
     let m = { m with providers; current_provider = empty_provider } in
-    (goto ModelSelect (make_select "Default model" model_presets) m, Noop)
+    let selected =
+      match index_of m.primary_model model_presets with
+      | Some i -> i
+      | None -> 0
+    in
+    ( goto ModelSelect (make_select_at "Default model" model_presets selected) m,
+      Noop )
 
 let transition_from_test_result m =
-  let providers = m.providers @ [ m.current_provider ] in
+  let providers = add_or_replace_provider m.providers m.current_provider in
   let m = { m with providers; current_provider = empty_provider } in
-  goto ModelSelect (make_select "Default model" model_presets) m
+  let selected =
+    match index_of m.primary_model model_presets with Some i -> i | None -> 0
+  in
+  goto ModelSelect (make_select_at "Default model" model_presets selected) m
 
 let transition_from_model_select m (si : select_input) =
   let model =
@@ -177,12 +212,16 @@ let transition_from_model_select m (si : select_input) =
       (make_text_input ~value:m.primary_model ~placeholder:"provider/model"
          "Model name")
       m
-  else goto SecurityTools (make_confirm ~value:true "Enable tool use?") m
+  else
+    goto SecurityTools
+      (make_confirm ~value:m.tools_enabled "Enable tool use?")
+      m
 
 let transition_from_security_tools m (ci : confirm_input) =
   let m = { m with tools_enabled = ci.value } in
   goto SecurityWorkspace
-    (make_confirm ~value:true "Restrict agent to workspace directory only?")
+    (make_confirm ~value:m.workspace_only
+       "Restrict agent to workspace directory only?")
     m
 
 let transition_from_security_workspace m (ci : confirm_input) =
@@ -200,18 +239,20 @@ let transition_from_channel_menu m (si : select_input) =
   | Some "Telegram" ->
       let sel = { m.channel_sel with telegram = true } in
       goto ChannelTelegram
-        (make_text_input ~secret:true ~placeholder:"123456:ABC..."
-           "Telegram bot token")
+        (make_text_input ~secret:true ~value:m.telegram_token
+           ~placeholder:"123456:ABC..." "Telegram bot token")
         { m with channel_sel = sel }
   | Some "Discord" ->
       let sel = { m.channel_sel with discord = true } in
       goto ChannelDiscord
-        (make_text_input ~secret:true ~placeholder:"MTk..." "Discord bot token")
+        (make_text_input ~secret:true ~value:m.discord_token
+           ~placeholder:"MTk..." "Discord bot token")
         { m with channel_sel = sel }
   | Some "Slack" ->
       let sel = { m.channel_sel with slack = true } in
       goto ChannelSlack
-        (make_text_input ~secret:true ~placeholder:"xoxb-..." "Slack bot token")
+        (make_text_input ~secret:true ~value:m.slack_bot_token
+           ~placeholder:"xoxb-..." "Slack bot token")
         { m with channel_sel = sel }
   | _ ->
       goto GatewayConfig
@@ -277,7 +318,13 @@ let go_back m =
               ~value:(preset_url m.current_provider.name)
               ~placeholder:"https://..." "Base URL"
         | ProviderTestOffer -> make_confirm "Test provider connectivity?"
-        | ModelSelect -> make_select "Default model" model_presets
+        | ModelSelect ->
+            let selected =
+              match index_of m.primary_model model_presets with
+              | Some i -> i
+              | None -> 0
+            in
+            make_select_at "Default model" model_presets selected
         | SecurityTools ->
             make_confirm ~value:m.tools_enabled "Enable tool use?"
         | SecurityWorkspace ->
