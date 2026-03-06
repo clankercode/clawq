@@ -7,19 +7,8 @@ priority: high
 status: pending
 tags: []
 title: |-
-    CI: Run eval 'set -gx OPAM_LAST_ENV '/home/xertrov/.opam/.last-env/env-3a49ef46db7b3f88f033d866bcd46bf6-0';
-    set -gx OPAM_SWITCH_PREFIX '/home/xertrov/.opam/clawq-5.1';
-    set -gx OCAMLTOP_INCLUDE_PATH '/home/xertrov/.opam/clawq-5.1/lib/toplevel';
-    set -gx CAML_LD_LIBRARY_PATH '/home/xertrov/.opam/clawq-5.1/lib/stublibs:/home/xertrov/.opam/clawq-5.1/lib/ocaml/stublibs:/home/xertrov/.opam/clawq-5.1/lib/ocaml';
-    set -gx OCAML_TOPLEVEL_PATH '/home/xertrov/.opam/clawq-5.1/lib/toplevel';
-    builtin -n | /bin/sh -c 'grep -q \'^argparse$\'' 1>/dev/null 2>/dev/null; and set -gx MANPATH ':/home/xertrov/.opam/clawq-5.1/man';
-    set -gx PATH '/home/xertrov/.opam/clawq-5.1/bin' '/home/xertrov/.local/bin' '/home/xertrov/.bun/bin' '/home/xertrov/.local/bin' '/home/xertrov/.bun/bin' '/opt/android-sdk/cmdline-tools/latest/bin' '/opt/android-sdk/platform-tools' '/opt/android-sdk/emulator' '/home/xertrov/.local/bin' '/home/xertrov/.bun/bin' '/home/xertrov/.local/bin' '/home/xertrov/.cargo/bin' '/usr/local/sbin' '/usr/local/bin' '/usr/bin' '/home/xertrov/.local/share/flatpak/exports/bin' '/usr/lib/jvm/default/bin' '/usr/bin/site_perl' '/usr/bin/vendor_perl' '/usr/bin/core_perl' '/var/lib/snapd/snap/bin';'
+    CI: failing due to coqc missing
 ---
 
-CI: Run eval 'set -gx OPAM_LAST_ENV '/home/xertrov/.opam/.last-env/env-3a49ef46db7b3f88f033d866bcd46bf6-0';
-set -gx OPAM_SWITCH_PREFIX '/home/xertrov/.opam/clawq-5.1';
-set -gx OCAMLTOP_INCLUDE_PATH '/home/xertrov/.opam/clawq-5.1/lib/toplevel';
-set -gx CAML_LD_LIBRARY_PATH '/home/xertrov/.opam/clawq-5.1/lib/stublibs:/home/xertrov/.opam/clawq-5.1/lib/ocaml/stublibs:/home/xertrov/.opam/clawq-5.1/lib/ocaml';
-set -gx OCAML_TOPLEVEL_PATH '/home/xertrov/.opam/clawq-5.1/lib/toplevel';
-builtin -n | /bin/sh -c 'grep -q \'^argparse$\'' 1>/dev/null 2>/dev/null; and set -gx MANPATH ':/home/xertrov/.opam/clawq-5.1/man';
-set -gx PATH '/home/xertrov/.opam/clawq-5.1/bin' '/home/xertrov/.local/bin' '/home/xertrov/.bun/bin' '/home/xertrov/.local/bin' '/home/xertrov/.bun/bin' '/opt/android-sdk/cmdline-tools/latest/bin' '/opt/android-sdk/platform-tools' '/opt/android-sdk/emulator' '/home/xertrov/.local/bin' '/home/xertrov/.bun/bin' '/home/xertrov/.local/bin' '/home/xertrov/.cargo/bin' '/usr/local/sbin' '/usr/local/bin' '/usr/bin' '/home/xertrov/.local/share/flatpak/exports/bin' '/usr/lib/jvm/default/bin' '/usr/bin/site_perl' '/usr/bin/vendor_perl' '/usr/bin/core_perl' '/var/lib/snapd/snap/bin';'
+CI: Run eval "$(opam env)" coqc is required. Run scripts/bootstrap_coq.sh first.
+Error: Process completed with exit code 1.
