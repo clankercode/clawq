@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-06T14:05:13Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-06T15:55:39Z"
 complexity: medium
 depends_on: []
+duration_minutes: 110.43446030301666
 estimate_hours: 1
 id: B025
 priority: high
 started_at: "2026-03-06T14:05:13Z"
-status: in_progress
+status: done
 tags: []
 title: Continue and improve formal verification (eg improving docs, improving theorems, adding therems, planning new theorems, etc. if you come up with an idea for osmething else, ask the user)
 ---
