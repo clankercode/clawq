@@ -50,55 +50,94 @@ list_domains() {
   echo "$domains"
 }
 
-# Approximate Verdana 11px text width (avg ~6.8px/char, good enough for badges)
-measure_text() {
-  echo $(( ${#1} * 68 ))  # returns width in 10x units
-}
-
-# Generate SVG badge (shields.io-compatible format)
+# Generate premium SVG verification badge
 generate_badge() {
   local count="$1"
   local label="Coq proofs"
   local value="${count} verified"
 
-  # Measure text widths in 10x coordinate space
-  local label_text_w
-  label_text_w=$(measure_text "$label")
-  local value_text_w
-  value_text_w=$(measure_text "$value")
+  # Layout: [icon area 24px] [separator] [label text] [dot separator] [value text] [padding]
+  local icon_w=26
+  local label_text="${label}"
+  local value_text="${value}"
 
-  # Segment widths = text width + 10px padding (5px each side), in real pixels
-  local label_width=$(( (label_text_w + 100) / 10 ))
-  local value_width=$(( (value_text_w + 100) / 10 ))
-  local total_width=$(( label_width + value_width ))
+  # Approximate text widths (Verdana 10px ~6.2px/char avg)
+  local label_tw=$(( ${#label_text} * 62 / 10 ))
+  local value_tw=$(( ${#value_text} * 62 / 10 ))
 
-  # Text center positions in 10x coordinate space
-  local label_x=$(( label_width * 10 / 2 ))
-  local value_x=$(( (label_width + value_width / 2) * 10 ))
+  # Total width: icon + padding + label + gap + value + padding
+  local total_width=$(( icon_w + 6 + label_tw + 12 + value_tw + 8 ))
+
+  # Text x positions
+  local label_x=$(( icon_w + 6 + label_tw / 2 ))
+  local value_x=$(( icon_w + 6 + label_tw + 12 + value_tw / 2 ))
+  local dot_x=$(( icon_w + 6 + label_tw + 6 ))
 
   mkdir -p "$(dirname "$BADGE_OUT")"
 
   cat > "$BADGE_OUT" <<SVGEOF
-<svg xmlns="http://www.w3.org/2000/svg" width="${total_width}" height="20" role="img" aria-label="${label}: ${value}">
+<svg xmlns="http://www.w3.org/2000/svg" width="${total_width}" height="24" role="img" aria-label="${label}: ${value}">
   <title>${label}: ${value}</title>
-  <linearGradient id="s" x2="0" y2="100%">
-    <stop offset="0" stop-color="#bbb" stop-opacity=".1"/>
-    <stop offset="1" stop-opacity=".1"/>
-  </linearGradient>
-  <clipPath id="r">
-    <rect width="${total_width}" height="20" rx="3" fill="#fff"/>
-  </clipPath>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1e2340"/>
+      <stop offset="100%" stop-color="#151929"/>
+    </linearGradient>
+    <linearGradient id="icon-bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#2a1f5e"/>
+      <stop offset="100%" stop-color="#1a1040"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#fde68a"/>
+      <stop offset="100%" stop-color="#d97706"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#fff" stop-opacity=".10"/>
+      <stop offset="50%" stop-color="#fff" stop-opacity=".03"/>
+      <stop offset="51%" stop-color="#000" stop-opacity=".03"/>
+      <stop offset="100%" stop-color="#000" stop-opacity=".08"/>
+    </linearGradient>
+    <clipPath id="r">
+      <rect width="${total_width}" height="24" rx="5"/>
+    </clipPath>
+  </defs>
   <g clip-path="url(#r)">
-    <rect width="${label_width}" height="20" fill="#555"/>
-    <rect x="${label_width}" width="${value_width}" height="20" fill="#4c1"/>
-    <rect width="${total_width}" height="20" fill="url(#s)"/>
+    <!-- Background -->
+    <rect width="${total_width}" height="24" fill="url(#bg)"/>
+    <!-- Icon area -->
+    <rect width="${icon_w}" height="24" fill="url(#icon-bg)"/>
+    <!-- Glass overlay -->
+    <rect width="${total_width}" height="24" fill="url(#glass)"/>
+    <!-- Top highlight -->
+    <rect width="${total_width}" height="1" fill="#fff" opacity=".06"/>
   </g>
-  <g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" text-rendering="geometricPrecision" font-size="110">
-    <text aria-hidden="true" x="${label_x}" y="150" fill="#010101" fill-opacity=".3" transform="scale(.1)" textLength="${label_text_w}">${label}</text>
-    <text x="${label_x}" y="140" transform="scale(.1)" fill="#fff" textLength="${label_text_w}">${label}</text>
-    <text aria-hidden="true" x="${value_x}" y="150" fill="#010101" fill-opacity=".3" transform="scale(.1)" textLength="${value_text_w}">${value}</text>
-    <text x="${value_x}" y="140" transform="scale(.1)" fill="#fff" textLength="${value_text_w}">${value}</text>
+  <!-- Gold shield icon with checkmark -->
+  <g transform="translate(7,6)">
+    <path d="M6 0.5 L11 2.5 V6.5 C11 9.5 8.5 11.5 6 12 C3.5 11.5 1 9.5 1 6.5 V2.5 Z"
+          fill="url(#gold)" stroke="#92400e" stroke-width="0.4"/>
+    <path d="M3.5 6 L5.2 7.8 L8.5 4.2"
+          fill="none" stroke="#fff" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
   </g>
+  <!-- Subtle separator -->
+  <rect x="${icon_w}" y="4" width="1" height="16" fill="#fff" opacity=".06" rx="0.5"/>
+  <!-- Label text with shadow -->
+  <text x="$(( label_x + 1 ))" y="16" text-anchor="middle" fill="#000" opacity=".35"
+        font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="10.5"
+        text-rendering="geometricPrecision">${label_text}</text>
+  <text x="${label_x}" y="15" text-anchor="middle" fill="#c4b5e0"
+        font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="10.5"
+        text-rendering="geometricPrecision">${label_text}</text>
+  <!-- Dot separator -->
+  <circle cx="${dot_x}" cy="12" r="1.5" fill="#d97706" opacity=".5"/>
+  <!-- Value text with shadow -->
+  <text x="$(( value_x + 1 ))" y="16" text-anchor="middle" fill="#000" opacity=".35"
+        font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="10.5" font-weight="bold"
+        text-rendering="geometricPrecision">${value_text}</text>
+  <text x="${value_x}" y="15" text-anchor="middle" fill="#fbbf24"
+        font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="10.5" font-weight="bold"
+        text-rendering="geometricPrecision">${value_text}</text>
+  <!-- Border -->
+  <rect width="${total_width}" height="24" rx="5" fill="none" stroke="#fbbf24" stroke-opacity=".2" stroke-width="0.5"/>
 </svg>
 SVGEOF
 }
