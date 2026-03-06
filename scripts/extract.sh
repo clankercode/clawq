@@ -3,7 +3,7 @@ set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
 
-OPAM_SWITCH="${OPAM_SWITCH:-clawq-5.1}"
+OPAM_SWITCH="${OPAM_SWITCH:-$(opam switch show 2>/dev/null || echo clawq-5.1)}"
 COQC="opam exec --switch=${OPAM_SWITCH} -- coqc"
 
 if ! opam exec --switch="${OPAM_SWITCH}" -- which coqc >/dev/null 2>&1; then

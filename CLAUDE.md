@@ -83,7 +83,7 @@ Required output contract:
 ## Code Style Guidelines
 
 Formatting:
-- Use `ocamlformat` (`.ocamlformat`: version `0.27.0`, profile `default`).
+- Use `ocamlformat` (`.ocamlformat`: version `0.28.1`, profile `default`).
 - Never hand-format to fight formatter output.
 - Keep lines and layout formatter-friendly.
 

@@ -1,13 +1,17 @@
 ---
+claimed_at: "2026-03-06T10:34:08Z"
+claimed_by: cli-user
+completed_at: "2026-03-06T10:35:19Z"
 complexity: medium
 depends_on: []
+duration_minutes: 1.1892234229833334
 estimate_hours: 1
 id: B021
 priority: high
-status: pending
+started_at: "2026-03-06T10:34:08Z"
+status: done
 tags: []
-title: |-
-    CI: failing due to coqc missing
+title: 'CI: failing due to coqc missing'
 ---
 
 CI: Run eval "$(opam env)" coqc is required. Run scripts/bootstrap_coq.sh first.
