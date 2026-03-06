@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-06T20:02:09Z"
+claimed_by: cli-user
+completed_at: "2026-03-06T20:02:49Z"
 complexity: medium
 depends_on: []
+duration_minutes: 0.6751676988833333
 estimate_hours: 1
 id: B024
 priority: high
-status: pending
+started_at: "2026-03-06T20:02:09Z"
+status: done
 tags: []
 title: 'docs website: mermaid charts redraw when dark-light mode toggled.'
 ---
