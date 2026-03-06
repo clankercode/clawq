@@ -11,7 +11,7 @@ let default_docker_config =
   {
     image = "clawq:latest";
     container_name = "clawq";
-    port = 3000;
+    port = 13451;
     extra_args = [];
   }
 

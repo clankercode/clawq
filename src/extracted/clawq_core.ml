@@ -193,7 +193,7 @@ type clawqConfig = { config_default_temperature : int;
 let default_config = { config_default_temperature = 70;
      config_default_model = "openai/gpt-4.1";
      config_gateway =
-       { gateway_host = "127.0.0.1"; gateway_port = 3000;
+       { gateway_host = "127.0.0.1"; gateway_port = 13451;
          gateway_require_pairing = true };
      config_memory =
        { memory_backend = "sqlite"; memory_search_enabled = true;

@@ -57,7 +57,7 @@ ingress:
   - hostname: tunnel.example.com
     service: http://localhost:8080
   - hostname: api.example.com
-    service: http://localhost:3000
+    service: http://localhost:13451
   # Catch-all required:
   - service: http_status:404
 

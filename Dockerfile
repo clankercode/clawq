@@ -20,5 +20,5 @@ RUN apt-get update && \
 
 COPY --from=builder /home/opam/clawq/_build/default/src/main.exe /usr/local/bin/clawq
 
-EXPOSE 3000
+EXPOSE 13451
 ENTRYPOINT ["/usr/local/bin/clawq"]

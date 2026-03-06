@@ -202,11 +202,11 @@ let transition_from_gateway m (ti : text_input) =
   if m.gateway_host = "127.0.0.1" && ti.value <> "" then
     let m = { m with gateway_host = ti.value } in
     goto GatewayConfig
-      (make_text_input ~value:m.gateway_port ~placeholder:"3000" "Gateway port")
+      (make_text_input ~value:m.gateway_port ~placeholder:"13451" "Gateway port")
       m
   else
     let m =
-      if m.gateway_port = "3000" then { m with gateway_port = ti.value }
+      if m.gateway_port = "13451" then { m with gateway_port = ti.value }
       else { m with gateway_host = ti.value }
     in
     goto MemoryConfig (make_confirm ~value:false "Enable memory search?") m

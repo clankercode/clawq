@@ -134,7 +134,7 @@ docker-build:
 	docker build -t clawq:latest .
 
 docker-run:
-	docker run -it --rm -p 3000:3000 --name clawq clawq:latest agent
+	docker run -it --rm -p 13451:13451 --name clawq clawq:latest agent
 
 verify-report:
 	@./scripts/formal_verification_report.sh

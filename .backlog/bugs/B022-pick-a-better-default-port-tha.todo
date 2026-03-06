@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-06T11:51:20Z"
+claimed_by: cli-user
+completed_at: "2026-03-06T11:52:14Z"
 complexity: medium
 depends_on: []
+duration_minutes: 0.9102589381833334
 estimate_hours: 1
 id: B022
 priority: high
-status: pending
+started_at: "2026-03-06T11:51:20Z"
+status: done
 tags: []
 title: pick a better default port than 3000. eg 13451, use that.
 ---

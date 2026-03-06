@@ -53,10 +53,10 @@ Extraction Inline Nat.of_uint_acc Nat.of_uint
   Nat.of_hex_uint_acc Nat.of_hex_uint Nat.tail_addmul.
 
 (* Map config defaults with nat literals to avoid successor chains.
-   Without these, e.g. gateway_port=3000 becomes 3000 nested
+   Without these, e.g. gateway_port=13451 becomes 13451 nested
    Stdlib.Int.succ calls in the extracted code. *)
 Extract Constant default_gateway_config =>
-  "{ gateway_host = ""127.0.0.1""; gateway_port = 3000;
+  "{ gateway_host = ""127.0.0.1""; gateway_port = 13451;
      gateway_require_pairing = true }".
 Extract Constant default_memory_config =>
   "{ memory_backend = ""sqlite""; memory_search_enabled = true;
@@ -65,7 +65,7 @@ Extract Constant default_config =>
   "{ config_default_temperature = 70;
      config_default_model = ""openai/gpt-4.1"";
      config_gateway =
-       { gateway_host = ""127.0.0.1""; gateway_port = 3000;
+       { gateway_host = ""127.0.0.1""; gateway_port = 13451;
          gateway_require_pairing = true };
      config_memory =
        { memory_backend = ""sqlite""; memory_search_enabled = true;

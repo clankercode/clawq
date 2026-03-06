@@ -174,13 +174,13 @@ make docker-build
 make docker-run
 
 # Health check
-curl http://127.0.0.1:3000/health
+curl http://127.0.0.1:13451/health
 ```
 
 Direct Docker command:
 
 ```bash
-docker run -it --rm -p 3000:3000 \
+docker run -it --rm -p 13451:13451 \
   -e CLAWQ_MASTER_KEY="your-passphrase" \
   clawq:latest agent
 ```
@@ -188,7 +188,7 @@ docker run -it --rm -p 3000:3000 \
 To persist config/state across restarts:
 
 ```bash
-docker run -it --rm -p 3000:3000 \
+docker run -it --rm -p 13451:13451 \
   -v "$HOME/.clawq:/root/.clawq" \
   -e CLAWQ_MASTER_KEY="your-passphrase" \
   clawq:latest agent

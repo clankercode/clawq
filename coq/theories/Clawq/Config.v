@@ -31,7 +31,7 @@ Record ClawqConfig := {
 
 Definition default_gateway_config : GatewayConfig :=
   {| gateway_host := "127.0.0.1";
-     gateway_port := 3000;
+     gateway_port := 13451;
      gateway_require_pairing := true |}.
 
 Definition default_memory_config : MemoryConfig :=

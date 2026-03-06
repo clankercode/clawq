@@ -128,7 +128,7 @@ You should see:
 ```
 clawq: [INFO] clawq daemon starting (pid=12345)
 clawq: [INFO] Starting Telegram polling for account 'main'
-clawq: [INFO] Daemon ready. Gateway on 127.0.0.1:3000
+clawq: [INFO] Daemon ready. Gateway on 127.0.0.1:13451
 ```
 
 The daemon runs in the foreground. Use `Ctrl+C` to stop it.
@@ -158,7 +158,7 @@ The bot maintains conversation history per chat, so follow-up questions work nat
 The daemon also runs an HTTP gateway:
 
 ```bash
-curl http://127.0.0.1:3000/health
+curl http://127.0.0.1:13451/health
 # {"status":"ok"}
 ```
 
@@ -174,7 +174,7 @@ make docker-build
 make docker-run
 
 # Or run directly with docker
-docker run -it --rm -p 3000:3000 \
+docker run -it --rm -p 13451:13451 \
   -e CLAWQ_MASTER_KEY="your-passphrase" \
   clawq:latest agent
 ```

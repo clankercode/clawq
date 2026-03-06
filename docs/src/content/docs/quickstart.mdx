@@ -135,7 +135,7 @@ You should see output like:
 ```
 clawq: [INFO] clawq daemon starting (pid=12345)
 clawq: [INFO] Starting Telegram polling for account 'main'
-clawq: [INFO] Daemon ready. Gateway on 127.0.0.1:3000
+clawq: [INFO] Daemon ready. Gateway on 127.0.0.1:13451
 ```
 
 The daemon runs in the foreground. Press `Ctrl+C` to stop it. To run in the background:
@@ -149,7 +149,7 @@ clawq agent &
 Test the HTTP gateway:
 
 ```bash
-curl http://127.0.0.1:3000/health
+curl http://127.0.0.1:13451/health
 # {"status":"ok"}
 ```
 

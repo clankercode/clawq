@@ -119,11 +119,11 @@ let build_config_json (m : model) : Yojson.Safe.t =
   let gateway =
     if
       m.gateway_host <> "127.0.0.1"
-      || m.gateway_port <> "3000" || m.gateway_auth_token <> ""
+      || m.gateway_port <> "13451" || m.gateway_auth_token <> ""
     then
       let fields =
         [ ("host", `String m.gateway_host) ]
-        @ [ ("port", `Int (try int_of_string m.gateway_port with _ -> 3000)) ]
+        @ [ ("port", `Int (try int_of_string m.gateway_port with _ -> 13451)) ]
         @
         if m.gateway_auth_token <> "" then
           [ ("auth_token", `String m.gateway_auth_token) ]

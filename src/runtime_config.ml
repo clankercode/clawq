@@ -383,7 +383,7 @@ let default =
     gateway =
       {
         host = "127.0.0.1";
-        port = 3000;
+        port = 13451;
         require_pairing = true;
         auth_token = None;
         max_pair_attempts = 5;
@@ -393,7 +393,7 @@ let default =
       {
         docker_image = "clawq:latest";
         docker_container_name = "clawq";
-        docker_port = 3000;
+        docker_port = 13451;
       };
     tunnel =
       {

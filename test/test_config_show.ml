@@ -35,7 +35,7 @@ let test_redact_bot_token () =
   | _ -> Alcotest.fail "unexpected structure"
 
 let test_redact_preserves_non_secret () =
-  let json = `Assoc [ ("host", `String "localhost"); ("port", `Int 3000) ] in
+  let json = `Assoc [ ("host", `String "localhost"); ("port", `Int 13451) ] in
   let redacted = Config_show.redact_json json in
   Alcotest.(check string)
     "preserved"
