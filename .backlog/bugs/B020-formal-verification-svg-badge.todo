@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-06T11:54:34Z"
+claimed_by: cli-user
+completed_at: "2026-03-06T11:54:34Z"
 complexity: medium
 depends_on: []
+duration_minutes: 0.005511644466666667
 estimate_hours: 1
 id: B020
 priority: high
-status: pending
+started_at: "2026-03-06T11:54:34Z"
+status: done
 tags: []
 title: formal verification svg badge shows no text or anything
 ---
