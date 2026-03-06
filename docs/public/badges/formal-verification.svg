@@ -1,21 +1,72 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="144" height="20" role="img" aria-label="Coq proofs: 69 verified">
-  <title>Coq proofs: 69 verified</title>
-  <linearGradient id="s" x2="0" y2="100%">
-    <stop offset="0" stop-color="#bbb" stop-opacity=".1"/>
-    <stop offset="1" stop-opacity=".1"/>
-  </linearGradient>
-  <clipPath id="r">
-    <rect width="144" height="20" rx="3" fill="#fff"/>
-  </clipPath>
+<svg xmlns="http://www.w3.org/2000/svg" width="263" height="30" role="img" aria-label="Coq proofs: 142 verified">
+  <title>Coq proofs: 142 verified</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#13111A"/>
+      <stop offset="100%" stop-color="#0D0B0F"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#fff" stop-opacity=".06"/>
+      <stop offset="50%" stop-color="#fff" stop-opacity=".01"/>
+      <stop offset="100%" stop-color="#000" stop-opacity=".04"/>
+    </linearGradient>
+    <clipPath id="r">
+      <rect width="263" height="30" rx="4"/>
+    </clipPath>
+  </defs>
+  <!-- Background -->
   <g clip-path="url(#r)">
-    <rect width="72" height="20" fill="#555"/>
-    <rect x="72" width="72" height="20" fill="#4c1"/>
-    <rect width="144" height="20" fill="url(#s)"/>
+    <rect width="263" height="30" fill="url(#bg)"/>
+    <rect width="263" height="30" fill="url(#glass)"/>
   </g>
-  <g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" text-rendering="geometricPrecision" font-size="11">
-    <text aria-hidden="true" x="36" y="150" fill="#010101" fill-opacity=".3" transform="scale(.1)" textLength="720">Coq proofs</text>
-    <text x="36" y="140" transform="scale(.1)" fill="#fff" textLength="720">Coq proofs</text>
-    <text aria-hidden="true" x="1080" y="150" fill="#010101" fill-opacity=".3" transform="scale(.1)" textLength="720">69 verified</text>
-    <text x="1080" y="140" transform="scale(.1)" fill="#fff" textLength="720">69 verified</text>
+  <!-- Border: brass -->
+  <rect width="263" height="30" rx="4" fill="none"
+        stroke="#8B7332" stroke-opacity=".5" stroke-width="0.75"/>
+  <!-- Corner brackets (brass L-shapes) -->
+  <g stroke="#C9A84C" stroke-width="0.75" fill="none" opacity=".5">
+    <path d="M3,5 L3,3 L5,3"/>
+    <path d="M258,3 L260,3 L260,5"/>
+    <path d="M3,25 L3,27 L5,27"/>
+    <path d="M258,27 L260,27 L260,25"/>
   </g>
+  <!-- Gear icon with checkmark -->
+  <g transform="translate(7,7)">
+    <!-- Gear body (simplified: circle + 8 radiating ticks) -->
+    <circle cx="8" cy="8" r="5.5" fill="none" stroke="#C9A84C" stroke-width="1"/>
+    <circle cx="8" cy="8" r="2" fill="none" stroke="#8B7332" stroke-width="0.75"/>
+    <g stroke="#C9A84C" stroke-width="1" stroke-linecap="round">
+      <line x1="8" y1="0.5" x2="8" y2="2.5"/>
+      <line x1="8" y1="13.5" x2="8" y2="15.5"/>
+      <line x1="0.5" y1="8" x2="2.5" y2="8"/>
+      <line x1="13.5" y1="8" x2="15.5" y2="8"/>
+      <line x1="2.7" y1="2.7" x2="4.1" y2="4.1"/>
+      <line x1="11.9" y1="11.9" x2="13.3" y2="13.3"/>
+      <line x1="2.7" y1="13.3" x2="4.1" y2="11.9"/>
+      <line x1="11.9" y1="4.1" x2="13.3" y2="2.7"/>
+    </g>
+    <!-- Teal checkmark overlay -->
+    <path d="M5 8.5 L7 10.5 L11 5.5" fill="none" stroke="#2E8B7A" stroke-width="1.5"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <!-- Separator line -->
+  <rect x="26" y="7" width="0.5" height="16" fill="#8B7332" opacity=".3"/>
+  <!-- Label: "Coq proofs" in warm cream -->
+  <text x="79" y="20" text-anchor="middle" fill="#000" opacity=".4"
+        font-family="Georgia,serif" font-size="15"
+        text-rendering="geometricPrecision">Coq proofs</text>
+  <text x="78" y="19" text-anchor="middle" fill="#E8E2D6"
+        font-family="Georgia,serif" font-size="15"
+        text-rendering="geometricPrecision">Coq proofs</text>
+  <!-- Diamond separator -->
+  <text x="129" y="14.5" text-anchor="middle" dominant-baseline="central" fill="#B8860B" opacity=".7"
+        font-size="9">&#x25C6;</text>
+  <!-- Value: count in teal -->
+  <text x="189" y="20" text-anchor="middle" fill="#000" opacity=".4"
+        font-family="Georgia,serif" font-size="15" font-weight="bold"
+        text-rendering="geometricPrecision">142 verified</text>
+  <text x="188" y="19" text-anchor="middle" fill="#5BBFAD"
+        font-family="Georgia,serif" font-size="15" font-weight="bold"
+        text-rendering="geometricPrecision">142 verified</text>
+  <!-- QED square -->
+  <rect x="250" y="12" width="5.5" height="5.5" fill="#B8860B" opacity=".55" rx="0.5"/>
 </svg>
