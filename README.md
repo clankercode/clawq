@@ -2,63 +2,123 @@
 
 ![Formal Verification](docs/badges/formal-verification.svg)
 
-Coq-first port scaffold of nullclaw with an OCaml runtime path via Coq extraction.
-
-## Current State
-- Project skeleton is in place for:
-  - Coq theory modules (`coq/theories/Clawq/*`)
-  - OCaml runtime wrapper (`src/*`)
-  - Extraction target (`src/extracted/clawq_core.ml`)
-- Detailed implementation/handoff plans:
-  - `PLAN.md`
-  - `HANDOFF_PLAN.md`
+Coq-first AI assistant runtime with an OCaml extraction pipeline. Multi-channel support (CLI, Telegram, Discord, Slack), HTTP gateway, cron scheduling, audit logging, and MCP server.
 
 ## Quick Start
 
 ### Prerequisites
 
-Install the following via your system package manager:
-
 - **opam** (OCaml package manager)
-- **OCaml 5.1+** (installed automatically by bootstrap)
-- **Coq 8.19+** (installed automatically by bootstrap)
 - **libsqlite3-dev** (or equivalent for your distro)
 
-### Bootstrap, Build, Run
+### Bootstrap and Build
 
 ```bash
 # 1. Create opam switch "clawq-5.1" and install all dependencies
 make bootstrap
 
-# 2. Build (all make targets auto-activate the opam switch)
+# 2. Build
 make build
 
-# 3. Run
-make run                        # help output
-make phase2                     # show deferred phase-2 items
-
-# 4. Test
+# 3. Run tests
 make test
 ```
 
-To use `dune` directly (outside of `make`), activate the switch first:
+### Getting Started with Telegram
+
+The fastest way to get a running clawq instance is via Telegram:
+
+1. Create a bot with [@BotFather](https://t.me/BotFather) and get your bot token.
+2. Get an API key from an OpenAI-compatible LLM provider (OpenAI, Anthropic via proxy, etc.).
+3. Generate a starter config:
 
 ```bash
-eval "$(opam env --switch=clawq-5.1)"
-dune exec clawq -- help
+./clawq onboard
 ```
 
-### Extraction Workflow
+4. Edit `~/.clawq/config.json` with your tokens:
+
+```json
+{
+  "providers": [
+    {
+      "name": "openai",
+      "api_key": "sk-...",
+      "model": "gpt-4o"
+    }
+  ],
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "bot_token": "123456:ABC-..."
+    }
+  }
+}
+```
+
+5. Start the daemon:
 
 ```bash
-# Regenerate src/extracted/ from Coq theories (requires Coq)
-make extract
-
-# Check whether extracted code has drifted from Coq sources
-make extract-check
+./clawq agent
 ```
 
-### Run Daemon in Docker
+Your bot is now live on Telegram. Send it a message to verify.
+
+## CLI Commands
+
+```
+clawq agent           Start the daemon (agent loop, gateway, all configured channels)
+clawq audit            View and manage the security audit log
+clawq auth             Show API key status or encrypt plaintext secrets in config
+clawq capabilities     List all active runtime capabilities
+clawq channel          List configured channels
+clawq cron             Manage cron jobs for scheduled agent messages
+clawq doctor           Check configuration for common issues
+clawq mcp              Start the MCP server (Model Context Protocol)
+clawq memory           Show memory backend configuration
+clawq migrate          Run database migrations
+clawq models           List configured LLM providers and their default models
+clawq onboard          Create a starter config file at ~/.clawq/config.json
+clawq phase2           Show Phase 2 feature status
+clawq reset-agent      Wipe all session history, cron jobs, and workspace files
+clawq runtime          Manage native and Docker runtimes
+clawq service          Manage the clawq system service (start/stop/restart)
+clawq skills           Manage agent skills (shell-script tool extensions)
+clawq status           Show runtime configuration and daemon status
+clawq transcribe       Transcribe an audio file using the configured STT provider
+clawq tunnel           Manage a public tunnel to the local gateway
+clawq workspace        Print the current workspace directory
+```
+
+Run `clawq COMMAND --help` for per-command usage.
+
+## Make Targets
+
+| Target | Description |
+|--------|-------------|
+| `make bootstrap` | Create opam switch and install all dependencies |
+| `make build` | Build the project |
+| `make build-minimal` | Build minimal binary (`clawq-min`, core-only) |
+| `make build-opt` | Optimized build (`OPT=speed` or `OPT=size`) |
+| `make build-opt-speed` | Optimized build with `-O3` |
+| `make build-opt-size` | Optimized build with `-O2 -compact` |
+| `make build-opt-speed-stripped` | Stripped optimized speed build |
+| `make build-opt-size-stripped` | Stripped optimized size build |
+| `make build-opt-minimal` | Optimized minimal binary |
+| `make test` | Run all tests |
+| `make fmt` | Format code with ocamlformat |
+| `make fmt-check` | Check formatting |
+| `make extract` | Regenerate OCaml from Coq theories |
+| `make extract-check` | Check for extraction drift |
+| `make run` | Print CLI help |
+| `make phase2` | Show Phase 2 feature status |
+| `make clean` | Clean build artifacts |
+| `make docker-build` | Build Docker image |
+| `make docker-run` | Run daemon in Docker |
+| `make verify-report` | Generate formal verification report and badge |
+| `make release` | Build release artifacts |
+
+## Run Daemon in Docker
 
 ```bash
 # Build image
@@ -86,6 +146,16 @@ docker run -it --rm -p 3000:3000 \
   -v "$HOME/.clawq:/root/.clawq" \
   -e CLAWQ_MASTER_KEY="your-passphrase" \
   clawq:latest agent
+```
+
+## Extraction Workflow
+
+```bash
+# Regenerate src/extracted/ from Coq theories (requires Coq)
+make extract
+
+# Check whether extracted code has drifted from Coq sources
+make extract-check
 ```
 
 ## Formal Verification
