@@ -4,7 +4,7 @@ estimate_hours: 20
 id: P2.M2.E2
 locked: false
 name: Matrix Channel
-status: pending
+status: done
 tasks:
     - complexity: high
       depends_on: []
@@ -48,5 +48,6 @@ tasks:
       file: T005-add-matrix-config-to-runtime-c.todo
       id: T005
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Add matrix_config to runtime_config; parse channels.matrix; wire into daemon.ml

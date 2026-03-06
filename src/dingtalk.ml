@@ -85,7 +85,7 @@ let send_message ~(config : Runtime_config.dingtalk_config)
 
 let parse_stream_message ~event_type data =
   try
-    if event_type <> "im_message_receive_v1" then None
+    if event_type <> "im.message.receive_v1" then None
     else
       let open Yojson.Safe.Util in
       let conversation_id =
@@ -98,8 +98,12 @@ let parse_stream_message ~event_type data =
         try data |> member "text" |> member "content" |> to_string
         with _ -> ""
       in
+      (* conversationType "1" = private/1:1, "2" = group *)
+      let conversation_type =
+        try data |> member "conversationType" |> to_string with _ -> "2"
+      in
       if conversation_id = "" || sender_id = "" || content = "" then None
-      else Some (conversation_id, sender_id, content)
+      else Some (conversation_id, sender_id, content, conversation_type)
   with _ -> None
 
 let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
@@ -186,7 +190,11 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
                           in
                           match parse_stream_message ~event_type data with
                           | None -> Lwt.return_unit
-                          | Some (conversation_id, sender_id, content) -> (
+                          | Some
+                              ( conversation_id,
+                                sender_id,
+                                content,
+                                conversation_type ) -> (
                               if not (is_allowed ~config:dt_config ~sender_id)
                               then (
                                 Logs.warn (fun m ->
@@ -196,6 +204,10 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
                                       sender_id);
                                 Lwt.return_unit)
                               else
+                                let channel_type =
+                                  if conversation_type = "1" then "dm"
+                                  else "group"
+                                in
                                 let key =
                                   "dingtalk:" ^ conversation_id ^ ":"
                                   ^ sender_id
@@ -206,8 +218,8 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
                                       let* response =
                                         Session.turn session_manager ~key
                                           ~message:content
-                                          ~channel_name:"dingtalk"
-                                          ~channel_type:"group" ()
+                                          ~channel_name:"dingtalk" ~channel_type
+                                          ()
                                       in
                                       Lwt.return (Ok response))
                                     (fun exn ->

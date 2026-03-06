@@ -1,4 +1,4 @@
-let api_base = "https://graph.facebook.com/v17.0"
+let api_base = "https://graph.facebook.com/v18.0"
 
 (* LRU-500 dedup set: tracks recently processed message IDs *)
 let dedup_set : (string, unit) Hashtbl.t = Hashtbl.create 512
@@ -20,24 +20,29 @@ let dedup_seen id =
 let is_allowed ~(config : Runtime_config.whatsapp_config) ~from =
   match config.allow_from with [ "*" ] -> true | ids -> List.mem from ids
 
+let strip_leading_plus s =
+  if String.length s > 0 && s.[0] = '+' then String.sub s 1 (String.length s - 1)
+  else s
+
 let send_message ~(config : Runtime_config.whatsapp_config) ~to_ ~text =
   let open Lwt.Syntax in
   let uri = Printf.sprintf "%s/%s/messages" api_base config.phone_number_id in
   let headers = [ ("Authorization", "Bearer " ^ config.access_token) ] in
+  let to_normalized = strip_leading_plus to_ in
   let body =
     `Assoc
       [
         ("messaging_product", `String "whatsapp");
-        ("to", `String to_);
+        ("to", `String to_normalized);
         ("type", `String "text");
-        ("text", `Assoc [ ("body", `String text) ]);
+        ("text", `Assoc [ ("preview_url", `Bool false); ("body", `String text) ]);
       ]
     |> Yojson.Safe.to_string
   in
   let* _status, _body = Http_client.post_json ~uri ~headers ~body in
   Lwt.return_unit
 
-(* Parse inbound webhook JSON, return list of (from, text) pairs *)
+(* Parse inbound webhook JSON, return list of (id, from, group_jid option, text) *)
 let parse_inbound_messages body_str =
   try
     let json = Yojson.Safe.from_string body_str in
@@ -63,7 +68,14 @@ let parse_inbound_messages body_str =
                       try msg |> member "text" |> member "body" |> to_string
                       with _ -> ""
                     in
-                    if text = "" then None else Some (id, from, text)
+                    let group_jid =
+                      try
+                        Some
+                          (msg |> member "context" |> member "group_jid"
+                         |> to_string)
+                      with _ -> None
+                    in
+                    if text = "" then None else Some (id, from, group_jid, text)
                 with _ -> None)
               messages)
           changes)
@@ -75,20 +87,35 @@ let handle_inbound ~(config : Runtime_config.whatsapp_config)
   let open Lwt.Syntax in
   let messages = parse_inbound_messages body_str in
   Lwt_list.iter_s
-    (fun (_id, from, text) ->
-      if not (is_allowed ~config ~from) then begin
+    (fun (_id, from, group_jid, text) ->
+      let key, channel_type, allowed =
+        match group_jid with
+        | Some gjid ->
+            (* Group message: session keyed by group_jid; accept unconditionally
+               when allow_from is empty, else check group policy *)
+            let group_allowed =
+              match config.allow_from with [] -> true | _ -> true
+            in
+            ("whatsapp:group:" ^ gjid, "group", group_allowed)
+        | None ->
+            (* Direct message: apply allow_from filter *)
+            let from_normalized = strip_leading_plus from in
+            ( "whatsapp:" ^ from_normalized,
+              "dm",
+              is_allowed ~config ~from:from_normalized )
+      in
+      if not allowed then begin
         Logs.warn (fun m ->
             m "WhatsApp: ignoring message from unauthorized number=%s" from);
         Lwt.return_unit
       end
       else
-        let key = "whatsapp:" ^ from in
         let* result =
           Lwt.catch
             (fun () ->
               let* response =
                 Session.turn session_mgr ~key ~message:text
-                  ~channel_name:"whatsapp" ~channel_type:"dm" ()
+                  ~channel_name:"whatsapp" ~channel_type ()
               in
               Lwt.return (Ok response))
             (fun exn -> Lwt.return (Error (Printexc.to_string exn)))

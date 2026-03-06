@@ -80,6 +80,11 @@ let nick_from_prefix prefix =
 let is_allowed ~(cfg : Runtime_config.irc_config) ~nick =
   match cfg.allow_from with [] -> true | nicks -> List.mem nick nicks
 
+let is_service_bot nick =
+  let lower s = String.map (fun c -> Char.lowercase_ascii c) s in
+  let n = lower nick in
+  n = "nickserv" || n = "chanserv" || n = "botserv" || n = "memoserv"
+
 type connection = { ic : Lwt_io.input_channel; oc : Lwt_io.output_channel }
 
 let write_line conn line =
@@ -218,7 +223,8 @@ let run_session ~(cfg : Runtime_config.irc_config) ~conn
                   let* () = write_line conn "CAP END" in
                   Lwt.return_unit
               | "001" ->
-                  (* Welcome - join channels *)
+                  (* Welcome - join channels; reset nick_suffix for clean reconnects *)
+                  nick_suffix := 0;
                   Logs.info (fun m ->
                       m "IRC: connected as %s, joining channels" !current_nick);
                   Lwt_list.iter_s
@@ -227,10 +233,19 @@ let run_session ~(cfg : Runtime_config.irc_config) ~conn
               | "433" ->
                   (* Nick in use *)
                   incr nick_suffix;
-                  let new_nick = cfg.nick ^ String.make !nick_suffix '_' in
-                  current_nick := new_nick;
-                  Logs.warn (fun m -> m "IRC: nick in use, trying %s" new_nick);
-                  write_line conn ("NICK " ^ new_nick)
+                  if !nick_suffix > 5 then begin
+                    Logs.warn (fun m ->
+                        m
+                          "IRC: nick collision retry limit reached, stopping \
+                           nick change attempts");
+                    Lwt.return_unit
+                  end
+                  else
+                    let new_nick = cfg.nick ^ String.make !nick_suffix '_' in
+                    current_nick := new_nick;
+                    Logs.warn (fun m ->
+                        m "IRC: nick in use, trying %s" new_nick);
+                    write_line conn ("NICK " ^ new_nick)
               | "PRIVMSG" ->
                   let target = match msg.params with t :: _ -> t | [] -> "" in
                   let text =
@@ -242,7 +257,7 @@ let run_session ~(cfg : Runtime_config.irc_config) ~conn
                     | None -> ""
                   in
                   if
-                    sender = "" || text = ""
+                    sender = "" || text = "" || is_service_bot sender
                     || not (is_allowed ~cfg ~nick:sender)
                   then Lwt.return_unit
                   else begin

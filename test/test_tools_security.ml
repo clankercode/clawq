@@ -38,6 +38,7 @@ let test_shell_allowlist_rejects_disallowed () =
   let tool =
     Tools_builtin.shell_exec ~workspace:(Sys.getcwd ()) ~workspace_only:true
       ~allowed_commands:[ "ls" ] ~extra_allowed_paths:[]
+      ~sandbox:{ Sandbox.backend = Sandbox.None; workspace = Sys.getcwd () }
   in
   let args = `Assoc [ ("command", `String "echo hi") ] in
   let out = Lwt_main.run (tool.invoke args) in
@@ -47,6 +48,7 @@ let test_shell_allowlist_allows_command () =
   let tool =
     Tools_builtin.shell_exec ~workspace:(Sys.getcwd ()) ~workspace_only:true
       ~allowed_commands:[ "ls" ] ~extra_allowed_paths:[]
+      ~sandbox:{ Sandbox.backend = Sandbox.None; workspace = Sys.getcwd () }
   in
   let args = `Assoc [ ("command", `String "ls .") ] in
   let out = Lwt_main.run (tool.invoke args) in
@@ -56,6 +58,7 @@ let test_shell_rejects_command_chaining () =
   let tool =
     Tools_builtin.shell_exec ~workspace:(Sys.getcwd ()) ~workspace_only:true
       ~allowed_commands:[ "ls" ] ~extra_allowed_paths:[]
+      ~sandbox:{ Sandbox.backend = Sandbox.None; workspace = Sys.getcwd () }
   in
   let args = `Assoc [ ("command", `String "ls && whoami") ] in
   let out = Lwt_main.run (tool.invoke args) in
@@ -67,6 +70,7 @@ let test_shell_rejects_dollar_expansion () =
   let tool =
     Tools_builtin.shell_exec ~workspace:(Sys.getcwd ()) ~workspace_only:true
       ~allowed_commands:[ "ls" ] ~extra_allowed_paths:[]
+      ~sandbox:{ Sandbox.backend = Sandbox.None; workspace = Sys.getcwd () }
   in
   let args = `Assoc [ ("command", `String "ls $HOME") ] in
   let out = Lwt_main.run (tool.invoke args) in
@@ -78,6 +82,7 @@ let test_shell_handles_quoted_args () =
   let tool =
     Tools_builtin.shell_exec ~workspace:(Sys.getcwd ()) ~workspace_only:true
       ~allowed_commands:[ "ls" ] ~extra_allowed_paths:[]
+      ~sandbox:{ Sandbox.backend = Sandbox.None; workspace = Sys.getcwd () }
   in
   let args = `Assoc [ ("command", `String "ls \".\"") ] in
   let out = Lwt_main.run (tool.invoke args) in
@@ -87,6 +92,7 @@ let test_shell_rejects_absolute_path_arg () =
   let tool =
     Tools_builtin.shell_exec ~workspace:(Sys.getcwd ()) ~workspace_only:true
       ~allowed_commands:[ "cat" ] ~extra_allowed_paths:[]
+      ~sandbox:{ Sandbox.backend = Sandbox.None; workspace = Sys.getcwd () }
   in
   let args = `Assoc [ ("command", `String "cat /etc/passwd") ] in
   let out = Lwt_main.run (tool.invoke args) in
@@ -98,6 +104,7 @@ let test_shell_rejects_url_arg () =
   let tool =
     Tools_builtin.shell_exec ~workspace:(Sys.getcwd ()) ~workspace_only:true
       ~allowed_commands:[ "git" ] ~extra_allowed_paths:[]
+      ~sandbox:{ Sandbox.backend = Sandbox.None; workspace = Sys.getcwd () }
   in
   let args =
     `Assoc [ ("command", `String "git clone https://example.com/repo") ]
@@ -111,6 +118,7 @@ let test_shell_rejects_binary_path_bypass () =
   let tool =
     Tools_builtin.shell_exec ~workspace:(Sys.getcwd ()) ~workspace_only:true
       ~allowed_commands:[ "ls" ] ~extra_allowed_paths:[]
+      ~sandbox:{ Sandbox.backend = Sandbox.None; workspace = Sys.getcwd () }
   in
   let args = `Assoc [ ("command", `String "./ls") ] in
   let out = Lwt_main.run (tool.invoke args) in
@@ -122,6 +130,7 @@ let test_shell_rejects_option_assigned_absolute_path () =
   let tool =
     Tools_builtin.shell_exec ~workspace:(Sys.getcwd ()) ~workspace_only:true
       ~allowed_commands:[ "tar" ] ~extra_allowed_paths:[]
+      ~sandbox:{ Sandbox.backend = Sandbox.None; workspace = Sys.getcwd () }
   in
   let args =
     `Assoc [ ("command", `String "tar --file=/tmp/out.tar -cf out.tar .") ]
@@ -135,6 +144,7 @@ let test_shell_rejects_git_network_subcommand () =
   let tool =
     Tools_builtin.shell_exec ~workspace:(Sys.getcwd ()) ~workspace_only:true
       ~allowed_commands:[ "git" ] ~extra_allowed_paths:[]
+      ~sandbox:{ Sandbox.backend = Sandbox.None; workspace = Sys.getcwd () }
   in
   let args = `Assoc [ ("command", `String "git clone repo") ] in
   let out = Lwt_main.run (tool.invoke args) in
@@ -160,6 +170,7 @@ let test_shell_extra_allowed_paths_grants_access () =
       let tool =
         Tools_builtin.shell_exec ~workspace ~workspace_only:true
           ~allowed_commands:[ "ls" ] ~extra_allowed_paths:[ extra_dir ]
+          ~sandbox:{ Sandbox.backend = Sandbox.None; workspace }
       in
       let out =
         Lwt_main.run
@@ -171,6 +182,7 @@ let test_shell_extra_allowed_paths_grants_access () =
       let tool_no_extra =
         Tools_builtin.shell_exec ~workspace ~workspace_only:true
           ~allowed_commands:[ "ls" ] ~extra_allowed_paths:[]
+          ~sandbox:{ Sandbox.backend = Sandbox.None; workspace = Sys.getcwd () }
       in
       let out2 =
         Lwt_main.run
@@ -571,7 +583,9 @@ let test_register_all_file_read_path_policy_tracks_security_config () =
           ~extra_allowed_paths:[]
       in
       let blocked_registry = Tool_registry.create () in
-      Tools_builtin.register_all ~config:cfg_blocked blocked_registry;
+      Tools_builtin.register_all ~config:cfg_blocked
+        ~sandbox:{ Sandbox.backend = Sandbox.None; workspace = "/tmp" }
+        blocked_registry;
       let blocked_tool = find_tool_exn blocked_registry "file_read" in
       let blocked_out =
         Lwt_main.run
@@ -586,7 +600,9 @@ let test_register_all_file_read_path_policy_tracks_security_config () =
           ~extra_allowed_paths:[ extra_dir ]
       in
       let extra_registry = Tool_registry.create () in
-      Tools_builtin.register_all ~config:cfg_extra_allowed extra_registry;
+      Tools_builtin.register_all ~config:cfg_extra_allowed
+        ~sandbox:{ Sandbox.backend = Sandbox.None; workspace = "/tmp" }
+        extra_registry;
       let extra_tool = find_tool_exn extra_registry "file_read" in
       let extra_out =
         Lwt_main.run
@@ -600,7 +616,9 @@ let test_register_all_file_read_path_policy_tracks_security_config () =
           ~extra_allowed_paths:[]
       in
       let open_registry = Tool_registry.create () in
-      Tools_builtin.register_all ~config:cfg_workspace_off open_registry;
+      Tools_builtin.register_all ~config:cfg_workspace_off
+        ~sandbox:{ Sandbox.backend = Sandbox.None; workspace = "/tmp" }
+        open_registry;
       let open_tool = find_tool_exn open_registry "file_read" in
       let open_out =
         Lwt_main.run
@@ -647,7 +665,9 @@ let test_register_all_shell_path_policy_tracks_security_config () =
           ~extra_allowed_paths:[]
       in
       let blocked_registry = Tool_registry.create () in
-      Tools_builtin.register_all ~config:cfg_blocked blocked_registry;
+      Tools_builtin.register_all ~config:cfg_blocked
+        ~sandbox:{ Sandbox.backend = Sandbox.None; workspace = "/tmp" }
+        blocked_registry;
       let blocked_tool = find_tool_exn blocked_registry "shell_exec" in
       let blocked_out =
         Lwt_main.run
@@ -663,7 +683,9 @@ let test_register_all_shell_path_policy_tracks_security_config () =
           ~extra_allowed_paths:[ extra_dir ]
       in
       let extra_registry = Tool_registry.create () in
-      Tools_builtin.register_all ~config:cfg_extra_allowed extra_registry;
+      Tools_builtin.register_all ~config:cfg_extra_allowed
+        ~sandbox:{ Sandbox.backend = Sandbox.None; workspace = "/tmp" }
+        extra_registry;
       let extra_tool = find_tool_exn extra_registry "shell_exec" in
       let extra_out =
         Lwt_main.run

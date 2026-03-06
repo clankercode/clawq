@@ -4,7 +4,7 @@ estimate_hours: 32
 id: P2.M1.E1
 locked: false
 name: Native LLM Provider Integrations
-status: pending
+status: done
 tasks:
     - complexity: medium
       depends_on: []
@@ -46,12 +46,15 @@ tasks:
       tags: []
       title: Implement provider_gemini.ml (GenerateContent, streamGenerateContent, function declarations)
     - complexity: high
-      depends_on: []
+      depends_on:
+        - P2.M1.E1.T001
+        - P2.M1.E1.T004
       estimate_hours: 8
       file: T005-implement-provider-vertex-ml-s.todo
       id: T005
-      priority: medium
-      status: pending
+      priority: low
+      status: done
+      tags: []
       title: Implement provider_vertex.ml (service-account JWT, OAuth token refresh, endpoint resolution)
     - complexity: medium
       depends_on:
@@ -64,12 +67,14 @@ tasks:
       tags: []
       title: Implement provider_cohere.ml (Command R+ /v2/chat, tool-use format)
     - complexity: low
-      depends_on: []
-      estimate_hours: 1
+      depends_on:
+        - P2.M1.E1.T001
+      estimate_hours: 2
       file: T007-add-explicit-base-url-defaults.todo
       id: T007
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: Add explicit base_url defaults for Mistral, xAI, DeepSeek in runtime_config
     - complexity: low
       depends_on: []
@@ -77,5 +82,6 @@ tasks:
       file: T008-extend-runtime-config-provider.todo
       id: T008
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Extend runtime_config.provider_config with kind, service_account_json, project_id, location fields

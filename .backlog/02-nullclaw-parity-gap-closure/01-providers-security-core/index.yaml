@@ -9,7 +9,7 @@ epics:
       locked: false
       name: Native LLM Provider Integrations
       path: 01-native-llm-provider-integratio
-      status: pending
+      status: done
     - complexity: medium
       depends_on: []
       description: 6-digit one-time code, brute-force lockout, SHA-256 bearer tokens, /pair endpoints. See docs/PLAN_P2_06_OTP_PAIRING.md.

@@ -190,6 +190,8 @@ type gateway_config = {
   port : int;
   require_pairing : bool;
   auth_token : string option;
+  max_pair_attempts : int;
+  pair_lockout_seconds : int;
 }
 
 type runtime_config = {
@@ -246,6 +248,8 @@ type security_config = {
   extra_allowed_paths : string list;
       (** Additional absolute paths the agent may access when
           [workspace_only = true]. *)
+  sandbox_backend : string;
+      (** Sandbox backend: "auto", "firejail", "bubblewrap", or "none" *)
 }
 
 type stt_config = {
@@ -382,6 +386,8 @@ let default =
         port = 3000;
         require_pairing = true;
         auth_token = None;
+        max_pair_attempts = 5;
+        pair_lockout_seconds = 300;
       };
     runtime =
       {
@@ -436,6 +442,7 @@ let default =
         landlock_enabled = false;
         landlock_extra_read_paths = [];
         extra_allowed_paths = [];
+        sandbox_backend = "auto";
       };
     stt = None;
     mcp = { enabled = true; exposed_tools = None };
@@ -637,6 +644,8 @@ let to_json (cfg : t) : Yojson.Safe.t =
       ("host", `String cfg.gateway.host);
       ("port", `Int cfg.gateway.port);
       ("require_pairing", `Bool cfg.gateway.require_pairing);
+      ("max_pair_attempts", `Int cfg.gateway.max_pair_attempts);
+      ("pair_lockout_seconds", `Int cfg.gateway.pair_lockout_seconds);
     ]
     @
     match cfg.gateway.auth_token with
@@ -1048,6 +1057,7 @@ let to_json (cfg : t) : Yojson.Safe.t =
                   (List.map
                      (fun s -> `String s)
                      cfg.security.extra_allowed_paths) );
+              ("sandbox_backend", `String cfg.security.sandbox_backend);
             ] );
       ]
   in
@@ -1094,6 +1104,8 @@ let merge_with_coq (coq_cfg : Clawq_core.clawqConfig) (cfg : t) : t =
         port = gw.gateway_port;
         require_pairing = gw.gateway_require_pairing;
         auth_token = cfg.gateway.auth_token;
+        max_pair_attempts = cfg.gateway.max_pair_attempts;
+        pair_lockout_seconds = cfg.gateway.pair_lockout_seconds;
       };
     memory =
       {

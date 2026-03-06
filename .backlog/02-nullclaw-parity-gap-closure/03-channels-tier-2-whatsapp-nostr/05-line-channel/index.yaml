@@ -12,7 +12,8 @@ tasks:
       file: T001-implement-line-channel-ml-add.todo
       id: T001
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: 'Implement line_channel.ml: add POST /line/webhook to http_server (verify X-Line-Signature HMAC-SHA256), parse events'
     - complexity: medium
       depends_on: []

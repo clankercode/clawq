@@ -1,5 +1,42 @@
 let schema_version = 1
 
+let init_core_schema db =
+  let exec sql =
+    match Sqlite3.exec db sql with
+    | Sqlite3.Rc.OK -> ()
+    | rc ->
+        failwith
+          (Printf.sprintf "SQLite error: %s (sql: %s)" (Sqlite3.Rc.to_string rc)
+             sql)
+  in
+  exec
+    "CREATE TABLE IF NOT EXISTS core_memories (\n\
+    \     key TEXT PRIMARY KEY,\n\
+    \     content TEXT NOT NULL,\n\
+    \     category TEXT NOT NULL DEFAULT 'general',\n\
+    \     created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),\n\
+    \     updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))\n\
+    \   )";
+  exec
+    "CREATE VIRTUAL TABLE IF NOT EXISTS core_memories_fts USING fts5(key, \
+     content, category, content='core_memories', content_rowid='rowid')";
+  exec
+    "CREATE TRIGGER IF NOT EXISTS core_memories_ai AFTER INSERT ON \
+     core_memories BEGIN INSERT INTO core_memories_fts(rowid, key, content, \
+     category) VALUES (new.rowid, new.key, new.content, new.category); END";
+  exec
+    "CREATE TRIGGER IF NOT EXISTS core_memories_au AFTER UPDATE ON \
+     core_memories BEGIN INSERT INTO core_memories_fts(core_memories_fts, \
+     rowid, key, content, category) VALUES('delete', old.rowid, old.key, \
+     old.content, old.category); INSERT INTO core_memories_fts(rowid, key, \
+     content, category) VALUES (new.rowid, new.key, new.content, \
+     new.category); END";
+  exec
+    "CREATE TRIGGER IF NOT EXISTS core_memories_ad AFTER DELETE ON \
+     core_memories BEGIN INSERT INTO core_memories_fts(core_memories_fts, \
+     rowid, key, content, category) VALUES('delete', old.rowid, old.key, \
+     old.content, old.category); END"
+
 let init ~db_path ?(search_enabled = false) () =
   let db = Sqlite3.db_open db_path in
   let exec sql =
@@ -46,6 +83,7 @@ let init ~db_path ?(search_enabled = false) () =
        INSERT INTO messages_fts(messages_fts, rowid, content, session_key) \
        VALUES('delete', old.id, old.content, old.session_key); END"
   end;
+  init_core_schema db;
   db
 
 let store_message ~db ~session_key (msg : Provider.message) =
@@ -192,6 +230,143 @@ let cleanup_all ~db ~max_messages ~max_age_days =
     (fun session_key ->
       cleanup_session ~db ~session_key ~max_messages ~max_age_days)
     sessions
+
+let store_core ~db ~key ~content ?(category = "general") () =
+  let sql =
+    "INSERT INTO core_memories (key, content, category, updated_at) VALUES (?, \
+     ?, ?, strftime('%s','now')) ON CONFLICT(key) DO UPDATE SET content = \
+     excluded.content, category = excluded.category, updated_at = \
+     strftime('%s','now')"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT key));
+  ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT content));
+  ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.TEXT category));
+  (match Sqlite3.step stmt with
+  | Sqlite3.Rc.DONE -> ()
+  | rc ->
+      Logs.warn (fun m ->
+          m "Failed to store core memory: %s" (Sqlite3.Rc.to_string rc)));
+  ignore (Sqlite3.finalize stmt)
+
+let recall_core ~db ~query ~limit =
+  let sql =
+    "SELECT cm.key, cm.content, cm.category FROM core_memories cm JOIN \
+     core_memories_fts f ON cm.rowid = f.rowid WHERE core_memories_fts MATCH ? \
+     ORDER BY f.rank LIMIT ?"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT query));
+  ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int limit)));
+  let results = ref [] in
+  while Sqlite3.step stmt = Sqlite3.Rc.ROW do
+    let key =
+      match Sqlite3.column stmt 0 with Sqlite3.Data.TEXT s -> s | _ -> ""
+    in
+    let content =
+      match Sqlite3.column stmt 1 with Sqlite3.Data.TEXT s -> s | _ -> ""
+    in
+    let category =
+      match Sqlite3.column stmt 2 with
+      | Sqlite3.Data.TEXT s -> s
+      | _ -> "general"
+    in
+    results := (key, content, category) :: !results
+  done;
+  ignore (Sqlite3.finalize stmt);
+  List.rev !results
+
+let forget_core ~db ~key =
+  let sql = "DELETE FROM core_memories WHERE key = ?" in
+  let stmt = Sqlite3.prepare db sql in
+  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT key));
+  let rc = Sqlite3.step stmt in
+  ignore (Sqlite3.finalize stmt);
+  match rc with Sqlite3.Rc.DONE -> Sqlite3.changes db > 0 | _ -> false
+
+let list_core ~db ?(category = "") () =
+  let sql, has_category =
+    if category = "" then
+      ( "SELECT key, content, category FROM core_memories ORDER BY updated_at \
+         DESC",
+        false )
+    else
+      ( "SELECT key, content, category FROM core_memories WHERE category = ? \
+         ORDER BY updated_at DESC",
+        true )
+  in
+  let stmt = Sqlite3.prepare db sql in
+  if has_category then ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT category));
+  let results = ref [] in
+  while Sqlite3.step stmt = Sqlite3.Rc.ROW do
+    let key =
+      match Sqlite3.column stmt 0 with Sqlite3.Data.TEXT s -> s | _ -> ""
+    in
+    let content =
+      match Sqlite3.column stmt 1 with Sqlite3.Data.TEXT s -> s | _ -> ""
+    in
+    let cat =
+      match Sqlite3.column stmt 2 with
+      | Sqlite3.Data.TEXT s -> s
+      | _ -> "general"
+    in
+    results := (key, content, cat) :: !results
+  done;
+  ignore (Sqlite3.finalize stmt);
+  List.rev !results
+
+let count_core ~db =
+  let sql = "SELECT COUNT(*) FROM core_memories" in
+  let stmt = Sqlite3.prepare db sql in
+  let count =
+    if Sqlite3.step stmt = Sqlite3.Rc.ROW then
+      match Sqlite3.column stmt 0 with
+      | Sqlite3.Data.INT n -> Int64.to_int n
+      | _ -> 0
+    else 0
+  in
+  ignore (Sqlite3.finalize stmt);
+  count
+
+let export_snapshot ~db ~path =
+  let memories = list_core ~db () in
+  let json =
+    `Assoc
+      [
+        ("version", `Int 1);
+        ( "memories",
+          `List
+            (List.map
+               (fun (key, content, category) ->
+                 `Assoc
+                   [
+                     ("key", `String key);
+                     ("content", `String content);
+                     ("category", `String category);
+                   ])
+               memories) );
+      ]
+  in
+  let oc = open_out path in
+  output_string oc (Yojson.Safe.to_string json);
+  close_out oc
+
+let import_snapshot ~db ~path =
+  let ic = open_in path in
+  let content = really_input_string ic (in_channel_length ic) in
+  close_in ic;
+  let json = Yojson.Safe.from_string content in
+  let open Yojson.Safe.Util in
+  let memories = json |> member "memories" |> to_list in
+  List.iter
+    (fun m ->
+      let key = m |> member "key" |> to_string in
+      let content = m |> member "content" |> to_string in
+      let category =
+        try m |> member "category" |> to_string with _ -> "general"
+      in
+      store_core ~db ~key ~content ~category ())
+    memories
 
 let search ~db ~query ?session_key ~limit () =
   let sql, has_session =

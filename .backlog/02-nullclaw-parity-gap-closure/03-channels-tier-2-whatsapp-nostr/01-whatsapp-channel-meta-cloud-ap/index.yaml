@@ -12,7 +12,8 @@ tasks:
       file: T001-add-get-whatsapp-webhook-verif.todo
       id: T001
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Add GET /whatsapp/webhook (verify token handshake) and POST /whatsapp/webhook (inbound JSON parse) to http_server.ml
     - complexity: medium
       depends_on: []

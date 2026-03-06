@@ -346,7 +346,18 @@ let inject_search_context agent ~db ~user_message =
               ~vector_weight:agent.config.memory.vector_weight
         in
         let top = List.filteri (fun i _ -> i < 3) merged in
-        match top with
+        (* Core memories: always include for awareness *)
+        let core_items =
+          let all = Memory.list_core ~db () in
+          List.filteri (fun i _ -> i < 10) all
+        in
+        let core_strings =
+          List.map
+            (fun (key, content, category) ->
+              Printf.sprintf "[core:%s/%s] %s" category key content)
+            core_items
+        in
+        match top @ core_strings with
         | [] -> Lwt.return_unit
         | parts ->
             let context_msg =

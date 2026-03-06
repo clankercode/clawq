@@ -4,7 +4,7 @@ estimate_hours: 24
 id: P2.M2.E4
 locked: false
 name: Email Channel
-status: pending
+status: done
 tasks:
     - complexity: high
       depends_on: []
@@ -57,5 +57,6 @@ tasks:
       file: T006-add-email-config-to-runtime-co.todo
       id: T006
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Add email_config to runtime_config; parse channels.email; wire poll loop into daemon.ml

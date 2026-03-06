@@ -16,12 +16,14 @@ tasks:
       tags: []
       title: 'Implement pairing.ml: code gen, brute-force lockout, token hashing, pair_result type'
     - complexity: medium
-      depends_on: []
-      estimate_hours: 3
+      depends_on:
+        - P2.M1.E2.T001
+      estimate_hours: 4
       file: T002-add-pair-pair-regenerate-pair.todo
       id: T002
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Add /pair, /pair/regenerate, /pair/status HTTP endpoints in http_server.ml
     - complexity: medium
       depends_on: []

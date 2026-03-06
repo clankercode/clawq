@@ -43,7 +43,8 @@ let chunk_text ?(max_bytes = 1600) text =
     in
     go 0 []
 
-let send_jsonrpc ~(cfg : Runtime_config.signal_config) ~recipient ~text =
+let send_jsonrpc ~(cfg : Runtime_config.signal_config) ~recipient ~group_id_opt
+    ~text =
   let open Lwt.Syntax in
   let uri = cfg.base_url ^ "/api/v1/rpc" in
   let chunks = chunk_text ~max_bytes:cfg.max_chunk_bytes text in
@@ -52,19 +53,23 @@ let send_jsonrpc ~(cfg : Runtime_config.signal_config) ~recipient ~text =
     (fun chunk ->
       let id = !id_ref in
       incr id_ref;
+      let recipient_params =
+        match group_id_opt with
+        | Some gid -> [ ("groupId", `String gid) ]
+        | None -> [ ("recipients", `List [ `String recipient ]) ]
+      in
       let body =
         `Assoc
           [
             ("jsonrpc", `String "2.0");
-            ("method", `String "send");
+            ("method", `String "sendMessage");
             ("id", `Int id);
             ( "params",
               `Assoc
-                [
-                  ("account", `String cfg.account);
-                  ("message", `Assoc [ ("messageBody", `String chunk) ]);
-                  ("recipients", `List [ `String recipient ]);
-                ] );
+                ([
+                   ("account", `String cfg.account); ("message", `String chunk);
+                 ]
+                @ recipient_params) );
           ]
         |> Yojson.Safe.to_string
       in
@@ -72,33 +77,36 @@ let send_jsonrpc ~(cfg : Runtime_config.signal_config) ~recipient ~text =
       Lwt.return_unit)
     chunks
 
-let send_rest ~(cfg : Runtime_config.signal_config) ~recipient ~text =
+let send_rest ~(cfg : Runtime_config.signal_config) ~recipient ~group_id_opt
+    ~text =
   let open Lwt.Syntax in
   let uri = cfg.base_url ^ "/v2/send" in
   let chunks = chunk_text ~max_bytes:cfg.max_chunk_bytes text in
   Lwt_list.iter_s
     (fun chunk ->
+      let recipient_fields =
+        match group_id_opt with
+        | Some gid -> [ ("groupId", `String gid) ]
+        | None -> [ ("recipients", `List [ `String recipient ]) ]
+      in
       let body =
         `Assoc
-          [
-            ("message", `String chunk);
-            ("number", `String cfg.account);
-            ("recipients", `List [ `String recipient ]);
-          ]
+          ([ ("message", `String chunk); ("number", `String cfg.account) ]
+          @ recipient_fields)
         |> Yojson.Safe.to_string
       in
       let* _status, _body = Http_client.post_json ~uri ~headers:[] ~body in
       Lwt.return_unit)
     chunks
 
-let send ~(cfg : Runtime_config.signal_config) ~recipient ~text =
-  if cfg.api_mode = "rest" then send_rest ~cfg ~recipient ~text
-  else send_jsonrpc ~cfg ~recipient ~text
+let send ~(cfg : Runtime_config.signal_config) ~recipient ~group_id_opt ~text =
+  if cfg.api_mode = "rest" then send_rest ~cfg ~recipient ~group_id_opt ~text
+  else send_jsonrpc ~cfg ~recipient ~group_id_opt ~text
 
 let is_allowed ~(cfg : Runtime_config.signal_config) ~from =
   match cfg.allow_from with [] -> true | senders -> List.mem from senders
 
-(* Parse a single JSON-RPC event line and extract (from, message) *)
+(* Parse a single JSON-RPC event line and extract (from, group_id_opt, message) *)
 let parse_jsonrpc_event line =
   try
     let json = Yojson.Safe.from_string line in
@@ -107,12 +115,19 @@ let parse_jsonrpc_event line =
     if method_ <> "receive" then None
     else
       let params = json |> member "params" in
-      let from_ = params |> member "envelope" |> member "source" |> to_string in
-      let msg_text =
-        params |> member "envelope" |> member "message" |> member "message"
-        |> to_string
+      let envelope = params |> member "envelope" in
+      let from_ = envelope |> member "source" |> to_string in
+      let data_msg = envelope |> member "dataMessage" in
+      let msg_text = data_msg |> member "message" |> to_string in
+      let group_id_opt =
+        try
+          let gid =
+            data_msg |> member "groupInfo" |> member "groupId" |> to_string
+          in
+          if gid = "" then None else Some gid
+        with _ -> None
       in
-      Some (from_, msg_text)
+      Some (from_, group_id_opt, msg_text)
   with _ -> None
 
 (* Parse a REST receive response and extract messages *)
@@ -126,10 +141,20 @@ let parse_rest_messages body =
         try
           let envelope = item |> member "envelope" in
           let from_ = envelope |> member "source" |> to_string in
-          let msg_text =
-            envelope |> member "dataMessage" |> member "message" |> to_string
-          in
-          if msg_text = "" then None else Some (from_, msg_text)
+          let data_msg = envelope |> member "dataMessage" in
+          let msg_text = data_msg |> member "body" |> to_string in
+          if msg_text = "" then None
+          else
+            let group_id_opt =
+              try
+                let gid =
+                  data_msg |> member "groupInfo" |> member "groupId"
+                  |> to_string
+                in
+                if gid = "" then None else Some gid
+              with _ -> None
+            in
+            Some (from_, group_id_opt, msg_text)
         with _ -> None)
       items
   with _ -> []
@@ -156,9 +181,9 @@ let receive_loop_jsonrpc ~(cfg : Runtime_config.signal_config) ~on_message () =
                   else
                     match parse_jsonrpc_event line with
                     | None -> Lwt.return_unit
-                    | Some (from_, text) ->
+                    | Some (from_, group_id_opt, text) ->
                         if is_allowed ~cfg ~from:from_ then
-                          on_message ~from:from_ ~text
+                          on_message ~from:from_ ~group_id_opt ~text
                         else begin
                           Logs.debug (fun m ->
                               m
@@ -205,9 +230,9 @@ let receive_loop_rest ~(cfg : Runtime_config.signal_config) ~on_message () =
             let messages = parse_rest_messages body in
             let* () =
               Lwt_list.iter_s
-                (fun (from_, text) ->
+                (fun (from_, group_id_opt, text) ->
                   if is_allowed ~cfg ~from:from_ then
-                    on_message ~from:from_ ~text
+                    on_message ~from:from_ ~group_id_opt ~text
                   else begin
                     Logs.debug (fun m ->
                         m "Signal: ignoring message from %s (not in allow_from)"
@@ -251,28 +276,36 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
         Logs.info (fun m ->
             m "Signal: starting channel (mode=%s account=%s)" cfg.api_mode
               cfg.account);
-        let on_message ~from ~text =
+        let on_message ~from ~group_id_opt ~text =
           let open Lwt.Syntax in
           Logs.info (fun m ->
               m "Signal: message from %s: %s" from
                 (if String.length text > 80 then String.sub text 0 80 ^ "..."
                  else text));
-          let key = "signal:" ^ from in
+          let key =
+            match group_id_opt with
+            | Some gid -> "signal:" ^ cfg.account ^ ":group:" ^ gid
+            | None -> "signal:" ^ cfg.account ^ ":" ^ from
+          in
+          let channel_type =
+            match group_id_opt with Some _ -> "group" | None -> "dm"
+          in
           let* result =
             Lwt.catch
               (fun () ->
                 let* response =
                   Session.turn session_manager ~key ~message:text
-                    ~channel_name:"signal" ~channel_type:"dm" ~sender_id:from ()
+                    ~channel_name:"signal" ~channel_type ~sender_id:from ()
                 in
                 Lwt.return (Ok response))
               (fun exn -> Lwt.return (Error (Printexc.to_string exn)))
           in
           match result with
-          | Ok response -> send ~cfg ~recipient:from ~text:response
+          | Ok response ->
+              send ~cfg ~recipient:from ~group_id_opt ~text:response
           | Error err ->
               Logs.err (fun m -> m "Signal: agent error for %s: %s" from err);
-              send ~cfg ~recipient:from
+              send ~cfg ~recipient:from ~group_id_opt
                 ~text:"Sorry, an error occurred processing your message."
         in
         if cfg.api_mode = "rest" then receive_loop_rest ~cfg ~on_message ()

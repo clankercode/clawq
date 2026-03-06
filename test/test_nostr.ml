@@ -30,15 +30,15 @@ let test_is_allowed_no_match () =
 (* --- parse_event_line tests --- *)
 
 let test_parse_event_valid () =
-  let line = {|{"id":"evt1","pubkey":"pub1","content":"hello"}|} in
+  let line = {|{"id":"evt1","pubkey":"pub1","kind":4,"content":"hello"}|} in
   match Nostr.parse_event_line line with
-  | Some (id, _sender, text) ->
+  | Some (id, _sender, text, _protocol) ->
       Alcotest.(check string) "id" "evt1" id;
       Alcotest.(check string) "text" "hello" text
   | None -> Alcotest.fail "expected Some"
 
 let test_parse_event_empty_content () =
-  let line = {|{"id":"evt2","pubkey":"pub1","content":""}|} in
+  let line = {|{"id":"evt2","pubkey":"pub1","kind":4,"content":""}|} in
   match Nostr.parse_event_line line with
   | None -> ()
   | Some _ -> Alcotest.fail "expected None for empty content"
@@ -54,19 +54,24 @@ let test_parse_event_empty () =
   | Some _ -> Alcotest.fail "expected None for empty"
 
 let test_parse_event_nested_rumor () =
-  (* When content is a JSON rumor with pubkey and content *)
+  (* NIP-17 gift-wrap (kind=1059): inner content is a JSON rumor with pubkey and content *)
   let inner =
     Yojson.Safe.to_string
       (`Assoc
-         [ ("pubkey", `String "real-sender"); ("content", `String "inner msg") ])
+         [
+           ("pubkey", `String "real-sender");
+           ("id", `String "inner-id");
+           ("content", `String "inner msg");
+         ])
   in
   let line =
-    Printf.sprintf {|{"id":"evt3","pubkey":"ephemeral","content":%s}|}
+    Printf.sprintf
+      {|{"id":"evt3","kind":1059,"pubkey":"ephemeral","content":%s}|}
       (Yojson.Safe.to_string (`String inner))
   in
   match Nostr.parse_event_line line with
-  | Some (id, sender, text) ->
-      Alcotest.(check string) "id" "evt3" id;
+  | Some (id, sender, text, _protocol) ->
+      Alcotest.(check string) "id" "inner-id" id;
       Alcotest.(check string) "sender" "real-sender" sender;
       Alcotest.(check string) "text" "inner msg" text
   | None -> Alcotest.fail "expected Some"

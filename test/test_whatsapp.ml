@@ -36,7 +36,7 @@ let test_parse_inbound_valid () =
   in
   let msgs = Whatsapp.parse_inbound_messages body in
   Alcotest.(check int) "1 message" 1 (List.length msgs);
-  let _id, from, text = List.hd msgs in
+  let _id, from, _group_jid, text = List.hd msgs in
   Alcotest.(check string) "from" "+1234" from;
   Alcotest.(check string) "text" "hello" text
 

@@ -1,10 +1,12 @@
 ---
+completed_at: null
 complexity: low
 depends_on: []
 estimate_hours: 2
 id: P2.M2.E4.T006
 priority: high
-status: pending
+started_at: null
+status: done
 tags: []
 title: Add email_config to runtime_config; parse channels.email; wire poll loop into daemon.ml
 ---

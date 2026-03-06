@@ -1,22 +1,79 @@
 let json_headers =
   Cohttp.Header.of_list [ ("Content-Type", "application/json") ]
 
-let auth_ok ~auth_token req =
-  match auth_token with
-  | None -> true
-  | Some token ->
-      let headers = Cohttp.Request.headers req in
-      let bearer =
-        match Cohttp.Header.get headers "authorization" with
-        | Some v -> Eqaf.equal (String.trim v) ("Bearer " ^ token)
-        | None -> false
-      in
-      let api_key =
-        match Cohttp.Header.get headers "x-api-key" with
-        | Some v -> Eqaf.equal (String.trim v) token
-        | None -> false
-      in
-      bearer || api_key
+let extract_bearer req =
+  let headers = Cohttp.Request.headers req in
+  match Cohttp.Header.get headers "authorization" with
+  | Some v ->
+      let v = String.trim v in
+      let prefix = "Bearer " in
+      let plen = String.length prefix in
+      if String.length v > plen && String.sub v 0 plen = prefix then
+        Some (String.sub v plen (String.length v - plen))
+      else None
+  | None -> None
+
+let auth_ok ~auth_token ?pairing req =
+  let headers = Cohttp.Request.headers req in
+  let paired_ok =
+    match pairing with
+    | None -> false
+    | Some p -> (
+        match extract_bearer req with
+        | Some tok -> Pairing.is_valid_token p ~token:tok
+        | None -> (
+            match Cohttp.Header.get headers "x-api-key" with
+            | Some v -> Pairing.is_valid_token p ~token:(String.trim v)
+            | None -> false))
+  in
+  if paired_ok then true
+  else
+    match auth_token with
+    | None -> true
+    | Some token ->
+        let bearer =
+          match Cohttp.Header.get headers "authorization" with
+          | Some v -> Eqaf.equal (String.trim v) ("Bearer " ^ token)
+          | None -> false
+        in
+        let api_key =
+          match Cohttp.Header.get headers "x-api-key" with
+          | Some v -> Eqaf.equal (String.trim v) token
+          | None -> false
+        in
+        bearer || api_key
+
+(* Stricter auth check for endpoints that require pairing or a static token.
+   Unlike auth_ok, does not allow anonymous access when auth_token is None. *)
+let pairing_auth_ok ~auth_token ?pairing req =
+  let headers = Cohttp.Request.headers req in
+  let paired_ok =
+    match pairing with
+    | None -> false
+    | Some p -> (
+        match extract_bearer req with
+        | Some tok -> Pairing.is_valid_token p ~token:tok
+        | None -> (
+            match Cohttp.Header.get headers "x-api-key" with
+            | Some v -> Pairing.is_valid_token p ~token:(String.trim v)
+            | None -> false))
+  in
+  if paired_ok then true
+  else
+    match auth_token with
+    | None -> false
+    | Some token ->
+        let bearer =
+          match Cohttp.Header.get headers "authorization" with
+          | Some v -> Eqaf.equal (String.trim v) ("Bearer " ^ token)
+          | None -> false
+        in
+        let api_key =
+          match Cohttp.Header.get headers "x-api-key" with
+          | Some v -> Eqaf.equal (String.trim v) token
+          | None -> false
+        in
+        bearer || api_key
 
 let client_ip req =
   let headers = Cohttp.Request.headers req in
@@ -65,14 +122,15 @@ let handler ~session_manager ~require_pairing ~auth_token ?slack_config
       if not ip_ok then
         let* _ = Cohttp_lwt.Body.drain_body body in
         rate_limit_response ()
-      else if require_pairing then
+      else if require_pairing && not (pairing_auth_ok ~auth_token ?pairing req)
+      then
         let* _ = Cohttp_lwt.Body.drain_body body in
         Cohttp_lwt_unix.Server.respond_string ~status:`Forbidden
           ~headers:json_headers
           ~body:
-            {|{"error":"pairing required; web chat is disabled until pairing flow is enabled"}|}
+            {|{"error":"pairing required; use a valid paired token to access this endpoint"}|}
           ()
-      else if not (auth_ok ~auth_token req) then
+      else if not (auth_ok ~auth_token ?pairing req) then
         let* _ = Cohttp_lwt.Body.drain_body body in
         Cohttp_lwt_unix.Server.respond_string ~status:`Unauthorized
           ~headers:json_headers ~body:{|{"error":"unauthorized"}|} ()
@@ -148,14 +206,15 @@ let handler ~session_manager ~require_pairing ~auth_token ?slack_config
       if not ip_ok then
         let* _ = Cohttp_lwt.Body.drain_body body in
         rate_limit_response ()
-      else if require_pairing then
+      else if require_pairing && not (pairing_auth_ok ~auth_token ?pairing req)
+      then
         let* _ = Cohttp_lwt.Body.drain_body body in
         Cohttp_lwt_unix.Server.respond_string ~status:`Forbidden
           ~headers:json_headers
           ~body:
-            {|{"error":"pairing required; web chat is disabled until pairing flow is enabled"}|}
+            {|{"error":"pairing required; use a valid paired token to access this endpoint"}|}
           ()
-      else if not (auth_ok ~auth_token req) then
+      else if not (auth_ok ~auth_token ?pairing req) then
         let* _ = Cohttp_lwt.Body.drain_body body in
         Cohttp_lwt_unix.Server.respond_string ~status:`Unauthorized
           ~headers:json_headers ~body:{|{"error":"unauthorized"}|} ()
@@ -465,7 +524,7 @@ let handler ~session_manager ~require_pairing ~auth_token ?slack_config
           Cohttp_lwt_unix.Server.respond_string ~status:`Not_found
             ~headers:json_headers ~body:{|{"error":"not configured"}|} ()
       | Some p ->
-          if not (auth_ok ~auth_token req) then
+          if not (auth_ok ~auth_token ?pairing req) then
             Cohttp_lwt_unix.Server.respond_string ~status:`Unauthorized
               ~headers:json_headers ~body:{|{"error":"unauthorized"}|} ()
           else begin

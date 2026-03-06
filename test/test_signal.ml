@@ -42,10 +42,10 @@ let test_chunk_newline_break () =
 
 let test_parse_jsonrpc_receive () =
   let line =
-    {|{"method":"receive","params":{"envelope":{"source":"+1234","message":{"message":"hello"}}}}|}
+    {|{"method":"receive","params":{"envelope":{"source":"+1234","dataMessage":{"message":"hello"}}}}|}
   in
   match Signal.parse_jsonrpc_event line with
-  | Some (from, msg) ->
+  | Some (from, _group_id_opt, msg) ->
       Alcotest.(check string) "from" "+1234" from;
       Alcotest.(check string) "msg" "hello" msg
   | None -> Alcotest.fail "expected Some"
@@ -70,11 +70,11 @@ let test_parse_jsonrpc_empty () =
 
 let test_parse_rest_messages_valid () =
   let body =
-    {|[{"envelope":{"source":"+5678","dataMessage":{"message":"world"}}}]|}
+    {|[{"envelope":{"source":"+5678","dataMessage":{"body":"world"}}}]|}
   in
   let msgs = Signal.parse_rest_messages body in
   Alcotest.(check int) "1 message" 1 (List.length msgs);
-  let from, text = List.hd msgs in
+  let from, _group_id_opt, text = List.hd msgs in
   Alcotest.(check string) "from" "+5678" from;
   Alcotest.(check string) "text" "world" text
 

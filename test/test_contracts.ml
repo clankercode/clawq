@@ -76,6 +76,7 @@ let test_shell_exec_schema () =
   let tool =
     Tools_builtin.shell_exec ~workspace:"/tmp" ~workspace_only:true
       ~allowed_commands:[ "ls" ] ~extra_allowed_paths:[]
+      ~sandbox:{ Sandbox.backend = Sandbox.None; workspace = "/tmp" }
   in
   validate_tool_schema tool
 
@@ -97,6 +98,7 @@ let test_shell_exec_has_command_param () =
   let tool =
     Tools_builtin.shell_exec ~workspace:"/tmp" ~workspace_only:true
       ~allowed_commands:[ "ls" ] ~extra_allowed_paths:[]
+      ~sandbox:{ Sandbox.backend = Sandbox.None; workspace = "/tmp" }
   in
   let open Yojson.Safe.Util in
   match tool.parameters_schema with
@@ -131,6 +133,7 @@ let test_shell_exec_required_fields () =
   let tool =
     Tools_builtin.shell_exec ~workspace:"/tmp" ~workspace_only:true
       ~allowed_commands:[ "ls" ] ~extra_allowed_paths:[]
+      ~sandbox:{ Sandbox.backend = Sandbox.None; workspace = "/tmp" }
   in
   let open Yojson.Safe.Util in
   match tool.parameters_schema with
@@ -149,6 +152,7 @@ let test_tool_registry_register_and_find () =
   let tool =
     Tools_builtin.shell_exec ~workspace:"/tmp" ~workspace_only:true
       ~allowed_commands:[ "ls" ] ~extra_allowed_paths:[]
+      ~sandbox:{ Sandbox.backend = Sandbox.None; workspace = "/tmp" }
   in
   Tool_registry.register registry tool;
   match Tool_registry.find registry "shell_exec" with
@@ -161,6 +165,7 @@ let test_tool_registry_list () =
   let t1 =
     Tools_builtin.shell_exec ~workspace:"/tmp" ~workspace_only:true
       ~allowed_commands:[] ~extra_allowed_paths:[]
+      ~sandbox:{ Sandbox.backend = Sandbox.None; workspace = "/tmp" }
   in
   let t2 =
     Tools_builtin.file_read ~workspace:"/tmp" ~workspace_only:true
@@ -181,6 +186,7 @@ let test_tool_openai_json_format () =
   let tool =
     Tools_builtin.shell_exec ~workspace:"/tmp" ~workspace_only:true
       ~allowed_commands:[ "ls" ] ~extra_allowed_paths:[]
+      ~sandbox:{ Sandbox.backend = Sandbox.None; workspace = "/tmp" }
   in
   Tool_registry.register registry tool;
   let json = Tool_registry.to_openai_json registry in
@@ -199,6 +205,7 @@ let test_tool_risk_levels () =
   let high_tool =
     Tools_builtin.shell_exec ~workspace:"/tmp" ~workspace_only:true
       ~allowed_commands:[] ~extra_allowed_paths:[]
+      ~sandbox:{ Sandbox.backend = Sandbox.None; workspace = "/tmp" }
   in
   Alcotest.(check bool)
     "shell_exec is High risk" true

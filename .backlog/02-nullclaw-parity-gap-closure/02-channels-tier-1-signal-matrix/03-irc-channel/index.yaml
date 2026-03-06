@@ -4,7 +4,7 @@ estimate_hours: 16
 id: P2.M2.E3
 locked: false
 name: IRC Channel
-status: pending
+status: done
 tasks:
     - complexity: medium
       depends_on: []
@@ -48,5 +48,6 @@ tasks:
       file: T005-add-irc-config-to-runtime-conf.todo
       id: T005
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Add irc_config to runtime_config; parse channels.irc; wire into daemon.ml

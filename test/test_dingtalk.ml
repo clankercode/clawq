@@ -60,9 +60,9 @@ let test_parse_stream_valid () =
       {|{"conversationId":"conv1","senderId":"sender1","text":{"content":"hello"}}|}
   in
   match
-    Dingtalk.parse_stream_message ~event_type:"im_message_receive_v1" data
+    Dingtalk.parse_stream_message ~event_type:"im.message.receive_v1" data
   with
-  | Some (conv_id, sender_id, content) ->
+  | Some (conv_id, sender_id, content, _conversation_type) ->
       Alcotest.(check string) "conv_id" "conv1" conv_id;
       Alcotest.(check string) "sender_id" "sender1" sender_id;
       Alcotest.(check string) "content" "hello" content
@@ -80,14 +80,14 @@ let test_parse_stream_empty_content () =
       {|{"conversationId":"conv1","senderId":"sender1","text":{"content":""}}|}
   in
   match
-    Dingtalk.parse_stream_message ~event_type:"im_message_receive_v1" data
+    Dingtalk.parse_stream_message ~event_type:"im.message.receive_v1" data
   with
   | None -> ()
   | Some _ -> Alcotest.fail "expected None for empty content"
 
 let test_parse_stream_invalid () =
   match
-    Dingtalk.parse_stream_message ~event_type:"im_message_receive_v1" `Null
+    Dingtalk.parse_stream_message ~event_type:"im.message.receive_v1" `Null
   with
   | None -> ()
   | Some _ -> Alcotest.fail "expected None"

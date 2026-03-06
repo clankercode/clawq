@@ -677,7 +677,20 @@ let parse_config ?(resolve_secrets = true) json =
           if String.trim v = "" then None else Some v
         with _ -> default.gateway.auth_token
       in
-      ({ host; port; require_pairing; auth_token }
+      let max_pair_attempts =
+        try gw |> member "max_pair_attempts" |> to_int with _ -> 5
+      in
+      let pair_lockout_seconds =
+        try gw |> member "pair_lockout_seconds" |> to_int with _ -> 300
+      in
+      ({
+         host;
+         port;
+         require_pairing;
+         auth_token;
+         max_pair_attempts;
+         pair_lockout_seconds;
+       }
         : Runtime_config.gateway_config)
     with _ -> default.gateway
   in
@@ -893,6 +906,9 @@ let parse_config ?(resolve_secrets = true) json =
         try s |> member "extra_allowed_paths" |> to_list |> List.map to_string
         with _ -> default.security.extra_allowed_paths
       in
+      let sandbox_backend =
+        try s |> member "sandbox_backend" |> to_string with _ -> "auto"
+      in
       ({
          workspace_only;
          audit_enabled;
@@ -904,6 +920,7 @@ let parse_config ?(resolve_secrets = true) json =
          landlock_enabled;
          landlock_extra_read_paths;
          extra_allowed_paths;
+         sandbox_backend;
        }
         : Runtime_config.security_config)
     with _ -> default.security

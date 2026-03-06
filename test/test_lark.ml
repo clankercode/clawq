@@ -79,7 +79,7 @@ let test_parse_message_valid () =
       {|{"header":{"event_id":"evt1"},"event":{"message":{"chat_id":"chat1","content":"{\"text\":\"hello\"}"},"sender":{"sender_id":{"open_id":"user1"}}}}|}
   in
   match Lark.parse_message_event json with
-  | Some (event_id, chat_id, user_id, text) ->
+  | Some (event_id, chat_id, user_id, _chat_type, text) ->
       Alcotest.(check string) "event_id" "evt1" event_id;
       Alcotest.(check string) "chat_id" "chat1" chat_id;
       Alcotest.(check string) "user_id" "user1" user_id;

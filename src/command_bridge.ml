@@ -330,10 +330,104 @@ let cmd_channel () =
            (String.concat ", " s.allow_users)));
   List.rev !lines |> String.concat "\n"
 
-let cmd_memory () =
+let get_db () =
   let cfg = get_config () in
-  Printf.sprintf "Memory backend: %s\nSearch enabled: %b" cfg.memory.backend
-    cfg.memory.search_enabled
+  let db_path =
+    if cfg.memory.db_path <> "" then cfg.memory.db_path
+    else
+      let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
+      Filename.concat (Filename.concat home ".clawq") "memory.db"
+  in
+  let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
+  let clawq_dir = Filename.concat home ".clawq" in
+  (try if not (Sys.file_exists clawq_dir) then Sys.mkdir clawq_dir 0o755
+   with _ -> ());
+  Memory.init ~db_path ~search_enabled:cfg.memory.search_enabled ()
+
+let cmd_memory args =
+  let cfg = get_config () in
+  let base_status () =
+    Printf.sprintf "Memory backend: %s\nSearch enabled: %b" cfg.memory.backend
+      cfg.memory.search_enabled
+  in
+  match args with
+  | [] | [ "status" ] ->
+      let db = get_db () in
+      let count = Memory.count_core ~db in
+      base_status () ^ Printf.sprintf "\nCore memories: %d" count
+  | [ "stats" ] ->
+      let db = get_db () in
+      let count = Memory.count_core ~db in
+      base_status () ^ Printf.sprintf "\nCore memories: %d" count
+  | "export" :: rest -> (
+      let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
+      let path =
+        match rest with
+        | [ p ] -> p
+        | _ ->
+            Filename.concat
+              (Filename.concat home ".clawq")
+              "memory_snapshot.json"
+      in
+      let db = get_db () in
+      try
+        Memory.export_snapshot ~db ~path;
+        Printf.sprintf "Exported core memories to %s" path
+      with exn -> "Error: " ^ Printexc.to_string exn)
+  | "import" :: [ path ] -> (
+      if not (Sys.file_exists path) then
+        Printf.sprintf "File not found: %s" path
+      else
+        let db = get_db () in
+        try
+          Memory.import_snapshot ~db ~path;
+          Printf.sprintf "Imported core memories from %s" path
+        with exn -> "Error: " ^ Printexc.to_string exn)
+  | "import" :: _ -> "Usage: clawq memory import <path>"
+  | "list" :: rest ->
+      let category =
+        match rest with
+        | [ "--category"; cat ] -> cat
+        | [ cat ] when not (String.length cat > 0 && cat.[0] = '-') -> cat
+        | _ -> ""
+      in
+      let db = get_db () in
+      let results = Memory.list_core ~db ~category () in
+      if results = [] then "No core memories found"
+      else
+        let lines =
+          List.map
+            (fun (key, content, cat) ->
+              Printf.sprintf "[%s] (%s): %s" key cat content)
+            results
+        in
+        String.concat "\n" lines
+  | "store" :: key :: content :: rest -> (
+      let category =
+        match rest with [ "--category"; cat ] -> cat | _ -> "general"
+      in
+      let db = get_db () in
+      try
+        Memory.store_core ~db ~key ~content ~category ();
+        Printf.sprintf "Stored memory: %s" key
+      with exn -> "Error: " ^ Printexc.to_string exn)
+  | "store" :: _ ->
+      "Usage: clawq memory store <key> <content> [--category <category>]"
+  | "forget" :: [ key ] ->
+      let db = get_db () in
+      let deleted = Memory.forget_core ~db ~key in
+      if deleted then Printf.sprintf "Deleted memory: %s" key
+      else Printf.sprintf "No memory found with key: %s" key
+  | "forget" :: _ -> "Usage: clawq memory forget <key>"
+  | _ ->
+      "Usage: clawq memory <subcommand>\n\
+      \  memory status                                    - Show memory status\n\
+      \  memory stats                                     - Alias for status\n\
+      \  memory list [--category <cat>]                   - List core memories\n\
+      \  memory store <key> <content> [--category <cat>]  - Store a memory\n\
+      \  memory forget <key>                              - Delete a memory\n\
+      \  memory export [path]                             - Export to JSON\n\
+      \  memory import <path>                             - Import from JSON"
 
 let cmd_workspace () = Printf.sprintf "Workspace: %s" (Sys.getcwd ())
 
@@ -370,7 +464,9 @@ let cmd_capabilities () =
   (* Tools *)
   if cfg.security.tools_enabled then begin
     let registry = Tool_registry.create () in
-    Tools_builtin.register_all ~config:cfg registry;
+    let ws = Runtime_config.effective_workspace cfg in
+    let sandbox = Sandbox.create ~workspace:ws () in
+    Tools_builtin.register_all ~config:cfg ~sandbox registry;
     let skills =
       Skills.load_all ~workspace_only:cfg.security.workspace_only
         ~allowed_commands:Tools_builtin.default_shell_allowlist ()
@@ -451,6 +547,70 @@ let cmd_auth args =
                           (Printexc.to_string exn)))
             end
       end
+  | "pair" :: rest -> (
+      let cfg = get_config () in
+      let host = cfg.gateway.host in
+      let port = cfg.gateway.port in
+      let code =
+        match rest with
+        | c :: _ -> c
+        | [] ->
+            print_string "Enter OTP pairing code: ";
+            flush stdout;
+            input_line stdin
+      in
+      let url = Printf.sprintf "http://%s:%d/pair" host port in
+      let body = `Assoc [ ("code", `String code) ] |> Yojson.Safe.to_string in
+      let result =
+        Lwt_main.run
+          (Lwt.catch
+             (fun () ->
+               let open Lwt.Syntax in
+               let* _status, resp_body =
+                 Http_client.post_json ~uri:url ~headers:[] ~body
+               in
+               Lwt.return (Ok resp_body))
+             (fun exn -> Lwt.return (Error (Printexc.to_string exn))))
+      in
+      match result with
+      | Error msg -> Printf.sprintf "Pairing request failed: %s" msg
+      | Ok resp_body -> (
+          try
+            let json = Yojson.Safe.from_string resp_body in
+            let open Yojson.Safe.Util in
+            match json |> member "token" with
+            | `String token ->
+                let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
+                let clawq_dir = Filename.concat home ".clawq" in
+                (try
+                   if not (Sys.file_exists clawq_dir) then
+                     Sys.mkdir clawq_dir 0o700
+                 with _ -> ());
+                let token_path = Filename.concat clawq_dir "gateway_token" in
+                (try
+                   let fd =
+                     Unix.openfile token_path
+                       [ Unix.O_WRONLY; Unix.O_CREAT; Unix.O_TRUNC ]
+                       0o600
+                   in
+                   let oc = Unix.out_channel_of_descr fd in
+                   output_string oc token;
+                   close_out oc
+                 with exn ->
+                   raise
+                     (Failure
+                        (Printf.sprintf "Failed to save token: %s"
+                           (Printexc.to_string exn))));
+                Printf.sprintf
+                  "Paired successfully! Token saved to %s\nToken: %s" token_path
+                  token
+            | _ -> (
+                match json |> member "error" with
+                | `String err -> Printf.sprintf "Pairing failed: %s" err
+                | _ -> Printf.sprintf "Unexpected response: %s" resp_body)
+          with exn ->
+            Printf.sprintf "Failed to parse response: %s\nBody: %s"
+              (Printexc.to_string exn) resp_body))
   | _ -> (
       let cfg = get_config () in
       match cfg.providers with
@@ -497,7 +657,9 @@ let cmd_mcp () =
     "MCP server requires security.tools_enabled=true to expose tools."
   else begin
     let registry = Tool_registry.create () in
-    Tools_builtin.register_all ~config:cfg registry;
+    let ws = Runtime_config.effective_workspace cfg in
+    let sandbox = Sandbox.create ~workspace:ws () in
+    Tools_builtin.register_all ~config:cfg ~sandbox registry;
     let skills =
       Skills.load_all ~workspace_only:cfg.security.workspace_only
         ~allowed_commands:Tools_builtin.default_shell_allowlist ()
@@ -522,20 +684,6 @@ let cmd_agent () =
      print_endline ("Error: " ^ msg);
      exit 1);
   "Daemon stopped."
-
-let get_db () =
-  let cfg = get_config () in
-  let db_path =
-    if cfg.memory.db_path <> "" then cfg.memory.db_path
-    else
-      let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
-      Filename.concat (Filename.concat home ".clawq") "memory.db"
-  in
-  let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
-  let clawq_dir = Filename.concat home ".clawq" in
-  (try if not (Sys.file_exists clawq_dir) then Sys.mkdir clawq_dir 0o755
-   with _ -> ());
-  Memory.init ~db_path ~search_enabled:cfg.memory.search_enabled ()
 
 let cmd_cron args =
   match args with
@@ -1017,7 +1165,7 @@ let handle args =
   | "onboard" :: _ -> cmd_onboard ()
   | "models" :: _ -> cmd_models ()
   | "channel" :: _ -> cmd_channel ()
-  | "memory" :: _ -> cmd_memory ()
+  | "memory" :: rest -> cmd_memory rest
   | "workspace" :: _ -> cmd_workspace ()
   | "capabilities" :: _ -> cmd_capabilities ()
   | "auth" :: rest -> cmd_auth rest

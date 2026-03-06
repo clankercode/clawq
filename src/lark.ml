@@ -3,6 +3,55 @@
 let feishu_base = "https://open.feishu.cn/open-apis"
 let lark_base = "https://open.larksuite.com/open-apis"
 
+(* LRU-500 dedup set for event_id *)
+let dedup_set : (string, unit) Hashtbl.t = Hashtbl.create 512
+let dedup_queue : string Queue.t = Queue.create ()
+let dedup_max = 500
+
+let dedup_seen id =
+  if id = "" then false
+  else if Hashtbl.mem dedup_set id then true
+  else begin
+    if Queue.length dedup_queue >= dedup_max then begin
+      let oldest = Queue.pop dedup_queue in
+      Hashtbl.remove dedup_set oldest
+    end;
+    Queue.push id dedup_queue;
+    Hashtbl.add dedup_set id ();
+    false
+  end
+
+(* Strip @_user_N mention placeholders from text *)
+let strip_mention_placeholders text =
+  let buf = Buffer.create (String.length text) in
+  let len = String.length text in
+  let i = ref 0 in
+  while !i < len do
+    if
+      !i + 6 < len
+      && text.[!i] = '@'
+      && text.[!i + 1] = '_'
+      && text.[!i + 2] = 'u'
+      && text.[!i + 3] = 's'
+      && text.[!i + 4] = 'e'
+      && text.[!i + 5] = 'r'
+      && text.[!i + 6] = '_'
+    then begin
+      (* skip @_user_ then digits *)
+      i := !i + 7;
+      while !i < len && text.[!i] >= '0' && text.[!i] <= '9' do
+        i := !i + 1
+      done;
+      (* skip one trailing space if present *)
+      if !i < len && text.[!i] = ' ' then i := !i + 1
+    end
+    else begin
+      Buffer.add_char buf text.[!i];
+      i := !i + 1
+    end
+  done;
+  Buffer.contents buf
+
 let api_base (endpoint : string) =
   if endpoint = "lark" then lark_base else feishu_base
 
@@ -91,23 +140,36 @@ let parse_message_event json =
     let message = event |> member "message" in
     let sender = event |> member "sender" in
     let chat_id = message |> member "chat_id" |> to_string in
+    let chat_type =
+      try message |> member "chat_type" |> to_string with _ -> "p2p"
+    in
     let user_id =
       try sender |> member "sender_id" |> member "open_id" |> to_string
       with _ -> ""
     in
-    let text =
+    let raw_text =
       try
         let content_str = message |> member "content" |> to_string in
         let content = Yojson.Safe.from_string content_str in
         content |> member "text" |> to_string
       with _ -> ""
     in
+    let text = strip_mention_placeholders raw_text in
     let event_id =
       try json |> member "header" |> member "event_id" |> to_string
       with _ -> ""
     in
-    if text = "" || chat_id = "" then None
-    else Some (event_id, chat_id, user_id, text)
+    (* For group chats, only process if bot was @-mentioned *)
+    let mentions_present =
+      if chat_type = "group" then
+        try
+          let mentions = message |> member "mentions" |> to_list in
+          List.length mentions > 0
+        with _ -> false
+      else true
+    in
+    if text = "" || chat_id = "" || not mentions_present then None
+    else Some (event_id, chat_id, user_id, chat_type, text)
   with _ -> None
 
 let handle_webhook_body ~(config : Runtime_config.lark_config)
@@ -129,20 +191,21 @@ let handle_webhook_body ~(config : Runtime_config.lark_config)
     | None -> (
         match parse_message_event json with
         | None -> Lwt.return (`Ok {|{"code":0}|})
-        | Some (_event_id, chat_id, user_id, text) -> (
-            if not (is_allowed ~config ~user_id) then (
+        | Some (event_id, chat_id, user_id, chat_type, text) -> (
+            if dedup_seen event_id then Lwt.return (`Ok {|{"code":0}|})
+            else if not (is_allowed ~config ~user_id) then (
               Logs.warn (fun m ->
                   m "Lark: ignoring message from unauthorized user=%s" user_id);
               Lwt.return (`Ok {|{"code":0}|}))
             else
+              let channel_type = if chat_type = "p2p" then "dm" else "group" in
               let key = "lark:" ^ chat_id ^ ":" ^ user_id in
               let* result =
                 Lwt.catch
                   (fun () ->
                     let* response =
                       Session.turn session_mgr ~key ~message:text
-                        ~channel_name:"lark" ~channel_type:"group"
-                        ~sender_id:user_id ()
+                        ~channel_name:"lark" ~channel_type ~sender_id:user_id ()
                     in
                     Lwt.return (Ok response))
                   (fun exn -> Lwt.return (Error (Printexc.to_string exn)))

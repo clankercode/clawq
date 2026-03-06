@@ -127,7 +127,14 @@ let convert (json : Yojson.Safe.t) =
           if String.trim v = "" then None else Some v
         with _ -> default.gateway.auth_token
       in
-      ({ host; port; require_pairing; auth_token }
+      ({
+         host;
+         port;
+         require_pairing;
+         auth_token;
+         max_pair_attempts = default.gateway.max_pair_attempts;
+         pair_lockout_seconds = default.gateway.pair_lockout_seconds;
+       }
         : Runtime_config.gateway_config)
     with _ -> default.gateway
   in

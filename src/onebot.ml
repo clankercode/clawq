@@ -8,6 +8,43 @@ let is_allowed_group ~(config : Runtime_config.onebot_config) ~group_id =
   | [ "*" ] -> true
   | ids -> List.mem group_id ids
 
+(* Split text into chunks of at most max_bytes bytes, on UTF-8 boundaries *)
+let split_utf8 ~max_bytes text =
+  let len = String.length text in
+  if len <= max_bytes then [ text ]
+  else
+    let chunks = ref [] in
+    let start = ref 0 in
+    let chunk_start = ref 0 in
+    while !start < len do
+      (* Advance one UTF-8 character *)
+      let byte = Char.code text.[!start] in
+      let char_len =
+        if byte land 0x80 = 0 then 1
+        else if byte land 0xE0 = 0xC0 then 2
+        else if byte land 0xF0 = 0xE0 then 3
+        else if byte land 0xF8 = 0xF0 then 4
+        else 1
+      in
+      let next = !start + char_len in
+      if next - !chunk_start > max_bytes then begin
+        if !start > !chunk_start then begin
+          chunks :=
+            String.sub text !chunk_start (!start - !chunk_start) :: !chunks;
+          chunk_start := !start
+        end
+        else begin
+          (* Single character exceeds limit; emit it alone *)
+          chunks := String.sub text !start char_len :: !chunks;
+          chunk_start := next
+        end
+      end;
+      start := next
+    done;
+    if !chunk_start < len then
+      chunks := String.sub text !chunk_start (len - !chunk_start) :: !chunks;
+    List.rev !chunks
+
 let send_private_msg ~(config : Runtime_config.onebot_config) ~user_id ~text =
   let open Lwt.Syntax in
   let uri = config.http_url ^ "/send_private_msg" in
@@ -16,19 +53,23 @@ let send_private_msg ~(config : Runtime_config.onebot_config) ~user_id ~text =
     | Some tok -> [ ("Authorization", "Bearer " ^ tok) ]
     | None -> []
   in
-  let body =
-    `Assoc
-      [
-        ( "user_id",
-          match int_of_string_opt user_id with
-          | Some i -> `Int i
-          | None -> `String user_id );
-        ("message", `String text);
-      ]
-    |> Yojson.Safe.to_string
-  in
-  let* _status, _body = Http_client.post_json ~uri ~headers ~body in
-  Lwt.return_unit
+  let chunks = split_utf8 ~max_bytes:4500 text in
+  Lwt_list.iter_s
+    (fun chunk ->
+      let body =
+        `Assoc
+          [
+            ( "user_id",
+              match int_of_string_opt user_id with
+              | Some i -> `Int i
+              | None -> `String user_id );
+            ("message", `String chunk);
+          ]
+        |> Yojson.Safe.to_string
+      in
+      let* _status, _body = Http_client.post_json ~uri ~headers ~body in
+      Lwt.return_unit)
+    chunks
 
 let send_group_msg ~(config : Runtime_config.onebot_config) ~group_id ~text =
   let open Lwt.Syntax in
@@ -38,19 +79,23 @@ let send_group_msg ~(config : Runtime_config.onebot_config) ~group_id ~text =
     | Some tok -> [ ("Authorization", "Bearer " ^ tok) ]
     | None -> []
   in
-  let body =
-    `Assoc
-      [
-        ( "group_id",
-          match int_of_string_opt group_id with
-          | Some i -> `Int i
-          | None -> `String group_id );
-        ("message", `String text);
-      ]
-    |> Yojson.Safe.to_string
-  in
-  let* _status, _body = Http_client.post_json ~uri ~headers ~body in
-  Lwt.return_unit
+  let chunks = split_utf8 ~max_bytes:4500 text in
+  Lwt_list.iter_s
+    (fun chunk ->
+      let body =
+        `Assoc
+          [
+            ( "group_id",
+              match int_of_string_opt group_id with
+              | Some i -> `Int i
+              | None -> `String group_id );
+            ("message", `String chunk);
+          ]
+        |> Yojson.Safe.to_string
+      in
+      let* _status, _body = Http_client.post_json ~uri ~headers ~body in
+      Lwt.return_unit)
+    chunks
 
 (* Extract text content from message field (string or array format) *)
 let extract_text json =

@@ -84,10 +84,26 @@ let run ~(config : Runtime_config.t) =
         (config.channels.dingtalk <> None)
         (config.channels.onebot <> None)
         (config.channels.lark <> None));
+  let sandbox =
+    let backend =
+      match config.security.sandbox_backend with
+      | "firejail" -> Sandbox.Firejail
+      | "bubblewrap" -> Sandbox.Bubblewrap
+      | "none" -> Sandbox.None
+      | _ -> Sandbox.detect ()
+    in
+    { Sandbox.backend; workspace }
+  in
+  Logs.info (fun m ->
+      m "Sandbox backend: %s"
+        (match sandbox.Sandbox.backend with
+        | Sandbox.Firejail -> "firejail"
+        | Sandbox.Bubblewrap -> "bubblewrap"
+        | Sandbox.None -> "none"));
   let tool_registry =
     if config.security.tools_enabled then begin
       let registry = Tool_registry.create () in
-      Tools_builtin.register_all ~config registry;
+      Tools_builtin.register_all ~config ~sandbox registry;
       let skills =
         Skills.load_all ~workspace_only:config.security.workspace_only
           ~allowed_commands:Tools_builtin.default_shell_allowlist ()
@@ -199,6 +215,34 @@ let run ~(config : Runtime_config.t) =
           m "Failed to initialize SQLite memory: %s" (Printexc.to_string exn));
       None
   in
+  (* Register memory tools into existing registry now that db is available *)
+  (match (tool_registry, db) with
+  | Some registry, Some db ->
+      Tool_registry.register registry (Tools_builtin.memory_store ~db);
+      Tool_registry.register registry (Tools_builtin.memory_recall ~db);
+      Tool_registry.register registry (Tools_builtin.memory_forget ~db);
+      Tool_registry.register registry (Tools_builtin.memory_list ~db)
+  | _ -> ());
+  (* Auto-hydrate core memories from snapshot if db is empty *)
+  (match db with
+  | Some db ->
+      let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
+      let snapshot_path =
+        Filename.concat (Filename.concat home ".clawq") "memory_snapshot.json"
+      in
+      if Sys.file_exists snapshot_path then begin
+        let count = Memory.count_core ~db in
+        if count = 0 then begin
+          Logs.info (fun m ->
+              m "Auto-hydrating core memories from %s" snapshot_path);
+          try Memory.import_snapshot ~db ~path:snapshot_path
+          with exn ->
+            Logs.warn (fun m ->
+                m "Failed to import memory snapshot: %s"
+                  (Printexc.to_string exn))
+        end
+      end
+  | None -> ());
   let signing_key =
     match db with
     | Some _db
@@ -286,6 +330,20 @@ let run ~(config : Runtime_config.t) =
         Some wc
     | _ -> None
   in
+  let[@warning "-26"] pairing =
+    if config.gateway.require_pairing then begin
+      let p =
+        Pairing.create ~max_attempts:config.gateway.max_pair_attempts
+          ~lockout_seconds:(float_of_int config.gateway.pair_lockout_seconds)
+          ()
+      in
+      let s = Pairing.status p in
+      Logs.info (fun m ->
+          m "OTP pairing code: %s (share with trusted clients)" s.code);
+      Some p
+    end
+    else None
+  in
   write_state ~config
     ~components:
       [
@@ -311,7 +369,8 @@ let run ~(config : Runtime_config.t) =
           ?slack_config:config.channels.slack
           ?github_config:config.channels.github ~github_api_limiter ~ip_limiter
           ~session_limiter ~slack_event_limiter ?web_channel:web_channel_handler
-          ())
+          ?whatsapp_config:config.channels.whatsapp
+          ?line_config:config.channels.line ?pairing ())
       (fun exn ->
         Logs.err (fun m ->
             m "Gateway server error: %s" (Printexc.to_string exn));

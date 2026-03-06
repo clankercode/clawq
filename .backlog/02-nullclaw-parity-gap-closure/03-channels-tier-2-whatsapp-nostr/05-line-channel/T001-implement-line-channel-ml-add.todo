@@ -1,10 +1,12 @@
 ---
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 4
 id: P2.M3.E5.T001
 priority: medium
-status: pending
+started_at: null
+status: done
 tags: []
 title: 'Implement line_channel.ml: add POST /line/webhook to http_server (verify X-Line-Signature HMAC-SHA256), parse events'
 ---

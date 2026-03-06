@@ -1,7 +1,7 @@
 # Clawq — The Formal AI Assistant
 
 <p align="center">
-  <img src="docs/clawq-cover.jpg" alt="Clawq, The Formal AI Assistant — Mastering Polite Automation and Protocol" width="400" />
+  <img src="docs/clawq-cover.webp" alt="Clawq, The Formal AI Assistant — Mastering Polite Automation and Protocol" width="100%" />
 </p>
 
 <p align="center">

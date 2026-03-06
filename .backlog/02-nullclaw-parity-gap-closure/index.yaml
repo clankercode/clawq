@@ -21,7 +21,7 @@ milestones:
       locked: false
       name: 'Channels Tier 1: Signal, Matrix, IRC, Email'
       path: 02-channels-tier-1-signal-matrix
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: 'WhatsApp Cloud API, Nostr, and remaining channels: Mattermost, Lark, LINE, DingTalk, iMessage, QQ/OneBot (P2-04, P2-05).'

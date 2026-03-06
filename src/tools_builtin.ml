@@ -374,7 +374,7 @@ let format_lines_window ~content ~offset ~limit =
     rendered ^ suffix ^ trunc_suffix
 
 let shell_exec ~workspace ~workspace_only ~allowed_commands ~extra_allowed_paths
-    =
+    ~sandbox =
   let description =
     if workspace_only then
       "Execute a shell command from the workspace directory and return stdout \
@@ -430,6 +430,7 @@ let shell_exec ~workspace ~workspace_only ~allowed_commands ~extra_allowed_paths
             else Unix.environment ()
           in
           let cwd = if workspace_only then Some workspace else None in
+          let command = Sandbox.wrap_command sandbox command in
           match split_command_words command with
           | Error msg -> Lwt.return ("Error: " ^ msg)
           | Ok argv -> (
@@ -1060,13 +1061,185 @@ let transcribe ~(config : Runtime_config.t) =
     risk_level = Low;
   }
 
-let register_all ~(config : Runtime_config.t) registry =
+let memory_store ~db =
+  {
+    Tool.name = "memory_store";
+    description =
+      "Store a core memory with a key, content, and optional category";
+    parameters_schema =
+      `Assoc
+        [
+          ("type", `String "object");
+          ( "properties",
+            `Assoc
+              [
+                ( "key",
+                  `Assoc
+                    [
+                      ("type", `String "string");
+                      ("description", `String "Unique key for the memory");
+                    ] );
+                ( "content",
+                  `Assoc
+                    [
+                      ("type", `String "string");
+                      ("description", `String "Content to store");
+                    ] );
+                ( "category",
+                  `Assoc
+                    [
+                      ("type", `String "string");
+                      ( "description",
+                        `String "Category for the memory (default: general)" );
+                    ] );
+              ] );
+          ("required", `List [ `String "key"; `String "content" ]);
+        ];
+    invoke =
+      (fun args ->
+        let open Yojson.Safe.Util in
+        let key = try args |> member "key" |> to_string with _ -> "" in
+        let content =
+          try args |> member "content" |> to_string with _ -> ""
+        in
+        let category =
+          try args |> member "category" |> to_string with _ -> "general"
+        in
+        if key = "" then Lwt.return "Error: key is required"
+        else if content = "" then Lwt.return "Error: content is required"
+        else begin
+          Memory.store_core ~db ~key ~content ~category ();
+          Lwt.return (Printf.sprintf "Stored memory: %s" key)
+        end);
+    risk_level = Low;
+  }
+
+let memory_recall ~db =
+  {
+    Tool.name = "memory_recall";
+    description = "Search core memories using full-text search";
+    parameters_schema =
+      `Assoc
+        [
+          ("type", `String "object");
+          ( "properties",
+            `Assoc
+              [
+                ( "query",
+                  `Assoc
+                    [
+                      ("type", `String "string");
+                      ("description", `String "Search query");
+                    ] );
+                ( "limit",
+                  `Assoc
+                    [
+                      ("type", `String "integer");
+                      ( "description",
+                        `String "Maximum number of results (default: 5)" );
+                    ] );
+              ] );
+          ("required", `List [ `String "query" ]);
+        ];
+    invoke =
+      (fun args ->
+        let open Yojson.Safe.Util in
+        let query = try args |> member "query" |> to_string with _ -> "" in
+        let limit = try args |> member "limit" |> to_int with _ -> 5 in
+        if query = "" then Lwt.return "Error: query is required"
+        else
+          let results = Memory.recall_core ~db ~query ~limit in
+          if results = [] then Lwt.return "No matching memories found"
+          else
+            let lines =
+              List.map
+                (fun (key, content, category) ->
+                  Printf.sprintf "[%s] (%s): %s" key category content)
+                results
+            in
+            Lwt.return (String.concat "\n" lines));
+    risk_level = Low;
+  }
+
+let memory_forget ~db =
+  {
+    Tool.name = "memory_forget";
+    description = "Remove a core memory by key";
+    parameters_schema =
+      `Assoc
+        [
+          ("type", `String "object");
+          ( "properties",
+            `Assoc
+              [
+                ( "key",
+                  `Assoc
+                    [
+                      ("type", `String "string");
+                      ("description", `String "Key of the memory to remove");
+                    ] );
+              ] );
+          ("required", `List [ `String "key" ]);
+        ];
+    invoke =
+      (fun args ->
+        let open Yojson.Safe.Util in
+        let key = try args |> member "key" |> to_string with _ -> "" in
+        if key = "" then Lwt.return "Error: key is required"
+        else
+          let deleted = Memory.forget_core ~db ~key in
+          if deleted then Lwt.return (Printf.sprintf "Deleted memory: %s" key)
+          else Lwt.return (Printf.sprintf "No memory found with key: %s" key));
+    risk_level = Low;
+  }
+
+let memory_list ~db =
+  {
+    Tool.name = "memory_list";
+    description = "List core memories, optionally filtered by category";
+    parameters_schema =
+      `Assoc
+        [
+          ("type", `String "object");
+          ( "properties",
+            `Assoc
+              [
+                ( "category",
+                  `Assoc
+                    [
+                      ("type", `String "string");
+                      ( "description",
+                        `String "Optional category filter (omit for all)" );
+                    ] );
+              ] );
+          ("required", `List []);
+        ];
+    invoke =
+      (fun args ->
+        let open Yojson.Safe.Util in
+        let category =
+          try args |> member "category" |> to_string with _ -> ""
+        in
+        let results = Memory.list_core ~db ~category () in
+        if results = [] then Lwt.return "No memories found"
+        else
+          let lines =
+            List.map
+              (fun (key, content, cat) ->
+                Printf.sprintf "[%s] (%s): %s" key cat content)
+              results
+          in
+          Lwt.return (String.concat "\n" lines));
+    risk_level = Low;
+  }
+
+let register_all ~(config : Runtime_config.t) ~sandbox ?(db = None) registry =
   let workspace_only = config.security.workspace_only in
   let workspace = Runtime_config.effective_workspace config in
   let extra_allowed_paths = config.security.extra_allowed_paths in
   Tool_registry.register registry
     (shell_exec ~workspace ~workspace_only
-       ~allowed_commands:default_shell_allowlist ~extra_allowed_paths);
+       ~allowed_commands:default_shell_allowlist ~extra_allowed_paths ~sandbox);
   Tool_registry.register registry
     (file_read ~workspace ~workspace_only ~extra_allowed_paths);
   Tool_registry.register registry
@@ -1079,4 +1252,11 @@ let register_all ~(config : Runtime_config.t) registry =
     (file_edit_lines ~workspace ~workspace_only ~extra_allowed_paths);
   Tool_registry.register registry (http_get ~workspace_only);
   if config.stt <> None then
-    Tool_registry.register registry (transcribe ~config)
+    Tool_registry.register registry (transcribe ~config);
+  match db with
+  | Some db ->
+      Tool_registry.register registry (memory_store ~db);
+      Tool_registry.register registry (memory_recall ~db);
+      Tool_registry.register registry (memory_forget ~db);
+      Tool_registry.register registry (memory_list ~db)
+  | None -> ()

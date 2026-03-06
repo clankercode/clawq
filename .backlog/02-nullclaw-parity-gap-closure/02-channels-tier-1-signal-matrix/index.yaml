@@ -9,7 +9,7 @@ epics:
       locked: false
       name: Signal Channel
       path: 01-signal-channel
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: Long-poll /_matrix/client/v3/sync, PUT messages, sync token persistence. See docs/PLAN_P2_02_CHANNELS_SIGNAL_MATRIX.md.
@@ -18,7 +18,7 @@ epics:
       locked: false
       name: Matrix Channel
       path: 02-matrix-channel
-      status: pending
+      status: done
     - complexity: medium
       depends_on: []
       description: Raw TLS socket, PRIVMSG, PING/PONG, SASL PLAIN, reconnect. See docs/PLAN_P2_03_CHANNELS_IRC_EMAIL.md.
@@ -27,7 +27,7 @@ epics:
       locked: false
       name: IRC Channel
       path: 03-irc-channel
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: IMAP polling inbound + SMTP outbound, RFC 2047, threading. See docs/PLAN_P2_03_CHANNELS_IRC_EMAIL.md.
@@ -36,9 +36,9 @@ epics:
       locked: false
       name: Email Channel
       path: 04-email-channel
-      status: pending
+      status: done
 estimate_hours: 100
 id: P2.M2
 locked: false
 name: 'Channels Tier 1: Signal, Matrix, IRC, Email'
-status: pending
+status: done

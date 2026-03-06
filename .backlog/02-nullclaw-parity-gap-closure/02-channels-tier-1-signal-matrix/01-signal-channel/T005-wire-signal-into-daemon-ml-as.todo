@@ -1,10 +1,12 @@
 ---
+completed_at: null
 complexity: low
 depends_on: []
 estimate_hours: 2
 id: P2.M2.E1.T005
 priority: high
-status: pending
+started_at: null
+status: done
 tags: []
 title: Wire Signal into daemon.ml as Lwt.async task; add to cmd_status/doctor
 ---

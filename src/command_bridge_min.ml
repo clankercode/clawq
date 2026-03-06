@@ -168,7 +168,9 @@ let cmd_capabilities () =
        (if cfg.memory.search_enabled then "enabled" else "disabled"));
   if cfg.security.tools_enabled then begin
     let registry = Tool_registry.create () in
-    Tools_builtin.register_all ~config:cfg registry;
+    let ws = Runtime_config.effective_workspace cfg in
+    let sandbox = Sandbox.create ~workspace:ws () in
+    Tools_builtin.register_all ~config:cfg ~sandbox registry;
     let skills =
       Skills.load_all ~workspace_only:cfg.security.workspace_only
         ~allowed_commands:Tools_builtin.default_shell_allowlist ()
