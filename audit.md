@@ -1,0 +1,7 @@
+- docs are up to date with code:
+  - FV status docs
+  - Commands
+  - APIs
+  - Config
+  - Channels
+  - Dev guide updated
