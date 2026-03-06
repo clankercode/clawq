@@ -1,0 +1,79 @@
+---
+interface Props {
+  value: string | number;
+  label: string;
+}
+
+const { value, label } = Astro.props;
+---
+<div class="stat-card">
+  <span class="corner corner-tl"></span>
+  <span class="corner corner-tr"></span>
+  <span class="corner corner-bl"></span>
+  <span class="corner corner-br"></span>
+  <p class="stat-value">{value}</p>
+  <p class="stat-label">{label}</p>
+</div>
+
+<style>
+  .stat-card {
+    position: relative;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    padding: 1.5rem 2rem;
+    text-align: center;
+    border-radius: 8px;
+  }
+
+  .corner {
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    pointer-events: none;
+  }
+
+  .corner-tl {
+    top: 8px;
+    left: 8px;
+    border-top: 1px solid var(--brass-primary);
+    border-left: 1px solid var(--brass-primary);
+  }
+
+  .corner-tr {
+    top: 8px;
+    right: 8px;
+    border-top: 1px solid var(--brass-primary);
+    border-right: 1px solid var(--brass-primary);
+  }
+
+  .corner-bl {
+    bottom: 8px;
+    left: 8px;
+    border-bottom: 1px solid var(--brass-primary);
+    border-left: 1px solid var(--brass-primary);
+  }
+
+  .corner-br {
+    bottom: 8px;
+    right: 8px;
+    border-bottom: 1px solid var(--brass-primary);
+    border-right: 1px solid var(--brass-primary);
+  }
+
+  .stat-value {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: var(--fs-xl, 2rem);
+    color: var(--brass-primary);
+    line-height: 1.2;
+    margin-bottom: 0.375rem;
+  }
+
+  .stat-label {
+    font-family: var(--font-label);
+    font-variant: small-caps;
+    font-size: var(--fs-sm, 0.875rem);
+    color: var(--text-secondary);
+    letter-spacing: 0.06em;
+  }
+</style>

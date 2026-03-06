@@ -1,0 +1,515 @@
+/* ==========================================================================
+   global.css — Custom properties, base reset, visual elements
+   ==========================================================================
+   CORNER SHAPE CONVENTION:
+   Always use squircle corners with generous rounding. The universal rule at
+   the bottom of this file applies corner-shape: squircle to all elements on
+   Chrome/Edge 139+ (CSS Borders Level 4). For all border-radius values, be
+   generous — prefer 16px+ for components, 8px+ for small details. Pills use
+   9999px. Never use sharp corners (border-radius: 0) unless strictly required
+   for a structural reason (e.g. full-bleed edges). The squircle rule has no
+   effect without a border-radius set, so always pair them.
+   ========================================================================== */
+
+/* ---------- Dark Mode (Default) — "The Clockwork Study" ---------- */
+html[data-theme="dark"] {
+  --bg-primary: #0D0B0F;
+  --bg-secondary: #13111A;
+  --bg-tertiary: #1A1822;
+  --bg-hover: #22202E;
+
+  --brass-primary: #C9A84C;
+  --brass-light: #E2C97E;
+  --brass-dark: #8B7332;
+  --brass-glow: #C9A84C1A;
+  --brass-primary-05: rgba(201, 168, 76, 0.05);
+
+  --gold-bright: #F0D878;
+  --coq-teal: #2E8B7A;
+  --coq-teal-light: #5BBFAD;
+
+  --text-primary: #E8E2D6;
+  --text-secondary: #9C978A;
+  --text-tertiary: #6B6660;
+
+  --error-red: #C44B3F;
+  --info-blue: #4A6B8A;
+  --qed-gold: #B8860B;
+
+  --border: #8B733240;
+  --border-emphasis: #8B7332;
+
+  --gear-opacity: 0.03;
+  --grid-opacity: 0.05;
+}
+
+/* ---------- Light Mode — "The Patent Office" ---------- */
+html[data-theme="light"] {
+  --bg-primary: #FAF6F0;
+  --bg-secondary: #F3EDE4;
+  --bg-tertiary: #EDEADF;
+  --bg-hover: #E5DFD4;
+
+  --brass-primary: #7A6321;
+  --brass-light: #9C7E2A;
+  --brass-dark: #5C4A18;
+  --brass-glow: #7A632126;
+  --brass-primary-05: rgba(122, 99, 33, 0.06);
+
+  --gold-bright: #B8960A;
+  --coq-teal: #2E8B7A;
+  --coq-teal-light: #2E8B7A;
+
+  --text-primary: #2A2520;
+  --text-secondary: #6B5E52;
+  --text-tertiary: #9C8E80;
+
+  --error-red: #C44B3F;
+  --info-blue: #4A6B8A;
+  --qed-gold: #B8860B;
+
+  --border: #D6CDBF;
+  --border-emphasis: #B8AFA0;
+
+  --gear-opacity: 0.05;
+  --grid-opacity: 0.06;
+}
+
+/* ---------- Base Reset ---------- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  -moz-tab-size: 4;
+  tab-size: 4;
+  scroll-behavior: smooth;
+  /* Enable CSS transitions to/from height: auto for accordions (Chrome/Edge 129+) */
+  interpolate-size: allow-keywords;
+}
+
+body {
+  min-height: 100vh;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+img,
+picture,
+video,
+canvas,
+svg {
+  display: block;
+  max-width: 100%;
+}
+
+input,
+button,
+textarea,
+select {
+  font: inherit;
+}
+
+a {
+  color: var(--brass-primary);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--brass-light);
+}
+
+/* ---------- Theme Transition ---------- */
+html[data-theme="dark"],
+html[data-theme="light"] {
+  transition:
+    background-color 200ms ease,
+    color 200ms ease;
+}
+
+body,
+.sidebar,
+.header,
+.content-area,
+.code-block,
+pre,
+code {
+  transition:
+    background-color 200ms ease,
+    color 200ms ease,
+    border-color 200ms ease;
+}
+
+/* ---------- Dot Grid Background ---------- */
+body {
+  background-image: radial-gradient(circle, rgba(201, 168, 76, 0.18) 1.5px, transparent 1.5px);
+  background-size: 2.5rem 2.5rem;
+}
+
+html[data-theme="light"] body {
+  background-image: radial-gradient(circle, rgba(122, 99, 33, 0.15) 1.5px, transparent 1.5px);
+}
+
+/* ---------- Ornamental Horizontal Rule ---------- */
+.ornamental-rule {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  width: 120px;
+  margin: 2rem auto;
+  border: none;
+  height: auto;
+}
+
+.ornamental-rule::before,
+.ornamental-rule::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background-color: var(--border);
+}
+
+.ornamental-rule::after {
+  content: "";
+}
+
+/* The diamond is inserted via a nested span or via this approach */
+.ornamental-rule {
+  color: var(--qed-gold);
+  font-size: 0.75rem;
+  line-height: 1;
+}
+
+/* When used as an <hr> with class */
+hr.ornamental-rule {
+  border: none;
+  height: auto;
+  overflow: visible;
+  position: relative;
+  width: 120px;
+  margin: 2rem auto;
+  background: transparent;
+}
+
+hr.ornamental-rule::before {
+  content: "\25C6"; /* diamond */
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  color: var(--qed-gold);
+  font-size: 0.6rem;
+  z-index: 1;
+  background: var(--bg-primary);
+  padding: 0 6px;
+}
+
+hr.ornamental-rule::after {
+  content: "";
+  display: block;
+  width: 100%;
+  height: 1px;
+  background: var(--border);
+}
+
+/* ---------- Corner Brackets ---------- */
+.corner-brackets {
+  position: relative;
+}
+
+.corner-brackets::before,
+.corner-brackets::after {
+  content: "";
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  pointer-events: none;
+}
+
+/* Top-left */
+.corner-brackets::before {
+  top: 8px;
+  left: 8px;
+  border-top: 1px solid var(--brass-primary);
+  border-left: 1px solid var(--brass-primary);
+}
+
+/* Bottom-right */
+.corner-brackets::after {
+  bottom: 8px;
+  right: 8px;
+  border-bottom: 1px solid var(--brass-primary);
+  border-right: 1px solid var(--brass-primary);
+}
+
+/* Additional corners via child spans or extra wrapper */
+.corner-brackets > .corner-tr,
+.corner-brackets > .corner-bl {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  pointer-events: none;
+}
+
+.corner-brackets > .corner-tr {
+  top: 8px;
+  right: 8px;
+  border-top: 1px solid var(--brass-primary);
+  border-right: 1px solid var(--brass-primary);
+}
+
+.corner-brackets > .corner-bl {
+  bottom: 8px;
+  left: 8px;
+  border-bottom: 1px solid var(--brass-primary);
+  border-left: 1px solid var(--brass-primary);
+}
+
+/* ---------- QED Marker ---------- */
+.qed::after {
+  content: "\25A0"; /* filled square */
+  display: block;
+  text-align: right;
+  color: var(--qed-gold);
+  font-size: 0.7rem;
+  margin-top: 1.5rem;
+  opacity: 0.7;
+}
+
+/* ---------- Callout Boxes ---------- */
+.callout {
+  position: relative;
+  padding: 1.25rem 1.5rem;
+  margin: 1.5rem 0;
+  border-radius: 16px;
+  background: var(--bg-tertiary);
+  border-left: 3px solid var(--brass-primary);
+}
+
+.callout-label {
+  font-family: var(--font-label);
+  font-variant: small-caps;
+  font-weight: 500;
+  font-size: var(--fs-sm, 0.875rem);
+  letter-spacing: 0.06em;
+  margin-bottom: 0.5rem;
+  display: block;
+}
+
+.callout-note {
+  border-left-color: var(--info-blue);
+}
+
+.callout-note .callout-label {
+  color: var(--info-blue);
+}
+
+.callout-tip {
+  border-left-color: var(--brass-primary);
+}
+
+.callout-tip .callout-label {
+  color: var(--brass-primary);
+}
+
+.callout-warning {
+  border-left-color: var(--error-red);
+}
+
+.callout-warning .callout-label {
+  color: var(--error-red);
+}
+
+.callout-verified {
+  border-left-color: var(--coq-teal);
+  background: rgba(46, 139, 122, 0.05);
+}
+
+.callout-verified .callout-label {
+  color: var(--coq-teal);
+}
+
+/* ---------- Academic Booktabs Table ---------- */
+.table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 1.5rem 0;
+}
+
+.table-academic {
+  width: 100%;
+  min-width: 32rem; /* prevent over-compression */
+  border-collapse: collapse;
+  margin: 0;
+}
+
+.table-academic thead {
+  border-top: 2px solid var(--text-primary);
+  border-bottom: 1px solid var(--text-primary);
+}
+
+.table-academic thead th {
+  font-family: var(--font-label);
+  font-variant: small-caps;
+  font-size: var(--fs-xs, 0.75rem);
+  letter-spacing: 0.06em;
+  font-weight: 500;
+  text-align: left;
+  padding: 0.6rem 0.75rem;
+  color: var(--text-secondary);
+}
+
+.table-academic tbody td {
+  font-family: var(--font-body);
+  font-size: var(--fs-sm, 0.875rem);
+  padding: 0.5rem 0.75rem;
+  border: none;
+}
+
+.table-academic tbody {
+  border-bottom: 2px solid var(--text-primary);
+}
+
+.table-academic tbody tr:hover {
+  background: var(--bg-hover);
+}
+
+/* ---------- Doc Content: naked tables get overflow scroll + column spacing ---------- */
+.doc-content table:not(.table-academic) {
+  display: block;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  width: 100%;
+  max-width: 100%;
+  border-collapse: collapse;
+}
+
+.doc-content table:not(.table-academic) th,
+.doc-content table:not(.table-academic) td {
+  padding: 0.5rem 1.25rem 0.5rem 0;
+  vertical-align: top;
+}
+
+.doc-content table:not(.table-academic) th {
+  font-family: var(--font-label);
+  font-variant: small-caps;
+  font-size: var(--fs-base);
+  letter-spacing: 0.06em;
+  font-weight: 500;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-emphasis);
+  padding-bottom: 0.4rem;
+}
+
+.doc-content table:not(.table-academic) tbody tr:hover td {
+  background: var(--bg-hover);
+}
+
+/* ---------- Scrollbar Styling ---------- */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--brass-dark) var(--bg-secondary);
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: var(--brass-dark);
+  border-radius: 16px;
+  border: 2px solid var(--bg-secondary);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--brass-primary);
+}
+
+/* ---------- Selection ---------- */
+::selection {
+  background-color: var(--brass-glow);
+  color: var(--text-primary);
+}
+
+html[data-theme="dark"] ::selection {
+  background-color: rgba(201, 168, 76, 0.25);
+}
+
+html[data-theme="light"] ::selection {
+  background-color: rgba(122, 99, 33, 0.2);
+}
+
+/* ---------- Reduced Motion ---------- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ---------- Universal Squircle Corners ---------- */
+@supports (corner-shape: squircle) {
+  * {
+    corner-shape: squircle;
+  }
+}
+
+/* ---------- Aged Parchment Noise Overlay ---------- */
+/* SVG feTurbulence grain applied as a fixed pseudo-element over the whole page.
+   mix-blend-mode: overlay blends it into the dark background for a subtle texture. */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23noise)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 200px 200px;
+  mix-blend-mode: overlay;
+}
+
+/* ---------- Scroll-Driven Entrance Animations ---------- */
+/* Elements fade + rise into view as they enter the viewport.
+   Progressive enhancement: @supports guard so no-op on Firefox/older browsers. */
+@supports (animation-timeline: view()) {
+  .callout,
+  .theorem-box,
+  .ledger-row,
+  .phase-card,
+  .mermaid-figure,
+  .table-wrapper {
+    animation: fade-up-in linear both;
+    animation-timeline: view();
+    animation-range: entry 0% entry 28%;
+  }
+
+  @keyframes fade-up-in {
+    from {
+      opacity: 0;
+      transform: translateY(1.25rem);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}

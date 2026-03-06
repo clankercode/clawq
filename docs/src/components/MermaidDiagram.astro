@@ -1,0 +1,187 @@
+---
+interface Props {
+  diagram: string;
+  caption?: string;
+  minHeight?: string;
+}
+
+const { diagram, caption, minHeight } = Astro.props;
+// Unique ID per instance to support multiple diagrams per page
+const id = `mermaid-${Math.random().toString(36).slice(2, 9)}`;
+---
+
+<figure class="mermaid-figure">
+  <div class="mermaid-wrap" id={id} data-diagram={diagram} style={minHeight ? `min-height: ${minHeight}` : undefined}>
+    <!-- rendered by client script -->
+    <noscript>
+      <pre class="mermaid-fallback">{diagram}</pre>
+    </noscript>
+  </div>
+  {caption && <figcaption class="mermaid-caption">{caption}</figcaption>}
+</figure>
+
+<style>
+  .mermaid-figure {
+    margin: 2rem 0;
+  }
+
+  .mermaid-wrap {
+    background: linear-gradient(to right,
+      color-mix(in srgb, var(--bg-secondary) 50%, transparent),
+      color-mix(in srgb, var(--bg-secondary) 20%, transparent),
+      color-mix(in srgb, var(--bg-secondary) 5%, transparent)
+    );
+    border: 0.0px solid var(--border-emphasis);
+    border-left: 3px solid var(--brass-primary);
+    border-radius: 64px;
+    padding: 2rem 1.5rem;
+    overflow-x: auto;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    /* Directional outer glow: layered box-shadows all offset left (negative x).
+       box-shadow is always OUTER — no pseudo-elements, no stacking context issues.
+       Stacking tight→wide layers creates a left-weighted halo; right side gets
+       near-zero glow because all shadow centres are displaced leftward. */
+    box-shadow:
+      -3px  0  5px  rgba(201, 168, 76, 0.40),
+      -7px  0 12px  rgba(201, 168, 76, 0.28),
+      -14px 0 22px  rgba(201, 168, 76, 0.16),
+      -22px 0 36px  rgba(201, 168, 76, 0.08),
+      0 12px 40px   rgba(0,   0,   0,  0.28);
+  }
+
+  /* Mermaid injects an <svg> directly — fill container width, scale height */
+  .mermaid-wrap svg {
+    width: 100% !important;
+    max-width: 100%;
+    height: auto;
+  }
+
+  .mermaid-caption {
+    font-family: var(--font-mono);
+    font-size: var(--fs-sm);
+    font-weight: 400;
+    color: var(--text-secondary);
+    letter-spacing: 0.03em;
+    text-align: center;
+    margin-top: 0.875rem;
+    padding: 0.35rem 1rem;
+    border-top: 1px solid var(--border);
+    width: fit-content;
+    max-width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .mermaid-fallback {
+    font-family: var(--font-mono);
+    font-size: var(--fs-sm);
+    color: var(--text-secondary);
+    white-space: pre;
+    margin: 0;
+  }
+</style>
+
+<script>
+  import mermaid from 'mermaid';
+
+  // Determine current theme from data-theme attribute
+  function isDark() {
+    return document.documentElement.getAttribute('data-theme') !== 'light';
+  }
+
+  function initMermaid() {
+    const dark = isDark();
+
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: 'base',
+      themeVariables: {
+        // Backgrounds
+        background:         dark ? '#13111A' : '#F3EDE4',
+        mainBkg:            dark ? '#1A1822' : '#EDEADF',
+        nodeBorder:         dark ? '#8B7332' : '#B8AFA0',
+        clusterBkg:         dark ? '#13111A' : '#F3EDE4',
+        clusterBorder:      dark ? '#8B733240' : '#D6CDBF',
+
+        // Edges & lines
+        lineColor:          dark ? '#8B7332' : '#7A6321',
+        edgeLabelBackground: dark ? '#13111A' : '#F3EDE4',
+
+        // Text
+        primaryTextColor:   dark ? '#E8E2D6' : '#2A2520',
+        secondaryTextColor: dark ? '#9C978A' : '#6B5E52',
+        tertiaryTextColor:  dark ? '#6B6660' : '#9C8E80',
+
+        // Node fills & borders
+        primaryColor:       dark ? '#1A1822' : '#EDEADF',
+        primaryBorderColor: dark ? '#C9A84C' : '#7A6321',
+        secondaryColor:     dark ? '#13111A' : '#F3EDE4',
+        tertiaryColor:      dark ? '#22202E' : '#E5DFD4',
+
+        // Special nodes (emphasized)
+        specialNodeBkg:     dark ? '#2E8B7A' : '#2E8B7A',
+        specialNodeBorder:  dark ? '#5BBFAD' : '#2E8B7A',
+
+        // Fonts
+        fontFamily:         'JetBrains Mono, Consolas, monospace',
+        fontSize:           '15px',
+      },
+      flowchart: {
+        curve: 'basis',
+        padding: 20,
+        nodeSpacing: 40,
+        rankSpacing: 52,
+        useMaxWidth: false,
+      },
+    });
+  }
+
+  async function renderDiagrams() {
+    initMermaid();
+    const containers = document.querySelectorAll<HTMLElement>('[data-diagram]');
+    for (const el of containers) {
+      const diagram = el.getAttribute('data-diagram');
+      if (!diagram) continue;
+      try {
+        const { svg } = await mermaid.render(el.id + '-svg', diagram);
+        el.innerHTML = svg;
+        // Round node corners: rx/ry attributes for SVG geometry; corner-shape squircle
+        // via inline style for Chrome/Edge 139+ (progressive enhancement).
+        el.querySelectorAll('.node rect, .node polygon').forEach(shape => {
+          shape.setAttribute('rx', '18');
+          shape.setAttribute('ry', '18');
+          (shape as HTMLElement).style.setProperty('corner-shape', 'squircle');
+        });
+      } catch (e) {
+        // Leave noscript fallback visible
+        console.warn('Mermaid render failed:', e);
+      }
+    }
+  }
+
+  // Re-render on theme toggle
+  function onThemeChange() {
+    // Clear existing renders so they pick up new colors
+    document.querySelectorAll<HTMLElement>('[data-diagram]').forEach(el => {
+      const diagram = el.getAttribute('data-diagram');
+      if (diagram) el.innerHTML = `<noscript><pre>${diagram}</pre></noscript>`;
+    });
+    renderDiagrams();
+  }
+
+  // Watch for theme attribute changes
+  const observer = new MutationObserver((mutations) => {
+    for (const m of mutations) {
+      if (m.attributeName === 'data-theme') { onThemeChange(); break; }
+    }
+  });
+  observer.observe(document.documentElement, { attributes: true });
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', renderDiagrams);
+  } else {
+    renderDiagrams();
+  }
+</script>

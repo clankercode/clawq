@@ -1,0 +1,191 @@
+# Formal Verification Data — auto-validated by scripts/update_fv_data.sh
+# Theorem counts for verified phases must match actual grep counts in .v files.
+# Run `make update-fv` to validate and regenerate docs/src/data/fv-stats.json.
+
+- phase: "F0"
+  module: "CliProofs.v"
+  title: "CLI Parsing Correctness"
+  status: "verified"
+  theorems: 22
+  extracted: false
+  security_roi: "medium"
+  difficulty: "low"
+  coq_file: "coq/theories/Clawq/CliProofs.v"
+  key_properties:
+    - "CLI parse determinism"
+    - "Flag uniqueness invariants"
+    - "Option arity correctness"
+
+- phase: "F1"
+  module: "ConfigProofs.v"
+  title: "Configuration Validation"
+  status: "verified"
+  theorems: 15
+  extracted: false
+  security_roi: "high"
+  difficulty: "medium"
+  coq_file: "coq/theories/Clawq/ConfigProofs.v"
+  key_properties:
+    - "Weight sum invariants"
+    - "Port/temperature range validation"
+    - "Secure-by-default security config"
+
+- phase: "F2"
+  module: "PathSafety.v"
+  title: "Directory Traversal Immunity"
+  status: "verified"
+  theorems: 19
+  extracted: true
+  security_roi: "very_high"
+  difficulty: "medium"
+  coq_file: "coq/theories/Clawq/PathSafety.v"
+  key_properties:
+    - "normalize_no_dotdot"
+    - "Normalization idempotence"
+    - "is_path_safe_segs_refl"
+    - "Workspace containment (prefix safety)"
+
+- phase: "F3"
+  module: "AuditChain.v"
+  title: "HMAC Audit Chain Integrity"
+  status: "verified"
+  theorems: 7
+  extracted: false
+  security_roi: "high"
+  difficulty: "medium"
+  coq_file: "coq/theories/Clawq/AuditChain.v"
+  key_properties:
+    - "verify_chain_append"
+    - "build_chain validity"
+    - "Suffix monotonicity"
+    - "last_sig_app"
+
+- phase: "F4"
+  module: "RateLimiter.v"
+  title: "Token Bucket Rate Limiter"
+  status: "verified"
+  theorems: 6
+  extracted: false
+  security_roi: "medium"
+  difficulty: "medium"
+  coq_file: "coq/theories/Clawq/RateLimiter.v"
+  key_properties:
+    - "Bounded refill"
+    - "Monotone refill"
+    - "Consume semantics (P1-P6)"
+
+- phase: "F5"
+  module: "Config.v + ConfigProofs.v"
+  title: "Extended Configuration Validation"
+  status: "verified"
+  theorems: 15
+  extracted: false
+  security_roi: "high"
+  difficulty: "medium"
+  coq_file: "coq/theories/Clawq/ConfigProofs.v"
+  note: "F5 validation theorems (P8-P15) added to ConfigProofs.v alongside F1 theorems; count shared with F1"
+  key_properties:
+    - "valid_port"
+    - "valid_temperature"
+    - "validate_config_full (P8-P15)"
+
+- phase: "F6"
+  module: "QuoteParsing.v + ShellSafety.v"
+  title: "Shell Safety"
+  status: "verified"
+  theorems: 9
+  extracted: true
+  security_roi: "very_high"
+  difficulty: "medium"
+  coq_file: "coq/theories/Clawq/QuoteParsing.v"
+  coq_files:
+    - "coq/theories/Clawq/QuoteParsing.v"
+    - "coq/theories/Clawq/ShellSafety.v"
+  key_properties:
+    - "Shell tokenizer correctness"
+    - "Metachar blacklist completeness"
+    - "Allowlist monotonicity"
+
+- phase: "F7"
+  module: "SecretStore.v"
+  title: "Encryption Correctness"
+  status: "planned"
+  theorems: 0
+  extracted: false
+  security_roi: "high"
+  difficulty: "medium"
+  coq_file: "coq/theories/Clawq/SecretStore.v"
+  key_properties:
+    - "Encrypt/decrypt identity"
+    - "Nonce uniqueness bound"
+    - "resolve_secret completeness"
+
+- phase: "F8"
+  module: "ChannelAuth.v + SlackAuth.v"
+  title: "Channel Authentication"
+  status: "planned"
+  theorems: 0
+  extracted: false
+  security_roi: "high"
+  difficulty: "low"
+  coq_file: "coq/theories/Clawq/ChannelAuth.v"
+  key_properties:
+    - "Generic allowlist filtering"
+    - "Replay prevention window"
+    - "HMAC basestring construction"
+
+- phase: "F9"
+  module: "AuditRetention.v"
+  title: "Audit Retention Safety"
+  status: "planned"
+  theorems: 0
+  extracted: false
+  security_roi: "medium"
+  difficulty: "low"
+  coq_file: "coq/theories/Clawq/AuditRetention.v"
+  key_properties:
+    - "purge_by_count correctness"
+    - "purge_by_age correctness"
+    - "Purge preserves chain validity"
+
+- phase: "F10"
+  module: "AgentLoop.v"
+  title: "Agent Loop Termination"
+  status: "planned"
+  theorems: 0
+  extracted: false
+  security_roi: "medium"
+  difficulty: "low"
+  coq_file: "coq/theories/Clawq/AgentLoop.v"
+  key_properties:
+    - "Termination in max_tool_iterations"
+    - "History length bound"
+    - "trim_history idempotence"
+
+- phase: "F11"
+  module: "SessionIsolation.v"
+  title: "Session Isolation"
+  status: "planned"
+  theorems: 0
+  extracted: false
+  security_roi: "medium"
+  difficulty: "medium"
+  coq_file: "coq/theories/Clawq/SessionIsolation.v"
+  key_properties:
+    - "Session key disjointness"
+    - "get_or_create isolation"
+    - "store_message non-interference"
+
+- phase: "F12"
+  module: "LandlockPolicy.v"
+  title: "Landlock Sandbox Policy"
+  status: "planned"
+  theorems: 0
+  extracted: false
+  security_roi: "medium"
+  difficulty: "high"
+  coq_file: "coq/theories/Clawq/LandlockPolicy.v"
+  key_properties:
+    - "Least-privilege access flags"
+    - "Path set closure"
+    - "Policy monotonicity"

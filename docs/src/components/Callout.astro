@@ -1,0 +1,94 @@
+---
+interface Props {
+  type: 'note' | 'tip' | 'warning' | 'verified';
+  title?: string;
+}
+
+const { type, title } = Astro.props;
+
+const defaultTitles: Record<string, string> = {
+  note: 'Note',
+  tip: 'Tip',
+  warning: 'Warning',
+  verified: 'Verified',
+};
+
+const displayTitle = title || defaultTitles[type];
+
+const iconPaths: Record<string, string> = {
+  note: 'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z',
+  tip: 'M9 21c0 .5.4 1 1 1h4c.6 0 1-.5 1-1v-1H9v1zm3-19C8.1 2 5 5.1 5 9c0 2.4 1.2 4.5 3 5.7V17c0 .5.4 1 1 1h6c.6 0 1-.5 1-1v-2.3c1.8-1.3 3-3.4 3-5.7 0-3.9-3.1-7-7-7z',
+  warning: 'M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z',
+  verified: 'M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z',
+};
+---
+<div class:list={['callout-box', `callout-${type}`]}>
+  <p class="callout-title">
+    <svg class="callout-icon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d={iconPaths[type]}/>
+    </svg>
+    {displayTitle}
+  </p>
+  <div class="callout-content">
+    <slot />
+  </div>
+</div>
+
+<style>
+  .callout-box {
+    position: relative;
+    padding: 1.25rem 1.5rem;
+    margin: 1.5rem 0;
+    border-radius: 16px;
+    border-left: 3px solid var(--brass-primary);
+  }
+
+  .callout-note {
+    border-left-color: var(--brass-primary);
+    background: rgba(201, 168, 76, 0.05);
+  }
+
+  .callout-tip {
+    border-left-color: var(--coq-teal);
+    background: rgba(46, 139, 122, 0.05);
+  }
+
+  .callout-warning {
+    border-left-color: var(--error-red);
+    background: rgba(196, 75, 63, 0.05);
+  }
+
+  .callout-verified {
+    border-left-color: var(--coq-teal);
+    background: rgba(46, 139, 122, 0.05);
+  }
+
+  .callout-title {
+    font-family: var(--font-label);
+    font-variant: small-caps;
+    font-weight: 500;
+    font-size: var(--fs-sm, 0.875rem);
+    letter-spacing: 0.06em;
+    margin-bottom: 0.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .callout-note .callout-title { color: var(--brass-primary); }
+  .callout-tip .callout-title { color: var(--coq-teal); }
+  .callout-warning .callout-title { color: var(--error-red); }
+  .callout-verified .callout-title { color: var(--coq-teal); }
+
+  .callout-icon {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+  }
+
+  .callout-content {
+    font-size: var(--fs-base, 1rem);
+    line-height: 1.72;
+    color: var(--text-primary);
+  }
+</style>

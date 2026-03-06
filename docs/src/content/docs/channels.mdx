@@ -1,0 +1,259 @@
+---
+title: "Channels"
+description: "Multi-channel communication: Telegram, Discord, Slack, and more"
+section: "runtime"
+order: 3
+---
+
+Clawq communicates with the outside world through *channels* --- modular
+communication backends that implement a common interface. Three channels ship
+with full implementations today (Telegram, Discord, Slack), and the architecture
+is designed so additional channels can be added with minimal ceremony.
+
+## The Channel.S Module Type
+
+Every channel implements the `Channel.S` OCaml module signature:
+
+```ocaml
+module type S = sig
+  val name : string
+  val start :
+    config:Runtime_config.t ->
+    session_manager:Session.t ->
+    unit Lwt.t
+end
+```
+
+The contract is intentionally narrow. A channel receives the global runtime
+configuration and a session manager, then runs as a long-lived Lwt promise.
+The daemon supervisor (`daemon.ml`) starts all enabled channels in parallel and
+monitors them for failures.
+
+## Channel Overview
+
+| Channel | Protocol | Transport | Status |
+|---------|----------|-----------|--------|
+| **Telegram** | Bot API (long polling) | HTTPS | Implemented |
+| **Discord** | Gateway v10 (WebSocket) | WSS + REST | Implemented |
+| **Slack** | Socket Mode | WSS | Implemented |
+| **Slack** (Events API) | HTTP push | HTTPS | Implemented |
+| **Web** | HTTP gateway | REST | Implemented |
+| **CLI** | stdin/stdout | Local | Implemented |
+| IRC | IRC protocol | TCP/TLS | Planned |
+| Matrix | Client-Server API | HTTPS | Planned |
+| Mattermost | WebSocket + REST | WSS | Planned |
+| Email | IMAP/SMTP | TCP/TLS | Planned |
+| DingTalk | Bot webhook | HTTPS | Planned |
+| Lark/Feishu | Bot webhook | HTTPS | Planned |
+| LINE | Messaging API | HTTPS | Planned |
+| Nostr | NIP-01 relay | WSS | Planned |
+| OneBot | OneBot 11/12 | WS/HTTP | Planned |
+| WhatsApp | Cloud API | HTTPS | Planned |
+| iMessage | AppleScript bridge | Local | Planned |
+
+## Telegram
+
+Telegram is the fastest channel to set up. Clawq connects via the Telegram Bot
+API using **long polling** --- no webhooks, no public IP required.
+
+### Configuration
+
+```json
+{
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "bot_token": "123456:ABC-DEF..."
+    }
+  }
+}
+```
+
+Or via the CLI:
+
+```bash
+clawq config set channels.telegram.enabled true
+clawq config set channels.telegram.bot_token "123456:ABC-DEF..."
+```
+
+### Setup
+
+1. Create a bot with [@BotFather](https://t.me/BotFather) on Telegram.
+2. Copy the bot token into your config.
+3. Start the daemon with `clawq agent`.
+4. Send your bot a message to verify the connection.
+
+### Key Features
+
+- **Long polling** with configurable timeout (default 30s) --- no inbound
+  firewall rules needed.
+- **Rate limiting** via the shared `Rate_limiter` token bucket.
+- **Media support** --- voice messages, photos, and documents are received
+  and routed to the agent. Voice files are forwarded to the STT provider
+  when configured.
+- **Token redaction** --- bot tokens are automatically redacted in log output
+  via the `redact_token` helper.
+
+### How It Works
+
+`telegram.ml` calls `getUpdates` in a loop, parsing each update into an
+internal `update` record with chat ID, user ID, text, and optional media
+fields. Each update is dispatched to the session manager, which routes it
+to the appropriate agent session. Responses are sent back via
+`sendMessage`.
+
+## Discord
+
+Clawq connects to Discord using the **Gateway v10 WebSocket protocol** for
+receiving events and the **REST API** for sending messages. The implementation
+includes full connection lifecycle management: Hello, Identify, Heartbeat,
+Resume, and Reconnect.
+
+### Configuration
+
+```json
+{
+  "channels": {
+    "discord": {
+      "enabled": true,
+      "bot_token": "MTIzNDU2Nzg5...",
+      "allow_guilds": ["*"],
+      "allow_users": ["*"]
+    }
+  }
+}
+```
+
+### Setup
+
+1. Create a Discord application at the [Discord Developer Portal](https://discord.com/developers/applications).
+2. Add a Bot to the application and copy its token.
+3. Invite the bot to your server with the `applications.commands` and `bot`
+   scopes, plus `Send Messages` and `Read Message History` permissions.
+4. Configure the token and start `clawq agent`.
+
+### Key Features
+
+- **WebSocket gateway** with automatic heartbeat, session resume, and
+  reconnect on disconnect.
+- **Guild and user allowlists** --- restrict which servers and users can
+  interact with the bot.
+- **REST rate limit tracking** --- server-driven rate limits are parsed from
+  response headers (`X-RateLimit-Remaining`, `X-RateLimit-Reset`) with
+  per-route bucket tracking and global rate limit handling.
+- **Message chunking** --- responses longer than 2000 characters are
+  automatically split into multiple messages.
+
+### Architecture
+
+The Discord channel is split across two modules:
+
+- `discord_gateway.ml` --- the Gateway protocol state machine. Manages the
+  WebSocket connection, heartbeat loop, sequence tracking, identify/resume
+  handshakes, and dispatch event routing.
+- `discord.ml` --- the channel implementation. Handles message parsing,
+  access control, REST API calls (with rate limit buckets), and session
+  routing.
+
+Both modules use the shared `ws_client.ml` WebSocket client, which provides
+TLS connections with proper certificate verification via `ca-certs`.
+
+## Slack
+
+Clawq supports two Slack integration modes: **Socket Mode** (recommended) and
+the **Events API** (requires a public endpoint).
+
+### Socket Mode (Recommended)
+
+Socket Mode uses a WebSocket connection initiated by the bot, so no public URL
+is needed --- similar to Telegram's long polling approach.
+
+```json
+{
+  "channels": {
+    "slack": {
+      "enabled": true,
+      "mode": "socket",
+      "bot_token": "xoxb-...",
+      "app_token": "xapp-...",
+      "allow_channels": ["*"],
+      "allow_users": ["*"]
+    }
+  }
+}
+```
+
+**Setup:**
+
+1. Create a Slack app at [api.slack.com/apps](https://api.slack.com/apps).
+2. Enable Socket Mode in the app settings.
+3. Generate an **App-Level Token** (`xapp-...`) with the `connections:write` scope.
+4. Install the app to your workspace and copy the **Bot Token** (`xoxb-...`).
+5. Subscribe to `message.channels` and `message.im` events.
+6. Configure both tokens and start `clawq agent`.
+
+`slack_socket.ml` calls `apps.connections.open` to obtain a WSS URL, then
+connects and listens for envelope-wrapped events. Each envelope is acknowledged
+by sending back the `envelope_id`, and the contained event is forwarded to
+the standard Slack event parser.
+
+### Events API Mode
+
+The Events API mode uses HTTP push --- Slack sends events to your gateway's
+`/slack/events` endpoint.
+
+```json
+{
+  "channels": {
+    "slack": {
+      "enabled": true,
+      "mode": "events_api",
+      "bot_token": "xoxb-...",
+      "signing_secret": "abc123...",
+      "allow_channels": ["*"],
+      "allow_users": ["*"]
+    }
+  }
+}
+```
+
+This mode requires a publicly reachable endpoint. The `http_server.ml` gateway
+handles the `/slack/events` route, and `slack.ml` verifies every request using
+**HMAC-SHA256 signature verification** with the signing secret and a 5-minute
+timestamp window.
+
+### Key Features (Both Modes)
+
+- **Channel and user allowlists** --- control which Slack channels and users
+  can interact with the bot.
+- **HMAC signature verification** (Events API) --- every incoming request is
+  cryptographically verified.
+- **Envelope acknowledgement** (Socket Mode) --- ensures Slack does not
+  redeliver events.
+
+## Web Gateway
+
+The HTTP gateway (`http_server.ml`) exposes a REST endpoint for direct
+programmatic access:
+
+```
+POST /chat   — send a message to the agent
+GET  /health — health check
+```
+
+This is always available when the daemon runs and serves as the foundation for
+the Slack Events API integration.
+
+## Adding a New Channel
+
+To add a new channel:
+
+1. Create a new module that satisfies `Channel.S`.
+2. Add the corresponding config type to `runtime_config.ml`.
+3. Wire it into `daemon.ml` alongside the existing channels.
+4. Place it in `clawq_runtime_integrations` (not core) per the runtime split
+   rules.
+
+The narrow `Channel.S` interface means most of the work is in the
+protocol-specific implementation --- the integration point with the rest of
+clawq is minimal.

@@ -1,0 +1,50 @@
+---
+---
+<div class="corner-brackets-wrap">
+  <span class="cb cb-tl"></span>
+  <span class="cb cb-tr"></span>
+  <span class="cb cb-bl"></span>
+  <span class="cb cb-br"></span>
+  <slot />
+</div>
+
+<style>
+  .corner-brackets-wrap {
+    position: relative;
+  }
+
+  .cb {
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    pointer-events: none;
+  }
+
+  .cb-tl {
+    top: 8px;
+    left: 8px;
+    border-top: 1px solid var(--brass-primary);
+    border-left: 1px solid var(--brass-primary);
+  }
+
+  .cb-tr {
+    top: 8px;
+    right: 8px;
+    border-top: 1px solid var(--brass-primary);
+    border-right: 1px solid var(--brass-primary);
+  }
+
+  .cb-bl {
+    bottom: 8px;
+    left: 8px;
+    border-bottom: 1px solid var(--brass-primary);
+    border-left: 1px solid var(--brass-primary);
+  }
+
+  .cb-br {
+    bottom: 8px;
+    right: 8px;
+    border-bottom: 1px solid var(--brass-primary);
+    border-right: 1px solid var(--brass-primary);
+  }
+</style>

@@ -1,0 +1,122 @@
+---
+interface Props {
+  number: number;
+  name: string;
+  type?: 'theorem' | 'definition' | 'lemma';
+  status?: 'verified' | 'planned' | 'specified';
+  proofRef?: string;
+}
+
+const { number, name, type = 'theorem', status = 'verified', proofRef } = Astro.props;
+
+const typeLabels: Record<string, string> = {
+  theorem: 'Theorem',
+  definition: 'Definition',
+  lemma: 'Lemma',
+};
+
+const borderColors: Record<string, string> = {
+  theorem: 'var(--coq-teal)',
+  definition: 'var(--brass-primary)',
+  lemma: 'var(--brass-dark)',
+};
+
+const statusColors: Record<string, { bg: string; text: string }> = {
+  verified: { bg: 'var(--coq-teal)', text: '#fff' },
+  planned: { bg: 'var(--text-tertiary)', text: '#fff' },
+  specified: { bg: 'var(--qed-gold)', text: '#fff' },
+};
+---
+<div class:list={['theorem-box', `theorem-${type}`]} style={`--theorem-border: ${borderColors[type]}`}>
+  <div class="theorem-header">
+    <span class="theorem-label">{typeLabels[type]} {number} ({name})</span>
+    <span class="theorem-status" style={`--status-bg: ${statusColors[status].bg}; --status-text: ${statusColors[status].text}`}>
+      {status}
+    </span>
+  </div>
+  <div class="theorem-body">
+    <slot />
+  </div>
+  {proofRef && (
+    <p class="theorem-proof-ref">
+      Proof: <a href={proofRef}>{proofRef}</a>
+    </p>
+  )}
+</div>
+
+<style>
+  .theorem-box {
+    position: relative;
+    padding: 1.25rem 1.5rem;
+    margin: 1.5rem 0;
+    border-left: 3px solid var(--theorem-border);
+    border-radius: 16px;
+  }
+
+  .theorem-theorem {
+    background: rgba(46, 139, 122, 0.05);
+  }
+
+  .theorem-definition {
+    background: rgba(201, 168, 76, 0.05);
+  }
+
+  .theorem-lemma {
+    background: rgba(139, 115, 50, 0.05);
+  }
+
+  .theorem-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+    flex-wrap: wrap;
+  }
+
+  .theorem-label {
+    font-family: var(--font-label);
+    font-variant: small-caps;
+    font-weight: 500;
+    font-size: var(--fs-sm, 0.875rem);
+    letter-spacing: 0.06em;
+    color: var(--text-primary);
+  }
+
+  .theorem-status {
+    display: inline-block;
+    font-family: var(--font-label);
+    font-variant: small-caps;
+    font-size: var(--fs-xs);
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    padding: 0.15rem 0.5rem;
+    border-radius: 9999px;
+    background: var(--status-bg);
+    color: var(--status-text);
+  }
+
+  .theorem-body {
+    font-family: var(--font-body);
+    font-style: italic;
+    font-size: var(--fs-base, 1rem);
+    line-height: 1.72;
+    color: var(--text-primary);
+  }
+
+  .theorem-proof-ref {
+    margin-top: 0.75rem;
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs, 0.75rem);
+    color: var(--text-tertiary);
+  }
+
+  .theorem-proof-ref a {
+    color: var(--coq-teal);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .theorem-proof-ref a:hover {
+    color: var(--coq-teal-light);
+  }
+</style>

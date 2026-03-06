@@ -1,4 +1,6 @@
 nullclaw
+node_modules/
+.astro/
 _build
 _build*/
 dist/

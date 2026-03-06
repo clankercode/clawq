@@ -1,0 +1,296 @@
+---
+title: "Configuration"
+description: "Configure providers, channels, security, and more"
+section: "runtime"
+order: 1
+---
+
+All clawq configuration lives in a single JSON file at `~/.clawq/config.json`. This page covers every configuration section, the interactive wizard, programmatic access via the CLI, and environment variables.
+
+## Configuration Methods
+
+### Interactive Wizard
+
+The recommended way to configure clawq for the first time:
+
+```bash
+clawq onboard       # full onboarding wizard
+clawq config wizard # re-run the wizard any time
+```
+
+The wizard walks through provider, model, security, channels, gateway, and memory settings. When run in a TTY, it launches a full interactive TUI. When piped or redirected, it falls back to generating a starter template.
+
+### CLI Set/Get/Show
+
+Manage individual values by dot-path:
+
+```bash
+# Set a value
+clawq config set providers.0.api_key "sk-..."
+clawq config set channels.telegram.enabled true
+
+# Read a value
+clawq config get providers.0.model
+
+# Show full config (secrets redacted)
+clawq config show
+
+# Show a specific section
+clawq config show security
+clawq config show channels
+```
+
+### Manual Editing
+
+```bash
+$EDITOR ~/.clawq/config.json
+```
+
+After editing, validate with:
+
+```bash
+clawq doctor
+```
+
+## Environment Variables
+
+| Variable | Purpose |
+|----------|---------|
+| `CLAWQ_MASTER_KEY` | Passphrase for encrypting/decrypting API keys at rest (AES-256-GCM via PBKDF2) |
+
+When `security.encrypt_secrets` is `true` and `CLAWQ_MASTER_KEY` is set, API keys are automatically decrypted at runtime. Encrypted values are stored with a `$ENC:` prefix.
+
+## Configuration Sections
+
+### providers
+
+An array of LLM provider configurations. The first provider is used by default.
+
+```json
+{
+  "providers": [
+    {
+      "name": "openrouter",
+      "api_key": "sk-or-v1-...",
+      "base_url": "https://openrouter.ai/api/v1",
+      "model": "openai/gpt-4o"
+    },
+    {
+      "name": "openai",
+      "api_key": "sk-...",
+      "base_url": "https://api.openai.com/v1",
+      "model": "gpt-4o"
+    }
+  ]
+}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `name` | Yes | Provider identifier |
+| `api_key` | Yes | API key (or `$ENC:...` encrypted value) |
+| `base_url` | No | API base URL (defaults to OpenAI) |
+| `model` | No | Default model for this provider |
+
+### channels
+
+Channel configurations for Telegram, Discord, and Slack.
+
+```json
+{
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "bot_token": "7123456789:AAF1k...",
+      "allow_from": ["*"]
+    },
+    "discord": {
+      "enabled": true,
+      "bot_token": "MTIz...",
+      "application_id": "123456789"
+    },
+    "slack": {
+      "enabled": true,
+      "bot_token": "xoxb-...",
+      "app_token": "xapp-...",
+      "signing_secret": "abc123..."
+    }
+  }
+}
+```
+
+**Telegram fields:**
+
+| Field | Description |
+|-------|-------------|
+| `enabled` | Enable/disable this channel |
+| `bot_token` | Bot token from @BotFather |
+| `allow_from` | Array of allowed chat IDs, or `["*"]` for all users |
+
+**Discord fields:**
+
+| Field | Description |
+|-------|-------------|
+| `enabled` | Enable/disable this channel |
+| `bot_token` | Bot token from Discord Developer Portal |
+| `application_id` | Application ID from Discord Developer Portal |
+
+**Slack fields:**
+
+| Field | Description |
+|-------|-------------|
+| `enabled` | Enable/disable this channel |
+| `bot_token` | Bot token (`xoxb-...`) |
+| `app_token` | App-level token (`xapp-...`) for Socket Mode |
+| `signing_secret` | Signing secret for Events API HMAC verification |
+
+### security
+
+```json
+{
+  "security": {
+    "workspace_only": true,
+    "tools_enabled": true,
+    "audit_enabled": true,
+    "encrypt_secrets": false,
+    "rate_limit_rpm": 60,
+    "audit_retention_days": 90
+  }
+}
+```
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `workspace_only` | `true` | Restrict file operations to workspace directory |
+| `tools_enabled` | `true` | Enable agent tool invocations |
+| `audit_enabled` | `true` | Enable audit logging of tool invocations and security events |
+| `encrypt_secrets` | `false` | Encrypt API keys at rest using `CLAWQ_MASTER_KEY` |
+| `rate_limit_rpm` | `60` | Requests per minute rate limit |
+| `audit_retention_days` | `90` | Days to retain audit log entries |
+
+### gateway
+
+```json
+{
+  "gateway": {
+    "host": "127.0.0.1",
+    "port": 3000
+  }
+}
+```
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `host` | `127.0.0.1` | Gateway bind address |
+| `port` | `3000` | Gateway port |
+
+### memory
+
+```json
+{
+  "memory": {
+    "backend": "sqlite",
+    "search_enabled": true,
+    "embedding_provider": "openai",
+    "embedding_model": "text-embedding-3-small",
+    "vector_weight": 50,
+    "keyword_weight": 50,
+    "ttl_days": 365
+  }
+}
+```
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `backend` | `sqlite` | Memory backend type |
+| `search_enabled` | `false` | Enable hybrid vector + FTS search |
+| `embedding_provider` | -- | Provider for generating embeddings |
+| `embedding_model` | -- | Model for generating embeddings |
+| `vector_weight` | `50` | Weight for vector similarity results (must sum to 100 with keyword_weight) |
+| `keyword_weight` | `50` | Weight for keyword FTS results |
+| `ttl_days` | `365` | Days before memory entries expire |
+
+### resilience
+
+```json
+{
+  "resilience": {
+    "timeout_s": 120.0,
+    "max_retries": 2,
+    "base_delay_s": 1.0,
+    "fallback_provider": "groq"
+  }
+}
+```
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `timeout_s` | `120.0` | Timeout for LLM API calls in seconds |
+| `max_retries` | `2` | Maximum retry attempts with exponential backoff |
+| `base_delay_s` | `1.0` | Base delay between retries |
+| `fallback_provider` | -- | Provider name to use if primary fails |
+
+### mcp
+
+```json
+{
+  "mcp": {
+    "enabled": true,
+    "exposed_tools": ["file_read", "file_write", "shell_exec"]
+  }
+}
+```
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `enabled` | `false` | Enable the MCP server (JSON-RPC via stdio) |
+| `exposed_tools` | all | Array of tool names to expose (omit for all) |
+
+## Full Example
+
+```json
+{
+  "providers": [
+    {
+      "name": "openrouter",
+      "api_key": "sk-or-v1-...",
+      "base_url": "https://openrouter.ai/api/v1",
+      "model": "openai/gpt-4o"
+    }
+  ],
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "bot_token": "7123456789:AAF1k...",
+      "allow_from": ["*"]
+    }
+  },
+  "security": {
+    "workspace_only": true,
+    "tools_enabled": true,
+    "audit_enabled": true,
+    "encrypt_secrets": false
+  },
+  "gateway": {
+    "host": "127.0.0.1",
+    "port": 3000
+  },
+  "memory": {
+    "backend": "sqlite",
+    "search_enabled": false
+  },
+  "resilience": {
+    "timeout_s": 120.0,
+    "max_retries": 2
+  }
+}
+```
+
+## Secret Encryption
+
+To encrypt API keys at rest:
+
+1. Set `security.encrypt_secrets` to `true`
+2. Set the `CLAWQ_MASTER_KEY` environment variable with a strong passphrase
+3. Run `clawq auth encrypt` to encrypt all plaintext API keys
+4. Keys are stored as `$ENC:...` values and automatically decrypted at runtime

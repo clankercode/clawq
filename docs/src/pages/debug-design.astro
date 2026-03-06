@@ -1,0 +1,475 @@
+---
+import LandingLayout from '../layouts/LandingLayout.astro';
+import Callout from '../components/Callout.astro';
+import TheoremBox from '../components/TheoremBox.astro';
+import MechanicalCounter from '../components/MechanicalCounter.astro';
+import VerificationSeal from '../components/VerificationSeal.astro';
+import ProgressRing from '../components/ProgressRing.astro';
+---
+
+<LandingLayout title="Design Debug">
+<div class="debug-wrap">
+
+  <header class="debug-header">
+    <h1>Design Debug</h1>
+    <p class="debug-note">Not linked from navigation. For design review only.</p>
+  </header>
+
+  {/* ===== COLOR PALETTE ===== */}
+  <section class="debug-section">
+    <h2>Color Palette</h2>
+
+    <div class="swatch-group">
+      <p class="swatch-group-label">Backgrounds</p>
+      <div class="swatches">
+        <div class="swatch" style="background: var(--bg-primary);"><span>bg-primary</span></div>
+        <div class="swatch" style="background: var(--bg-secondary);"><span>bg-secondary</span></div>
+        <div class="swatch" style="background: var(--bg-tertiary);"><span>bg-tertiary</span></div>
+        <div class="swatch" style="background: var(--bg-hover);"><span>bg-hover</span></div>
+      </div>
+    </div>
+
+    <div class="swatch-group">
+      <p class="swatch-group-label">Brass</p>
+      <div class="swatches">
+        <div class="swatch" style="background: var(--brass-primary);"><span>brass-primary</span></div>
+        <div class="swatch" style="background: var(--brass-light);"><span>brass-light</span></div>
+        <div class="swatch" style="background: var(--brass-dark);"><span>brass-dark</span></div>
+        <div class="swatch" style="background: var(--gold-bright);"><span>gold-bright</span></div>
+        <div class="swatch" style="background: var(--qed-gold);"><span>qed-gold</span></div>
+      </div>
+    </div>
+
+    <div class="swatch-group">
+      <p class="swatch-group-label">Coq Teal</p>
+      <div class="swatches">
+        <div class="swatch" style="background: var(--coq-teal);"><span>coq-teal</span></div>
+        <div class="swatch" style="background: var(--coq-teal-light);"><span>coq-teal-light</span></div>
+      </div>
+    </div>
+
+    <div class="swatch-group">
+      <p class="swatch-group-label">Text</p>
+      <div class="swatches">
+        <div class="swatch swatch-text" style="background: var(--bg-secondary); color: var(--text-primary);"><span style="color: var(--text-primary);">text-primary</span></div>
+        <div class="swatch swatch-text" style="background: var(--bg-secondary); color: var(--text-secondary);"><span style="color: var(--text-secondary);">text-secondary</span></div>
+        <div class="swatch swatch-text" style="background: var(--bg-secondary); color: var(--text-tertiary);"><span style="color: var(--text-tertiary);">text-tertiary</span></div>
+      </div>
+    </div>
+
+    <div class="swatch-group">
+      <p class="swatch-group-label">Semantic</p>
+      <div class="swatches">
+        <div class="swatch" style="background: var(--error-red);"><span>error-red</span></div>
+        <div class="swatch" style="background: var(--info-blue);"><span>info-blue</span></div>
+      </div>
+    </div>
+
+    <div class="swatch-group">
+      <p class="swatch-group-label">Borders</p>
+      <div class="swatches">
+        <div class="swatch swatch-border" style="background: var(--bg-tertiary); outline: 3px solid var(--border);"><span>border</span></div>
+        <div class="swatch swatch-border" style="background: var(--bg-tertiary); outline: 3px solid var(--border-emphasis);"><span>border-emphasis</span></div>
+      </div>
+    </div>
+  </section>
+
+  {/* ===== TYPOGRAPHY ===== */}
+  <section class="debug-section">
+    <h2>Typography</h2>
+
+    <div class="type-row">
+      <span class="type-label">--font-display</span>
+      <span style="font-family: var(--font-display); font-size: var(--fs-xl);">Cormorant Garamond — The Formal AI Assistant</span>
+    </div>
+    <div class="type-row">
+      <span class="type-label">--font-body</span>
+      <span style="font-family: var(--font-body); font-size: var(--fs-base);">Crimson Pro — A machine-checked account of proven properties.</span>
+    </div>
+    <div class="type-row">
+      <span class="type-label">--font-body italic</span>
+      <span style="font-family: var(--font-body); font-style: italic; font-size: var(--fs-base);">Crimson Pro italic — For all p, valid_port p = true implies 1 ≤ p ≤ 65535.</span>
+    </div>
+    <div class="type-row">
+      <span class="type-label">--font-label</span>
+      <span style="font-family: var(--font-label); font-size: var(--fs-base);">EB Garamond — Configuration · PathSafety · AuditChain</span>
+    </div>
+    <div class="type-row">
+      <span class="type-label">--font-label small-caps</span>
+      <span style="font-family: var(--font-label); font-variant: small-caps; font-size: var(--fs-base); letter-spacing: 0.08em;">Verified · Planned · Extracted · Section Label</span>
+    </div>
+    <div class="type-row">
+      <span class="type-label">--font-ui</span>
+      <span style="font-family: var(--font-ui); font-size: var(--fs-base);">Figtree — UI labels, nav items, badges</span>
+    </div>
+    <div class="type-row">
+      <span class="type-label">--font-mono</span>
+      <span style="font-family: var(--font-mono); font-size: var(--fs-sm);">JetBrains Mono — ConfigProofs.v · clawq config set · 0xDEADBEEF</span>
+    </div>
+
+    <div class="type-scale">
+      <p class="type-label" style="margin-bottom: 1rem;">Type Scale</p>
+      {['--fs-xs', '--fs-sm', '--fs-base', '--fs-md', '--fs-lg', '--fs-xl', '--fs-2xl', '--fs-hero'].map(size => (
+        <div class="scale-row">
+          <code class="scale-name">{size}</code>
+          <span style={`font-family: var(--font-display); font-size: var(${size});`}>Clawq</span>
+        </div>
+      ))}
+    </div>
+  </section>
+
+  {/* ===== CALLOUTS ===== */}
+  <section class="debug-section">
+    <h2>Callout Components</h2>
+    <p class="debug-note">Four variants — note (brass), tip (teal), warning (red), verified (teal).</p>
+
+    <Callout type="note">
+      This is a <strong>note</strong> callout. Uses <code>--brass-primary</code> border and title color.
+      Good for general informational asides.
+    </Callout>
+
+    <Callout type="tip">
+      This is a <strong>tip</strong> callout. Uses <code>--coq-teal</code> border and title color.
+      Good for actionable suggestions or best practices.
+    </Callout>
+
+    <Callout type="warning">
+      This is a <strong>warning</strong> callout. Uses <code>--error-red</code> border and title color.
+      Good for destructive or irreversible actions.
+    </Callout>
+
+    <Callout type="verified">
+      This is a <strong>verified</strong> callout. Uses <code>--coq-teal</code> border — same hue as tip but
+      semantically distinct (machine-checked correctness claim).
+    </Callout>
+
+    <Callout type="note" title="Custom Title">
+      Callouts accept an optional <code>title</code> prop to override the default label.
+    </Callout>
+  </section>
+
+  {/* ===== THEOREM BOXES ===== */}
+  <section class="debug-section">
+    <h2>Theorem Boxes</h2>
+    <p class="debug-note">Three types × three statuses.</p>
+
+    <TheoremBox number="1.1" name="valid_port_bounds" type="theorem" status="verified" proofRef="ConfigProofs.v">
+      For all p, valid_port p = true implies 1 ≤ p ≤ 65535.
+    </TheoremBox>
+
+    <TheoremBox number="2.1" name="normalize_no_dotdot" type="lemma" status="verified" proofRef="PathSafety.v">
+      For all path p, normalize p contains no ".." segments.
+    </TheoremBox>
+
+    <TheoremBox number="3.1" name="nonce_uniqueness" type="definition" status="planned">
+      Each generated nonce is unique with probability 1 − 2⁻⁹⁶ over all invocations.
+    </TheoremBox>
+
+    <TheoremBox number="4.1" name="session_isolation" type="theorem" status="specified">
+      For all sessions s₁ ≠ s₂, store_message s₁ m does not affect get_messages s₂.
+    </TheoremBox>
+  </section>
+
+  {/* ===== MECHANICAL COUNTERS ===== */}
+  <section class="debug-section">
+    <h2>Mechanical Counters</h2>
+    <div style="display: flex; flex-wrap: wrap; gap: 3rem; padding: 2rem 0;">
+      <MechanicalCounter value={69} label="Theorems Proven" />
+      <MechanicalCounter value={12} label="Phases" />
+      <MechanicalCounter value={226} label="Tests" />
+      <MechanicalCounter value={1847} label="Lines of Coq" />
+    </div>
+  </section>
+
+  {/* ===== VERIFICATION SEAL ===== */}
+  <section class="debug-section">
+    <h2>Verification Seal</h2>
+    <div style="display: flex; justify-content: center; padding: 2rem 0;">
+      <VerificationSeal />
+    </div>
+  </section>
+
+  {/* ===== PROGRESS RINGS ===== */}
+  <section class="debug-section">
+    <h2>Progress Rings</h2>
+    <div style="display: flex; gap: 2.5rem; flex-wrap: wrap; padding: 1.5rem 0; align-items: flex-end;">
+      <ProgressRing percentage={100} label="Complete" />
+      <ProgressRing percentage={75} label="75%" />
+      <ProgressRing percentage={50} label="Half" />
+      <ProgressRing percentage={25} label="25%" />
+      <ProgressRing percentage={0} label="Planned" />
+    </div>
+  </section>
+
+  {/* ===== PHASE PILLS ===== */}
+  <section class="debug-section">
+    <h2>Pills &amp; Badges</h2>
+    <p class="debug-note">Shared between Phase Status grid and Verification Ledger.</p>
+    <div style="display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; padding: 1rem 0;">
+      <span class="phase-pill phase-pill-verified">&#10003; Verified</span>
+      <span class="phase-pill phase-pill-planned">&#8987; Planned</span>
+      <span class="ledger-extracted">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 3v13M7 11l5 5 5-5"/><path d="M5 20h14"/>
+        </svg>
+        extracted
+      </span>
+    </div>
+  </section>
+
+  {/* ===== ORNAMENTAL ELEMENTS ===== */}
+  <section class="debug-section">
+    <h2>Ornamental Elements</h2>
+
+    <div style="margin: 1.5rem 0;">
+      <p class="debug-note" style="margin-bottom: 0.75rem;">Corner brackets (.corner-brackets)</p>
+      <div class="corner-brackets" style="display: inline-block; padding: 1.5rem 2rem; background: var(--bg-secondary);">
+        <span class="corner-tr"></span>
+        <span class="corner-bl"></span>
+        Content inside corner bracket frame
+      </div>
+    </div>
+
+    <div style="margin: 1.5rem 0;">
+      <p class="debug-note" style="margin-bottom: 0.75rem;">Diamond rule</p>
+      <div class="diamond-rule" style="width: 120px;">
+        <span class="rule-line"></span>
+        <span class="rule-diamond">&#x25C6;</span>
+        <span class="rule-line"></span>
+      </div>
+    </div>
+
+    <div style="margin: 1.5rem 0;">
+      <p class="debug-note" style="margin-bottom: 0.75rem;">QED marker (.qed)</p>
+      <div class="qed" style="max-width: 30rem; background: var(--bg-secondary); padding: 1rem 1.5rem;">
+        Theorem proved. ∎
+      </div>
+    </div>
+
+    <div style="margin: 1.5rem 0;">
+      <p class="debug-note" style="margin-bottom: 0.75rem;">Blockquote</p>
+      <blockquote>
+        "The purpose of abstraction is not to be vague, but to create a new semantic level
+        in which one can be absolutely precise." — Dijkstra
+      </blockquote>
+    </div>
+  </section>
+
+  {/* ===== CODE BLOCKS ===== */}
+  <section class="debug-section">
+    <h2>Code &amp; Inline Code</h2>
+    <p>Inline: <code>clawq config set model gpt-4o</code> and <code>ConfigProofs.v</code>.</p>
+    <pre><code>$ clawq config show
+model:        gpt-4o
+provider:     openai
+max_tokens:   4096
+temperature:  0.7</code></pre>
+  </section>
+
+  {/* ===== BORDERS & LINES ===== */}
+  <section class="debug-section">
+    <h2>Border &amp; Accent Lines</h2>
+    <div style="display: flex; flex-direction: column; gap: 0.75rem; padding: 1rem 0;">
+      <div style="height: 2px; background: var(--brass-primary); border-radius: 4px;"></div>
+      <div style="height: 1px; background: var(--border);"></div>
+      <div style="height: 1px; background: var(--border-emphasis);"></div>
+      <div style="height: 3px; background: var(--coq-teal); border-radius: 4px;"></div>
+      <div style="height: 3px; background: var(--error-red); border-radius: 4px;"></div>
+      <div style="height: 3px; background: var(--info-blue); border-radius: 4px;"></div>
+    </div>
+    <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 1rem;">
+      <div style="flex: 1; min-width: 8rem; padding: 1rem; border-left: 3px solid var(--brass-primary); background: var(--bg-secondary);">brass-primary left border</div>
+      <div style="flex: 1; min-width: 8rem; padding: 1rem; border-left: 3px solid var(--coq-teal); background: var(--bg-secondary);">coq-teal left border</div>
+      <div style="flex: 1; min-width: 8rem; padding: 1rem; border-left: 3px solid var(--error-red); background: var(--bg-secondary);">error-red left border</div>
+      <div style="flex: 1; min-width: 8rem; padding: 1rem; border-left: 3px solid var(--info-blue); background: var(--bg-secondary);">info-blue left border</div>
+      <div style="flex: 1; min-width: 8rem; padding: 1rem; border-left: 3px solid var(--border-emphasis); background: var(--bg-secondary);">border-emphasis left border</div>
+    </div>
+  </section>
+
+</div>
+</LandingLayout>
+
+<style>
+  .debug-wrap {
+    max-width: 56rem;
+    margin: 0 auto;
+    padding: 3rem 2rem 6rem;
+  }
+
+  .debug-header {
+    margin-bottom: 3rem;
+    padding-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .debug-note {
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    color: var(--text-tertiary);
+    margin-bottom: 1rem;
+  }
+
+  .debug-section {
+    margin-bottom: 4rem;
+  }
+
+  /* Swatches */
+  .swatch-group {
+    margin-bottom: 1.5rem;
+  }
+
+  .swatch-group-label {
+    font-family: var(--font-label);
+    font-variant: small-caps;
+    font-size: var(--fs-sm);
+    color: var(--text-tertiary);
+    letter-spacing: 0.08em;
+    margin-bottom: 0.5rem;
+  }
+
+  .swatches {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .swatch {
+    width: 8rem;
+    height: 4rem;
+    border-radius: 12px;
+    display: flex;
+    align-items: flex-end;
+    padding: 0.4rem 0.5rem;
+    border: 1px solid var(--border);
+  }
+
+  .swatch span {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    color: rgba(255,255,255,0.7);
+    line-height: 1.2;
+  }
+
+  .swatch-text span {
+    font-size: 0.75rem;
+  }
+
+  .swatch-border {
+    border-width: 3px !important;
+  }
+
+  /* Typography rows */
+  .type-row {
+    display: flex;
+    align-items: baseline;
+    gap: 1.5rem;
+    padding: 0.75rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .type-label {
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    color: var(--text-tertiary);
+    min-width: 12rem;
+    flex-shrink: 0;
+  }
+
+  /* Type scale */
+  .type-scale {
+    margin-top: 2rem;
+  }
+
+  .scale-row {
+    display: flex;
+    align-items: baseline;
+    gap: 1.5rem;
+    padding: 0.5rem 0;
+  }
+
+  .scale-name {
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    color: var(--text-tertiary);
+    min-width: 8rem;
+    flex-shrink: 0;
+  }
+
+  /* Pills (copied from FV page) */
+  .phase-pill {
+    display: inline-block;
+    padding: 0.2rem 0.55rem;
+    border-radius: 8rem;
+    font-family: var(--font-label);
+    font-variant: small-caps;
+    font-size: var(--fs-sm);
+    font-weight: 500;
+    letter-spacing: 0.05em;
+    line-height: 1.4;
+    width: fit-content;
+  }
+
+  .phase-pill-verified {
+    background: rgba(46, 139, 122, 0.12);
+    color: var(--coq-teal-light);
+    border: 1px solid rgba(46, 139, 122, 0.3);
+  }
+
+  .phase-pill-planned {
+    background: rgba(139, 115, 50, 0.08);
+    color: var(--brass-dark);
+    border: 1px solid var(--border);
+  }
+
+  .ledger-extracted {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-family: var(--font-label);
+    font-variant: small-caps;
+    font-size: var(--fs-sm);
+    font-weight: 500;
+    letter-spacing: 0.05em;
+    line-height: 1.4;
+    padding: 0.2rem 0.55rem;
+    border-radius: 8rem;
+    background: rgba(46, 139, 122, 0.12);
+    color: var(--coq-teal-light);
+    border: 1px solid rgba(46, 139, 122, 0.3);
+    width: fit-content;
+  }
+
+  /* Diamond rule */
+  .diamond-rule {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .rule-line {
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  .rule-diamond {
+    color: var(--qed-gold);
+    font-size: 0.6rem;
+    padding: 0 6px;
+    line-height: 1;
+  }
+
+  /* pre/code basic styling */
+  pre {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1rem 1.25rem;
+    overflow-x: auto;
+    font-family: var(--font-mono);
+    font-size: var(--fs-sm);
+    color: var(--text-primary);
+    line-height: var(--lh-code);
+    margin-top: 1rem;
+  }
+</style>

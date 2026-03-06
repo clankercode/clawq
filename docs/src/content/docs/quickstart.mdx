@@ -1,0 +1,183 @@
+---
+title: "Quick Start"
+description: "Get clawq running in 5 minutes"
+section: "preface"
+order: 2
+---
+
+The quickest path from zero to a running clawq instance takes about five minutes. This guide covers building from source, configuring a provider and channel, and starting the daemon.
+
+## Prerequisites
+
+- **opam** -- the OCaml package manager
+- **libsqlite3-dev** (Debian/Ubuntu) or equivalent for your distribution
+- **An LLM API key** from OpenRouter, OpenAI, or any OpenAI-compatible provider
+- **A channel token** -- Telegram bot token (from @BotFather), Discord bot token, or Slack app token
+
+## 1. Bootstrap and Build
+
+```bash
+# Clone the repository
+git clone <repo-url> clawq && cd clawq
+
+# Create opam switch "clawq-5.1" and install all dependencies
+make bootstrap
+
+# Build the project
+make build
+
+# Run tests to verify the build
+make test
+```
+
+## 2. Interactive Setup (Recommended)
+
+The fastest way to configure clawq is with the onboarding wizard:
+
+```bash
+clawq onboard
+```
+
+The wizard walks through every section -- provider, model, security, channels, gateway, and memory -- and writes `~/.clawq/config.json` at the end. You can re-run it any time.
+
+Alternatively, use the config wizard directly:
+
+```bash
+clawq config wizard
+```
+
+## 3. Manual Configuration
+
+### Using config set commands
+
+Set individual values by dot-path:
+
+```bash
+clawq config set providers.0.api_key "sk-or-v1-YOUR_KEY_HERE"
+clawq config set providers.0.base_url "https://openrouter.ai/api/v1"
+clawq config set providers.0.model "openai/gpt-4o"
+clawq config set channels.telegram.bot_token "7123456789:AAF1k_YOUR_TOKEN_HERE"
+clawq config set channels.telegram.allow_from '["*"]'
+```
+
+Review the result:
+
+```bash
+clawq config show           # full config, secrets redacted
+clawq config show channels  # one section
+clawq config get providers.0.model  # single value
+```
+
+### Editing config.json directly
+
+```bash
+$EDITOR ~/.clawq/config.json
+```
+
+Minimal working configuration:
+
+```json
+{
+  "providers": [
+    {
+      "name": "openrouter",
+      "api_key": "sk-or-v1-YOUR_KEY_HERE",
+      "base_url": "https://openrouter.ai/api/v1",
+      "model": "openai/gpt-4o"
+    }
+  ],
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "bot_token": "7123456789:AAF1k_YOUR_TOKEN_HERE",
+      "allow_from": ["*"]
+    }
+  }
+}
+```
+
+**Configuration notes:**
+
+- `allow_from`: `["*"]` allows all users. To restrict access, list specific chat IDs: `["123456789", "987654321"]`.
+- `base_url`: Use `https://api.openai.com/v1` for OpenAI directly, or any compatible endpoint.
+- `model`: Default model for this provider. Can be overridden per-request.
+
+## 4. Validate
+
+Check your configuration for common issues:
+
+```bash
+clawq doctor
+```
+
+You should see `doctor: all checks passed`. If there are warnings, fix the noted issues.
+
+Initialize workspace prompt files:
+
+```bash
+clawq workspace init
+```
+
+Check the full runtime status:
+
+```bash
+clawq status
+```
+
+## 5. Start the Daemon
+
+```bash
+clawq agent
+```
+
+You should see output like:
+
+```
+clawq: [INFO] clawq daemon starting (pid=12345)
+clawq: [INFO] Starting Telegram polling for account 'main'
+clawq: [INFO] Daemon ready. Gateway on 127.0.0.1:3000
+```
+
+The daemon runs in the foreground. Press `Ctrl+C` to stop it. To run in the background:
+
+```bash
+clawq agent &
+```
+
+## 6. Verify
+
+Test the HTTP gateway:
+
+```bash
+curl http://127.0.0.1:3000/health
+# {"status":"ok"}
+```
+
+If you configured Telegram, open Telegram and message your bot. Built-in commands:
+
+| Command | Action |
+|---------|--------|
+| `/start` | Welcome message |
+| `/help` | Show available commands |
+| `/new` | Reset conversation history |
+
+The bot maintains conversation history per chat, so follow-up questions work naturally.
+
+## Troubleshooting
+
+**Bot does not respond:**
+- Check the daemon is running and showing `Starting Telegram polling`
+- Verify your bot token with `clawq doctor`
+- Check that `allow_from` includes your chat ID (or is `["*"]`)
+
+**"No providers configured" warning:**
+- Ensure `providers` is set in `~/.clawq/config.json` with a valid API key
+
+**LLM API errors:**
+- Verify your API key is valid and has credits
+- Try a different model (e.g., `openai/gpt-3.5-turbo` for lower cost)
+- Check that `base_url` matches your provider
+
+**Permission denied / config not found:**
+- Run `clawq onboard` to create the config directory
+- Check `~/.clawq/config.json` exists and is readable

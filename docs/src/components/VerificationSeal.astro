@@ -1,0 +1,104 @@
+---
+function generateGearToothRing(cx: number, cy: number, innerR: number, outerR: number, teeth: number): string {
+  const points: string[] = [];
+  for (let i = 0; i < teeth; i++) {
+    const a1 = (i / teeth) * Math.PI * 2;
+    const a2 = ((i + 0.3) / teeth) * Math.PI * 2;
+    const a3 = ((i + 0.5) / teeth) * Math.PI * 2;
+    const a4 = ((i + 0.8) / teeth) * Math.PI * 2;
+    points.push(
+      `${cx + innerR * Math.cos(a1)},${cy + innerR * Math.sin(a1)}`,
+      `${cx + outerR * Math.cos(a2)},${cy + outerR * Math.sin(a2)}`,
+      `${cx + outerR * Math.cos(a3)},${cy + outerR * Math.sin(a3)}`,
+      `${cx + innerR * Math.cos(a4)},${cy + innerR * Math.sin(a4)}`
+    );
+  }
+  return `M ${points[0]} L ${points.slice(1).join(' L ')} Z`;
+}
+
+// Radiating lines (compass rose style) between rings
+function generateRadiatingLines(cx: number, cy: number, innerR: number, outerR: number, count: number): string {
+  let d = '';
+  for (let i = 0; i < count; i++) {
+    const angle = (i / count) * Math.PI * 2;
+    const x1 = cx + innerR * Math.cos(angle);
+    const y1 = cy + innerR * Math.sin(angle);
+    const x2 = cx + outerR * Math.cos(angle);
+    const y2 = cy + outerR * Math.sin(angle);
+    d += `M ${x1},${y1} L ${x2},${y2} `;
+  }
+  return d;
+}
+
+const cx = 70;
+const cy = 70;
+const outerGearPath = generateGearToothRing(cx, cy, 58, 66, 24);
+const radiatingLines = generateRadiatingLines(cx, cy, 38, 54, 12);
+---
+<div class="verification-seal">
+  <svg class="seal-svg" width="140" height="140" viewBox="0 0 140 140" xmlns="http://www.w3.org/2000/svg">
+    <!-- Outer gear-toothed ring -->
+    <path class="outer-ring" d={outerGearPath} fill="none" stroke-width="1.5"/>
+    <!-- Inner smooth circle -->
+    <circle class="inner-ring" cx={cx} cy={cy} r="38" fill="none" stroke-width="1.5"/>
+    <!-- Radiating lines between rings -->
+    <path class="radiating-lines" d={radiatingLines} fill="none" stroke-width="0.5"/>
+    <!-- Center FV monogram -->
+    <text class="fv-text" x={cx} y={cy} text-anchor="middle" dominant-baseline="central">FV</text>
+  </svg>
+  <p class="seal-label">Coq-Verified Core</p>
+</div>
+
+<style>
+  .verification-seal {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .seal-svg {
+    overflow: visible;
+  }
+
+  .outer-ring {
+    stroke: var(--brass-primary);
+    animation: seal-rotate 60s linear infinite;
+    transform-origin: 70px 70px;
+  }
+
+  .inner-ring {
+    stroke: var(--brass-dark);
+  }
+
+  .radiating-lines {
+    stroke: var(--brass-dark);
+    opacity: 0.5;
+  }
+
+  .fv-text {
+    font-family: var(--font-display);
+    font-weight: 900;
+    font-size: 28px;
+    fill: var(--brass-primary);
+  }
+
+  .seal-label {
+    font-family: var(--font-label);
+    font-variant: small-caps;
+    color: var(--text-secondary);
+    font-size: var(--fs-sm, 0.875rem);
+    letter-spacing: 0.08em;
+  }
+
+  @keyframes seal-rotate {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .outer-ring {
+      animation: none;
+    }
+  }
+</style>

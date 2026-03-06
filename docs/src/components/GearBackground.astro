@@ -1,0 +1,94 @@
+---
+function generateGearPath(innerR: number, outerR: number, teeth: number): string {
+  const points: string[] = [];
+  for (let i = 0; i < teeth; i++) {
+    const a1 = (i / teeth) * Math.PI * 2;
+    const a2 = ((i + 0.3) / teeth) * Math.PI * 2;
+    const a3 = ((i + 0.5) / teeth) * Math.PI * 2;
+    const a4 = ((i + 0.8) / teeth) * Math.PI * 2;
+    points.push(
+      `${innerR * Math.cos(a1)},${innerR * Math.sin(a1)}`,
+      `${outerR * Math.cos(a2)},${outerR * Math.sin(a2)}`,
+      `${outerR * Math.cos(a3)},${outerR * Math.sin(a3)}`,
+      `${innerR * Math.cos(a4)},${innerR * Math.sin(a4)}`
+    );
+  }
+  return `M ${points[0]} L ${points.slice(1).join(' L ')} Z`;
+}
+
+const largeGearPath = generateGearPath(120, 135, 20);
+const smallGearPath = generateGearPath(50, 62, 14);
+---
+<div class="gear-background" aria-hidden="true">
+  <svg class="gear gear-large" viewBox="0 0 280 280" xmlns="http://www.w3.org/2000/svg">
+    <g transform="translate(140,140)">
+      <path d={largeGearPath} fill="none" stroke="currentColor" stroke-width="1.5"/>
+      <circle r="60" fill="none" stroke="currentColor" stroke-width="1"/>
+      <circle r="20" fill="none" stroke="currentColor" stroke-width="1"/>
+    </g>
+  </svg>
+  <svg class="gear gear-small" viewBox="0 0 140 140" xmlns="http://www.w3.org/2000/svg">
+    <g transform="translate(70,70)">
+      <path d={smallGearPath} fill="none" stroke="currentColor" stroke-width="1.5"/>
+      <circle r="25" fill="none" stroke="currentColor" stroke-width="1"/>
+      <circle r="10" fill="none" stroke="currentColor" stroke-width="1"/>
+    </g>
+  </svg>
+</div>
+
+<style>
+  .gear-background {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    overflow: hidden;
+  }
+
+  .gear {
+    position: absolute;
+    color: var(--brass-primary);
+    opacity: var(--gear-opacity, 0.03);
+  }
+
+  .gear-large {
+    width: 280px;
+    height: 280px;
+    bottom: -40px;
+    right: -40px;
+    animation: spin-cw 120s linear infinite;
+    will-change: transform;
+  }
+
+  .gear-small {
+    width: 140px;
+    height: 140px;
+    bottom: 80px;
+    right: 200px;
+    animation: spin-ccw 60s linear infinite;
+    will-change: transform;
+  }
+
+  @keyframes spin-cw {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+
+  @keyframes spin-ccw {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(-360deg); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .gear-large,
+    .gear-small {
+      animation: none;
+    }
+  }
+
+  @media (max-width: 767px) {
+    .gear-background {
+      display: none;
+    }
+  }
+</style>

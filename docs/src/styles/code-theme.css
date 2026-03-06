@@ -1,0 +1,240 @@
+/* ==========================================================================
+   code-theme.css — "Watchmaker's Loupe" syntax highlighting theme
+   ========================================================================== */
+
+/* ---------- Shiki / Astro Code Variable Overrides ---------- */
+html[data-theme="dark"] {
+  --astro-code-color-text: #D4CEBC;
+  --astro-code-color-background: #141320;
+  --astro-code-token-constant: #E2C97E;
+  --astro-code-token-string: #C9A84C;
+  --astro-code-token-comment: #5C584E;
+  --astro-code-token-keyword: #8FA4B8;
+  --astro-code-token-parameter: #D4CEBC;
+  --astro-code-token-function: #D4A76A;
+  --astro-code-token-string-expression: #C9A84C;
+  --astro-code-token-punctuation: #9C978A;
+  --astro-code-token-link: #C9A84C;
+
+  --code-bg: #141320;
+  --code-text: #D4CEBC;
+  --code-comment: #5C584E;
+  --code-string: #C9A84C;
+  --code-number: #E2C97E;
+  --code-keyword: #8FA4B8;
+  --code-function: #D4A76A;
+  --code-type: #7DAA6E;
+  --code-operator: #9C978A;
+  --code-coq-keyword: #C9A84C;
+
+  --coq-block-bg: #1A2826;
+}
+
+html[data-theme="light"] {
+  --astro-code-color-text: #2A2520;
+  --astro-code-color-background: #EDEADF;
+  --astro-code-token-constant: #5C4A18;
+  --astro-code-token-string: #7A6321;
+  --astro-code-token-comment: #8A8275;
+  --astro-code-token-keyword: #3D5A73;
+  --astro-code-token-parameter: #2A2520;
+  --astro-code-token-function: #8B5E2F;
+  --astro-code-token-string-expression: #7A6321;
+  --astro-code-token-punctuation: #6B5E52;
+  --astro-code-token-link: #7A6321;
+
+  --code-bg: #EDEADF;
+  --code-text: #2A2520;
+  --code-comment: #8A8275;
+  --code-string: #7A6321;
+  --code-number: #5C4A18;
+  --code-keyword: #3D5A73;
+  --code-function: #8B5E2F;
+  --code-type: #4A6B3A;
+  --code-operator: #6B5E52;
+  --code-coq-keyword: #7A6321;
+
+  --coq-block-bg: #EAF0ED;
+}
+
+/* ---------- Code Block Chrome ---------- */
+.code-block {
+  position: relative;
+  margin: 1.5rem 0;
+  border-radius: 24px;
+  border-left: 2px solid rgba(139, 115, 50, 0.3);
+  overflow: hidden;
+  background: var(--code-bg);
+}
+
+.code-block .code-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.4rem 1rem;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border);
+}
+
+.code-block .code-lang {
+  font-family: var(--font-ui);
+  font-weight: 500;
+  font-size: var(--fs-xs, 0.75rem);
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  letter-spacing: 0.04em;
+}
+
+.code-block .code-copy {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 12px;
+  transition: color 150ms ease;
+}
+
+.code-block .code-copy:hover {
+  color: var(--brass-primary);
+}
+
+.code-block pre {
+  margin: 0;
+  padding: 1rem;
+  overflow-x: auto;
+  max-height: 500px;
+  background: var(--code-bg);
+}
+
+.code-block pre code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  font-weight: 400;
+  line-height: var(--lh-code, 1.55);
+  background: none;
+  border: none;
+  padding: 0;
+  border-radius: 0;
+  color: var(--code-text);
+}
+
+/* ---------- Standalone pre (no .code-block wrapper) ---------- */
+pre:not(.code-block pre) {
+  background: var(--code-bg);
+  border-radius: 24px;
+  border-left: 2px solid rgba(139, 115, 50, 0.3);
+  padding: 1rem;
+  overflow-x: auto;
+  max-height: 500px;
+  margin: 1.5rem 0;
+}
+
+pre code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  line-height: var(--lh-code, 1.55);
+}
+
+/* ---------- Inline Code ---------- */
+code:not(pre code) {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 2px 6px;
+}
+
+/* ---------- Coq Code Blocks (Special) ---------- */
+.language-coq,
+pre.language-coq,
+.code-block.language-coq pre {
+  background: var(--coq-block-bg);
+}
+
+.code-block.language-coq {
+  border-left: 3px solid var(--coq-teal);
+  background: var(--coq-block-bg);
+}
+
+/* Coq theorem/proof/qed keywords */
+.language-coq .token-theorem,
+.language-coq .token-proof,
+.language-coq .token-qed {
+  color: var(--code-coq-keyword);
+  font-weight: 700;
+}
+
+/* ---------- Syntax Token Classes ---------- */
+.token-comment,
+.code-comment {
+  color: var(--code-comment);
+  font-style: italic;
+}
+
+.token-string,
+.code-string {
+  color: var(--code-string);
+}
+
+.token-number,
+.code-number {
+  color: var(--code-number);
+}
+
+.token-keyword,
+.code-keyword {
+  color: var(--code-keyword);
+}
+
+.token-function,
+.code-function {
+  color: var(--code-function);
+}
+
+.token-type,
+.code-type {
+  color: var(--code-type);
+}
+
+.token-operator,
+.code-operator {
+  color: var(--code-operator);
+}
+
+/* ---------- Line Numbers ---------- */
+.line-numbers {
+  counter-reset: line;
+}
+
+.line-numbers .line::before {
+  counter-increment: line;
+  content: counter(line);
+  display: inline-block;
+  width: 2.5em;
+  margin-right: 1em;
+  padding-right: 0.5em;
+  text-align: right;
+  color: var(--text-tertiary);
+  font-size: 0.8em;
+  border-right: 1px solid var(--border);
+  user-select: none;
+}
+
+/* ---------- Mobile Code Blocks ---------- */
+@media (max-width: 767px) {
+  .code-block {
+    margin-left: -16px;
+    margin-right: -16px;
+    border-radius: 0;
+  }
+
+  .code-block pre code,
+  pre code {
+    font-size: 13px;
+  }
+}

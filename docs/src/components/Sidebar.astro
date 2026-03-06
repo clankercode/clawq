@@ -1,0 +1,292 @@
+---
+interface Props {
+  currentPath: string;
+}
+
+const { currentPath } = Astro.props;
+
+const sections = [
+  {
+    label: "PREFACE",
+    items: [
+      { title: "Overview", href: "/", number: "" },
+      { title: "Quick Start", href: "/quickstart", number: "" },
+    ],
+  },
+  {
+    label: "I. FOUNDATIONS",
+    items: [
+      { title: "Architecture", href: "/architecture", number: "1.1" },
+    ],
+  },
+  {
+    label: "II. FORMAL PROPERTIES",
+    items: [
+      { title: "Verification Status", href: "/formal-verification", number: "2.1" },
+    ],
+  },
+  {
+    label: "III. RUNTIME",
+    items: [
+      { title: "Configuration", href: "/configuration", number: "3.1" },
+      { title: "CLI Reference", href: "/cli-reference", number: "3.2" },
+      { title: "Channels", href: "/channels", number: "3.3" },
+    ],
+  },
+  {
+    label: "IV. OPERATIONS",
+    items: [
+      { title: "Development Guide", href: "/development", number: "4.1" },
+    ],
+  },
+];
+
+function isActive(href: string, current: string): boolean {
+  const clean = current.replace(/\/$/, "") || "/";
+  const target = href.replace(/\/$/, "") || "/";
+  return clean === target;
+}
+---
+
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-inner">
+    <div class="sidebar-wordmark">
+      <a href="/" class="wordmark">Clawq</a>
+    </div>
+
+    <nav class="sidebar-nav" aria-label="Documentation navigation">
+      {sections.map((section, idx) => (
+        <div class="sidebar-section">
+          {idx > 0 && (
+            <div class="sidebar-divider">
+              <svg class="sidebar-divider-gear" width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/>
+              </svg>
+            </div>
+          )}
+          <div class="sidebar-section-label section-label">{section.label}</div>
+          <ul class="sidebar-items">
+            {section.items.map((item) => (
+              <li class:list={["sidebar-item", { active: isActive(item.href, currentPath) }]}>
+                <a href={item.href} class="sidebar-link">
+                  {item.number && <span class="sidebar-number ui-text">{item.number}</span>}
+                  <span class="sidebar-title">{item.title}</span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </nav>
+
+    <div class="sidebar-version">
+      <span class="sidebar-version-badge">v0.1.0</span>
+    </div>
+  </div>
+</aside>
+<div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+<style>
+  .sidebar {
+    position: fixed;
+    top: 3rem;
+    left: 0;
+    bottom: 0;
+    width: 16.25rem;
+    background: var(--bg-secondary);
+    border-right: 1px solid rgba(139, 115, 50, 0.3);
+    overflow-y: auto;
+    z-index: 90;
+    transition: transform 200ms ease;
+  }
+
+  .sidebar-inner {
+    display: flex;
+    flex-direction: column;
+    min-height: 100%;
+    padding: 1.25rem 1rem 1rem;
+  }
+
+  .sidebar-wordmark {
+    margin-bottom: 1.5rem;
+  }
+
+  .sidebar-wordmark .wordmark {
+    font-size: 1.5rem;
+    color: var(--brass-primary);
+    text-decoration: none;
+  }
+
+  .sidebar-wordmark .wordmark:hover {
+    color: var(--brass-light);
+  }
+
+  .sidebar-nav {
+    flex: 1;
+  }
+
+  .sidebar-section {
+    margin-bottom: 0.5rem;
+  }
+
+  .sidebar-section-label {
+    padding: 0.25rem 0.5rem;
+    margin-bottom: 0.25rem;
+  }
+
+  .sidebar-divider {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0.75rem 0;
+    height: 1px;
+    background: var(--border);
+    position: relative;
+  }
+
+  .sidebar-divider-gear {
+    color: var(--text-tertiary);
+    flex-shrink: 0;
+    position: relative;
+    background: var(--bg-secondary);
+    padding: 0 2px;
+  }
+
+  .sidebar-items {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  .sidebar-item {
+    position: relative;
+  }
+
+  .sidebar-link {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.3rem 0.5rem 0.3rem 0.75rem;
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-family: var(--font-label);
+    font-size: var(--fs-base);
+    font-weight: 400;
+    border-left: 2px solid transparent;
+    transition: color 150ms ease, border-color 150ms ease, background-color 150ms ease;
+    min-height: 2rem;
+    line-height: 1.35;
+  }
+
+  .sidebar-link:hover {
+    color: var(--brass-primary);
+  }
+
+  .sidebar-number {
+    font-family: var(--font-label);
+    font-weight: 500;
+    color: var(--text-tertiary);
+    font-size: var(--fs-sm);
+    min-width: 2em;
+  }
+
+  .sidebar-item.active .sidebar-link {
+    border-left-color: var(--brass-primary);
+    color: var(--brass-light);
+    background: var(--brass-glow);
+  }
+
+  .sidebar-version {
+    margin-top: auto;
+    padding-top: 1rem;
+  }
+
+  .sidebar-version-badge {
+    display: inline-block;
+    font-family: var(--font-label);
+    font-size: var(--fs-sm);
+    font-weight: 500;
+    color: var(--text-tertiary);
+    background: var(--bg-tertiary);
+    padding: 2px 8px;
+    border-radius: 40px;
+  }
+
+  .sidebar-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 80;
+  }
+
+  /* Mobile: sidebar hidden by default, shown via JS */
+  @media (max-width: 48rem) {
+    .sidebar {
+      transform: translateX(-100%);
+      z-index: 95;
+    }
+
+    .sidebar.open {
+      transform: translateX(0);
+    }
+
+    .sidebar-overlay.open {
+      display: block;
+    }
+
+    .sidebar-link {
+      min-height: 3rem;
+    }
+  }
+
+  /* Tablet: sidebar overlay */
+  @media (min-width: 48rem) and (max-width: 64rem) {
+    .sidebar {
+      transform: translateX(-100%);
+      z-index: 95;
+    }
+
+    .sidebar.open {
+      transform: translateX(0);
+    }
+
+    .sidebar-overlay.open {
+      display: block;
+    }
+  }
+</style>
+
+<script>
+  function initSidebar() {
+    const toggle = document.getElementById('sidebar-toggle');
+    const sidebar = document.getElementById('sidebar');
+    const overlay = document.getElementById('sidebar-overlay');
+
+    if (!toggle || !sidebar || !overlay) return;
+
+    function openSidebar() {
+      sidebar!.classList.add('open');
+      overlay!.classList.add('open');
+    }
+
+    function closeSidebar() {
+      sidebar!.classList.remove('open');
+      overlay!.classList.remove('open');
+    }
+
+    toggle.addEventListener('click', () => {
+      if (sidebar.classList.contains('open')) {
+        closeSidebar();
+      } else {
+        openSidebar();
+      }
+    });
+
+    overlay.addEventListener('click', closeSidebar);
+  }
+
+  initSidebar();
+  document.addEventListener('astro:after-swap', initSidebar);
+</script>

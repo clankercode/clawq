@@ -1,0 +1,240 @@
+---
+interface Heading {
+  depth: number;
+  slug: string;
+  text: string;
+}
+
+interface Props {
+  headings: Heading[];
+}
+
+const { headings } = Astro.props;
+const filtered = headings.filter((h) => h.depth === 2 || h.depth === 3);
+---
+
+{filtered.length > 0 && (
+  <aside class="toc-rail" aria-label="On this page">
+    <div class="toc-header">On this page</div>
+    <nav class="toc-nav">
+      <!-- Vertical rail line + sliding indicator -->
+      <div class="toc-track" aria-hidden="true">
+        <div class="toc-track-line"></div>
+        <div class="toc-track-indicator" id="toc-indicator"></div>
+      </div>
+      <ul class="toc-list" id="toc-list">
+        {filtered.map((h) => (
+          <li class:list={["toc-item", { "toc-item-h3": h.depth === 3 }]} data-depth={h.depth}>
+            <a href={`#${h.slug}`} class="toc-link">{h.text}</a>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  </aside>
+)}
+
+<style>
+  .toc-rail {
+    display: none;
+    position: sticky;
+    top: 4rem;
+    max-height: calc(100vh - 5rem);
+    overflow-y: auto;
+    width: 14rem;
+    flex-shrink: 0;
+    padding: 1.25rem 0 1.25rem 0;
+    /* No border, no background — pure floating */
+  }
+
+  @media (min-width: 80rem) {
+    .toc-rail {
+      display: block;
+    }
+  }
+
+  .toc-header {
+    font-family: var(--font-label);
+    font-variant: small-caps;
+    font-size: var(--fs-xs);
+    font-weight: 500;
+    color: var(--brass-primary);
+    letter-spacing: 0.14em;
+    margin-bottom: 1rem;
+    padding-left: 1.25rem;
+    opacity: 0.55;
+  }
+
+  /* --- Rail track --- */
+  .toc-nav {
+    position: relative;
+  }
+
+  .toc-track {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+  }
+
+  .toc-track-line {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 1px;
+    background: linear-gradient(
+      to bottom,
+      transparent 0%,
+      rgba(139, 115, 50, 0.25) 8%,
+      rgba(139, 115, 50, 0.25) 92%,
+      transparent 100%
+    );
+  }
+
+  /* Sliding active indicator — a short brass segment */
+  .toc-track-indicator {
+    position: absolute;
+    left: -1px;
+    top: 0;
+    width: 3px;
+    height: 1.5rem;
+    background: linear-gradient(to bottom, var(--brass-light), var(--brass-primary));
+    border-radius: 8px;
+    transition: top 220ms cubic-bezier(0.34, 1.56, 0.64, 1),
+                height 150ms ease,
+                opacity 200ms ease;
+    opacity: 0;
+    box-shadow: 0 0 8px var(--brass-glow), 0 0 2px var(--brass-primary);
+  }
+
+  /* --- List --- */
+  .toc-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  .toc-item {
+    position: relative;
+    padding-left: 1.25rem;
+  }
+
+  .toc-item-h3 {
+    padding-left: 2rem;
+  }
+
+  .toc-link {
+    display: block;
+    font-family: var(--font-label);
+    font-size: var(--fs-sm);
+    color: var(--text-tertiary);
+    text-decoration: none;
+    padding: 0.22rem 0;
+    transition: color 150ms ease, opacity 150ms ease;
+    line-height: 1.45;
+    opacity: 0.65;
+  }
+
+  .toc-link:hover {
+    color: var(--brass-primary);
+    opacity: 1;
+  }
+
+  .toc-item.active .toc-link {
+    color: var(--brass-light);
+    opacity: 1;
+    font-weight: 500;
+  }
+</style>
+
+<script>
+  function initTOC() {
+    const rail = document.querySelector('.toc-rail') as HTMLElement | null;
+    if (!rail) return;
+
+    const links = Array.from(rail.querySelectorAll<HTMLAnchorElement>('.toc-link'));
+    const items = Array.from(rail.querySelectorAll<HTMLElement>('.toc-item'));
+    const indicator = rail.querySelector<HTMLElement>('#toc-indicator');
+    if (!links.length || !indicator) return;
+
+    let activeItem: HTMLElement | null = null;
+
+    function moveIndicator(item: HTMLElement) {
+      const link = item.querySelector<HTMLElement>('.toc-link');
+      if (!link) return;
+      // offsetTop is relative to the offsetParent (.toc-nav, which is position:relative)
+      const top = item.offsetTop;
+      const h = Math.max(link.offsetHeight || 20, 16);
+      indicator!.style.top = `${top}px`;
+      indicator!.style.height = `${h}px`;
+      indicator!.style.opacity = '1';
+    }
+
+    function setActive(item: HTMLElement | null) {
+      items.forEach((el) => el.classList.remove('active'));
+      if (!item) {
+        indicator!.style.opacity = '0';
+        activeItem = null;
+        return;
+      }
+      item.classList.add('active');
+      activeItem = item;
+      requestAnimationFrame(() => moveIndicator(item));
+    }
+
+    // Build a list of [heading element, toc-item] pairs
+    const targets: { el: Element; item: HTMLElement }[] = [];
+    links.forEach((link, i) => {
+      const href = link.getAttribute('href');
+      if (href) {
+        const el = document.querySelector(href);
+        if (el) targets.push({ el, item: items[i] });
+      }
+    });
+
+    if (!targets.length) return;
+
+    // Scroll-based active tracking — most reliable approach
+    function onScroll() {
+      const scrollY = window.scrollY;
+      // Header offset: 3rem in px
+      const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
+      const offset = rem * 3 + rem; // header height + small buffer
+
+      let current = targets[0].item;
+      for (const { el, item } of targets) {
+        // getBoundingClientRect gives viewport-relative pos; add scrollY for document pos
+        const top = el.getBoundingClientRect().top + scrollY;
+        if (scrollY + offset >= top - 4) {
+          current = item;
+        }
+      }
+      if (current !== activeItem) setActive(current);
+    }
+
+    window.addEventListener('scroll', onScroll, { passive: true });
+    // Initial call
+    onScroll();
+
+    // Re-position indicator if rail itself scrolls
+    rail.addEventListener('scroll', () => {
+      if (activeItem) requestAnimationFrame(() => moveIndicator(activeItem!));
+    }, { passive: true });
+
+    // Cleanup on page navigation
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+    };
+  }
+
+  let cleanup: (() => void) | undefined;
+
+  function setup() {
+    cleanup?.();
+    cleanup = initTOC() ?? undefined;
+  }
+
+  setup();
+  document.addEventListener('astro:after-swap', setup);
+</script>

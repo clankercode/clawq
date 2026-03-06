@@ -1,0 +1,55 @@
+---
+import Header from "../components/Header.astro";
+import Footer from "../components/Footer.astro";
+import GearBackground from "../components/GearBackground.astro";
+
+import "../styles/global.css";
+import "../styles/typography.css";
+import "../styles/code-theme.css";
+
+interface Props {
+  title: string;
+  description?: string;
+}
+
+const { title, description = "Clawq -- The Formal AI Assistant" } = Astro.props;
+---
+
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="generator" content={Astro.generator} />
+    <title>{title} | Clawq</title>
+    <meta name="description" content={description} />
+    <meta property="og:title" content={`${title} | Clawq`} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <script is:inline>
+      (function () {
+        const stored = localStorage.getItem("clawq-theme");
+        if (stored === "light" || stored === "dark") {
+          document.documentElement.setAttribute("data-theme", stored);
+        } else if (window.matchMedia("(prefers-color-scheme: light)").matches) {
+          document.documentElement.setAttribute("data-theme", "light");
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <GearBackground />
+    <Header />
+    <main class="landing-main">
+      <slot />
+    </main>
+    <Footer />
+  </body>
+</html>
+
+<style>
+  .landing-main {
+    padding-top: 3rem;
+  }
+</style>

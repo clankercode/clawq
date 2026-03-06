@@ -1,0 +1,310 @@
+---
+title: "Development Guide"
+description: "Build, test, and contribute to clawq"
+section: "operations"
+order: 1
+---
+
+This guide covers everything needed to build, test, and contribute to clawq ---
+from bootstrapping the toolchain to running individual test cases.
+
+## Prerequisites
+
+- **opam** --- the OCaml package manager
+- **libsqlite3-dev** (or your distro's equivalent, e.g. `sqlite3-devel`)
+- **Coq 8.19** --- only required if modifying the Coq theories; the extracted
+  OCaml is tracked in git so the project builds without Coq installed
+
+## Bootstrap
+
+Create an opam switch with all dependencies:
+
+```bash
+make bootstrap
+```
+
+This creates the `clawq-5.1` switch (OCaml 5.1), installs all opam
+dependencies, and leaves you ready to build.
+
+If you already have the switch but need to sync dependencies:
+
+```bash
+opam install . --deps-only --with-test
+```
+
+## Building
+
+### Standard Build
+
+```bash
+make build
+```
+
+This runs `dune build` under the `clawq-5.1` opam switch. The Makefile sets
+`SHELL` to route through `opam exec --switch=clawq-5.1 --`, so you do not
+need to activate the switch manually.
+
+You can also build directly:
+
+```bash
+opam exec --switch=clawq-5.1 -- dune build
+```
+
+### Minimal Build
+
+The minimal binary (`clawq-min`) includes only `clawq_runtime_core` --- no
+network channels, no gateway, no daemon:
+
+```bash
+make build-minimal
+```
+
+### Optimized Builds
+
+Two build profiles are defined in `dune-workspace`:
+
+| Profile | Flags | Use Case |
+|---------|-------|----------|
+| `release-speed` | `-O3` | Maximum performance |
+| `release-size` | `-O2 -compact` | Smaller binary |
+
+```bash
+# Choose mode
+make build-opt OPT=speed
+make build-opt OPT=size
+
+# Or use explicit targets
+make build-opt-speed
+make build-opt-size
+
+# Stripped variants
+make build-opt-speed-stripped
+make build-opt-size-stripped
+```
+
+Optimization targets print a final line: `<path/to/exe> <size_kb> KB`.
+
+## Testing
+
+### Run All Tests
+
+```bash
+make test
+```
+
+Or directly:
+
+```bash
+opam exec --switch=clawq-5.1 -- dune runtest
+```
+
+### List All Test Suites and Cases
+
+```bash
+opam exec --switch=clawq-5.1 -- dune exec test/test_main.exe -- list
+```
+
+### Run a Subset by Suite Name
+
+The test binary accepts a `test` subcommand with a regex that matches suite
+names:
+
+```bash
+# All suites matching "command_bridge"
+opam exec --switch=clawq-5.1 -- dune exec test/test_main.exe -- test command_bridge
+
+# All suites matching "scheduler"
+opam exec --switch=clawq-5.1 -- dune exec test/test_main.exe -- test scheduler
+```
+
+### Run Specific Test Cases by Index
+
+After finding case numbers with `list`, run individual cases:
+
+```bash
+# Single case
+opam exec --switch=clawq-5.1 -- dune exec test/test_main.exe -- test command_bridge 20
+
+# Multiple cases and ranges
+opam exec --switch=clawq-5.1 -- dune exec test/test_main.exe -- test scheduler 0,3,8-10
+```
+
+### When to Run Tests
+
+- After any non-trivial OCaml edit: `make test`
+- After formatting-sensitive edits: `make fmt-check`
+- After extraction-related edits: `make extract-check`
+- After runtime/library reshaping: full tests + at least one optimized build
+
+## Formatting
+
+Clawq uses **ocamlformat 0.27.0** with the `default` profile.
+
+```bash
+# Format all code
+make fmt
+
+# Check formatting without modifying files
+make fmt-check
+
+# CI-equivalent gate
+dune fmt && git diff --exit-code
+```
+
+Never hand-format to fight the formatter's output. Keep lines and layout
+formatter-friendly.
+
+## Extraction Workflow
+
+The Coq-to-OCaml extraction pipeline regenerates `src/extracted/clawq_core.ml`
+and `clawq_core.mli` from the Coq theories:
+
+```bash
+# Regenerate extracted code from Coq
+make extract
+
+# Check for extraction drift (CI gate)
+make extract-check
+```
+
+The extraction is driven by `scripts/extract.sh` and the directives in
+`coq/theories/Clawq/Extract.v`. Type mappings use `ExtrOcamlBasic`,
+`ExtrOcamlNativeString`, and `ExtrOcamlNatInt` to produce idiomatic OCaml.
+
+The extracted files are tracked in git so the project builds without Coq
+installed. The `extract-check` target verifies that the tracked files match
+what extraction would produce, catching accidental drift.
+
+## Code Style
+
+### Formatting
+
+- ocamlformat 0.27.0, `default` profile
+- Never fight the formatter
+
+### Naming
+
+- Modules: `PascalCase` filenames (e.g. `runtime_config.ml` exposes module
+  `Runtime_config`)
+- Values and functions: `snake_case`
+- Command handlers: `cmd_<name>` pattern
+- Test names: concise behavior phrases
+
+### Imports
+
+- Prefer minimal `open`; use fully qualified modules where reasonable
+- `open` at top is acceptable for narrow, obvious cases (e.g. `open Cmdliner`)
+- Avoid broad `open` chains that hide symbol origin
+
+### Types and Error Handling
+
+- Prefer explicit records and algebraic types over ad-hoc tuples
+- Use `option` / `result` for expected failure paths
+- Reserve exceptions for I/O and external boundaries
+- Return user-facing error strings in command bridge paths
+- Keep error messages actionable and specific
+
+### Comments
+
+- Add comments only for non-obvious invariants or protocol details
+- Do not add explanatory noise for straightforward code
+
+## Runtime Split Rules
+
+The runtime is split into two libraries to keep the core small:
+
+| Library | Scope |
+|---------|-------|
+| `clawq_runtime_core` | CLI, config, agent, session, provider, tools, memory, scheduler, audit, rate limiter, Landlock |
+| `clawq_runtime_integrations` | HTTP server, Telegram, Discord, Slack, WebSocket client, daemon, MCP server, tunnels |
+
+**Rules:**
+
+1. Keep optional integrations out of `clawq_runtime_core`.
+2. New network/server features belong in `clawq_runtime_integrations`.
+3. Integration-only commands must not be exposed as active behavior in the
+   minimal build.
+4. In `command_bridge_min.ml`, return clear "disabled in minimal build" messages.
+5. Evaluate new dependencies for core vs integration placement before linking.
+
+## Project Structure
+
+```
+coq/theories/Clawq/     Coq source theories
+src/extracted/           Auto-generated OCaml from Coq
+src/                     Runtime OCaml code
+test/                    Alcotest test suites
+scripts/                 Build and extraction scripts
+docs/                    Documentation site (Astro)
+```
+
+### Key Files
+
+| File | Role |
+|------|------|
+| `Makefile` | Build/test orchestration |
+| `dune-project` | Dune project configuration |
+| `dune-workspace` | Build profiles (release-speed, release-size) |
+| `src/main.ml` | CLI entry point (Cmdliner) |
+| `src/main_min.ml` | Minimal CLI entry point |
+| `src/command_bridge.ml` | Full command routing |
+| `src/command_bridge_min.ml` | Minimal command routing |
+| `test/test_main.ml` | Test entry point |
+
+## Contributing Workflow
+
+1. Read the relevant modules and adjacent tests before making changes.
+2. Implement the smallest viable change.
+3. Run focused tests, then `make test`.
+4. Run `make fmt-check` if OCaml files changed.
+5. Run `make extract-check` if Coq/extraction files changed.
+6. Summarize behavior changes in your commit message.
+
+## Docker
+
+Build and run clawq in a container:
+
+```bash
+# Build image
+make docker-build
+
+# Run daemon (foreground)
+make docker-run
+
+# Health check
+curl http://127.0.0.1:3000/health
+```
+
+To persist config and state across restarts:
+
+```bash
+docker run -it --rm -p 3000:3000 \
+  -v "$HOME/.clawq:/root/.clawq" \
+  -e CLAWQ_MASTER_KEY="your-passphrase" \
+  clawq:latest agent
+```
+
+## Make Targets Reference
+
+| Target | Description |
+|--------|-------------|
+| `make bootstrap` | Create opam switch and install all dependencies |
+| `make build` | Build the project |
+| `make build-minimal` | Build minimal binary (core-only) |
+| `make build-opt OPT=speed\|size` | Optimized build |
+| `make build-opt-speed` | Optimized build with `-O3` |
+| `make build-opt-size` | Optimized build with `-O2 -compact` |
+| `make build-opt-speed-stripped` | Stripped optimized speed build |
+| `make build-opt-size-stripped` | Stripped optimized size build |
+| `make build-opt-minimal` | Optimized minimal binary |
+| `make test` | Run all tests |
+| `make fmt` | Format code |
+| `make fmt-check` | Check formatting |
+| `make extract` | Regenerate OCaml from Coq |
+| `make extract-check` | Check for extraction drift |
+| `make run` | Print CLI help |
+| `make clean` | Clean build artifacts |
+| `make docker-build` | Build Docker image |
+| `make docker-run` | Run daemon in Docker |
+| `make verify-report` | Generate formal verification report and badge |
+| `make release` | Build release artifacts |

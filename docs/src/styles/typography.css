@@ -1,0 +1,206 @@
+/* ==========================================================================
+   typography.css — Font imports, type scale, headings, body text, drop caps
+   ==========================================================================
+   CORNER SHAPE CONVENTION (see also global.css):
+   Any border-radius added here should be generous (16px+ for blocks, 8px+
+   for small elements). Squircle corners are applied universally via global.css
+   on supporting browsers — just set border-radius and it will be picked up.
+   ========================================================================== */
+
+/* ---------- @fontsource Imports ---------- */
+@import "@fontsource/cormorant-garamond/400.css";
+@import "@fontsource/cormorant-garamond/500.css";
+@import "@fontsource/cormorant-garamond/600.css";
+@import "@fontsource/cormorant-garamond/700.css";
+@import "@fontsource/crimson-pro/400.css";
+@import "@fontsource/crimson-pro/400-italic.css";
+@import "@fontsource/crimson-pro/600.css";
+@import "@fontsource-variable/jetbrains-mono/wght.css";
+@import "@fontsource/eb-garamond/500.css";
+@import "@fontsource/figtree/400.css";
+@import "@fontsource/figtree/500.css";
+@import "@fontsource/uncial-antiqua/400.css";
+
+/* ---------- Animatable CSS Custom Properties ---------- */
+@property --shimmer-x {
+  syntax: '<percentage>';
+  inherits: false;
+  initial-value: 200%;
+}
+
+/* ---------- Fluid Type Scale ---------- */
+:root {
+  --fs-xs:   clamp(0.82rem, 0.78rem + 0.2vw, 0.9rem);
+  --fs-sm:   clamp(0.92rem, 0.87rem + 0.25vw, 1rem);
+  --fs-base: clamp(0.98rem, 0.93rem + 0.25vw, 1.08rem);
+  --fs-md:   clamp(1.1rem, 1rem + 0.5vw, 1.25rem);
+  --fs-lg:   clamp(1.3rem, 1.1rem + 1vw, 1.6rem);
+  --fs-xl:   clamp(1.6rem, 1.3rem + 1.5vw, 2.1rem);
+  --fs-2xl:  clamp(2rem, 1.5rem + 2.5vw, 2.8rem);
+  --fs-hero: clamp(2.5rem, 1.8rem + 3.5vw, 4rem);
+
+  --lh-body: 1.72;
+  --lh-heading: 1.2;
+  --lh-code: 1.55;
+
+  /* Font family tokens */
+  --font-display: "Cormorant Garamond", Georgia, serif;
+  --font-body:    "Crimson Pro", Georgia, serif;
+  --font-label:   "EB Garamond", Georgia, serif;
+  --font-ui:      "Figtree", sans-serif;
+  --font-mono:    "JetBrains Mono", Consolas, monospace;
+}
+
+/* ---------- Body Defaults ---------- */
+body {
+  font-family: var(--font-body);
+  font-size: var(--fs-base);
+  font-weight: 400;
+  line-height: var(--lh-body);
+}
+
+p {
+  margin-bottom: 1.25em;
+  max-width: 74ch;
+}
+
+strong {
+  font-weight: 600;
+}
+
+/* ---------- Headings ---------- */
+h1, h2, h3, h4 {
+  font-family: var(--font-display);
+  line-height: var(--lh-heading);
+  color: var(--text-primary);
+}
+
+h1 {
+  font-size: var(--fs-2xl);
+  font-weight: 700;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 2px solid var(--brass-primary);
+  position: relative;
+  text-wrap: balance;
+  background: linear-gradient(
+    90deg,
+    var(--brass-dark)    0%,
+    var(--brass-primary) 40%,
+    var(--gold-bright)   60%,
+    var(--brass-primary) 80%,
+    var(--brass-dark)    100%
+  );
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+}
+
+/* Gear divider on h1 bottom border */
+h1::after {
+  content: "\2699"; /* gear icon */
+  position: absolute;
+  bottom: -0.6em;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 1rem;
+  color: var(--brass-primary);
+  background: var(--bg-primary);
+  padding: 0 0.5rem;
+  line-height: 1;
+}
+
+h2 {
+  font-size: var(--fs-xl);
+  font-weight: 600;
+  margin-top: 3rem;
+  margin-bottom: 1.25rem;
+  padding-top: 2rem;
+  border-top: 1px solid var(--border);
+  text-wrap: balance;
+}
+
+h3 {
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  margin-top: 2rem;
+  margin-bottom: 1rem;
+  text-wrap: balance;
+}
+
+h4 {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  margin-top: 1.5rem;
+  margin-bottom: 0.75rem;
+  text-wrap: balance;
+}
+
+/* ---------- Section Label (sidebar group headers, etc.) ---------- */
+.section-label {
+  font-family: var(--font-label);
+  font-variant: small-caps;
+  font-weight: 500;
+  font-size: var(--fs-xs);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+/* ---------- Drop Cap ---------- */
+.doc-content > p:first-of-type::first-letter {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 3.5em;
+  float: left;
+  line-height: 0.8;
+  margin-right: 0.5rem;
+  margin-top: 0.25rem;
+  color: var(--brass-primary);
+}
+
+@media (max-width: 48rem) {
+  .doc-content > p:first-of-type::first-letter {
+    font-size: 2.5em;
+  }
+}
+
+/* ---------- Blockquote ---------- */
+blockquote {
+  margin: 1.5rem 0;
+  padding: 0.75rem 1.25rem;
+  border-left: 3px solid var(--brass-primary);
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+blockquote p:last-child {
+  margin-bottom: 0;
+}
+
+/* ---------- Lists ---------- */
+ul, ol {
+  margin-bottom: 1.25em;
+  padding-left: 1.5em;
+}
+
+li {
+  margin-bottom: 0.35em;
+}
+
+li > ul,
+li > ol {
+  margin-bottom: 0;
+  margin-top: 0.35em;
+}
+
+/* ---------- UI Font (navigation, badges, labels) ---------- */
+.ui-text {
+  font-family: var(--font-ui);
+}
+
+/* ---------- Logo Wordmark ---------- */
+.wordmark {
+  font-family: "Uncial Antiqua", fantasy;
+  font-weight: 400;
+}

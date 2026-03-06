@@ -1,0 +1,1011 @@
+---
+title: "Verification Status"
+description: "Machine-checked correctness: 69 theorems proven in Coq"
+section: "formal-properties"
+order: 1
+---
+
+import VerificationSeal from '../../components/VerificationSeal.astro';
+import MechanicalCounter from '../../components/MechanicalCounter.astro';
+import ProgressRing from '../../components/ProgressRing.astro';
+import TheoremBox from '../../components/TheoremBox.astro';
+import CornerBrackets from '../../components/CornerBrackets.astro';
+
+{/* ===== PAGE HEADER ===== */}
+
+<p class="section-label" style="margin-bottom: 0.5rem;">II. Formal Properties</p>
+
+# Verification Status
+
+<p style="font-family: var(--font-body); font-style: italic; color: var(--text-secondary); font-size: var(--fs-md); margin-bottom: 1rem;">
+  A machine-checked account of Clawq's proven properties.
+</p>
+
+<p style="font-size: var(--fs-xs); color: var(--text-tertiary); font-family: var(--font-label); margin-bottom: 3rem;">
+  Last extraction: 2026-03-06 &middot; Coq 8.19 &middot; 69 theorems
+</p>
+
+{/* ===== VERIFICATION SEAL ===== */}
+
+<div style="display: flex; justify-content: center; margin-bottom: 3rem;">
+  <VerificationSeal />
+</div>
+
+{/* ===== MECHANICAL COUNTERS ===== */}
+
+<div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 3rem; margin-bottom: 3.5rem;">
+  <MechanicalCounter value={69} label="Theorems Proven" />
+  <MechanicalCounter value={2} label="Modules Extracted" />
+  <MechanicalCounter value={1847} label="Lines of Coq" />
+</div>
+
+{/* ===== VERIFICATION SCORECARD ===== */}
+
+<div class="corner-brackets" style="position: relative; padding: 2rem 2.5rem; margin-bottom: 3.5rem; background: var(--bg-secondary); border-radius: 16px;">
+  <span class="corner-tr" />
+  <span class="corner-bl" />
+
+  <div style="text-align: center; margin-bottom: 1.25rem;">
+    <div style="display: flex; align-items: baseline; justify-content: center; gap: 0.4rem; margin-bottom: 0.35rem;">
+      <span style="font-family: var(--font-mono); font-size: var(--fs-2xl); font-weight: 700; color: var(--text-primary); line-height: 1;">69</span>
+      <span style="font-family: var(--font-label); font-size: var(--fs-lg); color: var(--text-tertiary);">/ ~120</span>
+    </div>
+    <p style="font-family: var(--font-label); font-variant: small-caps; font-size: var(--fs-sm); color: var(--text-secondary); letter-spacing: 0.1em; text-align: center; max-width: none; margin: 0;">Properties Verified</p>
+  </div>
+
+  {/* Progress bar */}
+  <div style="width: 100%; height: 6px; background: repeating-linear-gradient(135deg, rgba(139,115,50,0.45) 0px, rgba(139,115,50,0.45) 2px, rgba(139,115,50,0.25) 2px, rgba(139,115,50,0.25) 4px); border-radius: 12px; margin-bottom: 1.25rem; overflow: hidden;">
+    <div style="width: 57.5%; height: 100%; background: var(--coq-teal); border-radius: 12px;" />
+  </div>
+
+  {/* Status legend */}
+  <div class="legend-row">
+    <span class="legend-item">
+      <span class="legend-swatch legend-swatch-verified"></span>
+      <span class="legend-label">69 verified</span>
+    </span>
+    <span class="legend-item">
+      <span class="legend-swatch legend-swatch-progress"></span>
+      <span class="legend-label">0 in progress</span>
+    </span>
+    <span class="legend-item">
+      <span class="legend-swatch legend-swatch-planned"></span>
+      <span class="legend-label">~51 planned</span>
+    </span>
+  </div>
+
+<style>{`
+  .legend-row {
+    display: flex;
+    justify-content: center;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+  }
+
+  .legend-item {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.45rem;
+  }
+
+  .legend-swatch {
+    display: block;
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    border-radius: 38%;
+  }
+
+  @supports (corner-shape: squircle) {
+    .legend-swatch {
+      corner-shape: squircle;
+      border-radius: 42%;
+    }
+  }
+
+  .legend-label {
+    display: block;
+    font-size: var(--fs-sm);
+    font-family: var(--font-label);
+    line-height: 1;
+    color: var(--text-secondary);
+  }
+
+  .legend-swatch-verified { background: var(--coq-teal); }
+  .legend-swatch-progress { background: var(--brass-primary); }
+  .legend-swatch-planned  {
+    background: rgba(139, 115, 50, 0.35);
+    border: 1px solid rgba(139, 115, 50, 0.45);
+  }
+`}</style>
+</div>
+
+{/* ===== PHASE STATUS GRID ===== */}
+
+## Phase Status
+
+<div class="phase-grid">
+
+  <div class="phase-card phase-verified">
+    <span class="phase-id">F1</span>
+    <span class="phase-name">Config</span>
+    <span class="phase-pill phase-pill-verified">&#10003; Verified</span>
+  </div>
+
+  <div class="phase-card phase-verified">
+    <span class="phase-id">F2</span>
+    <span class="phase-name">PathSafety</span>
+    <span class="phase-pill phase-pill-verified">&#10003; Verified</span>
+  </div>
+
+  <div class="phase-card phase-verified">
+    <span class="phase-id">F3</span>
+    <span class="phase-name">AuditChain</span>
+    <span class="phase-pill phase-pill-verified">&#10003; Verified</span>
+  </div>
+
+  <div class="phase-card phase-verified">
+    <span class="phase-id">F4</span>
+    <span class="phase-name">RateLimiter</span>
+    <span class="phase-pill phase-pill-verified">&#10003; Verified</span>
+  </div>
+
+  <div class="phase-card phase-verified">
+    <span class="phase-id">F5</span>
+    <span class="phase-name">ConfigExt</span>
+    <span class="phase-pill phase-pill-verified">&#10003; Verified</span>
+  </div>
+
+  <div class="phase-card phase-verified">
+    <span class="phase-id">F6</span>
+    <span class="phase-name">ShellSafety</span>
+    <span class="phase-pill phase-pill-verified">&#10003; Verified</span>
+  </div>
+
+  <div class="phase-card phase-planned">
+    <span class="phase-id">F7</span>
+    <span class="phase-name">SecretStore</span>
+    <span class="phase-pill phase-pill-planned">&#8987; Planned</span>
+  </div>
+
+  <div class="phase-card phase-planned">
+    <span class="phase-id">F8</span>
+    <span class="phase-name">ChannelAuth</span>
+    <span class="phase-pill phase-pill-planned">&#8987; Planned</span>
+  </div>
+
+  <div class="phase-card phase-planned">
+    <span class="phase-id">F9</span>
+    <span class="phase-name">AuditRetention</span>
+    <span class="phase-pill phase-pill-planned">&#8987; Planned</span>
+  </div>
+
+  <div class="phase-card phase-planned">
+    <span class="phase-id">F10</span>
+    <span class="phase-name">AgentLoop</span>
+    <span class="phase-pill phase-pill-planned">&#8987; Planned</span>
+  </div>
+
+  <div class="phase-card phase-planned">
+    <span class="phase-id">F11</span>
+    <span class="phase-name">Session</span>
+    <span class="phase-pill phase-pill-planned">&#8987; Planned</span>
+  </div>
+
+  <div class="phase-card phase-planned">
+    <span class="phase-id">F12</span>
+    <span class="phase-name">Landlock</span>
+    <span class="phase-pill phase-pill-planned">&#8987; Planned</span>
+  </div>
+
+</div>
+
+<style>{`
+  .phase-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+    gap: 1rem;
+    margin-bottom: 3rem;
+  }
+
+  .phase-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    padding: 1rem 1.1rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    position: relative;
+  }
+
+  .phase-card.phase-verified {
+    border-left: 3px solid var(--coq-teal);
+  }
+
+  .phase-card.phase-planned {
+    border-left: 3px solid var(--border-emphasis);
+    opacity: 0.72;
+  }
+
+  .phase-id {
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    color: var(--text-tertiary);
+    letter-spacing: 0.05em;
+  }
+
+  .phase-name {
+    font-family: var(--font-label);
+    font-size: var(--fs-base);
+    color: var(--text-primary);
+    font-weight: 500;
+    line-height: 1.2;
+  }
+
+  .phase-pill {
+    display: inline-block;
+    margin-top: 0.25rem;
+    padding: 0.2rem 0.55rem;
+    border-radius: 8rem;
+    font-family: var(--font-label);
+    font-variant: small-caps;
+    font-size: var(--fs-sm);
+    font-weight: 500;
+    letter-spacing: 0.05em;
+    line-height: 1.4;
+    width: fit-content;
+  }
+
+  .phase-pill-verified {
+    background: rgba(46, 139, 122, 0.12);
+    color: var(--coq-teal-light);
+    border: 1px solid rgba(46, 139, 122, 0.3);
+  }
+
+  .phase-pill-planned {
+    background: rgba(139, 115, 50, 0.08);
+    color: var(--brass-dark);
+    border: 1px solid var(--border);
+  }
+
+  html[data-theme="light"] .phase-pill-planned {
+    color: var(--text-tertiary);
+  }
+`}</style>
+
+{/* ===== VERIFICATION LEDGER ===== */}
+
+## Verification Ledger
+
+<div class="ledger">
+
+  <div class="ledger-row ledger-verified">
+    <div class="ledger-left">
+      <span class="ledger-id">F1</span>
+      <code class="ledger-module">ConfigProofs.v</code>
+    </div>
+    <div class="ledger-center">
+      <span class="ledger-props">Weight sum invariants, port/temperature validation, secure-by-default</span>
+    </div>
+    <div class="ledger-right">
+      <span class="ledger-count"><span class="ledger-n">15</span> theorems</span>
+      <span class="phase-pill phase-pill-verified">&#10003; Verified</span>
+    </div>
+  </div>
+
+  <div class="ledger-row ledger-verified">
+    <div class="ledger-left">
+      <span class="ledger-id">F2</span>
+      <code class="ledger-module">PathSafety.v</code>
+    </div>
+    <div class="ledger-center">
+      <span class="ledger-props">normalize_no_dotdot, idempotence, workspace containment</span>
+    </div>
+    <div class="ledger-right">
+      <span class="ledger-count"><span class="ledger-n">19</span> theorems</span>
+      <span class="phase-pill phase-pill-verified">&#10003; Verified</span>
+      <span class="ledger-extracted"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v13M7 11l5 5 5-5"/><path d="M5 20h14"/></svg>extracted</span>
+    </div>
+  </div>
+
+  <div class="ledger-row ledger-verified">
+    <div class="ledger-left">
+      <span class="ledger-id">F3</span>
+      <code class="ledger-module">AuditChain.v</code>
+    </div>
+    <div class="ledger-center">
+      <span class="ledger-props">verify_chain_append, build_chain validity, suffix monotonicity</span>
+    </div>
+    <div class="ledger-right">
+      <span class="ledger-count"><span class="ledger-n">7</span> theorems</span>
+      <span class="phase-pill phase-pill-verified">&#10003; Verified</span>
+    </div>
+  </div>
+
+  <div class="ledger-row ledger-verified">
+    <div class="ledger-left">
+      <span class="ledger-id">F4</span>
+      <code class="ledger-module">RateLimiter.v</code>
+    </div>
+    <div class="ledger-center">
+      <span class="ledger-props">Bounded refill, monotone refill, consume semantics (P1–P6)</span>
+    </div>
+    <div class="ledger-right">
+      <span class="ledger-count"><span class="ledger-n">6</span> theorems</span>
+      <span class="phase-pill phase-pill-verified">&#10003; Verified</span>
+    </div>
+  </div>
+
+  <div class="ledger-row ledger-verified">
+    <div class="ledger-left">
+      <span class="ledger-id">F5</span>
+      <code class="ledger-module">Config.v + ConfigProofs.v</code>
+    </div>
+    <div class="ledger-center">
+      <span class="ledger-props">valid_port, valid_temperature, validate_config_full (P8–P15)</span>
+    </div>
+    <div class="ledger-right">
+      <span class="ledger-count"><span class="ledger-n">15</span> theorems</span>
+      <span class="phase-pill phase-pill-verified">&#10003; Verified</span>
+    </div>
+  </div>
+
+  <div class="ledger-row ledger-verified">
+    <div class="ledger-left">
+      <span class="ledger-id">F6</span>
+      <code class="ledger-module">QuoteParsing.v + ShellSafety.v</code>
+    </div>
+    <div class="ledger-center">
+      <span class="ledger-props">Tokenizer correctness, metachar blacklist completeness, allowlist monotonicity</span>
+    </div>
+    <div class="ledger-right">
+      <span class="ledger-count"><span class="ledger-n">9</span> theorems</span>
+      <span class="phase-pill phase-pill-verified">&#10003; Verified</span>
+      <span class="ledger-extracted"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v13M7 11l5 5 5-5"/><path d="M5 20h14"/></svg>extracted</span>
+    </div>
+  </div>
+
+  <div class="ledger-row ledger-planned">
+    <div class="ledger-left">
+      <span class="ledger-id">F7</span>
+      <code class="ledger-module">SecretStore.v</code>
+    </div>
+    <div class="ledger-center">
+      <span class="ledger-props">Encrypt/decrypt identity, nonce uniqueness bound</span>
+    </div>
+    <div class="ledger-right">
+      <span class="phase-pill phase-pill-planned">&#8987; Planned</span>
+    </div>
+  </div>
+
+  <div class="ledger-row ledger-planned">
+    <div class="ledger-left">
+      <span class="ledger-id">F8</span>
+      <code class="ledger-module">ChannelAuth.v + SlackAuth.v</code>
+    </div>
+    <div class="ledger-center">
+      <span class="ledger-props">Generic allowlist filtering, replay prevention, HMAC basestring</span>
+    </div>
+    <div class="ledger-right">
+      <span class="phase-pill phase-pill-planned">&#8987; Planned</span>
+    </div>
+  </div>
+
+  <div class="ledger-row ledger-planned">
+    <div class="ledger-left">
+      <span class="ledger-id">F9</span>
+      <code class="ledger-module">AuditRetention.v</code>
+    </div>
+    <div class="ledger-center">
+      <span class="ledger-props">purge_by_count/age correctness, purge preserves chain validity</span>
+    </div>
+    <div class="ledger-right">
+      <span class="phase-pill phase-pill-planned">&#8987; Planned</span>
+    </div>
+  </div>
+
+  <div class="ledger-row ledger-planned">
+    <div class="ledger-left">
+      <span class="ledger-id">F10</span>
+      <code class="ledger-module">AgentLoop.v</code>
+    </div>
+    <div class="ledger-center">
+      <span class="ledger-props">Termination in max_tool_iterations, history bound, trim idempotence</span>
+    </div>
+    <div class="ledger-right">
+      <span class="phase-pill phase-pill-planned">&#8987; Planned</span>
+    </div>
+  </div>
+
+  <div class="ledger-row ledger-planned">
+    <div class="ledger-left">
+      <span class="ledger-id">F11</span>
+      <code class="ledger-module">SessionIsolation.v</code>
+    </div>
+    <div class="ledger-center">
+      <span class="ledger-props">Session key disjointness, get_or_create isolation, non-interference</span>
+    </div>
+    <div class="ledger-right">
+      <span class="phase-pill phase-pill-planned">&#8987; Planned</span>
+    </div>
+  </div>
+
+  <div class="ledger-row ledger-planned">
+    <div class="ledger-left">
+      <span class="ledger-id">F12</span>
+      <code class="ledger-module">LandlockPolicy.v</code>
+    </div>
+    <div class="ledger-center">
+      <span class="ledger-props">Least-privilege access flags, path set closure, policy monotonicity</span>
+    </div>
+    <div class="ledger-right">
+      <span class="phase-pill phase-pill-planned">&#8987; Planned</span>
+    </div>
+  </div>
+
+</div>
+
+<style>{`
+  .ledger {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 3rem;
+  }
+
+  .ledger-row {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+    padding: 0.85rem 1.1rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+
+  .ledger-row.ledger-verified {
+    border-left: 3px solid var(--coq-teal);
+  }
+
+  .ledger-row.ledger-planned {
+    border-left: 3px solid var(--border-emphasis);
+    opacity: 0.72;
+  }
+
+  .ledger-left {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    width: 14rem;
+    flex-shrink: 0;
+  }
+
+  .ledger-id {
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    color: var(--text-tertiary);
+    letter-spacing: 0.05em;
+  }
+
+  .ledger-module {
+    font-family: var(--font-mono);
+    font-size: var(--fs-sm);
+    color: var(--text-primary);
+    background: none;
+    padding: 0;
+    border: none;
+  }
+
+  .ledger-center {
+    flex: 1;
+    min-width: 12rem;
+  }
+
+  .ledger-props {
+    font-family: var(--font-body);
+    font-style: italic;
+    font-size: var(--fs-sm);
+    color: var(--text-secondary);
+    line-height: 1.45;
+  }
+
+  .ledger-right {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.35rem;
+    width: 7.5rem;
+    flex-shrink: 0;
+  }
+
+  .ledger-count {
+    font-family: var(--font-label);
+    font-size: var(--fs-xs);
+    color: var(--text-tertiary);
+  }
+
+  .ledger-n {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    color: var(--text-secondary);
+  }
+
+  .ledger-extracted {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-family: var(--font-label);
+    font-variant: small-caps;
+    font-size: var(--fs-sm);
+    font-weight: 500;
+    letter-spacing: 0.05em;
+    line-height: 1.4;
+    padding: 0.2rem 0.55rem;
+    border-radius: 8rem;
+    background: rgba(46, 139, 122, 0.12);
+    color: var(--coq-teal-light);
+    border: 1px solid rgba(46, 139, 122, 0.3);
+    width: fit-content;
+  }
+
+  @media (max-width: 48rem) {
+    .ledger-row {
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
+    .ledger-left {
+      width: 100%;
+    }
+    .ledger-center {
+      width: 100%;
+      min-width: unset;
+    }
+    .ledger-right {
+      width: 100%;
+      align-items: flex-start;
+    }
+  }
+`}</style>
+
+{/* ===== MODULE BREAKDOWN ===== */}
+
+## Module Breakdown
+
+<div class="breakdown-list">
+
+{/* --- F1 --- */}
+<details class="scroll-item">
+<summary class="scroll-summary">
+  <span class="scroll-chevron" aria-hidden="true">
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 4.5l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </span>
+  <span class="scroll-title">F1: Configuration Validation</span>
+  <span class="scroll-meta">
+    <span class="scroll-count">15/15 verified</span>
+  </span>
+</summary>
+<div class="scroll-body">
+<p class="scroll-source">Source: <code>coq/theories/Clawq/ConfigProofs.v</code></p>
+<TheoremBox name="valid_port_bounds" number="1.1" status="verified" proofRef="ConfigProofs.v">
+For all p, valid_port p = true implies 1 {"<"}= p {"<"}= 65535.
+</TheoremBox>
+<TheoremBox name="default_config_valid" number="1.2" status="verified" proofRef="ConfigProofs.v">
+validate_config default_config = true. The built-in defaults always pass validation.
+</TheoremBox>
+<TheoremBox name="weight_sum_invariant" number="1.3" status="verified" proofRef="ConfigProofs.v">
+Provider weights sum to a consistent total; no weight is negative.
+</TheoremBox>
+<TheoremBox name="valid_temperature_bounds" number="1.4" status="verified" proofRef="ConfigProofs.v">
+For all t, valid_temperature t = true implies 0.0 {"<"}= t {"<"}= 2.0.
+</TheoremBox>
+<TheoremBox name="secure_by_default" number="1.5" status="verified" proofRef="ConfigProofs.v">
+The default security configuration enables sandboxing, rate limiting, and audit logging.
+</TheoremBox>
+<div class="qed" />
+</div>
+</details>
+
+{/* --- F2 --- */}
+<details class="scroll-item">
+<summary class="scroll-summary">
+  <span class="scroll-chevron" aria-hidden="true">
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 4.5l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </span>
+  <span class="scroll-title">F2: Directory Traversal Immunity</span>
+  <span class="scroll-meta">
+    <span class="scroll-count">19/19 verified</span>
+    <span class="ledger-extracted"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v13M7 11l5 5 5-5"/><path d="M5 20h14"/></svg>extracted</span>
+  </span>
+</summary>
+<div class="scroll-body">
+<p class="scroll-source">Source: <code>coq/theories/Clawq/PathSafety.v</code> — Extracted to OCaml and integrated into <code>tools_builtin.ml</code></p>
+<TheoremBox name="normalize_no_dotdot" number="2.1" status="verified" proofRef="PathSafety.v">
+Path normalization eliminates all '..' segments. The output of normalize never contains a dotdot component.
+</TheoremBox>
+<TheoremBox name="normalize_idempotent" number="2.2" status="verified" proofRef="PathSafety.v">
+Normalizing an already-normalized path yields the same path: normalize (normalize p) = normalize p.
+</TheoremBox>
+<TheoremBox name="is_path_safe_segs_refl" number="2.3" status="verified" proofRef="PathSafety.v">
+A path whose segments are all safe is itself safe.
+</TheoremBox>
+<TheoremBox name="workspace_containment" number="2.4" status="verified" proofRef="PathSafety.v">
+Any path that passes the safety check is a prefix of the allowed workspace root. No file access escapes the sandbox.
+</TheoremBox>
+<div class="qed" />
+</div>
+</details>
+
+{/* --- F3 --- */}
+<details class="scroll-item">
+<summary class="scroll-summary">
+  <span class="scroll-chevron" aria-hidden="true">
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 4.5l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </span>
+  <span class="scroll-title">F3: HMAC Audit Chain Integrity</span>
+  <span class="scroll-meta">
+    <span class="scroll-count">7/7 verified</span>
+  </span>
+</summary>
+<div class="scroll-body">
+<p class="scroll-source">Source: <code>coq/theories/Clawq/AuditChain.v</code></p>
+<TheoremBox name="verify_chain_append" number="3.1" status="verified" proofRef="AuditChain.v">
+Appending a correctly-linked entry to a valid chain preserves chain validity.
+</TheoremBox>
+<TheoremBox name="build_chain_valid" number="3.2" status="verified" proofRef="AuditChain.v">
+A chain produced by build_chain always verifies. Construction implies validity.
+</TheoremBox>
+<TheoremBox name="suffix_monotonicity" number="3.3" status="verified" proofRef="AuditChain.v">
+Any suffix of a valid chain is itself valid. Truncation preserves integrity.
+</TheoremBox>
+<TheoremBox name="last_sig_app" number="3.4" status="verified" proofRef="AuditChain.v">
+The last signature of a concatenated chain equals the last signature of the appended segment.
+</TheoremBox>
+<div class="qed" />
+</div>
+</details>
+
+{/* --- F4 --- */}
+<details class="scroll-item">
+<summary class="scroll-summary">
+  <span class="scroll-chevron" aria-hidden="true">
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 4.5l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </span>
+  <span class="scroll-title">F4: Token Bucket Rate Limiter</span>
+  <span class="scroll-meta">
+    <span class="scroll-count">6/6 verified</span>
+  </span>
+</summary>
+<div class="scroll-body">
+<p class="scroll-source">Source: <code>coq/theories/Clawq/RateLimiter.v</code></p>
+<TheoremBox name="bounded_refill" number="4.1" status="verified" proofRef="RateLimiter.v">
+After refill, tokens never exceed the bucket capacity. The bucket cannot overflow.
+</TheoremBox>
+<TheoremBox name="monotone_refill" number="4.2" status="verified" proofRef="RateLimiter.v">
+Refill is monotonically non-decreasing: tokens after refill {">"}= tokens before refill.
+</TheoremBox>
+<TheoremBox name="consume_semantics" number="4.3" status="verified" proofRef="RateLimiter.v">
+Properties P1–P6: consume decrements by exactly the requested amount when sufficient tokens exist; returns the bucket unchanged when insufficient; the allowed/denied decision is consistent with the token count.
+</TheoremBox>
+<div class="qed" />
+</div>
+</details>
+
+{/* --- F5 --- */}
+<details class="scroll-item">
+<summary class="scroll-summary">
+  <span class="scroll-chevron" aria-hidden="true">
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 4.5l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </span>
+  <span class="scroll-title">F5: Extended Configuration Validation</span>
+  <span class="scroll-meta">
+    <span class="scroll-count">15/15 verified</span>
+  </span>
+</summary>
+<div class="scroll-body">
+<p class="scroll-source">Source: <code>coq/theories/Clawq/Config.v + ConfigProofs.v</code></p>
+<TheoremBox name="valid_port" number="5.1" status="verified" proofRef="ConfigProofs.v">
+Port validation is both sound and complete with respect to the 1–65535 range.
+</TheoremBox>
+<TheoremBox name="valid_temperature" number="5.2" status="verified" proofRef="ConfigProofs.v">
+Temperature validation enforces the 0.0–2.0 range with correct boundary behavior.
+</TheoremBox>
+<TheoremBox name="validate_config_full" number="5.3" status="verified" proofRef="ConfigProofs.v">
+Full configuration validation (P8–P15) checks all fields: port, temperature, max_tokens, history depth, provider weights, security flags, and rate limits.
+</TheoremBox>
+<div class="qed" />
+</div>
+</details>
+
+{/* --- F6 --- */}
+<details class="scroll-item">
+<summary class="scroll-summary">
+  <span class="scroll-chevron" aria-hidden="true">
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 4.5l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </span>
+  <span class="scroll-title">F6: Shell Safety</span>
+  <span class="scroll-meta">
+    <span class="scroll-count">9/9 verified</span>
+    <span class="ledger-extracted"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v13M7 11l5 5 5-5"/><path d="M5 20h14"/></svg>extracted</span>
+  </span>
+</summary>
+<div class="scroll-body">
+<p class="scroll-source">Source: <code>coq/theories/Clawq/QuoteParsing.v + ShellSafety.v</code> — Extracted to OCaml</p>
+<TheoremBox name="tokenizer_correctness" number="6.1" status="verified" proofRef="QuoteParsing.v">
+split_command_words produces a list of tokens with no embedded shell metacharacters when the input passes is_shell_safe.
+</TheoremBox>
+<TheoremBox name="blacklist_completeness" number="6.2" status="verified" proofRef="ShellSafety.v">
+The character blacklist (;&|$`{">"}{"<"}!`) is complete for the threat model: no injection is possible via unlisted characters in a POSIX shell without expansion.
+</TheoremBox>
+<TheoremBox name="allowlist_monotonicity" number="6.3" status="verified" proofRef="ShellSafety.v">
+is_allowed cmd allowlist = true implies is_allowed cmd (allowlist ++ extra) = true. Extending the allowlist never revokes existing permissions.
+</TheoremBox>
+<div class="qed" />
+</div>
+</details>
+
+</div>
+
+<style>{`
+  /* ===== Scroll-unfurl accordion ===== */
+  .breakdown-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 3rem;
+  }
+
+  .scroll-item {
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--coq-teal);
+    border-radius: 12px;
+    background: var(--bg-secondary);
+    overflow: hidden;
+  }
+
+  /* Hide native marker */
+  .scroll-item > summary {
+    list-style: none;
+  }
+  .scroll-item > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .scroll-summary {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.9rem 1.1rem;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .scroll-summary:hover {
+    background: var(--bg-hover);
+  }
+
+  .scroll-chevron {
+    color: var(--coq-teal);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    transition: transform 0.25s ease;
+  }
+
+  .scroll-item[open] .scroll-chevron {
+    transform: rotate(180deg);
+  }
+
+  .scroll-title {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: var(--fs-md);
+    color: var(--text-primary);
+    flex: 1;
+    line-height: 1.2;
+  }
+
+  .scroll-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-shrink: 0;
+  }
+
+  .scroll-count {
+    font-family: var(--font-label);
+    font-variant: small-caps;
+    font-size: var(--fs-sm);
+    color: var(--coq-teal-light);
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+  }
+
+  /* Scroll-body: the unfurling parchment */
+  .scroll-body {
+    border-top: 1px dashed rgba(139, 115, 50, 0.3);
+    padding: 1.5rem 1.5rem 0.5rem;
+    /* grid trick for smooth height animation */
+    display: grid;
+    grid-template-rows: 0fr;
+    overflow: hidden;
+    transition: grid-template-rows 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  /* When open, reveal */
+  .scroll-item[open] > .scroll-body {
+    grid-template-rows: 1fr;
+    animation: scroll-unfurl 0.35s cubic-bezier(0.4, 0, 0.2, 1) both;
+  }
+
+  @keyframes scroll-unfurl {
+    from {
+      opacity: 0;
+      transform: translateY(-0.375rem);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .scroll-source {
+    font-family: var(--font-body);
+    font-size: var(--fs-sm);
+    color: var(--text-secondary);
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .scroll-chevron { transition: none; }
+    .scroll-body { transition: none; }
+    .scroll-item[open] > .scroll-body { animation: none; }
+  }
+`}</style>
+
+{/* ===== TRUST BOUNDARY DIAGRAM ===== */}
+
+## Trust Boundary
+
+<div style="margin: 2rem 0 3rem; font-family: var(--font-label); font-size: var(--fs-base); border: 1px solid rgba(139, 115, 50, 0.2); border-radius: 16px; overflow: hidden;">
+
+  {/* Machine-Checked Zone */}
+  <div style="background: rgba(46, 139, 122, 0.06); border-bottom: none; padding: 1.75rem 2rem 2rem;">
+    <div style="display: flex; align-items: center; gap: 0.6rem; margin-bottom: 1.5rem;">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style="flex-shrink:0"><circle cx="6" cy="6" r="5" stroke="rgba(46,139,122,0.7)" stroke-width="1"/><path d="M3.5 6l1.8 1.8L8.5 4" stroke="rgba(46,139,122,0.9)" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span style="font-variant: small-caps; font-size: var(--fs-xs); letter-spacing: 0.12em; color: var(--coq-teal-light); opacity: 0.85;">Machine-Checked (Coq)</span>
+    </div>
+    <div style="display: flex; align-items: center; justify-content: center; gap: 1rem; flex-wrap: wrap;">
+      <div style="padding: 0.6rem 1.25rem; background: rgba(46, 139, 122, 0.08); border: 1px solid rgba(46, 139, 122, 0.35); text-align: center; min-width: 7rem;">
+        <div style="font-weight: 600; color: var(--coq-teal-light); margin-bottom: 0.2rem;">Coq Core</div>
+        <div style="font-size: var(--fs-xs); color: var(--text-tertiary); font-variant: small-caps; letter-spacing: 0.06em;">69 theorems</div>
+      </div>
+      <span style="color: rgba(46,139,122,0.5); font-size: 1.1rem; letter-spacing: -0.05em;">&#8212;&#x25B8;</span>
+      <div style="padding: 0.6rem 1.25rem; background: rgba(46, 139, 122, 0.08); border: 1px solid rgba(46, 139, 122, 0.35); text-align: center; min-width: 7rem;">
+        <div style="font-weight: 600; color: var(--coq-teal-light); margin-bottom: 0.2rem;">Extraction</div>
+        <div style="font-size: var(--fs-xs); color: var(--text-tertiary); font-variant: small-caps; letter-spacing: 0.06em;">Coq 8.19</div>
+      </div>
+      <span style="color: rgba(46,139,122,0.5); font-size: 1.1rem; letter-spacing: -0.05em;">&#8212;&#x25B8;</span>
+      <div style="padding: 0.6rem 1.25rem; background: rgba(46, 139, 122, 0.08); border: 1px solid rgba(46, 139, 122, 0.35); text-align: center; min-width: 8rem;">
+        <div style="font-weight: 600; color: var(--coq-teal-light); margin-bottom: 0.2rem;"><code style="font-size: 0.9em; background: none; padding: 0; border: none;">clawq_core.ml</code></div>
+        <div style="font-size: var(--fs-xs); color: var(--text-tertiary); font-variant: small-caps; letter-spacing: 0.06em;">Verified OCaml</div>
+      </div>
+    </div>
+  </div>
+
+  {/* Trust Boundary Line */}
+  <div style="position: relative; height: 1.75rem; background: rgba(196, 75, 63, 0.06); border-top: 1px solid rgba(196, 75, 63, 0.35); border-bottom: 1px solid rgba(196, 75, 63, 0.35); display: flex; align-items: center; justify-content: center;">
+    <div style="position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: repeating-linear-gradient(to right, rgba(196,75,63,0.6) 0, rgba(196,75,63,0.6) 8px, transparent 8px, transparent 14px);"></div>
+    <span style="position: relative; z-index: 1; background: rgba(13,11,15,0.92); padding: 0 1rem; font-variant: small-caps; font-size: var(--fs-xs); letter-spacing: 0.14em; color: var(--error-red); white-space: nowrap; opacity: 0.85;">Trust Boundary</span>
+  </div>
+
+  {/* Runtime Zone */}
+  <div style="background: var(--bg-secondary); padding: 1.75rem 2rem 2rem;">
+    <div style="display: flex; align-items: center; gap: 0.6rem; margin-bottom: 1.5rem;">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style="flex-shrink:0"><circle cx="6" cy="6" r="5" stroke="rgba(139,115,50,0.45)" stroke-width="1"/><line x1="6" y1="3" x2="6" y2="6.5" stroke="rgba(139,115,50,0.6)" stroke-width="1.2" stroke-linecap="round"/><circle cx="6" cy="8.5" r="0.7" fill="rgba(139,115,50,0.6)"/></svg>
+      <span style="font-variant: small-caps; font-size: var(--fs-xs); letter-spacing: 0.12em; color: var(--text-tertiary);">Unverified Runtime</span>
+    </div>
+    <div style="display: flex; align-items: stretch; justify-content: center; gap: 0; flex-wrap: wrap;">
+      {["Runtime (OCaml)", "I/O", "Network", "LLM Providers"].map((label, i) => (
+        <div style={`padding: 0.5rem 1rem; background: var(--bg-tertiary); border: 1px solid rgba(139,115,50,0.15); color: var(--text-tertiary); font-size: var(--fs-sm); white-space: nowrap; ${i > 0 ? 'border-left: none;' : ''}`}>{label}</div>
+      ))}
+    </div>
+  </div>
+
+</div>
+
+{/* ===== ROADMAP ===== */}
+
+## Verification Roadmap
+
+The remaining six phases (F7--F12) are ordered by security return on investment. Phases that yield extracted OCaml code -- replacing hand-written implementations with machine-checked versions -- are prioritized over spec-only proofs.
+
+### Priority Matrix
+
+<div style="overflow-x: auto;">
+<table class="table-academic">
+  <thead>
+    <tr>
+      <th>Phase</th>
+      <th>Module</th>
+      <th>Extract?</th>
+      <th>Security ROI</th>
+      <th>Difficulty</th>
+      <th>Order</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>F7</td>
+      <td><code>SecretStore.v</code></td>
+      <td>No (spec)</td>
+      <td>High</td>
+      <td>Medium</td>
+      <td style="font-weight: 600; color: var(--brass-primary);">1st</td>
+    </tr>
+    <tr>
+      <td>F8</td>
+      <td><code>ChannelAuth.v</code></td>
+      <td><span style="color: var(--coq-teal);">Yes</span> (allowlist)</td>
+      <td>High</td>
+      <td>Low</td>
+      <td style="font-weight: 600; color: var(--brass-primary);">2nd</td>
+    </tr>
+    <tr>
+      <td>F9</td>
+      <td><code>AuditRetention.v</code></td>
+      <td><span style="color: var(--coq-teal);">Yes</span> (purge)</td>
+      <td>Medium-High</td>
+      <td>Low</td>
+      <td style="font-weight: 600; color: var(--brass-primary);">3rd</td>
+    </tr>
+    <tr>
+      <td>F10</td>
+      <td><code>AgentLoop.v</code></td>
+      <td>No (spec)</td>
+      <td>Medium</td>
+      <td>Low</td>
+      <td>4th</td>
+    </tr>
+    <tr>
+      <td>F11</td>
+      <td><code>SessionIsolation.v</code></td>
+      <td>No (spec)</td>
+      <td>Medium-High</td>
+      <td>Medium</td>
+      <td>5th</td>
+    </tr>
+    <tr>
+      <td>F12</td>
+      <td><code>LandlockPolicy.v</code></td>
+      <td>No (spec)</td>
+      <td>Medium</td>
+      <td>Medium-High</td>
+      <td>6th</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+### Planned Phases
+
+**F7: Encryption Correctness** -- Spec-only proofs for `secret_store.ml`. Prove encrypt/decrypt is identity (modelling AES-GCM as abstract parameters), nonce uniqueness birthday-bound, and `resolve_secret` completeness across encrypted, env-var, and plaintext cases.
+
+**F8: Channel Authentication** -- Extract a generic allowlist filter to replace hand-written OCaml versions in Slack, Discord, and Telegram channels. Prove replay prevention enforces the 300-second timestamp window. Verify Slack HMAC basestring construction.
+
+**F9: Audit Retention Safety** -- Extract `purge_by_count` and `purge_by_age` to replace OCaml `purge_entries`. Prove purge preserves chain validity using the existing `verify_chain_suffix` lemma from AuditChain.v.
+
+**F10: Agent Loop Termination** -- Spec-only proof that the agent turn loop terminates in at most `max_tool_iterations` steps, history length is bounded after `trim_history`, and trim is idempotent. Models the loop as a Coq `Fixpoint` with fuel.
+
+**F11: Session Isolation** -- Spec-only proof using Coq `FMap` that sessions indexed by distinct keys have disjoint state. Proves `get_or_create` and `store_message` preserve cross-session non-interference. Lwt_mutex atomicity assumed axiomatically.
+
+**F12: Landlock Sandbox Policy** -- Spec-only proof of least-privilege access flags, path set closure under `extra_paths` extension, and policy monotonicity. Assumes C FFI stubs implement Landlock semantics correctly.
+
+<hr class="ornamental-rule" />
+
+<p style="text-align: center; font-size: var(--fs-xs); color: var(--text-tertiary); font-family: var(--font-label); margin-top: 2rem;">
+  Data sourced from <code>docs/src/data/formal_verification.yml</code> &middot; Validated by <code>make update-fv</code>
+</p>

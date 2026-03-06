@@ -1,7 +1,7 @@
 SHELL := opam exec --switch=clawq-5.1 -- /usr/bin/env bash
 .SHELLFLAGS := -c
 
-.PHONY: bootstrap build build-minimal build-wasm build-opt build-opt-all build-opt-speed build-opt-size build-opt-minimal build-opt-stripped build-opt-stripped-all build-opt-speed-stripped build-opt-size-stripped extract extract-check run phase2 test fmt fmt-check clean release docker-build docker-run verify-report coverage coverage-summary embed-ui
+.PHONY: bootstrap build build-minimal build-wasm build-opt build-opt-all build-opt-speed build-opt-size build-opt-minimal build-opt-stripped build-opt-stripped-all build-opt-speed-stripped build-opt-size-stripped extract extract-check run phase2 test fmt fmt-check clean release docker-build docker-run verify-report coverage coverage-summary embed-ui update-fv
 
 OPT ?= speed
 DIST_DIR := dist
@@ -141,6 +141,9 @@ verify-report:
 
 embed-ui:
 	./scripts/embed_ui.sh
+
+update-fv:
+	bash scripts/update_fv_data.sh
 
 clean:
 	dune clean

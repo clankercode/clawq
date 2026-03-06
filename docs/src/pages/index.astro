@@ -1,0 +1,389 @@
+---
+import LandingLayout from '../layouts/LandingLayout.astro';
+---
+<LandingLayout title="Clawq -- The Formal AI Assistant">
+
+  <!-- Hero Section -->
+  <section class="hero">
+    <div class="hero-inner">
+
+      <!-- Cover Art -->
+      <div class="cover-frame">
+        <img
+          src="/clawq-cover.webp"
+          alt="Clawq, The Formal AI Assistant -- Mastering Polite Automation and Protocol"
+          width="480"
+          height="480"
+          loading="eager"
+        />
+      </div>
+
+      <!-- Title -->
+      <h1 class="hero-title">C L A W Q</h1>
+      <p class="hero-subtitle">The Formal AI Assistant</p>
+      <p class="hero-description">
+        A formally verified personal AI assistant runtime ---
+        Coq-proven core properties extracted to OCaml,
+        with impeccable manners and machine-checked correctness.
+      </p>
+
+      <!-- CTA Buttons -->
+      <div class="cta-group">
+        <a href="/quickstart" class="cta cta-primary">Get Started</a>
+        <a href="/formal-verification" class="cta cta-secondary">Verified Properties</a>
+      </div>
+
+      <!-- Ornamental Rule -->
+      <div class="diamond-rule" aria-hidden="true">
+        <span class="rule-line"></span>
+        <span class="rule-diamond">&#x25C6;</span>
+        <span class="rule-line"></span>
+      </div>
+
+      <!-- Stats -->
+      <div class="stats-strip">
+        <span class="stat"><span class="stat-number">69</span> theorems verified</span>
+        <span class="stat-dot" aria-hidden="true">&middot;</span>
+        <span class="stat"><span class="stat-number">18</span> commands</span>
+        <span class="stat-dot" aria-hidden="true">&middot;</span>
+        <span class="stat"><span class="stat-number">226</span> tests</span>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- Feature Cards -->
+  <section class="features">
+    <div class="features-grid">
+
+      <div class="feature-card corner-brackets">
+        <span class="corner-tr" aria-hidden="true"></span>
+        <span class="corner-bl" aria-hidden="true"></span>
+        <div class="feature-icon" aria-hidden="true">
+          <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="20" cy="20" r="15" stroke="var(--coq-teal)" stroke-width="1.5"/>
+            <path d="M14 20l4 4 8-8" stroke="var(--coq-teal)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <!-- Gear teeth -->
+            <path d="M20 3v3M20 34v3M3 20h3M34 20h3M7.9 7.9l2.1 2.1M29.9 29.9l2.1 2.1M7.9 32.1l2.1-2.1M29.9 10.1l2.1-2.1" stroke="var(--brass-primary)" stroke-width="1" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <h3 class="feature-title">Formally Verified</h3>
+        <p class="feature-desc">
+          Core properties proven in Coq with 69 theorems across
+          CLI parsing, configuration validation, path safety,
+          audit chain integrity, and rate limiting.
+        </p>
+      </div>
+
+      <div class="feature-card corner-brackets">
+        <span class="corner-tr" aria-hidden="true"></span>
+        <span class="corner-bl" aria-hidden="true"></span>
+        <div class="feature-icon" aria-hidden="true">
+          <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="6" y="8" width="12" height="14" rx="1" stroke="var(--coq-teal)" stroke-width="1.5"/>
+            <rect x="22" y="18" width="12" height="14" rx="1" stroke="var(--brass-primary)" stroke-width="1.5"/>
+            <path d="M18 15h4M22 25h-4" stroke="var(--brass-primary)" stroke-width="1.5" stroke-linecap="round"/>
+            <path d="M15 22l3 3 3-3" stroke="var(--text-secondary)" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <h3 class="feature-title">Extracted to OCaml</h3>
+        <p class="feature-desc">
+          Direct Coq extraction pipeline to native OCaml code.
+          Build without Coq installed --- extracted artifacts are
+          tracked in git and verified against drift.
+        </p>
+      </div>
+
+      <div class="feature-card corner-brackets">
+        <span class="corner-tr" aria-hidden="true"></span>
+        <span class="corner-bl" aria-hidden="true"></span>
+        <div class="feature-icon" aria-hidden="true">
+          <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M20 6l12 6v10c0 6-5 11-12 14C13 33 8 28 8 22V12l12-6z" stroke="var(--brass-primary)" stroke-width="1.5" stroke-linejoin="round"/>
+            <path d="M15 20l3 3 7-7" stroke="var(--coq-teal)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <h3 class="feature-title">Secure Runtime</h3>
+        <p class="feature-desc">
+          Landlock OS sandboxing, token-bucket rate limiting,
+          AES-256-GCM encrypted secrets, HMAC audit chains,
+          and risk-classified tool invocations.
+        </p>
+      </div>
+
+    </div>
+  </section>
+
+</LandingLayout>
+
+<style>
+  /* ===== Hero Section ===== */
+  .hero {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem 1.5rem;
+  }
+
+  .hero-inner {
+    max-width: 56.25rem;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  /* --- Cover Art Frame --- */
+  .cover-frame {
+    max-width: 51.25rem;
+    width: 100%;
+    margin-bottom: 2.5rem;
+    position: relative;
+    border: 3px solid var(--brass-dark);
+    padding: 4px;
+    box-shadow: 0 0 60px var(--brass-glow), 0 0 120px rgba(201, 168, 76, 0.08);
+  }
+
+  .cover-frame::after {
+    content: "";
+    position: absolute;
+    inset: 4px;
+    border: 1px solid var(--brass-primary);
+    pointer-events: none;
+  }
+
+  .cover-frame img {
+    width: 100%;
+    height: auto;
+    display: block;
+  }
+
+  /* --- Title --- */
+  .hero-title {
+    font-family: var(--font-display);
+    font-weight: 900;
+    font-size: var(--fs-hero);
+    letter-spacing: 0.2em;
+    color: var(--text-primary);
+    margin-bottom: 0.5rem;
+    border: none;
+    padding: 0;
+  }
+
+  .hero-title::after {
+    display: none;
+  }
+
+  .hero-subtitle {
+    font-family: var(--font-body);
+    font-size: var(--fs-lg);
+    font-style: italic;
+    color: var(--text-secondary);
+    margin-bottom: 1.5rem;
+  }
+
+  .hero-description {
+    font-family: var(--font-body);
+    font-size: var(--fs-base);
+    line-height: 1.72;
+    color: var(--text-secondary);
+    max-width: 54ch;
+    margin-bottom: 2rem;
+  }
+
+  /* --- CTA Buttons --- */
+  .cta-group {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-bottom: 2.5rem;
+  }
+
+  .cta {
+    font-family: var(--font-label);
+    font-variant: small-caps;
+    font-weight: 500;
+    font-size: var(--fs-base);
+    padding: 0.75rem 1.75rem;
+    border-radius: 16px;
+    text-decoration: none;
+    transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
+  }
+
+  .cta-primary {
+    background-color: var(--brass-primary);
+    color: var(--bg-primary);
+  }
+
+  .cta-primary:hover {
+    background-color: var(--brass-light);
+    color: var(--bg-primary);
+  }
+
+  .cta-secondary {
+    background: transparent;
+    border: 1px solid var(--brass-dark);
+    color: var(--brass-primary);
+  }
+
+  .cta-secondary:hover {
+    border-color: var(--brass-primary);
+    color: var(--brass-light);
+  }
+
+  /* --- Diamond Rule --- */
+  .diamond-rule {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 120px;
+    margin-bottom: 1.5rem;
+  }
+
+  .rule-line {
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  .rule-diamond {
+    color: var(--qed-gold);
+    font-size: 0.6rem;
+    padding: 0 6px;
+    line-height: 1;
+  }
+
+  /* --- Stats Strip --- */
+  .stats-strip {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    justify-content: center;
+    font-family: var(--font-body);
+    font-size: var(--fs-sm);
+    color: var(--text-secondary);
+  }
+
+  .stat-number {
+    font-family: var(--font-mono);
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+
+  .stat-dot {
+    color: var(--brass-primary);
+    font-size: 1.2em;
+    line-height: 1;
+  }
+
+  /* ===== Feature Cards ===== */
+  .features {
+    padding: 4rem 1.5rem 6rem;
+    max-width: 68.75rem;
+    margin: 0 auto;
+  }
+
+  .features-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 2rem;
+  }
+
+  .feature-card {
+    position: relative;
+    padding: 2.5rem 2rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+  }
+
+  .feature-icon {
+    margin-bottom: 1.25rem;
+  }
+
+  .feature-title {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: var(--fs-md);
+    color: var(--text-primary);
+    margin-bottom: 0.75rem;
+  }
+
+  .feature-desc {
+    font-family: var(--font-body);
+    font-size: var(--fs-sm);
+    line-height: 1.72;
+    color: var(--text-secondary);
+    margin-bottom: 0;
+  }
+
+  /* --- Scroll-in animation --- */
+  .feature-card {
+    opacity: 0;
+    transform: translateY(1.25rem);
+    animation: fade-in-up 0.6s ease forwards;
+  }
+
+  .feature-card:nth-child(1) { animation-delay: 0.1s; }
+  .feature-card:nth-child(2) { animation-delay: 0.25s; }
+  .feature-card:nth-child(3) { animation-delay: 0.4s; }
+
+  @keyframes fade-in-up {
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .feature-card {
+      opacity: 1;
+      transform: none;
+      animation: none;
+    }
+  }
+
+  /* ===== Responsive ===== */
+  @media (max-width: 64rem) {
+    .features-grid {
+      grid-template-columns: 1fr;
+      max-width: 33.75rem;
+      margin: 0 auto;
+    }
+  }
+
+  @media (max-width: 48rem) {
+    .hero {
+      min-height: auto;
+      padding: 4rem 1rem 2rem;
+    }
+
+    .cover-frame {
+      max-width: 30rem;
+    }
+
+    .hero-title {
+      letter-spacing: 0.12em;
+    }
+
+    .stats-strip {
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .stat-dot {
+      display: none;
+    }
+
+    .features {
+      padding: 2rem 1rem 4rem;
+    }
+
+    .feature-card {
+      padding: 2rem 1.5rem;
+    }
+  }
+</style>

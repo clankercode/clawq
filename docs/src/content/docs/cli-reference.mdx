@@ -1,0 +1,187 @@
+---
+title: "CLI Reference"
+description: "Complete command reference for the clawq CLI"
+section: "appendices"
+order: 1
+---
+
+Every clawq command is listed below. Run `clawq COMMAND --help` for per-command usage details.
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `clawq agent` | Start the daemon (agent loop, gateway, all configured channels) |
+| `clawq audit` | View and manage the security audit log |
+| `clawq auth` | Show API key status or encrypt plaintext secrets in config |
+| `clawq capabilities` | List all active runtime capabilities |
+| `clawq channel` | List configured channels |
+| `clawq config` | Manage configuration (wizard, get/set/show) |
+| `clawq cron` | Manage cron jobs for scheduled agent messages |
+| `clawq doctor` | Check configuration for common issues |
+| `clawq mcp` | Start the MCP server (Model Context Protocol) |
+| `clawq memory` | Show memory backend configuration |
+| `clawq migrate` | Run database migrations |
+| `clawq models` | List configured LLM providers and their default models |
+| `clawq onboard` | Interactive setup wizard (or template when not in a TTY) |
+| `clawq phase2` | Show Phase 2 feature status |
+| `clawq reset-agent` | Wipe all session history, cron jobs, and workspace files |
+| `clawq runtime` | Manage native and Docker runtimes |
+| `clawq service` | Manage the clawq system service (start/stop/restart) |
+| `clawq skills` | Manage agent skills (shell-script tool extensions) |
+| `clawq status` | Show runtime configuration and daemon status |
+| `clawq transcribe` | Transcribe an audio file using the configured STT provider |
+| `clawq tunnel` | Manage a public tunnel to the local gateway |
+| `clawq workspace` | Print the current workspace directory |
+
+## Config Subcommands
+
+The `config` command has four subcommands for managing `~/.clawq/config.json`:
+
+### config wizard
+
+```bash
+clawq config wizard
+```
+
+Full interactive TUI wizard that walks through provider, model, security, channels, gateway, and memory configuration. Writes the result to `~/.clawq/config.json`.
+
+### config set
+
+```bash
+clawq config set KEY VALUE
+```
+
+Set a config value by dot-path. Examples:
+
+```bash
+clawq config set providers.0.api_key "sk-..."
+clawq config set providers.0.base_url "https://openrouter.ai/api/v1"
+clawq config set providers.0.model "openai/gpt-4o"
+clawq config set channels.telegram.bot_token "123:ABC..."
+clawq config set channels.telegram.allow_from '["*"]'
+clawq config set security.tools_enabled true
+```
+
+### config get
+
+```bash
+clawq config get KEY
+```
+
+Read a single config value by dot-path:
+
+```bash
+clawq config get providers.0.model
+# openai/gpt-4o
+```
+
+### config show
+
+```bash
+clawq config show [SECTION]
+```
+
+Display the current configuration with secrets redacted. Optionally pass a section name to view only that section:
+
+```bash
+clawq config show              # full config
+clawq config show channels     # channels section only
+clawq config show security     # security section only
+```
+
+## Common Workflows
+
+### First-time setup
+
+```bash
+clawq onboard          # interactive wizard
+clawq doctor           # validate configuration
+clawq workspace init   # initialize workspace files
+clawq agent            # start the daemon
+```
+
+### Day-to-day operations
+
+```bash
+clawq status           # check runtime status
+clawq models           # list providers and models
+clawq channel          # list active channels
+clawq capabilities     # list available features
+```
+
+### Security and auditing
+
+```bash
+clawq auth             # show API key status (secrets redacted)
+clawq auth encrypt     # encrypt plaintext API keys in config
+clawq audit            # view security audit log
+```
+
+### Runtime management
+
+```bash
+# Native runtime
+clawq runtime native start
+clawq runtime native stop
+clawq runtime native health
+
+# Docker runtime
+clawq runtime docker start
+clawq runtime docker stop
+clawq runtime docker health
+
+# Check all runtime status
+clawq runtime status
+```
+
+### Tunnel management
+
+```bash
+clawq tunnel start     # start Cloudflare tunnel
+```
+
+## Make Targets
+
+Build and development tasks are available via Make:
+
+| Target | Description |
+|--------|-------------|
+| `make bootstrap` | Create opam switch and install all dependencies |
+| `make build` | Build the project |
+| `make build-minimal` | Build minimal binary (`clawq-min`, core-only) |
+| `make build-opt-speed` | Optimized build with `-O3` |
+| `make build-opt-size` | Optimized build with `-O2 -compact` |
+| `make build-opt-speed-stripped` | Stripped optimized speed build |
+| `make build-opt-size-stripped` | Stripped optimized size build |
+| `make build-opt-minimal` | Optimized minimal binary |
+| `make test` | Run all tests |
+| `make fmt` | Format code with ocamlformat |
+| `make fmt-check` | Check formatting |
+| `make extract` | Regenerate OCaml from Coq theories |
+| `make extract-check` | Check for extraction drift |
+| `make run` | Print CLI help |
+| `make clean` | Clean build artifacts |
+| `make docker-build` | Build Docker image |
+| `make docker-run` | Run daemon in Docker |
+| `make verify-report` | Generate formal verification report and badge |
+| `make release` | Build release artifacts |
+
+## Running Tests
+
+```bash
+# Run all tests
+make test
+
+# List all test suites and cases
+opam exec --switch=clawq-5.1 -- dune exec test/test_main.exe -- list
+
+# Run a specific test suite by regex
+opam exec --switch=clawq-5.1 -- dune exec test/test_main.exe -- test command_bridge
+
+# Run specific test case indices
+opam exec --switch=clawq-5.1 -- dune exec test/test_main.exe -- test command_bridge 20
+
+# Run multiple indices or ranges
+opam exec --switch=clawq-5.1 -- dune exec test/test_main.exe -- test scheduler 0,3,8-10
+```

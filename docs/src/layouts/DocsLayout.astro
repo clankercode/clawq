@@ -1,0 +1,126 @@
+---
+import Header from "../components/Header.astro";
+import Sidebar from "../components/Sidebar.astro";
+import TOCRail from "../components/TOCRail.astro";
+import Footer from "../components/Footer.astro";
+import GearBackground from "../components/GearBackground.astro";
+
+import "../styles/global.css";
+import "../styles/typography.css";
+import "../styles/code-theme.css";
+
+interface Props {
+  title: string;
+  description?: string;
+  headings?: { depth: number; slug: string; text: string }[];
+}
+
+const { title, description = "Clawq -- The Formal AI Assistant", headings = [] } = Astro.props;
+const currentPath = Astro.url.pathname;
+---
+
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="generator" content={Astro.generator} />
+    <title>{title} | Clawq</title>
+    <meta name="description" content={description} />
+    <meta property="og:title" content={`${title} | Clawq`} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!-- Cross-document view transitions: candlelight fade between pages (Chrome/Safari) -->
+    <style>
+      @view-transition { navigation: auto; }
+      ::view-transition-old(root) {
+        animation: vt-fade-out 0.3s ease-in forwards;
+      }
+      ::view-transition-new(root) {
+        animation: vt-fade-in 0.4s ease-out forwards;
+      }
+      @keyframes vt-fade-out {
+        from { opacity: 1; filter: sepia(0) brightness(1); }
+        to   { opacity: 0; filter: sepia(0.6) brightness(0.7); }
+      }
+      @keyframes vt-fade-in {
+        from { opacity: 0; filter: sepia(0.4) brightness(0.8); }
+        to   { opacity: 1; filter: sepia(0) brightness(1); }
+      }
+    </style>
+    <script is:inline>
+      (function () {
+        const stored = localStorage.getItem("clawq-theme");
+        if (stored === "light" || stored === "dark") {
+          document.documentElement.setAttribute("data-theme", stored);
+        } else if (window.matchMedia("(prefers-color-scheme: light)").matches) {
+          document.documentElement.setAttribute("data-theme", "light");
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <GearBackground />
+    <Header />
+    <div class="docs-layout">
+      <Sidebar currentPath={currentPath} />
+      <div class="docs-content-wrapper">
+        <main class="docs-main">
+          <div class="content-area doc-content">
+            <slot />
+          </div>
+          <Footer />
+        </main>
+        <TOCRail headings={headings} />
+      </div>
+    </div>
+  </body>
+</html>
+
+<style>
+  .docs-layout {
+    display: flex;
+    padding-top: 3rem;
+    min-height: 100vh;
+  }
+
+  /* Wrapper bounds content + TOC together, centered in remaining space */
+  .docs-content-wrapper {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    margin-left: 16.25rem;
+  }
+
+  .docs-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    /* Center the content column within the available space */
+    align-items: center;
+  }
+
+  .content-area {
+    width: min(52rem, 100%);
+    padding: 3rem 2.5rem;
+    flex: 1;
+  }
+
+  @media (max-width: 64rem) {
+    .docs-content-wrapper {
+      margin-left: 0;
+    }
+  }
+
+  @media (max-width: 48rem) {
+    .docs-content-wrapper {
+      margin-left: 0;
+    }
+
+    .content-area {
+      padding: 2rem 1rem;
+    }
+  }
+</style>

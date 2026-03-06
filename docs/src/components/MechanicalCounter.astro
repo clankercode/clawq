@@ -1,0 +1,123 @@
+---
+interface Props {
+  value: number;
+  label: string;
+}
+
+const { value, label } = Astro.props;
+const digits = String(value).split('');
+---
+<div class="mechanical-counter" data-value={value}>
+  <div class="counter-digits">
+    {digits.map((digit, i) => (
+      <div class="digit-card" data-target={digit} data-index={i}>
+        <span class="digit-text">0</span>
+        <!-- Subtle horizontal notch at mid — suggests the flap mechanism -->
+        <span class="digit-notch" aria-hidden="true"></span>
+      </div>
+    ))}
+  </div>
+  <p class="counter-label">{label}</p>
+</div>
+
+<style>
+  .mechanical-counter {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .counter-digits {
+    display: flex;
+    gap: 0.2rem;
+  }
+
+  .digit-card {
+    width: 3rem;
+    height: 3.75rem;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--brass-dark);
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+    /* Subtle inner shadow for depth */
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), inset 0 -1px 0 rgba(0,0,0,0.2);
+  }
+
+  /* Thin center groove — a hint of the split-flap mechanism */
+  .digit-notch {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    height: 1px;
+    background: rgba(139, 115, 50, 0.25);
+    pointer-events: none;
+  }
+
+  .digit-text {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 1.875rem;
+    color: var(--brass-light);
+    line-height: 1;
+    position: relative;
+    z-index: 1;
+  }
+
+  .counter-label {
+    font-family: var(--font-label);
+    font-variant: small-caps;
+    font-weight: 500;
+    font-size: var(--fs-sm);
+    color: var(--text-secondary);
+    letter-spacing: 0.1em;
+    margin: 0;
+  }
+
+  @media (max-width: 48rem) {
+    .digit-card {
+      width: 2.25rem;
+      height: 2.875rem;
+    }
+
+    .digit-text {
+      font-size: 1.375rem;
+    }
+  }
+</style>
+
+<script>
+  function animateCounters() {
+    document.querySelectorAll('.mechanical-counter').forEach((counter) => {
+      const cards = counter.querySelectorAll('.digit-card');
+      cards.forEach((card, index) => {
+        const target = parseInt(card.getAttribute('data-target') || '0', 10);
+        const texts = card.querySelectorAll('.digit-text');
+        let current = 0;
+        const delay = index * 150;
+
+        setTimeout(() => {
+          const interval = setInterval(() => {
+            current++;
+            if (current > target) {
+              clearInterval(interval);
+              return;
+            }
+            texts.forEach((t) => { t.textContent = String(current); });
+          }, 60);
+        }, delay);
+      });
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', animateCounters);
+  } else {
+    animateCounters();
+  }
+</script>

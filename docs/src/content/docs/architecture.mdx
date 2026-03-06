@@ -1,0 +1,152 @@
+---
+title: "Architecture"
+description: "Build pipeline, module map, and dependency structure"
+section: "foundations"
+order: 2
+---
+
+import MermaidDiagram from '../../components/MermaidDiagram.astro';
+
+Clawq follows a Coq-first architecture: core properties are machine-checked in Coq, extracted to OCaml, and wrapped by a runtime that provides I/O, networking, and channel integrations.
+
+## Build Pipeline
+
+<MermaidDiagram
+  diagram={`flowchart TD
+    COQ["coq/theories/Clawq/*.v<br/>Coq source theories"]
+    EXTRACT["coqc + Extraction<br/>scripts/extract.sh"]
+    EXTRACTED["src/extracted/clawq_core.ml · .mli<br/>Generated OCaml · tracked in git"]
+    LIB_EXT["clawq_extracted<br/>src/extracted/dune"]
+    LIB_CORE["clawq_runtime_core<br/>config · agent · session · provider<br/>memory · tools · audit · rate-limiter"]
+    LIB_INT["clawq_runtime_integrations<br/>channels · daemon · gateway · MCP<br/>WS · tunnels · HTTP server"]
+    EXE["clawq executable<br/>main.ml + cmdliner"]
+
+    COQ --> EXTRACT
+    EXTRACT --> EXTRACTED
+    EXTRACTED --> LIB_EXT
+    LIB_EXT --> LIB_CORE
+    LIB_CORE --> LIB_INT
+    LIB_CORE --> EXE
+    LIB_INT --> EXE`}
+  caption="Coq theories → extracted OCaml → runtime libraries → clawq executable"
+/>
+
+The extracted OCaml is tracked in git so the project builds without Coq installed. Run `make extract` to regenerate from Coq sources, and `make extract-check` to verify no drift.
+
+## Coq Theories
+
+| File | Role |
+|------|------|
+| `Interfaces.v` | 7 record-based interface definitions: Provider, Channel, Tool, Memory, RuntimeAdapter, Tunnel, Security |
+| `Config.v` | Configuration records (GatewayConfig, MemoryConfig, SecurityConfig, ClawqConfig) with defaults and validation |
+| `Cli.v` | Command ADT, `parse_command`, `dispatch`, and `usage` string for 18 commands |
+| `Extract.v` | Extraction directives: type mappings and function list |
+
+## Extracted OCaml
+
+| File | Role |
+|------|------|
+| `clawq_core.ml` | Auto-generated OCaml from Coq. Contains command parsing, dispatch, config validation. |
+| `clawq_core.mli` | Auto-generated interface. Both files are tracked in git. |
+
+## Runtime Module Map
+
+| Module | Role |
+|--------|------|
+| `main.ml` | Entry point; Cmdliner CLI argument parsing |
+| `command_bridge.ml` | Bridges CLI to extracted Coq dispatch; handles runtime-only commands |
+| `runtime_config.ml` | Configuration loading, validation, and defaults for all subsystems |
+| `config_loader.ml` | File-based config loading: reads JSON, merges with env vars |
+| `agent.ml` | Agent loop: prompt assembly, provider calls, tool dispatch, conversation management |
+| `session.ml` | Session lifecycle: create, resume, persist conversation state |
+| `provider.ml` | LLM provider abstraction: OpenAI-compatible HTTP calls, streaming, model selection |
+| `memory.ml` | Key-value memory backend: SQLite-backed store/recall/forget with namespace support |
+| `vector.ml` | Local vector index: embedding storage, cosine similarity, hybrid FTS+vector merge |
+| `tool.ml` | Tool type definitions and invocation framework with risk-level enforcement |
+| `tool_registry.ml` | Dynamic tool registration: register, lookup, list by name or category |
+| `tools_builtin.ml` | Built-in tool implementations: file I/O, shell exec, web fetch, search |
+| `mcp_server.ml` | MCP server: exposes tools over JSON-RPC with configurable filtering |
+| `skills.ml` | Skill loader: discovers and loads skill definitions from the filesystem |
+| `http_server.ml` | HTTP server: Cohttp-lwt endpoint for web channel and health checks |
+| `http_client.ml` | HTTP client: shared Cohttp-lwt client for provider and API calls |
+| `telegram.ml` | Telegram channel: bot API integration via long polling |
+| `discord.ml` | Discord channel: WS gateway mode, REST rate limit buckets, reconnect loop |
+| `discord_gateway.ml` | Discord gateway protocol state machine (Hello, Identify, Resume, Heartbeat, Dispatch) |
+| `slack.ml` | Slack Events API channel with HMAC verification |
+| `slack_socket.ml` | Slack Socket Mode: WSS-based event receiving via app_token |
+| `ws_client.ml` | Shared TLS WebSocket client (httpun-ws, gluten, tls-lwt, ca-certs) |
+| `daemon.ml` | Supervisor: gateway + telegram + discord + slack_socket, signal handling, periodic cleanup |
+| `service.ml` | Service orchestrator: starts/stops subsystems (server, tunnel, scheduler) |
+| `scheduler.ml` | Scheduled tasks: cron-like recurring job execution |
+| `audit.ml` | Audit logging: append-only log of tool invocations and security events |
+| `secret_store.ml` | Secret encryption at rest: AES-256-GCM, PBKDF2 key derivation, `$ENC:` prefix format |
+| `migrate.ml` | Database migrations: versioned schema upgrades for SQLite stores |
+| `resilience.ml` | Reliability policies: timeout, retry (exponential backoff), fallback |
+| `runtime_native.ml` | Native runtime adapter: wraps daemon/service for start/stop/status/health |
+| `runtime_docker.ml` | Docker runtime adapter: manages clawq in containers via docker CLI |
+| `tunnel_cloudflare.ml` | Cloudflare tunnel: manages cloudflared process, extracts assigned URL |
+| `rate_limiter.ml` | Token bucket rate limiter (IP, session, chat) |
+| `landlock.ml` | Landlock OS sandboxing (C FFI) |
+| `stt.ml` | Speech-to-text: audio transcription via Whisper-compatible API |
+
+## Dune Libraries
+
+| Library | Key Modules | Dependencies |
+|---------|-------------|-------------|
+| `clawq_extracted` | `clawq_core` | None (unwrapped, `-w -39` for extraction artifacts) |
+| `clawq_runtime_core` | Config, agent, session, provider, memory, tools, audit, security, rate limiter, scheduler | yojson, sqlite3, lwt, cohttp-lwt-unix, mirage-crypto, digestif, clawq_extracted |
+| `clawq_runtime_integrations` | HTTP server, telegram, discord, slack, daemon, MCP, WS client, tunnels, runtimes | clawq_runtime_core + httpun-ws-lwt-unix, gluten-lwt-unix, ca-certs |
+| `clawq` (executable) | `main` | clawq_runtime_core, clawq_runtime_integrations, cmdliner |
+
+Both libraries use `(wrapped false)` so modules are accessible directly (e.g., `Clawq_core.dispatch` rather than `Clawq_extracted.Clawq_core.dispatch`).
+
+## Interface Inventory
+
+From `Interfaces.v`, these 7 records define the contract surface:
+
+| Interface | Fields | Purpose |
+|-----------|--------|---------|
+| `Provider` | name, complete, health | LLM provider abstraction |
+| `Channel` | name, start, stop, send | Communication channel (web, telegram, etc.) |
+| `Tool` | name, invoke, risk_level | Agent tool with risk classification |
+| `Memory` | store, recall, forget | Key-value memory backend |
+| `RuntimeAdapter` | name, start, stop | Runtime lifecycle management |
+| `Tunnel` | name, start, status | Network tunnel (e.g., Cloudflare) |
+| `Security` | workspace_only, audit_enabled, encrypt_secrets | Security policy flags |
+
+## Dependency Direction
+
+<MermaidDiagram
+  diagram={`flowchart TD
+    IFACE["Interfaces.v<br/>no deps"]
+    CONF["Config.v<br/>String · List · Bool"]
+    CLI["Cli.v<br/>String · List"]
+    EXT["Extract.v<br/>Cli · Config · ExtrOcaml*"]
+
+    IFACE --> CONF
+    CONF --> CLI
+    CLI --> EXT`}
+  caption="Coq theory dependency order"
+/>
+
+<MermaidDiagram
+  diagram={`flowchart TD
+    A["clawq_extracted<br/>no deps"]
+    B["clawq_runtime_core<br/>core runtime"]
+    C["clawq_runtime_integrations<br/>channels · gateway · daemon"]
+    D["clawq<br/>cmdliner"]
+
+    A --> B --> C --> D
+    B --> D`}
+  caption="OCaml library dependency order"
+  minHeight="180px"
+/>
+
+## Runtime Split
+
+The runtime is split into core and integrations to support a minimal build (`clawq-min`) that excludes network dependencies:
+
+1. Optional integrations stay out of `clawq_runtime_core`
+2. Network/server features belong in `clawq_runtime_integrations`
+3. Integration-only commands return "disabled in minimal build" messages in `command_bridge_min.ml`
+4. New dependencies are evaluated for core vs integration placement before linking
