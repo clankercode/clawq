@@ -30,3 +30,4 @@ bugs:
     - file: B029-task-add-to-config-wizard-tool.todo
     - file: B030-task-update-codex-associated-m.todo
     - file: B031-task-the-config-wizard-is-nice.todo
+    - file: B032-fix-gear-layout-for-good.todo
