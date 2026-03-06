@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B026
+priority: high
+status: pending
+tags: []
+title: We need a simple command (preferably a make target) that ensures there is no drift between coq specs and the corresponding ocaml code. This command should ensure all coq proofs still match and work for our codebase. Any error with the proofs should be detected by this command.
+---
+
+We need a simple command (preferably a make target) that ensures there is no drift between coq specs and the corresponding ocaml code. This command should ensure all coq proofs still match and work for our codebase. Any error with the proofs should be detected by this command.
