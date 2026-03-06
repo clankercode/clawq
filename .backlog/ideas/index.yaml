@@ -35,3 +35,5 @@ ideas:
       status: done
       tags: []
       title: Config wizard for intuitive CLI and chat-based setup
+    - file: I005-we-should-generate-some-docs-t.todo
+      id: I005
