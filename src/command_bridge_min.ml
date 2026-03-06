@@ -27,8 +27,9 @@ let cmd_doctor () =
   if cfg.providers = [] then add "WARNING: No providers configured";
   List.iter
     (fun (name, (p : Runtime_config.provider_config)) ->
-      if not (Runtime_config.is_key_set p.api_key) then
-        add (Printf.sprintf "WARNING: Provider '%s' has no API key" name))
+      if not (Runtime_config.provider_has_auth p) then
+        add
+          (Printf.sprintf "WARNING: Provider '%s' has no configured auth" name))
     cfg.providers;
   (match cfg.default_provider with
   | Some name when not (List.exists (fun (n, _) -> n = name) cfg.providers) ->
@@ -37,9 +38,10 @@ let cmd_doctor () =
            name)
   | Some name -> (
       match List.assoc_opt name cfg.providers with
-      | Some p when not (Runtime_config.is_key_set p.api_key) ->
+      | Some p when not (Runtime_config.provider_has_auth p) ->
           add
-            (Printf.sprintf "WARNING: default_provider '%s' has no API key" name)
+            (Printf.sprintf
+               "WARNING: default_provider '%s' has no configured auth" name)
       | _ -> ())
   | None -> ());
   if cfg.security.encrypt_secrets then
@@ -138,7 +140,7 @@ let cmd_models () =
               | None -> ""
             in
             Printf.sprintf "  %s: %s (key: %s)%s" name url
-              (if Runtime_config.is_key_set p.api_key then "configured"
+              (if Runtime_config.provider_has_auth p then "configured"
                else "not set")
               model_info)
           providers
@@ -165,9 +167,7 @@ let cmd_capabilities () =
   let caps = ref [] in
   let add s = caps := s :: !caps in
   let active_providers =
-    List.filter
-      (fun (_, p) -> Runtime_config.is_key_set p.Runtime_config.api_key)
-      cfg.providers
+    List.filter (fun (_, p) -> Runtime_config.provider_has_auth p) cfg.providers
   in
   add
     (Printf.sprintf "  - LLM chat: %d provider(s) configured (%s)"
@@ -199,6 +199,16 @@ let cmd_capabilities () =
 
 let cmd_auth args =
   match args with
+  | [ "codex-login" ]
+  | [ "status"; "codex" ]
+  | [ "logout"; "codex" ]
+  | [ "codex-status" ]
+  | [ "codex-logout" ]
+  | [ "codex-login"; _ ]
+  | [ "codex-status"; _ ]
+  | [ "codex-logout"; _ ] ->
+      "Codex OAuth auth commands are disabled in minimal build. Use full \
+       'clawq' binary."
   | [ "encrypt" ] ->
       if not (get_config ()).security.encrypt_secrets then
         "Secret encryption is disabled. Set security.encrypt_secrets to true \
@@ -234,7 +244,7 @@ let cmd_auth args =
                         output_string oc s;
                         output_char oc '\n';
                         close_out oc;
-                        "API keys encrypted in " ^ config_path
+                        "Secrets encrypted in " ^ config_path
                       with exn ->
                         Printf.sprintf "Failed to write config: %s"
                           (Printexc.to_string exn))))
@@ -242,7 +252,7 @@ let cmd_auth args =
   | _ -> (
       let cfg = get_config () in
       match cfg.providers with
-      | [] -> "No providers configured. No API keys set."
+      | [] -> "No providers configured. No provider auth set."
       | providers ->
           let lines =
             List.map
@@ -250,10 +260,12 @@ let cmd_auth args =
                 Printf.sprintf "  %s: %s" name
                   (if Runtime_config.is_key_set p.api_key then
                      redact_key p.api_key
+                   else if Runtime_config.provider_has_codex_oauth p then
+                     "codex-oauth configured"
                    else "not set"))
               providers
           in
-          "API key status:\n" ^ String.concat "\n" lines)
+          "Provider auth status:\n" ^ String.concat "\n" lines)
 
 let get_db () =
   let cfg = get_config () in

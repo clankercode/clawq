@@ -1,10 +1,20 @@
+type codex_oauth_config = {
+  access_token : string;
+  refresh_token : string;
+  expires_at_ms : int;
+  account_id : string option;
+  email : string option;
+}
+
 type provider_config = {
   api_key : string;
+  kind : string option;
   base_url : string option;
   default_model : string option;
   project_id : string option;
   location : string option;
   service_account_json : string option;
+  codex_oauth : codex_oauth_config option;
 }
 
 type agent_defaults = {
@@ -462,6 +472,15 @@ let default =
 let is_key_set key =
   key <> "" && not (String.length key > 4 && String.sub key 0 4 = "YOUR")
 
+let provider_has_codex_oauth (p : provider_config) =
+  match p.codex_oauth with
+  | Some creds ->
+      is_key_set creds.access_token || is_key_set creds.refresh_token
+  | None -> false
+
+let provider_has_auth (p : provider_config) =
+  is_key_set p.api_key || provider_has_codex_oauth p
+
 type model_target = { provider : string option; model : string }
 
 let effective_primary_target (ad : agent_defaults) : model_target =
@@ -574,6 +593,11 @@ let to_json (cfg : t) : Yojson.Safe.t =
   let provider_json (p : provider_config) =
     let fields = [ ("api_key", `String p.api_key) ] in
     let fields =
+      match p.kind with
+      | Some kind -> fields @ [ ("kind", `String kind) ]
+      | None -> fields
+    in
+    let fields =
       match p.base_url with
       | Some url -> fields @ [ ("base_url", `String url) ]
       | None -> fields
@@ -587,6 +611,36 @@ let to_json (cfg : t) : Yojson.Safe.t =
       match p.service_account_json with
       | Some saj -> fields @ [ ("service_account_json", `String saj) ]
       | None -> fields
+    in
+    let fields =
+      match p.project_id with
+      | Some project_id -> fields @ [ ("project_id", `String project_id) ]
+      | None -> fields
+    in
+    let fields =
+      match p.location with
+      | Some location -> fields @ [ ("location", `String location) ]
+      | None -> fields
+    in
+    let fields =
+      match p.codex_oauth with
+      | None -> fields
+      | Some creds ->
+          let oauth_fields =
+            [
+              ("access_token", `String creds.access_token);
+              ("refresh_token", `String creds.refresh_token);
+              ("expires_at_ms", `Int creds.expires_at_ms);
+            ]
+            @ (match creds.account_id with
+              | Some account_id -> [ ("account_id", `String account_id) ]
+              | None -> [])
+            @
+            match creds.email with
+            | Some email -> [ ("email", `String email) ]
+            | None -> []
+          in
+          fields @ [ ("codex_oauth", `Assoc oauth_fields) ]
     in
     `Assoc fields
   in

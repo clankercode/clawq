@@ -81,6 +81,7 @@ type stream_event =
 
 type provider_kind =
   | OpenAICompat
+  | OpenAICodex
   | Anthropic
   | Ollama
   | Gemini
@@ -100,16 +101,28 @@ let string_contains s sub =
     go 0
 
 let detect_kind ?(name = "") (p : Runtime_config.provider_config) =
-  let key = p.api_key in
-  let url = String.lowercase_ascii (Option.value ~default:"" p.base_url) in
-  let lname = String.lowercase_ascii name in
-  if String.length key >= 7 && String.sub key 0 7 = "sk-ant-" then Anthropic
-  else if String.length key >= 6 && String.sub key 0 6 = "AIzaSy" then Gemini
-  else if string_contains url "localhost:11434" || string_contains url "ollama"
-  then Ollama
-  else if string_contains url "aiplatform.googleapis.com" then Vertex
-  else if string_contains url "cohere.com" || lname = "cohere" then Cohere
-  else OpenAICompat
+  match p.kind with
+  | Some "openai-codex" | Some "codex" -> OpenAICodex
+  | Some "anthropic" -> Anthropic
+  | Some "gemini" -> Gemini
+  | Some "ollama" -> Ollama
+  | Some "vertex" -> Vertex
+  | Some "cohere" -> Cohere
+  | Some "openai" -> OpenAICompat
+  | Some _ | None ->
+      let key = p.api_key in
+      let url = String.lowercase_ascii (Option.value ~default:"" p.base_url) in
+      let lname = String.lowercase_ascii name in
+      if String.length key >= 7 && String.sub key 0 7 = "sk-ant-" then Anthropic
+      else if String.length key >= 6 && String.sub key 0 6 = "AIzaSy" then
+        Gemini
+      else if
+        string_contains url "localhost:11434" || string_contains url "ollama"
+      then Ollama
+      else if string_contains url "aiplatform.googleapis.com" then Vertex
+      else if string_contains url "cohere.com" || lname = "cohere" then Cohere
+      else if lname = "openai-codex" || lname = "codex" then OpenAICodex
+      else OpenAICompat
 
 type complete_fn =
   config:Runtime_config.t ->
@@ -172,16 +185,26 @@ let find_provider_for_model ~providers ~model_name =
     if
       String.length norm >= String.length norm_name
       && String.sub norm 0 (String.length norm_name) = norm_name
-      && Runtime_config.is_key_set p.api_key
+      && Runtime_config.provider_has_auth p
     then Some (name, p)
     else
-      match p.default_model with
-      | Some dm ->
-          let norm_dm = normalize_model_name dm in
-          if norm = norm_dm && Runtime_config.is_key_set p.api_key then
-            Some (name, p)
-          else None
-      | None -> None
+      let codex_match =
+        (match p.kind with
+          | Some "openai-codex" | Some "codex" -> true
+          | _ -> false)
+        && String.length norm >= 13
+        && String.sub norm 0 13 = "openai-codex"
+        && Runtime_config.provider_has_auth p
+      in
+      if codex_match then Some (name, p)
+      else
+        match p.default_model with
+        | Some dm ->
+            let norm_dm = normalize_model_name dm in
+            if norm = norm_dm && Runtime_config.provider_has_auth p then
+              Some (name, p)
+            else None
+        | None -> None
   in
   List.find_map match_provider providers
 
@@ -191,7 +214,7 @@ let select_provider ~(config : Runtime_config.t) =
   in
   let with_key =
     List.filter
-      (fun (_, p) -> Runtime_config.is_key_set p.Runtime_config.api_key)
+      (fun (_, p) -> Runtime_config.provider_has_auth p)
       config.providers
   in
   let model_target =
@@ -202,7 +225,7 @@ let select_provider ~(config : Runtime_config.t) =
     match model_target.provider with
     | Some name -> (
         match find_named name with
-        | Some (n, p) when Runtime_config.is_key_set p.api_key -> Some (n, p)
+        | Some (n, p) when Runtime_config.provider_has_auth p -> Some (n, p)
         | _ -> None)
     | None -> None
   in
@@ -210,7 +233,7 @@ let select_provider ~(config : Runtime_config.t) =
     match config.default_provider with
     | Some name -> (
         match find_named name with
-        | Some (n, p) when Runtime_config.is_key_set p.api_key -> Some (n, p)
+        | Some (n, p) when Runtime_config.provider_has_auth p -> Some (n, p)
         | _ -> None)
     | None -> None
   in
@@ -240,11 +263,13 @@ let select_provider ~(config : Runtime_config.t) =
                         ( "default",
                           {
                             Runtime_config.api_key = "";
+                            kind = None;
                             base_url = None;
                             default_model = None;
                             project_id = None;
                             location = None;
                             service_account_json = None;
+                            codex_oauth = None;
                           } )))))
   in
   let provider_name, provider = chosen in

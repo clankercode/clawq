@@ -5,7 +5,7 @@ Get a working AI assistant bot on Telegram in ~5 minutes.
 ## Prerequisites
 
 - OCaml 5.1+ via opam (`opam switch clawq-5.1`)
-- An LLM API key (OpenRouter, OpenAI, or any OpenAI-compatible provider)
+- Either an LLM API key (OpenRouter, OpenAI, or any OpenAI-compatible provider) or a ChatGPT/Codex subscription for `openai-codex`
 - A Telegram bot token (from @BotFather)
 
 ## 1. Build
@@ -21,13 +21,23 @@ make build
 2. Send `/newbot` and follow the prompts
 3. Copy the bot token (looks like `7123456789:AAF1k...`)
 
-## 3. Get an LLM API Key
+## 3. Choose Provider Authentication
+
+### Option A - API key provider
 
 Sign up at one of these providers and grab an API key:
 
 - [OpenRouter](https://openrouter.ai/) (recommended — access to many models)
 - [OpenAI](https://platform.openai.com/)
 - Any OpenAI-compatible API
+
+### Option B - ChatGPT/Codex subscription
+
+If you already have a ChatGPT/Codex subscription, clawq can use it through the built-in `openai-codex` provider. The wizard can create the provider entry for you, and then you finish auth with:
+
+```bash
+clawq auth codex-login openai-codex
+```
 
 ## 4. Configure clawq
 
@@ -39,16 +49,16 @@ Run the onboard command to launch the interactive TUI wizard:
 clawq onboard
 ```
 
-The wizard walks you through every section: provider, model, security, channels, gateway, and memory. At the end it writes `~/.clawq/config.json`. You can re-run any time.
+The wizard walks you through every section: provider, model, security, channels, gateway, and memory. At the end it writes `~/.clawq/config.json`. You can re-run any time. If you pick `openai-codex`, it skips the API key prompt and tells you to run the Codex login command after saving.
 
 ### Option B — Config set commands
 
 Set individual values by dot-path:
 
 ```bash
-clawq config set providers.0.api_key "sk-or-v1-YOUR_KEY_HERE"
-clawq config set providers.0.base_url "https://openrouter.ai/api/v1"
-clawq config set providers.0.model "openai/gpt-4o"
+clawq config set providers.openrouter.api_key "sk-or-v1-YOUR_KEY_HERE"
+clawq config set providers.openrouter.base_url "https://openrouter.ai/api/v1"
+clawq config set providers.openrouter.default_model "openai/gpt-4o"
 clawq config set channels.telegram.bot_token "7123456789:AAF1k_YOUR_TOKEN_HERE"
 clawq config set channels.telegram.allow_from '["*"]'
 ```
@@ -58,7 +68,7 @@ Review the result with secrets redacted:
 ```bash
 clawq config show
 clawq config show channels    # show one section
-clawq config get providers.0.model   # read a single value
+clawq config get providers.openrouter.default_model   # read a single value
 ```
 
 ### Option C — Manual edit
@@ -71,14 +81,13 @@ Minimal working config:
 
 ```json
 {
-  "providers": [
-    {
-      "name": "openrouter",
+  "providers": {
+    "openrouter": {
       "api_key": "sk-or-v1-YOUR_KEY_HERE",
       "base_url": "https://openrouter.ai/api/v1",
-      "model": "openai/gpt-4o"
+      "default_model": "openai/gpt-4o"
     }
-  ],
+  },
   "channels": {
     "telegram": {
       "enabled": true,
@@ -88,6 +97,36 @@ Minimal working config:
   }
 }
 ```
+
+Minimal `openai-codex` config:
+
+```json
+{
+  "providers": {
+    "openai-codex": {
+      "kind": "openai-codex",
+      "base_url": "https://chatgpt.com/backend-api/codex",
+      "default_model": "openai-codex/gpt-5-codex"
+    }
+  },
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "bot_token": "7123456789:AAF1k_YOUR_TOKEN_HERE",
+      "allow_from": ["*"]
+    }
+  }
+}
+```
+
+Then authenticate it:
+
+```bash
+clawq auth codex-login openai-codex
+clawq auth codex-status openai-codex
+```
+
+The login flow opens a browser and waits for the callback on `http://localhost:1455/auth/callback`. If that local callback cannot complete, clawq falls back to asking you to paste the final redirect URL into the terminal.
 
 ### Configuration notes
 
@@ -181,13 +220,13 @@ docker run -it --rm -p 13451:13451 \
 
 ### Secret Encryption
 
-To encrypt API keys at rest:
+To encrypt API keys and saved OAuth tokens at rest:
 
 1. Set `security.encrypt_secrets` to `true` in config
 2. Set the `CLAWQ_MASTER_KEY` environment variable with a strong passphrase
-3. Run `clawq auth encrypt` to encrypt all plaintext API keys in config
-4. Keys are encrypted with AES-256-GCM and stored as `$ENC:...` values
-5. At runtime, keys are automatically decrypted using the master key
+3. Run `clawq auth encrypt` to encrypt all plaintext secrets in config
+4. Secrets are encrypted with AES-256-GCM and stored as `$ENC:...` values
+5. At runtime, keys and OAuth tokens are automatically decrypted using the master key
 
 ### Vector Search (Hybrid Memory)
 
@@ -271,12 +310,17 @@ Configure timeout, retry, and fallback behavior for LLM calls:
 - Look at daemon logs for error messages
 
 **"No providers configured" warning:**
-- Make sure `providers` is set in `~/.clawq/config.json` with a valid API key
+- Make sure `providers` is set in `~/.clawq/config.json` with either a valid API key or an `openai-codex` provider that has been logged in
 
 **LLM API errors:**
 - Check your API key is valid and has credits
 - Try a different model (e.g., `openai/gpt-3.5-turbo` for lower cost)
 - Check the `base_url` matches your provider
+
+**Codex login issues:**
+- Re-run `clawq auth codex-login openai-codex`
+- Check `clawq auth codex-status openai-codex` for saved login state
+- If the callback browser step fails, paste the full redirect URL back into the terminal when prompted
 
 **Permission denied / config not found:**
 - Run `clawq onboard` to create the config directory
@@ -287,13 +331,15 @@ Configure timeout, retry, and fallback behavior for LLM calls:
 ```bash
 clawq models                       # list configured providers
 clawq channel                      # show channel configuration
-clawq auth                         # show API key status (secrets redacted)
+clawq auth                         # show provider auth status (secrets redacted)
+clawq auth codex-login openai-codex
+clawq auth codex-status openai-codex
 clawq capabilities                 # list available features
 
 # Config management
 clawq config wizard                # re-run the interactive setup wizard
 clawq config show                  # display full config (secrets redacted)
 clawq config show security         # display one section
-clawq config get providers.0.model # read a single value
+clawq config get providers.openrouter.default_model # read a single value
 clawq config set KEY VALUE         # set a value by dot-path
 ```

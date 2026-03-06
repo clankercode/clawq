@@ -56,6 +56,7 @@ type widget =
 
 type provider_draft = {
   name : string;
+  kind : string option;
   api_key : string;
   base_url : string;
   default_model : string;
@@ -88,7 +89,7 @@ type model = {
 }
 
 let empty_provider =
-  { name = ""; api_key = ""; base_url = ""; default_model = "" }
+  { name = ""; kind = None; api_key = ""; base_url = ""; default_model = "" }
 
 let default_channel_sel = { telegram = false; discord = false; slack = false }
 

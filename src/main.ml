@@ -78,12 +78,16 @@ let hardware_cmd =
   simple "hardware" "Hardware integration (deferred to Phase 2)."
 
 let auth_cmd =
-  with_args "auth" "Show API key status or encrypt plaintext secrets in config."
+  with_args "auth"
+    "Manage provider authentication, including Codex subscription login."
     [
       `S "SUBCOMMANDS";
-      `I ("(no args)", "Print redacted API key status for all providers.");
+      `I ("(no args)", "Print redacted provider auth status for all providers.");
       `I
         ("encrypt", "Encrypt plaintext API keys in config using the master key.");
+      `I ("codex-login [PROVIDER]", "Start ChatGPT/Codex OAuth login flow.");
+      `I ("codex-status [PROVIDER]", "Show stored Codex OAuth status.");
+      `I ("codex-logout [PROVIDER]", "Clear stored Codex OAuth credentials.");
     ]
 
 let transcribe_cmd =

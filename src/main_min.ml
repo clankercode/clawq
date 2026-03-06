@@ -46,12 +46,21 @@ let capabilities_cmd = simple "capabilities" "List active runtime capabilities."
 let phase2_cmd = simple "phase2" "Show Phase 2 feature status."
 
 let auth_cmd =
-  with_args "auth" "Show API key status or encrypt plaintext secrets in config."
+  with_args "auth"
+    "Show provider auth status or encrypt plaintext secrets in config."
     [
       `S "SUBCOMMANDS";
-      `I ("(no args)", "Print redacted API key status for all providers.");
+      `I ("(no args)", "Print redacted auth status for all providers.");
+      `I ("encrypt", "Encrypt plaintext secrets in config using the master key.");
       `I
-        ("encrypt", "Encrypt plaintext API keys in config using the master key.");
+        ( "codex-login [PROVIDER]",
+          "Disabled in minimal build; use full clawq binary for Codex OAuth." );
+      `I
+        ( "codex-status [PROVIDER]",
+          "Disabled in minimal build; use full clawq binary for Codex OAuth." );
+      `I
+        ( "codex-logout [PROVIDER]",
+          "Disabled in minimal build; use full clawq binary for Codex OAuth." );
     ]
 
 let cron_cmd =

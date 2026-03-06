@@ -1,0 +1,29 @@
+---
+complexity: high
+depends_on:
+    - P2.M1.E4.T001
+estimate_hours: 5
+id: P2.M1.E4.T002
+priority: high
+status: done
+tags:
+    - auth
+    - oauth
+    - codex
+    - openai
+title: Implement OpenAI Codex OAuth login and refresh flow
+---
+## Requirements
+
+- Implement the OpenAI Codex PKCE OAuth flow based on the Roo-Code/OpenClaw references.
+- Generate verifier/challenge + state, open the browser to `https://auth.openai.com/oauth/authorize`, and support localhost callback capture on port `1455`.
+- Provide a manual pasteback fallback for remote/headless sessions when the callback cannot complete automatically.
+- Exchange codes at `https://auth.openai.com/oauth/token`, persist refreshable credentials, and implement refresh with expiry handling and invalid-grant detection.
+- Extract and retain `ChatGPT-Account-Id` (or equivalent account identifier) from returned JWT claims when available.
+
+## Acceptance Criteria
+
+- A successful login produces persisted Codex OAuth credentials with expiry metadata.
+- Expired credentials refresh automatically and preserve rotated refresh tokens.
+- Headless/manual fallback is supported without requiring a local callback.
+- Error messages are actionable for revoked/expired credentials.

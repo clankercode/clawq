@@ -227,8 +227,10 @@ let render_done () =
       "";
       Printf.sprintf "  %sRun %s%sclawq doctor%s%s to verify your setup.%s" dim
         reset fg_teal reset dim reset;
-      Printf.sprintf "  %sRun %s%sclawq agent%s%s to start the daemon.%s" dim
-        reset fg_teal reset dim reset;
+      Printf.sprintf
+        "  %sRun the full %s%sclawq%s%s binary to start the daemon or use \
+         network-backed auth flows.%s"
+        dim reset fg_teal reset dim reset;
       "";
     ]
 

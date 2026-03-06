@@ -7,6 +7,7 @@ let secret_patterns =
     "signing_secret";
     "app_token";
     "access_token";
+    "refresh_token";
     "private_key";
     "password";
     "app_secret";

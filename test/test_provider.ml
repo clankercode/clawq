@@ -15,20 +15,24 @@ let test_find_provider_for_model () =
       ( "anthropic",
         {
           Runtime_config.api_key = "sk-abc";
+          kind = None;
           base_url = Some "https://api.anthropic.com/v1";
           default_model = None;
           project_id = None;
           location = None;
           service_account_json = None;
+          codex_oauth = None;
         } );
       ( "openai",
         {
           Runtime_config.api_key = "sk-xyz";
+          kind = None;
           base_url = None;
           default_model = None;
           project_id = None;
           location = None;
           service_account_json = None;
+          codex_oauth = None;
         } );
     ]
   in
@@ -57,11 +61,13 @@ let test_find_provider_no_key () =
       ( "anthropic",
         {
           Runtime_config.api_key = "";
+          kind = None;
           base_url = None;
           default_model = None;
           project_id = None;
           location = None;
           service_account_json = None;
+          codex_oauth = None;
         } );
     ]
   in
@@ -77,11 +83,13 @@ let test_find_provider_date_suffix () =
       ( "anthropic",
         {
           Runtime_config.api_key = "sk-abc";
+          kind = None;
           base_url = None;
           default_model = None;
           project_id = None;
           location = None;
           service_account_json = None;
+          codex_oauth = None;
         } );
     ]
   in
@@ -124,11 +132,13 @@ let test_context_window_unknown () =
 let make_provider ?(base_url = None) api_key =
   {
     Runtime_config.api_key;
+    kind = None;
     base_url;
     default_model = None;
     project_id = None;
     location = None;
     service_account_json = None;
+    codex_oauth = None;
   }
 
 let test_detect_kind_anthropic () =
@@ -180,6 +190,12 @@ let test_detect_kind_openai_compat_openrouter () =
   Alcotest.(check bool)
     "openrouter is openai compat" true
     (Provider.detect_kind cfg = Provider.OpenAICompat)
+
+let test_detect_kind_openai_codex_explicit () =
+  let cfg = { (make_provider "") with kind = Some "openai-codex" } in
+  Alcotest.(check bool)
+    "explicit codex kind" true
+    (Provider.detect_kind cfg = Provider.OpenAICodex)
 
 let test_detect_kind_anthropic_short_key () =
   (* key shorter than 7 chars should NOT match sk-ant- prefix *)
@@ -239,20 +255,24 @@ let test_find_provider_first_wins () =
       ( "anthropic",
         {
           Runtime_config.api_key = "sk-abc";
+          kind = None;
           base_url = None;
           default_model = None;
           project_id = None;
           location = None;
           service_account_json = None;
+          codex_oauth = None;
         } );
       ( "anthropic2",
         {
           Runtime_config.api_key = "sk-xyz";
+          kind = None;
           base_url = None;
           default_model = None;
           project_id = None;
           location = None;
           service_account_json = None;
+          codex_oauth = None;
         } );
     ]
   in
@@ -264,6 +284,69 @@ let test_find_provider_first_wins () =
   | Some (name, _) ->
       Alcotest.(check string) "first provider wins" "anthropic" name
   | None -> Alcotest.fail "expected first provider match"
+
+let test_find_provider_with_codex_oauth_auth () =
+  let providers =
+    [
+      ( "openai-codex",
+        {
+          Runtime_config.api_key = "";
+          kind = Some "openai-codex";
+          base_url = Some "https://chatgpt.com/backend-api/codex";
+          default_model = Some "openai-codex/gpt-5-codex";
+          project_id = None;
+          location = None;
+          service_account_json = None;
+          codex_oauth =
+            Some
+              {
+                Runtime_config.access_token = "access-token";
+                refresh_token = "refresh-token";
+                expires_at_ms = 1730000000000;
+                account_id = None;
+                email = None;
+              };
+        } );
+    ]
+  in
+  match
+    Provider.find_provider_for_model ~providers
+      ~model_name:"openai-codex/gpt-5-codex"
+  with
+  | Some (name, _) ->
+      Alcotest.(check string) "matched codex provider" "openai-codex" name
+  | None -> Alcotest.fail "expected match for codex oauth provider"
+
+let test_find_provider_ignores_empty_codex_oauth_tokens () =
+  let providers =
+    [
+      ( "openai-codex",
+        {
+          Runtime_config.api_key = "";
+          kind = Some "openai-codex";
+          base_url = Some "https://chatgpt.com/backend-api/codex";
+          default_model = Some "openai-codex/gpt-5-codex";
+          project_id = None;
+          location = None;
+          service_account_json = None;
+          codex_oauth =
+            Some
+              {
+                Runtime_config.access_token = "";
+                refresh_token = "";
+                expires_at_ms = 0;
+                account_id = None;
+                email = None;
+              };
+        } );
+    ]
+  in
+  match
+    Provider.find_provider_for_model ~providers
+      ~model_name:"openai-codex/gpt-5-codex"
+  with
+  | Some _ -> Alcotest.fail "did not expect match for empty codex oauth creds"
+  | None -> ()
 
 let suite =
   [
@@ -293,6 +376,8 @@ let suite =
       test_detect_kind_openai_compat_default;
     Alcotest.test_case "detect kind openrouter openai compat" `Quick
       test_detect_kind_openai_compat_openrouter;
+    Alcotest.test_case "detect kind openai codex explicit" `Quick
+      test_detect_kind_openai_codex_explicit;
     Alcotest.test_case "detect kind short sk-ant not anthropic" `Quick
       test_detect_kind_anthropic_short_key;
     Alcotest.test_case "detect kind short AIzaS not gemini" `Quick
@@ -312,4 +397,8 @@ let suite =
       test_context_window_deepseek;
     Alcotest.test_case "find provider first wins" `Quick
       test_find_provider_first_wins;
+    Alcotest.test_case "find provider with codex oauth auth" `Quick
+      test_find_provider_with_codex_oauth_auth;
+    Alcotest.test_case "find provider ignores empty codex oauth tokens" `Quick
+      test_find_provider_ignores_empty_codex_oauth_tokens;
   ]

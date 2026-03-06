@@ -94,50 +94,54 @@ let resolve_secret ~encrypt_secrets value =
   end
   else value
 
-(* Encrypt all provider API keys in config and return updated JSON *)
+let secret_keys =
+  [
+    "api_key";
+    "bot_token";
+    "signing_secret";
+    "app_token";
+    "access_token";
+    "refresh_token";
+    "private_key";
+    "password";
+    "app_secret";
+    "webhook_secret";
+    "verify_token";
+    "verification_token";
+    "channel_secret";
+    "channel_access_token";
+    "totp_secret";
+    "auth_token";
+  ]
+
+let is_secret_key key = List.exists (( = ) key) secret_keys
+
+let maybe_encrypt_string ~key value =
+  if
+    value <> ""
+    && (not (is_encrypted value))
+    && String.length value > 1
+    && value.[0] <> '$'
+  then `String (encrypt_secret ~key value)
+  else `String value
+
+let rec encrypt_json_secrets ~key = function
+  | `Assoc fields ->
+      `Assoc
+        (List.map
+           (fun (name, value) ->
+             if is_secret_key name then
+               match value with
+               | `String s -> (name, maybe_encrypt_string ~key s)
+               | other -> (name, other)
+             else (name, encrypt_json_secrets ~key value))
+           fields)
+  | `List items -> `List (List.map (encrypt_json_secrets ~key) items)
+  | other -> other
+
+(* Encrypt all known secrets in config and return updated JSON *)
 let encrypt_config_secrets ~key json =
-  let open Yojson.Safe.Util in
-  try
-    let providers = json |> member "providers" |> to_assoc in
-    let encrypted_providers =
-      List.map
-        (fun (name, provider_json) ->
-          let api_key =
-            try provider_json |> member "api_key" |> to_string with _ -> ""
-          in
-          if
-            api_key <> ""
-            && (not (is_encrypted api_key))
-            && String.length api_key > 1
-            && api_key.[0] <> '$'
-          then begin
-            let encrypted = encrypt_secret ~key api_key in
-            let fields =
-              match provider_json with
-              | `Assoc fields ->
-                  List.map
-                    (fun (k, v) ->
-                      if k = "api_key" then (k, `String encrypted) else (k, v))
-                    fields
-              | other -> [ ("api_key", `String encrypted); ("_rest", other) ]
-            in
-            (name, `Assoc fields)
-          end
-          else (name, provider_json))
-        providers
-    in
-    let new_json =
-      match json with
-      | `Assoc fields ->
-          `Assoc
-            (List.map
-               (fun (k, v) ->
-                 if k = "providers" then (k, `Assoc encrypted_providers)
-                 else (k, v))
-               fields)
-      | other -> other
-    in
-    Ok new_json
+  try Ok (encrypt_json_secrets ~key json)
   with exn ->
     Error
       (Printf.sprintf "Failed to encrypt config secrets: %s"

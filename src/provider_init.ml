@@ -5,6 +5,8 @@
    startup when the full binary is built. *)
 
 let () =
+  Provider.register_native_complete Provider.OpenAICodex
+    Provider_openai_codex.complete;
   Provider.register_native_complete Provider.Anthropic
     Provider_anthropic.complete;
   Provider.register_native_complete Provider.Ollama Provider_ollama.complete;
@@ -13,6 +15,8 @@ let () =
   Provider.register_native_complete Provider.Cohere Provider_cohere.complete;
   Provider.register_native_stream Provider.Anthropic
     Provider_anthropic.complete_streaming;
+  Provider.register_native_stream Provider.OpenAICodex
+    Provider_openai_codex.complete_streaming;
   Provider.register_native_stream Provider.Ollama
     Provider_ollama.complete_streaming;
   Provider.register_native_stream Provider.Gemini

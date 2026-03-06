@@ -1,13 +1,16 @@
 ---
+claimed_at: "2026-03-06T17:22:03Z"
+claimed_by: cli-user
+completed_at: "2026-03-06T17:27:58Z"
 complexity: medium
 depends_on: []
+duration_minutes: 5.9270113256
 estimate_hours: 10
 id: I006
 priority: medium
-status: pending
-tags:
-    - idea
-    - planning
+started_at: "2026-03-06T17:22:03Z"
+status: done
+tags: []
 title: Add support for using codex pro subscription. Check if nullclaw supports that. otherwise check ~/src/pag-server/ref-projects, particularly check out openclaw and see if it has code for it. If all else fails, start some research agnets to search the web how to do this.
 ---
 
@@ -28,8 +31,20 @@ Add support for using codex pro subscription. Check if nullclaw supports that. o
 
 ## Created Work Items
 
-- Add created task IDs
-- Add created bug IDs (if any)
+Plan: `.plan/2026-03-07-codex-pro-support/index.md`
+
+Epic: `P2.M1.E4` - Codex Pro Subscription Support
+
+- `P2.M1.E4.T001`: Extend provider config for OpenAI Codex OAuth credentials
+- `P2.M1.E4.T002`: Implement OpenAI Codex OAuth login and refresh flow
+- `P2.M1.E4.T003`: Route OpenAI Codex models through ChatGPT subscription runtime
+- `P2.M1.E4.T004`: Add Codex login/logout/status commands and setup flow
+- `P2.M1.E4.T005`: Cover Codex subscription support with tests and docs
+
+Research notes:
+- `nullclaw/` was not present locally.
+- Primary implementation reference is Roo-Code's `src/integrations/openai-codex/oauth.ts`.
+- Secondary integration UX reference is OpenClaw's `src/commands/openai-codex-oauth.ts` and `docs/concepts/oauth.md`.
 
 ## Completion Criteria
 

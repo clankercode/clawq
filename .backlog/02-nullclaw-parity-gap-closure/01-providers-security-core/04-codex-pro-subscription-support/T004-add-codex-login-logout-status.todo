@@ -1,0 +1,27 @@
+---
+complexity: medium
+depends_on:
+    - P2.M1.E4.T001
+    - P2.M1.E4.T002
+estimate_hours: 3
+id: P2.M1.E4.T004
+priority: medium
+status: done
+tags:
+    - cli
+    - wizard
+    - auth
+    - codex
+title: Add Codex login/logout/status commands and setup flow
+---
+## Requirements
+
+- Extend the CLI auth/config UX so users can sign in with a ChatGPT subscription and inspect or clear stored Codex credentials.
+- Add a guided setup path in the config wizard (or equivalent onboarding flow) for choosing Codex subscription auth versus API key auth.
+- Update validation/status output so Codex-backed providers report meaningful readiness without relying on `/models` API-key checks.
+
+## Acceptance Criteria
+
+- Users can initiate login, inspect status, and log out/remove stored Codex credentials from the CLI.
+- Setup flow explains local-browser versus remote/headless login behavior.
+- Validation output distinguishes API-key providers from Codex subscription providers.

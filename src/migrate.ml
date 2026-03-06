@@ -39,11 +39,13 @@ let convert (json : Yojson.Safe.t) =
             ( name,
               ({
                  api_key;
+                 kind = None;
                  base_url;
                  default_model = None;
                  project_id = None;
                  location = None;
                  service_account_json = None;
+                 codex_oauth = None;
                }
                 : Runtime_config.provider_config) ))
         models

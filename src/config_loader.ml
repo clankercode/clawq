@@ -33,6 +33,9 @@ let parse_config ?(resolve_secrets = true) json =
           let base_url =
             try Some (v |> member "base_url" |> to_string) with _ -> None
           in
+          let kind =
+            try Some (v |> member "kind" |> to_string) with _ -> None
+          in
           let default_model =
             try Some (v |> member "default_model" |> to_string) with _ -> None
           in
@@ -46,14 +49,49 @@ let parse_config ?(resolve_secrets = true) json =
             try Some (v |> member "service_account_json" |> to_string)
             with _ -> None
           in
+          let codex_oauth =
+            try
+              let oauth = v |> member "codex_oauth" in
+              let access_token =
+                oauth |> member "access_token" |> to_string |> resolve_secret
+              in
+              let refresh_token =
+                oauth |> member "refresh_token" |> to_string |> resolve_secret
+              in
+              let expires_at_ms =
+                try oauth |> member "expires_at_ms" |> to_int
+                with _ ->
+                  let expires = oauth |> member "expires" |> to_int in
+                  expires
+              in
+              let account_id =
+                try Some (oauth |> member "account_id" |> to_string)
+                with _ -> None
+              in
+              let email =
+                try Some (oauth |> member "email" |> to_string) with _ -> None
+              in
+              Some
+                ({
+                   Runtime_config.access_token;
+                   refresh_token;
+                   expires_at_ms;
+                   account_id;
+                   email;
+                 }
+                  : Runtime_config.codex_oauth_config)
+            with _ -> None
+          in
           ( name,
             ({
                api_key;
+               kind;
                base_url;
                default_model;
                project_id;
                location;
                service_account_json;
+               codex_oauth;
              }
               : Runtime_config.provider_config) ))
     with _ -> []

@@ -1,0 +1,27 @@
+---
+complexity: medium
+depends_on:
+    - P2.M1.E4.T003
+    - P2.M1.E4.T004
+estimate_hours: 3
+id: P2.M1.E4.T005
+priority: medium
+status: done
+tags:
+    - test
+    - docs
+    - codex
+    - oauth
+title: Cover Codex subscription support with tests and docs
+---
+## Requirements
+
+- Add focused tests for config parsing, secret handling, provider selection, OAuth token refresh logic, and any request-header construction introduced for Codex support.
+- Document setup and limitations in user-facing docs, including callback port `1455`, manual pasteback fallback, and expected model naming/config examples.
+- Update any quickstart/configuration references that currently imply OpenAI support is API-key only.
+
+## Acceptance Criteria
+
+- Automated tests cover the new auth mode and runtime routing behavior.
+- Docs show at least one end-to-end Codex subscription configuration example.
+- `make test` passes after the implementation lands.

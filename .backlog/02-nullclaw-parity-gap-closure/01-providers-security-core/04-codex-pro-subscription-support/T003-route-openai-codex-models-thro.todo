@@ -1,0 +1,30 @@
+---
+complexity: high
+depends_on:
+    - P2.M1.E4.T001
+    - P2.M1.E4.T002
+estimate_hours: 5
+id: P2.M1.E4.T003
+priority: high
+status: done
+tags:
+    - provider
+    - codex
+    - openai
+    - runtime
+title: Route OpenAI Codex models through ChatGPT subscription runtime
+---
+## Requirements
+
+- Add runtime support for `openai-codex/*` or equivalent Codex subscription model targets.
+- Route Codex requests to the ChatGPT Codex backend instead of the normal OpenAI-compatible `/v1` API path.
+- Build authorization headers from refreshed OAuth access tokens and include `ChatGPT-Account-Id` when present.
+- Keep existing OpenAI-compatible API-key flows unchanged.
+- Ensure streaming and non-streaming flows both work, or return a clear temporary limitation if one mode must be staged.
+
+## Acceptance Criteria
+
+- A configured Codex subscription provider can be selected for Codex-targeted models without an API key.
+- Requests use the ChatGPT Codex backend with bearer access token auth.
+- Account-id headers are sent when available.
+- Existing OpenAI-compatible provider tests remain green.

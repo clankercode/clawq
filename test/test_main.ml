@@ -16,6 +16,7 @@ let () =
        ("prompt_builder", Test_prompt_builder.suite);
        ("vector", Test_vector.suite);
        ("secret_store", Test_secret_store.suite);
+       ("openai_codex_oauth", Test_openai_codex_oauth.suite);
        ("tools_security", Test_tools_security.suite);
        ("mcp", Test_mcp.suite);
        ("resilience", Test_resilience.suite);

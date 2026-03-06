@@ -1,0 +1,27 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 4
+id: P2.M1.E4.T001
+priority: high
+status: done
+tags:
+    - auth
+    - provider
+    - codex
+    - oauth
+title: Extend provider config for OpenAI Codex OAuth credentials
+---
+## Requirements
+
+- Extend `Runtime_config.provider_config` and config loading/serialization so a provider can use ChatGPT subscription auth instead of a static `api_key`.
+- Support persisted OAuth credentials for OpenAI Codex (`access_token`, `refresh_token`, `expires`, optional `account_id`, optional `email`) while keeping existing API-key providers backward compatible.
+- Update secret encryption/redaction paths so Codex OAuth secrets are stored securely and `config show` remains safe.
+- Update provider selection helpers so a provider with valid Codex OAuth credentials counts as configured even when `api_key` is empty.
+
+## Acceptance Criteria
+
+- Config round-trips with a provider auth mode for OpenAI Codex without breaking existing provider entries.
+- Secret-store encryption covers the new OAuth credential fields.
+- Provider selection no longer requires a literal API key when Codex OAuth creds are present.
+- Relevant OCaml tests pass.

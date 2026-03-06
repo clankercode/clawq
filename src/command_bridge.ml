@@ -128,8 +128,9 @@ let cmd_doctor () =
   if cfg.providers = [] then add "WARNING: No providers configured";
   List.iter
     (fun (name, (p : Runtime_config.provider_config)) ->
-      if not (Runtime_config.is_key_set p.api_key) then
-        add (Printf.sprintf "WARNING: Provider '%s' has no API key" name))
+      if not (Runtime_config.provider_has_auth p) then
+        add
+          (Printf.sprintf "WARNING: Provider '%s' has no configured auth" name))
     cfg.providers;
   (match cfg.default_provider with
   | Some name when not (List.exists (fun (n, _) -> n = name) cfg.providers) ->
@@ -138,9 +139,10 @@ let cmd_doctor () =
            name)
   | Some name -> (
       match List.assoc_opt name cfg.providers with
-      | Some p when not (Runtime_config.is_key_set p.api_key) ->
+      | Some p when not (Runtime_config.provider_has_auth p) ->
           add
-            (Printf.sprintf "WARNING: default_provider '%s' has no API key" name)
+            (Printf.sprintf
+               "WARNING: default_provider '%s' has no configured auth" name)
       | _ -> ())
   | None -> ());
   (match cfg.channels.telegram with
@@ -499,6 +501,29 @@ let cmd_capabilities () =
 
 let cmd_auth args =
   match args with
+  | [ "codex-login" ] | [ "login"; "codex" ] -> (
+      match Openai_codex_oauth.login () with
+      | Ok creds ->
+          Printf.sprintf "Codex login complete%s"
+            (match creds.Runtime_config.email with
+            | Some email -> Printf.sprintf " for %s" email
+            | None -> "")
+      | Error msg -> Printf.sprintf "Codex login failed: %s" msg)
+  | [ "codex-login"; provider_name ] -> (
+      match Openai_codex_oauth.login ~provider_name () with
+      | Ok creds ->
+          Printf.sprintf "%s: Codex login complete%s" provider_name
+            (match creds.Runtime_config.email with
+            | Some email -> Printf.sprintf " for %s" email
+            | None -> "")
+      | Error msg ->
+          Printf.sprintf "%s: Codex login failed: %s" provider_name msg)
+  | [ "codex-status" ] | [ "status"; "codex" ] -> Openai_codex_oauth.status ()
+  | [ "codex-status"; provider_name ] ->
+      Openai_codex_oauth.status ~provider_name ()
+  | [ "codex-logout" ] | [ "logout"; "codex" ] -> Openai_codex_oauth.logout ()
+  | [ "codex-logout"; provider_name ] ->
+      Openai_codex_oauth.logout ~provider_name ()
   | [ "encrypt" ] ->
       if not (get_config ()).security.encrypt_secrets then
         "Secret encryption is disabled. Set security.encrypt_secrets to true \
@@ -607,18 +632,22 @@ let cmd_auth args =
   | _ -> (
       let cfg = get_config () in
       match cfg.providers with
-      | [] -> "No providers configured. No API keys set."
+      | [] -> "No providers configured. No provider auth set."
       | providers ->
           let lines =
             List.map
               (fun (name, (p : Runtime_config.provider_config)) ->
-                Printf.sprintf "  %s: %s" name
-                  (if Runtime_config.is_key_set p.api_key then
-                     redact_key p.api_key
-                   else "not set"))
+                let auth_status =
+                  if Runtime_config.is_key_set p.api_key then
+                    redact_key p.api_key
+                  else if Runtime_config.provider_has_codex_oauth p then
+                    "codex-oauth configured"
+                  else "not set"
+                in
+                Printf.sprintf "  %s: %s" name auth_status)
               providers
           in
-          "API key status:\n" ^ String.concat "\n" lines)
+          "Provider auth status:\n" ^ String.concat "\n" lines)
 
 let cmd_transcribe args =
   match args with

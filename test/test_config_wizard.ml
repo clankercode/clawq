@@ -78,7 +78,8 @@ let test_full_onboard_flow () =
   (* Welcome -> ProviderSelect *)
   let m, _ = update KeyEnter m in
   Alcotest.check check_step "provider select" ProviderSelect m.step;
-  (* Select openrouter (first option) -> ProviderApiKey *)
+  (* Select openrouter (second option) -> ProviderApiKey *)
+  let m, _ = update KeyDown m in
   let m, _ = update KeyEnter m in
   Alcotest.check check_step "api key" ProviderApiKey m.step;
   (* Type a key *)
@@ -149,6 +150,7 @@ let test_confirm_toggle () =
 let test_test_provider_action () =
   let m = initial_model Onboard in
   let m, _ = update KeyEnter m in
+  let m, _ = update KeyDown m in
   let m, _ = update KeyEnter m in
   (* Type key *)
   let m, _ = update (KeyChar 'k') m in
@@ -163,6 +165,7 @@ let test_test_provider_action () =
 let test_full_wizard_has_channel_menu () =
   let m = initial_model FullWizard in
   let m, _ = update KeyEnter m in
+  let m, _ = update KeyDown m in
   let m, _ = update KeyEnter m in
   let m, _ = update (KeyChar 'k') m in
   let m, _ = update KeyEnter m in
@@ -173,6 +176,13 @@ let test_full_wizard_has_channel_menu () =
   let m, _ = update KeyEnter m in
   let m, _ = update KeyEnter m in
   Alcotest.check check_step "channel menu" ChannelMenu m.step
+
+let test_openai_codex_skips_api_key_prompt () =
+  let m = initial_model Onboard in
+  let m, _ = update KeyEnter m in
+  let m, _ = update KeyEnter m in
+  Alcotest.check check_step "codex goes to base url" ProviderBaseUrl m.step;
+  Alcotest.(check string) "provider name" "openai-codex" m.current_provider.name
 
 let suite =
   [
@@ -189,4 +199,6 @@ let suite =
     Alcotest.test_case "test provider action" `Quick test_test_provider_action;
     Alcotest.test_case "full wizard channel menu" `Quick
       test_full_wizard_has_channel_menu;
+    Alcotest.test_case "openai codex skips api key prompt" `Quick
+      test_openai_codex_skips_api_key_prompt;
   ]

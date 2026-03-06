@@ -172,6 +172,75 @@ let test_backfill_infers_default_provider_from_model_priority () =
         "default_provider backfilled" "zai_coding"
         (out |> member "default_provider" |> to_string))
 
+let test_parse_codex_oauth_provider () =
+  let json =
+    Yojson.Safe.from_string
+      {|{
+        "providers": {
+          "openai-codex": {
+            "kind": "openai-codex",
+            "base_url": "https://chatgpt.com/backend-api/codex",
+            "codex_oauth": {
+              "access_token": "access-token",
+              "refresh_token": "refresh-token",
+              "expires_at_ms": 1730000000000,
+              "account_id": "acct_123",
+              "email": "me@example.com"
+            }
+          }
+        }
+      }|}
+  in
+  let cfg = Config_loader.parse_config json in
+  let provider = List.assoc "openai-codex" cfg.providers in
+  Alcotest.(check (option string))
+    "kind parsed" (Some "openai-codex") provider.kind;
+  Alcotest.(check bool)
+    "provider has auth" true
+    (Runtime_config.provider_has_auth provider);
+  match provider.codex_oauth with
+  | None -> Alcotest.fail "expected codex oauth creds"
+  | Some creds ->
+      Alcotest.(check string) "access token" "access-token" creds.access_token;
+      Alcotest.(check string)
+        "refresh token" "refresh-token" creds.refresh_token;
+      Alcotest.(check int) "expires at" 1730000000000 creds.expires_at_ms
+
+let test_to_json_preserves_codex_oauth_provider () =
+  let provider : Runtime_config.provider_config =
+    {
+      api_key = "";
+      kind = Some "openai-codex";
+      base_url = Some "https://chatgpt.com/backend-api/codex";
+      default_model = Some "openai-codex/gpt-5-codex";
+      project_id = None;
+      location = None;
+      service_account_json = None;
+      codex_oauth =
+        Some
+          {
+            Runtime_config.access_token = "access-token";
+            refresh_token = "refresh-token";
+            expires_at_ms = 1730000000000;
+            account_id = Some "acct_123";
+            email = Some "me@example.com";
+          };
+    }
+  in
+  let json =
+    Runtime_config.to_json
+      { Runtime_config.default with providers = [ ("openai-codex", provider) ] }
+  in
+  let open Yojson.Safe.Util in
+  Alcotest.(check string)
+    "kind serialized" "openai-codex"
+    (json |> member "providers" |> member "openai-codex" |> member "kind"
+   |> to_string);
+  Alcotest.(check string)
+    "oauth access token serialized" "access-token"
+    (json |> member "providers" |> member "openai-codex" |> member "codex_oauth"
+   |> member "access_token" |> to_string)
+
 let suite =
   [
     Alcotest.test_case "load backfill preserves unknown keys" `Quick
@@ -192,4 +261,8 @@ let suite =
       test_backfill_does_not_persist_resolved_secrets;
     Alcotest.test_case "backfill infers default provider" `Quick
       test_backfill_infers_default_provider_from_model_priority;
+    Alcotest.test_case "parse codex oauth provider" `Quick
+      test_parse_codex_oauth_provider;
+    Alcotest.test_case "to_json preserves codex oauth provider" `Quick
+      test_to_json_preserves_codex_oauth_provider;
   ]

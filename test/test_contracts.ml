@@ -17,11 +17,13 @@ let test_provider_config_has_required_fields () =
   let cfg : Runtime_config.provider_config =
     {
       api_key = "sk-test";
+      kind = None;
       base_url = None;
       default_model = None;
       project_id = None;
       location = None;
       service_account_json = None;
+      codex_oauth = None;
     }
   in
   Alcotest.(check bool)
@@ -33,11 +35,13 @@ let test_provider_config_base_url_some () =
   let cfg : Runtime_config.provider_config =
     {
       api_key = "sk-test";
+      kind = None;
       base_url = Some "https://api.example.com/v1";
       default_model = None;
       project_id = None;
       location = None;
       service_account_json = None;
+      codex_oauth = None;
     }
   in
   Alcotest.(check (option string))

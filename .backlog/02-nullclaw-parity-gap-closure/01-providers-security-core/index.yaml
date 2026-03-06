@@ -28,6 +28,15 @@ epics:
       name: 'Sandbox Hardening: Firejail & Bubblewrap'
       path: 03-sandbox-hardening-firejail-bub
       status: done
+    - complexity: high
+      depends_on: []
+      description: Add ChatGPT subscription-backed OpenAI Codex support, including OAuth login, token refresh, runtime routing, and user-facing setup flows.
+      estimate_hours: 20
+      id: E4
+      locked: false
+      name: Codex Pro Subscription Support
+      path: 04-codex-pro-subscription-support
+      status: pending
 estimate_hours: 80
 id: P2.M1
 locked: false

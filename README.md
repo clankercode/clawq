@@ -16,10 +16,13 @@ A *formally* verified personal AI assistant runtime — Coq-proven core properti
 # First-time setup — interactive wizard
 clawq onboard
 
-# Or configure piece by piece
-clawq config set providers.0.api_key "sk-..."
+# Or configure piece by piece with an API key provider
+clawq config set providers.openrouter.api_key "sk-..."
 clawq config set channels.telegram.bot_token "123:ABC..."
 clawq config show                  # review config (secrets redacted)
+
+# Or use a ChatGPT/Codex subscription provider
+clawq auth codex-login openai-codex
 
 # Start the daemon
 clawq agent
@@ -32,7 +35,7 @@ clawq channel                      # list active channels
 clawq config show security         # inspect a specific config section
 ```
 
-See [docs/QUICKSTART.md](docs/QUICKSTART.md) for a full walkthrough.
+See [old-docs/QUICKSTART.md](old-docs/QUICKSTART.md) for a full walkthrough.
 
 ## Quick Start
 
@@ -59,7 +62,7 @@ make test
 The fastest way to get a running clawq instance is via Telegram:
 
 1. Create a bot with [@BotFather](https://t.me/BotFather) and get your bot token.
-2. Get an API key from an OpenAI-compatible LLM provider (OpenAI, Anthropic via proxy, etc.).
+2. Either get an API key from an OpenAI-compatible LLM provider, or plan to use a ChatGPT/Codex subscription with the built-in `openai-codex` provider.
 3. Run the interactive setup wizard:
 
 ```bash
@@ -72,13 +75,12 @@ This launches a full interactive TUI wizard (when run in a terminal) to configur
 
 ```json
 {
-  "providers": [
-    {
-      "name": "openai",
+  "providers": {
+    "openai": {
       "api_key": "sk-...",
-      "model": "gpt-4o"
+      "default_model": "gpt-4o"
     }
-  ],
+  },
   "channels": {
     "telegram": {
       "enabled": true,
@@ -87,6 +89,22 @@ This launches a full interactive TUI wizard (when run in a terminal) to configur
   }
 }
 ```
+
+For ChatGPT/Codex subscription auth instead of an API key, add a provider like this and then run `clawq auth codex-login openai-codex`:
+
+```json
+{
+  "providers": {
+    "openai-codex": {
+      "kind": "openai-codex",
+      "base_url": "https://chatgpt.com/backend-api/codex",
+      "default_model": "openai-codex/gpt-5-codex"
+    }
+  }
+}
+```
+
+`clawq auth codex-login openai-codex` opens a browser and waits for the OAuth callback on `http://localhost:1455/auth/callback`. If the browser cannot reach the local callback, paste the full redirect URL back into the terminal when prompted.
 
 5. Start the daemon:
 
@@ -101,7 +119,7 @@ Your bot is now live on Telegram. Send it a message to verify.
 ```
 clawq agent           Start the daemon (agent loop, gateway, all configured channels)
 clawq audit            View and manage the security audit log
-clawq auth             Show API key status or encrypt plaintext secrets in config
+clawq auth             Show provider auth status, run Codex OAuth login, or encrypt secrets
 clawq capabilities     List all active runtime capabilities
 clawq channel          List configured channels
 clawq config           Manage configuration (wizard, get/set/show)
@@ -129,11 +147,21 @@ clawq workspace        Print the current workspace directory
 clawq config wizard              Full interactive TUI wizard (provider, model, security,
                                  channels, gateway, memory)
 clawq config set KEY VALUE       Set a config value by dot-path
-                                   e.g. clawq config set security.tools_enabled true
+                                    e.g. clawq config set security.tools_enabled true
 clawq config get KEY             Read a config value by dot-path
-                                   e.g. clawq config get providers.0.model
+                                    e.g. clawq config get providers.openai.default_model
 clawq config show [SECTION]      Display current config with secrets redacted
-                                   e.g. clawq config show channels
+                                     e.g. clawq config show channels
+```
+
+### Auth subcommands
+
+```
+clawq auth                         Show redacted auth status for configured providers
+clawq auth encrypt                 Encrypt plaintext secrets in config
+clawq auth codex-login [PROVIDER]  Start ChatGPT/Codex OAuth login flow
+clawq auth codex-status [PROVIDER] Show saved Codex OAuth status
+clawq auth codex-logout [PROVIDER] Remove saved Codex OAuth credentials
 ```
 
 Run `clawq COMMAND --help` for per-command usage.

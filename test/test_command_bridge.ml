@@ -1,3 +1,28 @@
+let with_temp_home f =
+  let base = Filename.get_temp_dir_name () in
+  let dir =
+    Filename.concat base ("clawq_home_" ^ string_of_int (Random.bits ()))
+  in
+  Unix.mkdir dir 0o755;
+  let old_home = try Some (Sys.getenv "HOME") with Not_found -> None in
+  Unix.putenv "HOME" dir;
+  Fun.protect
+    (fun () -> f dir)
+    ~finally:(fun () ->
+      (try
+         Unix.unlink
+           (Filename.concat (Filename.concat dir ".clawq") "config.json")
+       with _ -> ());
+      (try
+         Unix.unlink
+           (Filename.concat (Filename.concat dir ".clawq") "daemon_state.json")
+       with _ -> ());
+      (match old_home with
+      | Some v -> Unix.putenv "HOME" v
+      | None -> Unix.putenv "HOME" "");
+      (try Unix.rmdir (Filename.concat dir ".clawq") with _ -> ());
+      try Unix.rmdir dir with _ -> ())
+
 let test_handle_phase2 () =
   let result = Command_bridge.handle [ "phase2" ] in
   Alcotest.(check bool)
@@ -135,23 +160,6 @@ let test_handle_tunnel_status () =
            ignore (Str.search_forward re result 0);
            true
          with Not_found -> false))
-
-let with_temp_home f =
-  let base = Filename.get_temp_dir_name () in
-  let dir =
-    Filename.concat base ("clawq_home_" ^ string_of_int (Random.bits ()))
-  in
-  Unix.mkdir dir 0o755;
-  let old_home = try Some (Sys.getenv "HOME") with Not_found -> None in
-  Unix.putenv "HOME" dir;
-  Fun.protect
-    (fun () -> f dir)
-    ~finally:(fun () ->
-      (match old_home with
-      | Some v -> Unix.putenv "HOME" v
-      | None -> Unix.putenv "HOME" "");
-      (try Unix.rmdir (Filename.concat dir ".clawq") with _ -> ());
-      try Unix.rmdir dir with _ -> ())
 
 let test_status_cleans_stale_daemon_state () =
   with_temp_home (fun home ->

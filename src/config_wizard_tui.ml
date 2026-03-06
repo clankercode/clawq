@@ -60,6 +60,9 @@ let build_config_json (m : model) : Yojson.Safe.t =
          (fun (p : provider_draft) ->
            let fields =
              [ ("api_key", `String p.api_key) ]
+             @ (match p.kind with
+               | Some kind -> [ ("kind", `String kind) ]
+               | None -> [])
              @ (if p.base_url <> "" then [ ("base_url", `String p.base_url) ]
                 else [])
              @
@@ -123,7 +126,9 @@ let build_config_json (m : model) : Yojson.Safe.t =
     then
       let fields =
         [ ("host", `String m.gateway_host) ]
-        @ [ ("port", `Int (try int_of_string m.gateway_port with _ -> 13451)) ]
+        @ [
+            ("port", `Int (try int_of_string m.gateway_port with _ -> 13451));
+          ]
         @
         if m.gateway_auth_token <> "" then
           [ ("auth_token", `String m.gateway_auth_token) ]

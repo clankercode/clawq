@@ -22,6 +22,7 @@
   skills
   vector
   secret_store
+  openai_codex_oauth
   resilience
   landlock
   channel
@@ -105,6 +106,7 @@
   line_channel
   onebot
   provider_anthropic
+  provider_openai_codex
   provider_cohere
   provider_gemini
   provider_ollama

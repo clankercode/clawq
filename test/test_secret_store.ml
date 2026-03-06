@@ -155,6 +155,42 @@ let test_empty_plaintext () =
   | Ok decrypted -> Alcotest.(check string) "empty roundtrip" "" decrypted
   | Error msg -> Alcotest.fail (Printf.sprintf "empty decrypt failed: %s" msg)
 
+let test_encrypt_config_codex_oauth_secrets () =
+  let key = Secret_store.derive_key ~passphrase:"test" in
+  let json =
+    Yojson.Safe.from_string
+      {|{
+        "providers": {
+          "openai-codex": {
+            "kind": "openai-codex",
+            "codex_oauth": {
+              "access_token": "plain-access",
+              "refresh_token": "plain-refresh",
+              "expires_at_ms": 1730000000000
+            }
+          }
+        }
+      }|}
+  in
+  match Secret_store.encrypt_config_secrets ~key json with
+  | Error msg -> Alcotest.fail msg
+  | Ok new_json ->
+      let open Yojson.Safe.Util in
+      let access_token =
+        new_json |> member "providers" |> member "openai-codex"
+        |> member "codex_oauth" |> member "access_token" |> to_string
+      in
+      let refresh_token =
+        new_json |> member "providers" |> member "openai-codex"
+        |> member "codex_oauth" |> member "refresh_token" |> to_string
+      in
+      Alcotest.(check bool)
+        "access token encrypted" true
+        (Secret_store.is_encrypted access_token);
+      Alcotest.(check bool)
+        "refresh token encrypted" true
+        (Secret_store.is_encrypted refresh_token)
+
 let suite =
   [
     Alcotest.test_case "derive key length" `Quick test_derive_key;
@@ -182,4 +218,6 @@ let suite =
     Alcotest.test_case "encrypt config secrets" `Quick
       test_encrypt_config_secrets;
     Alcotest.test_case "empty plaintext" `Quick test_empty_plaintext;
+    Alcotest.test_case "encrypt config codex oauth secrets" `Quick
+      test_encrypt_config_codex_oauth_secrets;
   ]

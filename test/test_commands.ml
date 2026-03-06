@@ -39,6 +39,41 @@ let test_version_contains_clawq () =
     (contains lower "clawq" || contains lower "model" || contains lower "status"
     || String.length out > 0)
 
+let test_min_auth_codex_disabled_message () =
+  let out =
+    Command_bridge_min.handle [ "auth"; "codex-login"; "openai-codex" ]
+  in
+  Alcotest.(check bool)
+    "minimal build explains codex auth disabled" true
+    (contains out "disabled in minimal build")
+
+let test_min_auth_status_shows_codex_oauth () =
+  let json =
+    Yojson.Safe.from_string
+      {|{
+  "providers": {
+    "openai-codex": {
+      "kind": "openai-codex",
+      "codex_oauth": {
+        "access_token": "tok",
+        "refresh_token": "ref",
+        "expires_at_ms": 4102444800000
+      }
+    }
+  }
+}|}
+  in
+  let cfg = Config_loader.parse_config ~resolve_secrets:false json in
+  let provider = List.assoc "openai-codex" cfg.providers in
+  let status =
+    if Runtime_config.is_key_set provider.api_key then "unexpected"
+    else if Runtime_config.provider_has_codex_oauth provider then
+      "codex-oauth configured"
+    else "not set"
+  in
+  Alcotest.(check string)
+    "minimal auth status label" "codex-oauth configured" status
+
 (* ===== Config parsing without file I/O ===== *)
 
 let test_config_default_model () =
@@ -164,6 +199,10 @@ let suite =
       test_unknown_command_graceful;
     Alcotest.test_case "version contains clawq" `Quick
       test_version_contains_clawq;
+    Alcotest.test_case "minimal auth codex disabled message" `Quick
+      test_min_auth_codex_disabled_message;
+    Alcotest.test_case "minimal auth status shows codex oauth" `Quick
+      test_min_auth_status_shows_codex_oauth;
     Alcotest.test_case "config default model" `Quick test_config_default_model;
     Alcotest.test_case "config default temperature" `Quick
       test_config_default_temperature;

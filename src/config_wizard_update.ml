@@ -4,6 +4,7 @@ open Config_wizard_model
 
 let provider_presets =
   [
+    ("openai-codex", Openai_codex_oauth.codex_base_url);
     ("openrouter", "https://openrouter.ai/api/v1");
     ("openai", "https://api.openai.com/v1");
     ("anthropic", "https://api.anthropic.com/v1");
@@ -12,10 +13,19 @@ let provider_presets =
   ]
 
 let provider_names =
-  [ "openrouter"; "openai"; "anthropic"; "groq"; "ollama"; "custom" ]
+  [
+    "openai-codex";
+    "openrouter";
+    "openai";
+    "anthropic";
+    "groq";
+    "ollama";
+    "custom";
+  ]
 
 let model_presets =
   [
+    Openai_codex_oauth.default_model;
     "openai/gpt-4o";
     "anthropic/claude-sonnet-4-6";
     "anthropic/claude-haiku-4-5";
@@ -73,9 +83,25 @@ let transition_from_provider_select m (si : select_input) =
     | Some n -> n
     | None -> "custom"
   in
-  let cp = { empty_provider with name } in
+  let cp =
+    {
+      empty_provider with
+      name;
+      kind =
+        (match name with "openai-codex" -> Some "openai-codex" | _ -> None);
+      default_model =
+        (match name with
+        | "openai-codex" -> Openai_codex_oauth.default_model
+        | _ -> "");
+    }
+  in
   let m = { m with current_provider = cp } in
-  if name = "custom" then
+  if name = "openai-codex" then
+    goto ProviderBaseUrl
+      (make_text_input ~value:(preset_url name) ~placeholder:"https://..."
+         "Base URL")
+      m
+  else if name = "custom" then
     goto ProviderApiKey
       (make_text_input ~placeholder:"provider-name" "Provider name")
       m
@@ -105,7 +131,23 @@ let transition_from_api_key m (ti : text_input) =
 let transition_from_base_url m (ti : text_input) =
   let cp = { m.current_provider with base_url = ti.value } in
   let m = { m with current_provider = cp } in
-  goto ProviderTestOffer (make_confirm "Test provider connectivity?") m
+  match cp.kind with
+  | Some "openai-codex" ->
+      let providers = m.providers @ [ cp ] in
+      let m =
+        {
+          m with
+          providers;
+          current_provider = empty_provider;
+          messages =
+            "OpenAI Codex selected - after saving, run full 'clawq auth \
+             codex-login openai-codex'. It uses a browser callback on \
+             localhost:1455 and falls back to pasting the redirect URL in \
+             headless sessions." :: m.messages;
+        }
+      in
+      goto ModelSelect (make_select "Default model" model_presets) m
+  | _ -> goto ProviderTestOffer (make_confirm "Test provider connectivity?") m
 
 let transition_from_test_offer m (ci : confirm_input) =
   let cp = m.current_provider in
