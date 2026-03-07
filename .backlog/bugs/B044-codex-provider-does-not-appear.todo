@@ -1,0 +1,39 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B044
+priority: high
+status: pending
+tags: []
+title: codex provider does not appear to work. error logs attached.
+---
+
+codex provider does not appear to work. error logs attached. 
+
+
+
+[15:21:38.650] [INFO]GET https://api.telegram.org/bot--redacted--/getUpdates?offset=0&timeout=30 
+[15:21:49.357] [INFO]Restored 194 messages for session telegram:58495225:58495225 [15:21:49.357] [INFO]Compacting history: 195 messages -> summarise 175, keep 20 recent [15:21:49.358] [INFO]LLM 
+request to https://chatgpt.com/backend-api/codex/chat/completions provider=openai-codex model=gpt-5.4 msgs=2 [15:21:49.358] [INFO]POST https://chatgpt.com/backend-api/codex/chat/completions 
+[15:21:49.358] [INFO]POST https://api.telegram.org/bot--redacted--/sendChatAction [15:21:49.416] [WARNING]History summarization failed: Failure("LLM API error 
+(HTTP 404): {\"detail\":\"Not Found\"}") [15:21:49.416] [INFO]LLM request to https://chatgpt.com/backend-api/codex/chat/completions provider=openai-codex model=gpt-5.4 msgs=2 [15:21:49.416] 
+[INFO]POST https://chatgpt.com/backend-api/codex/chat/completions [15:21:49.482] [WARNING]History summarization failed: Failure("LLM API error (HTTP 404): {\"detail\":\"Not Found\"}") 
+[15:21:49.495] [INFO]LLM request to https://chatgpt.com/backend-api/codex/chat/completions provider=openai-codex model=gpt-5.4 msgs=22 [15:21:49.495] [INFO]POST 
+https://chatgpt.com/backend-api/codex/chat/completions [15:21:49.551] [WARNING]Attempt 1/3 failed (Failure("LLM API error (HTTP 404): {\"detail\":\"Not Found\"}")), retrying in 1.0s 
+[15:21:50.552] [INFO]LLM request to https://chatgpt.com/backend-api/codex/chat/completions provider=openai-codex model=gpt-5.4 msgs=22 [15:21:50.552] [INFO]POST 
+https://chatgpt.com/backend-api/codex/chat/completions [15:21:50.600] [WARNING]Attempt 2/3 failed (Failure("LLM API error (HTTP 404): {\"detail\":\"Not Found\"}")), retrying in 2.0s 
+[15:21:52.602] [INFO]LLM request to https://chatgpt.com/backend-api/codex/chat/completions provider=openai-codex model=gpt-5.4 msgs=22 [15:21:52.602] [INFO]POST 
+https://chatgpt.com/backend-api/codex/chat/completions [15:21:52.665] [ERROR]Agent error for chat_id=58495225: Failure("LLM API error (HTTP 404): {\"detail\":\"Not Found\"}") [15:21:52.665] 
+[INFO]POST https://api.telegram.org/bot--redacted--/sendMessage [15:21:54.143] [INFO]GET 
+https://api.telegram.org/bot--redacted--/getUpdates?offset=581241747&timeout=30 [15:21:54.744] [INFO]POST 
+https://api.telegram.org/bot--redacted--/sendChatAction [15:22:00.155] [INFO]POST 
+https://api.telegram.org/bot--redacted--/sendChatAction [15:22:05.553] [INFO]POST 
+https://api.telegram.org/bot--redacted--/sendChatAction [15:22:07.038] [INFO]LLM request to https://chatgpt.com/backend-api/codex/chat/completions 
+provider=openai-codex model=gpt-5.4 msgs=23 [15:22:07.038] [INFO]POST https://chatgpt.com/backend-api/codex/chat/completions [15:22:07.039] [INFO]POST 
+https://api.telegram.org/bot--redacted--/sendChatAction [15:22:07.095] [WARNING]Attempt 1/3 failed (Failure("LLM API error (HTTP 404): {\"detail\":\"Not 
+Found\"}")), retrying in 1.0s [15:22:08.095] [INFO]LLM request to https://chatgpt.com/backend-api/codex/chat/completions provider=openai-codex model=gpt-5.4 msgs=23 [15:22:08.095] [INFO]POST 
+https://chatgpt.com/backend-api/codex/chat/completions [15:22:08.173] [WARNING]Attempt 2/3 failed (Failure("LLM API error (HTTP 404): {\"detail\":\"Not Found\"}")), retrying in 2.0s 
+[15:22:10.175] [INFO]LLM request to https://chatgpt.com/backend-api/codex/chat/completions provider=openai-codex model=gpt-5.4 msgs=23 [15:22:10.175] [INFO]POST 
+https://chatgpt.com/backend-api/codex/chat/completions [15:22:10.228] [ERROR]Agent error for chat_id=58495225: Failure("LLM API error (HTTP 404): {\"detail\":\"Not Found\"}")
+[15:22:10.228] [INFO]POST https://api.telegram.org/bot--redacted--/sendMessage

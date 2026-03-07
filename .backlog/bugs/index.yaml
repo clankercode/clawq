@@ -40,3 +40,6 @@ bugs:
     - file: B039-landing-page-should-use-constr.todo
     - file: B040-when-landing-page-loads-all-he.todo
     - file: B041-web-ui-console-asks-us-to-run.todo
+    - file: B042-after-otp-pairing-with-clawq-w.todo
+    - file: B043-lots-of-info-logs-from-telegra.todo
+    - file: B044-codex-provider-does-not-appear.todo

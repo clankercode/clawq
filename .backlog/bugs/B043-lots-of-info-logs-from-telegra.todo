@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B043
+priority: high
+status: pending
+tags: []
+title: 'lots of info logs from telegram -- pissble logic error? Interacting over telegram seems slower than before. Logs like: [17:09:25.968] [INFO]POST https://api.telegram.org/bot--r--/sendChatAction'
+---
+
+lots of info logs from telegram -- pissble logic error? Interacting over telegram seems slower than before. Logs like: [17:09:25.968] [INFO]POST https://api.telegram.org/bot--r--/sendChatAction
