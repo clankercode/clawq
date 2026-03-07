@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B040
+priority: high
+status: pending
+tags: []
+title: 'when landing page loads, all hero gears should fade in much faster (each fade duration: 200ms, staggered start for gears. all gears fade in during 1000ms period.)'
+---
+
+when landing page loads, all hero gears should fade in much faster (each fade duration: 200ms, staggered start for gears. all gears fade in during 1000ms period.)

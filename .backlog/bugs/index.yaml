@@ -38,3 +38,4 @@ bugs:
     - file: B037-landing-page-stats-for-theorme.todo
     - file: B038-formal-verification-seal-on-do.todo
     - file: B039-landing-page-should-use-constr.todo
+    - file: B040-when-landing-page-loads-all-he.todo
