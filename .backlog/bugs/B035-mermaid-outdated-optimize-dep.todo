@@ -1,0 +1,15 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B035
+priority: high
+status: pending
+tags: []
+title: mermaid outdated optimize dep
+---
+
+mermaid outdated optimize dep
+
+MermaidDiagram.astro:1  GET http://localhost:32748/node_modules/.vite/deps/mermaid.js?v=8db2a4c9 net::ERR_ABORTED 504 (Outdated Optimize Dep)
+
