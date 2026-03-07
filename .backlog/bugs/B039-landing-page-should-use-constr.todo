@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-07T10:21:44Z"
+claimed_by: cli-user
+completed_at: "2026-03-07T10:22:13Z"
 complexity: medium
 depends_on: []
+duration_minutes: 0.4997451227333333
 estimate_hours: 1
 id: B039
 priority: high
-status: pending
+started_at: "2026-03-07T10:21:44Z"
+status: done
 tags: []
 title: landing page should use constraint-solver generator
 ---
