@@ -1,25 +1,30 @@
-let write_state ~(config : Runtime_config.t) ~components =
+let write_state ~pairing_code ~(config : Runtime_config.t) ~components =
   let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
   let state_dir = Filename.concat home ".clawq" in
   let state_path = Filename.concat state_dir "daemon_state.json" in
   (try if not (Sys.file_exists state_dir) then Sys.mkdir state_dir 0o755
    with _ -> ());
-  let json =
-    `Assoc
-      [
-        ( "components",
-          `Assoc
-            (List.map (fun (name, status) -> (name, `String status)) components)
-        );
-        ("gateway_port", `Int config.gateway.port);
-        ("gateway_host", `String config.gateway.host);
-        ("telegram_enabled", `Bool (config.channels.telegram <> None));
-        ("discord_enabled", `Bool (config.channels.discord <> None));
-        ("slack_enabled", `Bool (config.channels.slack <> None));
-        ("github_enabled", `Bool (config.channels.github <> None));
-        ("pid", `Int (Unix.getpid ()));
-      ]
+  let fields =
+    [
+      ( "components",
+        `Assoc
+          (List.map (fun (name, status) -> (name, `String status)) components)
+      );
+      ("gateway_port", `Int config.gateway.port);
+      ("gateway_host", `String config.gateway.host);
+      ("telegram_enabled", `Bool (config.channels.telegram <> None));
+      ("discord_enabled", `Bool (config.channels.discord <> None));
+      ("slack_enabled", `Bool (config.channels.slack <> None));
+      ("github_enabled", `Bool (config.channels.github <> None));
+      ("pid", `Int (Unix.getpid ()));
+    ]
   in
+  let fields =
+    match pairing_code with
+    | Some code -> ("pairing_code", `String code) :: fields
+    | None -> fields
+  in
+  let json = `Assoc fields in
   try
     let oc = open_out state_path in
     output_string oc (Yojson.Safe.pretty_to_string json);
@@ -568,11 +573,17 @@ let run ~(config : Runtime_config.t) =
     else None
   in
   let ui_server = Ui_server.init () in
+  let write_runtime_state ~components =
+    let pairing_code =
+      match pairing with Some p -> Some (Pairing.status p).code | None -> None
+    in
+    write_state ~pairing_code ~config ~components
+  in
   Logs.info (fun m ->
       m "Web UI assets ready at %s (version=%s dev_mode=%b)" ui_server.ui_dir
         (Ui_server.version ui_server)
         ui_server.dev_mode);
-  write_state ~config
+  write_runtime_state
     ~components:
       [
         ("gateway", "starting");
@@ -626,7 +637,7 @@ let run ~(config : Runtime_config.t) =
     if not !shutting_down then begin
       shutting_down := true;
       Logs.info (fun m -> m "Received shutdown signal, stopping...");
-      write_state ~config
+      write_runtime_state
         ~components:[ ("gateway", "stopping"); ("telegram", "stopping") ];
       Lwt.wakeup_later shutdown_resolver ()
     end
@@ -635,7 +646,7 @@ let run ~(config : Runtime_config.t) =
     if not !restarting then begin
       restarting := true;
       Logs.info (fun m -> m "SIGUSR1 received, initiating graceful restart");
-      write_state ~config
+      write_runtime_state
         ~components:[ ("gateway", "restarting"); ("telegram", "restarting") ];
       Lwt.wakeup_later restart_resolver ()
     end
@@ -659,7 +670,7 @@ let run ~(config : Runtime_config.t) =
     | Some sc when sc.socket_mode && sc.app_token <> "" -> true
     | _ -> false
   in
-  write_state ~config
+  write_runtime_state
     ~components:
       ([
          ("gateway", "running");
@@ -1010,7 +1021,7 @@ let run ~(config : Runtime_config.t) =
         let* () = if timed_out then warnings_p else Lwt.return_unit in
         Lwt.return Restart
   in
-  write_state ~config
+  write_runtime_state
     ~components:
       [
         ("gateway", "stopped");

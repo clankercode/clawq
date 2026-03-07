@@ -62,6 +62,23 @@ let read_daemon_state () =
     with _ -> None
   else None
 
+let read_live_gateway_pairing_code () =
+  match read_daemon_state () with
+  | None -> None
+  | Some json -> (
+      let open Yojson.Safe.Util in
+      try
+        let pid = json |> member "pid" |> to_int in
+        if pid_is_alive pid then
+          match json |> member "pairing_code" with
+          | `String code when code <> "" -> Some code
+          | _ -> None
+        else begin
+          remove_daemon_state ();
+          None
+        end
+      with _ -> None)
+
 let redact_key s =
   let len = String.length s in
   if len <= 8 then String.make len '*'
@@ -1242,29 +1259,34 @@ let cmd_reset_agent () =
 
 let cmd_otp_show () =
   let cfg = get_config () in
-  match cfg.channels.telegram with
-  | None ->
-      "No Telegram config found. TOTP pairing requires a Telegram account with \
-       totp configured."
+  let lines = ref [] in
+  let add line = lines := line :: !lines in
+  (match read_live_gateway_pairing_code () with
+  | Some code -> add (Printf.sprintf "  gateway: %s" code)
+  | None -> ());
+  (match cfg.channels.telegram with
+  | None -> ()
   | Some tg ->
-      let results =
-        List.filter_map
-          (fun (name, (acct : Runtime_config.telegram_account)) ->
-            match acct.totp with
-            | Some t when t.totp_enabled && t.totp_secret <> "" ->
-                let time = Unix.gettimeofday () in
-                let code = Totp.generate_totp ~secret:t.totp_secret ~time in
-                let remaining = Totp.time_remaining ~time in
-                Some
-                  (Printf.sprintf "  %s: %s (expires in %ds)" name code
-                     remaining)
-            | _ -> None)
-          tg.accounts
-      in
-      if results = [] then
-        "No TOTP-enabled accounts found. Configure totp.enabled and \
-         totp.secret in a Telegram account."
-      else "Current TOTP codes:\n" ^ String.concat "\n" results
+      List.iter
+        (fun (name, (acct : Runtime_config.telegram_account)) ->
+          match acct.totp with
+          | Some t when t.totp_enabled && t.totp_secret <> "" ->
+              let time = Unix.gettimeofday () in
+              let code = Totp.generate_totp ~secret:t.totp_secret ~time in
+              let remaining = Totp.time_remaining ~time in
+              add
+                (Printf.sprintf "  telegram/%s: %s (expires in %ds)" name code
+                   remaining)
+          | _ -> ())
+        tg.accounts);
+  let results = List.rev !lines in
+  if results <> [] then "Current pairing codes:\n" ^ String.concat "\n" results
+  else if cfg.gateway.require_pairing then
+    "No live gateway pairing code found. Start `clawq agent` and rerun `clawq \
+     otp-show`, or configure Telegram TOTP pairing."
+  else
+    "Pairing is not configured. Enable `gateway.require_pairing` or configure \
+     Telegram TOTP pairing."
 
 let debug_html_preview_pages =
   [

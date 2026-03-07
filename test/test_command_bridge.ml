@@ -264,6 +264,29 @@ let test_status_cleans_stale_daemon_state () =
         "state file removed" false
         (Sys.file_exists state_path))
 
+let test_otp_show_reads_live_gateway_pairing_code () =
+  with_temp_home (fun home ->
+      let clawq_dir = Filename.concat home ".clawq" in
+      Unix.mkdir clawq_dir 0o755;
+      let state_path = Filename.concat clawq_dir "daemon_state.json" in
+      let oc = open_out state_path in
+      output_string oc
+        (Yojson.Safe.to_string
+           (`Assoc
+              [
+                ("pid", `Int (Unix.getpid ()));
+                ("pairing_code", `String "123456");
+              ]));
+      close_out oc;
+      let result = Command_bridge.handle [ "otp-show" ] in
+      Alcotest.(check bool)
+        "otp-show includes gateway pairing code" true
+        (try
+           ignore
+             (Str.search_forward (Str.regexp_string "gateway: 123456") result 0);
+           true
+         with Not_found -> false))
+
 let suite =
   [
     Alcotest.test_case "handle phase2" `Quick test_handle_phase2;
@@ -296,4 +319,6 @@ let suite =
     Alcotest.test_case "handle tunnel status" `Quick test_handle_tunnel_status;
     Alcotest.test_case "status cleans stale daemon state" `Quick
       test_status_cleans_stale_daemon_state;
+    Alcotest.test_case "otp-show reads live gateway pairing code" `Quick
+      test_otp_show_reads_live_gateway_pairing_code;
   ]

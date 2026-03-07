@@ -30,7 +30,7 @@ clawq agent
 # Open the web UI
 xdg-open http://127.0.0.1:13451/
 
-# If gateway pairing is enabled (default), show the pairing code
+# If gateway pairing is enabled (default), show the current browser pairing code
 clawq otp-show
 
 # Common operations
@@ -128,7 +128,7 @@ Once the daemon is running, open `http://127.0.0.1:13451/` in a browser.
 - Assistant replies stream live over SSE.
 - Thinking and tool output render in separate panels during a turn.
 - Slash commands are available with autocomplete from `/commands`.
-- When `gateway.require_pairing` is enabled (the default), the UI prompts for the 6-digit code from `clawq otp-show` before sending chat requests.
+- When `gateway.require_pairing` is enabled (the default), the UI prompts for the live 6-digit browser pairing code from `clawq otp-show` before sending chat requests.
 
 For live UI development, run `make ui-dev`, create `~/.clawq/ui/DEV`, and point the daemon at the same `~/.clawq/ui/` directory. In normal mode, clawq extracts versioned embedded assets there automatically.
 
@@ -148,6 +148,7 @@ clawq memory           Show memory backend configuration
 clawq migrate          Run database migrations
 clawq models           List configured LLM providers and their default models
 clawq onboard          Interactive setup wizard (or template when not in a TTY)
+clawq otp-show         Show the current browser pairing code and Telegram TOTP codes
 clawq phase2           Show Phase 2 feature status
 clawq reset-agent      Wipe all session history, cron jobs, and workspace files
 clawq runtime          Manage native and Docker runtimes

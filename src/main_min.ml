@@ -101,6 +101,7 @@ let runtime_cmd = disabled "runtime" "Manage native and Docker runtimes"
 let tunnel_cmd = disabled "tunnel" "Manage public tunnel"
 let service_cmd = disabled "service" "Manage the clawq system service"
 let hardware_cmd = disabled "hardware" "Hardware integration (deferred)"
+let otp_show_cmd = disabled "otp-show" "Show pairing codes"
 
 let main_info =
   Cmd.info "clawq-min" ~version:"0.1.0-dev"
@@ -143,6 +144,7 @@ let () =
       runtime_cmd;
       tunnel_cmd;
       service_cmd;
+      otp_show_cmd;
       hardware_cmd;
     ]
   in

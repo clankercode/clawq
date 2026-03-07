@@ -259,6 +259,10 @@ let reset_agent_cmd =
      workspace defaults. Prompts for confirmation before acting. Does NOT \
      touch config.json."
 
+let otp_show_cmd =
+  simple "otp-show"
+    "Show the current browser pairing code and any Telegram TOTP codes."
+
 let main_info =
   Cmd.info "clawq" ~version:"0.1.0-dev" ~doc:"Coq-first AI assistant runtime"
     ~man:
@@ -300,6 +304,7 @@ let () =
       tunnel_cmd;
       migrate_cmd;
       reset_agent_cmd;
+      otp_show_cmd;
       phase2_cmd;
       hardware_cmd;
       debug_cmd;
