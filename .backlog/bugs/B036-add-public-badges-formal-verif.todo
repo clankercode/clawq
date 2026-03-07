@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B036
+priority: high
+status: pending
+tags: []
+title: add public/badges/formal-verification-seal.py.svg to docs index/landing page.
+---
+
+add public/badges/formal-verification-seal.py.svg to docs index/landing page.

@@ -34,3 +34,4 @@ bugs:
     - file: B033-the-verification-status-docs-p.todo
     - file: B034-github-pages-doesn-t-build-or.todo
     - file: B035-mermaid-outdated-optimize-dep.todo
+    - file: B036-add-public-badges-formal-verif.todo
