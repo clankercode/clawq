@@ -121,13 +121,13 @@ export const generateHexWebBackdrop: BackdropGeneratorFn = ({ seed, targetCount 
   }
 
   const patches: Patch[] = [];
-  let anchorX = -230;
+  let anchorX = -210;
   let anchorY = 138;
   let anchorAngle = -0.18 + (random() - 0.5) * 0.1;
   for (let index = 0; index < 8; index += 1) {
-    anchorX += 165 + random() * 90;
-    anchorY += (random() - 0.5) * 72;
-    anchorY = Math.max(92, Math.min(214, anchorY));
+    anchorX += 140 + random() * 68;
+    anchorY += (random() - 0.5) * 58;
+    anchorY = Math.max(102, Math.min(206, anchorY));
     anchorAngle += (random() - 0.5) * 0.22;
     anchorAngle = Math.max(-0.42, Math.min(0.42, anchorAngle));
 
@@ -145,11 +145,11 @@ export const generateHexWebBackdrop: BackdropGeneratorFn = ({ seed, targetCount 
         id: `hex-side-${index}`,
         teeth: PATCH_TEETH[(index + 2) % PATCH_TEETH.length],
         center: {
-          x: anchorX + (random() - 0.5) * 118,
-          y: anchorY + (random() - 0.5) * 76,
+          x: anchorX + (random() - 0.5) * 92,
+          y: anchorY + (random() - 0.5) * 56,
         },
         angle: anchorAngle + (random() - 0.5) * 0.32,
-        radius: 2 + Math.floor(random() * 2),
+        radius: 2 + Math.floor(random() * 3),
         parity: ((index + 1) % 2) as 0 | 1,
       });
     }
@@ -207,6 +207,7 @@ export const generateHexWebBackdrop: BackdropGeneratorFn = ({ seed, targetCount 
 
       const verdict = evaluatePlacement(candidate, gears, contactAnglesByGearId, localNeighbors[0]?.id, true);
       if (!verdict.ok) continue;
+      if (gears.length > 0 && verdict.neighbors.length === 0) continue;
       registerPlacement(candidate, verdict.neighbors, patch.id);
       placed.set(nodeKey(patch.id, node.kind, node.i, node.j), candidate);
     }
@@ -293,6 +294,7 @@ export const generateHexWebBackdrop: BackdropGeneratorFn = ({ seed, targetCount 
             const leafBonus = ((degrees.get(a.id) ?? 0) <= 1 ? 40 : 0) + ((degrees.get(b.id) ?? 0) <= 1 ? 40 : 0);
             const varietyBonus = Math.min(50, Math.abs(a.teeth - b.teeth) * 4 + Math.abs(teeth - a.teeth) * 2);
             const modeBonus = mode === "connect" ? 380 : 180;
+            const crossPatchBonus = patchByGearId.get(a.id) !== patchByGearId.get(b.id) ? 130 : 0;
             const score =
               modeBonus +
               verdict.neighbors.length * 120 +
@@ -300,6 +302,7 @@ export const generateHexWebBackdrop: BackdropGeneratorFn = ({ seed, targetCount 
               leafBonus +
               varietyBonus -
               span * 0.08 +
+              crossPatchBonus +
               random() * 4;
 
             if (!best || score > best.score) {
@@ -314,7 +317,7 @@ export const generateHexWebBackdrop: BackdropGeneratorFn = ({ seed, targetCount 
   }
 
   let connectPass = 0;
-  while (connectPass < 20) {
+  while (connectPass < 36) {
     connectPass += 1;
     const groups = components();
     if (groups.length <= 1) break;
@@ -332,7 +335,7 @@ export const generateHexWebBackdrop: BackdropGeneratorFn = ({ seed, targetCount 
   }
 
   let loopPass = 0;
-  while (gears.length < targetCount && loopPass < 40) {
+  while (gears.length < targetCount && loopPass < 56) {
     loopPass += 1;
     const degrees = degreeMap();
     const sorted = gears
@@ -347,6 +350,18 @@ export const generateHexWebBackdrop: BackdropGeneratorFn = ({ seed, targetCount 
     const best = bestBridge(sorted, gears, "loop");
     if (!best) break;
     registerPlacement(best.gear, best.neighbors, `loop-${loopPass}`);
+  }
+
+  let densifyPass = 0;
+  while (gears.length < targetCount && densifyPass < 32) {
+    densifyPass += 1;
+    const degrees = degreeMap();
+    const sparse = gears.filter((gear) => (degrees.get(gear.id) ?? 0) <= 2);
+    if (sparse.length < 2) break;
+
+    const best = bestBridge(sparse, gears, "loop");
+    if (!best) break;
+    registerPlacement(best.gear, best.neighbors, `dense-${densifyPass}`);
   }
 
   return { gears, edges };

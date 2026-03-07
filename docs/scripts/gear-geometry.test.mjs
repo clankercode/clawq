@@ -10,9 +10,13 @@ import {
 } from "../src/lib/gears/tuning.ts";
 import { generateHeroBackdropDraft } from "../src/lib/gears/backdrop_generation.ts";
 import { BACKDROP_ALGORITHMS, DEFAULT_HERO_GEAR_ALGORITHM } from "../src/lib/gears/backdrop_algorithms.ts";
+import { assertBackdropResult } from "../src/lib/gears/backdrop/result_utils.ts";
 import { HERO_GEAR_CIRCULAR_PITCH, MESH_PHASE_OFFSET_TURNS } from "../src/lib/gears/backdrop/shared.ts";
 
-const FAST_BACKDROP_ALGORITHMS = BACKDROP_ALGORITHMS.filter((algorithm) => !algorithm.startsWith("chaos-"));
+const SPEC_HEAVY_BACKDROP_ALGORITHMS = ["topology-first", "constraint-solver"];
+const FAST_BACKDROP_ALGORITHMS = BACKDROP_ALGORITHMS.filter(
+  (algorithm) => !algorithm.startsWith("chaos-") && !SPEC_HEAVY_BACKDROP_ALGORITHMS.includes(algorithm)
+);
 const CHAOS_BACKDROP_ALGORITHMS = BACKDROP_ALGORITHMS.filter((algorithm) => algorithm.startsWith("chaos-"));
 
 function segmentsIntersect(a1, a2, b1, b2) {
@@ -223,6 +227,49 @@ function neighborCounts(result) {
     counts.set(edge.b, (counts.get(edge.b) ?? 0) + 1);
   }
   return counts;
+}
+
+function graphStats(result) {
+  const counts = neighborCounts(result);
+  const adjacency = new Map(result.gears.map((gear) => [gear.id, []]));
+  for (const edge of result.edges) {
+    adjacency.get(edge.a)?.push(edge.b);
+    adjacency.get(edge.b)?.push(edge.a);
+  }
+
+  let componentCount = 0;
+  let largestComponent = 0;
+  const seen = new Set();
+  for (const gear of result.gears) {
+    if (seen.has(gear.id)) continue;
+    componentCount += 1;
+    let size = 0;
+    const stack = [gear.id];
+    seen.add(gear.id);
+    while (stack.length > 0) {
+      const current = stack.pop();
+      if (!current) continue;
+      size += 1;
+      for (const next of adjacency.get(current) ?? []) {
+        if (seen.has(next)) continue;
+        seen.add(next);
+        stack.push(next);
+      }
+    }
+    largestComponent = Math.max(largestComponent, size);
+  }
+
+  const richNeighborCount = [...counts.values()].filter((count) => count >= 3).length;
+  const leafCount = [...counts.values()].filter((count) => count <= 1).length;
+  const cycleRank = result.edges.length - result.gears.length + componentCount;
+
+  return {
+    componentCount,
+    largestComponent,
+    richNeighborCount,
+    leafCount,
+    cycleRank,
+  };
 }
 
 function occupancyBuckets(result, bucketCount = 14) {
@@ -506,6 +553,58 @@ test("hero backdrop generators store explicit phase turns that satisfy every mes
     for (const { edge, residual } of explicitPhaseResiduals(candidate)) {
       assert.ok(residual <= 1e-6, `${algorithm} explicit phase residual too high for ${edge.a}<->${edge.b}: ${residual}`);
     }
+  }
+});
+
+test("spec-heavy backdrop generators produce viable reference layouts with explicit phases", () => {
+  for (const algorithm of SPEC_HEAVY_BACKDROP_ALGORITHMS) {
+    const result = generateHeroBackdropDraft({ algorithm, seed: 0x6a11cf, targetCount: 72 });
+    const graph = graphStats(result);
+    const minLeft = Math.min(...result.gears.map((gear) => gear.center.x - gear.outerRadius));
+    const maxRight = Math.max(...result.gears.map((gear) => gear.center.x + gear.outerRadius));
+    const minTop = Math.min(...result.gears.map((gear) => gear.center.y - gear.outerRadius));
+    const maxBottom = Math.max(...result.gears.map((gear) => gear.center.y + gear.outerRadius));
+
+    assert.ok(result.gears.length > 0, `${algorithm} should generate at least one gear`);
+    assert.ok(result.edges.length > 0, `${algorithm} should generate at least one mesh edge`);
+    assert.ok(result.gears.length >= 12, `${algorithm} should produce at least a dozen gears for the reference seed`);
+    assert.ok(occupancyBuckets(result) >= 8, `${algorithm} should cover a useful span of the hero width`);
+    assert.ok(minLeft <= 80, `${algorithm} should reach well into the left side of the hero band, got ${minLeft}`);
+    assert.ok(maxRight >= 1200, `${algorithm} should reach well into the right side of the hero band, got ${maxRight}`);
+    assert.ok(minTop <= 120, `${algorithm} should occupy the upper hero band, got ${minTop}`);
+    assert.ok(maxBottom <= 540, `${algorithm} should stay near the hero/header band, got ${maxBottom}`);
+    assert.equal(graph.componentCount, 1, `${algorithm} should resolve into a single connected field`);
+    assert.ok(graph.largestComponent >= result.gears.length - 1, `${algorithm} should keep almost all gears in the main component`);
+    assert.ok(graph.cycleRank >= 10, `${algorithm} should create meaningful loop structure, got cycle rank ${graph.cycleRank}`);
+    assert.ok(graph.richNeighborCount >= 20, `${algorithm} should create many 3-neighbor gears, got ${graph.richNeighborCount}`);
+    assert.ok(graph.leafCount <= 14, `${algorithm} should avoid too many leaves, got ${graph.leafCount}`);
+
+    for (const { edge, residual } of explicitPhaseResiduals(result)) {
+      assert.ok(residual <= 1e-6, `${algorithm} explicit phase residual too high for ${edge.a}<->${edge.b}: ${residual}`);
+    }
+  }
+});
+
+test("spec-heavy backdrop defaults are valid and returned as isolated clones", () => {
+  for (const algorithm of SPEC_HEAVY_BACKDROP_ALGORITHMS) {
+    const first = assertBackdropResult(
+      generateHeroBackdropDraft({ algorithm, seed: 0x6a11cf, targetCount: 72 }),
+      `${algorithm} default backdrop`,
+    );
+    const originalId = first.gears[0]?.id;
+    const originalX = first.gears[0]?.center.x;
+
+    assert.ok(originalId, `${algorithm} should return at least one gear`);
+    first.gears[0].id = "mutated-id";
+    first.gears[0].center.x = -999999;
+
+    const second = assertBackdropResult(
+      generateHeroBackdropDraft({ algorithm, seed: 0x6a11cf, targetCount: 72 }),
+      `${algorithm} default backdrop rerender`,
+    );
+
+    assert.equal(second.gears[0]?.id, originalId, `${algorithm} should not expose shared cached gear objects`);
+    assert.equal(second.gears[0]?.center.x, originalX, `${algorithm} cached centers should be cloned per call`);
   }
 });
 

@@ -1,0 +1,72 @@
+[
+  {
+    "mode": "topology-first",
+    "seed": 6951375,
+    "targetCount": 72,
+    "raw": {
+      "path": "/home/xertrov/src/clawq.B032/docs/.artifacts/spec-backdrops/topology-first.raw.svg",
+      "gears": 72,
+      "edges": 74,
+      "componentCount": 1,
+      "largestComponent": 72,
+      "componentSizes": [
+        72
+      ]
+    },
+    "presented": {
+      "path": "/home/xertrov/src/clawq.B032/docs/.artifacts/spec-backdrops/topology-first.presented.svg",
+      "gears": 68,
+      "edges": 69,
+      "componentCount": 1,
+      "largestComponent": 68,
+      "componentSizes": [
+        68
+      ]
+    }
+  },
+  {
+    "mode": "constraint-solver",
+    "seed": 6951375,
+    "targetCount": 72,
+    "raw": {
+      "path": "/home/xertrov/src/clawq.B032/docs/.artifacts/spec-backdrops/constraint-solver.raw.svg",
+      "gears": 65,
+      "edges": 64,
+      "componentCount": 13,
+      "largestComponent": 43,
+      "componentSizes": [
+        43,
+        4,
+        3,
+        3,
+        2,
+        2,
+        2,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ]
+    },
+    "presented": {
+      "path": "/home/xertrov/src/clawq.B032/docs/.artifacts/spec-backdrops/constraint-solver.presented.svg",
+      "gears": 64,
+      "edges": 68,
+      "componentCount": 9,
+      "largestComponent": 43,
+      "componentSizes": [
+        43,
+        13,
+        2,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ]
+    }
+  }
+]

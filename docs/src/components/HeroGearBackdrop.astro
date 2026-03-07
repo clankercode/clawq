@@ -238,7 +238,15 @@ const renderedByAlgorithm = renderAlgorithms.map((method) => ({
 ---
 
 <div class="hero-gear-backdrop" aria-hidden="true">
-  <svg class="hero-gear-svg" viewBox={`0 0 ${VIEWBOX.width} ${VIEWBOX.height}`} xmlns="http://www.w3.org/2000/svg" role="presentation">
+  <svg
+    class="hero-gear-svg"
+    viewBox={`0 0 ${VIEWBOX.width} ${VIEWBOX.height}`}
+    data-fixed-height-viewbox="true"
+    data-viewbox-width={String(VIEWBOX.width)}
+    data-viewbox-height={String(VIEWBOX.height)}
+    xmlns="http://www.w3.org/2000/svg"
+    role="presentation"
+  >
     {renderedByAlgorithm.map(({ method, rendered, trueMeshEdges }) => (
       <g data-gear-algorithm={method} display={method === algorithm ? "inline" : "none"}>
         {rendered.map(({ gear, path, line, fill, stroke, insetStroke, appearIndex }) => (
@@ -285,6 +293,52 @@ const renderedByAlgorithm = renderAlgorithms.map((method) => ({
     ))}
   </svg>
 </div>
+
+<script is:inline>
+  (() => {
+    const SELECTOR = '.hero-gear-svg[data-fixed-height-viewbox="true"]';
+    const resizeObservers = new WeakMap();
+
+    const syncViewBox = (svg) => {
+      if (!(svg instanceof SVGSVGElement)) return;
+      const backdrop = svg.closest('.hero-gear-backdrop');
+      if (!(backdrop instanceof HTMLDivElement)) return;
+
+      const baseWidth = Number(svg.dataset.viewboxWidth ?? '0');
+      const fixedHeight = Number(svg.dataset.viewboxHeight ?? '0');
+      if (!(baseWidth > 0) || !(fixedHeight > 0)) return;
+
+      const width = backdrop.clientWidth;
+      const height = backdrop.clientHeight;
+      if (!(width > 0) || !(height > 0)) return;
+
+      const dynamicWidth = (width / height) * fixedHeight;
+      const originX = (baseWidth - dynamicWidth) * 0.5;
+      svg.setAttribute('viewBox', `${originX} 0 ${dynamicWidth} ${fixedHeight}`);
+      svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    };
+
+    const attach = (svg) => {
+      if (!(svg instanceof SVGSVGElement) || resizeObservers.has(svg)) return;
+      const backdrop = svg.closest('.hero-gear-backdrop');
+      if (!(backdrop instanceof HTMLDivElement)) return;
+
+      const observer = new ResizeObserver(() => syncViewBox(svg));
+      observer.observe(backdrop);
+      resizeObservers.set(svg, observer);
+      syncViewBox(svg);
+    };
+
+    const scan = () => {
+      for (const node of document.querySelectorAll(SELECTOR)) attach(node);
+    };
+
+    scan();
+    const mutationObserver = new MutationObserver(scan);
+    mutationObserver.observe(document.body, { childList: true, subtree: true });
+    window.addEventListener('load', scan, { once: true });
+  })();
+</script>
 
 {showDebugLabel && (
   <details class="hero-gear-debug-panel" id="hero-gear-debug-panel">

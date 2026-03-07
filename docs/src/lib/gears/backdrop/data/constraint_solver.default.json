@@ -1,0 +1,1065 @@
+{
+  "gears": [
+    {
+      "id": "hero-g0",
+      "teeth": 12,
+      "pitchRadius": 45.83662361046586,
+      "outerRadius": 52.60210925537062,
+      "center": {
+        "x": -86.40831393615645,
+        "y": 360.7106079825004
+      },
+      "phaseTurn": 0.7735963980982905,
+      "parity": 1,
+      "parentId": "hero-g1",
+      "appearIndex": 0
+    },
+    {
+      "id": "hero-g1",
+      "teeth": 18,
+      "pitchRadius": 68.75493541569878,
+      "outerRadius": 75.52042106060354,
+      "center": {
+        "x": -80.47957893939645,
+        "y": 246.27252209591643
+      },
+      "phaseTurn": 0.8868880105546364,
+      "parity": 0,
+      "parentId": "hero-g6",
+      "appearIndex": 1
+    },
+    {
+      "id": "hero-g2",
+      "teeth": 12,
+      "pitchRadius": 45.83662361046586,
+      "outerRadius": 52.60210925537062,
+      "center": {
+        "x": -74.55084394263645,
+        "y": 131.83443620933247
+      },
+      "phaseTurn": 0.3569297314316233,
+      "parity": 1,
+      "parentId": "hero-g7",
+      "appearIndex": 2
+    },
+    {
+      "id": "hero-g3",
+      "teeth": 12,
+      "pitchRadius": 45.83662361046586,
+      "outerRadius": 52.60210925537062,
+      "center": {
+        "x": -58.101920618516374,
+        "y": -39.4312454984514
+      },
+      "phaseTurn": 0.28454633304590593,
+      "parity": 0,
+      "parentId": "hero-g8",
+      "appearIndex": 3
+    },
+    {
+      "id": "hero-g4",
+      "teeth": 12,
+      "pitchRadius": 45.83662361046586,
+      "outerRadius": 52.60210925537062,
+      "center": {
+        "x": -53.35893262110841,
+        "y": -130.9817142077186
+      },
+      "phaseTurn": 0.6902630647649568,
+      "parity": 1,
+      "parentId": "hero-g3",
+      "appearIndex": 4
+    },
+    {
+      "id": "hero-g5",
+      "teeth": 12,
+      "pitchRadius": 45.83662361046586,
+      "outerRadius": 52.60210925537062,
+      "center": {
+        "x": 15.66234310047065,
+        "y": 308.6260001587085
+      },
+      "phaseTurn": 0.5235963980982907,
+      "parity": 1,
+      "parentId": "hero-g10",
+      "appearIndex": 5
+    },
+    {
+      "id": "hero-g6",
+      "teeth": 12,
+      "pitchRadius": 45.83662361046586,
+      "outerRadius": 52.60210925537062,
+      "center": {
+        "x": 21.591078097230707,
+        "y": 194.1879142721245
+      },
+      "phaseTurn": 0.44026306476495725,
+      "parity": 1,
+      "parentId": "hero-g10",
+      "appearIndex": 6
+    },
+    {
+      "id": "hero-g7",
+      "teeth": 18,
+      "pitchRadius": 68.75493541569878,
+      "outerRadius": 75.52042106060354,
+      "center": {
+        "x": 27.519813093990706,
+        "y": 79.74982838554055
+      },
+      "phaseTurn": 0.7757768994435259,
+      "parity": 0,
+      "parentId": "hero-g12",
+      "appearIndex": 7
+    },
+    {
+      "id": "hero-g8",
+      "teeth": 12,
+      "pitchRadius": 45.83662361046586,
+      "outerRadius": 52.60210925537062,
+      "center": {
+        "x": 33.44854809075082,
+        "y": -34.68825750104341
+      },
+      "phaseTurn": 0.1902630647649568,
+      "parity": 1,
+      "parentId": "hero-g7",
+      "appearIndex": 8
+    },
+    {
+      "id": "hero-g9",
+      "teeth": 12,
+      "pitchRadius": 45.83662361046586,
+      "outerRadius": 52.60210925537062,
+      "center": {
+        "x": 111.80426514033783,
+        "y": 370.97947822150053
+      },
+      "phaseTurn": 0.10692973143162376,
+      "parity": 1,
+      "parentId": "hero-g10",
+      "appearIndex": 9
+    },
+    {
+      "id": "hero-g10",
+      "teeth": 18,
+      "pitchRadius": 68.75493541569878,
+      "outerRadius": 75.52042106060354,
+      "center": {
+        "x": 117.73300013709783,
+        "y": 256.54139233491657
+      },
+      "phaseTurn": 0.6646657883324143,
+      "parity": 0,
+      "parentId": "hero-g15",
+      "appearIndex": 10
+    },
+    {
+      "id": "hero-g11",
+      "teeth": 12,
+      "pitchRadius": 45.83662361046586,
+      "outerRadius": 52.60210925537062,
+      "center": {
+        "x": 123.66173513385786,
+        "y": 142.1033064483326
+      },
+      "phaseTurn": 0.19026306476495725,
+      "parity": 1,
+      "parentId": "hero-g16",
+      "appearIndex": 11
+    },
+    {
+      "id": "hero-g12",
+      "teeth": 12,
+      "pitchRadius": 45.83662361046586,
+      "outerRadius": 52.60210925537062,
+      "center": {
+        "x": 129.59047013061792,
+        "y": 27.66522056174867
+      },
+      "phaseTurn": 0.6069297314316238,
+      "parity": 1,
+      "parentId": "hero-g16",
+      "appearIndex": 12
+    },
+    {
+      "id": "hero-g13",
+      "teeth": 18,
+      "pitchRadius": 68.75493541569878,
+      "outerRadius": 75.52042106060354,
+      "center": {
+        "x": 135.51920512737792,
+        "y": -86.77286532483531
+      },
+      "phaseTurn": 0.22022134388796943,
+      "parity": 0,
+      "parentId": "hero-g17",
+      "appearIndex": 13
+    },
+    {
+      "id": "hero-g14",
+      "teeth": 12,
+      "pitchRadius": 45.83662361046586,
+      "outerRadius": 52.60210925537062,
+      "center": {
+        "x": 213.87492217696493,
+        "y": 318.89487039770853
+      },
+      "phaseTurn": 0.5235963980982907,
+      "parity": 1,
+      "parentId": "hero-g19",
+      "appearIndex": 14
+    },
+    {
+      "id": "hero-g15",
+      "teeth": 12,
+      "pitchRadius": 45.83662361046586,
+      "outerRadius": 52.60210925537062,
+      "center": {
+        "x": 219.803657173725,
+        "y": 204.45678451112462
+      },
+      "phaseTurn": 0.7735963980982905,
+      "parity": 1,
+      "parentId": "hero-g16",
+      "appearIndex": 15
+    },
+    {
+      "id": "hero-g16",
+      "teeth": 18,
+      "pitchRadius": 68.75493541569878,
+      "outerRadius": 75.52042106060354,
+      "center": {
+        "x": 225.73239217048504,
+        "y": 90.01869862454069
+      },
+      "phaseTurn": 0.8868880105546366,
+      "parity": 0,
+      "parentId": "hero-g21",
+      "appearIndex": 16
+    },
+    {
+      "id": "hero-g17",
+      "teeth": 12,
+      "pitchRadius": 45.83662361046586,
+      "outerRadius": 52.60210925537062,
+      "center": {
+        "x": 231.66112716724504,
+        "y": -24.419387262043273
+      },
+      "phaseTurn": 0.8569297314316247,
+      "parity": 1,
+      "parentId": "hero-g22",
+      "appearIndex": 17
+    },
+    {
+      "id": "hero-g18",
+      "teeth": 12,
+      "pitchRadius": 45.83662361046586,
+      "outerRadius": 52.60210925537062,
+      "center": {
+        "x": 237.5898621640051,
+        "y": -138.85747314862715
+      },
+      "phaseTurn": 0.7735963980982907,
+      "parity": 1,
+      "parentId": "hero-g22",
+      "appearIndex": 18
+    },
+    {
+      "id": "hero-g19",
+      "teeth": 18,
+      "pitchRadius": 68.75493541569878,
+      "outerRadius": 75.52042106060354,
+      "center": {
+        "x": 315.9455792135921,
+        "y": 266.8102625739167
+      },
+      "phaseTurn": 0.6646657883324145,
+      "parity": 0,
+      "parentId": "hero-g24",
+      "appearIndex": 19
+    },
+    {
+      "id": "hero-g20",
+      "teeth": 12,
+      "pitchRadius": 45.83662361046586,
+      "outerRadius": 52.60210925537062,
+      "center": {
+        "x": 321.87431421035217,
+        "y": 152.37217668733274
+      },
+      "phaseTurn": 0.1902630647649568,
+      "parity": 1,
+      "parentId": "hero-g25",
+      "appearIndex": 20
+    },
+    {
+      "id": "hero-g21",
+      "teeth": 12,
+      "pitchRadius": 45.83662361046586,
+      "outerRadius": 52.60210925537062,
+      "center": {
+        "x": 327.8030492071122,
+        "y": 37.934090800748805
+      },
+      "phaseTurn": 0.44026306476495747,
+      "parity": 1,
+      "parentId": "hero-g22",
+      "appearIndex": 21
+    },
+    {
+      "id": "hero-g22",
+      "teeth": 18,
+      "pitchRadius": 68.75493541569878,
+      "outerRadius": 75.52042106060354,
+      "center": {
+        "x": 333.7317842038722,
+        "y": -76.50399508583516
+      },
+      "phaseTurn": 0.44244356611019187,
+      "parity": 0,
+      "parentId": "hero-g26",
+      "appearIndex": 22
+    },
+    {
+      "id": "hero-g23",
+      "teeth": 12,
+      "pitchRadius": 45.83662361046586,
+      "outerRadius": 52.60210925537062,
+      "center": {
+        "x": 412.08750125345927,
+        "y": 329.1637406367086
+      },
+      "phaseTurn": 0.6902630647649581,
+      "parity": 1,
+      "parentId": "hero-g28",
+      "appearIndex": 23
+    },
+    {
+      "id": "hero-g24",
+      "teeth": 12,
+      "pitchRadius": 45.83662361046586,
+      "outerRadius": 52.60210925537062,
+      "center": {
+        "x": 418.0162362502193,
+        "y": 214.72565475012476
+      },
+      "phaseTurn": 0.7735963980982902,
+      "parity": 1,
+      "parentId": "hero-g25",
+      "appearIndex": 24
+    },
+    {
+      "id": "hero-g25",
+      "teeth": 18,
+      "pitchRadius": 68.75493541569878,
+      "outerRadius": 75.52042106060354,
+      "center": {
+        "x": 423.9449712469793,
+        "y": 100.28756886354077
+      },
+      "phaseTurn": 0.8868880105546366,
+      "parity": 0,
+      "parentId": "hero-g30",
+      "appearIndex": 25
+    },
+    {
+      "id": "hero-g26",
+      "teeth": 12,
+      "pitchRadius": 45.83662361046586,
+      "outerRadius": 52.60210925537062,
+      "center": {
+        "x": 429.8737062437394,
+        "y": -14.15051702304315
+      },
+      "phaseTurn": 0.5235963980982907,
+      "parity": 1,
+      "parentId": "hero-g31",
+      "appearIndex": 26
+    },
+    {
+      "id": "hero-g27",
+      "teeth": 12,
+      "pitchRadius": 45.83662361046586,
+      "outerRadius": 52.60210925537062,
+      "center": {
+        "x": 435.8024412404994,
+        "y": -128.58860290962718
+      },
+      "phaseTurn": 0.9402630647649577,
+      "parity": 1,
+      "parentId": "hero-g31",
+      "appearIndex": 27
+    },
+    {
+      "id": "hero-g28",
+      "teeth": 18,
+      "pitchRadius": 68.75493541569878,
+      "outerRadius": 75.52042106060354,
+      "center": {
+        "x": 514.1581582900865,
+        "y": 277.0791328129167
+      },
+      "phaseTurn": 0.5535546772213029,
+      "parity": 0,
+      "parentId": "hero-g29",
+      "appearIndex": 28
+    },
+    {
+      "id": "hero-g29",
+      "teeth": 12,
+      "pitchRadius": 45.83662361046586,
+      "outerRadius": 52.60210925537062,
+      "center": {
+        "x": 520.0868932868465,
+        "y": 162.64104692633276
+      },
+      "phaseTurn": 0.5235963980982907,
+      "parity": 1,
+      "parentId": "hero-g32",
+      "appearIndex": 29
+    },
+    {
+      "id": "hero-g30",
+      "teeth": 12,
+      "pitchRadius": 45.83662361046586,
+      "outerRadius": 52.60210925537062,
+      "center": {
+        "x": 526.0156282836065,
+        "y": 48.20296103974883
+      },
+      "phaseTurn": 0.440263064764957,
+      "parity": 1,
+      "parentId": "hero-g32",
+      "appearIndex": 30
+    },
+    {
+      "id": "hero-g31",
+      "teeth": 18,
+      "pitchRadius": 68.75493541569878,
+      "outerRadius": 75.52042106060354,
+      "center": {
+        "x": 531.9443632803666,
+        "y": -66.23512484683516
+      },
+      "phaseTurn": 0.6646657883324141,
+      "parity": 0,
+      "parentId": "hero-g33",
+      "appearIndex": 31
+    },
+    {
+      "id": "hero-g32",
+      "teeth": 18,
+      "pitchRadius": 68.75493541569878,
+      "outerRadius": 75.52042106060354,
+      "center": {
+        "x": 622.1575503234736,
+        "y": 110.55643910254082
+      },
+      "phaseTurn": 0.6646657883324141,
+      "parity": 0,
+      "parentId": "hero-g37",
+      "appearIndex": 32
+    },
+    {
+      "id": "hero-g33",
+      "teeth": 12,
+      "pitchRadius": 45.83662361046586,
+      "outerRadius": 52.60210925537062,
+      "center": {
+        "x": 628.0862853202336,
+        "y": -3.8816467840431415
+      },
+      "phaseTurn": 0.19026306476495725,
+      "parity": 1,
+      "parentId": "hero-g38",
+      "appearIndex": 33
+    },
+    {
+      "id": "hero-g34",
+      "teeth": 13,
+      "pitchRadius": 49.65634224467134,
+      "outerRadius": 56.42182788957611,
+      "center": {
+        "x": 629.550491822778,
+        "y": 303.64678304851975
+      },
+      "phaseTurn": 0.7809619938868743,
+      "parity": 1,
+      "parentId": "hero-g28",
+      "appearIndex": 34
+    },
+    {
+      "id": "hero-g35",
+      "teeth": 12,
+      "pitchRadius": 45.83662361046586,
+      "outerRadius": 52.60210925537062,
+      "center": {
+        "x": 634.0150203169937,
+        "y": -118.31973267062713
+      },
+      "phaseTurn": 0.6069297314316242,
+      "parity": 1,
+      "parentId": "hero-g38",
+      "appearIndex": 35
+    },
+    {
+      "id": "hero-g36",
+      "teeth": 13,
+      "pitchRadius": 49.65634224467134,
+      "outerRadius": 56.42182788957611,
+      "center": {
+        "x": 693.4758498147924,
+        "y": 205.08120217988386
+      },
+      "phaseTurn": 0.8920731049979853,
+      "parity": 1,
+      "parentId": "hero-g32",
+      "appearIndex": 36
+    },
+    {
+      "id": "hero-g37",
+      "teeth": 12,
+      "pitchRadius": 45.83662361046586,
+      "outerRadius": 52.60210925537062,
+      "center": {
+        "x": 724.2282073601008,
+        "y": 58.47183127874888
+      },
+      "phaseTurn": 0.7735963980982907,
+      "parity": 1,
+      "parentId": "hero-g38",
+      "appearIndex": 37
+    },
+    {
+      "id": "hero-g38",
+      "teeth": 18,
+      "pitchRadius": 68.75493541569878,
+      "outerRadius": 75.52042106060354,
+      "center": {
+        "x": 730.1569423568608,
+        "y": -55.966254607835104
+      },
+      "phaseTurn": 0.22022134388796966,
+      "parity": 0,
+      "parentId": "hero-g39",
+      "appearIndex": 38
+    },
+    {
+      "id": "hero-g39",
+      "teeth": 12,
+      "pitchRadius": 45.83662361046586,
+      "outerRadius": 52.60210925537062,
+      "center": {
+        "x": 826.2988643967279,
+        "y": 6.387223454956896
+      },
+      "phaseTurn": 0.8569297314316242,
+      "parity": 1,
+      "parentId": "hero-g42",
+      "appearIndex": 39
+    },
+    {
+      "id": "hero-g40",
+      "teeth": 12,
+      "pitchRadius": 45.83662361046586,
+      "outerRadius": 52.60210925537062,
+      "center": {
+        "x": 832.2275993934879,
+        "y": -108.05086243162708
+      },
+      "phaseTurn": 0.27359639809829095,
+      "parity": 1,
+      "parentId": "hero-g42",
+      "appearIndex": 40
+    },
+    {
+      "id": "hero-g41",
+      "teeth": 22,
+      "pitchRadius": 84.03380995252074,
+      "outerRadius": 90.7992955974255,
+      "center": {
+        "x": 848.8567524221182,
+        "y": 156.872294275714
+      },
+      "phaseTurn": 0.3290820957006859,
+      "parity": 1,
+      "parentId": "hero-g44",
+      "appearIndex": 41
+    },
+    {
+      "id": "hero-g42",
+      "teeth": 18,
+      "pitchRadius": 68.75493541569878,
+      "outerRadius": 75.52042106060354,
+      "center": {
+        "x": 928.3695214333551,
+        "y": -45.69738436883502
+      },
+      "phaseTurn": 0.442443566110192,
+      "parity": 0,
+      "parentId": "hero-g47",
+      "appearIndex": 42
+    },
+    {
+      "id": "hero-g43",
+      "teeth": 24,
+      "pitchRadius": 91.67324722093171,
+      "outerRadius": 98.43873286583647,
+      "center": {
+        "x": 955.3729669601146,
+        "y": 393.0208495381613
+      },
+      "phaseTurn": 0.7414007959152662,
+      "parity": 1,
+      "parentId": "hero-g48",
+      "appearIndex": 43
+    },
+    {
+      "id": "hero-g44",
+      "teeth": 19,
+      "pitchRadius": 72.57465404990428,
+      "outerRadius": 79.34013969480904,
+      "center": {
+        "x": 999.8019983688966,
+        "y": 115.13809099752206
+      },
+      "phaseTurn": 0,
+      "parity": 0,
+      "appearIndex": 44
+    },
+    {
+      "id": "hero-g45",
+      "teeth": 13,
+      "pitchRadius": 49.65634224467134,
+      "outerRadius": 56.42182788957611,
+      "center": {
+        "x": 1002.4574368265065,
+        "y": 237.3402395128506
+      },
+      "phaseTurn": 0.0684113865994247,
+      "parity": 1,
+      "parentId": "hero-g44",
+      "appearIndex": 45
+    },
+    {
+      "id": "hero-g46",
+      "teeth": 12,
+      "pitchRadius": 45.83662361046586,
+      "outerRadius": 52.60210925537062,
+      "center": {
+        "x": 1063.5233989988226,
+        "y": -132.37093965540416
+      },
+      "phaseTurn": 0.18951709327982336,
+      "parity": 0,
+      "parentId": "hero-g47",
+      "appearIndex": 46
+    },
+    {
+      "id": "hero-g47",
+      "teeth": 19,
+      "pitchRadius": 72.57465404990428,
+      "outerRadius": 79.34013969480904,
+      "center": {
+        "x": 1066.095855004632,
+        "y": -13.98760828117966
+      },
+      "phaseTurn": 0.12466319898045386,
+      "parity": 1,
+      "parentId": "hero-g44",
+      "appearIndex": 47
+    },
+    {
+      "id": "hero-g48",
+      "teeth": 13,
+      "pitchRadius": 49.65634224467134,
+      "outerRadius": 56.42182788957611,
+      "center": {
+        "x": 1069.9133300331964,
+        "y": 310.22859092902263
+      },
+      "phaseTurn": 0.6554420957818388,
+      "parity": 0,
+      "parentId": "hero-g45",
+      "appearIndex": 48
+    },
+    {
+      "id": "hero-g49",
+      "teeth": 22,
+      "pitchRadius": 84.03380995252074,
+      "outerRadius": 90.7992955974255,
+      "center": {
+        "x": 1152.4176652992305,
+        "y": 150.27595098654552
+      },
+      "phaseTurn": 0.40802946412173835,
+      "parity": 1,
+      "parentId": "hero-g44",
+      "appearIndex": 49
+    },
+    {
+      "id": "hero-g50",
+      "teeth": 13,
+      "pitchRadius": 49.65634224467134,
+      "outerRadius": 56.42182788957611,
+      "center": {
+        "x": 1166.947010139927,
+        "y": -83.04889239204206
+      },
+      "phaseTurn": 0.5056445249316357,
+      "parity": 0,
+      "parentId": "hero-g47",
+      "appearIndex": 50
+    },
+    {
+      "id": "hero-g51",
+      "teeth": 12,
+      "pitchRadius": 45.83662361046586,
+      "outerRadius": 52.60210925537062,
+      "center": {
+        "x": 1199.2710594618547,
+        "y": 29.151680217719445
+      },
+      "phaseTurn": 0.1683847168842898,
+      "parity": 0,
+      "parentId": "hero-g49",
+      "appearIndex": 51
+    },
+    {
+      "id": "hero-g52",
+      "teeth": 12,
+      "pitchRadius": 45.83662361046586,
+      "outerRadius": 52.60210925537062,
+      "center": {
+        "x": 1265.6411324255982,
+        "y": 213.89022615904486
+      },
+      "phaseTurn": 0.9411119896115624,
+      "parity": 0,
+      "parentId": "hero-g49",
+      "appearIndex": 52
+    },
+    {
+      "id": "hero-g53",
+      "teeth": 12,
+      "pitchRadius": 45.83662361046586,
+      "outerRadius": 52.60210925537062,
+      "center": {
+        "x": 1274.6397294659046,
+        "y": 106.3658548277401
+      },
+      "phaseTurn": 0.554748353247926,
+      "parity": 0,
+      "parentId": "hero-g49",
+      "appearIndex": 53
+    }
+  ],
+  "edges": [
+    {
+      "a": "hero-g49",
+      "b": "hero-g44"
+    },
+    {
+      "a": "hero-g41",
+      "b": "hero-g44"
+    },
+    {
+      "a": "hero-g47",
+      "b": "hero-g44"
+    },
+    {
+      "a": "hero-g45",
+      "b": "hero-g44"
+    },
+    {
+      "a": "hero-g42",
+      "b": "hero-g47"
+    },
+    {
+      "a": "hero-g39",
+      "b": "hero-g42"
+    },
+    {
+      "a": "hero-g40",
+      "b": "hero-g42"
+    },
+    {
+      "a": "hero-g38",
+      "b": "hero-g39"
+    },
+    {
+      "a": "hero-g38",
+      "b": "hero-g40"
+    },
+    {
+      "a": "hero-g37",
+      "b": "hero-g38"
+    },
+    {
+      "a": "hero-g33",
+      "b": "hero-g38"
+    },
+    {
+      "a": "hero-g32",
+      "b": "hero-g37"
+    },
+    {
+      "a": "hero-g32",
+      "b": "hero-g33"
+    },
+    {
+      "a": "hero-g35",
+      "b": "hero-g38"
+    },
+    {
+      "a": "hero-g31",
+      "b": "hero-g33"
+    },
+    {
+      "a": "hero-g31",
+      "b": "hero-g35"
+    },
+    {
+      "a": "hero-g30",
+      "b": "hero-g32"
+    },
+    {
+      "a": "hero-g30",
+      "b": "hero-g31"
+    },
+    {
+      "a": "hero-g36",
+      "b": "hero-g32"
+    },
+    {
+      "a": "hero-g29",
+      "b": "hero-g32"
+    },
+    {
+      "a": "hero-g25",
+      "b": "hero-g30"
+    },
+    {
+      "a": "hero-g25",
+      "b": "hero-g29"
+    },
+    {
+      "a": "hero-g26",
+      "b": "hero-g31"
+    },
+    {
+      "a": "hero-g26",
+      "b": "hero-g25"
+    },
+    {
+      "a": "hero-g27",
+      "b": "hero-g31"
+    },
+    {
+      "a": "hero-g22",
+      "b": "hero-g26"
+    },
+    {
+      "a": "hero-g22",
+      "b": "hero-g27"
+    },
+    {
+      "a": "hero-g21",
+      "b": "hero-g25"
+    },
+    {
+      "a": "hero-g21",
+      "b": "hero-g22"
+    },
+    {
+      "a": "hero-g24",
+      "b": "hero-g25"
+    },
+    {
+      "a": "hero-g28",
+      "b": "hero-g29"
+    },
+    {
+      "a": "hero-g28",
+      "b": "hero-g24"
+    },
+    {
+      "a": "hero-g20",
+      "b": "hero-g25"
+    },
+    {
+      "a": "hero-g16",
+      "b": "hero-g21"
+    },
+    {
+      "a": "hero-g16",
+      "b": "hero-g20"
+    },
+    {
+      "a": "hero-g19",
+      "b": "hero-g24"
+    },
+    {
+      "a": "hero-g19",
+      "b": "hero-g20"
+    },
+    {
+      "a": "hero-g23",
+      "b": "hero-g28"
+    },
+    {
+      "a": "hero-g23",
+      "b": "hero-g19"
+    },
+    {
+      "a": "hero-g17",
+      "b": "hero-g22"
+    },
+    {
+      "a": "hero-g17",
+      "b": "hero-g16"
+    },
+    {
+      "a": "hero-g15",
+      "b": "hero-g16"
+    },
+    {
+      "a": "hero-g15",
+      "b": "hero-g19"
+    },
+    {
+      "a": "hero-g34",
+      "b": "hero-g28"
+    },
+    {
+      "a": "hero-g12",
+      "b": "hero-g16"
+    },
+    {
+      "a": "hero-g13",
+      "b": "hero-g17"
+    },
+    {
+      "a": "hero-g13",
+      "b": "hero-g12"
+    },
+    {
+      "a": "hero-g18",
+      "b": "hero-g22"
+    },
+    {
+      "a": "hero-g18",
+      "b": "hero-g13"
+    },
+    {
+      "a": "hero-g11",
+      "b": "hero-g16"
+    },
+    {
+      "a": "hero-g10",
+      "b": "hero-g15"
+    },
+    {
+      "a": "hero-g10",
+      "b": "hero-g11"
+    },
+    {
+      "a": "hero-g14",
+      "b": "hero-g19"
+    },
+    {
+      "a": "hero-g14",
+      "b": "hero-g10"
+    },
+    {
+      "a": "hero-g7",
+      "b": "hero-g12"
+    },
+    {
+      "a": "hero-g7",
+      "b": "hero-g11"
+    },
+    {
+      "a": "hero-g6",
+      "b": "hero-g10"
+    },
+    {
+      "a": "hero-g6",
+      "b": "hero-g7"
+    },
+    {
+      "a": "hero-g8",
+      "b": "hero-g13"
+    },
+    {
+      "a": "hero-g8",
+      "b": "hero-g7"
+    },
+    {
+      "a": "hero-g9",
+      "b": "hero-g10"
+    },
+    {
+      "a": "hero-g2",
+      "b": "hero-g7"
+    },
+    {
+      "a": "hero-g1",
+      "b": "hero-g6"
+    },
+    {
+      "a": "hero-g1",
+      "b": "hero-g2"
+    },
+    {
+      "a": "hero-g5",
+      "b": "hero-g10"
+    },
+    {
+      "a": "hero-g5",
+      "b": "hero-g1"
+    },
+    {
+      "a": "hero-g0",
+      "b": "hero-g1"
+    },
+    {
+      "a": "hero-g3",
+      "b": "hero-g8"
+    },
+    {
+      "a": "hero-g4",
+      "b": "hero-g3"
+    },
+    {
+      "a": "hero-g46",
+      "b": "hero-g47"
+    },
+    {
+      "a": "hero-g50",
+      "b": "hero-g47"
+    },
+    {
+      "a": "hero-g51",
+      "b": "hero-g49"
+    },
+    {
+      "a": "hero-g53",
+      "b": "hero-g49"
+    },
+    {
+      "a": "hero-g52",
+      "b": "hero-g49"
+    },
+    {
+      "a": "hero-g48",
+      "b": "hero-g45"
+    },
+    {
+      "a": "hero-g43",
+      "b": "hero-g48"
+    }
+  ]
+}

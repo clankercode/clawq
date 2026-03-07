@@ -1,0 +1,272 @@
+---
+import LandingLayout from "../layouts/LandingLayout.astro";
+import type { BackdropGeneratorResult } from "../lib/gears/backdrop/types.ts";
+import {
+  backdropBounds,
+  buildSolvedDebugGears,
+  buildTrueMeshEdges,
+  componentStats,
+  DEBUG_TOOTH_TUNING,
+} from "../lib/gears/backdrop/debug_spec.ts";
+import { buildGearPath } from "../lib/gears/path.ts";
+
+interface Props {
+  title: string;
+  mode: "topology-first" | "constraint-solver";
+  seed: number;
+  targetCount: number;
+  raw: BackdropGeneratorResult;
+  presented: BackdropGeneratorResult;
+}
+
+const { title, mode, seed, targetCount, raw, presented } = Astro.props as Props;
+
+const rawSolved = buildSolvedDebugGears(raw.gears, raw.edges);
+const presentedSolved = buildSolvedDebugGears(presented.gears, presented.edges);
+const rawBounds = rawSolved.length > 0 ? backdropBounds(rawSolved, 64) : { minX: 0, minY: 0, width: 100, height: 100 };
+const presentedBounds = presentedSolved.length > 0 ? backdropBounds(presentedSolved, 64) : { minX: 0, minY: 0, width: 100, height: 100 };
+const rawStats = componentStats(raw.gears, raw.edges);
+const presentedStats = componentStats(presented.gears, presented.edges);
+const rawMeshEdges = buildTrueMeshEdges(raw.gears, raw.edges);
+const presentedMeshEdges = buildTrueMeshEdges(presented.gears, presented.edges);
+
+const palette = [
+  { line: "rgba(235, 207, 132, 0.7)", fill: "rgba(201, 159, 66, 0.1)" },
+  { line: "rgba(178, 216, 213, 0.62)", fill: "rgba(83, 155, 150, 0.08)" },
+  { line: "rgba(201, 178, 159, 0.6)", fill: "rgba(154, 105, 72, 0.08)" },
+];
+
+function gearVisuals(gears: typeof rawSolved) {
+  return gears
+    .slice()
+    .sort((a, b) => a.center.y - b.center.y)
+    .map((gear, index) => ({
+      gear,
+      path: buildGearPath(gear, DEBUG_TOOTH_TUNING),
+      palette: palette[index % palette.length],
+    }));
+}
+
+const rawVisuals = gearVisuals(rawSolved);
+const presentedVisuals = gearVisuals(presentedSolved);
+---
+
+<LandingLayout title={title}>
+  <div class="debug-shell">
+    <header class="hero">
+      <p class="eyebrow">Spec Backdrop Debug</p>
+      <h1>{title}</h1>
+      <p class="lede">
+        Zoomed-out inspection surface for <code>{mode}</code>. The top panel shows the raw full pattern, and the lower panel shows the current hero-presented crop/remap.
+      </p>
+      <div class="nav-row">
+        <a href="/debug-topology-first">Topology-First</a>
+        <a href="/debug-constraint-solver">Constraint-Solver</a>
+        <a href="/debug-gears">Pair Debug</a>
+        <a href={`/?gearAlgo=${mode}`}>Open On Homepage</a>
+      </div>
+    </header>
+
+    <section class="panel controls">
+      <div class="metric"><span>Seed</span><strong>{seed}</strong></div>
+      <div class="metric"><span>Requested gears</span><strong>{targetCount}</strong></div>
+      <div class="metric"><span>Raw gears</span><strong>{raw.gears.length}</strong></div>
+      <div class="metric"><span>Presented gears</span><strong>{presented.gears.length}</strong></div>
+      <div class="metric"><span>Raw components</span><strong>{rawStats.componentCount}</strong></div>
+      <div class="metric"><span>Largest raw component</span><strong>{rawStats.largestComponent}</strong></div>
+      <div class="metric"><span>Presented components</span><strong>{presentedStats.componentCount}</strong></div>
+      <div class="metric"><span>Largest presented component</span><strong>{presentedStats.largestComponent}</strong></div>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <div>
+          <h2>Raw Full Pattern</h2>
+          <p>Uncropped output direct from <code>generateSpecBackdrop()</code>.</p>
+        </div>
+        <p class="meta">components: {rawStats.sizes.join(", ") || "none"}</p>
+      </div>
+
+      <svg class="debug-scene" viewBox={`${rawBounds.minX} ${rawBounds.minY} ${rawBounds.width} ${rawBounds.height}`} xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`${mode} raw pattern`}>
+        <rect x={rawBounds.minX} y={rawBounds.minY} width={rawBounds.width} height={rawBounds.height} class="bg" />
+        {rawMeshEdges.map((edge) => <line x1={edge.x1} y1={edge.y1} x2={edge.x2} y2={edge.y2} class="mesh-line" />)}
+        {rawVisuals.map(({ gear, path, palette }) => (
+          <g transform={`translate(${gear.center.x} ${gear.center.y}) rotate(${gear.phaseDeg})`}>
+            <path d={path} class="gear-outline" stroke={palette.line} fill={palette.fill} />
+            <circle r={gear.pitchRadius} class="pitch-circle" />
+            <circle r={gear.holeRadius} class="gear-hole" />
+          </g>
+        ))}
+      </svg>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <div>
+          <h2>Current Hero Snapshot</h2>
+          <p>What the current presentation path keeps after crop/remap.</p>
+        </div>
+        <p class="meta">components: {presentedStats.sizes.join(", ") || "none"}</p>
+      </div>
+
+      <svg class="debug-scene" viewBox={`${presentedBounds.minX} ${presentedBounds.minY} ${presentedBounds.width} ${presentedBounds.height}`} xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`${mode} presented pattern`}>
+        <rect x={presentedBounds.minX} y={presentedBounds.minY} width={presentedBounds.width} height={presentedBounds.height} class="bg" />
+        {presentedMeshEdges.map((edge) => <line x1={edge.x1} y1={edge.y1} x2={edge.x2} y2={edge.y2} class="mesh-line" />)}
+        {presentedVisuals.map(({ gear, path, palette }) => (
+          <g transform={`translate(${gear.center.x} ${gear.center.y}) rotate(${gear.phaseDeg})`}>
+            <path d={path} class="gear-outline" stroke={palette.line} fill={palette.fill} />
+            <circle r={gear.pitchRadius} class="pitch-circle" />
+            <circle r={gear.holeRadius} class="gear-hole" />
+          </g>
+        ))}
+      </svg>
+    </section>
+  </div>
+</LandingLayout>
+
+<style>
+  .debug-shell {
+    width: min(96vw, 120rem);
+    margin: 0 auto;
+    padding: 4rem 1.25rem 6rem;
+    display: grid;
+    gap: 1.25rem;
+  }
+
+  .hero h1::after {
+    display: none;
+  }
+
+  .eyebrow {
+    margin: 0 0 0.5rem;
+    font-family: var(--font-label);
+    font-variant: small-caps;
+    letter-spacing: 0.12em;
+    color: var(--brass-primary);
+  }
+
+  .lede {
+    max-width: 72ch;
+    color: var(--text-secondary);
+  }
+
+  .nav-row {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-top: 1rem;
+  }
+
+  .nav-row a {
+    padding: 0.55rem 0.85rem;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    text-decoration: none;
+  }
+
+  .panel {
+    padding: 1.25rem;
+    background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+  }
+
+  .controls {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.8rem;
+  }
+
+  .metric {
+    padding: 0.85rem 0.95rem;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    display: grid;
+    gap: 0.35rem;
+  }
+
+  .metric span,
+  .meta {
+    font-family: var(--font-label);
+    font-size: var(--fs-xs);
+    color: var(--text-tertiary);
+  }
+
+  .metric strong {
+    font-family: var(--font-mono);
+    color: var(--text-primary);
+  }
+
+  .section-head {
+    display: flex;
+    gap: 1rem;
+    align-items: baseline;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+  }
+
+  .section-head p {
+    color: var(--text-secondary);
+    margin: 0.3rem 0 0;
+  }
+
+  .debug-scene {
+    width: 100%;
+    height: auto;
+    display: block;
+    background: #0b0b12;
+    border-radius: 16px;
+    border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+  }
+
+  .bg,
+  .pitch-circle,
+  .gear-hole,
+  .mesh-line {
+    fill: none;
+    vector-effect: non-scaling-stroke;
+  }
+
+  .bg {
+    fill: #0b0b12;
+  }
+
+  .gear-outline {
+    stroke-width: 1.8;
+    vector-effect: non-scaling-stroke;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .pitch-circle {
+    stroke: rgba(95, 213, 223, 0.4);
+    stroke-width: 0.9;
+  }
+
+  .gear-hole {
+    stroke: rgba(242, 211, 122, 0.45);
+    stroke-width: 1;
+  }
+
+  .mesh-line {
+    stroke: rgba(133, 197, 255, 0.72);
+    stroke-width: 1;
+    stroke-dasharray: 5 5;
+  }
+
+  @media (max-width: 64rem) {
+    .controls {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 40rem) {
+    .controls {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

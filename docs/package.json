@@ -7,6 +7,8 @@
     "start": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
+    "regen:backdrops": "node --experimental-strip-types scripts/regenerate-backdrop-defaults.mjs",
+    "render:spec-backdrops": "node --experimental-strip-types scripts/render-spec-backdrops.mjs",
     "test:gears": "node --test --experimental-strip-types scripts/gear-geometry.test.mjs",
     "astro": "astro"
   },

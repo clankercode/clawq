@@ -18,7 +18,6 @@ import {
 
 const MAX_TEETH = 28;
 const PAIR_PHASE_TOLERANCE = 0.035;
-const ROOT_ANGLES = [0, Math.PI, Math.PI / 3, (-2 * Math.PI) / 3, (-Math.PI) / 3, (2 * Math.PI) / 3];
 
 type Placement = {
   gear: DraftGear;
@@ -78,6 +77,23 @@ function neighborPhase(gear: DraftGear, candidateTeeth: number, center: Point): 
     neighborTeeth: candidateTeeth,
     currentTurn: gear.phaseTurn ?? 0,
     contactAngleCurrentToNeighbor: Math.atan2(center.y - gear.center.y, center.x - gear.center.x),
+  });
+}
+
+function buildRootAngles(random: () => number): number[] {
+  const stepTurns = [0.12, 0.19, 0.11, 0.21, 0.15, 0.22];
+  let turn = random();
+  const angles: number[] = [];
+
+  for (const step of stepTurns) {
+    angles.push(turn * Math.PI * 2);
+    turn += step + (random() - 0.5) * 0.024;
+  }
+
+  return angles.sort((left, right) => {
+    const leftBias = Math.abs(Math.cos(left)) * 1.8 + Math.max(0, -Math.sin(left));
+    const rightBias = Math.abs(Math.cos(right)) * 1.8 + Math.max(0, -Math.sin(right));
+    return rightBias - leftBias;
   });
 }
 
@@ -336,13 +352,17 @@ export const generateCellFillBackdrop: BackdropGeneratorFn = ({ seed, targetCoun
     return null;
   }
 
-  const rootTeeth = 18;
+  const rootTeeth = 17 + randInt(random, 0, 3);
+  const rootAngles = buildRootAngles(random);
   const root: DraftGear = {
     id: "hero-g0",
     teeth: rootTeeth,
     pitchRadius: pitchRadiusFromTeeth(rootTeeth, HERO_GEAR_CIRCULAR_PITCH),
     outerRadius: outerRadiusFromTeeth(rootTeeth),
-    center: { x: VIEWBOX.width * 0.5, y: 286 },
+    center: {
+      x: VIEWBOX.width * 0.5 + (random() - 0.5) * 86,
+      y: 274 + (random() - 0.5) * 30,
+    },
     phaseTurn: 0,
     parity: 0,
     appearIndex: 0,
@@ -352,7 +372,7 @@ export const generateCellFillBackdrop: BackdropGeneratorFn = ({ seed, targetCoun
   contactAnglesByGearId.set(root.id, []);
   neighborIdsByGearId.set(root.id, new Set());
 
-  for (const angle of ROOT_ANGLES) {
+  for (const angle of rootAngles) {
     if (gears.length >= Math.min(targetCount, 7)) break;
     const placement = trySingleParentPlacement(root, [angle], 1);
     if (placement) registerPlacement(placement.gear, placement.neighbors);

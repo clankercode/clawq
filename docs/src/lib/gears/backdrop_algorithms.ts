@@ -5,12 +5,14 @@ export const BACKDROP_ALGORITHMS = [
   "chaos-cluster",
   "cell-fill",
   "chaos-fill",
+  "constraint-solver",
   "hex-web",
   "lattice",
   "radial",
   "ring-web",
   "row-debug",
   "sine-debug",
+  "topology-first",
   "weave",
 ] as const;
 

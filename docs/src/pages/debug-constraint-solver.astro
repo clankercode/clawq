@@ -1,0 +1,33 @@
+---
+import SpecBackdropDebugView from "../components/SpecBackdropDebugView.astro";
+import { DEFAULT_SPEC_BACKDROP_SEED, DEFAULT_SPEC_BACKDROP_TARGET_COUNT, specPresentationOptions } from "../lib/gears/backdrop/spec_defaults.ts";
+import { generateSpecBackdrop } from "../lib/gears/backdrop/spec_core.ts";
+import { generatePresentedSpecBackdrop } from "../lib/gears/backdrop/spec_present.ts";
+import defaultRaw from "../lib/gears/backdrop/data/constraint_solver.raw.json" with { type: "json" };
+import defaultPresented from "../lib/gears/backdrop/data/constraint_solver.default.json" with { type: "json" };
+
+const seedParam = Number(Astro.url.searchParams.get("seed") ?? DEFAULT_SPEC_BACKDROP_SEED);
+const targetParam = Number(Astro.url.searchParams.get("targetCount") ?? DEFAULT_SPEC_BACKDROP_TARGET_COUNT);
+const seed = Number.isFinite(seedParam) ? seedParam : DEFAULT_SPEC_BACKDROP_SEED;
+const targetCount = Number.isFinite(targetParam) ? targetParam : DEFAULT_SPEC_BACKDROP_TARGET_COUNT;
+const useSnapshots = !import.meta.env.DEV && seed === DEFAULT_SPEC_BACKDROP_SEED && targetCount === DEFAULT_SPEC_BACKDROP_TARGET_COUNT;
+
+const raw = useSnapshots ? defaultRaw : generateSpecBackdrop({ mode: "constraint-solver", seed, targetCount });
+const presented = useSnapshots
+  ? defaultPresented
+  : generatePresentedSpecBackdrop({
+      mode: "constraint-solver",
+      seed,
+      targetCount,
+      ...specPresentationOptions("constraint-solver", targetCount),
+    });
+---
+
+<SpecBackdropDebugView
+  title="Constraint-Solver Backdrop Debug"
+  mode="constraint-solver"
+  seed={seed}
+  targetCount={targetCount}
+  raw={raw}
+  presented={presented}
+/>

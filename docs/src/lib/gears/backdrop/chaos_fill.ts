@@ -20,6 +20,7 @@ import {
 } from "./shared.ts";
 
 const MAX_TEETH = 28;
+const MAX_BRIDGE_PITCH_RADIUS = pitchRadiusFromTeeth(MAX_TEETH, HERO_GEAR_CIRCULAR_PITCH);
 const COVERAGE_COLS = 18;
 const COVERAGE_ROWS = 10;
 const COVERAGE_MARGIN_X = 220;
@@ -160,6 +161,15 @@ function scoreShape(candidate: DraftGear, neighbors: DraftGear[], parent: DraftG
   return sizeContrast * 2.8 + parentContrast + centerBias + heightBias + contourBias;
 }
 
+function sharedNeighborCount(candidateNeighbors: DraftGear[], otherNeighborIds: Set<string> | undefined): number {
+  if (!otherNeighborIds) return 0;
+  let count = 0;
+  for (const neighbor of candidateNeighbors) {
+    if (otherNeighborIds.has(neighbor.id)) count += 1;
+  }
+  return count;
+}
+
 function addCoverageForGear(
   gear: DraftGear,
   coverageSamples: CoverageSample[],
@@ -260,19 +270,41 @@ export const generateChaosFillBackdrop: BackdropGeneratorFn = ({ seed, targetCou
   }
 
   function scoreSinglePlacement(candidate: DraftGear, neighbors: DraftGear[], parent: DraftGear): number {
+    const coverageProgress = coverageSamples.length === 0 ? 1 : coveredSampleKeys.size / coverageSamples.length;
     const coverageGain = scoreCoverageGain(candidate, coverageSamples, coveredSampleKeys);
-    const loopBias = neighbors.length >= 2 ? 130 + neighbors.length * 55 : 0;
-    const degreeBias = -(degreeByGearId.get(parent.id) ?? 0) * 6;
+    const coverageWeight = coverageProgress < 0.44 ? 15 : coverageProgress < 0.68 ? 10 : coverageProgress < 0.82 ? 6.5 : 3.5;
+    const loopBias =
+      neighbors.length >= 2
+        ? 150 + neighbors.length * 70 + Math.max(0, neighbors.length - 2) * 110 + coverageProgress * 120
+        : coverageProgress > 0.8
+          ? -38
+          : 0;
+    const parentDegree = degreeByGearId.get(parent.id) ?? 0;
+    const degreeBias = -parentDegree * 5 + (parentDegree <= 1 ? 20 : 0);
+    const futureBridgeBias = gears.reduce((score, other) => {
+      if (other.id === parent.id || other.parity !== candidate.parity) return score;
+      const distance = dist(candidate.center, other.center);
+      const minReach = Math.abs(candidate.pitchRadius - other.pitchRadius);
+      const maxReach = candidate.pitchRadius + other.pitchRadius + MAX_BRIDGE_PITCH_RADIUS * 2;
+      if (distance < minReach - 0.2 || distance > maxReach + 0.2) return score;
+
+      const shared = sharedNeighborCount(neighbors, neighborIdsByGearId.get(other.id));
+      const proximity = Math.max(0, 300 - distance) * 0.3;
+      return score + proximity + shared * 42;
+    }, 0);
     const contourOvershoot = candidate.center.y + candidate.outerRadius - bottomContourY(candidate.center.x, contourPhase);
     const boundaryPenalty = contourOvershoot > 26 ? contourOvershoot * 1.5 : 0;
+    const lateLeafPenalty = coverageProgress > 0.86 && neighbors.length < 2 ? 70 : 0;
     return (
-      coverageGain * 15 +
+      coverageGain * coverageWeight +
       loopBias +
+      futureBridgeBias +
       scoreExpansionNeed(candidate, gears) +
       scoreShape(candidate, neighbors, parent, contourPhase) +
       degreeBias +
       random() * 8 -
-      boundaryPenalty
+      boundaryPenalty -
+      lateLeafPenalty
     );
   }
 
@@ -310,9 +342,8 @@ export const generateChaosFillBackdrop: BackdropGeneratorFn = ({ seed, targetCou
     return count;
   }
 
-  function buildPairPlans(limit = 28): PairPlan[] {
+  function buildPairPlans(limit = 44): PairPlan[] {
     const planMap = new Map<string, PairPlan>();
-    const maxPitchRadius = pitchRadiusFromTeeth(MAX_TEETH, HERO_GEAR_CIRCULAR_PITCH);
 
     for (const a of gears) {
       const nearby = gears
@@ -320,11 +351,11 @@ export const generateChaosFillBackdrop: BackdropGeneratorFn = ({ seed, targetCou
         .map((b) => ({ gear: b, distanceBetween: dist(a.center, b.center) }))
         .filter(({ gear: b, distanceBetween }) => {
           const minReach = Math.abs(a.pitchRadius - b.pitchRadius);
-          const maxReach = a.pitchRadius + b.pitchRadius + maxPitchRadius * 2;
+          const maxReach = a.pitchRadius + b.pitchRadius + MAX_BRIDGE_PITCH_RADIUS * 2;
           return distanceBetween >= minReach - 0.2 && distanceBetween <= maxReach + 0.2;
         })
         .sort((left, right) => left.distanceBetween - right.distanceBetween)
-        .slice(0, 6);
+        .slice(0, 10);
 
       for (const { gear: b, distanceBetween } of nearby) {
         const key = edgeKey(a.id, b.id);
@@ -344,17 +375,23 @@ export const generateChaosFillBackdrop: BackdropGeneratorFn = ({ seed, targetCou
           coverageSamples,
           coveredSampleKeys
         );
-        const closureBias = commonNeighborCount(a, b) * 75;
-        const degreeBias = -((degreeByGearId.get(a.id) ?? 0) + (degreeByGearId.get(b.id) ?? 0)) * 4;
+        const closureBias = commonNeighborCount(a, b) * 95;
+        const degreeA = degreeByGearId.get(a.id) ?? 0;
+        const degreeB = degreeByGearId.get(b.id) ?? 0;
+        const degreeBias = -(degreeA + degreeB) * 3.5;
+        const leafBias = (degreeA <= 1 ? 95 : 0) + (degreeB <= 1 ? 95 : 0);
         const sizeBias = Math.abs(a.teeth - b.teeth) * 2.6;
+        const spanBias = Math.max(0, 300 - distanceBetween) * 0.18;
         planMap.set(key, {
           a,
           b,
           score:
-            midpointCoverage * 11 +
+            midpointCoverage * 8 +
             closureBias +
             degreeBias +
+            leafBias +
             sizeBias +
+            spanBias +
             Math.max(0, 90 - Math.abs(midpoint.y - bottomContourY(midpoint.x, contourPhase))) * 0.18 +
             random() * 8,
         });
@@ -369,10 +406,10 @@ function bridgeTeethOrder(plan: PairPlan): number[] {
   return Array.from({ length: MAX_TEETH - MIN_TEETH + 1 }, (_, index) => index + MIN_TEETH)
     .map((teeth) => ({
       teeth,
-      score: Math.abs(teeth - centerTeeth) * 0.35 + (teeth >= 22 ? 0.2 : 0) + random() * 1.3,
+      score: Math.abs(teeth - centerTeeth) * 0.28 + (teeth >= 23 ? 0.15 : 0) + random() * 1.15,
     }))
     .sort((a, b) => a.score - b.score)
-    .slice(0, 8)
+    .slice(0, 12)
     .map((item) => item.teeth);
 }
 
@@ -408,10 +445,10 @@ function bridgeTeethOrder(plan: PairPlan): number[] {
         if (!verdict.neighbors.some((neighbor) => neighbor.id === plan.b.id)) continue;
 
         const coverageGain = scoreCoverageGain(candidate, coverageSamples, coveredSampleKeys);
-        const thirdNeighborBias = Math.max(0, verdict.neighbors.length - 2) * 80;
+        const thirdNeighborBias = Math.max(0, verdict.neighbors.length - 2) * 120;
         const score =
           plan.score +
-          coverageGain * 13 +
+          coverageGain * 9 +
           verdict.neighbors.length * 120 +
           scoreShape(candidate, verdict.neighbors, undefined, contourPhase) +
           scoreExpansionNeed(candidate, gears) +
@@ -465,7 +502,7 @@ function bridgeTeethOrder(plan: PairPlan): number[] {
 
     let bestPlacement: Placement | null = null;
     const pairPlans = buildPairPlans();
-    const bridgeBudget = gears.length < targetCount * 0.45 ? 8 : 14;
+    const bridgeBudget = gears.length < targetCount * 0.45 ? 12 : 20;
     for (const plan of pairPlans.slice(0, bridgeBudget)) {
       const placement = tryBridgePlacement(plan);
       if (!placement) continue;
@@ -512,6 +549,21 @@ function bridgeTeethOrder(plan: PairPlan): number[] {
     }
 
     if (!bestPlacement) continue;
+    registerPlacement(bestPlacement.gear, bestPlacement.neighbors);
+  }
+
+  let densifyPass = 0;
+  while (gears.length < targetCount && densifyPass < 24) {
+    densifyPass += 1;
+    let bestPlacement: Placement | null = null;
+    for (const plan of buildPairPlans(56).slice(0, 24)) {
+      const placement = tryBridgePlacement(plan);
+      if (!placement) continue;
+      if (!bestPlacement || placement.score > bestPlacement.score) bestPlacement = placement;
+      if (placement.neighbors.length >= 4) break;
+    }
+
+    if (!bestPlacement) break;
     registerPlacement(bestPlacement.gear, bestPlacement.neighbors);
   }
 
