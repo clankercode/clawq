@@ -14,6 +14,9 @@ Every clawq command is listed below. Run `clawq COMMAND --help` for per-command 
 | `clawq agent` | Start the daemon (agent loop, gateway, all configured channels) |
 | `clawq audit` | View and manage the security audit log |
 | `clawq auth` | Show API key status or encrypt plaintext secrets in config |
+| `clawq auth codex-login [PROVIDER]` | Start ChatGPT/Codex OAuth login for a configured provider |
+| `clawq auth codex-status [PROVIDER]` | Show saved Codex OAuth status |
+| `clawq auth codex-logout [PROVIDER]` | Remove saved Codex OAuth credentials |
 | `clawq capabilities` | List all active runtime capabilities |
 | `clawq channel` | List configured channels |
 | `clawq config` | Manage configuration (wizard, get/set/show) |
@@ -25,6 +28,7 @@ Every clawq command is listed below. Run `clawq COMMAND --help` for per-command 
 | `clawq models` | List configured LLM providers and their default models |
 | `clawq onboard` | Interactive setup wizard (or template when not in a TTY) |
 | `clawq phase2` | Show Phase 2 feature status |
+| `clawq otp-show` | Show the current gateway/Telegram pairing TOTP code |
 | `clawq reset-agent` | Wipe all session history, cron jobs, and workspace files |
 | `clawq runtime` | Manage native and Docker runtimes |
 | `clawq service` | Manage the clawq system service (start/stop/restart) |
@@ -55,11 +59,12 @@ clawq config set KEY VALUE
 Set a config value by dot-path. Examples:
 
 ```bash
-clawq config set providers.0.api_key "sk-..."
-clawq config set providers.0.base_url "https://openrouter.ai/api/v1"
-clawq config set providers.0.model "openai/gpt-4o"
-clawq config set channels.telegram.bot_token "123:ABC..."
-clawq config set channels.telegram.allow_from '["*"]'
+clawq config set providers.openrouter.api_key "sk-..."
+clawq config set providers.openrouter.base_url "https://openrouter.ai/api/v1"
+clawq config set providers.openrouter.default_model "openai/gpt-4o"
+clawq config set default_provider "openrouter"
+clawq config set channels.telegram.accounts.main.bot_token "123:ABC..."
+clawq config set channels.telegram.accounts.main.allow_from '["*"]'
 clawq config set security.tools_enabled true
 ```
 
@@ -72,7 +77,7 @@ clawq config get KEY
 Read a single config value by dot-path:
 
 ```bash
-clawq config get providers.0.model
+clawq config get providers.openrouter.default_model
 # openai/gpt-4o
 ```
 
@@ -160,6 +165,9 @@ Build and development tasks are available via Make:
 | `make fmt-check` | Check formatting |
 | `make extract` | Regenerate OCaml from Coq theories |
 | `make extract-check` | Check for extraction drift |
+| `make ui` | Build the web UI and regenerate embedded assets |
+| `make ui-dev` | Run the web UI watcher with Bun |
+| `make ui-check` | Verify embedded web UI assets are current |
 | `make run` | Print CLI help |
 | `make clean` | Clean build artifacts |
 | `make docker-build` | Build Docker image |

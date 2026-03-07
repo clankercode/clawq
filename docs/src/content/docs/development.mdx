@@ -138,7 +138,7 @@ opam exec --switch=clawq-5.1 -- dune exec test/test_main.exe -- test scheduler 0
 
 ## Formatting
 
-Clawq uses **ocamlformat 0.27.0** with the `default` profile.
+Clawq uses **ocamlformat 0.28.1** with the `default` profile.
 
 ```bash
 # Format all code
@@ -179,7 +179,7 @@ what extraction would produce, catching accidental drift.
 
 ### Formatting
 
-- ocamlformat 0.27.0, `default` profile
+- ocamlformat 0.28.1, `default` profile
 - Never fight the formatter
 
 ### Naming
@@ -235,6 +235,7 @@ src/extracted/           Auto-generated OCaml from Coq
 src/                     Runtime OCaml code
 test/                    Alcotest test suites
 scripts/                 Build and extraction scripts
+ui/                      Bun/TypeScript source for the embedded web chat UI
 docs/                    Documentation site (Astro)
 ```
 
@@ -249,7 +250,27 @@ docs/                    Documentation site (Astro)
 | `src/main_min.ml` | Minimal CLI entry point |
 | `src/command_bridge.ml` | Full command routing |
 | `src/command_bridge_min.ml` | Minimal command routing |
+| `src/ui_server.ml` | Embedded/dev web UI asset serving and versioning |
+| `src/chat_ui_assets.ml` | Generated OCaml module containing bundled UI files |
+| `scripts/gen_chat_ui_assets.sh` | Regenerate `src/chat_ui_assets.ml` from `ui/dist/` |
 | `test/test_main.ml` | Test entry point |
+
+## Web UI Development
+
+The streaming browser chat lives in `ui/` and is bundled into the daemon.
+
+```bash
+# Build the UI bundle and embed it into src/chat_ui_assets.ml
+make ui
+
+# Watch UI source files during development
+make ui-dev
+
+# Verify checked-in embedded assets match ui/dist
+make ui-check
+```
+
+Normal daemon startup extracts the embedded bundle into `~/.clawq/ui/` when the bundle version changes. For live UI iteration, create `~/.clawq/ui/DEV`; with that marker present, clawq serves files from disk without overwriting them and recomputes the UI version from the local files.
 
 ## Contributing Workflow
 
@@ -302,6 +323,9 @@ docker run -it --rm -p 13451:13451 \
 | `make fmt-check` | Check formatting |
 | `make extract` | Regenerate OCaml from Coq |
 | `make extract-check` | Check for extraction drift |
+| `make ui` | Build the web UI and regenerate embedded assets |
+| `make ui-dev` | Run the web UI watcher |
+| `make ui-check` | Verify embedded web UI assets are current |
 | `make run` | Print CLI help |
 | `make clean` | Clean build artifacts |
 | `make docker-build` | Build Docker image |

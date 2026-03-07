@@ -59,7 +59,7 @@ The extracted OCaml is tracked in git so the project builds without Coq installe
 | `config_loader.ml` | File-based config loading: reads JSON, merges with env vars |
 | `agent.ml` | Agent loop: prompt assembly, provider calls, tool dispatch, conversation management |
 | `session.ml` | Session lifecycle: create, resume, persist conversation state |
-| `provider.ml` | LLM provider abstraction: OpenAI-compatible HTTP calls, streaming, model selection |
+| `provider.ml` | LLM provider abstraction: streaming text/thinking/tool events, model selection |
 | `memory.ml` | Key-value memory backend: SQLite-backed store/recall/forget with namespace support |
 | `vector.ml` | Local vector index: embedding storage, cosine similarity, hybrid FTS+vector merge |
 | `tool.ml` | Tool type definitions and invocation framework with risk-level enforcement |
@@ -67,7 +67,8 @@ The extracted OCaml is tracked in git so the project builds without Coq installe
 | `tools_builtin.ml` | Built-in tool implementations: file I/O, shell exec, web fetch, search |
 | `mcp_server.ml` | MCP server: exposes tools over JSON-RPC with configurable filtering |
 | `skills.ml` | Skill loader: discovers and loads skill definitions from the filesystem |
-| `http_server.ml` | HTTP server: Cohttp-lwt endpoint for web channel and health checks |
+| `http_server.ml` | HTTP server: gateway, SSE chat streaming, pairing, slash-command metadata, and web UI endpoints |
+| `ui_server.ml` | Web UI asset manager: embedded bundle extraction, dev-mode disk serving, and version hashing |
 | `http_client.ml` | HTTP client: shared Cohttp-lwt client for provider and API calls |
 | `telegram.ml` | Telegram channel: bot API integration via long polling |
 | `discord.ml` | Discord channel: WS gateway mode, REST rate limit buckets, reconnect loop |
@@ -150,3 +151,15 @@ The runtime is split into core and integrations to support a minimal build (`cla
 2. Network/server features belong in `clawq_runtime_integrations`
 3. Integration-only commands return "disabled in minimal build" messages in `command_bridge_min.ml`
 4. New dependencies are evaluated for core vs integration placement before linking
+
+## Web UI Surface
+
+The browser chat UI is embedded into the daemon and served from the gateway root.
+
+- `GET /` serves `index.html` plus versioned `chat.js` and `chat.css` assets.
+- `POST /chat/stream` emits SSE events for reply deltas, thinking deltas, tool starts, streamed tool output, tool results, and final completion.
+- `GET /commands` exposes slash-command metadata for autocomplete.
+- `GET /ui-version` returns the current UI bundle version so the client can offer a reload banner.
+- `POST /pair` exchanges a 6-digit OTP for a bearer token when gateway pairing is enabled.
+
+In normal mode the daemon extracts embedded assets into `~/.clawq/ui/` when the bundle hash changes. If `~/.clawq/ui/DEV` exists, the daemon switches to disk-backed dev mode and recomputes the UI version from local files instead of overwriting them.

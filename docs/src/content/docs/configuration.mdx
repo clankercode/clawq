@@ -26,11 +26,12 @@ Manage individual values by dot-path:
 
 ```bash
 # Set a value
-clawq config set providers.0.api_key "sk-..."
-clawq config set channels.telegram.enabled true
+clawq config set providers.openrouter.api_key "sk-..."
+clawq config set default_provider "openrouter"
+clawq config set channels.telegram.accounts.main.bot_token "123:ABC..."
 
 # Read a value
-clawq config get providers.0.model
+clawq config get providers.openrouter.default_model
 
 # Show full config (secrets redacted)
 clawq config show
@@ -64,33 +65,44 @@ When `security.encrypt_secrets` is `true` and `CLAWQ_MASTER_KEY` is set, API key
 
 ### providers
 
-An array of LLM provider configurations. The first provider is used by default.
+An object keyed by provider name. Use `default_provider` to choose which configured provider is used by default.
 
 ```json
 {
-  "providers": [
-    {
-      "name": "openrouter",
+  "providers": {
+    "openrouter": {
       "api_key": "sk-or-v1-...",
       "base_url": "https://openrouter.ai/api/v1",
-      "model": "openai/gpt-4o"
+      "default_model": "openai/gpt-4o"
     },
-    {
-      "name": "openai",
+    "openai": {
       "api_key": "sk-...",
       "base_url": "https://api.openai.com/v1",
-      "model": "gpt-4o"
+      "default_model": "gpt-4o"
     }
-  ]
+  },
+  "default_provider": "openrouter"
 }
 ```
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `name` | Yes | Provider identifier |
 | `api_key` | Yes | API key (or `$ENC:...` encrypted value) |
 | `base_url` | No | API base URL (defaults to OpenAI) |
-| `model` | No | Default model for this provider |
+| `kind` | No | Provider kind override (for example `openai-codex`) |
+| `default_model` | No | Default model for this provider |
+| `thinking_budget_tokens` | No | Provider reasoning budget when supported |
+| `oai_thinking_style` | No | OAI-compatible reasoning tag style; defaults to `none` |
+
+### default_provider
+
+```json
+{
+  "default_provider": "openrouter"
+}
+```
+
+This selects which key from `providers` is used when a request does not choose a provider explicitly.
 
 ### channels
 
@@ -100,9 +112,17 @@ Channel configurations for Telegram, Discord, and Slack.
 {
   "channels": {
     "telegram": {
-      "enabled": true,
-      "bot_token": "7123456789:AAF1k...",
-      "allow_from": ["*"]
+      "accounts": {
+        "main": {
+          "bot_token": "7123456789:AAF1k...",
+          "allow_from": ["*"],
+          "totp": {
+            "enabled": true,
+            "secret": "BASE32SECRET",
+            "session_ttl_hours": 24
+          }
+        }
+      }
     },
     "discord": {
       "enabled": true,
@@ -121,11 +141,15 @@ Channel configurations for Telegram, Discord, and Slack.
 
 **Telegram fields:**
 
+Telegram supports multiple named accounts under `channels.telegram.accounts`.
+
 | Field | Description |
 |-------|-------------|
-| `enabled` | Enable/disable this channel |
-| `bot_token` | Bot token from @BotFather |
-| `allow_from` | Array of allowed chat IDs, or `["*"]` for all users |
+| `accounts.<name>.bot_token` | Bot token from @BotFather |
+| `accounts.<name>.allow_from` | Array of allowed chat IDs, or `["*"]` for all users |
+| `accounts.<name>.totp.enabled` | Require TOTP pairing for non-allowlisted users |
+| `accounts.<name>.totp.secret` | Shared TOTP secret used by `clawq otp-show` |
+| `accounts.<name>.totp.session_ttl_hours` | How long a successful pairing stays valid |
 
 **Discord fields:**
 
@@ -174,7 +198,11 @@ Channel configurations for Telegram, Discord, and Slack.
 {
   "gateway": {
     "host": "127.0.0.1",
-    "port": 13451
+    "port": 13451,
+    "require_pairing": true,
+    "auth_token": null,
+    "max_pair_attempts": 5,
+    "pair_lockout_seconds": 300
   }
 }
 ```
@@ -183,6 +211,12 @@ Channel configurations for Telegram, Discord, and Slack.
 |-------|---------|-------------|
 | `host` | `127.0.0.1` | Gateway bind address |
 | `port` | `13451` | Gateway port |
+| `require_pairing` | `true` | Require browser/API clients to pair before posting chat requests |
+| `auth_token` | unset | Static bearer token or `x-api-key` alternative for scripted access |
+| `max_pair_attempts` | `5` | Failed OTP attempts allowed before temporary lockout |
+| `pair_lockout_seconds` | `300` | Lockout duration after too many failed pair attempts |
+
+The gateway root `/` serves the embedded web UI. Supporting endpoints include `/chat/stream` for SSE chat streaming, `/commands` for slash-command metadata, `/ui-version` for reload prompts, and `/pair` for browser pairing.
 
 ### memory
 
@@ -250,19 +284,22 @@ Channel configurations for Telegram, Discord, and Slack.
 
 ```json
 {
-  "providers": [
-    {
-      "name": "openrouter",
+  "providers": {
+    "openrouter": {
       "api_key": "sk-or-v1-...",
       "base_url": "https://openrouter.ai/api/v1",
-      "model": "openai/gpt-4o"
+      "default_model": "openai/gpt-4o"
     }
-  ],
+  },
+  "default_provider": "openrouter",
   "channels": {
     "telegram": {
-      "enabled": true,
-      "bot_token": "7123456789:AAF1k...",
-      "allow_from": ["*"]
+      "accounts": {
+        "main": {
+          "bot_token": "7123456789:AAF1k...",
+          "allow_from": ["*"]
+        }
+      }
     }
   },
   "security": {
@@ -273,7 +310,8 @@ Channel configurations for Telegram, Discord, and Slack.
   },
   "gateway": {
     "host": "127.0.0.1",
-    "port": 13451
+    "port": 13451,
+    "require_pairing": true
   },
   "memory": {
     "backend": "sqlite",

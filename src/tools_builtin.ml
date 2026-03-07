@@ -1423,6 +1423,7 @@ let glob ~workspace ~workspace_only ~extra_allowed_paths =
               Lwt.return
                 (String.concat "\n" sorted
                 ^ Printf.sprintf "\n\n(%d files matched)" (List.length sorted)));
+    invoke_stream = None;
     risk_level = Low;
     deferred = false;
   }
@@ -1500,6 +1501,7 @@ let list_dir ~workspace ~workspace_only ~extra_allowed_paths =
                    ^ Printf.sprintf "\n\n(%d entries)" (List.length lines))
           | exception Sys_error msg ->
               Lwt.return (Printf.sprintf "Error: %s" msg));
+    invoke_stream = None;
     risk_level = Low;
     deferred = false;
   }
@@ -1661,6 +1663,7 @@ let grep ~workspace ~workspace_only ~extra_allowed_paths =
               Lwt.return
                 (String.concat "\n" sorted
                 ^ Printf.sprintf "\n\n(%d matches)" (List.length sorted)));
+    invoke_stream = None;
     risk_level = Low;
     deferred = false;
   }
@@ -1760,6 +1763,7 @@ let http_request ~workspace_only =
               in
               Lwt.return (Printf.sprintf "HTTP %d\n%s" status truncated))
             (fun exn -> Lwt.return ("Error: " ^ Printexc.to_string exn)));
+    invoke_stream = None;
     risk_level = Medium;
     deferred = false;
   }
@@ -1921,6 +1925,7 @@ let web_fetch ~workspace_only =
                 in
                 Lwt.return truncated)
             (fun exn -> Lwt.return ("Error: " ^ Printexc.to_string exn)));
+    invoke_stream = None;
     risk_level = Medium;
     deferred = false;
   }
@@ -2119,6 +2124,7 @@ let web_search ~(config : Runtime_config.t) =
                               coverage; consider using provider: brave)"
                            else String.concat "\n\n" lines))
                 (fun exn -> Lwt.return ("Error: " ^ Printexc.to_string exn)));
+    invoke_stream = None;
     risk_level = Low;
     deferred = false;
   }
@@ -2342,6 +2348,7 @@ let git_operations ~workspace =
                     ]
                 in
                 Lwt.return result);
+    invoke_stream = None;
     risk_level = Medium;
     deferred = false;
   }
@@ -2389,6 +2396,7 @@ let send_message ~(send_fn : (text:string -> unit Lwt.t) option) =
                   Lwt.return "Message sent")
                 (fun exn ->
                   Lwt.return ("Error sending message: " ^ Printexc.to_string exn)));
+    invoke_stream = None;
     risk_level = Low;
     deferred = false;
   }

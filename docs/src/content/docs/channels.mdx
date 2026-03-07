@@ -62,8 +62,12 @@ API using **long polling** --- no webhooks, no public IP required.
 {
   "channels": {
     "telegram": {
-      "enabled": true,
-      "bot_token": "123456:ABC-DEF..."
+      "accounts": {
+        "main": {
+          "bot_token": "123456:ABC-DEF...",
+          "allow_from": ["*"]
+        }
+      }
     }
   }
 }
@@ -72,8 +76,8 @@ API using **long polling** --- no webhooks, no public IP required.
 Or via the CLI:
 
 ```bash
-clawq config set channels.telegram.enabled true
-clawq config set channels.telegram.bot_token "123456:ABC-DEF..."
+clawq config set channels.telegram.accounts.main.bot_token "123456:ABC-DEF..."
+clawq config set channels.telegram.accounts.main.allow_from '["*"]'
 ```
 
 ### Setup

@@ -5,14 +5,14 @@ section: "preface"
 order: 2
 ---
 
-The quickest path from zero to a running clawq instance takes about five minutes. This guide covers building from source, configuring a provider and channel, and starting the daemon.
+The quickest path from zero to a running clawq instance takes about five minutes. This guide covers building from source, configuring a provider, opening the streaming web UI, and optionally adding a chat channel such as Telegram.
 
 ## Prerequisites
 
 - **opam** -- the OCaml package manager
 - **libsqlite3-dev** (Debian/Ubuntu) or equivalent for your distribution
 - **An LLM API key** from OpenRouter, OpenAI, or any OpenAI-compatible provider
-- **A channel token** -- Telegram bot token (from @BotFather), Discord bot token, or Slack app token
+- **Optional channel credentials** -- Telegram bot token (from @BotFather), Discord bot token, or Slack app token if you want chat integrations beyond the browser UI
 
 ## 1. Bootstrap and Build
 
@@ -53,11 +53,14 @@ clawq config wizard
 Set individual values by dot-path:
 
 ```bash
-clawq config set providers.0.api_key "sk-or-v1-YOUR_KEY_HERE"
-clawq config set providers.0.base_url "https://openrouter.ai/api/v1"
-clawq config set providers.0.model "openai/gpt-4o"
-clawq config set channels.telegram.bot_token "7123456789:AAF1k_YOUR_TOKEN_HERE"
-clawq config set channels.telegram.allow_from '["*"]'
+clawq config set providers.openrouter.api_key "sk-or-v1-YOUR_KEY_HERE"
+clawq config set providers.openrouter.base_url "https://openrouter.ai/api/v1"
+clawq config set providers.openrouter.default_model "openai/gpt-4o"
+clawq config set default_provider "openrouter"
+
+# Optional Telegram channel
+clawq config set channels.telegram.accounts.main.bot_token "7123456789:AAF1k_YOUR_TOKEN_HERE"
+clawq config set channels.telegram.accounts.main.allow_from '["*"]'
 ```
 
 Review the result:
@@ -65,7 +68,7 @@ Review the result:
 ```bash
 clawq config show           # full config, secrets redacted
 clawq config show channels  # one section
-clawq config get providers.0.model  # single value
+clawq config get providers.openrouter.default_model  # single value
 ```
 
 ### Editing config.json directly
@@ -78,20 +81,28 @@ Minimal working configuration:
 
 ```json
 {
-  "providers": [
-    {
-      "name": "openrouter",
+  "providers": {
+    "openrouter": {
       "api_key": "sk-or-v1-YOUR_KEY_HERE",
       "base_url": "https://openrouter.ai/api/v1",
-      "model": "openai/gpt-4o"
+      "default_model": "openai/gpt-4o"
     }
-  ],
+  },
+  "default_provider": "openrouter",
   "channels": {
     "telegram": {
-      "enabled": true,
-      "bot_token": "7123456789:AAF1k_YOUR_TOKEN_HERE",
-      "allow_from": ["*"]
+      "accounts": {
+        "main": {
+          "bot_token": "7123456789:AAF1k_YOUR_TOKEN_HERE",
+          "allow_from": ["*"]
+        }
+      }
     }
+  },
+  "gateway": {
+    "host": "127.0.0.1",
+    "port": 13451,
+    "require_pairing": true
   }
 }
 ```
@@ -100,7 +111,8 @@ Minimal working configuration:
 
 - `allow_from`: `["*"]` allows all users. To restrict access, list specific chat IDs: `["123456789", "987654321"]`.
 - `base_url`: Use `https://api.openai.com/v1` for OpenAI directly, or any compatible endpoint.
-- `model`: Default model for this provider. Can be overridden per-request.
+- `default_model`: Default model for this provider. Can be overridden per-request.
+- `default_provider`: Selects which provider name is used by default.
 
 ## 4. Validate
 
@@ -162,6 +174,13 @@ If you configured Telegram, open Telegram and message your bot. Built-in command
 | `/new` | Reset conversation history |
 
 The bot maintains conversation history per chat, so follow-up questions work naturally.
+
+Open the browser UI at `http://127.0.0.1:13451/`:
+
+- The page streams assistant text live from `/chat/stream`.
+- Thinking deltas and tool output render in separate panels while the turn is in progress.
+- Slash command suggestions are loaded from `/commands`.
+- When the gateway uses pairing mode, the page asks for the 6-digit code from `clawq otp-show` and stores the issued bearer token locally for later requests.
 
 ## Troubleshooting
 

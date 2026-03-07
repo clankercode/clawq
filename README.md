@@ -8,7 +8,7 @@
   <img src="docs/badges/formal-verification.svg" alt="Formal Verification" />
 </p>
 
-A *formally* verified personal AI assistant runtime — Coq-proven core properties extracted to OCaml, with impeccable manners and machine-checked correctness. Multi-channel support (CLI, Telegram, Discord, Slack), HTTP gateway, cron scheduling, audit logging, and MCP server.
+A *formally* verified personal AI assistant runtime — Coq-proven core properties extracted to OCaml, with impeccable manners and machine-checked correctness. Multi-channel support (CLI, Telegram, Discord, Slack), HTTP gateway, streaming web chat UI, cron scheduling, audit logging, and MCP server.
 
 ## Quick Help
 
@@ -18,7 +18,7 @@ clawq onboard
 
 # Or configure piece by piece with an API key provider
 clawq config set providers.openrouter.api_key "sk-..."
-clawq config set channels.telegram.bot_token "123:ABC..."
+clawq config set channels.telegram.accounts.main.bot_token "123:ABC..."
 clawq config show                  # review config (secrets redacted)
 
 # Or use a ChatGPT/Codex subscription provider
@@ -26,6 +26,12 @@ clawq auth codex-login openai-codex
 
 # Start the daemon
 clawq agent
+
+# Open the web UI
+xdg-open http://127.0.0.1:13451/
+
+# If gateway pairing is enabled (default), show the pairing code
+clawq otp-show
 
 # Common operations
 clawq status                       # runtime status
@@ -114,6 +120,18 @@ For ChatGPT/Codex subscription auth instead of an API key, add a provider like t
 
 Your bot is now live on Telegram. Send it a message to verify.
 
+### Using the Web UI
+
+Once the daemon is running, open `http://127.0.0.1:13451/` in a browser.
+
+- The root gateway route serves the embedded chat UI.
+- Assistant replies stream live over SSE.
+- Thinking and tool output render in separate panels during a turn.
+- Slash commands are available with autocomplete from `/commands`.
+- When `gateway.require_pairing` is enabled (the default), the UI prompts for the 6-digit code from `clawq otp-show` before sending chat requests.
+
+For live UI development, run `make ui-dev`, create `~/.clawq/ui/DEV`, and point the daemon at the same `~/.clawq/ui/` directory. In normal mode, clawq extracts versioned embedded assets there automatically.
+
 ## CLI Commands
 
 ```
@@ -184,6 +202,9 @@ Run `clawq COMMAND --help` for per-command usage.
 | `make fmt-check` | Check formatting |
 | `make extract` | Regenerate OCaml from Coq theories |
 | `make extract-check` | Check for extraction drift |
+| `make ui` | Build the web UI and regenerate embedded assets |
+| `make ui-dev` | Run the Bun watcher for web UI development |
+| `make ui-check` | Verify embedded web UI assets are current |
 | `make run` | Print CLI help |
 | `make phase2` | Show Phase 2 feature status |
 | `make clean` | Clean build artifacts |
