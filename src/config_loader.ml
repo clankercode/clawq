@@ -49,6 +49,13 @@ let parse_config ?(resolve_secrets = true) json =
             try Some (v |> member "service_account_json" |> to_string)
             with _ -> None
           in
+          let thinking_budget_tokens =
+            try Some (v |> member "thinking_budget_tokens" |> to_int)
+            with _ -> None
+          in
+          let oai_thinking_style =
+            try v |> member "oai_thinking_style" |> to_string with _ -> "none"
+          in
           let codex_oauth =
             try
               let oauth = v |> member "codex_oauth" in
@@ -91,6 +98,8 @@ let parse_config ?(resolve_secrets = true) json =
                project_id;
                location;
                service_account_json;
+               thinking_budget_tokens;
+               oai_thinking_style;
                codex_oauth;
              }
               : Runtime_config.provider_config) ))

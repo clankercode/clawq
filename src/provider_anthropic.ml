@@ -181,6 +181,18 @@ let complete ~(config : Runtime_config.t)
     | Some t -> body_fields @ [ ("tools", t) ]
     | None -> body_fields
   in
+  let body_fields =
+    match provider.thinking_budget_tokens with
+    | Some budget when budget > 0 ->
+        body_fields
+        @ [
+            ( "thinking",
+              `Assoc
+                [ ("type", `String "enabled"); ("budget_tokens", `Int budget) ]
+            );
+          ]
+    | _ -> body_fields
+  in
   let body = `Assoc body_fields |> Yojson.Safe.to_string in
   let headers =
     [
@@ -231,6 +243,18 @@ let complete_streaming ~(config : Runtime_config.t)
     | Some t -> body_fields @ [ ("tools", t) ]
     | None -> body_fields
   in
+  let body_fields =
+    match provider.thinking_budget_tokens with
+    | Some budget when budget > 0 ->
+        body_fields
+        @ [
+            ( "thinking",
+              `Assoc
+                [ ("type", `String "enabled"); ("budget_tokens", `Int budget) ]
+            );
+          ]
+    | _ -> body_fields
+  in
   let body = `Assoc body_fields |> Yojson.Safe.to_string in
   let headers =
     [
@@ -259,10 +283,12 @@ let complete_streaming ~(config : Runtime_config.t)
     let content_acc = Buffer.create 1024 in
     let resp_model = ref model in
     let usage_acc = ref None in
-    let tool_calls_acc :
-        (string * string * Buffer.t) list ref (* id, name, args_buf *) =
+    let tool_calls_acc : (int * string * string * Buffer.t) list ref
+        (* index, id, name, args_buf *) =
       ref []
     in
+    let current_block_type = ref "" in
+    let current_block_index = ref 0 in
     let current_tool_id = ref "" in
     let current_tool_name = ref "" in
     let stop_reason = ref "" in
@@ -285,27 +311,51 @@ let complete_streaming ~(config : Runtime_config.t)
                usage_acc := Some (it, ot)
              with _ -> ());
             Lwt.return_unit
-        | "content_block_start" ->
-            (try
-               let block = json |> member "content_block" in
-               let btype = block |> member "type" |> to_string in
-               if btype = "tool_use" then begin
-                 (current_tool_id :=
-                    try block |> member "id" |> to_string with _ -> "");
-                 (current_tool_name :=
-                    try block |> member "name" |> to_string with _ -> "");
-                 let args_buf = Buffer.create 256 in
-                 tool_calls_acc :=
-                   !tool_calls_acc
-                   @ [ (!current_tool_id, !current_tool_name, args_buf) ]
-               end
-             with _ -> ());
-            Lwt.return_unit
+        | "content_block_start" -> (
+            try
+              current_block_index := json |> member "index" |> to_int;
+              let block = json |> member "content_block" in
+              let btype = block |> member "type" |> to_string in
+              current_block_type := btype;
+              if btype = "tool_use" then begin
+                (current_tool_id :=
+                   try block |> member "id" |> to_string with _ -> "");
+                (current_tool_name :=
+                   try block |> member "name" |> to_string with _ -> "");
+                let args_buf = Buffer.create 256 in
+                tool_calls_acc :=
+                  !tool_calls_acc
+                  @ [
+                      ( !current_block_index,
+                        !current_tool_id,
+                        !current_tool_name,
+                        args_buf );
+                    ];
+                on_chunk
+                  (Provider.ToolCallDelta
+                     {
+                       index = !current_block_index;
+                       id = Some !current_tool_id;
+                       function_name = Some !current_tool_name;
+                       arguments = None;
+                     })
+              end
+              else Lwt.return_unit
+            with _ -> Lwt.return_unit)
         | "content_block_delta" -> (
             try
               let delta = json |> member "delta" in
               let dtype = delta |> member "type" |> to_string in
-              if dtype = "text_delta" then begin
+              if dtype = "thinking_delta" || !current_block_type = "thinking"
+              then begin
+                let thinking =
+                  try delta |> member "thinking" |> to_string with _ -> ""
+                in
+                if thinking <> "" then
+                  on_chunk (Provider.ThinkingDelta thinking)
+                else Lwt.return_unit
+              end
+              else if dtype = "text_delta" then begin
                 let text = delta |> member "text" |> to_string in
                 Buffer.add_string content_acc text;
                 on_chunk (Provider.Delta text)
@@ -313,14 +363,27 @@ let complete_streaming ~(config : Runtime_config.t)
               else begin
                 if dtype = "input_json_delta" then begin
                   let partial = delta |> member "partial_json" |> to_string in
-                  (* append to last tool call's args buffer *)
-                  match List.rev !tool_calls_acc with
-                  | (_, _, args_buf) :: _ -> Buffer.add_string args_buf partial
-                  | [] -> ()
-                end;
-                Lwt.return_unit
+                  List.iter
+                    (fun (idx, _, _, args_buf) ->
+                      if idx = !current_block_index then
+                        Buffer.add_string args_buf partial)
+                    !tool_calls_acc;
+                  on_chunk
+                    (Provider.ToolCallDelta
+                       {
+                         index = !current_block_index;
+                         id = None;
+                         function_name = None;
+                         arguments = Some partial;
+                       })
+                end
+                else Lwt.return_unit
               end
             with _ -> Lwt.return_unit)
+        | "content_block_stop" ->
+            current_block_type := "";
+            current_block_index := 0;
+            Lwt.return_unit
         | "message_delta" ->
             (try
                let d = json |> member "delta" in
@@ -396,7 +459,7 @@ let complete_streaming ~(config : Runtime_config.t)
     let final_model = !resp_model in
     let tool_calls =
       List.map
-        (fun (id, name, args_buf) ->
+        (fun (_, id, name, args_buf) ->
           {
             Provider.id;
             function_name = name;

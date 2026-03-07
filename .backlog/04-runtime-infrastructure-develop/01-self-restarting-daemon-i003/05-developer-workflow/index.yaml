@@ -6,11 +6,11 @@ locked: false
 name: Developer Workflow
 stats:
     blocked: 0
-    done: 0
+    done: 3
     in_progress: 0
-    pending: 3
+    pending: 0
     total: 3
-status: pending
+status: done
 tasks:
     - complexity: low
       depends_on:
@@ -19,7 +19,7 @@ tasks:
       file: T001-clawq-service-signal-restart-read.todo
       id: T001
       priority: medium
-      status: pending
+      status: done
       tags: []
       title: 'clawq service signal-restart: read PID file, send SIGUSR1; error if not running'
     - complexity: low
@@ -29,7 +29,7 @@ tasks:
       file: T002-make-restart-and-make-build-resta.todo
       id: T002
       priority: medium
-      status: pending
+      status: done
       tags: []
       title: make restart and make build-restart Makefile targets
     - complexity: medium
@@ -40,6 +40,6 @@ tasks:
       file: T003-update-agent-tool-chat-command-g.todo
       id: T003
       priority: medium
-      status: pending
+      status: done
       tags: []
       title: '/update agent tool + chat command: git pull (non-fatal) + make build (fatal) + SIGUSR1; stream progress; guard on draining'

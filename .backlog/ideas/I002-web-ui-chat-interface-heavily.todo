@@ -66,6 +66,7 @@ Phase P3: Web UI: Streaming Chat Interface
 - P3.M3.E1.T002: OCaml tests: versioning, ThinkingDelta parsing, ToolStart/ToolResult
 - P3.M3.E1.T003: Update docs: CLAUDE.md
 - P3.M3.E1.T004: Mark I002 done
+- P3.M3.E1.T005: Update test fixtures: stream_event exhaustive match across all provider test suites
 
 ## Ingestion Notes (plan-ingest audit, 2026-03-06)
 

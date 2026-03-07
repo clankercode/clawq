@@ -1,11 +1,13 @@
 ---
+completed_at: null
 complexity: low
 depends_on:
     - P3.M1.E3.T001
 estimate_hours: 2
 id: P3.M1.E3.T002
 priority: medium
-status: pending
+started_at: null
+status: done
 tags: []
 title: 'http_server.ml: GET routes for UI assets, /ui-version, /commands'
 ---

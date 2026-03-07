@@ -17,8 +17,12 @@ let unescape_newlines s =
   Buffer.contents buf
 
 let run name args =
-  print_string (unescape_newlines (Command_bridge.handle (name :: args)));
-  `Ok ()
+  let result = unescape_newlines (Command_bridge.handle (name :: args)) in
+  if Cli_exit.should_error ~name ~args ~result then `Error (false, result)
+  else begin
+    print_string result;
+    `Ok ()
+  end
 
 let rest_args docv = Arg.(value & pos_all string [] & info [] ~docv)
 
@@ -202,12 +206,16 @@ let skills_cmd =
     ]
 
 let service_cmd =
-  with_args "service" "Manage the clawq system service (start/stop/restart)."
+  with_args "service"
+    "Manage the clawq system service (start/stop/restart/signal-restart)."
     [
       `S "SUBCOMMANDS";
       `I ("start", "Start the clawq service.");
       `I ("stop", "Stop the clawq service.");
       `I ("restart", "Restart the clawq service.");
+      `I
+        ( "signal-restart",
+          "Send SIGUSR1 to the running daemon for a graceful restart." );
       `I ("status", "Show service status (default).");
     ]
 

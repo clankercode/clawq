@@ -14,6 +14,7 @@ let dummy_tool =
         let open Yojson.Safe.Util in
         let text = try args |> member "text" |> to_string with _ -> "" in
         Lwt.return ("echo: " ^ text));
+    invoke_stream = None;
     risk_level = Tool.Low;
     deferred = false;
   }

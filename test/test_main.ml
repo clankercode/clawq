@@ -2,12 +2,18 @@ let () =
   Alcotest.run "clawq"
     ([
        ("clawq_core", Test_clawq_core.suite);
+       ("cli_exit", Test_cli_exit.suite);
        ("command_bridge", Test_command_bridge.suite);
        ("phase3", Test_phase3.suite);
        ("scheduler", Test_scheduler.suite);
        ("migrate", Test_migrate.suite);
        ("audit", Test_audit.suite);
+       ("daemon", Test_daemon.suite);
+       ("service", Test_service.suite);
+       ("restart", Test_restart.suite);
        ("session", Test_session.suite);
+       ("session_persistence", Test_session_persistence.suite);
+       ("update_tool", Test_update_tool.suite);
        ("skills", Test_skills.suite);
        ("memory_search", Test_memory_search.suite);
        ("streaming", Test_streaming.suite);
@@ -52,6 +58,7 @@ let () =
        ("pairing", Test_pairing.suite);
        ("memory", Test_memory.suite);
        ("chat_ui", Test_chat_ui.suite);
+       ("ui_server", Test_ui_server.suite);
        ("channel_formats", Test_channel_formats.suite);
        ("commands", Test_commands.suite);
        ("contracts", Test_contracts.suite);

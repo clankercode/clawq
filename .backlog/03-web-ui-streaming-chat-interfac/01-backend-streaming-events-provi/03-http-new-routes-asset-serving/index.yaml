@@ -6,11 +6,11 @@ locked: false
 name: 'HTTP: New Routes + Asset Serving'
 stats:
     blocked: 0
-    done: 0
+    done: 3
     in_progress: 0
-    pending: 3
+    pending: 0
     total: 3
-status: pending
+status: done
 tasks:
     - complexity: medium
       depends_on: []
@@ -18,7 +18,8 @@ tasks:
       file: T001-ui-server-ml-hybrid-asset-serv.todo
       id: T001
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: 'ui_server.ml: hybrid asset serving with versioning and dev mode'
     - complexity: low
       depends_on:
@@ -27,7 +28,8 @@ tasks:
       file: T002-http-server-ml-get-routes-for.todo
       id: T002
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: 'http_server.ml: GET routes for UI assets, /ui-version, /commands'
     - complexity: low
       depends_on:
@@ -37,5 +39,6 @@ tasks:
       file: T003-http-server-ml-forward-new-str.todo
       id: T003
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: 'http_server.ml: forward new stream events (ThinkingDelta, ToolStart, ToolOutputDelta, ToolResult) as SSE'

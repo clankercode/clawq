@@ -6,11 +6,11 @@ locked: false
 name: 'Agent: Tool Event Streaming'
 stats:
     blocked: 0
-    done: 0
+    done: 3
     in_progress: 0
-    pending: 3
+    pending: 0
     total: 3
-status: pending
+status: done
 tasks:
     - complexity: low
       depends_on: []
@@ -18,7 +18,8 @@ tasks:
       file: T001-add-toolstart-tooloutputdelta.todo
       id: T001
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: Add ToolStart, ToolOutputDelta, ToolResult variants to Provider.stream_event
     - complexity: medium
       depends_on:
@@ -27,7 +28,8 @@ tasks:
       file: T002-agent-ml-emit-toolstart-toolre.todo
       id: T002
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: 'agent.ml: emit ToolStart/ToolResult events in turn_stream via on_chunk'
     - complexity: high
       depends_on:
@@ -36,5 +38,6 @@ tasks:
       file: T003-tools-builtin-ml-shell-command.todo
       id: T003
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: 'tools_builtin.ml: shell command stdout streaming with ANSI preserved'

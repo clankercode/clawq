@@ -1,5 +1,6 @@
 (test
  (name test_main)
+ (deps ../src/main.exe)
  (libraries
   clawq_extracted
   clawq_runtime_core
@@ -12,6 +13,4 @@
   unix
   cohttp
   lwt
-  lwt.unix)
- (instrumentation
-  (backend bisect_ppx)))
+  lwt.unix))

@@ -1,3 +1,22 @@
+---
+claimed_at: "2026-03-07T05:33:14Z"
+claimed_by: cli-user
+completed_at: "2026-03-07T05:33:14Z"
+complexity: medium
+depends_on:
+    - P4.M1.E1.T004
+    - P4.M1.E3.T003
+    - P4.M1.E4.T001
+duration_minutes: 0.014529041266666667
+estimate_hours: 2
+id: P4.M1.E6.T001
+priority: medium
+started_at: "2026-03-07T05:33:14Z"
+status: done
+tags: []
+title: 'Unit tests: schema migration v1->v2, session_state CRUD, tool_call round-trip, NOFORK detection, Discord RESUME save/load'
+---
+
 
 ## Implementation
 

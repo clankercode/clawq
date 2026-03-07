@@ -1,11 +1,13 @@
 ---
+completed_at: null
 complexity: medium
 depends_on:
     - P3.M2.E2.T002
 estimate_hours: 2
 id: P3.M2.E3.T001
 priority: medium
-status: pending
+started_at: null
+status: done
 tags: []
 title: 'thinking.ts: collapsible thinking block panel with streaming state'
 ---

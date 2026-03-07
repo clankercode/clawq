@@ -1,11 +1,13 @@
 ---
+completed_at: null
 complexity: low
 depends_on:
     - P3.M3.E1.T001
 estimate_hours: 1
 id: P3.M3.E1.T003
 priority: medium
-status: pending
+started_at: null
+status: done
 tags: []
 title: 'Update docs: CLAUDE.md quick file map, add ''make ui'' to build section'
 ---

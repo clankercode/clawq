@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-07T05:33:14Z"
+claimed_by: cli-user
+completed_at: "2026-03-07T05:33:15Z"
 complexity: low
 depends_on: []
+duration_minutes: 0.016706176633333333
 estimate_hours: 1
 id: P4.M1.E6.T004
 priority: medium
-status: pending
+started_at: "2026-03-07T05:33:14Z"
+status: done
 tags: []
 title: 'Fix ocamlformat version alignment: local 0.28.1 vs CI 0.27.0'
 ---

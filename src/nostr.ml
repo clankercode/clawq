@@ -324,15 +324,20 @@ let listen_relay ~(config : Runtime_config.nostr_config) relay ~since_ts
                     | Some text -> (
                         let key = "nostr:" ^ sender in
                         let* result =
-                          Lwt.catch
+                          Session.with_registered_notifier session_mgr ~key
+                            ~notify:(fun text ->
+                              send_dm ~config ~recipient:sender ~content:text)
                             (fun () ->
-                              let* response =
-                                Session.turn session_mgr ~key ~message:text
-                                  ~channel_name:"nostr" ~channel_type:"dm" ()
-                              in
-                              Lwt.return (Ok response))
-                            (fun exn ->
-                              Lwt.return (Error (Printexc.to_string exn)))
+                              Lwt.catch
+                                (fun () ->
+                                  let* response =
+                                    Session.turn session_mgr ~key ~message:text
+                                      ~channel_name:"nostr" ~channel_type:"dm"
+                                      ()
+                                  in
+                                  Lwt.return (Ok response))
+                                (fun exn ->
+                                  Lwt.return (Error (Printexc.to_string exn))))
                         in
                         match result with
                         | Ok response ->

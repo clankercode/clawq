@@ -1,0 +1,10 @@
+{
+  "name": "clawq-ui",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun run scripts/build.ts",
+    "dev": "bun run scripts/build.ts --watch",
+    "test": "bun test"
+  }
+}

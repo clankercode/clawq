@@ -6,11 +6,11 @@ locked: false
 name: Graceful Restart Engine
 stats:
     blocked: 0
-    done: 0
+    done: 3
     in_progress: 0
-    pending: 3
+    pending: 0
     total: 3
-status: pending
+status: done
 tasks:
     - complexity: medium
       depends_on:
@@ -19,7 +19,7 @@ tasks:
       file: T001-on-startup-resume-load-pending-a.todo
       id: T001
       priority: medium
-      status: pending
+      status: done
       tags: []
       title: 'On-startup resume: load pending agent sessions from session_state and re-invoke LLM via channel dispatch'
     - complexity: high
@@ -29,7 +29,7 @@ tasks:
       file: T002-sigusr1-handler-60s-drain-loop-w.todo
       id: T002
       priority: medium
-      status: pending
+      status: done
       tags: []
       title: SIGUSR1 handler + 60s drain loop with user warnings (5/10/15/30/45/60s via channel_notifiers) + execv self-restart
     - complexity: low
@@ -39,6 +39,6 @@ tasks:
       file: T003-clawq-daemon-nofork-env-var-in-s.todo
       id: T003
       priority: medium
-      status: pending
+      status: done
       tags: []
       title: 'CLAWQ_DAEMON_NOFORK env var in service.ml: skip fork/setsid/FD-redirect/PID-write on execv restart path'

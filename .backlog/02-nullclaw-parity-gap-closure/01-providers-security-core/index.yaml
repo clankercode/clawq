@@ -43,8 +43,8 @@ locked: false
 name: Providers & Security Core
 stats:
     blocked: 0
-    done: 19
+    done: 24
     in_progress: 0
     pending: 0
-    total_tasks: 19
+    total_tasks: 24
 status: done

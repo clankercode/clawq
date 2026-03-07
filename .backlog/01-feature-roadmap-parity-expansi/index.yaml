@@ -43,9 +43,9 @@ milestones:
 name: 'Feature Roadmap: Parity & Expansion'
 stats:
     blocked: 0
-    done: 30
-    in_progress: 1
-    pending: 4
+    done: 35
+    in_progress: 0
+    pending: 0
     total_tasks: 35
 status: done
 weeks: 12

@@ -108,15 +108,21 @@ let handle_webhook ~(config : Runtime_config.line_config)
           end
           else
             let key = "line:" ^ user_id in
+            let notify text =
+              if reply_token <> "" then send_reply ~config ~reply_token ~text
+              else send_push ~config ~user_id ~text
+            in
             let* result =
-              Lwt.catch
+              Session.with_registered_notifier session_mgr ~key ~notify
                 (fun () ->
-                  let* response =
-                    Session.turn session_mgr ~key ~message:text
-                      ~channel_name:"line" ~channel_type:"dm" ()
-                  in
-                  Lwt.return (Ok response))
-                (fun exn -> Lwt.return (Error (Printexc.to_string exn)))
+                  Lwt.catch
+                    (fun () ->
+                      let* response =
+                        Session.turn session_mgr ~key ~message:text
+                          ~channel_name:"line" ~channel_type:"dm" ()
+                      in
+                      Lwt.return (Ok response))
+                    (fun exn -> Lwt.return (Error (Printexc.to_string exn))))
             in
             match result with
             | Ok response ->

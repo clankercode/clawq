@@ -216,6 +216,8 @@ let test_to_json_preserves_codex_oauth_provider () =
       project_id = None;
       location = None;
       service_account_json = None;
+      thinking_budget_tokens = None;
+      oai_thinking_style = "none";
       codex_oauth =
         Some
           {
@@ -241,6 +243,30 @@ let test_to_json_preserves_codex_oauth_provider () =
     (json |> member "providers" |> member "openai-codex" |> member "codex_oauth"
    |> member "access_token" |> to_string)
 
+let test_parse_provider_thinking_fields () =
+  let json =
+    Yojson.Safe.from_string
+      {|{
+        "providers": {
+          "deepseek": {
+            "api_key": "sk-test",
+            "oai_thinking_style": "reasoning_content"
+          },
+          "anthropic": {
+            "api_key": "sk-ant-test",
+            "thinking_budget_tokens": 4096
+          }
+        }
+      }|}
+  in
+  let cfg = Config_loader.parse_config json in
+  let deepseek = List.assoc "deepseek" cfg.providers in
+  let anthropic = List.assoc "anthropic" cfg.providers in
+  Alcotest.(check string)
+    "oai thinking style parsed" "reasoning_content" deepseek.oai_thinking_style;
+  Alcotest.(check (option int))
+    "thinking budget parsed" (Some 4096) anthropic.thinking_budget_tokens
+
 let suite =
   [
     Alcotest.test_case "load backfill preserves unknown keys" `Quick
@@ -265,4 +291,6 @@ let suite =
       test_parse_codex_oauth_provider;
     Alcotest.test_case "to_json preserves codex oauth provider" `Quick
       test_to_json_preserves_codex_oauth_provider;
+    Alcotest.test_case "parse provider thinking fields" `Quick
+      test_parse_provider_thinking_fields;
   ]

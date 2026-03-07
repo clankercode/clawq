@@ -8,6 +8,10 @@ let commands =
     { name = "new"; description = "Start a new conversation" };
     { name = "status"; description = "Show bot status" };
     { name = "pair"; description = "Pair with TOTP code: /pair <6-digit-code>" };
+    {
+      name = "update";
+      description = "Pull, rebuild, and gracefully restart clawq";
+    };
   ]
 
 let help_text =

@@ -83,6 +83,84 @@ let test_process_sse_stream_tool_calls () =
       Alcotest.(check string) "arguments" {|{"q":"test"}|} tc.arguments
   | _ -> Alcotest.fail "Expected ToolCalls response"
 
+let test_process_sse_stream_tool_calls_backfill_metadata () =
+  let sse json = "data: " ^ Yojson.Safe.to_string json ^ "\n\n" in
+  let chunks =
+    [
+      sse
+        (`Assoc
+           [
+             ( "choices",
+               `List
+                 [
+                   `Assoc
+                     [
+                       ( "delta",
+                         `Assoc
+                           [
+                             ( "tool_calls",
+                               `List
+                                 [
+                                   `Assoc
+                                     [
+                                       ("index", `Int 0);
+                                       ( "function",
+                                         `Assoc
+                                           [ ("arguments", `String {|{"q":|}) ]
+                                       );
+                                     ];
+                                 ] );
+                           ] );
+                     ];
+                 ] );
+           ]);
+      sse
+        (`Assoc
+           [
+             ( "choices",
+               `List
+                 [
+                   `Assoc
+                     [
+                       ( "delta",
+                         `Assoc
+                           [
+                             ( "tool_calls",
+                               `List
+                                 [
+                                   `Assoc
+                                     [
+                                       ("index", `Int 0);
+                                       ("id", `String "call_2");
+                                       ( "function",
+                                         `Assoc
+                                           [
+                                             ("name", `String "search");
+                                             ("arguments", `String {|"late"}|});
+                                           ] );
+                                     ];
+                                 ] );
+                           ] );
+                     ];
+                 ] );
+           ]);
+      "data: [DONE]\n\n";
+    ]
+  in
+  let stream = Lwt_stream.of_list chunks in
+  let result =
+    Lwt_main.run
+      (Provider.process_sse_stream stream ~on_chunk:(fun _ -> Lwt.return_unit))
+  in
+  match result with
+  | Provider.ToolCalls { calls; _ } ->
+      Alcotest.(check int) "one tool call" 1 (List.length calls);
+      let tc = List.hd calls in
+      Alcotest.(check string) "tool call id" "call_2" tc.id;
+      Alcotest.(check string) "function name" "search" tc.function_name;
+      Alcotest.(check string) "arguments" {|{"q":"late"}|} tc.arguments
+  | _ -> Alcotest.fail "Expected ToolCalls response"
+
 let test_process_sse_stream_partial_chunks () =
   (* Simulate data split across chunk boundaries *)
   let chunks =
@@ -101,6 +179,74 @@ let test_process_sse_stream_partial_chunks () =
       Alcotest.(check string) "content from partial chunks" "Hi" content
   | _ -> Alcotest.fail "Expected Text response"
 
+let test_process_sse_stream_reasoning_content () =
+  let chunks =
+    [
+      {|data: {"choices":[{"delta":{"reasoning_content":"plan first"}}]}|}
+      ^ "\n\n";
+      {|data: {"choices":[{"delta":{"content":"final answer"}}]}|} ^ "\n\n";
+      "data: [DONE]\n\n";
+    ]
+  in
+  let stream = Lwt_stream.of_list chunks in
+  let thinking = Buffer.create 32 in
+  let visible = Buffer.create 32 in
+  let on_chunk = function
+    | Provider.ThinkingDelta text ->
+        Buffer.add_string thinking text;
+        Lwt.return_unit
+    | Provider.Delta text ->
+        Buffer.add_string visible text;
+        Lwt.return_unit
+    | _ -> Lwt.return_unit
+  in
+  let result =
+    Lwt_main.run
+      (Provider.process_sse_stream ~thinking_style:Provider.ReasoningContent
+         stream ~on_chunk)
+  in
+  Alcotest.(check string)
+    "thinking delta" "plan first" (Buffer.contents thinking);
+  Alcotest.(check string)
+    "visible delta" "final answer" (Buffer.contents visible);
+  match result with
+  | Provider.Text { content; _ } ->
+      Alcotest.(check string) "final content" "final answer" content
+  | _ -> Alcotest.fail "Expected Text response"
+
+let test_process_sse_stream_tagged_thinking () =
+  let chunks =
+    [
+      {|data: {"choices":[{"delta":{"content":"<thi"}}]}|} ^ "\n\n";
+      {|data: {"choices":[{"delta":{"content":"nk>plan"}}]}|} ^ "\n\n";
+      {|data: {"choices":[{"delta":{"content":"</think>visible"}}]}|} ^ "\n\n";
+      "data: [DONE]\n\n";
+    ]
+  in
+  let stream = Lwt_stream.of_list chunks in
+  let thinking = Buffer.create 32 in
+  let visible = Buffer.create 32 in
+  let on_chunk = function
+    | Provider.ThinkingDelta text ->
+        Buffer.add_string thinking text;
+        Lwt.return_unit
+    | Provider.Delta text ->
+        Buffer.add_string visible text;
+        Lwt.return_unit
+    | _ -> Lwt.return_unit
+  in
+  let result =
+    Lwt_main.run
+      (Provider.process_sse_stream ~thinking_style:Provider.TaggedThinking
+         stream ~on_chunk)
+  in
+  Alcotest.(check string) "tagged thinking" "plan" (Buffer.contents thinking);
+  Alcotest.(check string) "tagged visible" "visible" (Buffer.contents visible);
+  match result with
+  | Provider.Text { content; _ } ->
+      Alcotest.(check string) "tagged final content" "visible" content
+  | _ -> Alcotest.fail "Expected Text response"
+
 let test_provider_config_default_model () =
   let config : Runtime_config.t =
     {
@@ -116,6 +262,8 @@ let test_provider_config_default_model () =
               project_id = None;
               location = None;
               service_account_json = None;
+              thinking_budget_tokens = None;
+              oai_thinking_style = "none";
               codex_oauth = None;
             } );
         ];
@@ -146,6 +294,8 @@ let test_select_provider_prefers_colon_model_provider () =
               project_id = None;
               location = None;
               service_account_json = None;
+              thinking_budget_tokens = None;
+              oai_thinking_style = "none";
               codex_oauth = None;
             } );
           ( "zai_coding",
@@ -157,6 +307,8 @@ let test_select_provider_prefers_colon_model_provider () =
               project_id = None;
               location = None;
               service_account_json = None;
+              thinking_budget_tokens = None;
+              oai_thinking_style = "none";
               codex_oauth = None;
             } );
         ];
@@ -188,6 +340,8 @@ let test_select_provider_keeps_raw_model_when_target_provider_missing () =
               project_id = None;
               location = None;
               service_account_json = None;
+              thinking_budget_tokens = None;
+              oai_thinking_style = "none";
               codex_oauth = None;
             } );
         ];
@@ -215,8 +369,14 @@ let suite =
     Alcotest.test_case "SSE stream text" `Quick test_process_sse_stream_text;
     Alcotest.test_case "SSE stream tool calls" `Quick
       test_process_sse_stream_tool_calls;
+    Alcotest.test_case "SSE stream tool calls backfill metadata" `Quick
+      test_process_sse_stream_tool_calls_backfill_metadata;
     Alcotest.test_case "SSE stream partial chunks" `Quick
       test_process_sse_stream_partial_chunks;
+    Alcotest.test_case "SSE reasoning_content thinking" `Quick
+      test_process_sse_stream_reasoning_content;
+    Alcotest.test_case "SSE tagged thinking" `Quick
+      test_process_sse_stream_tagged_thinking;
     Alcotest.test_case "provider config default_model" `Quick
       test_provider_config_default_model;
     Alcotest.test_case "select provider with colon target" `Quick

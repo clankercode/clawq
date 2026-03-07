@@ -1,15 +1,75 @@
-let schema_version = 1
+let schema_version = 2
+
+let exec_exn db sql =
+  match Sqlite3.exec db sql with
+  | Sqlite3.Rc.OK -> ()
+  | rc ->
+      failwith
+        (Printf.sprintf "SQLite error: %s (sql: %s)" (Sqlite3.Rc.to_string rc)
+           sql)
+
+let query_single_int db sql =
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.ROW -> (
+          match Sqlite3.column stmt 0 with
+          | Sqlite3.Data.INT n -> Int64.to_int n
+          | _ -> 0)
+      | _ -> 0)
+
+let set_schema_version db version =
+  let stmt = Sqlite3.prepare db "UPDATE schema_version SET version = ?" in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.INT (Int64.of_int version)));
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.DONE -> ()
+      | rc ->
+          failwith
+            (Printf.sprintf "SQLite error: %s (sql: UPDATE schema_version ...)"
+               (Sqlite3.Rc.to_string rc)))
+
+let init_session_schema db =
+  exec_exn db
+    "CREATE TABLE IF NOT EXISTS session_state (\n\
+    \     session_key TEXT PRIMARY KEY,\n\
+    \     turn TEXT NOT NULL DEFAULT 'user',\n\
+    \     channel TEXT,\n\
+    \     channel_id TEXT,\n\
+    \     response_sent_at TEXT,\n\
+    \     last_active TEXT NOT NULL DEFAULT (datetime('now'))\n\
+    \   )";
+  exec_exn db
+    "CREATE TABLE IF NOT EXISTS discord_resume_state (\n\
+    \     id INTEGER PRIMARY KEY CHECK (id = 1),\n\
+    \     session_id TEXT NOT NULL,\n\
+    \     seq INTEGER NOT NULL,\n\
+    \     resume_gateway_url TEXT NOT NULL,\n\
+    \     updated_at TEXT NOT NULL DEFAULT (datetime('now'))\n\
+    \   )"
+
+let migrate_schema db current_version =
+  match current_version with
+  | 0 ->
+      init_session_schema db;
+      exec_exn db
+        (Printf.sprintf "INSERT INTO schema_version (version) VALUES (%d)"
+           schema_version)
+  | 1 ->
+      init_session_schema db;
+      set_schema_version db 2
+  | n when n = schema_version -> ()
+  | n ->
+      failwith
+        (Printf.sprintf "Unsupported schema version %d (current=%d)" n
+           schema_version)
 
 let init_core_schema db =
-  let exec sql =
-    match Sqlite3.exec db sql with
-    | Sqlite3.Rc.OK -> ()
-    | rc ->
-        failwith
-          (Printf.sprintf "SQLite error: %s (sql: %s)" (Sqlite3.Rc.to_string rc)
-             sql)
-  in
-  exec
+  exec_exn db
     "CREATE TABLE IF NOT EXISTS core_memories (\n\
     \     key TEXT PRIMARY KEY,\n\
     \     content TEXT NOT NULL,\n\
@@ -17,21 +77,21 @@ let init_core_schema db =
     \     created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),\n\
     \     updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))\n\
     \   )";
-  exec
+  exec_exn db
     "CREATE VIRTUAL TABLE IF NOT EXISTS core_memories_fts USING fts5(key, \
      content, category, content='core_memories', content_rowid='rowid')";
-  exec
+  exec_exn db
     "CREATE TRIGGER IF NOT EXISTS core_memories_ai AFTER INSERT ON \
      core_memories BEGIN INSERT INTO core_memories_fts(rowid, key, content, \
      category) VALUES (new.rowid, new.key, new.content, new.category); END";
-  exec
+  exec_exn db
     "CREATE TRIGGER IF NOT EXISTS core_memories_au AFTER UPDATE ON \
      core_memories BEGIN INSERT INTO core_memories_fts(core_memories_fts, \
      rowid, key, content, category) VALUES('delete', old.rowid, old.key, \
      old.content, old.category); INSERT INTO core_memories_fts(rowid, key, \
      content, category) VALUES (new.rowid, new.key, new.content, \
      new.category); END";
-  exec
+  exec_exn db
     "CREATE TRIGGER IF NOT EXISTS core_memories_ad AFTER DELETE ON \
      core_memories BEGIN INSERT INTO core_memories_fts(core_memories_fts, \
      rowid, key, content, category) VALUES('delete', old.rowid, old.key, \
@@ -39,24 +99,14 @@ let init_core_schema db =
 
 let init ~db_path ?(search_enabled = false) () =
   let db = Sqlite3.db_open db_path in
-  let exec sql =
-    match Sqlite3.exec db sql with
-    | Sqlite3.Rc.OK -> ()
-    | rc ->
-        failwith
-          (Printf.sprintf "SQLite error: %s (sql: %s)" (Sqlite3.Rc.to_string rc)
-             sql)
-  in
-  exec
+  exec_exn db
     "CREATE TABLE IF NOT EXISTS schema_version (\n\
     \     version INTEGER NOT NULL\n\
     \   )";
-  exec
-    (Printf.sprintf
-       "INSERT INTO schema_version (version)\n\
-       \   SELECT %d WHERE NOT EXISTS (SELECT 1 FROM schema_version)"
-       schema_version);
-  exec
+  let current_version =
+    query_single_int db "SELECT version FROM schema_version"
+  in
+  exec_exn db
     "CREATE TABLE IF NOT EXISTS messages (\n\
     \     id INTEGER PRIMARY KEY AUTOINCREMENT,\n\
     \     session_key TEXT NOT NULL,\n\
@@ -67,18 +117,19 @@ let init ~db_path ?(search_enabled = false) () =
     \     tool_calls_json TEXT,\n\
     \     created_at TEXT NOT NULL DEFAULT (datetime('now'))\n\
     \   )";
-  exec
+  migrate_schema db current_version;
+  exec_exn db
     "CREATE INDEX IF NOT EXISTS idx_messages_session_key ON messages \
      (session_key)";
   if search_enabled then begin
-    exec
+    exec_exn db
       "CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(content, \
        session_key, content=messages, content_rowid=id)";
-    exec
+    exec_exn db
       "CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN \
        INSERT INTO messages_fts(rowid, content, session_key) VALUES (new.id, \
        new.content, new.session_key); END";
-    exec
+    exec_exn db
       "CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN \
        INSERT INTO messages_fts(messages_fts, rowid, content, session_key) \
        VALUES('delete', old.id, old.content, old.session_key); END"
@@ -181,11 +232,87 @@ let load_history ~db ~session_key =
   List.rev !messages
 
 let clear_session ~db ~session_key =
-  let sql = "DELETE FROM messages WHERE session_key = ?" in
+  let clear sql =
+    let stmt = Sqlite3.prepare db sql in
+    Fun.protect
+      ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+      (fun () ->
+        ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT session_key));
+        ignore (Sqlite3.step stmt))
+  in
+  clear "DELETE FROM messages WHERE session_key = ?";
+  clear "DELETE FROM session_state WHERE session_key = ?"
+
+let upsert_session_state ~db ~session_key ~turn ?channel ?channel_id
+    ?response_sent_at () =
+  let sql =
+    "INSERT INTO session_state (session_key, turn, channel, channel_id, \
+     response_sent_at, last_active) VALUES (?, ?, ?, ?, ?, datetime('now')) ON \
+     CONFLICT(session_key) DO UPDATE SET turn = excluded.turn, channel = \
+     COALESCE(excluded.channel, session_state.channel), channel_id = \
+     COALESCE(excluded.channel_id, session_state.channel_id), response_sent_at \
+     = excluded.response_sent_at, last_active = datetime('now')"
+  in
   let stmt = Sqlite3.prepare db sql in
   ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT session_key));
-  ignore (Sqlite3.step stmt);
+  ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT turn));
+  ignore
+    (Sqlite3.bind stmt 3
+       (match channel with
+       | Some value -> Sqlite3.Data.TEXT value
+       | None -> Sqlite3.Data.NULL));
+  ignore
+    (Sqlite3.bind stmt 4
+       (match channel_id with
+       | Some value -> Sqlite3.Data.TEXT value
+       | None -> Sqlite3.Data.NULL));
+  ignore
+    (Sqlite3.bind stmt 5
+       (match response_sent_at with
+       | Some value -> Sqlite3.Data.TEXT value
+       | None -> Sqlite3.Data.NULL));
+  (match Sqlite3.step stmt with
+  | Sqlite3.Rc.DONE -> ()
+  | rc ->
+      Logs.warn (fun m ->
+          m "Failed to upsert session state: %s" (Sqlite3.Rc.to_string rc)));
   ignore (Sqlite3.finalize stmt)
+
+let mark_response_sent ~db ~session_key =
+  let sql =
+    "UPDATE session_state SET turn = 'user', response_sent_at = \
+     datetime('now'), last_active = datetime('now') WHERE session_key = ?"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT session_key));
+  (match Sqlite3.step stmt with
+  | Sqlite3.Rc.DONE -> ()
+  | rc ->
+      Logs.warn (fun m ->
+          m "Failed to mark response sent: %s" (Sqlite3.Rc.to_string rc)));
+  ignore (Sqlite3.finalize stmt)
+
+let load_pending_agent_sessions ~db ~max_age_seconds =
+  let sql =
+    "SELECT session_key, channel, channel_id FROM session_state WHERE turn = \
+     'agent' AND response_sent_at IS NULL AND last_active >= datetime('now', \
+     '-' || ? || ' seconds') ORDER BY last_active DESC"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.INT (Int64.of_int max_age_seconds)));
+  let rows = ref [] in
+  while Sqlite3.step stmt = Sqlite3.Rc.ROW do
+    let get_opt index =
+      match Sqlite3.column stmt index with
+      | Sqlite3.Data.TEXT s -> Some s
+      | _ -> None
+    in
+    match get_opt 0 with
+    | Some session_key -> rows := (session_key, get_opt 1, get_opt 2) :: !rows
+    | None -> ()
+  done;
+  ignore (Sqlite3.finalize stmt);
+  List.rev !rows
 
 let list_sessions ~db =
   let sql = "SELECT DISTINCT session_key FROM messages ORDER BY session_key" in

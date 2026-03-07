@@ -87,13 +87,149 @@ let messages_to_json messages = `List (List.map message_to_json messages)
 
 type stream_event =
   | Delta of string
+  | ThinkingDelta of string
   | ToolCallDelta of {
       index : int;
       id : string option;
       function_name : string option;
       arguments : string option;
     }
+  | ToolStart of { id : string; name : string; arguments : string }
+  | ToolOutputDelta of { id : string; chunk : string }
+  | ToolResult of {
+      id : string;
+      name : string;
+      result : string;
+      is_error : bool;
+    }
   | Done
+
+type oai_thinking_style = NoThinking | ReasoningContent | TaggedThinking
+
+let thinking_style_of_provider (provider : Runtime_config.provider_config) =
+  match String.lowercase_ascii provider.oai_thinking_style with
+  | "reasoning_content" -> ReasoningContent
+  | "tags" -> TaggedThinking
+  | _ -> NoThinking
+
+type tagged_piece = Visible of string | Thinking of string
+type tagged_state = { mutable in_thinking : bool; mutable pending : string }
+
+let open_thinking_tags = [ "<think>"; "<thinking>" ]
+let close_thinking_tags = [ "</think>"; "</thinking>" ]
+
+let string_starts_with_at s ~pos prefix =
+  let prefix_len = String.length prefix in
+  pos + prefix_len <= String.length s && String.sub s pos prefix_len = prefix
+
+let matching_tag_at s ~pos tags =
+  List.find_opt (fun tag -> string_starts_with_at s ~pos tag) tags
+
+let longest_partial_tag_suffix s tags =
+  let len = String.length s in
+  List.fold_left
+    (fun acc tag ->
+      let tag_len = String.length tag in
+      let max_candidate = min (tag_len - 1) len in
+      let rec loop best candidate =
+        if candidate <= best then best
+        else if
+          String.sub s (len - candidate) candidate = String.sub tag 0 candidate
+        then candidate
+        else loop best (candidate - 1)
+      in
+      loop acc max_candidate)
+    0 tags
+
+let add_tagged_piece pieces piece =
+  match (piece, !pieces) with
+  | Visible "", _ | Thinking "", _ -> ()
+  | Visible text, Visible prev :: rest ->
+      pieces := Visible (prev ^ text) :: rest
+  | Thinking text, Thinking prev :: rest ->
+      pieces := Thinking (prev ^ text) :: rest
+  | _ -> pieces := piece :: !pieces
+
+let consume_tagged_content state chunk =
+  let data = state.pending ^ chunk in
+  let relevant_tags =
+    if state.in_thinking then close_thinking_tags else open_thinking_tags
+  in
+  let suffix_len = longest_partial_tag_suffix data relevant_tags in
+  let limit = String.length data - suffix_len in
+  state.pending <-
+    (if suffix_len = 0 then ""
+     else String.sub data limit (String.length data - limit));
+  let pieces = ref [] in
+  let buf = Buffer.create (max 16 limit) in
+  let flush_current () =
+    let text = Buffer.contents buf in
+    Buffer.clear buf;
+    if state.in_thinking then add_tagged_piece pieces (Thinking text)
+    else add_tagged_piece pieces (Visible text)
+  in
+  let rec loop i =
+    if i >= limit then flush_current ()
+    else
+      match
+        if state.in_thinking then
+          matching_tag_at data ~pos:i close_thinking_tags
+        else matching_tag_at data ~pos:i open_thinking_tags
+      with
+      | Some tag ->
+          flush_current ();
+          state.in_thinking <- not state.in_thinking;
+          loop (i + String.length tag)
+      | None ->
+          Buffer.add_char buf data.[i];
+          loop (i + 1)
+  in
+  loop 0;
+  List.rev !pieces
+
+let flush_tagged_state state =
+  if state.pending = "" then []
+  else
+    let pending = state.pending in
+    state.pending <- "";
+    if state.in_thinking then [ Thinking pending ] else [ Visible pending ]
+
+let split_tagged_text text =
+  let state = { in_thinking = false; pending = "" } in
+  let pieces = consume_tagged_content state text @ flush_tagged_state state in
+  List.fold_left
+    (fun (visible, thinking) -> function
+      | Visible v -> (visible ^ v, thinking)
+      | Thinking t -> (visible, thinking ^ t))
+    ("", "") pieces
+
+let emit_tagged_content_delta ~state ~content_acc ~on_chunk chunk =
+  let open Lwt.Syntax in
+  let pieces = consume_tagged_content state chunk in
+  let* () =
+    Lwt_list.iter_s
+      (function
+        | Visible text ->
+            Buffer.add_string content_acc text;
+            on_chunk (Delta text)
+        | Thinking text -> on_chunk (ThinkingDelta text))
+      pieces
+  in
+  Lwt.return_unit
+
+let flush_tagged_content_delta ~state ~content_acc ~on_chunk () =
+  let open Lwt.Syntax in
+  let pieces = flush_tagged_state state in
+  let* () =
+    Lwt_list.iter_s
+      (function
+        | Visible text ->
+            Buffer.add_string content_acc text;
+            on_chunk (Delta text)
+        | Thinking text -> on_chunk (ThinkingDelta text))
+      pieces
+  in
+  Lwt.return_unit
 
 (* Provider kind detection and native dispatch *)
 
@@ -315,6 +451,8 @@ let select_provider ~(config : Runtime_config.t) =
                             project_id = None;
                             location = None;
                             service_account_json = None;
+                            thinking_budget_tokens = None;
+                            oai_thinking_style = "none";
                             codex_oauth = None;
                           } )))))
   in
@@ -438,10 +576,15 @@ let complete ~(config : Runtime_config.t) ~messages ?tools () =
               in
               Lwt.return (ToolCalls { calls; model = resp_model; usage })
             else
-              let content =
+              let raw_content =
                 try choice |> member "content" |> to_string with _ -> ""
               in
-              if content = "" then
+              let content =
+                match thinking_style_of_provider provider with
+                | TaggedThinking -> fst (split_tagged_text raw_content)
+                | NoThinking | ReasoningContent -> raw_content
+              in
+              if content = "" && raw_content = "" then
                 Lwt.fail_with "Failed to extract content from LLM response"
               else Lwt.return (Text { content; model = resp_model; usage }))
 
@@ -454,16 +597,25 @@ let parse_sse_line line =
     else try Some (`Json (Yojson.Safe.from_string data)) with _ -> None
   else None
 
-let process_sse_stream stream ~on_chunk =
+let process_sse_stream ?(thinking_style = NoThinking) stream ~on_chunk =
   let open Lwt.Syntax in
   let buf = Buffer.create 256 in
   let content_acc = Buffer.create 1024 in
   let tool_calls_acc : (int * string * string * Buffer.t) list ref = ref [] in
   let resp_model = ref "" in
   let usage_acc = ref None in
+  let tagged_state = { in_thinking = false; pending = "" } in
   let process_line line =
     match parse_sse_line line with
-    | Some `Done -> on_chunk Done
+    | Some `Done ->
+        let* () =
+          match thinking_style with
+          | TaggedThinking ->
+              flush_tagged_content_delta ~state:tagged_state ~content_acc
+                ~on_chunk ()
+          | NoThinking | ReasoningContent -> Lwt.return_unit
+        in
+        on_chunk Done
     | Some (`Json json) -> (
         let open Yojson.Safe.Util in
         (try resp_model := json |> member "model" |> to_string with _ -> ());
@@ -477,13 +629,31 @@ let process_sse_stream stream ~on_chunk =
           try json |> member "choices" |> index 0 |> member "delta"
           with _ -> `Null
         in
+        let reasoning_delta =
+          match thinking_style with
+          | ReasoningContent -> (
+              try Some (delta |> member "reasoning_content" |> to_string)
+              with _ -> None)
+          | NoThinking | TaggedThinking -> None
+        in
+        let* () =
+          match reasoning_delta with
+          | Some reasoning when reasoning <> "" ->
+              on_chunk (ThinkingDelta reasoning)
+          | _ -> Lwt.return_unit
+        in
         let content_delta =
           try Some (delta |> member "content" |> to_string) with _ -> None
         in
         match content_delta with
-        | Some c when c <> "" ->
-            Buffer.add_string content_acc c;
-            on_chunk (Delta c)
+        | Some c when c <> "" -> (
+            match thinking_style with
+            | TaggedThinking ->
+                emit_tagged_content_delta ~state:tagged_state ~content_acc
+                  ~on_chunk c
+            | NoThinking | ReasoningContent ->
+                Buffer.add_string content_acc c;
+                on_chunk (Delta c))
         | _ ->
             let tc_deltas =
               try delta |> member "tool_calls" |> to_list with _ -> []
@@ -529,10 +699,27 @@ let process_sse_stream stream ~on_chunk =
                         in
                         tool_calls_acc :=
                           !tool_calls_acc @ [ (idx, tc_id, tc_name, args_buf) ]
-                    | Some (_, _, _, args_buf) -> (
-                        match fn_args with
+                    | Some (_, existing_id, existing_name, args_buf) ->
+                        let next_id =
+                          match id with
+                          | Some value -> value
+                          | None -> existing_id
+                        in
+                        let next_name =
+                          match fn_name with
+                          | Some value -> value
+                          | None -> existing_name
+                        in
+                        (match fn_args with
                         | Some a -> Buffer.add_string args_buf a
-                        | None -> ()));
+                        | None -> ());
+                        tool_calls_acc :=
+                          List.map
+                            (fun (i, stored_id, stored_name, stored_args) ->
+                              if i = idx then
+                                (i, next_id, next_name, stored_args)
+                              else (i, stored_id, stored_name, stored_args))
+                            !tool_calls_acc);
                     on_chunk
                       (ToolCallDelta
                          {
@@ -637,4 +824,7 @@ let complete_stream ~(config : Runtime_config.t) ~messages ?tools ~on_chunk () =
         Lwt.fail_with
           (Printf.sprintf "LLM API error (HTTP %d): %s" status response_body)
       end
-      else process_sse_stream stream ~on_chunk
+      else
+        process_sse_stream
+          ~thinking_style:(thinking_style_of_provider provider)
+          stream ~on_chunk

@@ -138,15 +138,19 @@ let handle_event ~(config : Runtime_config.slack_config)
               Lwt.return "ok"
           | NotACommand -> (
               let* result =
-                Lwt.catch
+                Session.with_registered_notifier session_manager ~key
+                  ~notify:(fun text ->
+                    send_message ~bot_token:config.bot_token ~channel_id ~text)
                   (fun () ->
-                    let* response =
-                      Session.turn session_manager ~key ~message:text
-                        ~channel_name:channel_id ~channel_type:"group"
-                        ~sender_id:user_id ()
-                    in
-                    Lwt.return (Ok response))
-                  (fun exn -> Lwt.return (Error (Printexc.to_string exn)))
+                    Lwt.catch
+                      (fun () ->
+                        let* response =
+                          Session.turn session_manager ~key ~message:text
+                            ~channel_name:channel_id ~channel_type:"group"
+                            ~sender_id:user_id ~channel:"slack" ~channel_id ()
+                        in
+                        Lwt.return (Ok response))
+                      (fun exn -> Lwt.return (Error (Printexc.to_string exn))))
               in
               match result with
               | Ok response ->
@@ -154,6 +158,7 @@ let handle_event ~(config : Runtime_config.slack_config)
                     send_message ~bot_token:config.bot_token ~channel_id
                       ~text:response
                   in
+                  Session.mark_response_sent session_manager ~key;
                   Lwt.return "ok"
               | Error err ->
                   Logs.err (fun m ->
@@ -163,6 +168,7 @@ let handle_event ~(config : Runtime_config.slack_config)
                     send_message ~bot_token:config.bot_token ~channel_id
                       ~text:"Sorry, an error occurred processing your message."
                   in
+                  Session.mark_response_sent session_manager ~key;
                   Lwt.return "ok")
       end
   | Some Other | None -> Lwt.return "ok"

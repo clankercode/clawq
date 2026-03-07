@@ -2,6 +2,53 @@
 
 let mk_msg role content = Provider.make_message ~role ~content
 
+let with_temp_db f =
+  let path = Filename.temp_file "clawq_memory" ".sqlite3" in
+  Fun.protect
+    (fun () -> f path)
+    ~finally:(fun () -> try Sys.remove path with _ -> ())
+
+let query_single_int db sql =
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.ROW -> (
+          match Sqlite3.column stmt 0 with
+          | Sqlite3.Data.INT n -> Int64.to_int n
+          | _ -> 0)
+      | _ -> 0)
+
+let query_single_text_option db sql =
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.ROW -> (
+          match Sqlite3.column stmt 0 with
+          | Sqlite3.Data.TEXT s -> Some s
+          | _ -> None)
+      | _ -> None)
+
+let table_exists db table_name =
+  let stmt =
+    Sqlite3.prepare db
+      "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?"
+  in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT table_name));
+      Sqlite3.step stmt = Sqlite3.Rc.ROW)
+
+let exec_exn db sql =
+  match Sqlite3.exec db sql with
+  | Sqlite3.Rc.OK -> ()
+  | rc ->
+      Alcotest.failf "SQLite error %s for sql: %s" (Sqlite3.Rc.to_string rc) sql
+
 (* --- Init tests --- *)
 
 let test_init_creates_db () =
@@ -23,6 +70,106 @@ let test_init_double_call () =
   let db2 = Memory.init ~db_path:":memory:" () in
   ignore db1;
   ignore db2
+
+let test_init_schema_version_is_2 () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Alcotest.(check int)
+    "schema version is 2" 2
+    (query_single_int db "SELECT version FROM schema_version")
+
+let test_init_creates_session_persistence_tables () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Alcotest.(check bool)
+    "session_state exists" true
+    (table_exists db "session_state");
+  Alcotest.(check bool)
+    "discord_resume_state exists" true
+    (table_exists db "discord_resume_state")
+
+let test_migrates_v1_db_to_v2_without_data_loss () =
+  with_temp_db (fun db_path ->
+      let db = Sqlite3.db_open db_path in
+      exec_exn db "CREATE TABLE schema_version (version INTEGER NOT NULL)";
+      exec_exn db "INSERT INTO schema_version (version) VALUES (1)";
+      exec_exn db
+        {|CREATE TABLE messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_key TEXT NOT NULL,
+  role TEXT NOT NULL,
+  content TEXT NOT NULL,
+  tool_call_id TEXT,
+  tool_name TEXT,
+  tool_calls_json TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+)|};
+      exec_exn db
+        "INSERT INTO messages (session_key, role, content) VALUES ('legacy', \
+         'user', 'hello from v1')";
+      ignore (Sqlite3.db_close db);
+      let migrated = Memory.init ~db_path () in
+      Alcotest.(check int)
+        "schema version migrated" 2
+        (query_single_int migrated "SELECT version FROM schema_version");
+      Alcotest.(check bool)
+        "session_state exists after migration" true
+        (table_exists migrated "session_state");
+      Alcotest.(check bool)
+        "discord_resume_state exists after migration" true
+        (table_exists migrated "discord_resume_state");
+      let msgs = Memory.load_history ~db:migrated ~session_key:"legacy" in
+      Alcotest.(check int) "legacy row preserved" 1 (List.length msgs);
+      Alcotest.(check string)
+        "legacy content preserved" "hello from v1" (List.hd msgs).content)
+
+let test_upsert_session_state_roundtrip () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Memory.upsert_session_state ~db ~session_key:"telegram:42:user1" ~turn:"agent"
+    ~channel:"telegram" ~channel_id:"42" ();
+  Alcotest.(check (option string))
+    "turn stored" (Some "agent")
+    (query_single_text_option db
+       "SELECT turn FROM session_state WHERE session_key = 'telegram:42:user1'");
+  Alcotest.(check (option string))
+    "channel stored" (Some "telegram")
+    (query_single_text_option db
+       "SELECT channel FROM session_state WHERE session_key = \
+        'telegram:42:user1'");
+  Alcotest.(check (option string))
+    "channel id stored" (Some "42")
+    (query_single_text_option db
+       "SELECT channel_id FROM session_state WHERE session_key = \
+        'telegram:42:user1'")
+
+let test_mark_response_sent_updates_state () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Memory.upsert_session_state ~db ~session_key:"discord:chan:user" ~turn:"agent"
+    ~channel:"discord" ~channel_id:"chan" ();
+  Memory.mark_response_sent ~db ~session_key:"discord:chan:user";
+  Alcotest.(check (option string))
+    "turn reset to user" (Some "user")
+    (query_single_text_option db
+       "SELECT turn FROM session_state WHERE session_key = 'discord:chan:user'");
+  Alcotest.(check bool)
+    "response_sent_at set" true
+    (query_single_text_option db
+       "SELECT response_sent_at FROM session_state WHERE session_key = \
+        'discord:chan:user'"
+    <> None)
+
+let test_load_pending_agent_sessions_filters_rows () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Memory.upsert_session_state ~db ~session_key:"slack:c1:u1" ~turn:"agent"
+    ~channel:"slack" ~channel_id:"c1" ();
+  Memory.upsert_session_state ~db ~session_key:"slack:c2:u2" ~turn:"agent"
+    ~channel:"slack" ~channel_id:"c2" ~response_sent_at:"2026-03-07 00:00:00" ();
+  Memory.upsert_session_state ~db ~session_key:"slack:c3:u3" ~turn:"user"
+    ~channel:"slack" ~channel_id:"c3" ();
+  let pending = Memory.load_pending_agent_sessions ~db ~max_age_seconds:3600 in
+  Alcotest.(check int) "one pending row" 1 (List.length pending);
+  Alcotest.(check (triple string (option string) (option string)))
+    "pending row contents"
+    ("slack:c1:u1", Some "slack", Some "c1")
+    (List.hd pending)
 
 (* --- store_message tests --- *)
 
@@ -325,6 +472,18 @@ let suite =
     Alcotest.test_case "init search enabled" `Quick test_init_search_enabled;
     Alcotest.test_case "init search disabled" `Quick test_init_search_disabled;
     Alcotest.test_case "init double call" `Quick test_init_double_call;
+    Alcotest.test_case "init schema version is 2" `Quick
+      test_init_schema_version_is_2;
+    Alcotest.test_case "init creates session persistence tables" `Quick
+      test_init_creates_session_persistence_tables;
+    Alcotest.test_case "migrates v1 db to v2 without data loss" `Quick
+      test_migrates_v1_db_to_v2_without_data_loss;
+    Alcotest.test_case "upsert session state roundtrip" `Quick
+      test_upsert_session_state_roundtrip;
+    Alcotest.test_case "mark response sent updates state" `Quick
+      test_mark_response_sent_updates_state;
+    Alcotest.test_case "load pending agent sessions filters rows" `Quick
+      test_load_pending_agent_sessions_filters_rows;
     Alcotest.test_case "store_message inserts" `Quick test_store_message_inserts;
     Alcotest.test_case "store_message role preserved" `Quick
       test_store_message_role_preserved;

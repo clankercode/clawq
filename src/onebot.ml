@@ -224,18 +224,30 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
                                   | Some gid -> gid
                                   | None -> user_id
                                 in
+                                let notify text =
+                                  match (message_type, group_id) with
+                                  | "group", Some gid ->
+                                      send_group_msg ~config:ob_config
+                                        ~group_id:gid ~text
+                                  | _ ->
+                                      send_private_msg ~config:ob_config
+                                        ~user_id ~text
+                                in
                                 let* result =
-                                  Lwt.catch
-                                    (fun () ->
-                                      let* response =
-                                        Session.turn session_manager ~key
-                                          ~message:text ~channel_name
-                                          ~channel_type ~sender_id:user_id ()
-                                      in
-                                      Lwt.return (Ok response))
-                                    (fun exn ->
-                                      Lwt.return
-                                        (Error (Printexc.to_string exn)))
+                                  Session.with_registered_notifier
+                                    session_manager ~key ~notify (fun () ->
+                                      Lwt.catch
+                                        (fun () ->
+                                          let* response =
+                                            Session.turn session_manager ~key
+                                              ~message:text ~channel_name
+                                              ~channel_type ~sender_id:user_id
+                                              ()
+                                          in
+                                          Lwt.return (Ok response))
+                                        (fun exn ->
+                                          Lwt.return
+                                            (Error (Printexc.to_string exn))))
                                 in
                                 match result with
                                 | Ok response -> (

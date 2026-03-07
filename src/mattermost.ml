@@ -149,17 +149,24 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
                                   "mattermost:" ^ channel_id ^ ":" ^ user_id
                                 in
                                 let* result =
-                                  Lwt.catch
+                                  Session.with_registered_notifier
+                                    session_manager ~key
+                                    ~notify:(fun text ->
+                                      send_message ~config:mm_config ~channel_id
+                                        ~text)
                                     (fun () ->
-                                      let* response =
-                                        Session.turn session_manager ~key
-                                          ~message ~channel_name:"mattermost"
-                                          ~channel_type:"group" ()
-                                      in
-                                      Lwt.return (Ok response))
-                                    (fun exn ->
-                                      Lwt.return
-                                        (Error (Printexc.to_string exn)))
+                                      Lwt.catch
+                                        (fun () ->
+                                          let* response =
+                                            Session.turn session_manager ~key
+                                              ~message
+                                              ~channel_name:"mattermost"
+                                              ~channel_type:"group" ()
+                                          in
+                                          Lwt.return (Ok response))
+                                        (fun exn ->
+                                          Lwt.return
+                                            (Error (Printexc.to_string exn))))
                                 in
                                 match result with
                                 | Ok response ->

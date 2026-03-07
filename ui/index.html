@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="ui-version" content="dev">
+  <title>clawq web chat</title>
+  <link rel="stylesheet" href="/chat.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js" integrity="sha384-JEyTNhjM6R1ElGoJns4U2Ln4ofPcqzSsynQkmEc/KGy6336qAZl70tDLufbkla+3" crossorigin="anonymous"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/marked@15.0.12/marked.min.js" integrity="sha384-948ahk4ZmxYVYOc+rxN1H2gM1EJ2Duhp7uHtZ4WSLkV4Vtx5MUqnV+l7u9B+jFv+" crossorigin="anonymous"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/highlight.js@11.11.1/lib/common.min.js" integrity="sha384-PaYbudF4+JA0o1XwzEg2SdOGwBFfJFwiZ0hFm3lEVQjMSBqHMsGAKTEc0k6Lh6ig" crossorigin="anonymous"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="masthead">
+      <div>
+        <p class="eyebrow">stream console</p>
+        <h1>clawq</h1>
+        <p class="subtitle">A paper-notebook chat surface with live reasoning, tool traces, and slash control.</p>
+      </div>
+      <div class="masthead__status">
+        <div class="status-pill status-pill--idle" id="status-pill">
+          <span class="status-pill__dot"></span>
+          <span id="status-text">ready</span>
+        </div>
+        <button class="ghost-button" id="new-session-btn" type="button">New session</button>
+      </div>
+    </header>
+
+    <div class="version-banner" id="version-banner" hidden>
+      <span>clawq updated in the background.</span>
+      <div class="version-banner__actions">
+        <button class="ghost-button" id="version-dismiss" type="button">Dismiss</button>
+        <button id="version-reload" type="button">Reload</button>
+      </div>
+    </div>
+
+    <main class="workspace">
+      <aside class="sidebar">
+        <section class="sidebar-card">
+          <p class="sidebar-card__label">Field notes</p>
+          <ul class="sidebar-list">
+            <li>Streaming text stays plain until the turn completes, then upgrades to markdown.</li>
+            <li>Thinking deltas collapse into a dedicated panel so reasoning does not muddy the final answer.</li>
+            <li>Tool cards keep raw output, including ANSI color, while the final result remains searchable.</li>
+          </ul>
+        </section>
+        <section class="sidebar-card">
+          <p class="sidebar-card__label">Quick starts</p>
+          <div class="command-grid">
+            <button class="command-chip" data-command="/help ">/help</button>
+            <button class="command-chip" data-command="/new ">/new</button>
+            <button class="command-chip" data-command="/status ">/status</button>
+          </div>
+          <p class="sidebar-card__hint">Type <code>/</code> in the composer for live command suggestions.</p>
+        </section>
+      </aside>
+
+      <section class="transcript-panel">
+        <div class="transcript" id="transcript" aria-live="polite"></div>
+
+        <div class="composer-shell">
+          <div class="slash-popover" id="slash-popover" hidden></div>
+          <form id="composer-form" class="composer">
+            <label class="composer__label" for="composer-input">Message</label>
+            <textarea id="composer-input" rows="4" placeholder="Ask clawq to reason, inspect files, or run a tool..." autocomplete="off"></textarea>
+            <div class="composer__actions">
+              <p class="composer__hint">Shift+Enter for a newline. Tool output streams inline.</p>
+              <div class="composer__buttons">
+                <button class="ghost-button" id="stop-btn" type="button" hidden>Stop</button>
+                <button id="send-btn" type="submit">Send</button>
+              </div>
+            </div>
+          </form>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="pairing-modal" id="pair-modal" hidden>
+    <div class="pairing-dialog" role="dialog" aria-modal="true" aria-labelledby="pairing-title">
+      <p class="eyebrow">secure entry</p>
+      <h2 id="pairing-title">Pair this browser</h2>
+      <p class="pairing-copy">Enter the 6-digit code shown by <code>clawq otp-show</code>. Assets stay public; chat requests stay gated.</p>
+      <input id="pairing-code" type="text" inputmode="numeric" maxlength="6" placeholder="000000" pattern="[0-9]{6}">
+      <p class="pairing-error" id="pairing-error"></p>
+      <button id="pairing-submit" type="button">Pair and continue</button>
+    </div>
+  </div>
+
+  <script defer src="/chat.js"></script>
+</body>
+</html>

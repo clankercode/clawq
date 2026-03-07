@@ -211,6 +211,15 @@ let test_parse_empty_content () =
       Alcotest.(check string) "empty content" "" content
   | _ -> Alcotest.fail "expected Text with empty content"
 
+let test_parse_ignores_thinking_blocks () =
+  let body =
+    {|{"content":[{"type":"thinking","thinking":"private"},{"type":"text","text":"hello"}],"model":"claude-3","stop_reason":"end_turn"}|}
+  in
+  match Provider_anthropic.parse_anthropic_response body "claude-3" with
+  | Ok (Provider.Text { content; _ }) ->
+      Alcotest.(check string) "visible text only" "hello" content
+  | _ -> Alcotest.fail "expected Text response"
+
 let suite =
   [
     Alcotest.test_case "user message" `Quick test_user_message;
@@ -236,4 +245,6 @@ let suite =
       test_parse_tool_use_response;
     Alcotest.test_case "parse invalid json" `Quick test_parse_invalid_json;
     Alcotest.test_case "parse empty content" `Quick test_parse_empty_content;
+    Alcotest.test_case "parse ignores thinking blocks" `Quick
+      test_parse_ignores_thinking_blocks;
   ]

@@ -6,11 +6,11 @@ locked: false
 name: 'Advanced UI: Thinking, Tools, Slash, ANSI'
 stats:
     blocked: 0
-    done: 0
+    done: 7
     in_progress: 0
-    pending: 7
+    pending: 0
     total: 7
-status: pending
+status: done
 tasks:
     - complexity: medium
       depends_on:
@@ -19,7 +19,8 @@ tasks:
       file: T001-thinking-ts-collapsible-thinki.todo
       id: T001
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: 'thinking.ts: collapsible thinking block panel with streaming state'
     - complexity: medium
       depends_on:
@@ -29,7 +30,8 @@ tasks:
       file: T002-tool-panel-ts-tool-call-card-w.todo
       id: T002
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: 'tool-panel.ts: tool call card with real-time streaming output'
     - complexity: medium
       depends_on: []
@@ -37,7 +39,8 @@ tasks:
       file: T003-ansi-ts-minimal-ansi-escape-co.todo
       id: T003
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: 'ansi.ts: minimal ANSI escape code to HTML converter'
     - complexity: medium
       depends_on:
@@ -46,7 +49,8 @@ tasks:
       file: T004-slash-ts-slash-command-autocom.todo
       id: T004
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: 'slash.ts: slash command autocomplete popover'
     - complexity: low
       depends_on: []
@@ -54,7 +58,8 @@ tasks:
       file: T005-version-ts-client-side-version.todo
       id: T005
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: 'version.ts: client-side version check + reload banner'
     - complexity: low
       depends_on:
@@ -63,7 +68,8 @@ tasks:
       file: T006-markdown-rendering-apply-marke.todo
       id: T006
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: 'Markdown rendering: apply Marked.js + highlight.js after stream done'
     - complexity: low
       depends_on:
@@ -72,5 +78,6 @@ tasks:
       file: T007-mermaid-diagram-rendering-dete.todo
       id: T007
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: 'Mermaid diagram rendering: detect mermaid fenced blocks, render via mermaid.js CDN'

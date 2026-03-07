@@ -34,6 +34,7 @@ let test_tool_registry_serialization () =
       parameters_schema =
         `Assoc [ ("type", `String "object"); ("properties", `Assoc []) ];
       invoke = (fun _ -> Lwt.return "test result");
+      invoke_stream = None;
       risk_level = Tool.Low;
       deferred = false;
     }
@@ -65,6 +66,7 @@ let test_tool_registry_find () =
       description = "desc";
       parameters_schema = `Assoc [];
       invoke = (fun _ -> Lwt.return "ok");
+      invoke_stream = None;
       risk_level = Tool.Low;
       deferred = false;
     }
@@ -93,6 +95,7 @@ let test_tool_invocation () =
             try args |> member "value" |> to_string with _ -> "default"
           in
           Lwt.return ("got: " ^ v));
+      invoke_stream = None;
       risk_level = Tool.Low;
       deferred = false;
     }
@@ -102,6 +105,62 @@ let test_tool_invocation () =
   in
   Alcotest.(check bool) "tool was invoked" true !invoked;
   Alcotest.(check string) "tool result" "got: hello" result
+
+let test_execute_tool_calls_stream_bounds_final_result () =
+  let registry = Tool_registry.create () in
+  let streamed = String.make 13050 'x' in
+  let tool =
+    {
+      Tool.name = "stream_tool";
+      description = "Streams output before returning a result";
+      parameters_schema = `Assoc [];
+      invoke = (fun _ -> Lwt.return streamed);
+      invoke_stream =
+        Some
+          (fun ~on_output_chunk _ ->
+            let open Lwt.Syntax in
+            let* () = on_output_chunk streamed in
+            Lwt.return streamed);
+      risk_level = Tool.Low;
+      deferred = false;
+    }
+  in
+  Tool_registry.register registry tool;
+  let agent = Agent.create ~config:default_config ~tool_registry:registry () in
+  let events = ref [] in
+  let call =
+    { Provider.id = "call_1"; function_name = "stream_tool"; arguments = "{}" }
+  in
+  Lwt_main.run
+    (Agent.execute_tool_calls_stream agent ~db:None ~audit_enabled:false
+       ~session_key:None [ call ] ~on_chunk:(fun event ->
+         events := event :: !events;
+         Lwt.return_unit));
+  let events = List.rev !events in
+  let output_chunks =
+    List.filter
+      (function Provider.ToolOutputDelta _ -> true | _ -> false)
+      events
+  in
+  Alcotest.(check int) "streamed one output chunk" 1 (List.length output_chunks);
+  let final_result =
+    List.find_map
+      (function Provider.ToolResult { result; _ } -> Some result | _ -> None)
+      events
+  in
+  match final_result with
+  | None -> Alcotest.fail "expected final tool_result event"
+  | Some result ->
+      Alcotest.(check bool)
+        "final result bounded" true
+        (String.length result < String.length streamed);
+      Alcotest.(check bool)
+        "final result notes truncation" true
+        (let re = Str.regexp_string "truncated" in
+         try
+           ignore (Str.search_forward re result 0);
+           true
+         with Not_found -> false)
 
 (* Test: memory store and load roundtrip *)
 let test_memory_roundtrip () =
@@ -299,6 +358,7 @@ let test_tool_search_basic () =
       description = "Read a file from disk";
       parameters_schema = `Assoc [ ("type", `String "object") ];
       invoke = (fun _ -> Lwt.return "ok");
+      invoke_stream = None;
       risk_level = Tool.Low;
       deferred = true;
     }
@@ -309,6 +369,7 @@ let test_tool_search_basic () =
       description = "Search the web for information";
       parameters_schema = `Assoc [ ("type", `String "object") ];
       invoke = (fun _ -> Lwt.return "ok");
+      invoke_stream = None;
       risk_level = Tool.Low;
       deferred = true;
     }
@@ -328,6 +389,7 @@ let test_tool_search_all_match () =
       description = "Read a file";
       parameters_schema = `Assoc [];
       invoke = (fun _ -> Lwt.return "ok");
+      invoke_stream = None;
       risk_level = Tool.Low;
       deferred = true;
     }
@@ -338,6 +400,7 @@ let test_tool_search_all_match () =
       description = "Write a file";
       parameters_schema = `Assoc [];
       invoke = (fun _ -> Lwt.return "ok");
+      invoke_stream = None;
       risk_level = Tool.Low;
       deferred = true;
     }
@@ -356,6 +419,7 @@ let test_tool_deferred_json () =
       parameters_schema =
         `Assoc [ ("type", `String "object"); ("properties", `Assoc []) ];
       invoke = (fun _ -> Lwt.return "ok");
+      invoke_stream = None;
       risk_level = Tool.Low;
       deferred = false;
     }
@@ -367,6 +431,7 @@ let test_tool_deferred_json () =
       parameters_schema =
         `Assoc [ ("type", `String "object"); ("properties", `Assoc []) ];
       invoke = (fun _ -> Lwt.return "ok");
+      invoke_stream = None;
       risk_level = Tool.Low;
       deferred = true;
     }
@@ -420,6 +485,7 @@ let test_tool_search_empty_query () =
       description = "Read a file";
       parameters_schema = `Assoc [];
       invoke = (fun _ -> Lwt.return "ok");
+      invoke_stream = None;
       risk_level = Tool.Low;
       deferred = true;
     }
@@ -437,6 +503,7 @@ let test_tool_search_no_deferred_omits_search_entry () =
       parameters_schema =
         `Assoc [ ("type", `String "object"); ("properties", `Assoc []) ];
       invoke = (fun _ -> Lwt.return "ok");
+      invoke_stream = None;
       risk_level = Tool.Low;
       deferred = false;
     }
@@ -460,6 +527,7 @@ let test_tool_search_deferred_only () =
       description = "Read a file from disk";
       parameters_schema = `Assoc [];
       invoke = (fun _ -> Lwt.return "ok");
+      invoke_stream = None;
       risk_level = Tool.Low;
       deferred = false;
     }
@@ -470,6 +538,7 @@ let test_tool_search_deferred_only () =
       description = "Write a file to disk";
       parameters_schema = `Assoc [];
       invoke = (fun _ -> Lwt.return "ok");
+      invoke_stream = None;
       risk_level = Tool.Low;
       deferred = true;
     }
@@ -503,6 +572,8 @@ let suite =
       test_tool_registry_serialization;
     Alcotest.test_case "tool registry find" `Quick test_tool_registry_find;
     Alcotest.test_case "tool invocation" `Quick test_tool_invocation;
+    Alcotest.test_case "streamed tool result is bounded" `Quick
+      test_execute_tool_calls_stream_bounds_final_result;
     Alcotest.test_case "memory roundtrip" `Quick test_memory_roundtrip;
     Alcotest.test_case "memory clear" `Quick test_memory_clear;
     Alcotest.test_case "memory list sessions" `Quick test_memory_list_sessions;

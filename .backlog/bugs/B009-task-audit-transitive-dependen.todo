@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-07T09:08:47Z"
+claimed_by: cli-user
+completed_at: "2026-03-07T09:15:51Z"
 complexity: medium
 depends_on: []
+duration_minutes: 7.0752620191833335
 estimate_hours: 1
 id: B009
 priority: high
-status: pending
+started_at: "2026-03-07T09:08:47Z"
+status: done
 tags: []
 title: 'task: audit transitive dependency weight and identify high-cost libraries to replace or isolate behind optional packages'
 ---

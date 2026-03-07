@@ -277,20 +277,17 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key ~on_chunk
                    args_preview = tc.arguments;
                  })
         | _ -> ());
-        let tool_start_json =
-          Yojson.Safe.to_string
-            (`Assoc
-               [
-                 ("type", `String "tool_start");
-                 ("name", `String tc.function_name);
-                 ("id", `String tc.id);
-                 ("args", `String tc.arguments);
-               ])
+        let* () =
+          on_chunk
+            (Provider.ToolStart
+               { id = tc.id; name = tc.function_name; arguments = tc.arguments })
         in
-        let* () = on_chunk (Provider.Delta tool_start_json) in
         let is_tool_search = tc.function_name = "tool_search" in
-        let* result_msg =
-          if is_tool_search then Lwt.return (resolve_tool_search agent tc)
+        let streamed_output = ref false in
+        let* result_msg, result_for_event =
+          if is_tool_search then
+            let msg = resolve_tool_search agent tc in
+            Lwt.return (msg, msg.Provider.content)
           else
             let* result =
               match agent.tool_registry with
@@ -308,7 +305,16 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key ~on_chunk
                             try Yojson.Safe.from_string tc.arguments
                             with _ -> `Assoc []
                           in
-                          tool.invoke args)
+                          match tool.invoke_stream with
+                          | Some invoke_stream ->
+                              invoke_stream
+                                ~on_output_chunk:(fun chunk ->
+                                  streamed_output := true;
+                                  on_chunk
+                                    (Provider.ToolOutputDelta
+                                       { id = tc.id; chunk }))
+                                args
+                          | None -> tool.invoke args)
                         (fun exn ->
                           Lwt.return
                             ("Error invoking tool: " ^ Printexc.to_string exn)))
@@ -316,13 +322,19 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key ~on_chunk
             let result_for_history =
               truncate_for_history result ~max_chars:max_tool_result_chars
             in
+            let result_for_event =
+              if !streamed_output then result_for_history else result
+            in
             Lwt.return
-              (Provider.make_tool_result ~tool_call_id:tc.id
-                 ~name:tc.function_name ~content:result_for_history)
+              ( Provider.make_tool_result ~tool_call_id:tc.id
+                  ~name:tc.function_name ~content:result_for_history,
+                result_for_event )
         in
         let result = result_msg.Provider.content in
         let success =
-          not (String.length result >= 6 && String.sub result 0 6 = "Error:")
+          not
+            (String.length result_for_event >= 6
+            && String.sub result_for_event 0 6 = "Error:")
         in
         (match (db, audit_enabled, session_key) with
         | Some db, true, Some sk ->
@@ -335,18 +347,16 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key ~on_chunk
           else result
         in
         Logs.info (fun m -> m "Tool result: %s -> %s" tc.function_name preview);
-        let tool_result_json =
-          Yojson.Safe.to_string
-            (`Assoc
-               [
-                 ("type", `String "tool_result");
-                 ("name", `String tc.function_name);
-                 ("id", `String tc.id);
-                 ("success", `Bool success);
-                 ("result", `String preview);
-               ])
+        let* () =
+          on_chunk
+            (Provider.ToolResult
+               {
+                 id = tc.id;
+                 name = tc.function_name;
+                 result = result_for_event;
+                 is_error = not success;
+               })
         in
-        let* () = on_chunk (Provider.Delta tool_result_json) in
         Lwt.return (tc, result_msg))
       calls
   in
@@ -510,7 +520,7 @@ let inject_search_context agent ~db ~user_message =
       (fun _ -> Lwt.return_unit)
   else Lwt.return_unit
 
-let turn agent ~user_message ?db ?session_key ?interrupt_check () =
+let prepare_turn_history agent ~user_message ?db () =
   let open Lwt.Syntax in
   let* () =
     match db with
@@ -519,7 +529,15 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check () =
   in
   agent.history <-
     Provider.make_message ~role:"user" ~content:user_message :: agent.history;
-  let* () = compact_history_if_needed agent in
+  compact_history_if_needed agent
+
+let turn agent ~user_message ?db ?session_key ?interrupt_check
+    ?(history_prepared = false) () =
+  let open Lwt.Syntax in
+  let* () =
+    if history_prepared then Lwt.return_unit
+    else prepare_turn_history agent ~user_message ?db ()
+  in
   let audit_enabled = agent.config.security.audit_enabled in
   let max_iters = agent.config.agent_defaults.max_tool_iterations in
   let tools = tools_json agent in
@@ -646,17 +664,13 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check () =
   in
   loop 0
 
-let turn_stream agent ~user_message ?db ?session_key ?interrupt_check ~on_chunk
-    () =
+let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
+    ?(history_prepared = false) ~on_chunk () =
   let open Lwt.Syntax in
   let* () =
-    match db with
-    | Some db -> inject_search_context agent ~db ~user_message
-    | None -> Lwt.return_unit
+    if history_prepared then Lwt.return_unit
+    else prepare_turn_history agent ~user_message ?db ()
   in
-  agent.history <-
-    Provider.make_message ~role:"user" ~content:user_message :: agent.history;
-  let* () = compact_history_if_needed agent in
   let audit_enabled = agent.config.security.audit_enabled in
   let max_iters = agent.config.agent_defaults.max_tool_iterations in
   let tools = tools_json agent in
@@ -677,7 +691,10 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check ~on_chunk
                 Lwt.fail (Interrupted (Buffer.contents partial_buf))
             | None -> Lwt.return_unit)
         | None -> Lwt.return_unit)
-    | Provider.Done | Provider.ToolCallDelta _ -> on_chunk chunk
+    | Provider.Done | Provider.ThinkingDelta _ | Provider.ToolCallDelta _
+    | Provider.ToolStart _ | Provider.ToolOutputDelta _ | Provider.ToolResult _
+      ->
+        on_chunk chunk
   in
   let resilient_stream config messages tools on_chunk =
     let res = config.Runtime_config.resilience in

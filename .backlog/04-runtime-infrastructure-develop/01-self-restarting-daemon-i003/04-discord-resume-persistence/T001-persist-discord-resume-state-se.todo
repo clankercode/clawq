@@ -1,3 +1,19 @@
+---
+claimed_at: "2026-03-07T04:52:08Z"
+claimed_by: cli-user
+completed_at: "2026-03-07T04:52:08Z"
+complexity: medium
+depends_on:
+    - P4.M1.E1.T001
+duration_minutes: 0.0
+estimate_hours: 2
+id: P4.M1.E4.T001
+priority: medium
+started_at: "2026-03-07T04:52:08Z"
+status: done
+tags: []
+title: Persist Discord RESUME state (session_id, seq, resume_url) to discord_resume_state table; load on startup to enable RESUME vs IDENTIFY
+---
 
 ## Implementation
 

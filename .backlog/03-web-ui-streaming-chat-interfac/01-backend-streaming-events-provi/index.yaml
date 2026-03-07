@@ -9,7 +9,7 @@ epics:
       locked: false
       name: 'Provider: Thinking Blocks'
       path: 01-provider-thinking-blocks
-      status: pending
+      status: done
     - complexity: medium
       depends_on: []
       description: ""
@@ -18,7 +18,7 @@ epics:
       locked: false
       name: 'Agent: Tool Event Streaming'
       path: 02-agent-tool-event-streaming
-      status: pending
+      status: done
     - complexity: medium
       depends_on: []
       description: ""
@@ -27,15 +27,15 @@ epics:
       locked: false
       name: 'HTTP: New Routes + Asset Serving'
       path: 03-http-new-routes-asset-serving
-      status: pending
+      status: done
 estimate_hours: 16
 id: P3.M1
 locked: false
 name: 'Backend: Streaming Events & Provider Thinking'
 stats:
     blocked: 0
-    done: 0
+    done: 9
     in_progress: 0
-    pending: 9
+    pending: 0
     total_tasks: 9
-status: pending
+status: done

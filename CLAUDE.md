@@ -27,10 +27,15 @@ Agent instructions for this repository. Keep changes minimal, verifiable, and al
 
 ## Build, Test, Lint Commands
 
+- Do not run `dune` commands in parallel in this repo. Dune locks `_build`, and concurrent `dune`/`opam exec -- dune ...` commands can hang or fail on `_build/.lock`.
+
 - Primary build: `make build`
 - Direct dune build: `dune build`
 - Run CLI help: `make run`
 - Run phase2 command: `make phase2`
+- Build embedded web UI assets: `make ui`
+- Run UI asset watcher for dev mode: `make ui-dev`
+- Verify generated UI assets are current: `make ui-check`
 
 - Run all tests: `make test`
 - Direct test run: `dune runtest`
@@ -144,10 +149,18 @@ Comments:
 ## Quick File Map
 
 - Build/test orchestration: `Makefile`
+- UI source and Bun pipeline: `ui/`, `scripts/gen_chat_ui_assets.sh`
 - Dune project config: `dune-project`, `dune-workspace`, `src/dune`, `test/dune`
 - CLI entrypoints: `src/main.ml`, `src/main_min.ml`
 - Command routing: `src/command_bridge.ml`, `src/command_bridge_min.ml`
+- Web UI serving/assets: `src/ui_server.ml`, `src/chat_ui_assets.ml`
 - Tests: `test/test_main.ml` and `test/test_*.ml`
+
+## Web UI Dev Mode
+
+- Build embedded assets with `make ui`.
+- For live UI iteration, run `make ui-dev` and create `~/.clawq/ui/DEV`.
+- With DEV mode enabled, clawq serves files from `~/.clawq/ui/` without overwriting them on startup.
 
 ## Recommended Agent Workflow
 

@@ -1,11 +1,13 @@
 ---
+completed_at: null
 complexity: medium
 depends_on:
     - P3.M1.E1.T001
 estimate_hours: 3
 id: P3.M1.E1.T002
 priority: medium
-status: pending
+started_at: null
+status: done
 tags: []
 title: 'Anthropic provider: parse thinking content blocks in SSE stream'
 ---

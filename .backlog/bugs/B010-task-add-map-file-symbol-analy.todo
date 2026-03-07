@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-07T09:16:30Z"
+claimed_by: cli-user
+completed_at: "2026-03-07T09:20:39Z"
 complexity: medium
 depends_on: []
+duration_minutes: 4.1527571008
 estimate_hours: 1
 id: B010
 priority: high
-status: pending
+started_at: "2026-03-07T09:16:30Z"
+status: done
 tags: []
 title: 'task: add map-file/symbol analysis workflow to identify top native code contributors and prioritize code-size reductions'
 ---

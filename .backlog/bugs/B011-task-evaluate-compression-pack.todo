@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-07T09:21:17Z"
+claimed_by: cli-user
+completed_at: "2026-03-07T09:23:18Z"
 complexity: medium
 depends_on: []
+duration_minutes: 2.0224799774
 estimate_hours: 1
 id: B011
 priority: high
-status: pending
+started_at: "2026-03-07T09:21:17Z"
+status: done
 tags: []
 title: 'task: evaluate compression/packaging strategy (strip + upx optional) with startup-time impact measurements and release guidance'
 ---

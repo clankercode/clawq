@@ -4,6 +4,12 @@ estimate_hours: 20
 id: P2.M1.E4
 locked: false
 name: Codex Pro Subscription Support
+stats:
+    blocked: 0
+    done: 5
+    in_progress: 0
+    pending: 0
+    total: 5
 status: done
 tasks:
     - complexity: medium

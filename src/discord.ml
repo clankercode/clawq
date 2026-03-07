@@ -9,6 +9,12 @@ type message = {
   content : string;
 }
 
+type resume_state = {
+  session_id : string;
+  seq : int;
+  resume_gateway_url : string;
+}
+
 let is_allowed ~(config : Runtime_config.discord_config) ~guild_id ~user_id =
   let guild_ok =
     match config.allow_guilds with
@@ -148,6 +154,92 @@ let send_message ~bot_token ~channel_id ~text =
   in
   Lwt.return_unit
 
+let save_resume_state ~db ~session_id ~seq ~resume_gateway_url =
+  match db with
+  | None -> ()
+  | Some db ->
+      let sql =
+        "INSERT OR REPLACE INTO discord_resume_state (id, session_id, seq, \
+         resume_gateway_url, updated_at) VALUES (1, ?, ?, ?, datetime('now'))"
+      in
+      let stmt = Sqlite3.prepare db sql in
+      Fun.protect
+        ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+        (fun () ->
+          ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT session_id));
+          ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int seq)));
+          ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.TEXT resume_gateway_url));
+          match Sqlite3.step stmt with
+          | Sqlite3.Rc.DONE -> ()
+          | rc ->
+              Logs.warn (fun m ->
+                  m "Discord: failed to persist resume state: %s"
+                    (Sqlite3.Rc.to_string rc)))
+
+let load_resume_state ~db =
+  match db with
+  | None -> None
+  | Some db ->
+      let stmt =
+        Sqlite3.prepare db
+          "SELECT session_id, seq, resume_gateway_url FROM \
+           discord_resume_state WHERE id = 1"
+      in
+      Fun.protect
+        ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+        (fun () ->
+          match Sqlite3.step stmt with
+          | Sqlite3.Rc.ROW -> (
+              match
+                ( Sqlite3.column stmt 0,
+                  Sqlite3.column stmt 1,
+                  Sqlite3.column stmt 2 )
+              with
+              | ( Sqlite3.Data.TEXT session_id,
+                  Sqlite3.Data.INT seq,
+                  Sqlite3.Data.TEXT resume_gateway_url ) ->
+                  Some
+                    { session_id; seq = Int64.to_int seq; resume_gateway_url }
+              | _ -> None)
+          | _ -> None)
+
+let clear_resume_state ~db =
+  match db with
+  | None -> ()
+  | Some db ->
+      let stmt =
+        Sqlite3.prepare db "DELETE FROM discord_resume_state WHERE id = 1"
+      in
+      Fun.protect
+        ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+        (fun () ->
+          match Sqlite3.step stmt with
+          | Sqlite3.Rc.DONE -> ()
+          | rc ->
+              Logs.warn (fun m ->
+                  m "Discord: failed to clear resume state: %s"
+                    (Sqlite3.Rc.to_string rc)))
+
+let persist_resume_refs ~db ~resume_session_id ~resume_seq ~resume_url =
+  match (!resume_session_id, !resume_seq, !resume_url) with
+  | Some session_id, Some seq, Some resume_gateway_url ->
+      save_resume_state ~db ~session_id ~seq ~resume_gateway_url
+  | _ -> ()
+
+let clear_resume_refs ~db ~resume_session_id ~resume_seq ~resume_url =
+  resume_session_id := None;
+  resume_seq := None;
+  resume_url := None;
+  clear_resume_state ~db
+
+let make_resume_refs ~db =
+  match load_resume_state ~db with
+  | Some state ->
+      ( ref (Some state.session_id),
+        ref (Some state.seq),
+        ref (Some state.resume_gateway_url) )
+  | None -> (ref None, ref None, ref None)
+
 let parse_message_create json =
   let open Yojson.Safe.Util in
   try
@@ -247,34 +339,53 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
             match msg.guild_id with Some _ -> "group" | None -> "dm"
           in
           let* result =
-            Lwt.catch
+            Session.with_registered_notifier session_mgr ~key
+              ~notify:(fun text ->
+                send_message ~bot_token:discord_config.bot_token
+                  ~channel_id:msg.channel_id ~text)
               (fun () ->
-                let* response =
-                  Session.turn session_mgr ~key ~message:msg.content
-                    ~channel_name:msg.channel_id
-                    ~channel_type:discord_channel_type ~sender_id:msg.author_id
-                    ()
-                in
-                Lwt.return (Ok response))
-              (fun exn -> Lwt.return (Error (Printexc.to_string exn)))
+                Lwt.catch
+                  (fun () ->
+                    let* response =
+                      Session.turn session_mgr ~key ~message:msg.content
+                        ~channel_name:msg.channel_id
+                        ~channel_type:discord_channel_type
+                        ~sender_id:msg.author_id ~channel:"discord"
+                        ~channel_id:msg.channel_id ()
+                    in
+                    Lwt.return (Ok response))
+                  (fun exn -> Lwt.return (Error (Printexc.to_string exn))))
           in
           match result with
           | Ok response ->
-              send_message ~bot_token:discord_config.bot_token
-                ~channel_id:msg.channel_id ~text:response
+              let* () =
+                send_message ~bot_token:discord_config.bot_token
+                  ~channel_id:msg.channel_id ~text:response
+              in
+              Session.mark_response_sent session_mgr ~key;
+              Lwt.return_unit
           | Error err ->
               Logs.err (fun m ->
                   m "Discord agent error for channel=%s user=%s: %s"
                     msg.channel_id msg.author_id err);
-              send_message ~bot_token:discord_config.bot_token
-                ~channel_id:msg.channel_id
-                ~text:"Sorry, an error occurred processing your message.")
+              let* () =
+                send_message ~bot_token:discord_config.bot_token
+                  ~channel_id:msg.channel_id
+                  ~text:"Sorry, an error occurred processing your message."
+              in
+              Session.mark_response_sent session_mgr ~key;
+              Lwt.return_unit)
 
 (* Close code classification for reconnect behavior *)
 let is_fatal_close_code code =
   match code with 4004 | 4010 | 4011 | 4012 | 4013 | 4014 -> true | _ -> false
 
-let start ~config ~session_manager ~(message_limiter : Rate_limiter.t) =
+let should_clear_resume_state code =
+  match code with
+  | 4004 | 4007 | 4009 | 4010 | 4011 | 4012 | 4013 | 4014 -> true
+  | _ -> false
+
+let start ~config ~session_manager ~db ~(message_limiter : Rate_limiter.t) =
   match config.Runtime_config.channels.discord with
   | None ->
       Logs.info (fun m -> m "No Discord config found, skipping");
@@ -288,9 +399,12 @@ let start ~config ~session_manager ~(message_limiter : Rate_limiter.t) =
         Logs.info (fun m ->
             m "Discord channel starting (WebSocket gateway mode)");
         let open Lwt.Syntax in
-        let resume_session_id = ref None in
-        let resume_seq = ref None in
-        let resume_url = ref None in
+        let resume_session_id, resume_seq, resume_url = make_resume_refs ~db in
+        (match !resume_seq with
+        | Some seq ->
+            Logs.info (fun m ->
+                m "Discord: loaded persisted resume state (seq=%d)" seq)
+        | None -> ());
         let backoff = ref 1.0 in
         let rec connect_loop () =
           let close_p, close_u = Lwt.wait () in
@@ -325,6 +439,8 @@ let start ~config ~session_manager ~(message_limiter : Rate_limiter.t) =
                 resume_session_id := Discord_gateway.session_id gw;
                 resume_seq := Discord_gateway.last_seq gw;
                 resume_url := Discord_gateway.resume_url gw;
+                persist_resume_refs ~db ~resume_session_id ~resume_seq
+                  ~resume_url;
                 Lwt.return (Ok code))
               (fun exn -> Lwt.return (Error (Printexc.to_string exn)))
           in
@@ -332,9 +448,6 @@ let start ~config ~session_manager ~(message_limiter : Rate_limiter.t) =
           match outcome with
           | Error err ->
               Logs.err (fun m -> m "Discord: gateway connection error: %s" err);
-              resume_session_id := None;
-              resume_seq := None;
-              resume_url := None;
               let delay = !backoff in
               backoff := Float.min (!backoff *. 2.0) 60.0;
               Logs.info (fun m -> m "Discord: reconnecting in %.0fs" delay);
@@ -342,6 +455,8 @@ let start ~config ~session_manager ~(message_limiter : Rate_limiter.t) =
               connect_loop ()
           | Ok code ->
               let code_int = match code with Some c -> c | None -> 0 in
+              if should_clear_resume_state code_int then
+                clear_resume_refs ~db ~resume_session_id ~resume_seq ~resume_url;
               if is_fatal_close_code code_int then begin
                 Logs.err (fun m ->
                     m "Discord: fatal close code %d, not reconnecting" code_int);

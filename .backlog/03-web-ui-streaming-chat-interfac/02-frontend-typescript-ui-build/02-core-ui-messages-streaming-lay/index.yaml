@@ -6,11 +6,11 @@ locked: false
 name: 'Core UI: Messages, Streaming, Layout'
 stats:
     blocked: 0
-    done: 0
+    done: 4
     in_progress: 0
-    pending: 4
+    pending: 0
     total: 4
-status: pending
+status: done
 tasks:
     - complexity: medium
       depends_on:
@@ -19,7 +19,8 @@ tasks:
       file: T001-stream-ts-sse-asyncgenerator-w.todo
       id: T001
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: 'stream.ts: SSE AsyncGenerator with abort signal and error recovery'
     - complexity: medium
       depends_on:
@@ -28,7 +29,8 @@ tasks:
       file: T002-messages-ts-turn-message-model.todo
       id: T002
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: 'messages.ts: Turn/message model and DOM rendering (user + assistant bubbles)'
     - complexity: medium
       depends_on:
@@ -37,7 +39,8 @@ tasks:
       file: T003-main-ts-wire-form-submit-abort.todo
       id: T003
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: 'main.ts: wire form submit, abort, pairing modal, session management, version check'
     - complexity: low
       depends_on:
@@ -46,5 +49,6 @@ tasks:
       file: T004-styles-chat-css-complete-style.todo
       id: T004
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: 'styles/chat.css: complete stylesheet (layout, bubbles, tool cards, thinking panel, slash popover, ANSI, version banner)'

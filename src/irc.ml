@@ -275,18 +275,30 @@ let run_session ~(cfg : Runtime_config.irc_config) ~conn
                       else sender
                     in
                     let key = "irc:" ^ reply_target ^ ":" ^ sender in
+                    let notify text =
+                      let chunks = chunk_text text in
+                      Lwt_list.iter_s
+                        (fun chunk ->
+                          write_line conn
+                            ("PRIVMSG " ^ reply_target ^ " :" ^ chunk))
+                        chunks
+                    in
                     let* result =
-                      Lwt.catch
-                        (fun () ->
-                          let* response =
-                            Session.turn session_manager ~key ~message:text
-                              ~channel_name:reply_target
-                              ~channel_type:
-                                (if reply_target = sender then "dm" else "group")
-                              ~sender_id:sender ()
-                          in
-                          Lwt.return (Ok response))
-                        (fun exn -> Lwt.return (Error (Printexc.to_string exn)))
+                      Session.with_registered_notifier session_manager ~key
+                        ~notify (fun () ->
+                          Lwt.catch
+                            (fun () ->
+                              let* response =
+                                Session.turn session_manager ~key ~message:text
+                                  ~channel_name:reply_target
+                                  ~channel_type:
+                                    (if reply_target = sender then "dm"
+                                     else "group")
+                                  ~sender_id:sender ()
+                              in
+                              Lwt.return (Ok response))
+                            (fun exn ->
+                              Lwt.return (Error (Printexc.to_string exn))))
                     in
                     match result with
                     | Ok response ->

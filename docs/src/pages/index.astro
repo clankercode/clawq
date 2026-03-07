@@ -1,14 +1,14 @@
 ---
 import LandingLayout from '../layouts/LandingLayout.astro';
 import HeroGearBackdrop from '../components/HeroGearBackdrop.astro';
-import { BACKDROP_ALGORITHMS } from '../lib/gears/backdrop_algorithms.ts';
+import { BACKDROP_ALGORITHMS, DEFAULT_HERO_GEAR_ALGORITHM } from '../lib/gears/backdrop_algorithms.ts';
 
 const allowedGearAlgorithms = BACKDROP_ALGORITHMS;
 const gearAlgoFromUrl = Astro.url.searchParams.get('gearAlgo');
 const heroGearAlgorithm: (typeof allowedGearAlgorithms)[number] =
   allowedGearAlgorithms.includes(gearAlgoFromUrl as (typeof allowedGearAlgorithms)[number])
     ? (gearAlgoFromUrl as (typeof allowedGearAlgorithms)[number])
-    : 'hex-web';
+    : DEFAULT_HERO_GEAR_ALGORITHM;
 ---
 <LandingLayout title="Clawq -- The Formal AI Assistant">
 

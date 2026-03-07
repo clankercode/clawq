@@ -109,47 +109,108 @@ let remove_pid () =
   let meta = pid_meta_path () in
   if Sys.file_exists meta then try Sys.remove meta with _ -> ()
 
+let nofork_env = "CLAWQ_DAEMON_NOFORK"
+let internal_nofork_env = "CLAWQ_DAEMON_INTERNAL_NOFORK"
+
+let has_prefix ~prefix s =
+  let plen = String.length prefix in
+  String.length s >= plen && String.sub s 0 plen = prefix
+
+let build_env ~set_vars ~unset_vars =
+  let should_drop entry =
+    List.exists (fun key -> has_prefix ~prefix:(key ^ "=") entry) unset_vars
+  in
+  let overridden = List.map fst set_vars in
+  Array.to_list (Unix.environment ())
+  |> List.filter (fun entry ->
+      (not (should_drop entry))
+      && not
+           (List.exists
+              (fun key -> has_prefix ~prefix:(key ^ "=") entry)
+              overridden))
+  |> fun env ->
+  env @ List.map (fun (k, v) -> k ^ "=" ^ v) set_vars |> Array.of_list
+
+let daemon_start_argv () = [| Sys.executable_name; "service"; "start" |]
+
+let handle_daemon_exit ?(execve = Unix.execve) exit_intent =
+  match exit_intent with
+  | Daemon.Shutdown -> ()
+  | Daemon.Restart ->
+      execve Sys.executable_name (daemon_start_argv ())
+        (build_env
+           ~set_vars:[ (nofork_env, "1") ]
+           ~unset_vars:[ internal_nofork_env ])
+
+let run_nofork_start ?(execve = Unix.execve)
+    ?(run_daemon = fun ~config -> Lwt_main.run (Daemon.run ~config)) ~config ()
+    =
+  let nofork_requested = Sys.getenv_opt nofork_env = Some "1" in
+  let internal_nofork = Sys.getenv_opt internal_nofork_env = Some "1" in
+  if nofork_requested && not internal_nofork then begin
+    execve Sys.executable_name (daemon_start_argv ())
+      (build_env
+         ~set_vars:[ (internal_nofork_env, "1") ]
+         ~unset_vars:[ nofork_env ]);
+    ""
+  end
+  else begin
+    Unix.putenv internal_nofork_env "";
+    Logs.info (fun m -> m "Daemon restarting in-place (NOFORK mode)");
+    let result = try run_daemon ~config with _ -> Daemon.Shutdown in
+    handle_daemon_exit ~execve result;
+    ""
+  end
+
 let cmd_start ~config =
-  match read_pid () with
-  | Some pid -> Printf.sprintf "Daemon already running (pid %d)" pid
-  | None -> (
-      ensure_dir (clawq_dir ());
-      let logs_dir = clawq_dir () in
-      ensure_dir logs_dir;
-      match Unix.fork () with
-      | 0 ->
-          ignore (Unix.setsid ());
-          let log_fd =
-            Unix.openfile (log_path ())
-              [ Unix.O_WRONLY; Unix.O_CREAT; Unix.O_APPEND ]
-              0o644
-          in
-          Unix.dup2 log_fd Unix.stdout;
-          Unix.dup2 log_fd Unix.stderr;
-          Unix.close log_fd;
-          let null_fd = Unix.openfile "/dev/null" [ Unix.O_RDONLY ] 0 in
-          Unix.dup2 null_fd Unix.stdin;
-          Unix.close null_fd;
-          write_pid (Unix.getpid ());
-          (try Lwt_main.run (Daemon.run ~config) with _ -> ());
-          remove_pid ();
-          exit 0
-      | _pid -> (
-          let rec wait_for_ready attempts =
-            if attempts <= 0 then None
-            else
-              match read_pid () with
-              | Some daemon_pid -> Some daemon_pid
-              | None ->
-                  Unix.sleepf 0.1;
-                  wait_for_ready (attempts - 1)
-          in
-          match wait_for_ready 30 with
-          | Some daemon_pid ->
-              Printf.sprintf "Daemon started (pid %d)" daemon_pid
-          | None ->
-              Printf.sprintf "Daemon failed to become ready. Check logs at %s"
-                (log_path ())))
+  if
+    Sys.getenv_opt nofork_env = Some "1"
+    || Sys.getenv_opt internal_nofork_env = Some "1"
+  then run_nofork_start ~config ()
+  else
+    match read_pid () with
+    | Some pid -> Printf.sprintf "Daemon already running (pid %d)" pid
+    | None -> (
+        ensure_dir (clawq_dir ());
+        let logs_dir = clawq_dir () in
+        ensure_dir logs_dir;
+        match Unix.fork () with
+        | 0 ->
+            ignore (Unix.setsid ());
+            let log_fd =
+              Unix.openfile (log_path ())
+                [ Unix.O_WRONLY; Unix.O_CREAT; Unix.O_APPEND ]
+                0o644
+            in
+            Unix.dup2 log_fd Unix.stdout;
+            Unix.dup2 log_fd Unix.stderr;
+            Unix.close log_fd;
+            let null_fd = Unix.openfile "/dev/null" [ Unix.O_RDONLY ] 0 in
+            Unix.dup2 null_fd Unix.stdin;
+            Unix.close null_fd;
+            write_pid (Unix.getpid ());
+            let result =
+              try Lwt_main.run (Daemon.run ~config) with _ -> Daemon.Shutdown
+            in
+            handle_daemon_exit result;
+            remove_pid ();
+            exit 0
+        | _pid -> (
+            let rec wait_for_ready attempts =
+              if attempts <= 0 then None
+              else
+                match read_pid () with
+                | Some daemon_pid -> Some daemon_pid
+                | None ->
+                    Unix.sleepf 0.1;
+                    wait_for_ready (attempts - 1)
+            in
+            match wait_for_ready 30 with
+            | Some daemon_pid ->
+                Printf.sprintf "Daemon started (pid %d)" daemon_pid
+            | None ->
+                Printf.sprintf "Daemon failed to become ready. Check logs at %s"
+                  (log_path ())))
 
 let cmd_stop () =
   match read_pid () with
@@ -206,6 +267,17 @@ let cmd_status () =
   add (Printf.sprintf "  log: %s" (log_path ()));
   add (Printf.sprintf "  pid file: %s" (pid_path ()));
   List.rev !lines |> String.concat "\n"
+
+let cmd_signal_restart ?(read_pid = read_pid) ?(send_signal = Unix.kill) () =
+  match read_pid () with
+  | None -> "Daemon is not running"
+  | Some pid -> (
+      try
+        send_signal pid Sys.sigusr1;
+        Printf.sprintf "Restart signal sent to daemon (PID %d)" pid
+      with Unix.Unix_error (err, _, _) ->
+        Printf.sprintf "Failed to signal daemon pid %d: %s" pid
+          (Unix.error_message err))
 
 let cmd_restart ~config =
   let stop_msg = cmd_stop () in

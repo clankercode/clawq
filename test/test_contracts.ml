@@ -23,6 +23,8 @@ let test_provider_config_has_required_fields () =
       project_id = None;
       location = None;
       service_account_json = None;
+      thinking_budget_tokens = None;
+      oai_thinking_style = "none";
       codex_oauth = None;
     }
   in
@@ -41,6 +43,8 @@ let test_provider_config_base_url_some () =
       project_id = None;
       location = None;
       service_account_json = None;
+      thinking_budget_tokens = None;
+      oai_thinking_style = "none";
       codex_oauth = None;
     }
   in

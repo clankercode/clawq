@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-07T05:41:19Z"
+claimed_by: cli-user
+completed_at: "2026-03-07T05:43:20Z"
 complexity: medium
 depends_on: []
+duration_minutes: 2.0198643864666668
 estimate_hours: 1
 id: B005
 priority: high
-status: pending
+started_at: "2026-03-07T05:41:19Z"
+status: done
 tags: []
 title: 'task: add binary size report target that records section-level sizes (.text/.rodata/.debug) for speed+size profiles and fails CI on large regressions'
 ---

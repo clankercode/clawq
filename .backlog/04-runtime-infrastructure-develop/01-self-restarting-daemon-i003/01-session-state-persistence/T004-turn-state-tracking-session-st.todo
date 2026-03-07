@@ -1,13 +1,16 @@
 ---
-completed_at: null
+claimed_at: "2026-03-07T03:20:24Z"
+claimed_by: cli-user
+completed_at: "2026-03-07T03:29:07Z"
 complexity: medium
 depends_on:
     - P4.M1.E1.T001
+duration_minutes: 8.731419920083333
 estimate_hours: 1
 id: P4.M1.E1.T004
 priority: medium
-started_at: null
-status: pending
+started_at: "2026-03-07T03:20:24Z"
+status: done
 tags: []
 title: 'Turn state tracking: session_state turn=agent before LLM, mark_response_sent after channel send'
 ---

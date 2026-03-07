@@ -21,6 +21,8 @@ let test_find_provider_for_model () =
           project_id = None;
           location = None;
           service_account_json = None;
+          thinking_budget_tokens = None;
+          oai_thinking_style = "none";
           codex_oauth = None;
         } );
       ( "openai",
@@ -32,6 +34,8 @@ let test_find_provider_for_model () =
           project_id = None;
           location = None;
           service_account_json = None;
+          thinking_budget_tokens = None;
+          oai_thinking_style = "none";
           codex_oauth = None;
         } );
     ]
@@ -67,6 +71,8 @@ let test_find_provider_no_key () =
           project_id = None;
           location = None;
           service_account_json = None;
+          thinking_budget_tokens = None;
+          oai_thinking_style = "none";
           codex_oauth = None;
         } );
     ]
@@ -89,6 +95,8 @@ let test_find_provider_date_suffix () =
           project_id = None;
           location = None;
           service_account_json = None;
+          thinking_budget_tokens = None;
+          oai_thinking_style = "none";
           codex_oauth = None;
         } );
     ]
@@ -138,6 +146,8 @@ let make_provider ?(base_url = None) api_key =
     project_id = None;
     location = None;
     service_account_json = None;
+    thinking_budget_tokens = None;
+    oai_thinking_style = "none";
     codex_oauth = None;
   }
 
@@ -261,6 +271,8 @@ let test_find_provider_first_wins () =
           project_id = None;
           location = None;
           service_account_json = None;
+          thinking_budget_tokens = None;
+          oai_thinking_style = "none";
           codex_oauth = None;
         } );
       ( "anthropic2",
@@ -272,6 +284,8 @@ let test_find_provider_first_wins () =
           project_id = None;
           location = None;
           service_account_json = None;
+          thinking_budget_tokens = None;
+          oai_thinking_style = "none";
           codex_oauth = None;
         } );
     ]
@@ -297,6 +311,8 @@ let test_find_provider_with_codex_oauth_auth () =
           project_id = None;
           location = None;
           service_account_json = None;
+          thinking_budget_tokens = None;
+          oai_thinking_style = "none";
           codex_oauth =
             Some
               {
@@ -329,6 +345,8 @@ let test_find_provider_codex_associated_models () =
           project_id = None;
           location = None;
           service_account_json = None;
+          thinking_budget_tokens = None;
+          oai_thinking_style = "none";
           codex_oauth =
             Some
               {
@@ -370,6 +388,8 @@ let test_find_provider_ignores_empty_codex_oauth_tokens () =
           project_id = None;
           location = None;
           service_account_json = None;
+          thinking_budget_tokens = None;
+          oai_thinking_style = "none";
           codex_oauth =
             Some
               {

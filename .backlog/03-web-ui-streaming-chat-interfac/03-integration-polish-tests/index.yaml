@@ -10,15 +10,15 @@ epics:
       locked: false
       name: Versioning, Wiring & End-to-End Tests
       path: 01-versioning-wiring-end-to-end-t
-      status: pending
+      status: done
 estimate_hours: 8
 id: P3.M3
 locked: false
 name: Integration, Polish & Tests
 stats:
     blocked: 0
-    done: 0
+    done: 5
     in_progress: 0
-    pending: 5
+    pending: 0
     total_tasks: 5
-status: pending
+status: done

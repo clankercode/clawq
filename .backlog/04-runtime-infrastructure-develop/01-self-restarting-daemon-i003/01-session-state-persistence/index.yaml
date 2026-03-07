@@ -6,11 +6,11 @@ locked: false
 name: Session State Persistence
 stats:
     blocked: 0
-    done: 0
+    done: 4
     in_progress: 0
-    pending: 4
+    pending: 0
     total: 4
-status: pending
+status: done
 tasks:
     - complexity: low
       depends_on: []
@@ -18,25 +18,26 @@ tasks:
       file: T001-db-schema-migration-v2.todo
       id: T001
       priority: medium
-      status: pending
-      title: DB schema migration v2
+      status: done
+      tags: []
+      title: 'DB schema migration v1 to v2: add session_state and discord_resume_state tables'
     - complexity: low
-      depends_on:
-        - P4.M1.E1.T001
+      depends_on: []
       estimate_hours: 1
       file: T002-verify-message-persistence-com.todo
       id: T002
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: 'Verify message persistence completeness: tool_calls round-trip'
     - complexity: low
-      depends_on:
-        - P4.M1.E1.T001
+      depends_on: []
       estimate_hours: 1
       file: T003-verify-history-reconstruction.todo
       id: T003
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: 'Verify history reconstruction: get_or_create auto-loads from DB after NOFORK execv'
     - complexity: medium
       depends_on:
@@ -45,6 +46,6 @@ tasks:
       file: T004-turn-state-tracking-session-st.todo
       id: T004
       priority: medium
-      status: pending
+      status: done
       tags: []
       title: 'Turn state tracking: session_state turn=agent before LLM, mark_response_sent after channel send'

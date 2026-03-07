@@ -6,11 +6,11 @@ locked: false
 name: Versioning, Wiring & End-to-End Tests
 stats:
     blocked: 0
-    done: 0
+    done: 5
     in_progress: 0
-    pending: 5
+    pending: 0
     total: 5
-status: pending
+status: done
 tasks:
     - complexity: low
       depends_on:
@@ -20,7 +20,8 @@ tasks:
       file: T001-wire-ui-server-init-in-daemon.todo
       id: T001
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: Wire Ui_server.init in daemon.ml startup; smoke test full round-trip
     - complexity: medium
       depends_on:
@@ -31,7 +32,8 @@ tasks:
       file: T002-ocaml-tests-ui-server-versioni.todo
       id: T002
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: 'OCaml tests: Ui_server versioning logic, ThinkingDelta parsing, ToolStart/ToolResult event emission'
     - complexity: low
       depends_on:
@@ -40,7 +42,8 @@ tasks:
       file: T003-update-docs-claude-md-quick-fi.todo
       id: T003
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: 'Update docs: CLAUDE.md quick file map, add ''make ui'' to build section'
     - complexity: low
       depends_on:
@@ -50,7 +53,8 @@ tasks:
       file: T004-mark-i002-idea-as-done-link-to.todo
       id: T004
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: Mark I002 idea as done, link to P3 tasks
     - complexity: low
       depends_on:
@@ -59,5 +63,6 @@ tasks:
       file: T005-update-test-fixtures-stream-ev.todo
       id: T005
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: 'Update test fixtures: stream_event exhaustive match across all provider test suites'

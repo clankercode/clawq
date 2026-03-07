@@ -1,11 +1,16 @@
 ---
+claimed_at: "2026-03-07T05:33:14Z"
+claimed_by: cli-user
+completed_at: "2026-03-07T05:33:14Z"
 complexity: low
 depends_on:
     - P4.M1.E5.T003
+duration_minutes: 0.015574091016666666
 estimate_hours: 1
 id: P4.M1.E6.T003
 priority: medium
-status: pending
+started_at: "2026-03-07T05:33:14Z"
+status: done
 tags: []
 title: 'Unit tests for update_tool.ml: find_repo_root, git-fail-continue, build-fail-abort'
 ---

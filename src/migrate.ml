@@ -45,6 +45,8 @@ let convert (json : Yojson.Safe.t) =
                  project_id = None;
                  location = None;
                  service_account_json = None;
+                 thinking_budget_tokens = None;
+                 oai_thinking_style = "none";
                  codex_oauth = None;
                }
                 : Runtime_config.provider_config) ))

@@ -28,6 +28,176 @@ let write_state ~(config : Runtime_config.t) ~components =
     Logs.warn (fun m ->
         m "Failed to write daemon state: %s" (Printexc.to_string exn))
 
+type resume_senders = {
+  send_telegram :
+    bot_token:string -> chat_id:string -> text:string -> unit Lwt.t;
+  send_discord :
+    bot_token:string -> channel_id:string -> text:string -> unit Lwt.t;
+  send_slack :
+    bot_token:string -> channel_id:string -> text:string -> unit Lwt.t;
+}
+
+let default_resume_senders =
+  {
+    send_telegram = Telegram.send_message;
+    send_discord = Discord.send_message;
+    send_slack = Slack.send_message;
+  }
+
+type exit_intent = Shutdown | Restart
+
+let initial_drain_warning = "Restarting soon, finishing current requests..."
+
+let drain_warning_schedule =
+  [
+    (5.0, "Still restarting, please wait (5s)...");
+    (10.0, "Still restarting (10s)...");
+    (15.0, "Still restarting (15s)...");
+    (30.0, "Still restarting (30s)...");
+    (45.0, "Almost there (45s)...");
+    (60.0, "Restart timeout reached, forcing restart now.");
+  ]
+
+let send_drain_warnings ?(schedule = drain_warning_schedule)
+    ~(session_manager : Session.t) ~stop () =
+  let rec loop last_t = function
+    | [] -> Lwt.return_unit
+    | (t, message) :: rest ->
+        let open Lwt.Syntax in
+        let* () =
+          if t > last_t then Lwt_unix.sleep (t -. last_t) else Lwt.return_unit
+        in
+        if !stop then Lwt.return_unit
+        else begin
+          let* () = Session.notify_channel_sessions session_manager message in
+          loop t rest
+        end
+  in
+  loop 0.0 schedule
+
+let wait_for_drain ?(attempts = 600) ?(sleep_seconds = 0.1)
+    ~(session_manager : Session.t) () =
+  let rec loop attempts_remaining =
+    let open Lwt.Syntax in
+    if Session.current_in_flight session_manager = 0 then Lwt.return false
+    else if attempts_remaining <= 0 then begin
+      Logs.warn (fun m ->
+          m "Drain timeout, forcing restart with %d requests in flight"
+            (Session.current_in_flight session_manager));
+      Lwt.return true
+    end
+    else begin
+      let* () = Lwt_unix.sleep sleep_seconds in
+      loop (attempts_remaining - 1)
+    end
+  in
+  loop attempts
+
+let dispatch_resumed_message ?(senders = default_resume_senders)
+    ~(config : Runtime_config.t) ~channel ~channel_id ~text () =
+  let open Lwt.Syntax in
+  match channel with
+  | "telegram" -> (
+      match config.channels.telegram with
+      | Some { accounts = (_, account) :: _ } ->
+          let* () =
+            senders.send_telegram ~bot_token:account.bot_token
+              ~chat_id:channel_id ~text
+          in
+          Lwt.return (Ok ())
+      | Some { accounts = [] } | None ->
+          Lwt.return (Error "telegram channel is not configured"))
+  | "discord" -> (
+      match config.channels.discord with
+      | Some discord ->
+          let* () =
+            senders.send_discord ~bot_token:discord.bot_token ~channel_id ~text
+          in
+          Lwt.return (Ok ())
+      | None -> Lwt.return (Error "discord channel is not configured"))
+  | "slack" -> (
+      match config.channels.slack with
+      | Some slack ->
+          let* () =
+            senders.send_slack ~bot_token:slack.bot_token ~channel_id ~text
+          in
+          Lwt.return (Ok ())
+      | None -> Lwt.return (Error "slack channel is not configured"))
+  | _ -> Lwt.return (Error (Printf.sprintf "unsupported channel %s" channel))
+
+let default_resume_turn ~(session_manager : Session.t) ~session_key agent
+    interrupt =
+  Agent.turn agent ~user_message:"" ?db:session_manager.db ~session_key
+    ~interrupt_check:(fun () -> !interrupt)
+    ~history_prepared:true ()
+
+let resume_agent_session ?(senders = default_resume_senders) ?run_turn
+    ~(session_manager : Session.t) ~(config : Runtime_config.t) ~session_key
+    ~channel ~channel_id () =
+  let run_turn =
+    match run_turn with
+    | Some f -> f
+    | None -> default_resume_turn ~session_manager ~session_key
+  in
+  let open Lwt.Syntax in
+  Session.with_session_lock session_manager ~key:session_key
+    (fun agent interrupt ->
+      let history_before = List.length agent.Agent.history in
+      let* response =
+        Session.with_in_flight session_manager (fun () ->
+            run_turn agent interrupt)
+      in
+      Session.persist_new_messages session_manager ~key:session_key
+        ~history_before agent;
+      let* dispatch_result =
+        dispatch_resumed_message ~senders ~config ~channel ~channel_id
+          ~text:response ()
+      in
+      match dispatch_result with
+      | Ok () ->
+          Session.mark_response_sent session_manager ~key:session_key;
+          Lwt.return_unit
+      | Error msg ->
+          Logs.warn (fun m ->
+              m "Failed to deliver resumed session %s via %s:%s: %s" session_key
+                channel channel_id msg);
+          Lwt.return_unit)
+
+let resume_pending_agent_sessions ?(senders = default_resume_senders)
+    ?resume_one ~(session_manager : Session.t) ~(config : Runtime_config.t) () =
+  let resume_one =
+    match resume_one with
+    | Some f -> f
+    | None ->
+        fun ~session_key ~channel ~channel_id ->
+          resume_agent_session ~senders ~session_manager ~config ~session_key
+            ~channel ~channel_id ()
+  in
+  let pending =
+    Session.load_pending_agent_sessions session_manager ~max_age_seconds:3600
+  in
+  let open Lwt.Syntax in
+  if pending <> [] then
+    Logs.info (fun m ->
+        m "Resuming %d pending agent sessions" (List.length pending));
+  Lwt_list.iter_s
+    (fun (session_key, channel_opt, channel_id_opt) ->
+      match (channel_opt, channel_id_opt) with
+      | Some channel, Some channel_id ->
+          Lwt.catch
+            (fun () -> resume_one ~session_key ~channel ~channel_id)
+            (fun exn ->
+              Logs.err (fun m ->
+                  m "Failed to resume session %s: %s" session_key
+                    (Printexc.to_string exn));
+              Lwt.return_unit)
+      | _ ->
+          Logs.warn (fun m ->
+              m "Cannot resume session %s: missing channel info" session_key);
+          Session.mark_response_sent session_manager ~key:session_key;
+          Lwt.return_unit)
+    pending
+
 let run ~(config : Runtime_config.t) =
   let open Lwt.Syntax in
   let pp_header_with_ts ppf h =
@@ -295,6 +465,47 @@ let run ~(config : Runtime_config.t) =
     | _ -> None
   in
   let session_manager = Session.create ~config ?tool_registry ?db () in
+  let update_lock = Lwt_mutex.create () in
+  let update_in_progress = ref false in
+  let claim_update () =
+    Lwt_mutex.with_lock update_lock (fun () ->
+        if !update_in_progress || Session.is_draining session_manager then
+          Lwt.return false
+        else begin
+          update_in_progress := true;
+          Lwt.return true
+        end)
+  in
+  let finish_update () =
+    Lwt_mutex.with_lock update_lock (fun () ->
+        update_in_progress := false;
+        Lwt.return_unit)
+  in
+  let run_update ~send_progress () =
+    Update_tool.run_update ~claim_update ~finish_update
+      ~is_draining:(fun () -> Session.is_draining session_manager)
+      ~send_progress ()
+  in
+  (match tool_registry with
+  | Some registry ->
+      Tool_registry.register registry
+        (Update_tool.tool ~claim_update ~finish_update
+           ~is_draining:(fun () -> Session.is_draining session_manager)
+           ())
+  | None -> ());
+  Session.set_special_command_handler session_manager
+    (fun ~key:_ ~message ~send_progress ->
+      if not (Update_tool.is_update_command message) then Lwt.return_none
+      else
+        let send_progress =
+          match send_progress with
+          | Some f -> f
+          | None -> fun _ -> Lwt.return_unit
+        in
+        let open Lwt.Syntax in
+        let* response = run_update ~send_progress () in
+        Lwt.return_some response);
+  let* () = resume_pending_agent_sessions ~session_manager ~config () in
   let tunnel_url_ref = ref None in
   let[@warning "-26"] tunnel_supervisor =
     if config.tunnel.enabled then begin
@@ -344,6 +555,11 @@ let run ~(config : Runtime_config.t) =
     end
     else None
   in
+  let ui_server = Ui_server.init () in
+  Logs.info (fun m ->
+      m "Web UI assets ready at %s (version=%s dev_mode=%b)" ui_server.ui_dir
+        (Ui_server.version ui_server)
+        ui_server.dev_mode);
   write_state ~config
     ~components:
       [
@@ -375,7 +591,7 @@ let run ~(config : Runtime_config.t) =
             (match config.channels.lark with
             | Some lc when lc.mode = "webhook" -> Some lc
             | _ -> None)
-          ?pairing ())
+          ?pairing ~ui_server ())
       (fun exn ->
         Logs.err (fun m ->
             m "Gateway server error: %s" (Printexc.to_string exn));
@@ -391,7 +607,9 @@ let run ~(config : Runtime_config.t) =
         Lwt.return_unit)
   in
   let shutdown_waiter, shutdown_resolver = Lwt.wait () in
+  let restart_waiter, restart_resolver = Lwt.wait () in
   let shutting_down = ref false in
+  let restarting = ref false in
   let do_shutdown _ =
     if not !shutting_down then begin
       shutting_down := true;
@@ -401,8 +619,18 @@ let run ~(config : Runtime_config.t) =
       Lwt.wakeup_later shutdown_resolver ()
     end
   in
+  let do_restart _ =
+    if not !restarting then begin
+      restarting := true;
+      Logs.info (fun m -> m "SIGUSR1 received, initiating graceful restart");
+      write_state ~config
+        ~components:[ ("gateway", "restarting"); ("telegram", "restarting") ];
+      Lwt.wakeup_later restart_resolver ()
+    end
+  in
   let _ = Lwt_unix.on_signal Sys.sigint do_shutdown in
   let _ = Lwt_unix.on_signal Sys.sigterm do_shutdown in
+  let _ = Lwt_unix.on_signal Sys.sigusr1 do_restart in
   let _ =
     Lwt_unix.on_signal Sys.sighup (fun _ ->
         Logs.info (fun m -> m "SIGHUP received, reloading config...");
@@ -454,7 +682,7 @@ let run ~(config : Runtime_config.t) =
   Lwt.async (fun () ->
       Lwt.catch
         (fun () ->
-          Discord.start ~config ~session_manager
+          Discord.start ~config ~session_manager ~db
             ~message_limiter:discord_message_limiter)
         (fun exn ->
           Logs.err (fun m ->
@@ -678,41 +906,50 @@ let run ~(config : Runtime_config.t) =
                   in
                   if content = "" then hb_loop ()
                   else begin
-                    Logs.info (fun m ->
-                        m "Heartbeat: processing HEARTBEAT.md (%d chars)"
-                          (String.length content));
-                    let key = "__heartbeat__" in
-                    let* response =
-                      Lwt.catch
-                        (fun () ->
-                          Session.with_session_lock session_manager ~key
-                            (fun agent _interrupt ->
-                              Agent.turn agent ~user_message:content ?db
-                                ~session_key:key ()))
-                        (fun exn ->
-                          Lwt.return
-                            ("Heartbeat error: " ^ Printexc.to_string exn))
-                    in
-                    let trimmed = String.trim response in
-                    if trimmed = "HEARTBEAT_OK" then
+                    if Session.is_draining session_manager then begin
                       Logs.info (fun m ->
-                          m "Heartbeat: agent replied HEARTBEAT_OK, no outbound")
+                          m "Heartbeat: daemon draining, skipping turn");
+                      hb_loop ()
+                    end
                     else begin
                       Logs.info (fun m ->
-                          m "Heartbeat: agent response (%d chars)"
-                            (String.length trimmed));
-                      match config.notify with
-                      | Some nc ->
-                          Logs.info (fun m ->
-                              m "Heartbeat: would notify via %s -> %s"
-                                nc.notify_channel nc.notify_target)
-                      | None ->
-                          Logs.warn (fun m ->
-                              m
-                                "Heartbeat: agent wants to send a message but \
-                                 no notify target configured")
-                    end;
-                    hb_loop ()
+                          m "Heartbeat: processing HEARTBEAT.md (%d chars)"
+                            (String.length content));
+                      let key = "__heartbeat__" in
+                      let* response =
+                        Lwt.catch
+                          (fun () ->
+                            Session.with_session_lock session_manager ~key
+                              (fun agent _interrupt ->
+                                Agent.turn agent ~user_message:content ?db
+                                  ~session_key:key ()))
+                          (fun exn ->
+                            Lwt.return
+                              ("Heartbeat error: " ^ Printexc.to_string exn))
+                      in
+                      let trimmed = String.trim response in
+                      if trimmed = "HEARTBEAT_OK" then
+                        Logs.info (fun m ->
+                            m
+                              "Heartbeat: agent replied HEARTBEAT_OK, no \
+                               outbound")
+                      else begin
+                        Logs.info (fun m ->
+                            m "Heartbeat: agent response (%d chars)"
+                              (String.length trimmed));
+                        match config.notify with
+                        | Some nc ->
+                            Logs.info (fun m ->
+                                m "Heartbeat: would notify via %s -> %s"
+                                  nc.notify_channel nc.notify_target)
+                        | None ->
+                            Logs.warn (fun m ->
+                                m
+                                  "Heartbeat: agent wants to send a message \
+                                   but no notify target configured")
+                      end;
+                      hb_loop ()
+                    end
                   end
                 end
                 else hb_loop ()
@@ -723,19 +960,62 @@ let run ~(config : Runtime_config.t) =
                 m "Heartbeat loop error: %s" (Printexc.to_string exn));
             Lwt.return_unit))
   end;
-  let* () = Lwt.pick [ shutdown_waiter; gateway ] in
+  let* picked_intent =
+    Lwt.pick
+      [
+        (let open Lwt.Syntax in
+         let* () = shutdown_waiter in
+         Lwt.return Shutdown);
+        (let open Lwt.Syntax in
+         let* () = restart_waiter in
+         Lwt.return Restart);
+        (let open Lwt.Syntax in
+         let* () = gateway in
+         Lwt.return Shutdown);
+      ]
+  in
+  let* final_intent =
+    match picked_intent with
+    | Shutdown -> Lwt.return Shutdown
+    | Restart ->
+        let* () = Session.start_draining session_manager in
+        let* () =
+          Session.notify_channel_sessions session_manager initial_drain_warning
+        in
+        let stop_warnings = ref false in
+        let warnings_p =
+          Lwt.catch
+            (fun () ->
+              send_drain_warnings ~session_manager ~stop:stop_warnings ())
+            (fun exn ->
+              Logs.warn (fun m ->
+                  m "Drain warning loop failed: %s" (Printexc.to_string exn));
+              Lwt.return_unit)
+        in
+        Lwt.async (fun () -> warnings_p);
+        let* timed_out = wait_for_drain ~session_manager () in
+        if not timed_out then stop_warnings := true;
+        let* () = if timed_out then warnings_p else Lwt.return_unit in
+        Lwt.return Restart
+  in
   write_state ~config
     ~components:
       [
         ("gateway", "stopped");
         ("telegram", "stopped");
         ("discord", "stopped");
-        ("slack", "stopped");
+        ("slack", if final_intent = Restart then "restarting" else "stopped");
       ];
   (match db with
   | Some db when config.security.audit_enabled ->
       Audit.log ~db ?signing_key
-        (DaemonEvent { action = "stop"; details = "clean shutdown" })
+        (DaemonEvent
+           {
+             action = (if final_intent = Restart then "restart" else "stop");
+             details =
+               (if final_intent = Restart then "daemon restart requested"
+                else "clean shutdown");
+           })
   | _ -> ());
   (* Flush telemetry on shutdown *)
   let* () =
@@ -749,5 +1029,7 @@ let run ~(config : Runtime_config.t) =
       !mcp_clients
   in
   (* PID file cleanup is handled by service.ml after Daemon.run returns *)
-  Logs.info (fun m -> m "clawq daemon stopped");
-  Lwt.return_unit
+  Logs.info (fun m ->
+      m "clawq daemon %s"
+        (if final_intent = Restart then "ready to restart" else "stopped"));
+  Lwt.return final_intent

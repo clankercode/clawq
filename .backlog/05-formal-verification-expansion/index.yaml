@@ -36,9 +36,9 @@ milestones:
 name: Formal Verification Expansion
 stats:
     blocked: 0
-    done: 0
+    done: 17
     in_progress: 0
-    pending: 17
+    pending: 0
     total_tasks: 17
 status: pending
 weeks: 8

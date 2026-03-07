@@ -16,8 +16,8 @@ locked: false
 name: Formalization
 stats:
     blocked: 0
-    done: 1
-    in_progress: 1
+    done: 2
+    in_progress: 0
     pending: 0
     total_tasks: 2
 status: done

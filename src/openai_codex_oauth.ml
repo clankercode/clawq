@@ -225,6 +225,8 @@ let default_provider_config () =
     project_id = None;
     location = None;
     service_account_json = None;
+    thinking_budget_tokens = None;
+    oai_thinking_style = "none";
     codex_oauth = None;
   }
 

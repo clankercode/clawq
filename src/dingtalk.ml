@@ -220,18 +220,25 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
                                   ^ sender_id
                                 in
                                 let* result =
-                                  Lwt.catch
+                                  Session.with_registered_notifier
+                                    session_manager ~key
+                                    ~notify:(fun text ->
+                                      send_message ~config:dt_config
+                                        ~open_conversation_id:conversation_id
+                                        ~text)
                                     (fun () ->
-                                      let* response =
-                                        Session.turn session_manager ~key
-                                          ~message:content
-                                          ~channel_name:"dingtalk" ~channel_type
-                                          ~sender_id ()
-                                      in
-                                      Lwt.return (Ok response))
-                                    (fun exn ->
-                                      Lwt.return
-                                        (Error (Printexc.to_string exn)))
+                                      Lwt.catch
+                                        (fun () ->
+                                          let* response =
+                                            Session.turn session_manager ~key
+                                              ~message:content
+                                              ~channel_name:"dingtalk"
+                                              ~channel_type ~sender_id ()
+                                          in
+                                          Lwt.return (Ok response))
+                                        (fun exn ->
+                                          Lwt.return
+                                            (Error (Printexc.to_string exn))))
                                 in
                                 match result with
                                 | Ok response ->

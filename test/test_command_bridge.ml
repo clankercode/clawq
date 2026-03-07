@@ -146,6 +146,12 @@ let test_handle_service () =
     String.length result >= String.length prefix
     && String.sub result 0 (String.length prefix) = prefix)
 
+let test_handle_service_signal_restart () =
+  let result = Command_bridge.handle [ "service"; "signal-restart" ] in
+  Alcotest.(check bool)
+    "service signal restart returns output" true
+    (result = "Daemon is not running" || String.length result > 0)
+
 let test_handle_migrate_no_source () =
   let result = Command_bridge.handle [ "migrate" ] in
   Alcotest.(check bool) "migrate returns output" true (String.length result > 0)
@@ -276,6 +282,8 @@ let suite =
     Alcotest.test_case "handle cron" `Quick test_handle_cron;
     Alcotest.test_case "handle cron list" `Quick test_handle_cron_list;
     Alcotest.test_case "handle service" `Quick test_handle_service;
+    Alcotest.test_case "handle service signal restart" `Quick
+      test_handle_service_signal_restart;
     Alcotest.test_case "handle migrate no source" `Quick
       test_handle_migrate_no_source;
     Alcotest.test_case "handle skills" `Quick test_handle_skills;

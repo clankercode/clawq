@@ -158,16 +158,21 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
                         else
                           let key = "imessage:" ^ handle_id in
                           let* result =
-                            Lwt.catch
+                            Session.with_registered_notifier session_manager
+                              ~key
+                              ~notify:(fun text ->
+                                send_imessage ~recipient:handle_id ~text)
                               (fun () ->
-                                let* response =
-                                  Session.turn session_manager ~key
-                                    ~message:text ~channel_name:"imessage"
-                                    ~channel_type:"dm" ()
-                                in
-                                Lwt.return (Ok response))
-                              (fun exn ->
-                                Lwt.return (Error (Printexc.to_string exn)))
+                                Lwt.catch
+                                  (fun () ->
+                                    let* response =
+                                      Session.turn session_manager ~key
+                                        ~message:text ~channel_name:"imessage"
+                                        ~channel_type:"dm" ()
+                                    in
+                                    Lwt.return (Ok response))
+                                  (fun exn ->
+                                    Lwt.return (Error (Printexc.to_string exn))))
                           in
                           match result with
                           | Ok response ->

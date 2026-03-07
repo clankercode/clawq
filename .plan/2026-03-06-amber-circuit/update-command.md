@@ -6,7 +6,8 @@
 as both a chat command (user types `/update` in any channel) and as an agent tool (the agent can
 call it autonomously, e.g. after patching source files).
 
-**Binary download mode is deferred to B018.** This design covers git+compile only.
+Binary download mode is also supported via `CLAWQ_UPDATE_BINARY_URL`.
+`auto` mode prefers git+compile when a repo is present, and otherwise falls back to binary replacement.
 
 ## Behavior
 
@@ -48,13 +49,14 @@ Internals:
 1. `find_repo_root ()` — walk up from `Sys.executable_name` looking for `dune-project` or
    `.git`. Return `None` if not found (update impossible, report error).
 
-2. Run `git -C repo_root pull 2>&1` via `Lwt_process.pread`. Non-fatal on non-zero exit.
+2. In git mode, run `git -C repo_root pull 2>&1` via `Lwt_process.pread`. Non-fatal on non-zero exit.
    Send output to user.
 
-3. Run `make -C repo_root build 2>&1` via `Lwt_process.pread_lines` for streaming output.
+3. In git mode, run `make -C repo_root build 2>&1` via `Lwt_process.pread_lines` for streaming output.
    On non-zero exit: send error message and return (do NOT restart).
 
-4. Send "Build complete. Sending restart signal..." to user.
+4. In binary mode, download the replacement binary to `<exe>.download`, `chmod 755`, then `mv`
+   it over the current executable.
 
 5. `Unix.kill (Unix.getpid ()) Sys.sigusr1` — trigger SIGUSR1 on ourselves. The existing
    SIGUSR1 handler in daemon.ml takes over from here (drain, execv, etc.).
@@ -65,10 +67,10 @@ In `src/tool_registry.ml`, register a new tool:
 
 ```
 name:        "update_clawq"
-description: "Update clawq to the latest version by pulling from git and rebuilding.
-              Use this after modifying source code to reload the changes.
+description: "Update clawq by rebuilding from git when available, or by downloading
+              a replacement binary when configured.
               Reports progress and triggers a graceful restart."
-parameters:  {} (no parameters)
+parameters:  { mode?: "auto" | "git" | "binary" }
 ```
 
 The tool implementation calls `Update_tool.run_update ~send_progress:(reply session_key)`.
@@ -92,7 +94,9 @@ else
 
 | Situation | Behavior |
 |---|---|
-| `find_repo_root` returns None | "Cannot find repository root, update not available." |
+| `find_repo_root` returns None in git mode | "Cannot find repository root, git update mode is unavailable." |
+| auto mode has no repo and no binary URL | "Cannot find repository root, and binary update mode is not configured." |
+| binary mode without `CLAWQ_UPDATE_BINARY_URL` | "Binary update mode requires CLAWQ_UPDATE_BINARY_URL to be set." |
 | git pull exits non-zero | Log warning, report to user, continue to build |
 | make build exits non-zero | "Build failed: [output]. Restart aborted." |
 | SIGUSR1 triggers drain which times out | Drain warning messages sent, force restart anyway |

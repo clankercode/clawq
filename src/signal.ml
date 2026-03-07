@@ -291,14 +291,18 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
             match group_id_opt with Some _ -> "group" | None -> "dm"
           in
           let* result =
-            Lwt.catch
+            Session.with_registered_notifier session_manager ~key
+              ~notify:(fun text ->
+                send ~cfg ~recipient:from ~group_id_opt ~text)
               (fun () ->
-                let* response =
-                  Session.turn session_manager ~key ~message:text
-                    ~channel_name:"signal" ~channel_type ~sender_id:from ()
-                in
-                Lwt.return (Ok response))
-              (fun exn -> Lwt.return (Error (Printexc.to_string exn)))
+                Lwt.catch
+                  (fun () ->
+                    let* response =
+                      Session.turn session_manager ~key ~message:text
+                        ~channel_name:"signal" ~channel_type ~sender_id:from ()
+                    in
+                    Lwt.return (Ok response))
+                  (fun exn -> Lwt.return (Error (Printexc.to_string exn))))
           in
           match result with
           | Ok response ->

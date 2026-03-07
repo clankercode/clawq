@@ -1,6 +1,71 @@
 let json_headers =
   Cohttp.Header.of_list [ ("Content-Type", "application/json") ]
 
+let json_string_response ?(status = `OK) body =
+  Cohttp_lwt_unix.Server.respond_string ~status ~headers:json_headers ~body ()
+
+let slash_commands_json () =
+  `List
+    (List.map
+       (fun (cmd : Slash_commands.command) ->
+         `Assoc
+           [
+             ("name", `String cmd.name); ("description", `String cmd.description);
+           ])
+       Slash_commands.commands)
+
+let json_of_stream_event = function
+  | Provider.Delta content ->
+      `Assoc [ ("type", `String "delta"); ("content", `String content) ]
+  | Provider.ThinkingDelta content ->
+      `Assoc
+        [ ("type", `String "thinking_delta"); ("content", `String content) ]
+  | Provider.ToolCallDelta { index; id; function_name; arguments } ->
+      let fields =
+        [ ("type", `String "tool_call_delta"); ("index", `Int index) ]
+      in
+      let fields =
+        match id with
+        | Some value -> fields @ [ ("id", `String value) ]
+        | None -> fields
+      in
+      let fields =
+        match function_name with
+        | Some value -> fields @ [ ("function_name", `String value) ]
+        | None -> fields
+      in
+      let fields =
+        match arguments with
+        | Some value -> fields @ [ ("arguments", `String value) ]
+        | None -> fields
+      in
+      `Assoc fields
+  | Provider.ToolStart { id; name; arguments } ->
+      `Assoc
+        [
+          ("type", `String "tool_start");
+          ("id", `String id);
+          ("name", `String name);
+          ("arguments", `String arguments);
+        ]
+  | Provider.ToolOutputDelta { id; chunk } ->
+      `Assoc
+        [
+          ("type", `String "tool_output_delta");
+          ("id", `String id);
+          ("chunk", `String chunk);
+        ]
+  | Provider.ToolResult { id; name; result; is_error } ->
+      `Assoc
+        [
+          ("type", `String "tool_result");
+          ("id", `String id);
+          ("name", `String name);
+          ("result", `String result);
+          ("is_error", `Bool is_error);
+        ]
+  | Provider.Done -> `Assoc [ ("type", `String "done") ]
+
 let extract_bearer req =
   let headers = Cohttp.Request.headers req in
   match Cohttp.Header.get headers "authorization" with
@@ -103,12 +168,39 @@ let lookup_github_repo path (gc : Runtime_config.github_config) =
 let handler ~session_manager ~require_pairing ~auth_token ?slack_config
     ?github_config ?github_api_limiter ?ip_limiter ?session_limiter
     ?slack_event_limiter ?web_channel ?whatsapp_config ?line_config ?lark_config
-    ?pairing _conn req body =
+    ?pairing ?ui_server _conn req body =
   let open Lwt.Syntax in
   let uri = Cohttp.Request.uri req in
   let path = Uri.path uri in
   let meth = Cohttp.Request.meth req in
   match (meth, path) with
+  | ( `GET,
+      ( "/" | "/ui" | "/index.html" | "/ui/index.html" | "/chat.js"
+      | "/ui/chat.js" | "/chat.css" | "/ui/chat.css" ) ) ->
+      let* _ = Cohttp_lwt.Body.drain_body body in
+      begin match ui_server with
+      | Some server -> (
+          let* response = Ui_server.respond server path in
+          match response with
+          | Some response -> Lwt.return response
+          | None ->
+              json_string_response ~status:`Not_found {|{"error":"not found"}|})
+      | None ->
+          json_string_response ~status:`Not_found
+            {|{"error":"ui not configured"}|}
+      end
+  | `GET, "/ui-version" ->
+      let* _ = Cohttp_lwt.Body.drain_body body in
+      let version =
+        match ui_server with
+        | Some server -> Ui_server.version server
+        | None -> Chat_ui_assets.ui_version
+      in
+      json_string_response
+        (`Assoc [ ("version", `String version) ] |> Yojson.Safe.to_string)
+  | `GET, "/commands" ->
+      let* _ = Cohttp_lwt.Body.drain_body body in
+      json_string_response (Yojson.Safe.to_string (slash_commands_json ()))
   | `GET, "/health" ->
       let* _ = Cohttp_lwt.Body.drain_body body in
       Cohttp_lwt_unix.Server.respond_string ~status:`OK ~headers:json_headers
@@ -184,6 +276,7 @@ let handler ~session_manager ~require_pairing ~auth_token ?slack_config
                 in
                 match result with
                 | Ok response ->
+                    Session.mark_response_sent session_manager ~key;
                     let resp_json =
                       `Assoc [ ("response", `String response) ]
                       |> Yojson.Safe.to_string
@@ -191,6 +284,7 @@ let handler ~session_manager ~require_pairing ~auth_token ?slack_config
                     Cohttp_lwt_unix.Server.respond_string ~status:`OK
                       ~headers:json_headers ~body:resp_json ()
                 | Error err ->
+                    Session.mark_response_sent session_manager ~key;
                     Cohttp_lwt_unix.Server.respond_string
                       ~status:`Internal_server_error ~headers:json_headers
                       ~body:
@@ -259,72 +353,44 @@ let handler ~session_manager ~require_pairing ~auth_token ?slack_config
                 let key = "web:" ^ session_id in
                 let stream, push = Lwt_stream.create () in
                 Lwt.async (fun () ->
-                    Lwt.catch
-                      (fun () ->
-                        let* _response =
-                          Session.turn_stream session_manager ~key ~message
-                            ~on_chunk:(fun chunk ->
-                              let data =
-                                match chunk with
-                                | Provider.Delta s
-                                  when String.length s > 0 && s.[0] = '{' -> (
-                                    try
-                                      let _ = Yojson.Safe.from_string s in
-                                      s
-                                    with _ ->
-                                      Printf.sprintf
-                                        {|{"type":"delta","content":%s}|}
-                                        (Yojson.Safe.to_string (`String s)))
-                                | Provider.Delta s ->
-                                    Printf.sprintf
-                                      {|{"type":"delta","content":%s}|}
-                                      (Yojson.Safe.to_string (`String s))
-                                | Provider.ToolCallDelta
-                                    { index; id; function_name; arguments } ->
-                                    let fields =
-                                      [
-                                        ("type", `String "tool_call_delta");
-                                        ("index", `Int index);
-                                      ]
-                                    in
-                                    let fields =
-                                      match id with
-                                      | Some i -> fields @ [ ("id", `String i) ]
-                                      | None -> fields
-                                    in
-                                    let fields =
-                                      match function_name with
-                                      | Some n ->
-                                          fields
-                                          @ [ ("function_name", `String n) ]
-                                      | None -> fields
-                                    in
-                                    let fields =
-                                      match arguments with
-                                      | Some a ->
-                                          fields @ [ ("arguments", `String a) ]
-                                      | None -> fields
-                                    in
-                                    Yojson.Safe.to_string (`Assoc fields)
-                                | Provider.Done -> {|{"type":"done"}|}
-                              in
-                              push (Some (Printf.sprintf "data: %s\n\n" data));
-                              Lwt.return_unit)
-                            ()
+                    Session.with_registered_notifier session_manager ~key
+                      ~notify:(fun text ->
+                        let data =
+                          Yojson.Safe.to_string
+                            (json_of_stream_event (Provider.Delta text))
                         in
-                        push (Some "data: [DONE]\n\n");
-                        push None;
+                        push (Some (Printf.sprintf "data: %s\n\n" data));
                         Lwt.return_unit)
-                      (fun exn ->
-                        let err = Printexc.to_string exn in
-                        push
-                          (Some
-                             (Printf.sprintf
-                                "data: {\"type\":\"error\",\"message\":%s}\n\n"
-                                (Yojson.Safe.to_string (`String err))));
-                        push (Some "data: [DONE]\n\n");
-                        push None;
-                        Lwt.return_unit));
+                      (fun () ->
+                        Lwt.catch
+                          (fun () ->
+                            let* _response =
+                              Session.turn_stream session_manager ~key ~message
+                                ~on_chunk:(fun chunk ->
+                                  let data =
+                                    Yojson.Safe.to_string
+                                      (json_of_stream_event chunk)
+                                  in
+                                  push
+                                    (Some (Printf.sprintf "data: %s\n\n" data));
+                                  Lwt.return_unit)
+                                ()
+                            in
+                            Session.mark_response_sent session_manager ~key;
+                            push (Some "data: [DONE]\n\n");
+                            push None;
+                            Lwt.return_unit)
+                          (fun exn ->
+                            let err = Printexc.to_string exn in
+                            Session.mark_response_sent session_manager ~key;
+                            push
+                              (Some
+                                 (Printf.sprintf
+                                    "data: {\"type\":\"error\",\"message\":%s}\n\n"
+                                    (Yojson.Safe.to_string (`String err))));
+                            push (Some "data: [DONE]\n\n");
+                            push None;
+                            Lwt.return_unit)));
                 let headers =
                   Cohttp.Header.of_list
                     [
@@ -598,13 +664,13 @@ let handler ~session_manager ~require_pairing ~auth_token ?slack_config
 let start ~port ~host ~require_pairing ~auth_token ~session_manager
     ?slack_config ?github_config ?github_api_limiter ?ip_limiter
     ?session_limiter ?slack_event_limiter ?web_channel ?whatsapp_config
-    ?line_config ?lark_config ?pairing () =
+    ?line_config ?lark_config ?pairing ?ui_server () =
   let open Lwt.Syntax in
   let callback =
     handler ~session_manager ~require_pairing ~auth_token ?slack_config
       ?github_config ?github_api_limiter ?ip_limiter ?session_limiter
       ?slack_event_limiter ?web_channel ?whatsapp_config ?line_config
-      ?lark_config ?pairing
+      ?lark_config ?pairing ?ui_server
   in
   let* ctx = Conduit_lwt_unix.init ~src:host () in
   let ctx = Cohttp_lwt_unix.Net.init ~ctx () in

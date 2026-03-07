@@ -10,7 +10,7 @@ epics:
       locked: false
       name: Build Toolchain + Asset Pipeline
       path: 01-build-toolchain-asset-pipeline
-      status: pending
+      status: done
     - complexity: medium
       depends_on: []
       description: ""
@@ -19,7 +19,7 @@ epics:
       locked: false
       name: 'Core UI: Messages, Streaming, Layout'
       path: 02-core-ui-messages-streaming-lay
-      status: pending
+      status: done
     - complexity: medium
       depends_on: []
       description: ""
@@ -28,15 +28,15 @@ epics:
       locked: false
       name: 'Advanced UI: Thinking, Tools, Slash, ANSI'
       path: 03-advanced-ui-thinking-tools-sla
-      status: pending
+      status: done
 estimate_hours: 16
 id: P3.M2
 locked: false
 name: 'Frontend: TypeScript UI Build'
 stats:
     blocked: 0
-    done: 0
+    done: 14
     in_progress: 0
-    pending: 14
+    pending: 0
     total_tasks: 14
-status: pending
+status: done

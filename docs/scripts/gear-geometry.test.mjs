@@ -9,7 +9,7 @@ import {
   solveGearProfileTuning,
 } from "../src/lib/gears/tuning.ts";
 import { generateHeroBackdropDraft } from "../src/lib/gears/backdrop_generation.ts";
-import { BACKDROP_ALGORITHMS } from "../src/lib/gears/backdrop_algorithms.ts";
+import { BACKDROP_ALGORITHMS, DEFAULT_HERO_GEAR_ALGORITHM } from "../src/lib/gears/backdrop_algorithms.ts";
 import { HERO_GEAR_CIRCULAR_PITCH, MESH_PHASE_OFFSET_TURNS } from "../src/lib/gears/backdrop/shared.ts";
 
 const FAST_BACKDROP_ALGORITHMS = BACKDROP_ALGORITHMS.filter((algorithm) => !algorithm.startsWith("chaos-"));
@@ -563,6 +563,15 @@ test("hex-web generates a non-empty backdrop", () => {
 
   assert.ok(result.gears.length > 0, "hex-web should generate at least one gear");
   assert.ok(result.edges.length > 0, "hex-web should generate at least one mesh edge");
+});
+
+test("default hero backdrop stays in the upper hero band", () => {
+  const result = generateHeroBackdropDraft({ seed: 0x6a11cf, targetCount: 116 });
+  const maxBottom = Math.max(...result.gears.map((gear) => gear.center.y + gear.outerRadius));
+
+  assert.equal(DEFAULT_HERO_GEAR_ALGORITHM, "chaos-cluster");
+  assert.ok(result.gears.length >= 40, `default backdrop should produce a large field, got ${result.gears.length} gears`);
+  assert.ok(maxBottom <= 430, `default backdrop should keep the bottom edge near the header band, got ${maxBottom}`);
 });
 
 test("row-debug generated outlines avoid heavy edge intersections", () => {

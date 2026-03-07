@@ -88,6 +88,56 @@ let test_shell_handles_quoted_args () =
   let out = Lwt_main.run (tool.invoke args) in
   Alcotest.(check bool) "quoted arg success" true (contains out "exit_code: 0")
 
+let test_shell_streams_stdout_chunks () =
+  let tool =
+    Tools_builtin.shell_exec ~workspace:(Sys.getcwd ()) ~workspace_only:true
+      ~allowed_commands:[ "echo" ] ~extra_allowed_paths:[]
+      ~sandbox:{ Sandbox.backend = Sandbox.None; workspace = Sys.getcwd () }
+  in
+  let args = `Assoc [ ("command", `String "echo hello") ] in
+  match tool.invoke_stream with
+  | None -> Alcotest.fail "expected shell streaming support"
+  | Some invoke_stream ->
+      let chunks = Buffer.create 16 in
+      let out =
+        Lwt_main.run
+          (invoke_stream
+             ~on_output_chunk:(fun chunk ->
+               Buffer.add_string chunks chunk;
+               Lwt.return_unit)
+             args)
+      in
+      Alcotest.(check string)
+        "streamed stdout" "hello\n" (Buffer.contents chunks);
+      Alcotest.(check bool)
+        "result still includes stdout" true (contains out "hello")
+
+let test_shell_streams_stderr_chunks () =
+  let tool =
+    Tools_builtin.shell_exec ~workspace:(Sys.getcwd ()) ~workspace_only:true
+      ~allowed_commands:[ "ls" ] ~extra_allowed_paths:[]
+      ~sandbox:{ Sandbox.backend = Sandbox.None; workspace = Sys.getcwd () }
+  in
+  let args = `Assoc [ ("command", `String "ls definitely-missing-file") ] in
+  match tool.invoke_stream with
+  | None -> Alcotest.fail "expected shell streaming support"
+  | Some invoke_stream ->
+      let chunks = Buffer.create 16 in
+      let out =
+        Lwt_main.run
+          (invoke_stream
+             ~on_output_chunk:(fun chunk ->
+               Buffer.add_string chunks chunk;
+               Lwt.return_unit)
+             args)
+      in
+      Alcotest.(check bool)
+        "streamed stderr" true
+        (contains (Buffer.contents chunks) "definitely-missing-file");
+      Alcotest.(check bool)
+        "result still includes stderr" true
+        (contains out "definitely-missing-file")
+
 let test_shell_rejects_absolute_path_arg () =
   let tool =
     Tools_builtin.shell_exec ~workspace:(Sys.getcwd ()) ~workspace_only:true
@@ -712,6 +762,10 @@ let suite =
     Alcotest.test_case "shell dollar expansion rejected" `Quick
       test_shell_rejects_dollar_expansion;
     Alcotest.test_case "shell quoted args" `Quick test_shell_handles_quoted_args;
+    Alcotest.test_case "shell streams stdout chunks" `Quick
+      test_shell_streams_stdout_chunks;
+    Alcotest.test_case "shell streams stderr chunks" `Quick
+      test_shell_streams_stderr_chunks;
     Alcotest.test_case "shell absolute path arg blocked" `Quick
       test_shell_rejects_absolute_path_arg;
     Alcotest.test_case "shell url arg blocked" `Quick test_shell_rejects_url_arg;

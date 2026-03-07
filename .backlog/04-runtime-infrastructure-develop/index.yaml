@@ -2,7 +2,7 @@ complexity: medium
 depends_on: []
 estimate_hours: 14
 id: P4
-locked: false
+locked: true
 milestones:
     - complexity: medium
       depends_on: []
@@ -12,13 +12,13 @@ milestones:
       locked: false
       name: Self-Restarting Daemon (I003)
       path: 01-self-restarting-daemon-i003
-      status: pending
+      status: done
 name: Runtime Infrastructure & Developer Experience
 stats:
     blocked: 0
-    done: 0
+    done: 15
     in_progress: 0
-    pending: 15
+    pending: 0
     total_tasks: 15
-status: pending
+status: done
 weeks: 2

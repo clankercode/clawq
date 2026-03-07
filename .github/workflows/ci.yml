@@ -39,6 +39,11 @@ jobs:
           eval "$(opam env)"
           dune runtest
 
+      - name: Binary size check
+        run: |
+          eval "$(opam env)"
+          make binary-size-check
+
       - name: Format check
         run: |
           eval "$(opam env)"

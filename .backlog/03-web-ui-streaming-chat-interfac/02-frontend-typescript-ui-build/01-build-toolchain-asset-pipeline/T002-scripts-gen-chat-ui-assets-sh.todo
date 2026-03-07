@@ -1,11 +1,13 @@
 ---
+completed_at: null
 complexity: medium
 depends_on:
     - P3.M2.E1.T001
 estimate_hours: 2
 id: P3.M2.E1.T002
 priority: medium
-status: pending
+started_at: null
+status: done
 tags: []
 title: 'scripts/gen_chat_ui_assets.sh: regenerate chat_ui_assets.ml from ui/dist/'
 ---

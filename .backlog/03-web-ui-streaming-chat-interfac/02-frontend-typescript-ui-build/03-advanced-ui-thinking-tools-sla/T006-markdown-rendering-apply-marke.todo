@@ -1,11 +1,13 @@
 ---
+completed_at: null
 complexity: low
 depends_on:
     - P3.M2.E2.T002
 estimate_hours: 2
 id: P3.M2.E3.T006
 priority: medium
-status: pending
+started_at: null
+status: done
 tags: []
 title: 'Markdown rendering: apply Marked.js + highlight.js after stream done'
 ---

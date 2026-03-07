@@ -381,6 +381,107 @@ let shell_exec ~workspace ~workspace_only ~allowed_commands ~extra_allowed_paths
        and stderr"
     else "Execute a shell command and return stdout and stderr"
   in
+  let read_channel ?on_chunk ic buf =
+    let open Lwt.Syntax in
+    let rec loop () =
+      let* chunk = Lwt_io.read ~count:4096 ic in
+      if chunk = "" then Lwt.return_unit
+      else begin
+        Buffer.add_string buf chunk;
+        let* () =
+          match on_chunk with
+          | Some emit -> emit chunk
+          | None -> Lwt.return_unit
+        in
+        loop ()
+      end
+    in
+    loop ()
+  in
+  let run_command ?on_output_chunk args =
+    let open Yojson.Safe.Util in
+    let command = try args |> member "command" |> to_string with _ -> "" in
+    if command = "" then Lwt.return "Error: command is required"
+    else if workspace_only && has_unsafe_shell_syntax command then
+      Lwt.return
+        "Error: command contains unsafe shell syntax in workspace_only mode"
+    else if workspace_only && not (is_command_allowed ~allowed_commands command)
+    then
+      Lwt.return
+        (Printf.sprintf
+           "Error: command '%s' is not in the allowlist. Allowed: %s"
+           (extract_command command)
+           (String.concat ", " allowed_commands))
+    else
+      let open Lwt.Syntax in
+      let env =
+        if workspace_only then
+          [|
+            ("HOME=" ^ try Sys.getenv "HOME" with Not_found -> "/tmp");
+            ("PATH=" ^ try Sys.getenv "PATH" with Not_found -> "/usr/bin:/bin");
+          |]
+        else Unix.environment ()
+      in
+      let cwd = if workspace_only then Some workspace else None in
+      let command = Sandbox.wrap_command sandbox command in
+      match split_command_words command with
+      | Error msg -> Lwt.return ("Error: " ^ msg)
+      | Ok argv -> (
+          let argv =
+            if workspace_only then List.map expand_home_in_arg argv else argv
+          in
+          match argv with
+          | [] -> Lwt.return "Error: command is required"
+          | cmd :: _
+            when workspace_only && not (is_workspace_safe_command_token cmd) ->
+              Lwt.return
+                "Error: command binary path is disallowed in workspace_only \
+                 mode"
+          | _
+            when workspace_only
+                 && has_workspace_unsafe_args ~workspace ~extra_allowed_paths
+                      argv ->
+              Lwt.return
+                "Error: command contains paths/targets disallowed in \
+                 workspace_only mode"
+          | _ ->
+              let cmd = ("", Array.of_list argv) in
+              let proc = Lwt_process.open_process_full ?cwd ~env cmd in
+              let timeout = Lwt_unix.sleep 30.0 in
+              let stdout_buf = Buffer.create 1024 in
+              let stderr_buf = Buffer.create 256 in
+              let runner =
+                let* _ =
+                  Lwt.both
+                    (read_channel ?on_chunk:on_output_chunk proc#stdout
+                       stdout_buf)
+                    (read_channel ?on_chunk:on_output_chunk proc#stderr
+                       stderr_buf)
+                in
+                let* status = proc#close in
+                let exit_code =
+                  match status with
+                  | Unix.WEXITED n -> n
+                  | Unix.WSIGNALED n -> 128 + n
+                  | Unix.WSTOPPED n -> 128 + n
+                in
+                Lwt.return
+                  (Printf.sprintf "exit_code: %d\nstdout:\n%s\nstderr:\n%s"
+                     exit_code
+                     (Buffer.contents stdout_buf)
+                     (Buffer.contents stderr_buf))
+              in
+              let* result =
+                Lwt.pick
+                  [
+                    runner;
+                    (let* () = timeout in
+                     proc#kill Sys.sigkill;
+                     Lwt.return "Error: command timed out after 30 seconds");
+                  ]
+              in
+              Lwt.return result)
+  in
   {
     Tool.name = "shell_exec";
     description;
@@ -400,85 +501,9 @@ let shell_exec ~workspace ~workspace_only ~allowed_commands ~extra_allowed_paths
               ] );
           ("required", `List [ `String "command" ]);
         ];
-    invoke =
-      (fun args ->
-        let open Yojson.Safe.Util in
-        let command =
-          try args |> member "command" |> to_string with _ -> ""
-        in
-        if command = "" then Lwt.return "Error: command is required"
-        else if workspace_only && has_unsafe_shell_syntax command then
-          Lwt.return
-            "Error: command contains unsafe shell syntax in workspace_only mode"
-        else if
-          workspace_only && not (is_command_allowed ~allowed_commands command)
-        then
-          Lwt.return
-            (Printf.sprintf
-               "Error: command '%s' is not in the allowlist. Allowed: %s"
-               (extract_command command)
-               (String.concat ", " allowed_commands))
-        else
-          let open Lwt.Syntax in
-          let env =
-            if workspace_only then
-              [|
-                ("HOME=" ^ try Sys.getenv "HOME" with Not_found -> "/tmp");
-                ("PATH="
-                ^ try Sys.getenv "PATH" with Not_found -> "/usr/bin:/bin");
-              |]
-            else Unix.environment ()
-          in
-          let cwd = if workspace_only then Some workspace else None in
-          let command = Sandbox.wrap_command sandbox command in
-          match split_command_words command with
-          | Error msg -> Lwt.return ("Error: " ^ msg)
-          | Ok argv -> (
-              let argv =
-                if workspace_only then List.map expand_home_in_arg argv
-                else argv
-              in
-              match argv with
-              | [] -> Lwt.return "Error: command is required"
-              | cmd :: _
-                when workspace_only && not (is_workspace_safe_command_token cmd)
-                ->
-                  Lwt.return
-                    "Error: command binary path is disallowed in \
-                     workspace_only mode"
-              | _
-                when workspace_only
-                     && has_workspace_unsafe_args ~workspace
-                          ~extra_allowed_paths argv ->
-                  Lwt.return
-                    "Error: command contains paths/targets disallowed in \
-                     workspace_only mode"
-              | _ ->
-                  let cmd = ("", Array.of_list argv) in
-                  let proc = Lwt_process.open_process_full ?cwd ~env cmd in
-                  let timeout = Lwt_unix.sleep 30.0 in
-                  let* result =
-                    Lwt.pick
-                      [
-                        (let* stdout = Lwt_io.read proc#stdout in
-                         let* stderr = Lwt_io.read proc#stderr in
-                         let* status = proc#close in
-                         let exit_code =
-                           match status with
-                           | Unix.WEXITED n -> n
-                           | Unix.WSIGNALED n -> 128 + n
-                           | Unix.WSTOPPED n -> 128 + n
-                         in
-                         Lwt.return
-                           (Printf.sprintf
-                              "exit_code: %d\nstdout:\n%s\nstderr:\n%s"
-                              exit_code stdout stderr));
-                        (let* () = timeout in
-                         proc#kill Sys.sigkill;
-                         Lwt.return "Error: command timed out after 30 seconds");
-                      ]
-                  in
-                  Lwt.return result));
+    invoke = run_command;
+    invoke_stream =
+      Some (fun ~on_output_chunk args -> run_command ~on_output_chunk args);
     risk_level = High;
     deferred = false;
   }
@@ -586,6 +611,7 @@ let file_read ~workspace ~workspace_only ~extra_allowed_paths =
                               else Lwt.return content)
                       (fun exn ->
                         Lwt.return ("Error: " ^ Printexc.to_string exn))));
+    invoke_stream = None;
     risk_level = Low;
     deferred = false;
   }
@@ -648,6 +674,7 @@ let file_append ~workspace ~workspace_only ~extra_allowed_paths =
                 (Printf.sprintf "Appended %d bytes to %s"
                    (String.length content) path))
             (fun exn -> Lwt.return ("Error: " ^ Printexc.to_string exn)));
+    invoke_stream = None;
     risk_level = Medium;
     deferred = false;
   }
@@ -704,6 +731,7 @@ let file_write ~workspace ~workspace_only ~extra_allowed_paths =
                 (Printf.sprintf "Written %d bytes to %s" (String.length content)
                    path))
             (fun exn -> Lwt.return ("Error: " ^ Printexc.to_string exn)));
+    invoke_stream = None;
     risk_level = Medium;
     deferred = false;
   }
@@ -834,6 +862,7 @@ let file_edit ~workspace ~workspace_only ~extra_allowed_paths =
                      (if (if replace_all then replacements else 1) = 1 then ""
                       else "s")))
             (fun exn -> Lwt.return ("Error: " ^ Printexc.to_string exn)));
+    invoke_stream = None;
     risk_level = Medium;
     deferred = false;
   }
@@ -936,6 +965,7 @@ let file_edit_lines ~workspace ~workspace_only ~extra_allowed_paths =
                   (Printf.sprintf "Edited %s: replaced lines %d-%d" path
                      start_line end_line))
             (fun exn -> Lwt.return ("Error: " ^ Printexc.to_string exn)));
+    invoke_stream = None;
     risk_level = Medium;
     deferred = false;
   }
@@ -1007,6 +1037,7 @@ let http_get ~workspace_only =
                       String.sub body 0 10000 ^ "\n... (truncated)"
                     else body)))
             (fun exn -> Lwt.return ("Error: " ^ Printexc.to_string exn)));
+    invoke_stream = None;
     risk_level = Medium;
     deferred = false;
   }
@@ -1065,6 +1096,7 @@ let transcribe ~(config : Runtime_config.t) =
               in
               Lwt.return result.text)
             (fun exn -> Lwt.return ("Error: " ^ Printexc.to_string exn)));
+    invoke_stream = None;
     risk_level = Low;
     deferred = false;
   }
@@ -1119,6 +1151,7 @@ let memory_store ~db =
           Memory.store_core ~db ~key ~content ~category ();
           Lwt.return (Printf.sprintf "Stored memory: %s" key)
         end);
+    invoke_stream = None;
     risk_level = Low;
     deferred = false;
   }
@@ -1167,6 +1200,7 @@ let memory_recall ~db =
                 results
             in
             Lwt.return (String.concat "\n" lines));
+    invoke_stream = None;
     risk_level = Low;
     deferred = false;
   }
@@ -1200,6 +1234,7 @@ let memory_forget ~db =
           let deleted = Memory.forget_core ~db ~key in
           if deleted then Lwt.return (Printf.sprintf "Deleted memory: %s" key)
           else Lwt.return (Printf.sprintf "No memory found with key: %s" key));
+    invoke_stream = None;
     risk_level = Low;
     deferred = false;
   }
@@ -1241,6 +1276,7 @@ let memory_list ~db =
               results
           in
           Lwt.return (String.concat "\n" lines));
+    invoke_stream = None;
     risk_level = Low;
     deferred = false;
   }

@@ -1,3 +1,19 @@
+---
+claimed_at: "2026-03-07T04:04:08Z"
+claimed_by: cli-user
+completed_at: "2026-03-07T04:04:08Z"
+complexity: medium
+depends_on:
+    - P4.M1.E1.T004
+duration_minutes: 0.010493867516666667
+estimate_hours: 2
+id: P4.M1.E3.T001
+priority: medium
+started_at: "2026-03-07T04:04:08Z"
+status: done
+tags: []
+title: 'On-startup resume: load pending agent sessions from session_state and re-invoke LLM via channel dispatch'
+---
 
 ## Implementation
 

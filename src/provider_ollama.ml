@@ -127,8 +127,16 @@ let complete ~(config : Runtime_config.t)
           (Provider.ToolCalls
              { calls = tool_calls; model = resp_model; usage = None })
       else
-        let content = try msg |> member "content" |> to_string with _ -> "" in
-        if content = "" then
+        let raw_content =
+          try msg |> member "content" |> to_string with _ -> ""
+        in
+        let content =
+          match Provider.thinking_style_of_provider provider with
+          | Provider.TaggedThinking ->
+              fst (Provider.split_tagged_text raw_content)
+          | Provider.NoThinking | Provider.ReasoningContent -> raw_content
+        in
+        if content = "" && raw_content = "" then
           Lwt.fail_with "Failed to extract content from Ollama response"
         else
           Lwt.return
@@ -180,6 +188,7 @@ let complete_streaming ~(config : Runtime_config.t)
     let content_acc = Buffer.create 1024 in
     let resp_model = ref model in
     let tool_calls_acc : Provider.tool_call list ref = ref [] in
+    let tagged_state = { Provider.in_thinking = false; pending = "" } in
     let process_line line =
       if line = "" then Lwt.return_unit
       else
@@ -195,6 +204,14 @@ let complete_streaming ~(config : Runtime_config.t)
             let msg = try json |> member "message" with _ -> `Null in
             let tc = parse_tool_calls_from_message msg in
             if tc <> [] then tool_calls_acc := tc;
+            let* () =
+              match Provider.thinking_style_of_provider provider with
+              | Provider.TaggedThinking ->
+                  Provider.flush_tagged_content_delta ~state:tagged_state
+                    ~content_acc ~on_chunk ()
+              | Provider.NoThinking | Provider.ReasoningContent ->
+                  Lwt.return_unit
+            in
             let* () = on_chunk Provider.Done in
             Lwt.return_unit
           end
@@ -204,8 +221,13 @@ let complete_streaming ~(config : Runtime_config.t)
               try msg |> member "content" |> to_string with _ -> ""
             in
             if content <> "" then begin
-              Buffer.add_string content_acc content;
-              on_chunk (Provider.Delta content)
+              match Provider.thinking_style_of_provider provider with
+              | Provider.TaggedThinking ->
+                  Provider.emit_tagged_content_delta ~state:tagged_state
+                    ~content_acc ~on_chunk content
+              | Provider.NoThinking | Provider.ReasoningContent ->
+                  Buffer.add_string content_acc content;
+                  on_chunk (Provider.Delta content)
             end
             else Lwt.return_unit
           end

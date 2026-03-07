@@ -16,8 +16,8 @@ locked: false
 name: Audit Retention Completion
 stats:
     blocked: 0
-    done: 0
+    done: 3
     in_progress: 0
-    pending: 3
+    pending: 0
     total_tasks: 3
 status: pending

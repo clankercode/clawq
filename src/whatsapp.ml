@@ -111,14 +111,17 @@ let handle_inbound ~(config : Runtime_config.whatsapp_config)
       end
       else
         let* result =
-          Lwt.catch
+          Session.with_registered_notifier session_mgr ~key
+            ~notify:(fun text -> send_message ~config ~to_:from ~text)
             (fun () ->
-              let* response =
-                Session.turn session_mgr ~key ~message:text
-                  ~channel_name:"whatsapp" ~channel_type ()
-              in
-              Lwt.return (Ok response))
-            (fun exn -> Lwt.return (Error (Printexc.to_string exn)))
+              Lwt.catch
+                (fun () ->
+                  let* response =
+                    Session.turn session_mgr ~key ~message:text
+                      ~channel_name:"whatsapp" ~channel_type ()
+                  in
+                  Lwt.return (Ok response))
+                (fun exn -> Lwt.return (Error (Printexc.to_string exn))))
         in
         match result with
         | Ok response -> send_message ~config ~to_:from ~text:response

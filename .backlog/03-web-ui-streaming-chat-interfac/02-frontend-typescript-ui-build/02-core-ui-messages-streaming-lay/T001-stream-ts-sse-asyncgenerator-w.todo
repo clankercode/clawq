@@ -1,11 +1,13 @@
 ---
+completed_at: null
 complexity: medium
 depends_on:
     - P3.M2.E1.T001
 estimate_hours: 2
 id: P3.M2.E2.T001
 priority: medium
-status: pending
+started_at: null
+status: done
 tags: []
 title: 'stream.ts: SSE AsyncGenerator with abort signal and error recovery'
 ---

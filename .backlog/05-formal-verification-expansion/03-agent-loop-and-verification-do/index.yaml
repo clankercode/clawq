@@ -32,8 +32,8 @@ locked: false
 name: Agent Loop and Verification Docs
 stats:
     blocked: 0
-    done: 0
+    done: 5
     in_progress: 0
-    pending: 5
+    pending: 0
     total_tasks: 5
 status: pending

@@ -590,33 +590,40 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
                          else "")
                         ^ strip_html msg.body
                       in
+                      let reply_subject =
+                        if
+                          String.length msg.subject >= 3
+                          && String.lowercase_ascii (String.sub msg.subject 0 3)
+                             = "re:"
+                        then msg.subject
+                        else "Re: " ^ msg.subject
+                      in
+                      let in_reply_to =
+                        if msg.message_id <> "" then Some msg.message_id
+                        else None
+                      in
+                      let notify text =
+                        send_email ~cfg ~to_addr:msg.from_addr
+                          ~subject:reply_subject ~body:text ?in_reply_to
+                          ?references:in_reply_to ()
+                      in
                       let* result =
-                        Lwt.catch
-                          (fun () ->
-                            let* response =
-                              Session.turn session_manager ~key ~message:text
-                                ~channel_name:"email" ~channel_type:"dm"
-                                ~sender_id:msg.from_addr ()
-                            in
-                            Lwt.return (Ok response))
-                          (fun exn ->
-                            Lwt.return (Error (Printexc.to_string exn)))
+                        Session.with_registered_notifier session_manager ~key
+                          ~notify (fun () ->
+                            Lwt.catch
+                              (fun () ->
+                                let* response =
+                                  Session.turn session_manager ~key
+                                    ~message:text ~channel_name:"email"
+                                    ~channel_type:"dm" ~sender_id:msg.from_addr
+                                    ()
+                                in
+                                Lwt.return (Ok response))
+                              (fun exn ->
+                                Lwt.return (Error (Printexc.to_string exn))))
                       in
                       match result with
                       | Ok response ->
-                          let reply_subject =
-                            if
-                              String.length msg.subject >= 3
-                              && String.lowercase_ascii
-                                   (String.sub msg.subject 0 3)
-                                 = "re:"
-                            then msg.subject
-                            else "Re: " ^ msg.subject
-                          in
-                          let in_reply_to =
-                            if msg.message_id <> "" then Some msg.message_id
-                            else None
-                          in
                           Lwt.catch
                             (fun () ->
                               send_email ~cfg ~to_addr:msg.from_addr

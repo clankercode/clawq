@@ -5,14 +5,14 @@ import {
 } from "../lib/gears/backdrop_generation.ts";
 import type { DraftGear, DraftMeshEdge } from "../lib/gears/backdrop/types.ts";
 import { solveNeighborPhaseTurn } from "../lib/gears/backdrop/shared.ts";
-import { BACKDROP_ALGORITHMS, type BackdropAlgorithm } from "../lib/gears/backdrop_algorithms.ts";
+import { BACKDROP_ALGORITHMS, DEFAULT_HERO_GEAR_ALGORITHM, type BackdropAlgorithm } from "../lib/gears/backdrop_algorithms.ts";
 import { buildGearPath, type GearProfileTuning, type RotationDirection, type SolvedGear } from "../lib/gears";
 
 interface Props {
   algorithm?: BackdropAlgorithm;
 }
 
-const { algorithm = "hex-web" } = Astro.props as Props;
+const { algorithm = DEFAULT_HERO_GEAR_ALGORITHM } = Astro.props as Props;
 const showDebugLabel = import.meta.env.DEV;
 const debugAlgorithms = BACKDROP_ALGORITHMS;
 const renderedCache = new Map<BackdropAlgorithm, { rendered: RenderedGear[]; trueMeshEdges: RenderedMeshEdge[] }>();

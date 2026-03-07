@@ -11,9 +11,9 @@ locked: false
 name: Verification Status and Extraction Docs
 stats:
     blocked: 0
-    done: 0
+    done: 2
     in_progress: 0
-    pending: 2
+    pending: 0
     total: 2
 status: pending
 tasks:

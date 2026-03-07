@@ -187,16 +187,20 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
                             m "Matrix: message from %s in %s" sender room_id);
                         let key = "matrix:" ^ room_id ^ ":" ^ sender in
                         let* result =
-                          Lwt.catch
+                          Session.with_registered_notifier session_manager ~key
+                            ~notify:(fun text ->
+                              send_message ~cfg ~room_id ~text)
                             (fun () ->
-                              let* response =
-                                Session.turn session_manager ~key ~message:text
-                                  ~channel_name:room_id ~channel_type:"group"
-                                  ~sender_id:sender ()
-                              in
-                              Lwt.return (Ok response))
-                            (fun exn ->
-                              Lwt.return (Error (Printexc.to_string exn)))
+                              Lwt.catch
+                                (fun () ->
+                                  let* response =
+                                    Session.turn session_manager ~key
+                                      ~message:text ~channel_name:room_id
+                                      ~channel_type:"group" ~sender_id:sender ()
+                                  in
+                                  Lwt.return (Ok response))
+                                (fun exn ->
+                                  Lwt.return (Error (Printexc.to_string exn))))
                         in
                         match result with
                         | Ok response ->

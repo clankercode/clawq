@@ -1,11 +1,13 @@
 ---
+completed_at: null
 complexity: medium
 depends_on:
     - P3.M2.E2.T002
 estimate_hours: 2
 id: P3.M2.E2.T003
 priority: medium
-status: pending
+started_at: null
+status: done
 tags: []
 title: 'main.ts: wire form submit, abort, pairing modal, session management, version check'
 ---

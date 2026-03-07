@@ -1,11 +1,13 @@
 ---
+completed_at: null
 complexity: low
 depends_on:
     - P3.M2.E3.T006
 estimate_hours: 1
 id: P3.M2.E3.T007
 priority: medium
-status: pending
+started_at: null
+status: done
 tags: []
 title: 'Mermaid diagram rendering: detect mermaid fenced blocks, render via mermaid.js CDN'
 ---

@@ -1,3 +1,22 @@
+---
+claimed_at: "2026-03-07T05:33:24Z"
+claimed_by: cli-user
+completed_at: "2026-03-07T05:40:31Z"
+complexity: medium
+depends_on:
+    - P4.M1.E5.T002
+    - P4.M1.E3.T001
+    - P4.M1.E3.T002
+duration_minutes: 7.1251799076
+estimate_hours: 1
+id: P4.M1.E6.T002
+priority: medium
+started_at: "2026-03-07T05:33:24Z"
+status: done
+tags: []
+title: 'Integration test: start daemon -> chat -> signal-restart -> verify history intact -> continue chat'
+---
+
 
 ## Implementation
 

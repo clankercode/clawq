@@ -1,11 +1,13 @@
 ---
+completed_at: null
 complexity: low
 depends_on:
     - P3.M2.E1.T001
 estimate_hours: 2
 id: P3.M2.E2.T004
 priority: medium
-status: pending
+started_at: null
+status: done
 tags: []
 title: 'styles/chat.css: complete stylesheet (layout, bubbles, tool cards, thinking panel, slash popover, ANSI, version banner)'
 ---

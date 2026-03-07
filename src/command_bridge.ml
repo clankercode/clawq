@@ -702,11 +702,15 @@ let cmd_mcp () =
 
 let cmd_agent () =
   let cfg = get_config () in
-  (try Lwt_main.run (Daemon.run ~config:cfg)
-   with Failure msg ->
-     print_endline ("Error: " ^ msg);
-     exit 1);
-  "Daemon stopped."
+  let result =
+    try Lwt_main.run (Daemon.run ~config:cfg)
+    with Failure msg ->
+      print_endline ("Error: " ^ msg);
+      exit 1
+  in
+  match result with
+  | Daemon.Shutdown -> "Daemon stopped."
+  | Daemon.Restart -> "Daemon restart requested."
 
 let cmd_cron args =
   match args with
@@ -928,10 +932,11 @@ let cmd_service args =
       Service.cmd_start ~config:cfg
   | [ "stop" ] -> Service.cmd_stop ()
   | [ "status" ] | [] -> Service.cmd_status ()
+  | [ "signal-restart" ] -> Service.cmd_signal_restart ()
   | [ "restart" ] ->
       let cfg = get_config () in
       Service.cmd_restart ~config:cfg
-  | _ -> "Usage: clawq service <start|stop|status|restart>"
+  | _ -> "Usage: clawq service <start|stop|status|signal-restart|restart>"
 
 let cmd_runtime args =
   let cfg = get_config () in

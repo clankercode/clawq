@@ -1,19 +1,33 @@
-SHELL := opam exec --switch=clawq-5.1 -- /usr/bin/env bash
+SHELL_SWITCH ?= clawq-5.1
+SHELL := opam exec --switch=$(SHELL_SWITCH) -- /usr/bin/env bash
 .SHELLFLAGS := -c
 
-.PHONY: bootstrap build build-minimal build-wasm build-opt build-opt-all build-opt-speed build-opt-size build-opt-minimal build-opt-stripped build-opt-stripped-all build-opt-speed-stripped build-opt-size-stripped extract extract-check coq-verify coq-check run phase2 test fmt fmt-check clean release docker-build docker-run verify-report coverage coverage-summary coverage-switch-setup embed-ui update-fv fv-all
+.PHONY: bootstrap build restart build-restart build-minimal build-wasm build-opt build-opt-all build-opt-speed build-opt-size build-opt-minimal build-opt-stripped build-opt-stripped-all build-opt-speed-stripped build-opt-size-stripped binary-size-report binary-size-check dependency-audit native-size-report packaging-report flambda-experiment extract extract-check coq-verify coq-check run phase2 test fmt fmt-check ui ui-dev ui-check clean release docker-build docker-run verify-report coverage coverage-summary coverage-switch-setup embed-ui update-fv fv-all
 
 OPT ?= speed
 DIST_DIR := dist
+CLAWQ_BIN ?= ./_build/default/src/main.exe
 SPEED_EXE := _build_opt_speed/default/src/main.exe
 SIZE_EXE := _build_opt_size/default/src/main.exe
 MIN_EXE := _build/default/src/main_min.exe
+BINARY_SIZE_REPORT := $(DIST_DIR)/binary-size-report.tsv
+BINARY_SIZE_THRESHOLDS := ci/binary-size-thresholds.tsv
+FLAMBDA_BASE_SWITCH ?= clawq-5.1
+FLAMBDA_SWITCH ?= clawq-5.1-flambda
+FLAMBDA_COMPILER ?= ocaml-variants.5.1.1+options
 
 bootstrap:
 	./scripts/bootstrap_coq.sh
 
 build:
 	dune build
+
+restart:
+	$(CLAWQ_BIN) service signal-restart
+
+build-restart:
+	$(MAKE) build
+	$(MAKE) restart
 
 build-minimal:
 	@CLAWQ_BUILD_MINIMAL=true dune build src/main_min.exe
@@ -81,6 +95,34 @@ build-opt-size-stripped: build-opt-size
 		size_kb=$$((($$(stat -c%s "$$out") + 1023) / 1024)); \
 		echo "$$out $$size_kb KB"
 
+binary-size-report: build-opt-speed build-opt-size
+	@mkdir -p "$(DIST_DIR)"
+	@./scripts/report_binary_sizes.sh \
+		--output "$(BINARY_SIZE_REPORT)" \
+		--thresholds "$(BINARY_SIZE_THRESHOLDS)"
+
+binary-size-check: build-opt-speed build-opt-size
+	@mkdir -p "$(DIST_DIR)"
+	@./scripts/report_binary_sizes.sh \
+		--check \
+		--output "$(BINARY_SIZE_REPORT)" \
+		--thresholds "$(BINARY_SIZE_THRESHOLDS)"
+
+dependency-audit:
+	@./scripts/report_dependency_weight.sh
+
+native-size-report: build-opt-size
+	@./scripts/report_native_symbols.sh
+
+packaging-report: build-opt-size
+	@./scripts/report_packaging_options.sh
+
+flambda-experiment:
+	@./scripts/run_flambda_experiment.sh \
+		--baseline-switch "$(FLAMBDA_BASE_SWITCH)" \
+		--flambda-switch "$(FLAMBDA_SWITCH)" \
+		--compiler "$(FLAMBDA_COMPILER)"
+
 extract:
 	./scripts/extract.sh
 
@@ -119,31 +161,52 @@ test:
 	dune runtest
 
 COVERAGE_SWITCH := clawq-coverage
+COVERAGE_UNSUPPORTED := bisect_ppx is currently incompatible with this repo's OCaml 5.1/Cmdliner 2 toolchain; coverage targets are disabled until a compatible release is available.
 
 coverage-switch-setup: SHELL := /bin/bash
 coverage-switch-setup:
 	opam switch create $(COVERAGE_SWITCH) 5.1.0 --no-switch || true
 	opam install --switch=$(COVERAGE_SWITCH) . --deps-only --with-test -y
-	opam install --switch=$(COVERAGE_SWITCH) bisect_ppx -y
+	@printf '%s\n' "$(COVERAGE_UNSUPPORTED)" >&2
+	@exit 1
 
 coverage: SHELL := opam exec --switch=$(COVERAGE_SWITCH) -- /usr/bin/env bash
 coverage:
-	@rm -f *.coverage
-	BISECT_ENABLE=yes dune runtest || true
-	bisect-ppx-report html -o _coverage
-	@echo "Coverage report: _coverage/index.html"
+	@printf '%s\n' "$(COVERAGE_UNSUPPORTED)" >&2
+	@exit 1
 
 coverage-summary: SHELL := opam exec --switch=$(COVERAGE_SWITCH) -- /usr/bin/env bash
 coverage-summary:
-	@rm -f *.coverage
-	BISECT_ENABLE=yes dune runtest || true
-	bisect-ppx-report summary
+	@printf '%s\n' "$(COVERAGE_UNSUPPORTED)" >&2
+	@exit 1
 
 fmt:
 	dune fmt
 
 fmt-check:
-	dune fmt 2>&1 | head -20; test $${PIPESTATUS[0]} -eq 0
+	@tmp_log="$$(mktemp)"; \
+	status=0; \
+	if [ -f _build/.lock ] && ! grep -Eq '^[0-9]+$$' _build/.lock; then \
+		rm -f _build/.lock; \
+	fi; \
+	timeout 30s dune fmt >"$$tmp_log" 2>&1 || status=$$?; \
+	head -20 "$$tmp_log"; \
+	rm -f "$$tmp_log"; \
+	if [ $$status -eq 124 ]; then \
+		echo "fmt-check timed out after 30s" >&2; \
+	fi; \
+	test $$status -eq 0
+
+ui:
+	cd ui && bun run build
+	./scripts/gen_chat_ui_assets.sh
+
+ui-dev:
+	cd ui && bun run dev
+
+ui-check:
+	cd ui && bun run build
+	./scripts/gen_chat_ui_assets.sh --check
 
 release:
 	dune build --release
@@ -157,8 +220,7 @@ docker-run:
 verify-report:
 	@./scripts/formal_verification_report.sh
 
-embed-ui:
-	./scripts/embed_ui.sh
+embed-ui: ui
 
 update-fv:
 	bash scripts/update_fv_data.sh

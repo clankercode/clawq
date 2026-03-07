@@ -1,11 +1,13 @@
 ---
+completed_at: null
 complexity: low
 depends_on:
     - P3.M2.E1.T002
 estimate_hours: 1
 id: P3.M2.E1.T003
 priority: medium
-status: pending
+started_at: null
+status: done
 tags: []
 title: 'Makefile: add ''make ui'', ''make ui-dev'', ''make ui-check'' targets'
 ---

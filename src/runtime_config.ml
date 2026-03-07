@@ -14,6 +14,8 @@ type provider_config = {
   project_id : string option;
   location : string option;
   service_account_json : string option;
+  thinking_budget_tokens : int option;
+  oai_thinking_style : string;
   codex_oauth : codex_oauth_config option;
 }
 
@@ -652,6 +654,16 @@ let to_json (cfg : t) : Yojson.Safe.t =
       match p.location with
       | Some location -> fields @ [ ("location", `String location) ]
       | None -> fields
+    in
+    let fields =
+      match p.thinking_budget_tokens with
+      | Some budget -> fields @ [ ("thinking_budget_tokens", `Int budget) ]
+      | None -> fields
+    in
+    let fields =
+      if p.oai_thinking_style <> "none" then
+        fields @ [ ("oai_thinking_style", `String p.oai_thinking_style) ]
+      else fields
     in
     let fields =
       match p.codex_oauth with

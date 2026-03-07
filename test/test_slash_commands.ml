@@ -69,7 +69,8 @@ let test_commands_list () =
   Alcotest.(check bool) "has start" true (List.mem "start" names);
   Alcotest.(check bool) "has help" true (List.mem "help" names);
   Alcotest.(check bool) "has new" true (List.mem "new" names);
-  Alcotest.(check bool) "has status" true (List.mem "status" names)
+  Alcotest.(check bool) "has status" true (List.mem "status" names);
+  Alcotest.(check bool) "has update" true (List.mem "update" names)
 
 let test_case_insensitive () =
   (match Slash_commands.handle "/HELP" with

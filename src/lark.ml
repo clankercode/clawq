@@ -211,14 +211,18 @@ let handle_webhook_body ~(config : Runtime_config.lark_config)
               let channel_type = if chat_type = "p2p" then "dm" else "group" in
               let key = "lark:" ^ chat_id ^ ":" ^ user_id in
               let* result =
-                Lwt.catch
+                Session.with_registered_notifier session_mgr ~key
+                  ~notify:(fun text -> send_message ~config ~chat_id ~text)
                   (fun () ->
-                    let* response =
-                      Session.turn session_mgr ~key ~message:text
-                        ~channel_name:"lark" ~channel_type ~sender_id:user_id ()
-                    in
-                    Lwt.return (Ok response))
-                  (fun exn -> Lwt.return (Error (Printexc.to_string exn)))
+                    Lwt.catch
+                      (fun () ->
+                        let* response =
+                          Session.turn session_mgr ~key ~message:text
+                            ~channel_name:"lark" ~channel_type
+                            ~sender_id:user_id ()
+                        in
+                        Lwt.return (Ok response))
+                      (fun exn -> Lwt.return (Error (Printexc.to_string exn))))
               in
               match result with
               | Ok response ->

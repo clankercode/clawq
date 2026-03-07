@@ -43,8 +43,8 @@ locked: false
 name: 'High Impact: Agent Intelligence & Security'
 stats:
     blocked: 0
-    done: 10
+    done: 14
     in_progress: 0
-    pending: 4
+    pending: 0
     total_tasks: 14
 status: done

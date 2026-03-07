@@ -38,6 +38,7 @@
   config_set
   config_show
   config_wizard_model
+  cli_exit
   config_wizard_update
   config_wizard_view
   config_wizard_tui)
@@ -45,8 +46,6 @@
   (language c)
   (names landlock_stubs))
  (wrapped false)
- (instrumentation
-  (backend bisect_ppx))
  (libraries
   yojson
   sqlite3
@@ -80,6 +79,7 @@
   tunnel_tailscale
   tunnel_ngrok
   tunnel_custom
+  update_tool
   command_bridge
   slack
   discord
@@ -93,6 +93,7 @@
   mcp_client
   telemetry
   web_channel
+  ui_server
   tts
   imessage
   lark
@@ -140,9 +141,7 @@
   gluten-lwt-unix
   ca-certs
   bigstringaf
-  faraday)
- (instrumentation
-  (backend bisect_ppx)))
+  faraday))
 
 (library
  (name clawq_wasm)

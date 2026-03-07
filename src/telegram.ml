@@ -386,28 +386,41 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
         | NotACommand -> (
             let msg = user_text in
             let* result =
-              Lwt.catch
+              Session.with_registered_notifier session_mgr ~key
+                ~notify:(fun text ->
+                  send_chunked ~bot_token ~chat_id:update.chat_id ~text)
                 (fun () ->
-                  let turn_p =
-                    Session.turn session_mgr ~key ~message:msg
-                      ~channel_name:"telegram" ~channel_type:"dm" ()
-                  in
-                  let* response =
-                    with_typing ~bot_token ~chat_id:update.chat_id turn_p
-                  in
-                  Lwt.return (Ok response))
-                (fun exn -> Lwt.return (Error (Printexc.to_string exn)))
+                  Lwt.catch
+                    (fun () ->
+                      let turn_p =
+                        Session.turn session_mgr ~key ~message:msg
+                          ~channel_name:"telegram" ~channel_type:"dm"
+                          ~channel:"telegram" ~channel_id:update.chat_id ()
+                      in
+                      let* response =
+                        with_typing ~bot_token ~chat_id:update.chat_id turn_p
+                      in
+                      Lwt.return (Ok response))
+                    (fun exn -> Lwt.return (Error (Printexc.to_string exn))))
             in
             match result with
             | Ok response ->
-                send_chunked ~bot_token ~chat_id:update.chat_id ~text:response
+                let* () =
+                  send_chunked ~bot_token ~chat_id:update.chat_id ~text:response
+                in
+                Session.mark_response_sent session_mgr ~key;
+                Lwt.return_unit
             | Error err ->
                 Logs.err (fun m ->
                     m "Agent error for chat_id=%s: %s" update.chat_id err);
-                send_message ~bot_token ~chat_id:update.chat_id
-                  ~text:
-                    "Sorry, an error occurred processing your message. Please \
-                     try again.")
+                let* () =
+                  send_message ~bot_token ~chat_id:update.chat_id
+                    ~text:
+                      "Sorry, an error occurred processing your message. \
+                       Please try again."
+                in
+                Session.mark_response_sent session_mgr ~key;
+                Lwt.return_unit)
 
 let poll_account ~bot_token ~(account : Runtime_config.telegram_account) ~name
     ~(session_mgr : Session.t) ?chat_limiter () =

@@ -1,12 +1,17 @@
 ---
+claimed_at: "2026-03-07T02:46:35Z"
+claimed_by: cli-user
+completed_at: "2026-03-07T03:20:24Z"
 complexity: low
 depends_on: []
+duration_minutes: 33.8317267944
 estimate_hours: 1
 id: P4.M1.E1.T001
 priority: medium
-status: pending
+started_at: "2026-03-07T02:46:35Z"
+status: done
 tags: []
-title: "DB schema migration v1 to v2: add session_state and discord_resume_state tables"
+title: 'DB schema migration v1 to v2: add session_state and discord_resume_state tables'
 ---
 
 # DB schema migration v2
