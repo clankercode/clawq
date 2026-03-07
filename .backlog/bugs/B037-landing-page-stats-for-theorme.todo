@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-07T10:15:45Z"
+claimed_by: cli-user
+completed_at: "2026-03-07T10:20:57Z"
 complexity: medium
 depends_on: []
+duration_minutes: 5.212534139383333
 estimate_hours: 1
 id: B037
 priority: high
-status: pending
+started_at: "2026-03-07T10:15:45Z"
+status: done
 tags: []
 title: landing page stats for theormes proved etc are are out of date
 ---

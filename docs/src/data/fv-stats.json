@@ -1,0 +1,17 @@
+{
+  "generated_on": "2026-03-07",
+  "coq_version": "8.19",
+  "repository_total": 163,
+  "public_phase_total": 156,
+  "verified_unique_total": 78,
+  "verified_unique_percent": 47.9,
+  "public_verified_total": 71,
+  "public_in_progress_total": 85,
+  "public_planned_total": 0,
+  "in_progress_total": 85,
+  "extracted_modules": 2,
+  "coq_lines": 3634,
+  "command_count": 24,
+  "test_count": 967,
+  "verified_domain_count": 6
+}

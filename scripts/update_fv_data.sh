@@ -7,7 +7,7 @@ set -euo pipefail
 
 COQ_DIR="coq/theories/Clawq"
 YML_FILE="docs/src/data/formal_verification.yml"
-MDX_FILE="docs/src/content/docs/formal-verification.mdx"
+JSON_FILE="docs/src/data/fv-stats.json"
 
 echo "=== Formal Verification Data Update ==="
 echo ""
@@ -170,7 +170,7 @@ fi
 
 # --- Compute stats ---
 echo ""
-echo "--- Updating $MDX_FILE ---"
+echo "--- Computing derived FV stats ---"
 
 # Verified unique total: sum actual_counts for unique .v files backing verified phases.
 # Files shared across phases (ConfigProofs.v for F1+F5) counted once.
@@ -210,59 +210,105 @@ flush_verified
 coq_lines=$(wc -l "$COQ_DIR"/*.v | awk '/total/{print $1}')
 extracted_count=$(grep -c 'extracted: true' "$YML_FILE" || true)
 today=$(date +%Y-%m-%d)
-planned_count=$(( total - _v_total ))
+remaining_count=$(( total - _v_total ))
 percent=$(awk "BEGIN { printf \"%.1f\", ${_v_total} * 100 / ${total} }")
+
+command_count=$(python3 - <<'PYEOF'
+from pathlib import Path
+
+text = Path('src/main.ml').read_text()
+start = text.index('let cmds =')
+end = text.index('in\n  exit', start)
+block = text[start:end]
+count = 0
+for line in block.splitlines():
+    s = line.strip().rstrip(';')
+    if s.endswith('_cmd') and not s.startswith('let cmds') and s not in ('[', ']'):
+        count += 1
+print(count)
+PYEOF
+)
+
+test_count=$(python3 - <<'PYEOF'
+import pathlib
+import re
+
+count = 0
+for path in pathlib.Path('test').glob('*.ml'):
+    count += len(re.findall(r'Alcotest\.test_case\b', path.read_text()))
+print(count)
+PYEOF
+)
 
 echo "  total theorems (all files):       $total"
 echo "  verified (unique files, YAML):    $_v_total"
-echo "  planned (written, not verified):  $planned_count"
+echo "  remaining (written, not verified): $remaining_count"
 echo "  modules extracted:                $extracted_count"
 echo "  coq lines:                        $coq_lines"
 echo "  progress bar:                     ${percent}%"
+echo "  top-level commands:               $command_count"
+echo "  alcotest cases:                   $test_count"
 echo "  today:                            $today"
 echo ""
 
-if [ ! -f "$MDX_FILE" ]; then
-  echo "ERROR: $MDX_FILE not found — skipping page update."
-  exit 1
+if [ ! -f "$JSON_FILE" ]; then
+  echo "Creating $JSON_FILE"
+  mkdir -p "$(dirname "$JSON_FILE")"
+  printf '{}\n' > "$JSON_FILE"
 fi
 
-si() { sed -i -E "$@" "$MDX_FILE"; }
+python3 - "$YML_FILE" "$JSON_FILE" "$today" "$total" "$_v_total" "$remaining_count" "$extracted_count" "$coq_lines" "$percent" "$command_count" "$test_count" <<'PYEOF'
+import json
+import sys
 
-# 1. Frontmatter description (total)
-si "s/description: \"Machine-checked correctness: [0-9]+ theorems proven in Coq\"/description: \"Machine-checked correctness: ${total} theorems proven in Coq\"/"
+import yaml
 
-# 2. Header subtitle (total)
-si "s/Last extraction: [0-9]{4}-[0-9]{2}-[0-9]{2} &middot; Coq [0-9.]+ &middot; [0-9]+ theorems/Last extraction: ${today} \&middot; Coq 8.19 \&middot; ${total} theorems/"
+yml_path, json_path, today, repository_total, verified_unique_total, remaining_total, extracted_modules, coq_lines, verified_unique_percent, command_count, test_count = sys.argv[1:12]
 
-# 3. MechanicalCounter: Theorems Proven (total)
-si "s/<MechanicalCounter value=\{[0-9]+\} label=\"Theorems Proven\" \/>/<MechanicalCounter value={${total}} label=\"Theorems Proven\" \/>/"
+with open(yml_path) as f:
+    phases = yaml.safe_load(f)
 
-# 4. MechanicalCounter: Modules Extracted
-si "s/<MechanicalCounter value=\{[0-9]+\} label=\"Modules Extracted\" \/>/<MechanicalCounter value={${extracted_count}} label=\"Modules Extracted\" \/>/"
+public_phases = [phase for phase in phases if phase['phase'] != 'F0']
+public_phase_total = sum(phase['theorems'] for phase in public_phases)
+public_verified_total = sum(phase['theorems'] for phase in public_phases if phase['status'] == 'verified')
+public_in_progress_total = sum(phase['theorems'] for phase in public_phases if phase['status'] == 'in_progress')
+public_planned_total = sum(phase['theorems'] for phase in public_phases if phase['status'] == 'planned')
+verified_domain_count = sum(1 for phase in public_phases if phase['status'] == 'verified')
 
-# 5. MechanicalCounter: Lines of Coq
-si "s/<MechanicalCounter value=\{[0-9]+\} label=\"Lines of Coq\" \/>/<MechanicalCounter value={${coq_lines}} label=\"Lines of Coq\" \/>/"
+stats = {
+    'generated_on': today,
+    'coq_version': '8.19',
+    'repository_total': int(repository_total),
+    'public_phase_total': public_phase_total,
+    'verified_unique_total': int(verified_unique_total),
+    'verified_unique_percent': float(verified_unique_percent),
+    'public_verified_total': public_verified_total,
+    'public_in_progress_total': public_in_progress_total,
+    'public_planned_total': public_planned_total,
+    'in_progress_total': int(remaining_total),
+    'extracted_modules': int(extracted_modules),
+    'coq_lines': int(coq_lines),
+    'command_count': int(command_count),
+    'test_count': int(test_count),
+    'verified_domain_count': verified_domain_count,
+}
 
-# 6. Scorecard large number (verified unique count)
-si "s/(font-size: var\(--fs-2xl\); font-weight: 700; color: var\(--text-primary\); line-height: 1;\">)[0-9]+(<\/span>)/\1${_v_total}\2/"
+with open(json_path, 'w') as f:
+    json.dump(stats, f, indent=2)
+    f.write('\n')
+PYEOF
 
-# 7. Scorecard denominator (total, exact — no ~)
-si "s|(font-size: var\(--fs-lg\); font-family: var\(--font-label\)\; color: var\(--text-tertiary\);\">)~?[^<]*(</span>)|\1/ ${total}\2|"
-# Fallback: different attribute ordering in source
-si "s|(font-family: var\(--font-label\); font-size: var\(--fs-lg\); color: var\(--text-tertiary\);\">)~?[^<]*(</span>)|\1/ ${total}\2|"
+echo "DONE: $JSON_FILE updated."
+echo "  repository_total=${total}, public_phase_total=$(python3 - <<'PYEOF'
+import yaml
+with open('docs/src/data/formal_verification.yml') as f:
+    phases = yaml.safe_load(f)
+print(sum(p['theorems'] for p in phases if p['phase'] != 'F0'))
+PYEOF
+)"
+echo "  verified=${_v_total}, remaining=${remaining_count}, extracted=${extracted_count}, lines=${coq_lines}, date=${today}"
 
-# 8. Progress bar width (verified/total)
-si "s/width: [0-9.]+%; height: 100%; background: var\(--coq-teal\); border-radius: 12px/width: ${percent}%; height: 100%; background: var(--coq-teal); border-radius: 12px/"
-
-# 9. Legend: verified count
-si "s/(legend-label\">)[0-9]+ verified(<)/\1${_v_total} verified\2/"
-
-# 10. Legend: planned count (exact, no ~)
-si "s/(legend-label\">)~?[0-9]+ planned(<)/\1${planned_count} planned\2/"
-
-# 11. Trust boundary diagram theorem count (total)
-si "s|(letter-spacing: 0\.06em;\">)[0-9]+ theorems(</div>)|\1${total} theorems\2|"
-
-echo "DONE: $MDX_FILE updated."
-echo "  total=${total}, verified=${_v_total}, planned=${planned_count}, extracted=${extracted_count}, lines=${coq_lines}, date=${today}"
+if [ ! -f "docs/src/content/docs/formal-verification.mdx" ]; then
+  echo "ERROR: docs/src/content/docs/formal-verification.mdx not found."
+  exit 1
+fi

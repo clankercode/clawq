@@ -5,6 +5,7 @@ import TheoremBox from '../components/TheoremBox.astro';
 import MechanicalCounter from '../components/MechanicalCounter.astro';
 import VerificationSeal from '../components/VerificationSeal.astro';
 import ProgressRing from '../components/ProgressRing.astro';
+import fvStats from '../data/fv-stats.json';
 ---
 
 <LandingLayout title="Design Debug">
@@ -174,10 +175,10 @@ import ProgressRing from '../components/ProgressRing.astro';
   <section class="debug-section">
     <h2>Mechanical Counters</h2>
     <div style="display: flex; flex-wrap: wrap; gap: 3rem; padding: 2rem 0;">
-      <MechanicalCounter value={69} label="Theorems Proven" />
+      <MechanicalCounter value={fvStats.repository_total} label="Theorem/Lemma Statements" />
       <MechanicalCounter value={12} label="Phases" />
-      <MechanicalCounter value={226} label="Tests" />
-      <MechanicalCounter value={1847} label="Lines of Coq" />
+      <MechanicalCounter value={fvStats.test_count} label="Tests" />
+      <MechanicalCounter value={fvStats.coq_lines} label="Lines of Coq" />
     </div>
   </section>
 

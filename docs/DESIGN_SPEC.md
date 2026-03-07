@@ -372,7 +372,7 @@ Title: "II. FORMAL PROPERTIES" section label + "Verification Status" in Playfair
 
 Subtitle: "A machine-checked account of Clawq's proven properties." in Source Serif 4 italic, `--text-secondary`.
 
-Metadata line: "Last extraction: 2026-03-06 . Coq 8.19 . 69 theorems" in `--fs-xs`, `--text-tertiary`.
+Metadata line is generated from `docs/src/data/fv-stats.json`: refresh date, Coq version, and current public-phase theorem/lemma count in `--fs-xs`, `--text-tertiary`.
 
 ### Verification Seal
 
@@ -391,7 +391,7 @@ Row of flip-counter digits (odometer/split-flap display):
 
 ```
 +---+---+---+
-| 0 | 6 | 9 |  THEOREMS PROVEN
+| [generated public-phase count] |  PUBLIC PHASE STATEMENTS
 +---+---+---+
 ```
 
@@ -408,13 +408,13 @@ Progress summary:
 ```
 +---------------------------------------------------+
 |                                                     |
-|              69 / ~120                              |
-|          PROPERTIES VERIFIED                        |
+|      [generated verified] / [generated total]      |
+|      REPOSITORY THEOREM/LEMMA STATEMENTS           |
 |                                                     |
-|    [=============================............] 58%  |
+|    [generated percent-complete progress bar]       |
 |                                                     |
-|    [teal] 69 verified  [gold] 0 in progress         |
-|    [gray] ~51 planned                               |
+|    [teal] [generated verified]  [gold] [generated in progress] |
+|    [gray] [generated planned]                       |
 |                                                     |
 +---------------------------------------------------+
 
@@ -518,7 +518,7 @@ Full viewport height, centered content.
 
                       --- [diamond] ---
 
-        69 theorems verified . 18 commands . 226 tests
+        [generated theorem/lemma statements] . [generated commands] . [generated tests]
 ```
 
 **Cover art treatment:**
@@ -540,7 +540,7 @@ Three cards with corner brackets:
 
 | Card | Icon | Title | Description |
 |------|------|-------|-------------|
-| 1 | Gear+check SVG | Formally Verified | Core properties proven in Coq with 69 theorems |
+| 1 | Gear+check SVG | Formally Verified | Coq corpus tracks the generated theorem/lemma total |
 | 2 | Arrow/extract SVG | Extracted to OCaml | Direct Coq extraction pipeline to native code |
 | 3 | Shield SVG | Secure Runtime | Landlock sandbox, rate limiting, encrypted secrets |
 

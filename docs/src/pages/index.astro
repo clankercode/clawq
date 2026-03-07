@@ -2,6 +2,7 @@
 import LandingLayout from '../layouts/LandingLayout.astro';
 import HeroGearBackdrop from '../components/HeroGearBackdrop.astro';
 import { BACKDROP_ALGORITHMS, DEFAULT_HERO_GEAR_ALGORITHM } from '../lib/gears/backdrop_algorithms.ts';
+import fvStats from '../data/fv-stats.json';
 
 const allowedGearAlgorithms = BACKDROP_ALGORITHMS;
 const gearAlgoFromUrl = Astro.url.searchParams.get('gearAlgo');
@@ -52,18 +53,18 @@ const heroGearAlgorithm: (typeof allowedGearAlgorithms)[number] =
 
       <!-- Stats -->
       <div class="stats-strip">
-        <span class="stat"><span class="stat-number">69</span> theorems verified</span>
+        <span class="stat"><span class="stat-number">{fvStats.repository_total}</span> theorem/lemma statements</span>
         <span class="stat-dot" aria-hidden="true">&middot;</span>
-        <span class="stat"><span class="stat-number">18</span> commands</span>
+        <span class="stat"><span class="stat-number">{fvStats.command_count}</span> commands</span>
         <span class="stat-dot" aria-hidden="true">&middot;</span>
-        <span class="stat"><span class="stat-number">226</span> tests</span>
+        <span class="stat"><span class="stat-number">{fvStats.test_count}</span> tests</span>
       </div>
 
       <!-- Formal Verification Seal -->
       <div class="seal-wrapper">
         <img
           src="/badges/formal-verification-seal.py.svg"
-          alt="Coq: 163 proofs verified"
+          alt={`Coq: ${fvStats.repository_total} proofs verified`}
           width="220"
           height="220"
           loading="eager"
@@ -90,9 +91,9 @@ const heroGearAlgorithm: (typeof allowedGearAlgorithms)[number] =
         </div>
         <h3 class="feature-title">Formally Verified</h3>
         <p class="feature-desc">
-          Core properties proven in Coq with 69 theorems across
-          CLI parsing, configuration validation, path safety,
-          audit chain integrity, and rate limiting.
+          The Coq corpus now tracks {fvStats.repository_total} theorem/lemma statements,
+          including {fvStats.verified_unique_total} in completed verification areas and {fvStats.in_progress_total} more
+          under active development.
         </p>
       </div>
 

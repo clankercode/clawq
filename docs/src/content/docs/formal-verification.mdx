@@ -11,6 +11,7 @@ import ProgressRing from '../../components/ProgressRing.astro';
 import TheoremBox from '../../components/TheoremBox.astro';
 import CornerBrackets from '../../components/CornerBrackets.astro';
 import Callout from '../../components/Callout.astro';
+import fvStats from '../../data/fv-stats.json';
 
 {/* ===== PAGE HEADER ===== */}
 
@@ -23,7 +24,7 @@ import Callout from '../../components/Callout.astro';
 </p>
 
 <p style="font-size: var(--fs-xs); color: var(--text-tertiary); font-family: var(--font-label); margin-bottom: 3rem;">
-  Last verification refresh: 2026-03-07 &middot; Coq 8.19 &middot; 153 theorem/lemma statements tracked across public phases F1&ndash;F12
+  Last verification refresh: {fvStats.generated_on} &middot; Coq {fvStats.coq_version} &middot; {fvStats.public_phase_total} theorem/lemma statements tracked across public phases F1&ndash;F12
 </p>
 
 <div style="margin-bottom: 2rem; padding: 1rem 1.1rem; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px;">
@@ -39,9 +40,9 @@ import Callout from '../../components/Callout.astro';
 {/* ===== MECHANICAL COUNTERS ===== */}
 
 <div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 3rem; margin-bottom: 3.5rem;">
-  <MechanicalCounter value={153} label="Statements Tracked" />
-  <MechanicalCounter value={2} label="Modules Extracted" />
-  <MechanicalCounter value={3634} label="Lines of Coq" />
+  <MechanicalCounter value={fvStats.public_phase_total} label="Public Phase Statements" />
+  <MechanicalCounter value={fvStats.extracted_modules} label="Modules Extracted" />
+  <MechanicalCounter value={fvStats.coq_lines} label="Lines of Coq" />
 </div>
 
 {/* ===== VERIFICATION SCORECARD ===== */}
@@ -52,30 +53,30 @@ import Callout from '../../components/Callout.astro';
 
   <div style="text-align: center; margin-bottom: 1.25rem;">
     <div style="display: flex; align-items: baseline; justify-content: center; gap: 0.4rem; margin-bottom: 0.35rem;">
-      <span style="font-family: var(--font-mono); font-size: var(--fs-2xl); font-weight: 700; color: var(--text-primary); line-height: 1;">78</span>
-      <span style="font-family: var(--font-label); font-size: var(--fs-lg); color: var(--text-tertiary);">/ 163</span>
+      <span style="font-family: var(--font-mono); font-size: var(--fs-2xl); font-weight: 700; color: var(--text-primary); line-height: 1;">{fvStats.verified_unique_total}</span>
+      <span style="font-family: var(--font-label); font-size: var(--fs-lg); color: var(--text-tertiary);">/ {fvStats.repository_total}</span>
     </div>
-    <p style="font-family: var(--font-label); font-variant: small-caps; font-size: var(--fs-sm); color: var(--text-secondary); letter-spacing: 0.1em; text-align: center; max-width: none; margin: 0;">Tracked Theorem/Lemma Statements</p>
+    <p style="font-family: var(--font-label); font-variant: small-caps; font-size: var(--fs-sm); color: var(--text-secondary); letter-spacing: 0.1em; text-align: center; max-width: none; margin: 0;">Repository Theorem/Lemma Statements</p>
   </div>
 
   {/* Progress bar */}
     <div style="width: 100%; height: 6px; background: repeating-linear-gradient(135deg, rgba(139,115,50,0.45) 0px, rgba(139,115,50,0.45) 2px, rgba(139,115,50,0.25) 2px, rgba(139,115,50,0.25) 4px); border-radius: 12px; margin-bottom: 1.25rem; overflow: hidden;">
-    <div style="width: 47.9%; height: 100%; background: var(--coq-teal); border-radius: 12px;" />
+    <div style={`width: ${fvStats.verified_unique_percent}%; height: 100%; background: var(--coq-teal); border-radius: 12px;`} />
   </div>
 
   {/* Status legend */}
   <div class="legend-row">
     <span class="legend-item">
       <span class="legend-swatch legend-swatch-verified"></span>
-      <span class="legend-label">71 fully verified</span>
+      <span class="legend-label">{fvStats.public_verified_total} fully verified</span>
     </span>
     <span class="legend-item">
       <span class="legend-swatch legend-swatch-progress"></span>
-      <span class="legend-label">82 in progress</span>
+      <span class="legend-label">{fvStats.public_in_progress_total} in progress</span>
     </span>
     <span class="legend-item">
       <span class="legend-swatch legend-swatch-planned"></span>
-      <span class="legend-label">85 planned</span>
+      <span class="legend-label">{fvStats.public_planned_total} planned</span>
     </span>
   </div>
 
@@ -906,7 +907,7 @@ is_allowed cmd allowlist = true implies is_allowed cmd (allowlist ++ extra) = tr
     <div style="display: flex; align-items: center; justify-content: center; gap: 1rem; flex-wrap: wrap;">
       <div style="padding: 0.6rem 1.25rem; background: rgba(46, 139, 122, 0.08); border: 1px solid rgba(46, 139, 122, 0.35); text-align: center; min-width: 7rem;">
         <div style="font-weight: 600; color: var(--coq-teal-light); margin-bottom: 0.2rem;">Coq Core</div>
-        <div style="font-size: var(--fs-xs); color: var(--text-tertiary); font-variant: small-caps; letter-spacing: 0.06em;">163 theorems</div>
+        <div style="font-size: var(--fs-xs); color: var(--text-tertiary); font-variant: small-caps; letter-spacing: 0.06em;">{fvStats.repository_total} theorem/lemma statements</div>
       </div>
       <span style="color: rgba(46,139,122,0.5); font-size: 1.1rem; letter-spacing: -0.05em;">&#8212;&#x25B8;</span>
       <div style="padding: 0.6rem 1.25rem; background: rgba(46, 139, 122, 0.08); border: 1px solid rgba(46, 139, 122, 0.35); text-align: center; min-width: 7rem;">
@@ -1042,5 +1043,5 @@ The remaining phase work (F7--F12) is prioritized by runtime-risk reduction and 
 <hr class="ornamental-rule" />
 
 <p style="text-align: center; font-size: var(--fs-xs); color: var(--text-tertiary); font-family: var(--font-label); margin-top: 2rem;">
-  Data sourced from the F1&ndash;F12 slice of <code>docs/src/data/formal_verification.yml</code> (with <code>F0</code> tracked separately as internal CLI work) &middot; Theorem counts checked by <code>make update-fv</code>
+  Data sourced from <code>docs/src/data/formal_verification.yml</code> and generated into <code>docs/src/data/fv-stats.json</code> by <code>make fv-all</code>
 </p>
