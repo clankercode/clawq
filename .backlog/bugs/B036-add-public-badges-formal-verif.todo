@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-07T04:44:37Z"
+claimed_by: cli-user
+completed_at: "2026-03-07T04:45:14Z"
 complexity: medium
 depends_on: []
+duration_minutes: 0.6197371068333334
 estimate_hours: 1
 id: B036
 priority: high
-status: pending
+started_at: "2026-03-07T04:44:37Z"
+status: done
 tags: []
 title: add public/badges/formal-verification-seal.py.svg to docs index/landing page.
 ---

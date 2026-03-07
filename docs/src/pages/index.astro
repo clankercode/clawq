@@ -59,6 +59,17 @@ const heroGearAlgorithm: (typeof allowedGearAlgorithms)[number] =
         <span class="stat"><span class="stat-number">226</span> tests</span>
       </div>
 
+      <!-- Formal Verification Seal -->
+      <div class="seal-wrapper">
+        <img
+          src="/badges/formal-verification-seal.py.svg"
+          alt="Coq: 163 proofs verified"
+          width="140"
+          height="140"
+          loading="eager"
+        />
+      </div>
+
     </div>
   </section>
 
@@ -269,6 +280,11 @@ const heroGearAlgorithm: (typeof allowedGearAlgorithms)[number] =
     font-size: 0.6rem;
     padding: 0 6px;
     line-height: 1;
+  }
+
+  /* --- Verification Seal --- */
+  .seal-wrapper {
+    margin-top: 2rem;
   }
 
   /* --- Stats Strip --- */
