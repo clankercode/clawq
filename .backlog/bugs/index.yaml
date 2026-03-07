@@ -32,3 +32,4 @@ bugs:
     - file: B031-task-the-config-wizard-is-nice.todo
     - file: B032-fix-gear-layout-for-good.todo
     - file: B033-the-verification-status-docs-p.todo
+    - file: B034-github-pages-doesn-t-build-or.todo

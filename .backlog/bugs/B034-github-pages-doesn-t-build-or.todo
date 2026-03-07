@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B034
+priority: high
+status: pending
+tags: []
+title: github pages doesn't build or deploy. is it set up with a workflow?
+---
+
+github pages doesn't build or deploy. is it set up with a workflow?
