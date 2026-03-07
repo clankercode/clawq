@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B039
+priority: high
+status: pending
+tags: []
+title: landing page should use constraint-solver generator
+---
+
+landing page should use constraint-solver generator
