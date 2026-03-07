@@ -36,3 +36,4 @@ bugs:
     - file: B035-mermaid-outdated-optimize-dep.todo
     - file: B036-add-public-badges-formal-verif.todo
     - file: B037-landing-page-stats-for-theorme.todo
+    - file: B038-formal-verification-seal-on-do.todo
