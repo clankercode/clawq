@@ -45,3 +45,24 @@ jobs:
           opam install -y ocamlformat.0.28.1
           dune fmt 2>&1 || true
           git diff --exit-code
+
+  docs:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: docs
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
+
+      - name: Install docs deps
+        run: npm ci
+
+      - name: Build docs
+        run: npm run build
