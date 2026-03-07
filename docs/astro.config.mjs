@@ -10,4 +10,9 @@ export default defineConfig({
       theme: 'css-variables',
     },
   },
+  vite: {
+    optimizeDeps: {
+      include: ['mermaid'],
+    },
+  },
 });
