@@ -39,3 +39,4 @@ bugs:
     - file: B038-formal-verification-seal-on-do.todo
     - file: B039-landing-page-should-use-constr.todo
     - file: B040-when-landing-page-loads-all-he.todo
+    - file: B041-web-ui-console-asks-us-to-run.todo

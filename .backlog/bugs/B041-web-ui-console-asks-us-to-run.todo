@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B041
+priority: high
+status: pending
+tags: []
+title: web UI console asks us to run clawq otp-show but this command does not exist. We need to fix this and ensure the whole webui otp/auth stuff works
+---
+
+web UI console asks us to run clawq otp-show but this command does not exist. We need to fix this and ensure the whole webui otp/auth stuff works
