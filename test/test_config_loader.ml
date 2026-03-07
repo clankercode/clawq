@@ -124,6 +124,24 @@ let test_parse_gateway_auth_token () =
   Alcotest.(check (option string))
     "gateway auth token parsed" (Some "abc123") cfg.gateway.auth_token
 
+let test_parse_lark_defaults_disabled () =
+  let json =
+    Yojson.Safe.from_string
+      {|{
+        "channels": {
+          "lark": {
+            "app_id": "app-id",
+            "app_secret": "secret",
+            "verification_token": "vtok"
+          }
+        }
+      }|}
+  in
+  let cfg = Config_loader.parse_config json in
+  match cfg.channels.lark with
+  | None -> Alcotest.fail "expected lark config"
+  | Some lk -> Alcotest.(check bool) "lark disabled by default" false lk.enabled
+
 let test_backfill_does_not_persist_resolved_secrets () =
   Unix.putenv "CLAWQ_TEST_SECRET_BACKFILL" "sk-live-secret";
   let json =
@@ -283,6 +301,8 @@ let suite =
       test_backfill_replaces_type_mismatch_with_defaults;
     Alcotest.test_case "parse gateway auth token" `Quick
       test_parse_gateway_auth_token;
+    Alcotest.test_case "parse lark defaults disabled" `Quick
+      test_parse_lark_defaults_disabled;
     Alcotest.test_case "backfill does not persist resolved secrets" `Quick
       test_backfill_does_not_persist_resolved_secrets;
     Alcotest.test_case "backfill infers default provider" `Quick

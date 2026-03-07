@@ -144,6 +144,7 @@ type nostr_config = {
 }
 
 type lark_config = {
+  enabled : bool;
   app_id : string;
   app_secret : string;
   verification_token : string;
@@ -1023,6 +1024,7 @@ let to_json (cfg : t) : Yojson.Safe.t =
                     ( "lark",
                       `Assoc
                         [
+                          ("enabled", `Bool lk.enabled);
                           ("app_id", `String lk.app_id);
                           ("app_secret", `String lk.app_secret);
                           ("verification_token", `String lk.verification_token);

@@ -241,7 +241,11 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
       Logs.info (fun m -> m "No Lark config found, skipping");
       Lwt.return_unit
   | Some lark_config ->
-      if lark_config.mode = "webhook" then begin
+      if not lark_config.enabled then begin
+        Logs.info (fun m -> m "Lark channel disabled in config, skipping");
+        Lwt.return_unit
+      end
+      else if lark_config.mode = "webhook" then begin
         Logs.info (fun m ->
             m "Lark channel configured in webhook mode (endpoint=%s)"
               lark_config.endpoint);

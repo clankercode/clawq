@@ -214,7 +214,17 @@ let run ~(config : Runtime_config.t) =
   if
     (not (is_loopback_host config.gateway.host))
     && config.gateway.auth_token = None
-  then failwith "Refusing non-loopback gateway bind without gateway.auth_token";
+  then
+    failwith
+      (Printf.sprintf
+         "Refusing to bind gateway.host=%S without gateway.auth_token.\n\
+          To keep the gateway loopback-only, set gateway.host to 127.0.0.1 (or \
+          localhost / ::1).\n\
+          Example: clawq config set gateway.host 127.0.0.1\n\
+          To allow non-loopback binding, set gateway.auth_token in \
+          ~/.clawq/config.json or run: clawq config set gateway.auth_token \
+          YOUR_TOKEN"
+         config.gateway.host);
   if (not config.gateway.require_pairing) && config.gateway.auth_token = None
   then
     Logs.warn (fun m ->
@@ -253,7 +263,9 @@ let run ~(config : Runtime_config.t) =
         (config.channels.nostr <> None)
         (config.channels.dingtalk <> None)
         (config.channels.onebot <> None)
-        (config.channels.lark <> None));
+        (match config.channels.lark with
+        | Some lk -> lk.enabled
+        | None -> false));
   let sandbox =
     let backend =
       match config.security.sandbox_backend with
@@ -589,7 +601,7 @@ let run ~(config : Runtime_config.t) =
           ?line_config:config.channels.line
           ?lark_config:
             (match config.channels.lark with
-            | Some lc when lc.mode = "webhook" -> Some lc
+            | Some lc when lc.enabled && lc.mode = "webhook" -> Some lc
             | _ -> None)
           ?pairing ~ui_server ())
       (fun exn ->
@@ -792,7 +804,7 @@ let run ~(config : Runtime_config.t) =
               Lwt.return_unit))
   | None -> ());
   (match config.channels.lark with
-  | Some _ ->
+  | Some lk when lk.enabled ->
       Lwt.async (fun () ->
           Lwt.catch
             (fun () -> Lark.start ~config ~session_manager)
@@ -800,7 +812,7 @@ let run ~(config : Runtime_config.t) =
               Logs.err (fun m ->
                   m "Lark channel error: %s" (Printexc.to_string exn));
               Lwt.return_unit))
-  | None -> ());
+  | Some _ | None -> ());
   (match db with
   | Some db ->
       Scheduler.init_schema db;

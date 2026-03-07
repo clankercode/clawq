@@ -2,6 +2,7 @@
 
 let mk_lark_cfg ?(allow_users = [ "*" ]) () : Runtime_config.lark_config =
   {
+    enabled = true;
     app_id = "cli_test";
     app_secret = "secret";
     verification_token = "vtok";

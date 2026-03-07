@@ -612,6 +612,9 @@ let parse_config ?(resolve_secrets = true) json =
       let lark =
         try
           let lk = ch |> member "lark" in
+          let enabled =
+            try lk |> member "enabled" |> to_bool with _ -> false
+          in
           let app_id =
             try lk |> member "app_id" |> to_string |> resolve_secret
             with _ -> ""
@@ -637,6 +640,7 @@ let parse_config ?(resolve_secrets = true) json =
           in
           Some
             ({
+               enabled;
                app_id;
                app_secret;
                verification_token;
