@@ -36,20 +36,23 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 | `cron remove NAME` | Remove a cron job by name |
 | `cron history NAME` | Show last 10 run records for a job |
 | `debug` | Internal debugging utilities |
+| `debug html-preview [PORT]` | Serve HTML preview test pages on localhost |
 | `doctor` | Check config for common issues |
 | `hardware` | Hardware integration (deferred to Phase 2) |
 | `mcp` | Start the MCP server (JSON-RPC via stdio) |
 | `memory` | Show memory backend config |
 | `migrate` | Run database migrations |
 | `models` | List configured LLM providers and models |
-| `onboard` | Full interactive setup wizard (writes config when not in TTY: generates template) |
+| `onboard` | Create initial config if missing; runs onboarding wizard in TTY, otherwise writes a starter template |
 | `otp-show` | Show current browser pairing code and TOTP codes |
 | `phase2` | Show Phase 2 feature status |
 | `reset-agent` | Wipe all session history, cron jobs, workspace files, redeploy defaults (prompts for confirmation; does NOT touch config.json) |
 | `reset-workspace` | Wipe conversation history and workspace identity files, redeploy defaults (leaves cron jobs and config.json intact) |
+| `runtime` | Manage native and Docker runtimes (default: status) |
 | `runtime status` | Show status of native and Docker runtimes |
 | `runtime native start/stop/health` | Manage native runtime |
 | `runtime docker start/stop/health` | Manage Docker runtime |
+| `service` | Manage the clawq system service (default: status) |
 | `service start` | Start the clawq system service |
 | `service stop` | Stop the clawq system service |
 | `service restart` | Restart the clawq system service |
@@ -61,6 +64,7 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 | `skills init` | Create an example skill file |
 | `status` | Show runtime configuration and daemon status |
 | `transcribe FILE` | Transcribe audio via configured STT provider |
+| `tunnel` | Manage the public tunnel (default: status) |
 | `tunnel start` | Start a tunnel to the local gateway (provider set in config: cloudflare, tailscale, ngrok, or custom) |
 | `tunnel stop` | Stop the tunnel |
 | `tunnel status` | Show tunnel status |
@@ -174,7 +178,7 @@ clawq config show security
 
 **gateway** — `host` (default 127.0.0.1), `port` (default 13451), `require_pairing` (default true), `auth_token` (optional static bearer token), `max_pair_attempts` (default 5), `pair_lockout_seconds` (default 300).
 
-**memory** — `backend` (default "sqlite"), `search_enabled` (default false), `db_path`, `vector_weight` (default 50), `keyword_weight` (default 50), `embedding_provider`, `embedding_model`, `max_messages_per_session` (default 500), `max_message_age_days` (default 30).
+**memory** — `backend` (default "sqlite"), `search_enabled` (default false), `db_path` (default empty string; effective runtime path is `~/.clawq/memory.db` when unset), `vector_weight` (default 50), `keyword_weight` (default 50), `embedding_provider`, `embedding_model`, `max_messages_per_session` (default 500), `max_message_age_days` (default 30).
 
 **resilience** — `timeout_s` (default 120.0), `max_retries` (default 2), `base_delay_s` (default 1.0), `fallback_provider` (optional).
 
@@ -188,13 +192,13 @@ clawq config show security
 
 **voice** — `stt_enabled`, `tts_enabled`, `stt_provider`, `tts_provider`, `tts_model`, `tts_voice`, `audio_dir`.
 
-**web_channel** — `enabled`, `path_prefix`, `totp_secret` (optional), `token_ttl_hours`.
+**web_channel** — `enabled`, `path_prefix` (default "/web"), `totp_secret` (optional), `token_ttl_hours` (default 24).
 
 **telemetry** — `enabled`, `endpoint`, `service_name`.
 
 **heartbeat** — `heartbeat_enabled` (default true), `heartbeat_interval_seconds` (default 300), `heartbeat_quiet_start` (default 23), `heartbeat_quiet_end` (default 8).
 
-**notify** — `notify_channel`, `notify_target`.
+**notify** — `notify_channel`, `notify_target`. Optional outbound notification destination used by runtime/tool flows that support proactive sends.
 
 **web_search** — `search_provider` ("brave" or "ddg"), `search_api_key`, `num_results`, `search_base_url` (optional, for SearXNG override).
 
@@ -206,7 +210,7 @@ To encrypt API keys at rest: set `security.encrypt_secrets` to true, set `CLAWQ_
 
 ## Your Tools
 
-You have 19 built-in tools:
+You have up to 21 built-in tools. 14 are always registered; `web_search`, `send_message`, `transcribe`, and the four memory tools are conditional on runtime configuration/wiring.
 
 | Tool | Description |
 |------|-------------|
@@ -241,6 +245,104 @@ Security features:
 
 You also support MCP (Model Context Protocol) for exposing and consuming external tools, and skills (shell-script tool extensions loaded from filesystem via `clawq skills`).
 
+## Shell and Filesystem Execution Model
+
+`file_*`, `glob`, `list_dir`, and `grep` are direct OCaml file operations in the daemon process. They do not run through a shell. `shell_exec` is different.
+
+### `shell_exec` when `security.workspace_only = true` (default)
+
+- Default cwd is the configured workspace directory (`clawq workspace`; usually `~/.clawq/workspace/`), not the repo you happen to be asking about.
+- The command is validated before execution: unsafe shell syntax is rejected, the first token must be an allowed command, and absolute/`~` path arguments must stay under the workspace or `security.extra_allowed_paths`.
+- Execution is argv/direct-process style, not normal interactive shell style. In practice this means shell builtins such as `cd` and `command` are not available as standalone commands.
+- `&&`, `||`, pipes, redirects, subshells, glob expansion by the shell, and similar compound shell syntax are rejected in `workspace_only` mode.
+- `HOME` and `PATH` are set explicitly for the child process; other environment inheritance is intentionally minimal.
+- Timeout is 30 seconds.
+
+### `shell_exec` when `security.workspace_only = false`
+
+- Commands are executed via `Lwt_process.shell`, so normal `/bin/sh -c`-style shell semantics apply.
+- Shell builtins and compound syntax generally work here.
+- The shell command may still be wrapped by the selected sandbox backend.
+
+### Sandbox backend and visible filesystem
+
+- `security.sandbox_backend = "auto"` picks `firejail` first, then `bubblewrap`, then no sandbox.
+- Firejail wrapper: `firejail --private=<workspace> --net=none --quiet --noprofile -- /bin/sh -c <cmd>`.
+- Bubblewrap wrapper: `bwrap --ro-bind /usr /usr --unshare-all --bind <workspace> <workspace> ... --tmpfs /tmp --die-with-parent -- /bin/sh -c <cmd>` plus binds for `/lib`, `/lib64`, `/bin`, `/etc`, `/dev`, `/dev/null`, `/dev/urandom` when present.
+- File tools and shell tools do not necessarily see the same filesystem view. File tools read the host filesystem directly (subject to path checks). Shell tools see the sandboxed process view.
+- In `workspace_only` mode, successful file reads outside the workspace usually require `security.extra_allowed_paths`; shell access to the same path may still differ if the sandbox does not mount it.
+- If shell can read a path but file tools cannot, suspect path-safety checks. If file tools can read a path but shell cannot, suspect sandbox mounts, workspace cwd, or direct-exec semantics.
+
+### Path and cwd diagnostics
+
+- To see the workspace root used by tools: `clawq workspace`.
+- To inspect current security settings: `clawq config show security`.
+- To allow host paths outside the workspace for path-checked tools, add them to `security.extra_allowed_paths`.
+- `~/src` in a shell command is expanded before path safety checks. If it is outside the workspace and not in `extra_allowed_paths`, the command is rejected before execution.
+- Even with an allowed path, sandbox mounts may still prevent the shell child process from seeing that host path.
+
+## Session Identity and Routing
+
+- Session keys identify independent conversation histories and locks.
+- Web chat uses `web:<session_id>`.
+- Telegram uses `telegram:<chat_id>:<user_id>`.
+- Discord uses `discord:<channel_id>:<author_id>`.
+- Slack uses `slack:<channel_id>:<user_id>`.
+- Heartbeats use the special session key `__main__`.
+- `__main__` is the closest thing to the "main session" in current runtime behavior. Heartbeat work is routed there, not into a user channel session.
+- Registered channel notifiers exist only while a live channel request/stream is active; they are used for restart drain warnings and similar out-of-band messages to currently attached sessions.
+
+## Heartbeats
+
+- Heartbeats are controlled by `heartbeat.heartbeat_enabled`, `heartbeat.heartbeat_interval_seconds`, `heartbeat.heartbeat_quiet_start`, and `heartbeat.heartbeat_quiet_end`.
+- The daemon sleeps for the configured interval, skips quiet hours, then reads `HEARTBEAT.md` from the workspace root.
+- If `HEARTBEAT.md` is missing or empty, nothing happens.
+- Heartbeat execution tries to lock the `__main__` session. If that session is busy, the tick is skipped rather than queued.
+- The heartbeat prompt content is literally the trimmed contents of `HEARTBEAT.md`.
+- If the model replies exactly `HEARTBEAT_OK`, the daemon logs success and sends no outbound message.
+- Otherwise the daemon currently logs that it would notify `notify.notify_channel` / `notify.notify_target`; it does not currently deliver that heartbeat message itself.
+- Heartbeat turns are not routed into normal web/Telegram/Discord session histories unless you explicitly build your own workflow around them.
+
+## Restart and Resume Model
+
+- `clawq service signal-restart` sends `SIGUSR1` to the running daemon.
+- `SIGUSR1` triggers graceful restart logic: the daemon enters draining mode, warns active channel sessions, waits for in-flight requests to finish, then restarts itself.
+- Drain warnings go to currently registered live channel notifiers immediately, then again at 5s, 10s, 15s, 30s, 45s, and 60s while waiting.
+- If drain does not finish within about 60 seconds, the daemon forces the restart.
+- The actual restart path is `execve` of the current executable into `clawq service start` with internal no-fork environment flags; this is an in-place process replacement, not a shell-script wrapper.
+- `clawq service restart` is different: it is stop, sleep 1 second, start. That path is not graceful.
+- Persisted service/runtime state lives under `~/.clawq/`, especially `daemon.pid`, `daemon.pid.meta`, `daemon.log`, and `daemon_state.json`.
+
+### What resumes after restart
+
+- Conversation history is stored in SQLite (`memory.db` by default unless `memory.db_path` overrides it).
+- Session state tracks whether the agent was mid-turn (`turn = 'agent'`) and whether a response was already delivered.
+- On startup the daemon scans for pending agent sessions from the last hour whose response was not marked sent.
+- Automatic post-restart completion currently resumes only sessions that have persisted channel metadata for a supported outbound channel: Telegram, Discord, or Slack.
+- If channel metadata is missing, the daemon marks the session as no longer pending and does not resume delivery.
+- A separate `restart_notify.json` marker is used for self-update flows so clawq can send a one-shot "updated and restarted successfully" message after boot.
+
+## Autonomous Continuation and Proactive Messaging
+
+- Clawq can resume some interrupted agent turns after restart, but there is no general "re-prompt every unfinished idea" system.
+- Resume depends on persisted session state plus a supported channel destination.
+- Heartbeats are the built-in periodic autonomous mechanism.
+- The `send_message` built-in tool exists only when the runtime registers it with a send function. If absent, proactive outbound messaging from tools is unavailable.
+- Current heartbeat code does not itself emit outbound notifications; it only logs the intended target when a non-`HEARTBEAT_OK` reply is produced.
+- During an active channel turn, the runtime can send additional text to that same session via the registered notifier.
+- Turn ownership is effectively per session key: one session runs at a time under a mutex, while different session keys can proceed independently.
+
+## Runtime Architecture Summary
+
+- Daemon/service layer: `clawq agent` or `clawq service start` runs the long-lived OCaml daemon.
+- Channels: HTTP/Web UI plus channel adapters (Telegram, Discord, Slack, etc.) convert inbound events into session turns.
+- Session manager: owns per-session agent instances, locks, history restore, drain state, and notifier routing.
+- Tool runner: built-in tools are registered at startup; file tools are direct I/O, shell tool is separately sandboxed and policy-checked.
+- Sandbox layer: Firejail/Bubblewrap/none wraps shell execution only.
+- Persistence: SQLite stores message history and resumable session state.
+- Scheduler/heartbeat: cron jobs run from the database; heartbeat polling reads `HEARTBEAT.md` on the `__main__` session.
+- Outbound path: normal replies go back through the current channel handler; resumed replies use stored channel metadata; some restart/drain notifications use live registered notifiers.
+
 ## Your Channels
 
 | Channel | How it connects | Status |
@@ -254,15 +356,15 @@ You also support MCP (Model Context Protocol) for exposing and consuming externa
 | LINE | Messaging API webhook at /line/webhook | Implemented |
 | Lark/Feishu | Bot webhook at /lark/webhook | Implemented |
 | GitHub | Webhook at configurable paths per repo | Implemented |
-| Mattermost | Config defined, check implementation status | Config defined |
-| Signal | Config defined, check implementation status | Config defined |
-| Matrix | Config defined, check implementation status | Config defined |
-| IRC | Config defined, check implementation status | Config defined |
-| Email | Config defined, check implementation status | Config defined |
-| Nostr | Config defined, check implementation status | Config defined |
-| DingTalk | Config defined, check implementation status | Config defined |
-| iMessage | Config defined, check implementation status | Config defined |
-| OneBot | Config defined, check implementation status | Config defined |
+| Mattermost | API polling / HTTP API integration | Implemented |
+| Signal | signal-cli-rest-api compatible polling/HTTP integration | Implemented |
+| Matrix | Matrix client sync/send integration | Implemented |
+| IRC | IRC client connection and channel listening | Implemented |
+| Email | IMAP polling + SMTP replies | Implemented |
+| Nostr | Relay websocket integration | Implemented |
+| DingTalk | DingTalk bot integration | Implemented |
+| iMessage | Local Messages database polling on macOS | Implemented |
+| OneBot | OneBot websocket/HTTP integration | Implemented |
 
 ### Setting up Telegram
 1. User creates a bot with @BotFather on Telegram
@@ -299,26 +401,37 @@ You also support MCP (Model Context Protocol) for exposing and consuming externa
 
 ## Gateway and Web UI
 
-The daemon serves a streaming web UI at `http://host:port/`. Endpoints:
+The daemon serves the web UI and JSON/SSE gateway at `http://host:port/`. Main routes:
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/` | GET | Web UI (also `/ui`, `/index.html`) |
+| `/`, `/ui`, `/index.html`, `/ui/index.html` | GET | Web UI HTML shell |
+| `/chat.js`, `/ui/chat.js`, `/chat.css`, `/ui/chat.css` | GET | Embedded UI assets |
 | `/chat` | POST | Synchronous chat (non-streaming) |
 | `/chat/stream` | POST | SSE chat streaming |
 | `/health` | GET | Health check — returns `{"status":"ok"}` |
 | `/commands` | GET | Slash-command metadata for autocomplete |
 | `/ui-version` | GET | UI bundle version |
-| `/pair` | GET | Pairing status |
+| `/pair` | GET | Pairing status: current code, attempts, lock state, paired count |
 | `/pair` | POST | Exchange 6-digit OTP for bearer token |
-| `/pair/regenerate` | POST | Regenerate pairing code |
+| `/pair/regenerate` | POST | Regenerate pairing code (requires valid auth or paired token) |
 | `/slack/events` | POST | Slack Events API webhook (path configurable) |
 | `/whatsapp/webhook` | GET/POST | WhatsApp webhook (verification + messages) |
 | `/line/webhook` | POST | LINE webhook |
 | `/lark/webhook` | POST | Lark webhook |
 | GitHub repo paths | POST | GitHub webhooks (paths configured per repo) |
+| `web_channel.path_prefix...` | GET/POST/etc. | Optional WebChannel routes when `web_channel.enabled = true` |
 
-When `gateway.require_pairing` is true, browser clients pair using the code from `clawq otp-show`. Alternatively, set `gateway.auth_token` for static bearer token or x-api-key access.
+Gateway auth behavior:
+
+- `GET /`, `/ui*`, `/chat.js`, `/chat.css`, `/commands`, `/health`, and `/ui-version` are unauthenticated.
+- `POST /chat` and `POST /chat/stream` require a paired token when `gateway.require_pairing = true`; otherwise they accept anonymous requests unless `gateway.auth_token` is set.
+- When `gateway.auth_token` is set, JSON chat endpoints also accept `Authorization: Bearer <token>` or `x-api-key: <token>`.
+- `GET /pair` exposes pairing status only when pairing is configured.
+- `POST /pair` exchanges a valid code for a bearer token.
+- `POST /pair/regenerate` requires existing auth and is unavailable if pairing is disabled.
+- Slack, LINE, Lark, GitHub, and WhatsApp webhook routes have their own signature/verification handling in addition to normal gateway auth decisions.
+- Unknown routes return `404 {"error":"not found"}`.
 
 ## First-Time Setup Guide
 
@@ -327,7 +440,7 @@ Tell users:
 2. `git clone <repo> clawq && cd clawq`
 3. `make bootstrap` — creates opam switch clawq-5.1, installs deps
 4. `make build` — builds the project
-5. `clawq onboard` — interactive wizard for all settings (or `clawq config wizard`)
+5. `clawq onboard` — creates initial config; in a TTY it runs onboarding, otherwise it writes a starter template. Use `clawq config wizard` later for full reconfiguration.
 6. `clawq doctor` — validate configuration
 7. `clawq agent` — start the daemon
 8. Open `http://127.0.0.1:13451/` for the web UI
@@ -335,14 +448,31 @@ Tell users:
 
 ## Troubleshooting
 
-- **Bot not responding**: check daemon is running (`clawq status`), verify token (`clawq doctor`), check allow_from/allow_users/allow_guilds includes the user or is `["*"]`
-- **No providers configured**: ensure `providers` section exists in config with a valid api_key, and `default_provider` is set
-- **LLM API errors**: verify API key validity, try a different model, check base_url matches provider
-- **Config not found**: run `clawq onboard` to create config directory and initial config
-- **Check health**: `curl http://127.0.0.1:13451/health`
-- **View config**: `clawq config show` (secrets redacted)
-- **Reset state**: `clawq reset-agent` (wipes sessions + cron + workspace) or `clawq reset-workspace` (lighter, keeps cron)
-- **Service management**: `clawq service start/stop/restart` or `clawq service signal-restart` for graceful reload
+### Self-diagnostics checklist
+
+1. Identify the path and session involved: workspace path (`clawq workspace`), session key shape (`web:...`, `telegram:...`, `__main__`, etc.), and channel.
+2. Inspect security posture: `clawq config show security` and note `workspace_only`, `sandbox_backend`, and `extra_allowed_paths`.
+3. Inspect daemon state: `clawq service status`, `clawq status`, `~/.clawq/daemon.log`, `~/.clawq/daemon_state.json`.
+4. Distinguish host-file access from shell access: file tools use direct OCaml I/O; shell uses separate execution rules and maybe a sandbox.
+5. For restart/resume issues, inspect whether the session had channel metadata and whether the response was marked sent in SQLite state.
+
+### Common runtime-specific failures
+
+- **Shell cannot access `~/src`, but file tools can**: file tools are reading the host filesystem directly; shell is using workspace cwd plus path checks and maybe Firejail/Bubblewrap. Check `workspace_only`, `extra_allowed_paths`, and sandbox backend.
+- **`cd ~/src/clawq && ...` fails**: in default `workspace_only` mode, `cd` and `&&` are not supported because execution is direct-process style and unsafe shell syntax is rejected. Use a direct allowed binary with explicit path arguments, or disable `workspace_only` if you truly need shell semantics.
+- **Shell builtin fails with `No such file or directory`**: you are likely in direct-exec mode, not `/bin/sh -c` mode.
+- **Git or tools complain about missing `/dev/null`**: inspect sandbox backend. Bubblewrap tries to bind `/dev` and `/dev/null`; if this still fails, verify host `/dev/null` exists and try `security.sandbox_backend = "none"` or `"firejail"` to isolate the backend problem.
+- **Heartbeats expected but not appearing**: confirm `heartbeat_enabled = true`, quiet hours are not suppressing the tick, `HEARTBEAT.md` exists and is non-empty, and the daemon log shows heartbeat activity. Also remember current heartbeat logic logs intended notifications instead of sending them.
+- **Service restarted but autonomous work did not resume**: only recent pending sessions with stored channel + channel_id for Telegram/Discord/Slack are resumed automatically.
+- **Behavior differs because session is not `__main__`**: heartbeat/autonomous checks use `__main__`; normal user chats use per-channel session keys and separate histories/locks.
+- **Bot not responding**: check daemon is running (`clawq status`), verify token (`clawq doctor`), check allow_from/allow_users/allow_guilds includes the user or is `["*"]`.
+- **Daemon refuses to bind non-loopback host**: if `gateway.host` is not loopback, set `gateway.auth_token` or change `gateway.host` back to `127.0.0.1`/`localhost`.
+- **No providers configured**: ensure `providers` section exists in config with a valid api_key, and `default_provider` is set.
+- **LLM API errors**: verify API key validity, try a different model, check base_url matches provider.
+- **Config not found**: run `clawq onboard` to create the initial config, or `clawq config wizard` after a config already exists.
+- **Check health**: `curl http://127.0.0.1:13451/health`.
+- **Pairing confusion in browser**: use `clawq otp-show`, then `GET /pair` to inspect pairing status if needed; `POST /pair/regenerate` requires existing auth.
+- **Reset state**: `clawq reset-agent` (wipes sessions + cron + workspace) or `clawq reset-workspace` (lighter, keeps cron).
 
 ## Docs
 

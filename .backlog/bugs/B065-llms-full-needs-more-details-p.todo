@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-08T10:42:39Z"
+claimed_by: cli-user
+completed_at: "2026-03-08T10:45:49Z"
 complexity: medium
 depends_on: []
+duration_minutes: 3.1707149778833332
 estimate_hours: 1
 id: B065
 priority: high
-status: pending
+started_at: "2026-03-08T10:42:39Z"
+status: done
 tags: []
 title: llms-full needs more details. Provided in body.
 ---

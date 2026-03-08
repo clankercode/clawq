@@ -1,10 +1,10 @@
 # Clawq
 
-> Clawq is a formally verified personal AI assistant runtime — Coq-proven core properties extracted to OCaml, with multi-channel integrations (Telegram, Discord, Slack, WhatsApp, LINE, Lark, GitHub), 19 built-in tools with sandboxed execution, MCP support, audit logging, and a streaming web UI. Config lives at `~/.clawq/config.json`. For full self-knowledge including every CLI command, config field, tool, and channel setup guide, see the full context file.
+> Clawq is a formally verified personal AI assistant runtime — Coq-proven core properties extracted to OCaml, with multi-channel integrations, sandboxed built-in tools, MCP support, audit logging, a streaming web UI, restart/resume behavior, and self-hosted gateway/channel operation from `~/.clawq/config.json`. For full self-knowledge including every CLI command, config field, tool, channel setup guide, gateway route, and troubleshooting detail, see the full context file.
 
 ## Docs
 
-- [Full self-knowledge context](https://clawq.org/llms-full.txt): Complete self-reference with every CLI command, config section and field with defaults, all 19 tools, channel setup walkthroughs, gateway endpoints, first-time setup guide, and troubleshooting
+- [Full self-knowledge context](https://clawq.org/llms-full.txt): Complete self-reference with every CLI command, config section and field with defaults, all built-in tools, channel setup walkthroughs, gateway endpoints, restart/resume behavior, first-time setup guide, and troubleshooting
 - [Quick Start](https://clawq.org/quickstart): Build from source, configure a provider, open the web UI, add a channel — 5 minutes
 - [Configuration](https://clawq.org/configuration): Full config reference — providers, channels, security, gateway, memory, resilience, MCP, tunnels
 - [CLI Reference](https://clawq.org/cli-reference): Complete command reference for all clawq commands and subcommands
