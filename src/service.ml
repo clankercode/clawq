@@ -113,7 +113,9 @@ let singleton_lock_path () = Filename.concat (clawq_dir ()) "daemon.lock"
 
 let acquire_singleton_lock () =
   ensure_dir (clawq_dir ());
-  let fd = Unix.openfile (singleton_lock_path ()) [ Unix.O_CREAT; Unix.O_RDWR ] 0o644 in
+  let fd =
+    Unix.openfile (singleton_lock_path ()) [ Unix.O_CREAT; Unix.O_RDWR ] 0o644
+  in
   try
     Unix.lockf fd Unix.F_TLOCK 0;
     Some fd
@@ -123,9 +125,9 @@ let acquire_singleton_lock () =
 
 let release_singleton_lock = function
   | None -> ()
-  | Some fd ->
+  | Some fd -> (
       (try Unix.lockf fd Unix.F_ULOCK 0 with _ -> ());
-      (try Unix.close fd with _ -> ())
+      try Unix.close fd with _ -> ())
 
 let nofork_env = "CLAWQ_DAEMON_NOFORK"
 let internal_nofork_env = "CLAWQ_DAEMON_INTERNAL_NOFORK"

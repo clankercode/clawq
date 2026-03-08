@@ -238,6 +238,48 @@ let test_shell_rejects_git_network_subcommand () =
         "git clone blocked" true
         (contains out "disallowed in workspace_only mode"))
 
+let test_shell_honors_explicit_cwd () =
+  with_temp_workspace (fun workspace ->
+      with_drift_check "shell explicit cwd" (fun () ->
+          let subdir = Filename.concat workspace "nested" in
+          Unix.mkdir subdir 0o755;
+          Fun.protect
+            (fun () ->
+              let tool =
+                Tools_builtin.shell_exec ~workspace ~workspace_only:true
+                  ~allowed_commands:[ "pwd" ] ~extra_allowed_paths:[]
+                  ~sandbox:(mk_none_sandbox ~workspace ())
+              in
+              let out =
+                Lwt_main.run
+                  (tool.invoke
+                     (`Assoc
+                        [
+                          ("command", `String "pwd"); ("cwd", `String "nested");
+                        ]))
+              in
+              Alcotest.(check bool) "success" true (contains out "exit_code: 0");
+              Alcotest.(check bool)
+                "pwd uses nested cwd" true (contains out subdir))
+            ~finally:(fun () -> Unix.rmdir subdir)))
+
+let test_shell_rejects_disallowed_cwd () =
+  with_temp_workspace (fun workspace ->
+      with_drift_check "shell disallowed cwd blocked" (fun () ->
+          let tool =
+            Tools_builtin.shell_exec ~workspace ~workspace_only:true
+              ~allowed_commands:[ "pwd" ] ~extra_allowed_paths:[]
+              ~sandbox:(mk_none_sandbox ~workspace ())
+          in
+          let out =
+            Lwt_main.run
+              (tool.invoke
+                 (`Assoc [ ("command", `String "pwd"); ("cwd", `String "/tmp") ]))
+          in
+          Alcotest.(check bool)
+            "disallowed cwd blocked" true
+            (contains out "cwd is disallowed in workspace_only mode")))
+
 let test_shell_extra_allowed_paths_grants_access () =
   let base = Filename.get_temp_dir_name () in
   let workspace =
@@ -889,6 +931,10 @@ let suite =
       test_shell_rejects_option_assigned_absolute_path;
     Alcotest.test_case "shell git network subcommand blocked" `Quick
       test_shell_rejects_git_network_subcommand;
+    Alcotest.test_case "shell honors explicit cwd" `Quick
+      test_shell_honors_explicit_cwd;
+    Alcotest.test_case "shell rejects disallowed cwd" `Quick
+      test_shell_rejects_disallowed_cwd;
     Alcotest.test_case "shell extra_allowed_paths grants access" `Quick
       test_shell_extra_allowed_paths_grants_access;
     Alcotest.test_case "file_edit first match" `Quick

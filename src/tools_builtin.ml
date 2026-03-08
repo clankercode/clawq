@@ -321,6 +321,24 @@ let is_workspace_safe_command_token token =
 let resolve_path ~workspace path =
   if Filename.is_relative path then Filename.concat workspace path else path
 
+let resolve_shell_cwd ~workspace ~workspace_only ~extra_allowed_paths cwd_arg =
+  let cwd_arg = String.trim cwd_arg in
+  if cwd_arg = "" then Error "Error: cwd must not be empty"
+  else
+    let expanded = Runtime_config.expand_home cwd_arg in
+    let resolved = resolve_path ~workspace expanded in
+    if not (Sys.file_exists resolved) then
+      Error (Printf.sprintf "Error: cwd does not exist: %s" cwd_arg)
+    else if not (Sys.is_directory resolved) then
+      Error (Printf.sprintf "Error: cwd is not a directory: %s" cwd_arg)
+    else if
+      workspace_only
+      && not
+           (is_path_within_allowed_roots ~workspace ~extra_allowed_paths
+              resolved)
+    then Error "Error: cwd is disallowed in workspace_only mode"
+    else Ok resolved
+
 let file_read_default_limit = 200
 let file_read_max_limit = 2000
 let file_read_max_full_chars = 50000
@@ -398,8 +416,8 @@ let shell_exec ~workspace ~workspace_only ~allowed_commands ~extra_allowed_paths
     ~sandbox =
   let description =
     if workspace_only then
-      "Execute a shell command from the workspace directory and return stdout \
-       and stderr"
+      "Execute a shell command from the workspace directory or an optional cwd \
+       under allowed roots, and return stdout and stderr"
     else "Execute a shell command and return stdout and stderr"
   in
   let read_channel ?on_chunk ic buf =
@@ -424,6 +442,13 @@ let shell_exec ~workspace ~workspace_only ~allowed_commands ~extra_allowed_paths
   let run_command ?context:_ ?on_output_chunk args =
     let open Yojson.Safe.Util in
     let command = try args |> member "command" |> to_string with _ -> "" in
+    let cwd_arg =
+      try
+        match args |> member "cwd" with
+        | `Null -> None
+        | json -> Some (to_string json)
+      with _ -> Some ""
+    in
     let timeout_secs =
       try
         let v = args |> member "timeout" |> to_number in
@@ -443,71 +468,85 @@ let shell_exec ~workspace ~workspace_only ~allowed_commands ~extra_allowed_paths
            (String.concat ", " allowed_commands))
     else
       let open Lwt.Syntax in
-      let env =
-        if workspace_only then
-          [|
-            ("HOME=" ^ try Sys.getenv "HOME" with Not_found -> "/tmp");
-            ("PATH=" ^ try Sys.getenv "PATH" with Not_found -> "/usr/bin:/bin");
-          |]
-        else Unix.environment ()
+      let cwd_result =
+        match cwd_arg with
+        | None -> Ok (if workspace_only then Some workspace else None)
+        | Some cwd ->
+            Result.map
+              (fun resolved -> Some resolved)
+              (resolve_shell_cwd ~workspace ~workspace_only ~extra_allowed_paths
+                 cwd)
       in
-      let cwd = if workspace_only then Some workspace else None in
-      let command = Sandbox.wrap_command sandbox command in
-      let run_proc cmd =
-        let proc = Lwt_process.open_process_full ?cwd ~env cmd in
-        let timeout = Lwt_unix.sleep timeout_secs in
-        let stdout_buf = Buffer.create 1024 in
-        let stderr_buf = Buffer.create 256 in
-        let runner =
-          let* _ =
-            Lwt.both
-              (read_channel ?on_chunk:on_output_chunk proc#stdout stdout_buf)
-              (read_channel ?on_chunk:on_output_chunk proc#stderr stderr_buf)
+      match cwd_result with
+      | Error msg -> Lwt.return msg
+      | Ok cwd ->
+          let env =
+            if workspace_only then
+              [|
+                ("HOME=" ^ try Sys.getenv "HOME" with Not_found -> "/tmp");
+                ("PATH="
+                ^ try Sys.getenv "PATH" with Not_found -> "/usr/bin:/bin");
+              |]
+            else Unix.environment ()
           in
-          let* status = proc#close in
-          let exit_code =
-            match status with
-            | Unix.WEXITED n -> n
-            | Unix.WSIGNALED n -> 128 + n
-            | Unix.WSTOPPED n -> 128 + n
+          let command = Sandbox.wrap_command sandbox command in
+          let run_proc cmd =
+            let proc = Lwt_process.open_process_full ?cwd ~env cmd in
+            let timeout = Lwt_unix.sleep timeout_secs in
+            let stdout_buf = Buffer.create 1024 in
+            let stderr_buf = Buffer.create 256 in
+            let runner =
+              let* _ =
+                Lwt.both
+                  (read_channel ?on_chunk:on_output_chunk proc#stdout stdout_buf)
+                  (read_channel ?on_chunk:on_output_chunk proc#stderr stderr_buf)
+              in
+              let* status = proc#close in
+              let exit_code =
+                match status with
+                | Unix.WEXITED n -> n
+                | Unix.WSIGNALED n -> 128 + n
+                | Unix.WSTOPPED n -> 128 + n
+              in
+              Lwt.return
+                (Printf.sprintf "exit_code: %d\nstdout:\n%s\nstderr:\n%s"
+                   exit_code
+                   (Buffer.contents stdout_buf)
+                   (Buffer.contents stderr_buf))
+            in
+            let* result =
+              Lwt.pick
+                [
+                  runner;
+                  (let* () = timeout in
+                   proc#kill Sys.sigkill;
+                   Lwt.return
+                     (Printf.sprintf
+                        "Error: command timed out after %.0f seconds"
+                        timeout_secs));
+                ]
+            in
+            Lwt.return result
           in
-          Lwt.return
-            (Printf.sprintf "exit_code: %d\nstdout:\n%s\nstderr:\n%s" exit_code
-               (Buffer.contents stdout_buf)
-               (Buffer.contents stderr_buf))
-        in
-        let* result =
-          Lwt.pick
-            [
-              runner;
-              (let* () = timeout in
-               proc#kill Sys.sigkill;
-               Lwt.return
-                 (Printf.sprintf "Error: command timed out after %.0f seconds"
-                    timeout_secs));
-            ]
-        in
-        Lwt.return result
-      in
-      if workspace_only then
-        match split_command_words command with
-        | Error msg -> Lwt.return ("Error: " ^ msg)
-        | Ok argv -> (
-            let argv = List.map expand_home_in_arg argv in
-            match argv with
-            | [] -> Lwt.return "Error: command is required"
-            | cmd :: _ when not (is_workspace_safe_command_token cmd) ->
-                Lwt.return
-                  "Error: command binary path is disallowed in workspace_only \
-                   mode"
-            | _
-              when has_workspace_unsafe_args ~workspace ~extra_allowed_paths
-                     argv ->
-                Lwt.return
-                  "Error: command contains paths/targets disallowed in \
-                   workspace_only mode"
-            | _ -> run_proc ("", Array.of_list argv))
-      else run_proc (Lwt_process.shell command)
+          if workspace_only then
+            match split_command_words command with
+            | Error msg -> Lwt.return ("Error: " ^ msg)
+            | Ok argv -> (
+                let argv = List.map expand_home_in_arg argv in
+                match argv with
+                | [] -> Lwt.return "Error: command is required"
+                | cmd :: _ when not (is_workspace_safe_command_token cmd) ->
+                    Lwt.return
+                      "Error: command binary path is disallowed in \
+                       workspace_only mode"
+                | _
+                  when has_workspace_unsafe_args ~workspace ~extra_allowed_paths
+                         argv ->
+                    Lwt.return
+                      "Error: command contains paths/targets disallowed in \
+                       workspace_only mode"
+                | _ -> run_proc ("", Array.of_list argv))
+          else run_proc (Lwt_process.shell command)
   in
   {
     Tool.name = "shell_exec";
@@ -524,6 +563,15 @@ let shell_exec ~workspace ~workspace_only ~allowed_commands ~extra_allowed_paths
                     [
                       ("type", `String "string");
                       ("description", `String "Shell command to execute");
+                    ] );
+                ( "cwd",
+                  `Assoc
+                    [
+                      ("type", `String "string");
+                      ( "description",
+                        `String
+                          "Optional working directory. Relative paths are \
+                           resolved from the workspace root." );
                     ] );
                 ( "timeout",
                   `Assoc

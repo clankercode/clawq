@@ -206,13 +206,17 @@ let test_update_tool_writes_restart_marker_from_session_context () =
   let result =
     Lwt_main.run
       ((Update_tool.tool ~is_draining:(fun () -> false) ()).Tool.invoke
-         ~context:{ Tool.session_key = Some "telegram:123:456"; send_progress = None }
+         ~context:
+           { Tool.session_key = Some "telegram:123:456"; send_progress = None }
          (`Assoc [ ("mode", `String "git") ]))
   in
-  Alcotest.(check string) "update result"
-    "Update complete. Restarting now. This session will hand off to the replacement daemon."
+  Alcotest.(check string)
+    "update result"
+    "Update complete. Restarting now. This session will hand off to the \
+     replacement daemon."
     result;
-  Alcotest.(check (option (pair string string))) "restart marker"
+  Alcotest.(check (option (pair string string)))
+    "restart marker"
     (Some ("telegram", "123"))
     (Restart_notify.read ());
   Restart_notify.remove ();
@@ -298,8 +302,8 @@ let suite =
       test_run_update_uses_binary_mode_when_repo_missing;
     Alcotest.test_case "run update binary mode requires url" `Quick
       test_run_update_binary_mode_requires_url;
-    Alcotest.test_case "update tool writes restart marker from session context" `Quick
-      test_update_tool_writes_restart_marker_from_session_context;
+    Alcotest.test_case "update tool writes restart marker from session context"
+      `Quick test_update_tool_writes_restart_marker_from_session_context;
     Alcotest.test_case "run update prepares restart before signal" `Quick
       test_run_update_prepares_restart_before_signal;
     Alcotest.test_case "run update aborts when prepare restart fails" `Quick

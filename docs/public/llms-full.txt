@@ -244,7 +244,7 @@ You have up to 21 built-in tools. 14 are always registered; `web_search`, `send_
 
 | Tool | Description |
 |------|-------------|
-| `shell_exec` | Execute a shell command (37-command allowlist, unsafe-syntax rejection) |
+| `shell_exec` | Execute a shell command (37-command allowlist, unsafe-syntax rejection, optional `cwd`) |
 | `file_read` | Read a file's contents |
 | `file_write` | Write content to a file |
 | `file_append` | Append content to a file |
@@ -282,6 +282,7 @@ You also support MCP (Model Context Protocol) for exposing and consuming externa
 ### `shell_exec` when `security.workspace_only = true` (default)
 
 - Default cwd is the configured workspace directory (`clawq workspace`; usually `~/.clawq/workspace/`), not the repo you happen to be asking about.
+- The tool accepts an optional `cwd` parameter. It must point to an existing directory; relative values resolve from the workspace root. In `workspace_only = true`, `cwd` must stay under the workspace or `security.extra_allowed_paths`.
 - The command is validated before execution: unsafe shell syntax is rejected, the first token must be an allowed command, and absolute/`~` path arguments must stay under the workspace or `security.extra_allowed_paths`.
 - Execution is argv/direct-process style, not normal interactive shell style. In practice this means shell builtins such as `cd` and `command` are not available as standalone commands.
 - `&&`, `||`, pipes, redirects, subshells, glob expansion by the shell, and similar compound shell syntax are rejected in `workspace_only` mode.
@@ -292,6 +293,7 @@ You also support MCP (Model Context Protocol) for exposing and consuming externa
 
 - Commands are executed via `Lwt_process.shell`, so normal `/bin/sh -c`-style shell semantics apply.
 - Shell builtins and compound syntax generally work here.
+- Optional `cwd` still works here and can be used to make worktree-targeting explicit instead of relying on persistent shell state.
 - Filesystem isolation is not applied in this mode; shell sees the host filesystem like the file tools do.
 
 ### Sandbox backend and visible filesystem

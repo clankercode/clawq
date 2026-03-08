@@ -132,6 +132,30 @@ let test_shell_exec_has_command_param () =
       Alcotest.(check bool) "shell_exec has command param" true has_command
   | _ -> Alcotest.fail "schema not an object"
 
+let test_shell_exec_has_cwd_param () =
+  let tool =
+    Tools_builtin.shell_exec ~workspace:"/tmp" ~workspace_only:true
+      ~allowed_commands:[ "ls" ] ~extra_allowed_paths:[]
+      ~sandbox:
+        {
+          Sandbox.backend = Sandbox.None;
+          workspace = "/tmp";
+          extra_allowed_paths = [];
+          isolate_filesystem = true;
+        }
+  in
+  let open Yojson.Safe.Util in
+  match tool.parameters_schema with
+  | `Assoc fields ->
+      let props =
+        try List.assoc "properties" fields with Not_found -> `Null
+      in
+      let has_cwd =
+        match props with `Assoc ps -> List.mem_assoc "cwd" ps | _ -> false
+      in
+      Alcotest.(check bool) "shell_exec has cwd param" true has_cwd
+  | _ -> Alcotest.fail "schema not an object"
+
 let test_file_read_has_path_param () =
   let tool =
     Tools_builtin.file_read ~workspace:"/tmp" ~workspace_only:true
@@ -337,6 +361,8 @@ let suite =
     Alcotest.test_case "file_write schema valid" `Quick test_file_write_schema;
     Alcotest.test_case "shell_exec has command param" `Quick
       test_shell_exec_has_command_param;
+    Alcotest.test_case "shell_exec has cwd param" `Quick
+      test_shell_exec_has_cwd_param;
     Alcotest.test_case "file_read has path param" `Quick
       test_file_read_has_path_param;
     Alcotest.test_case "shell_exec required fields" `Quick

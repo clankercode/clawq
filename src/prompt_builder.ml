@@ -203,7 +203,7 @@ let workspace_doc_blocks ~(config : Runtime_config.t)
   let add_file file =
     if
       safe_prompt_filename file && !budget > 0
-      && not (Hashtbl.mem seen file)
+      && (not (Hashtbl.mem seen file))
       && (not (file = "SOUL.md" && ego_exists))
       && not (is_group && List.mem file private_only_files)
     then begin

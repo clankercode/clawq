@@ -836,8 +836,9 @@ let cmd_agent ?(run_daemon = fun ~config -> Lwt_main.run (Daemon.run ~config))
   let cfg = get_config () in
   match acquire_lock () with
   | None ->
-      "Another clawq agent instance already holds the daemon lock. Refusing to start a second live agent."
-  | Some lock_fd ->
+      "Another clawq agent instance already holds the daemon lock. Refusing to \
+       start a second live agent."
+  | Some lock_fd -> (
       let result =
         try run_daemon ~config:cfg
         with Failure msg ->
@@ -851,7 +852,7 @@ let cmd_agent ?(run_daemon = fun ~config -> Lwt_main.run (Daemon.run ~config))
           "Daemon stopped."
       | Daemon.Restart ->
           execv Sys.executable_name (agent_argv ());
-          "Daemon restart requested."
+          "Daemon restart requested.")
 
 let cmd_cron args =
   match args with

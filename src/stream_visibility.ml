@@ -102,6 +102,14 @@ let summarize_file_edit_lines fields =
 
 let summarize_tool_assoc ~name fields =
   match name with
+  | "shell_exec" ->
+      Option.bind (get_string_field fields "command") (fun command ->
+          let cwd =
+            match get_string_field fields "cwd" with
+            | Some cwd -> "in " ^ cwd
+            | None -> ""
+          in
+          Some (join_summary_parts [ shorten_for_summary command; cwd ]))
   | "file_edit" -> summarize_file_edit fields
   | "file_edit_lines" -> summarize_file_edit_lines fields
   | "file_write" ->

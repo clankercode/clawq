@@ -277,7 +277,8 @@ let test_cmd_agent_refuses_second_live_instance () =
   in
   Alcotest.(check string)
     "refuses duplicate instance"
-    "Another clawq agent instance already holds the daemon lock. Refusing to start a second live agent."
+    "Another clawq agent instance already holds the daemon lock. Refusing to \
+     start a second live agent."
     result;
   Alcotest.(check bool) "daemon not run" false !ran;
   Alcotest.(check bool) "no lock release needed" false !released

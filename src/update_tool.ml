@@ -250,16 +250,16 @@ let tool ~is_draining ?claim_update ?finish_update () =
     let prepare_restart =
       match context with
       | Some { Tool.session_key = Some key; _ } ->
-          (fun () ->
+          fun () ->
             (match Restart_notify.parse_channel_from_key key with
             | Some (channel, channel_id) ->
                 Restart_notify.write ~channel ~channel_id
             | None -> ());
-            Lwt.return (Ok ()))
+            Lwt.return (Ok ())
       | _ -> fun () -> Lwt.return (Ok ())
     in
-    run_update ?claim_update ?finish_update ~mode ~is_draining
-      ~prepare_restart ~send_progress ()
+    run_update ?claim_update ?finish_update ~mode ~is_draining ~prepare_restart
+      ~send_progress ()
   in
   {
     Tool.name = "update_clawq";
