@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-08T06:11:31Z"
+claimed_by: cli-user
+completed_at: "2026-03-08T06:29:26Z"
 complexity: medium
 depends_on: []
+duration_minutes: 17.921198467083332
 estimate_hours: 1
 id: B043
 priority: high
-status: pending
+started_at: "2026-03-08T06:11:31Z"
+status: done
 tags: []
 title: 'lots of info logs from telegram -- pissble logic error? Interacting over telegram seems slower than before. Logs like: [17:09:25.968] [INFO]POST https://api.telegram.org/bot--r--/sendChatAction'
 ---

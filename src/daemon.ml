@@ -236,7 +236,52 @@ let run ~(config : Runtime_config.t) =
         m
           "Gateway running without require_pairing or auth_token; suitable \
            only for local development on loopback");
-  Logs.set_reporter (Logs_fmt.reporter ~pp_header:pp_header_with_ts ());
+  (* cohttp/client.ml logs every outgoing HTTP request at Info level via
+     Logs.info with no explicit source, which lands at the default
+     "application" Logs source.  We intercept those by rendering to a side
+     buffer first; if the content starts with an HTTP method we drop it.
+     Both branches always call k () so the return type stays polymorphic.
+     Named cohttp sources only log at Debug, already silenced by the global
+     Info level, but we set their level explicitly below for safety. *)
+  let check_buf = Buffer.create 128 in
+  let check_ppf = Format.formatter_of_buffer check_buf in
+  let starts_with_http_method s =
+    let n = String.length s in
+    (n >= 4 && String.sub s 0 4 = "GET ")
+    || (n >= 5 && String.sub s 0 5 = "POST ")
+    || (n >= 4 && String.sub s 0 4 = "PUT ")
+    || (n >= 7 && String.sub s 0 7 = "DELETE ")
+    || (n >= 5 && String.sub s 0 5 = "HEAD ")
+    || (n >= 6 && String.sub s 0 6 = "PATCH ")
+  in
+  let base_reporter = Logs_fmt.reporter ~pp_header:pp_header_with_ts () in
+  let report src level ~over k msgf =
+    if Logs.Src.name src = "application" && level = Logs.Info then
+      (* Render to check buffer to peek at message content. *)
+      msgf (fun ?header ?tags:_ fmt ->
+          Format.pp_print_flush check_ppf ();
+          Buffer.clear check_buf;
+          Format.kfprintf
+            (fun ppf ->
+              Format.pp_print_flush ppf ();
+              let s = Buffer.contents check_buf in
+              if starts_with_http_method s then (
+                over ();
+                k ())
+              else begin
+                (* Not an HTTP request log; re-emit via stderr with header. *)
+                let dst = Format.err_formatter in
+                pp_header_with_ts dst (level, header);
+                Format.pp_print_string dst s;
+                Format.pp_print_newline dst ();
+                over ();
+                k ()
+              end)
+            check_ppf fmt)
+    else base_reporter.Logs.report src level ~over k msgf
+  in
+  let reporter = { Logs.report } in
+  Logs.set_reporter reporter;
   Logs.set_level (Some Logs.Info);
   List.iter
     (fun src ->
