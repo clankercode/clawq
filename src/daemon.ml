@@ -1321,6 +1321,9 @@ let run ~(config : Runtime_config.t) =
                                  tick")
                       | Some response ->
                           let trimmed = String.trim response in
+                          Lwt_main.run
+                            (Session.process_autonomous_turn_result
+                               session_manager ~key ~response:trimmed);
                           if trimmed = "HEARTBEAT_OK" then
                             Logs.info (fun m ->
                                 m

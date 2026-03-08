@@ -15,6 +15,11 @@ type queued_message = {
   channel_id : string option;
 }
 
+type continuation_state = {
+  mutable cancel : unit Lwt.u option;
+  mutable disarmed : bool;
+}
+
 type t = {
   mutable config : Runtime_config.t;
   sessions : (string, Agent.t * Lwt_mutex.t * string option ref) Hashtbl.t;
@@ -28,6 +33,7 @@ type t = {
   channel_notifiers : (string, string -> unit Lwt.t) Hashtbl.t;
   deferred_responses : (string, unit) Hashtbl.t;
   queued_messages : (string, queued_message list) Hashtbl.t;
+  continuation_checks : (string, continuation_state) Hashtbl.t;
   mutable special_command_handler : special_command_handler option;
 }
 
@@ -35,6 +41,43 @@ let queued_message_response = "__clawq_message_queued__"
 
 let draining_message =
   "Daemon is restarting, please wait a moment and try again."
+
+let autonomous_stay_idle_message = "STAY_IDLE"
+
+let autonomous_continuation_prompt =
+  "Autonomous session check-in: continue working if more remains; otherwise reply exactly "
+  ^ autonomous_stay_idle_message
+
+let default_autonomous_continuation_delay = 90.0
+
+let continuation_state mgr ~key =
+  match Hashtbl.find_opt mgr.continuation_checks key with
+  | Some state -> state
+  | None ->
+      let state = { cancel = None; disarmed = false } in
+      Hashtbl.replace mgr.continuation_checks key state;
+      state
+
+let clear_pending_continuation state =
+  match state.cancel with
+  | Some cancel ->
+      Lwt.wakeup_later cancel ();
+      state.cancel <- None
+  | None -> ()
+
+let with_continuation_state mgr ~key f =
+  Lwt_mutex.with_lock mgr.sessions_lock (fun () -> f (continuation_state mgr ~key))
+
+let cancel_autonomous_continuation mgr ~key =
+  with_continuation_state mgr ~key (fun state ->
+      clear_pending_continuation state;
+      Lwt.return_unit)
+
+let mark_autonomous_activity_started mgr ~key =
+  with_continuation_state mgr ~key (fun state ->
+      state.disarmed <- false;
+      clear_pending_continuation state;
+      Lwt.return_unit)
 
 let create ~config ?tool_registry ?sandbox ?(landlock_enabled = false) ?db () =
   {
@@ -50,6 +93,7 @@ let create ~config ?tool_registry ?sandbox ?(landlock_enabled = false) ?db () =
     channel_notifiers = Hashtbl.create 16;
     deferred_responses = Hashtbl.create 16;
     queued_messages = Hashtbl.create 16;
+    continuation_checks = Hashtbl.create 16;
     special_command_handler = None;
   }
 
@@ -667,9 +711,10 @@ let rec drain_queued_messages mgr ~key agent interrupt =
       Lwt.return_unit
   | None, _ -> Lwt.return_unit
 
-let turn mgr ~key ~message ?(attachments = []) ?channel_name ?channel_type
+let rec turn mgr ~key ~message ?(attachments = []) ?channel_name ?channel_type
     ?sender_id ?sender_name ?channel ?channel_id () =
   let open Lwt.Syntax in
+  let* () = mark_autonomous_activity_started mgr ~key in
   let* message = normalize_incoming_message mgr ~key ~message in
   let* handled =
     handle_special_command mgr ~key ~message
@@ -721,6 +766,7 @@ let update_config mgr config =
 let turn_stream mgr ~key ~message ?(attachments = []) ?channel_name
     ?channel_type ?sender_id ?sender_name ?channel ?channel_id ~on_chunk () =
   let open Lwt.Syntax in
+  let* () = mark_autonomous_activity_started mgr ~key in
   let* message = normalize_incoming_message mgr ~key ~message in
   let send_progress text = on_chunk (Provider.Delta (text ^ "\n")) in
   let* handled = handle_special_command mgr ~key ~message ~send_progress () in
@@ -865,6 +911,7 @@ let reset mgr ~key =
             | None -> ());
             Hashtbl.remove mgr.deferred_responses key;
             Hashtbl.remove mgr.queued_messages key;
+            Hashtbl.remove mgr.continuation_checks key;
             unregister_channel_notifier mgr ~key;
             Hashtbl.remove mgr.sessions key;
             Lwt.return (Some mutex)
@@ -874,6 +921,7 @@ let reset mgr ~key =
             | None -> ());
             Hashtbl.remove mgr.deferred_responses key;
             Hashtbl.remove mgr.queued_messages key;
+            Hashtbl.remove mgr.continuation_checks key;
             unregister_channel_notifier mgr ~key;
             Lwt.return None)
   in
@@ -892,3 +940,60 @@ let compact mgr ~key =
         Lwt.return true
       end
       else Lwt.return false)
+
+let rec schedule_autonomous_continuation ?(delay = default_autonomous_continuation_delay)
+    mgr ~key =
+  let open Lwt.Syntax in
+  let* should_schedule, cancel_waiter =
+    with_continuation_state mgr ~key (fun state ->
+        if state.disarmed then Lwt.return (false, None)
+        else begin
+          clear_pending_continuation state;
+          let cancel_waiter, cancel = Lwt.wait () in
+          state.cancel <- Some cancel;
+          Lwt.return (true, Some cancel_waiter)
+        end)
+  in
+  match (should_schedule, cancel_waiter) with
+  | false, _ | _, None -> Lwt.return_unit
+  | true, Some cancel_waiter ->
+      let* cancelled =
+        Lwt.pick
+          [
+            (let* () = Lwt_unix.sleep delay in Lwt.return_false);
+            (let* () = cancel_waiter in Lwt.return_true);
+          ]
+      in
+      if cancelled then Lwt.return_unit
+      else
+        let* response =
+          Lwt.catch
+            (fun () -> turn mgr ~key ~message:autonomous_continuation_prompt ())
+            (fun exn ->
+              Logs.warn (fun m ->
+                  m "Autonomous continuation prompt failed for %s: %s" key
+                    (Printexc.to_string exn));
+              Lwt.return "")
+        in
+        let trimmed = String.trim response in
+        if trimmed = queued_message_response then Lwt.return_unit
+        else if trimmed = autonomous_stay_idle_message then
+          with_continuation_state mgr ~key (fun state ->
+              state.disarmed <- true;
+              state.cancel <- None;
+              Lwt.return_unit)
+        else begin
+          let* () = cancel_autonomous_continuation mgr ~key in
+          schedule_autonomous_continuation ~delay mgr ~key
+        end
+
+let process_autonomous_turn_result ?(delay = default_autonomous_continuation_delay)
+    mgr ~key ~response =
+  let trimmed = String.trim response in
+  if trimmed = "" || trimmed = "HEARTBEAT_OK" then Lwt.return_unit
+  else if trimmed = autonomous_stay_idle_message then
+    with_continuation_state mgr ~key (fun state ->
+        state.disarmed <- true;
+        clear_pending_continuation state;
+        Lwt.return_unit)
+  else schedule_autonomous_continuation ~delay mgr ~key
