@@ -133,8 +133,19 @@ let dispatch_resumed_message ?(senders = default_resume_senders)
   | _ -> Lwt.return (Error (Printf.sprintf "unsupported channel %s" channel))
 
 let refresh_runtime_bound_tools ~(config : Runtime_config.t) registry =
-  Tool_registry.replace registry (Tools_builtin.web_search ~config);
-  Logs.info (fun m -> m "Refreshed runtime-bound tool: web_search")
+  let refresh_optional name ~configured make_tool =
+    if configured then Tool_registry.replace registry (make_tool ())
+    else Tool_registry.remove registry name
+  in
+  refresh_optional "web_search" ~configured:(config.web_search <> None)
+    (fun () -> Tools_builtin.web_search ~config);
+  refresh_optional "transcribe" ~configured:(config.stt <> None) (fun () ->
+      Tools_builtin.transcribe ~config);
+  let workspace = Runtime_config.effective_workspace config in
+  Tool_registry.replace registry
+    (Tools_builtin.doc_write ~workspace
+       ~workspace_files:config.prompt.workspace_files);
+  Logs.info (fun m -> m "Refreshed runtime-bound tools")
 
 let default_resume_turn ~(session_manager : Session.t) ~session_key agent
     interrupt =

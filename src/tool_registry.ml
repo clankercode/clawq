@@ -7,6 +7,10 @@ let replace registry tool =
   registry.tools <-
     tool :: List.filter (fun (t : Tool.t) -> t.name <> tool.name) registry.tools
 
+let remove registry name =
+  registry.tools <-
+    List.filter (fun (t : Tool.t) -> t.name <> name) registry.tools
+
 let find registry name =
   List.find_opt (fun (t : Tool.t) -> t.name = name) registry.tools
 

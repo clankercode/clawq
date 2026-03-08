@@ -571,6 +571,59 @@ let test_web_search_reads_live_config_after_registry_refresh () =
     "replaced tool no longer uses missing-config closure" true
     (not (String.equal out2 out1))
 
+let test_registry_remove_drops_tool () =
+  let registry = Tool_registry.create () in
+  let base = Runtime_config.default in
+  let configured =
+    {
+      base with
+      web_search =
+        Some
+          {
+            Runtime_config.search_provider = "brave";
+            search_api_key = "k";
+            num_results = 5;
+            search_base_url = None;
+          };
+    }
+  in
+  Tool_registry.register registry (Tools_builtin.web_search ~config:configured);
+  Alcotest.(check bool)
+    "tool present before remove" true
+    (Tool_registry.find registry "web_search" <> None);
+  Tool_registry.remove registry "web_search";
+  Alcotest.(check bool)
+    "tool absent after remove" true
+    (Tool_registry.find registry "web_search" = None)
+
+let test_refresh_replaces_config_bound_tools () =
+  let base = Runtime_config.default in
+  let registry = Tool_registry.create () in
+  let cfg1 = { base with stt = None } in
+  Tool_registry.register registry (Tools_builtin.transcribe ~config:cfg1);
+  let t1 = Option.get (Tool_registry.find registry "transcribe") in
+  let cfg2 =
+    {
+      base with
+      stt =
+        Some
+          {
+            Runtime_config.provider = "openai";
+            model = "whisper-1";
+            language = None;
+          };
+    }
+  in
+  Tool_registry.replace registry (Tools_builtin.transcribe ~config:cfg2);
+  let t2 = Option.get (Tool_registry.find registry "transcribe") in
+  Alcotest.(check bool) "replace swaps to new tool instance" true (t1 != t2);
+  Alcotest.(check int)
+    "registry has exactly one transcribe" 1
+    (List.length
+       (List.filter
+          (fun (t : Tool.t) -> t.name = "transcribe")
+          (Tool_registry.list registry)))
+
 let suite =
   [
     Alcotest.test_case "normalize absolute" `Quick test_normalize_absolute;
@@ -607,6 +660,10 @@ let suite =
       test_command_default_allowlist_includes_basics;
     Alcotest.test_case "web_search reads live config after registry refresh"
       `Quick test_web_search_reads_live_config_after_registry_refresh;
+    Alcotest.test_case "registry remove drops tool" `Quick
+      test_registry_remove_drops_tool;
+    Alcotest.test_case "refresh replaces config-bound tools" `Quick
+      test_refresh_replaces_config_bound_tools;
     Alcotest.test_case "safe command no special chars" `Quick
       test_safe_command_no_special;
     Alcotest.test_case "unsafe semicolon" `Quick test_unsafe_semicolon;

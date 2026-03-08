@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-08T15:35:30Z"
+claimed_by: cli-user
+completed_at: "2026-03-08T15:35:30Z"
 complexity: medium
 depends_on: []
+duration_minutes: 0.006195108766666666
 estimate_hours: 1
 id: B096
 priority: high
-status: pending
+started_at: "2026-03-08T15:35:30Z"
+status: done
 tags: []
 title: Generalize config-reload refresh for runtime-bound tools beyond web_search. Current B080 fix refreshes web_search specifically; audit all tools that capture runtime config at registration time (and possibly MCP/runtime wiring) and introduce a cleaner rebind/re-register mechanism on daemon reload rather than ad hoc per-tool refreshes.
 ---
