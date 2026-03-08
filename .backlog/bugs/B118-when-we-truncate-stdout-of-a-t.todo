@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B118
+priority: high
+status: pending
+tags: []
+title: when we truncate stdout of a tool call, we should also save that stdout to a tmp file somewhere that the agent can read if it needs to.
+---
+
+when we truncate stdout of a tool call, we should also save that stdout to a tmp file somewhere that the agent can read if it needs to.

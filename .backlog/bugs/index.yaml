@@ -116,3 +116,4 @@ bugs:
     - file: B115-when-in-a-telegram-or-other-ch.todo
     - file: B116-invalid-tool-call-ids-after-co.todo
     - file: B117-at-some-stage-recently-we-star.todo
+    - file: B118-when-we-truncate-stdout-of-a-t.todo
