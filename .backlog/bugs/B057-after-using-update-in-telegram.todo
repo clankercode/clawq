@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B057
+priority: high
+status: pending
+tags: []
+title: After using /update in telegram, clawq automatically restarts itself (running /update) every time it loads. This unfortunately kills the process and thus we enter a reboot loop (well it doesn't automatically start again, but does require me starting it again)
+---
+
+After using /update in telegram, clawq automatically restarts itself (running /update) every time it loads. This unfortunately kills the process and thus we enter a reboot loop (well it doesn't automatically start again, but does require me starting it again)
