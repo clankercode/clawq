@@ -11,21 +11,39 @@ Open Scope string_scope.
    of the chain regardless of which hash function is used.
    ================================================================ *)
 
-(* Abstract cryptographic primitives *)
-Parameter hash : string -> string.           (* SHA-256 of a string *)
-Parameter hmac : string -> string -> string. (* HMAC-SHA-256: key -> payload -> digest *)
+Module Type CRYPTO.
+  Parameter hash : string -> string. (* SHA-256 of a string *)
+  Parameter hmac : string -> string -> string.
+  (* HMAC-SHA-256: key -> payload -> digest *)
+  Parameter encode_signed_field : string -> string.
+End CRYPTO.
+
+Module Make (Crypto : CRYPTO).
+
+Definition hash := Crypto.hash.
+Definition hmac := Crypto.hmac.
+Definition encode_signed_field := Crypto.encode_signed_field.
 
 (* ----------------------------------------------------------------
    Data model
    ---------------------------------------------------------------- *)
 
 Record audit_entry := {
-  ae_timestamp  : string;
-  ae_event_type : string;
-  ae_details    : string;
-  ae_signature  : string;
-  ae_prev_hash  : string
+  ae_timestamp   : string;
+  ae_event_type  : string;
+  ae_session_key : option string;
+  ae_details     : string;
+  ae_tool_name   : option string;
+  ae_risk_level  : option string;
+  ae_signature   : string;
+  ae_prev_hash   : string
 }.
+
+Definition field_text (value : option string) : string :=
+  match value with
+  | Some s => s
+  | None => ""
+  end.
 
 (* ----------------------------------------------------------------
    Pure chain computation (extractable)
@@ -38,19 +56,36 @@ Definition compute_prev_hash (last_sig : option string) : string :=
   end.
 
 Definition compute_signature
-    (key prev_hash timestamp event_type details : string) : string :=
-  hmac key (prev_hash ++ timestamp ++ event_type ++ details).
+    (key prev_hash timestamp event_type : string)
+    (session_key : option string)
+    (details : string)
+    (tool_name risk_level : option string) : string :=
+  hmac key
+    (encode_signed_field prev_hash ++ "|"
+     ++ encode_signed_field timestamp ++ "|"
+     ++ encode_signed_field event_type ++ "|"
+     ++ encode_signed_field (field_text session_key) ++ "|"
+     ++ encode_signed_field details ++ "|"
+     ++ encode_signed_field (field_text tool_name) ++ "|"
+     ++ encode_signed_field (field_text risk_level)).
 
 (* Construct a correctly-signed entry *)
 Definition make_entry
     (key : string) (prev_sig : option string)
-    (ts et det : string) : audit_entry :=
+    (ts et : string)
+    (session_key : option string)
+    (det : string)
+    (tool_name risk_level : option string) : audit_entry :=
   let ph := compute_prev_hash prev_sig in
-  {| ae_timestamp  := ts;
-     ae_event_type := et;
-     ae_details    := det;
-     ae_signature  := compute_signature key ph ts et det;
-     ae_prev_hash  := ph |}.
+  {| ae_timestamp   := ts;
+     ae_event_type  := et;
+     ae_session_key := session_key;
+     ae_details     := det;
+     ae_tool_name   := tool_name;
+     ae_risk_level  := risk_level;
+     ae_signature   :=
+       compute_signature key ph ts et session_key det tool_name risk_level;
+     ae_prev_hash   := ph |}.
 
 (* ----------------------------------------------------------------
    Chain verification (extractable)
@@ -61,8 +96,10 @@ Definition verify_link
     (key : string) (prev_sig : option string) (entry : audit_entry) : bool :=
   String.eqb (ae_prev_hash entry) (compute_prev_hash prev_sig)
   && String.eqb (ae_signature entry)
-       (compute_signature key (ae_prev_hash entry)
-          (ae_timestamp entry) (ae_event_type entry) (ae_details entry)).
+    (compute_signature key (ae_prev_hash entry)
+      (ae_timestamp entry) (ae_event_type entry)
+      (ae_session_key entry) (ae_details entry)
+      (ae_tool_name entry) (ae_risk_level entry)).
 
 (* Verify a sequence of entries forms a valid chain *)
 Fixpoint verify_chain
@@ -91,10 +128,11 @@ Theorem verify_chain_empty : forall key prev_sig,
 Proof. reflexivity. Qed.
 
 (* P2: A correctly-constructed entry passes verify_link *)
-Theorem verify_link_make_entry : forall key prev_sig ts et det,
-  verify_link key prev_sig (make_entry key prev_sig ts et det) = true.
+Theorem verify_link_make_entry : forall key prev_sig ts et session_key det tool_name risk_level,
+  verify_link key prev_sig
+    (make_entry key prev_sig ts et session_key det tool_name risk_level) = true.
 Proof.
-  intros key prev_sig ts et det.
+  intros key prev_sig ts et session_key det tool_name risk_level.
   unfold verify_link, make_entry. simpl.
   rewrite String.eqb_refl. simpl.
   rewrite String.eqb_refl. reflexivity.
@@ -119,13 +157,28 @@ Proof.
 Qed.
 
 (* P4: A chain built entirely from make_entry is always valid *)
+Record audit_payload := {
+  ap_timestamp : string;
+  ap_event_type : string;
+  ap_session_key : option string;
+  ap_details : string;
+  ap_tool_name : option string;
+  ap_risk_level : option string
+}.
+
 Fixpoint build_chain
     (key : string) (prev_sig : option string)
-    (payloads : list (string * string * string)) : list audit_entry :=
+    (payloads : list audit_payload) : list audit_entry :=
   match payloads with
   | [] => []
-  | (ts, et, det) :: rest =>
-    let e := make_entry key prev_sig ts et det in
+  | payload :: rest =>
+    let e := make_entry key prev_sig
+      (ap_timestamp payload)
+      (ap_event_type payload)
+      (ap_session_key payload)
+      (ap_details payload)
+      (ap_tool_name payload)
+      (ap_risk_level payload) in
     e :: build_chain key (Some (ae_signature e)) rest
   end.
 
@@ -134,11 +187,16 @@ Theorem verify_chain_build : forall key prev_sig payloads,
 Proof.
   intros key prev_sig payloads.
   generalize dependent prev_sig.
-  induction payloads as [| [[ts et] det] rest IH]; intro prev_sig.
+  induction payloads as [| payload rest IH]; intro prev_sig.
   - reflexivity.
   - simpl.
+    destruct payload as [ts et session_key det tool_name risk_level].
     rewrite verify_link_make_entry. simpl.
-    exact (IH (Some (ae_signature (make_entry key prev_sig ts et det)))).
+    exact
+      (IH
+         (Some
+            (ae_signature
+               (make_entry key prev_sig ts et session_key det tool_name risk_level)))).
 Qed.
 
 (* P5: A valid single-entry chain satisfies verify_link *)
@@ -173,3 +231,13 @@ Proof.
   - reflexivity.
   - simpl. exact (IH (Some (ae_signature h)) ys).
 Qed.
+
+End Make.
+
+Module AbstractCrypto <: CRYPTO.
+  Parameter hash : string -> string.
+  Parameter hmac : string -> string -> string.
+  Parameter encode_signed_field : string -> string.
+End AbstractCrypto.
+
+Include Make(AbstractCrypto).

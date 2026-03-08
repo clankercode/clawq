@@ -93,12 +93,52 @@ let test_independent_keys () =
       Alcotest.(check bool) "b still allowed" true ok;
       Lwt.return_unit)
 
+let test_refill_tokens_bounded () =
+  let lim = Rate_limiter.create ~rate_per_minute:60 ~burst_multiplier:1.0 in
+  let entry =
+    Rate_limiter.
+      {
+        tokens = lim.max_tokens -. 0.25;
+        last_refill = Rate_limiter.now () -. 120.0;
+      }
+  in
+  Rate_limiter.refill lim entry;
+  Alcotest.(check bool)
+    "refill keeps tokens bounded" true
+    (entry.tokens <= lim.max_tokens +. 1e-9)
+
+let test_consume_decreases_tokens_by_one () =
+  run_lwt (fun () ->
+      let open Lwt.Syntax in
+      let lim =
+        Rate_limiter.
+          {
+            buckets = Hashtbl.create 1;
+            mutex = Lwt_mutex.create ();
+            rate_per_minute = 0.0;
+            max_tokens = 2.0;
+          }
+      in
+      let entry =
+        Rate_limiter.{ tokens = 2.0; last_refill = Rate_limiter.now () }
+      in
+      Hashtbl.replace lim.buckets "theorem" entry;
+      let before = entry.tokens in
+      let* ok = Rate_limiter.check_and_consume lim ~key:"theorem" in
+      Alcotest.(check bool) "consume allowed" true ok;
+      Alcotest.(check (float 0.0))
+        "consume decreases by exactly one" 1.0 (before -. entry.tokens);
+      Lwt.return_unit)
+
 let suite =
   [
     Alcotest.test_case "within limit" `Quick test_within_limit;
     Alcotest.test_case "over limit" `Quick test_over_limit;
     Alcotest.test_case "refill" `Quick test_refill;
+    Alcotest.test_case "refill tokens bounded" `Quick test_refill_tokens_bounded;
     Alcotest.test_case "burst" `Quick test_burst;
     Alcotest.test_case "cleanup" `Quick test_cleanup;
     Alcotest.test_case "independent keys" `Quick test_independent_keys;
+    Alcotest.test_case "consume decreases tokens by one" `Quick
+      test_consume_decreases_tokens_by_one;
   ]

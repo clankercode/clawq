@@ -8,6 +8,8 @@ Require Import Clawq.PathSafety.
 Require Import Clawq.QuoteParsing.
 Require Import Clawq.ShellSafety.
 Require Import Clawq.ChannelAuth.
+Require Import Clawq.AuditChain.
+Require Import Clawq.AuditChainConcrete.
 
 Extraction Language OCaml.
 
@@ -80,6 +82,12 @@ Extract Constant valid_port => "fun n -> 1 <= n && n <= 65535".
 Extract Constant valid_temperature => "fun t -> t <= 200".
 Extract Constant valid_weights =>
   "fun m -> m.memory_vector_weight + m.memory_keyword_weight = 100".
+Extract Constant Clawq.AuditChainConcrete.ConcreteCrypto.hash =>
+  "fun s -> Digestif.SHA256.(digest_string s |> to_hex)".
+Extract Constant Clawq.AuditChainConcrete.ConcreteCrypto.hmac =>
+  "fun key payload -> Digestif.SHA256.(hmac_string ~key payload |> to_hex)".
+Extract Constant Clawq.AuditChainConcrete.ConcreteCrypto.encode_signed_field =>
+  "fun value -> Printf.sprintf ""%d:%s"" (String.length value) value".
 Extraction "src/extracted/clawq_core.ml"
   (* CLI *)
   Clawq.Cli.parse_command
@@ -102,4 +110,7 @@ Extraction "src/extracted/clawq_core.ml"
   Clawq.QuoteParsing.is_shell_safe
   Clawq.ShellSafety.is_allowed
   (* Channel auth (F8) *)
-  Clawq.ChannelAuth.is_allowed.
+  Clawq.ChannelAuth.is_allowed
+  (* Audit chain (F3 concrete extracted path) *)
+  Clawq.AuditChainConcrete.make_entry
+  Clawq.AuditChainConcrete.verify_chain.

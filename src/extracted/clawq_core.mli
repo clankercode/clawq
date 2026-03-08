@@ -129,3 +129,40 @@ val split_words : string -> string list option
 val is_allowed : string -> string list -> bool
 
 val is_allowed0 : string -> string list -> bool
+
+module ConcreteCrypto :
+ sig
+  val hash : string -> string
+
+  val hmac : string -> string -> string
+
+  val encode_signed_field : string -> string
+ end
+
+val hash0 : string -> string
+
+val hmac0 : string -> string -> string
+
+val encode_signed_field0 : string -> string
+
+type audit_entry = { ae_timestamp : string; ae_event_type : string;
+                     ae_session_key : string option; ae_details : string;
+                     ae_tool_name : string option;
+                     ae_risk_level : string option; ae_signature : string;
+                     ae_prev_hash : string }
+
+val field_text : string option -> string
+
+val compute_prev_hash : string option -> string
+
+val compute_signature :
+  string -> string -> string -> string -> string option -> string -> string
+  option -> string option -> string
+
+val make_entry :
+  string -> string option -> string -> string -> string option -> string ->
+  string option -> string option -> audit_entry
+
+val verify_link : string -> string option -> audit_entry -> bool
+
+val verify_chain : string -> string option -> audit_entry list -> bool

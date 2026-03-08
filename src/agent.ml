@@ -60,6 +60,15 @@ let effective_max_messages agent =
   let m = agent.config.memory.max_messages_per_session in
   if m <= 0 then 500 else min m 500
 
+let assert_history_bound ~where agent =
+  let len = List.length agent.history in
+  let max_messages = effective_max_messages agent in
+  if len > max_messages then
+    invalid_arg
+      (Printf.sprintf
+         "AgentLoop invariant violated at %s: history length %d exceeds max %d"
+         where len max_messages)
+
 let runtime_context_usage agent ~compacted_before_turn =
   let context_window_tokens = context_window_for_agent agent in
   {
@@ -91,7 +100,8 @@ let trim_history agent =
   let effective_max = effective_max_messages agent in
   let len = List.length agent.history in
   if len > effective_max then
-    agent.history <- List.filteri (fun i _ -> i < effective_max) agent.history
+    agent.history <- List.filteri (fun i _ -> i < effective_max) agent.history;
+  assert_history_bound ~where:"trim_history" agent
 
 (* Emergency context-exhaustion recovery: drop all but the last
    force_compress_keep messages (no LLM call possible at this point).
@@ -116,9 +126,13 @@ let force_compress_history agent =
         recent
     in
     agent.history <- bounded_recent;
+    assert_history_bound ~where:"force_compress_history" agent;
     true
   end
-  else false
+  else begin
+    assert_history_bound ~where:"force_compress_history_noop" agent;
+    false
+  end
 
 let string_contains_ci s sub =
   let sl = String.lowercase_ascii s in
@@ -590,7 +604,9 @@ let prepare_turn_history agent ~user_message ?db () =
   in
   agent.history <-
     Provider.make_message ~role:"user" ~content:user_message :: agent.history;
-  compact_history_if_needed agent
+  let* compacted = compact_history_if_needed agent in
+  trim_history agent;
+  Lwt.return compacted
 
 let turn agent ~user_message ?db ?session_key ?interrupt_check ?runtime_context
     ?(history_prepared = false) () =

@@ -186,7 +186,7 @@
   title: "Landlock Sandbox Policy"
   status: "verified"
   theorems: 12
-  note: "3 bitwise arithmetic lemmas admitted (minimal_permission_valid, minimal_permission_nonzero, read_lt_rw)"
+  note: "All Landlock bitwise arithmetic lemmas are fully proved; no admitted lemmas remain in this module."
   extracted: false
   security_roi: "medium"
   difficulty: "high"

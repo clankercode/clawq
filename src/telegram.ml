@@ -254,7 +254,17 @@ let set_my_commands ~bot_token =
   Lwt.return_unit
 
 let is_allowed ~(account : Runtime_config.telegram_account) ~chat_id =
-  match account.allow_from with [ "*" ] -> true | ids -> List.mem chat_id ids
+  let coq_allowed = Clawq_core.is_allowed0 chat_id account.allow_from in
+  let ocaml_allowed =
+    match account.allow_from with
+    | [ "*" ] -> true
+    | ids -> List.mem chat_id ids
+  in
+  if coq_allowed <> ocaml_allowed then
+    Logs.warn (fun m ->
+        m "Telegram allowlist drift for chat_id=%s: Coq=%b OCaml=%b" chat_id
+          coq_allowed ocaml_allowed);
+  coq_allowed
 
 (* TOTP pairing state: chat_id -> expiry timestamp *)
 let _paired_sessions : (string, float) Hashtbl.t = Hashtbl.create 16

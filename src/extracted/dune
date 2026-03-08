@@ -2,5 +2,6 @@
  (name clawq_extracted)
  (modules clawq_core)
  (wrapped false)
+ (libraries digestif.c)
  (flags
   (:standard -w -39)))

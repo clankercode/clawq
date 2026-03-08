@@ -1,11 +1,16 @@
 ---
+claimed_at: "2026-03-08T13:01:44Z"
+claimed_by: cli-user
+completed_at: "2026-03-08T13:01:44Z"
 complexity: medium
 depends_on:
     - P6.M2.E1.T001
+duration_minutes: 0.0053355453833333335
 estimate_hours: 2
 id: P6.M2.E1.T002
 priority: high
-status: pending
+started_at: "2026-03-08T13:01:44Z"
+status: done
 tags: []
 title: Extract instantiated verify_chain and make_entry to OCaml
 ---

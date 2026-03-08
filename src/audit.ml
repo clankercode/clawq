@@ -284,13 +284,50 @@ let compute_signature ~key ~prev_hash ~timestamp ~event_type ~session_key
 let legacy_signature_eligible ~session_key ~tool_name ~risk_level =
   session_key = None && tool_name = None && risk_level = None
 
+let project_current_entry ~timestamp ~event_type ~session_key ~details_str
+    ~tool_name ~risk_level ~signature ~prev_hash =
+  {
+    Clawq_core.ae_timestamp = timestamp;
+    ae_event_type = event_type;
+    ae_session_key = session_key;
+    ae_details = details_str;
+    ae_tool_name = tool_name;
+    ae_risk_level = risk_level;
+    ae_signature = signature;
+    ae_prev_hash = prev_hash;
+  }
+
+let locate_current_segment_failure ~key ~seed segment =
+  let rec loop prev_sig = function
+    | [] ->
+        Error (0, "extracted verify_chain failed without pinpointing an entry")
+    | (id, entry) :: rest ->
+        if Clawq_core.verify_link key prev_sig entry then
+          loop (Some entry.ae_signature) rest
+        else
+          let expected_prev = Clawq_core.compute_prev_hash prev_sig in
+          if entry.ae_prev_hash <> expected_prev then
+            Error
+              ( id,
+                Printf.sprintf "prev_hash mismatch: expected %s, got %s"
+                  expected_prev entry.ae_prev_hash )
+          else Error (id, "signature mismatch")
+  in
+  loop seed segment
+
+let verify_current_segment ~key ~seed segment =
+  if segment = [] then Ok ()
+  else
+    let entries = List.map snd segment in
+    if Clawq_core.verify_chain key seed entries then Ok ()
+    else locate_current_segment_failure ~key ~seed segment
+
 let log_signed ~db ~key event =
   let event_type, session_key, details, tool_name, risk_level =
     event_fields event
   in
   let details_str = match details with Some d -> d | None -> "" in
   let last_sig = get_last_signature ~db in
-  let prev_hash = compute_prev_hash last_sig in
   (* Get current timestamp from SQLite for consistency *)
   let timestamp =
     let stmt = Sqlite3.prepare db "SELECT datetime('now')" in
@@ -302,9 +339,9 @@ let log_signed ~db ~key event =
     ignore (Sqlite3.finalize stmt);
     ts
   in
-  let signature =
-    compute_signature ~key ~prev_hash ~timestamp ~event_type ~session_key
-      ~details_str ~tool_name ~risk_level
+  let entry =
+    Clawq_core.make_entry key last_sig timestamp event_type session_key
+      details_str tool_name risk_level
   in
   let sql =
     "INSERT INTO audit_log (timestamp, event_type, session_key, details, \
@@ -318,8 +355,8 @@ let log_signed ~db ~key event =
   bind_opt stmt 4 details;
   bind_opt stmt 5 tool_name;
   bind_opt stmt 6 risk_level;
-  ignore (Sqlite3.bind stmt 7 (Sqlite3.Data.TEXT signature));
-  ignore (Sqlite3.bind stmt 8 (Sqlite3.Data.TEXT prev_hash));
+  ignore (Sqlite3.bind stmt 7 (Sqlite3.Data.TEXT entry.ae_signature));
+  ignore (Sqlite3.bind stmt 8 (Sqlite3.Data.TEXT entry.ae_prev_hash));
   (match Sqlite3.step stmt with
   | Sqlite3.Rc.DONE -> ()
   | rc ->
@@ -344,6 +381,22 @@ let verify_chain ~db ~key =
      unsigned rows remain informational only. *)
   let last_sig = ref (get_chain_anchor ~db) in
   let result = ref (Ok ()) in
+  let current_seed = ref None in
+  let current_segment = ref [] in
+  let flush_current_segment () =
+    match !result with
+    | Error _ -> ()
+    | Ok () -> (
+        let seed =
+          match !current_seed with Some seed -> seed | None -> !last_sig
+        in
+        let segment = List.rev !current_segment in
+        match verify_current_segment ~key ~seed segment with
+        | Ok () ->
+            current_seed := None;
+            current_segment := []
+        | Error _ as err -> result := err)
+  in
   while Sqlite3.step stmt = Sqlite3.Rc.ROW && !result = Ok () do
     let id =
       match Sqlite3.column stmt 0 with
@@ -391,34 +444,44 @@ let verify_chain ~db ~key =
     | None, Some _ ->
         result := Error (id, "unsigned entry unexpectedly carries prev_hash")
     | Some sig_str, Some ph ->
-        let expected_prev = compute_prev_hash !last_sig in
-        if ph <> expected_prev then
-          result :=
-            Error
-              ( id,
-                Printf.sprintf "prev_hash mismatch: expected %s, got %s"
-                  expected_prev ph )
+        let legacy_match =
+          legacy_signature_eligible ~session_key ~tool_name ~risk_level
+          &&
+          let expected_legacy =
+            compute_signature_legacy ~key ~prev_hash:ph ~timestamp ~event_type
+              ~details_str
+          in
+          sig_str = expected_legacy
+        in
+        if legacy_match then begin
+          flush_current_segment ();
+          if !result = Ok () then begin
+            let expected_prev = compute_prev_hash !last_sig in
+            if ph <> expected_prev then
+              result :=
+                Error
+                  ( id,
+                    Printf.sprintf "prev_hash mismatch: expected %s, got %s"
+                      expected_prev ph )
+            else last_sig := Some sig_str
+          end
+        end
         else begin
-          let expected_sig =
-            compute_signature ~key ~prev_hash:ph ~timestamp ~event_type
-              ~session_key ~details_str ~tool_name ~risk_level
-          in
-          let legacy_match =
-            legacy_signature_eligible ~session_key ~tool_name ~risk_level
-            &&
-            let expected_legacy =
-              compute_signature_legacy ~key ~prev_hash:ph ~timestamp ~event_type
-                ~details_str
-            in
-            sig_str = expected_legacy
-          in
-          if sig_str <> expected_sig && not legacy_match then
-            result := Error (id, Printf.sprintf "signature mismatch")
-          else last_sig := Some sig_str
+          (match !current_seed with
+          | None -> current_seed := Some !last_sig
+          | Some _ -> ());
+          current_segment :=
+            ( id,
+              project_current_entry ~timestamp ~event_type ~session_key
+                ~details_str ~tool_name ~risk_level ~signature:sig_str
+                ~prev_hash:ph )
+            :: !current_segment;
+          last_sig := Some sig_str
         end
     | Some _, None -> result := Error (id, "signed entry missing prev_hash")
   done;
   ignore (Sqlite3.finalize stmt);
+  flush_current_segment ();
   !result
 
 let signature_counts ~db =

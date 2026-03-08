@@ -13,6 +13,18 @@ let normalize_path path =
   let joined = String.concat "/" resolved in
   if is_abs then "/" ^ joined else joined
 
+let path_drift_count = ref 0
+let shell_syntax_drift_count = ref 0
+let shell_tokenizer_drift_count = ref 0
+
+let reset_drift_counters () =
+  path_drift_count := 0;
+  shell_syntax_drift_count := 0;
+  shell_tokenizer_drift_count := 0
+
+let get_drift_counters () =
+  (!path_drift_count, !shell_syntax_drift_count, !shell_tokenizer_drift_count)
+
 (* Coq-extracted pure path safety check (F2).
    Uses the formally verified normalize + is_prefix logic from PathSafety.v. *)
 let is_path_safe_coq ~workspace resolved_path =
@@ -57,16 +69,20 @@ let is_path_safe ~workspace path =
   in
   let coq_ok = is_path_safe_coq ~workspace resolved_for_coq in
   let ocaml_ok = is_path_safe_ocaml ~workspace path in
-  if coq_ok && not ocaml_ok then
+  if coq_ok && not ocaml_ok then begin
+    incr path_drift_count;
     Logs.warn (fun m ->
         m
           "PathSafety: Coq=safe, OCaml=unsafe for '%s' (symlink or realpath \
            edge case)"
-          path);
-  if (not coq_ok) && ocaml_ok then
+          path)
+  end;
+  if (not coq_ok) && ocaml_ok then begin
+    incr path_drift_count;
     Logs.debug (fun m ->
         m "PathSafety: Coq=unsafe, OCaml=safe for '%s' (conservative Coq model)"
-          path);
+          path)
+  end;
   coq_ok && ocaml_ok
 
 let default_shell_allowlist =
@@ -132,7 +148,8 @@ let is_command_allowed ~allowed_commands cmd =
 let has_unsafe_shell_syntax_ocaml cmd =
   let has_char c = String.contains cmd c in
   has_char ';' || has_char '|' || has_char '&' || has_char '>' || has_char '<'
-  || has_char '`' || has_char '\n' || has_char '\r'
+  || has_char '`' || has_char '$' || has_char '!' || has_char '\n'
+  || has_char '\r'
   ||
   let len = String.length cmd in
   let rec has_dollar_paren i =
@@ -192,10 +209,12 @@ let split_command_words_ocaml cmd =
 let has_unsafe_shell_syntax cmd =
   let coq_unsafe = not (Clawq_core.is_shell_safe cmd) in
   let ocaml_unsafe = has_unsafe_shell_syntax_ocaml cmd in
-  if coq_unsafe <> ocaml_unsafe then
+  if coq_unsafe <> ocaml_unsafe then begin
+    incr shell_syntax_drift_count;
     Logs.warn (fun m ->
         m "ShellSafety drift: Coq=%b OCaml=%b for command %S" coq_unsafe
-          ocaml_unsafe cmd);
+          ocaml_unsafe cmd)
+  end;
   coq_unsafe
 
 let split_command_words cmd =
@@ -205,9 +224,11 @@ let split_command_words cmd =
     | None -> Error "unterminated quote in command"
   in
   let ocaml_result = split_command_words_ocaml cmd in
-  if coq_result <> ocaml_result then
+  if coq_result <> ocaml_result then begin
+    incr shell_tokenizer_drift_count;
     Logs.warn (fun m ->
-        m "ShellSafety tokenizer drift between Coq and OCaml for command %S" cmd);
+        m "ShellSafety tokenizer drift between Coq and OCaml for command %S" cmd)
+  end;
   coq_result
 
 let contains_substr s sub =

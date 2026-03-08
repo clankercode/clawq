@@ -479,3 +479,100 @@ let is_allowed0 id allowlist = match allowlist with
   (match l with
    | [] -> if (=) w "*" then true else existsb ((=) id) (w :: [])
    | _ :: _ -> existsb ((=) id) allowlist)
+
+module ConcreteCrypto =
+ struct
+  (** val hash : string -> string **)
+
+  let hash = fun s -> Digestif.SHA256.(digest_string s |> to_hex)
+
+  (** val hmac : string -> string -> string **)
+
+  let hmac = fun key payload -> Digestif.SHA256.(hmac_string ~key payload |> to_hex)
+
+  (** val encode_signed_field : string -> string **)
+
+  let encode_signed_field = fun value -> Printf.sprintf "%d:%s" (String.length value) value
+ end
+
+(** val hash0 : string -> string **)
+
+let hash0 =
+  ConcreteCrypto.hash
+
+(** val hmac0 : string -> string -> string **)
+
+let hmac0 =
+  ConcreteCrypto.hmac
+
+(** val encode_signed_field0 : string -> string **)
+
+let encode_signed_field0 =
+  ConcreteCrypto.encode_signed_field
+
+type audit_entry = { ae_timestamp : string; ae_event_type : string;
+                     ae_session_key : string option; ae_details : string;
+                     ae_tool_name : string option;
+                     ae_risk_level : string option; ae_signature : string;
+                     ae_prev_hash : string }
+
+(** val field_text : string option -> string **)
+
+let field_text = function
+| Some s -> s
+| None -> ""
+
+(** val compute_prev_hash : string option -> string **)
+
+let compute_prev_hash = function
+| Some sig0 -> hash0 sig0
+| None -> "genesis"
+
+(** val compute_signature :
+    string -> string -> string -> string -> string option -> string -> string
+    option -> string option -> string **)
+
+let compute_signature key prev_hash timestamp event_type session_key details tool_name risk_level =
+  hmac0 key
+    ((^) (encode_signed_field0 prev_hash)
+      ((^) "|"
+        ((^) (encode_signed_field0 timestamp)
+          ((^) "|"
+            ((^) (encode_signed_field0 event_type)
+              ((^) "|"
+                ((^) (encode_signed_field0 (field_text session_key))
+                  ((^) "|"
+                    ((^) (encode_signed_field0 details)
+                      ((^) "|"
+                        ((^) (encode_signed_field0 (field_text tool_name))
+                          ((^) "|"
+                            (encode_signed_field0 (field_text risk_level))))))))))))))
+
+(** val make_entry :
+    string -> string option -> string -> string -> string option -> string ->
+    string option -> string option -> audit_entry **)
+
+let make_entry key prev_sig ts et session_key det tool_name risk_level =
+  let ph = compute_prev_hash prev_sig in
+  { ae_timestamp = ts; ae_event_type = et; ae_session_key = session_key;
+  ae_details = det; ae_tool_name = tool_name; ae_risk_level = risk_level;
+  ae_signature =
+  (compute_signature key ph ts et session_key det tool_name risk_level);
+  ae_prev_hash = ph }
+
+(** val verify_link : string -> string option -> audit_entry -> bool **)
+
+let verify_link key prev_sig entry =
+  (&&) ((=) entry.ae_prev_hash (compute_prev_hash prev_sig))
+    ((=) entry.ae_signature
+      (compute_signature key entry.ae_prev_hash entry.ae_timestamp
+        entry.ae_event_type entry.ae_session_key entry.ae_details
+        entry.ae_tool_name entry.ae_risk_level))
+
+(** val verify_chain : string -> string option -> audit_entry list -> bool **)
+
+let rec verify_chain key prev_sig = function
+| [] -> true
+| e :: rest ->
+  (&&) (verify_link key prev_sig e)
+    (verify_chain key (Some e.ae_signature) rest)

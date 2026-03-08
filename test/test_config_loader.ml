@@ -7,6 +7,119 @@ let with_temp_file contents f =
     (fun () -> f path)
     ~finally:(fun () -> if Sys.file_exists path then Sys.remove path)
 
+let capture_stderr f =
+  let path = Filename.temp_file "clawq_stderr" ".log" in
+  let stderr_fd = Unix.descr_of_out_channel stderr in
+  let saved_stderr = Unix.dup stderr_fd in
+  let capture_fd = Unix.openfile path [ Unix.O_WRONLY; Unix.O_TRUNC ] 0o600 in
+  Fun.protect
+    (fun () ->
+      Unix.dup2 capture_fd stderr_fd;
+      Unix.close capture_fd;
+      f ();
+      flush stderr;
+      let ic = open_in path in
+      Fun.protect
+        (fun () -> really_input_string ic (in_channel_length ic))
+        ~finally:(fun () -> close_in ic))
+    ~finally:(fun () ->
+      flush stderr;
+      Unix.dup2 saved_stderr stderr_fd;
+      Unix.close saved_stderr;
+      if Sys.file_exists path then Sys.remove path)
+
+let contains hay needle =
+  try
+    ignore (Str.search_forward (Str.regexp_string needle) hay 0);
+    true
+  with Not_found -> false
+
+let count_occurrences hay needle =
+  let rex = Str.regexp_string needle in
+  let rec loop count start =
+    try
+      let _ = Str.search_forward rex hay start in
+      loop (count + 1) (Str.match_end ())
+    with Not_found -> count
+  in
+  loop 0 0
+
+let test_load_warns_on_invalid_port () =
+  let json = {|{
+      "gateway": {"port": 70000}
+    }|} in
+  with_temp_file json (fun path ->
+      let stderr_output =
+        capture_stderr (fun () -> ignore (Config_loader.load ~path ()))
+      in
+      Alcotest.(check bool)
+        "mentions gateway.port" true
+        (contains stderr_output "gateway.port"))
+
+let test_load_warns_on_invalid_temperature () =
+  let json = {|{
+      "default_temperature": 3.5
+    }|} in
+  with_temp_file json (fun path ->
+      let stderr_output =
+        capture_stderr (fun () -> ignore (Config_loader.load ~path ()))
+      in
+      Alcotest.(check bool)
+        "mentions default_temperature" true
+        (contains stderr_output "default_temperature"))
+
+let test_load_warns_on_negative_temperature () =
+  let json = {|{
+      "default_temperature": -0.1
+    }|} in
+  with_temp_file json (fun path ->
+      let stderr_output =
+        capture_stderr (fun () -> ignore (Config_loader.load ~path ()))
+      in
+      Alcotest.(check bool)
+        "mentions default_temperature" true
+        (contains stderr_output "default_temperature"))
+
+let test_load_warns_on_invalid_memory_weights () =
+  let json =
+    {|{
+      "memory": {"vector_weight": 80, "keyword_weight": 40}
+    }|}
+  in
+  with_temp_file json (fun path ->
+      let stderr_output =
+        capture_stderr (fun () -> ignore (Config_loader.load ~path ()))
+      in
+      Alcotest.(check bool)
+        "mentions memory weights" true
+        (contains stderr_output "memory weights"))
+
+let test_load_warns_on_out_of_range_memory_weights () =
+  let json =
+    {|{
+      "memory": {"vector_weight": -10, "keyword_weight": 110}
+    }|}
+  in
+  with_temp_file json (fun path ->
+      let stderr_output =
+        capture_stderr (fun () -> ignore (Config_loader.load ~path ()))
+      in
+      Alcotest.(check bool)
+        "mentions memory weights" true
+        (contains stderr_output "memory weights"))
+
+let test_load_warns_once_per_invalid_field () =
+  let json = {|{
+      "gateway": {"port": 70000}
+    }|} in
+  with_temp_file json (fun path ->
+      let stderr_output =
+        capture_stderr (fun () -> ignore (Config_loader.load ~path ()))
+      in
+      Alcotest.(check int)
+        "one gateway.port warning" 1
+        (count_occurrences stderr_output "gateway.port"))
+
 let test_load_backfill_preserves_unknown_keys () =
   let json =
     {|{
@@ -316,6 +429,18 @@ let test_parse_provider_thinking_fields () =
 
 let suite =
   [
+    Alcotest.test_case "load warns on invalid port" `Quick
+      test_load_warns_on_invalid_port;
+    Alcotest.test_case "load warns on invalid temperature" `Quick
+      test_load_warns_on_invalid_temperature;
+    Alcotest.test_case "load warns on negative temperature" `Quick
+      test_load_warns_on_negative_temperature;
+    Alcotest.test_case "load warns on invalid memory weights" `Quick
+      test_load_warns_on_invalid_memory_weights;
+    Alcotest.test_case "load warns on out-of-range memory weights" `Quick
+      test_load_warns_on_out_of_range_memory_weights;
+    Alcotest.test_case "load warns once per invalid field" `Quick
+      test_load_warns_once_per_invalid_field;
     Alcotest.test_case "load backfill preserves unknown keys" `Quick
       test_load_backfill_preserves_unknown_keys;
     Alcotest.test_case "provider env secret resolution" `Quick

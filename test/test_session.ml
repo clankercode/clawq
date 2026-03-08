@@ -230,6 +230,49 @@ let test_reset_then_same_key_create_is_fresh () =
            (List.length agent.Agent.history);
          Lwt.return_unit))
 
+let test_reset_session_idempotent () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let config = Runtime_config.default in
+  let mgr = Session.create ~config ~db () in
+  Lwt_main.run
+    (Session.with_session_lock mgr ~key:"web:s1" (fun agent _ ->
+         let open Lwt.Syntax in
+         let history_before = List.length agent.Agent.history in
+         let* _compacted =
+           Agent.prepare_turn_history agent ~user_message:"hello" ~db ()
+         in
+         Session.persist_new_messages mgr ~key:"web:s1" ~history_before agent;
+         Lwt.return_unit));
+  Session.record_agent_turn mgr ~key:"web:s1" ~channel:"web" ~channel_id:"s1" ();
+  Lwt_main.run (Session.reset mgr ~key:"web:s1");
+  Alcotest.(check bool)
+    "session removed after first reset" false
+    (Hashtbl.mem mgr.sessions "web:s1");
+  Alcotest.(check int)
+    "persisted history cleared after first reset" 0
+    (List.length (Memory.load_history ~db ~session_key:"web:s1"));
+  Alcotest.(check int)
+    "pending session state cleared after first reset" 0
+    (List.length
+       (Session.load_pending_agent_sessions mgr ~max_age_seconds:3600));
+  Lwt_main.run (Session.reset mgr ~key:"web:s1");
+  Alcotest.(check bool)
+    "session still absent after second reset" false
+    (Hashtbl.mem mgr.sessions "web:s1");
+  Alcotest.(check int)
+    "persisted history still cleared after second reset" 0
+    (List.length (Memory.load_history ~db ~session_key:"web:s1"));
+  Alcotest.(check int)
+    "pending session state still cleared after second reset" 0
+    (List.length
+       (Session.load_pending_agent_sessions mgr ~max_age_seconds:3600));
+  Lwt_main.run
+    (Session.with_session_lock mgr ~key:"web:s1" (fun agent _ ->
+         Alcotest.(check int)
+           "same key recreates empty after repeated reset" 0
+           (List.length agent.Agent.history);
+         Lwt.return_unit))
+
 let test_reset_clears_pending_session_state () =
   let db = Memory.init ~db_path:":memory:" () in
   let config = Runtime_config.default in
@@ -252,6 +295,30 @@ let test_new_key_create_is_empty () =
            "new key starts empty" 0
            (List.length agent.Agent.history);
          Lwt.return_unit))
+
+let test_get_or_create_preserves_other_in_memory_session () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let config = Runtime_config.default in
+  let mgr = Session.create ~config ~db () in
+  Lwt_main.run
+    (Session.with_session_lock mgr ~key:"s1" (fun agent _ ->
+         agent.Agent.history <-
+           [ Provider.make_message ~role:"user" ~content:"keep me" ];
+         Lwt.return_unit));
+  Lwt_main.run
+    (Session.with_session_lock mgr ~key:"s2" (fun agent _ ->
+         agent.Agent.history <-
+           [ Provider.make_message ~role:"user" ~content:"other session" ];
+         Lwt.return_unit));
+  match Hashtbl.find_opt mgr.sessions "s1" with
+  | None -> Alcotest.fail "expected first session to remain cached"
+  | Some (agent, _, _) ->
+      Alcotest.(check int)
+        "other session preserved" 1
+        (List.length agent.Agent.history);
+      Alcotest.(check string)
+        "other session content preserved" "keep me"
+        (List.hd agent.Agent.history).content
 
 let test_record_agent_turn_persists_channel_metadata () =
   let db = Memory.init ~db_path:":memory:" () in
@@ -309,6 +376,50 @@ let test_pending_turn_persists_user_message_before_response () =
   Alcotest.(check int) "user message persisted" 1 (List.length history);
   Alcotest.(check string) "persisted role" "user" (List.hd history).role;
   Alcotest.(check string) "persisted content" "hello" (List.hd history).content
+
+let test_store_message_isolated () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let config = Runtime_config.default in
+  let mgr = Session.create ~config ~db () in
+  let persist_message key message =
+    Lwt_main.run
+      (Session.with_session_lock mgr ~key (fun agent _ ->
+           let open Lwt.Syntax in
+           let history_before = List.length agent.Agent.history in
+           let* _compacted =
+             Agent.prepare_turn_history agent ~user_message:message ~db ()
+           in
+           Session.persist_new_messages mgr ~key ~history_before agent;
+           Lwt.return_unit))
+  in
+  persist_message "web:s1" "alpha";
+  persist_message "web:s2" "beta";
+  let s2_history_before = Memory.load_history ~db ~session_key:"web:s2" in
+  let s2_cached_before =
+    match Hashtbl.find_opt mgr.sessions "web:s2" with
+    | Some (agent, _, _) ->
+        List.map (fun msg -> msg.Provider.content) agent.Agent.history
+    | None -> Alcotest.fail "expected second session to be cached"
+  in
+  persist_message "web:s1" "alpha followup";
+  let s1_history = Memory.load_history ~db ~session_key:"web:s1" in
+  let s2_history_after = Memory.load_history ~db ~session_key:"web:s2" in
+  let s2_cached_after =
+    match Hashtbl.find_opt mgr.sessions "web:s2" with
+    | Some (agent, _, _) ->
+        List.map (fun msg -> msg.Provider.content) agent.Agent.history
+    | None -> Alcotest.fail "expected second session cache to remain present"
+  in
+  Alcotest.(check (list string))
+    "mutated key persists new history"
+    [ "alpha"; "alpha followup" ]
+    (List.map (fun msg -> msg.Provider.content) s1_history);
+  Alcotest.(check (list string))
+    "other key persisted history unchanged"
+    (List.map (fun msg -> msg.Provider.content) s2_history_before)
+    (List.map (fun msg -> msg.Provider.content) s2_history_after);
+  Alcotest.(check (list string))
+    "other key cached session state unchanged" s2_cached_before s2_cached_after
 
 let test_load_pending_agent_sessions_reads_manager_db () =
   let db = Memory.init ~db_path:":memory:" () in
@@ -517,16 +628,22 @@ let suite =
       test_same_key_restore_from_db_on_first_create;
     Alcotest.test_case "reset then same key create is fresh" `Quick
       test_reset_then_same_key_create_is_fresh;
+    Alcotest.test_case "reset session idempotent" `Quick
+      test_reset_session_idempotent;
     Alcotest.test_case "reset clears pending session state" `Quick
       test_reset_clears_pending_session_state;
     Alcotest.test_case "new key create is empty" `Quick
       test_new_key_create_is_empty;
+    Alcotest.test_case "get_or_create preserves other in-memory session" `Quick
+      test_get_or_create_preserves_other_in_memory_session;
     Alcotest.test_case "record agent turn persists channel metadata" `Quick
       test_record_agent_turn_persists_channel_metadata;
     Alcotest.test_case "mark response sent updates session state" `Quick
       test_mark_response_sent_updates_session_state;
     Alcotest.test_case "pending turn persists user message before response"
       `Quick test_pending_turn_persists_user_message_before_response;
+    Alcotest.test_case "store_message isolated" `Quick
+      test_store_message_isolated;
     Alcotest.test_case "load pending agent sessions reads manager db" `Quick
       test_load_pending_agent_sessions_reads_manager_db;
     Alcotest.test_case "turn returns restart message while draining" `Quick

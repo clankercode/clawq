@@ -9,7 +9,7 @@ epics:
       locked: false
       name: Wire Existing Extracted Functions
       path: 01-wire-existing-extracted-functi
-      status: pending
+      status: done
     - complexity: medium
       depends_on: []
       description: Add property-based tests comparing Coq-extracted and OCaml-native implementations, and promote drift warnings to test failures.
@@ -18,7 +18,7 @@ epics:
       locked: false
       name: Conformance and Drift Testing
       path: 02-conformance-and-drift-testing
-      status: pending
+      status: done
     - complexity: medium
       depends_on: []
       description: Discharge remaining admitted lemmas to reach zero admits in the Coq codebase.
@@ -27,9 +27,9 @@ epics:
       locked: false
       name: Proof Cleanup
       path: 03-proof-cleanup
-      status: pending
+      status: done
 estimate_hours: 8
 id: P6.M1
 locked: false
 name: Extraction Wiring and Quick Wins
-status: pending
+status: done

@@ -380,19 +380,20 @@ let test_telegram_allow_from_wildcard () =
   let acct : Runtime_config.telegram_account =
     { bot_token = "tok"; allow_from = [ "*" ]; totp = None }
   in
-  let allowed =
-    acct.allow_from = [ "*" ] || List.mem "anyone" acct.allow_from
-  in
-  Alcotest.(check bool) "wildcard allow_from" true allowed
+  Alcotest.(check bool)
+    "wildcard allow_from" true
+    (Telegram.is_allowed ~account:acct ~chat_id:"anyone")
 
 let test_telegram_allow_from_specific () =
   let acct : Runtime_config.telegram_account =
     { bot_token = "tok"; allow_from = [ "123"; "456" ]; totp = None }
   in
-  Alcotest.(check bool) "user 123 allowed" true (List.mem "123" acct.allow_from);
+  Alcotest.(check bool)
+    "user 123 allowed" true
+    (Telegram.is_allowed ~account:acct ~chat_id:"123");
   Alcotest.(check bool)
     "user 789 not allowed" false
-    (List.mem "789" acct.allow_from)
+    (Telegram.is_allowed ~account:acct ~chat_id:"789")
 
 let test_telegram_parse_document_message () =
   let json_str =

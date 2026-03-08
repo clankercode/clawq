@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-08T13:01:44Z"
+claimed_by: cli-user
+completed_at: "2026-03-08T13:01:44Z"
 complexity: medium
 depends_on: []
+duration_minutes: 0.005155485633333333
 estimate_hours: 4
 id: P6.M1.E1.T002
 priority: medium
-status: pending
+started_at: "2026-03-08T13:01:44Z"
+status: done
 tags: []
 title: Wire ChannelAuth is_allowed into channel authorization paths
 ---

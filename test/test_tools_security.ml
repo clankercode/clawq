@@ -33,182 +33,210 @@ let mk_none_sandbox ?(workspace = Sys.getcwd ()) () =
     isolate_filesystem = true;
   }
 
+let assert_no_drift label =
+  let path_drift, shell_drift, tokenizer_drift =
+    Tools_builtin.get_drift_counters ()
+  in
+  Alcotest.(check int) (label ^ " path drift") 0 path_drift;
+  Alcotest.(check int) (label ^ " shell drift") 0 shell_drift;
+  Alcotest.(check int) (label ^ " tokenizer drift") 0 tokenizer_drift
+
+let with_drift_check label f =
+  Tools_builtin.reset_drift_counters ();
+  Fun.protect f ~finally:(fun () -> assert_no_drift label)
+
 let test_path_traversal_rejected () =
   with_temp_workspace (fun workspace ->
-      Alcotest.(check bool)
-        "../ rejected" false
-        (Tools_builtin.is_path_safe ~workspace "../etc/passwd");
-      Alcotest.(check bool)
-        "prefix escape rejected" false
-        (Tools_builtin.is_path_safe ~workspace (workspace ^ "2/outside.txt")))
+      with_drift_check "path traversal rejected" (fun () ->
+          Alcotest.(check bool)
+            "../ rejected" false
+            (Tools_builtin.is_path_safe ~workspace "../etc/passwd");
+          Alcotest.(check bool)
+            "prefix escape rejected" false
+            (Tools_builtin.is_path_safe ~workspace
+               (workspace ^ "2/outside.txt"))))
 
 let test_shell_allowlist_rejects_disallowed () =
-  let tool =
-    Tools_builtin.shell_exec ~workspace:(Sys.getcwd ()) ~workspace_only:true
-      ~allowed_commands:[ "ls" ] ~extra_allowed_paths:[]
-      ~sandbox:(mk_none_sandbox ())
-  in
-  let args = `Assoc [ ("command", `String "echo hi") ] in
-  let out = Lwt_main.run (tool.invoke args) in
-  Alcotest.(check bool) "blocked" true (contains out "not in the allowlist")
+  with_drift_check "shell allowlist rejects disallowed" (fun () ->
+      let tool =
+        Tools_builtin.shell_exec ~workspace:(Sys.getcwd ()) ~workspace_only:true
+          ~allowed_commands:[ "ls" ] ~extra_allowed_paths:[]
+          ~sandbox:(mk_none_sandbox ())
+      in
+      let args = `Assoc [ ("command", `String "echo hi") ] in
+      let out = Lwt_main.run (tool.invoke args) in
+      Alcotest.(check bool) "blocked" true (contains out "not in the allowlist"))
 
 let test_shell_allowlist_allows_command () =
-  let tool =
-    Tools_builtin.shell_exec ~workspace:(Sys.getcwd ()) ~workspace_only:true
-      ~allowed_commands:[ "ls" ] ~extra_allowed_paths:[]
-      ~sandbox:(mk_none_sandbox ())
-  in
-  let args = `Assoc [ ("command", `String "ls .") ] in
-  let out = Lwt_main.run (tool.invoke args) in
-  Alcotest.(check bool) "success" true (contains out "exit_code: 0")
+  with_drift_check "shell allowlist allows command" (fun () ->
+      let tool =
+        Tools_builtin.shell_exec ~workspace:(Sys.getcwd ()) ~workspace_only:true
+          ~allowed_commands:[ "ls" ] ~extra_allowed_paths:[]
+          ~sandbox:(mk_none_sandbox ())
+      in
+      let args = `Assoc [ ("command", `String "ls .") ] in
+      let out = Lwt_main.run (tool.invoke args) in
+      Alcotest.(check bool) "success" true (contains out "exit_code: 0"))
 
 let test_shell_rejects_command_chaining () =
-  let tool =
-    Tools_builtin.shell_exec ~workspace:(Sys.getcwd ()) ~workspace_only:true
-      ~allowed_commands:[ "ls" ] ~extra_allowed_paths:[]
-      ~sandbox:(mk_none_sandbox ())
-  in
-  let args = `Assoc [ ("command", `String "ls && whoami") ] in
-  let out = Lwt_main.run (tool.invoke args) in
-  Alcotest.(check bool)
-    "unsafe syntax blocked" true
-    (contains out "unsafe shell syntax")
+  with_drift_check "shell chaining rejected" (fun () ->
+      let tool =
+        Tools_builtin.shell_exec ~workspace:(Sys.getcwd ()) ~workspace_only:true
+          ~allowed_commands:[ "ls" ] ~extra_allowed_paths:[]
+          ~sandbox:(mk_none_sandbox ())
+      in
+      let args = `Assoc [ ("command", `String "ls && whoami") ] in
+      let out = Lwt_main.run (tool.invoke args) in
+      Alcotest.(check bool)
+        "unsafe syntax blocked" true
+        (contains out "unsafe shell syntax"))
 
 let test_shell_rejects_dollar_expansion () =
-  let tool =
-    Tools_builtin.shell_exec ~workspace:(Sys.getcwd ()) ~workspace_only:true
-      ~allowed_commands:[ "ls" ] ~extra_allowed_paths:[]
-      ~sandbox:(mk_none_sandbox ())
-  in
-  let args = `Assoc [ ("command", `String "ls $HOME") ] in
-  let out = Lwt_main.run (tool.invoke args) in
-  Alcotest.(check bool)
-    "dollar expansion blocked" true
-    (contains out "unsafe shell syntax")
+  with_drift_check "shell dollar expansion rejected" (fun () ->
+      let tool =
+        Tools_builtin.shell_exec ~workspace:(Sys.getcwd ()) ~workspace_only:true
+          ~allowed_commands:[ "ls" ] ~extra_allowed_paths:[]
+          ~sandbox:(mk_none_sandbox ())
+      in
+      let args = `Assoc [ ("command", `String "ls $HOME") ] in
+      let out = Lwt_main.run (tool.invoke args) in
+      Alcotest.(check bool)
+        "dollar expansion blocked" true
+        (contains out "unsafe shell syntax"))
 
 let test_shell_handles_quoted_args () =
-  let tool =
-    Tools_builtin.shell_exec ~workspace:(Sys.getcwd ()) ~workspace_only:true
-      ~allowed_commands:[ "ls" ] ~extra_allowed_paths:[]
-      ~sandbox:(mk_none_sandbox ())
-  in
-  let args = `Assoc [ ("command", `String "ls \".\"") ] in
-  let out = Lwt_main.run (tool.invoke args) in
-  Alcotest.(check bool) "quoted arg success" true (contains out "exit_code: 0")
+  with_drift_check "shell quoted args" (fun () ->
+      let tool =
+        Tools_builtin.shell_exec ~workspace:(Sys.getcwd ()) ~workspace_only:true
+          ~allowed_commands:[ "ls" ] ~extra_allowed_paths:[]
+          ~sandbox:(mk_none_sandbox ())
+      in
+      let args = `Assoc [ ("command", `String "ls \".\"") ] in
+      let out = Lwt_main.run (tool.invoke args) in
+      Alcotest.(check bool)
+        "quoted arg success" true
+        (contains out "exit_code: 0"))
 
 let test_shell_streams_stdout_chunks () =
-  let tool =
-    Tools_builtin.shell_exec ~workspace:(Sys.getcwd ()) ~workspace_only:true
-      ~allowed_commands:[ "echo" ] ~extra_allowed_paths:[]
-      ~sandbox:(mk_none_sandbox ())
-  in
-  let args = `Assoc [ ("command", `String "echo hello") ] in
-  match tool.invoke_stream with
-  | None -> Alcotest.fail "expected shell streaming support"
-  | Some invoke_stream ->
-      let chunks = Buffer.create 16 in
-      let out =
-        Lwt_main.run
-          (invoke_stream
-             ~on_output_chunk:(fun chunk ->
-               Buffer.add_string chunks chunk;
-               Lwt.return_unit)
-             args)
+  with_drift_check "shell streams stdout chunks" (fun () ->
+      let tool =
+        Tools_builtin.shell_exec ~workspace:(Sys.getcwd ()) ~workspace_only:true
+          ~allowed_commands:[ "echo" ] ~extra_allowed_paths:[]
+          ~sandbox:(mk_none_sandbox ())
       in
-      Alcotest.(check string)
-        "streamed stdout" "hello\n" (Buffer.contents chunks);
-      Alcotest.(check bool)
-        "result still includes stdout" true (contains out "hello")
+      let args = `Assoc [ ("command", `String "echo hello") ] in
+      match tool.invoke_stream with
+      | None -> Alcotest.fail "expected shell streaming support"
+      | Some invoke_stream ->
+          let chunks = Buffer.create 16 in
+          let out =
+            Lwt_main.run
+              (invoke_stream
+                 ~on_output_chunk:(fun chunk ->
+                   Buffer.add_string chunks chunk;
+                   Lwt.return_unit)
+                 args)
+          in
+          Alcotest.(check string)
+            "streamed stdout" "hello\n" (Buffer.contents chunks);
+          Alcotest.(check bool)
+            "result still includes stdout" true (contains out "hello"))
 
 let test_shell_streams_stderr_chunks () =
-  let tool =
-    Tools_builtin.shell_exec ~workspace:(Sys.getcwd ()) ~workspace_only:true
-      ~allowed_commands:[ "ls" ] ~extra_allowed_paths:[]
-      ~sandbox:(mk_none_sandbox ())
-  in
-  let args = `Assoc [ ("command", `String "ls definitely-missing-file") ] in
-  match tool.invoke_stream with
-  | None -> Alcotest.fail "expected shell streaming support"
-  | Some invoke_stream ->
-      let chunks = Buffer.create 16 in
-      let out =
-        Lwt_main.run
-          (invoke_stream
-             ~on_output_chunk:(fun chunk ->
-               Buffer.add_string chunks chunk;
-               Lwt.return_unit)
-             args)
+  with_drift_check "shell streams stderr chunks" (fun () ->
+      let tool =
+        Tools_builtin.shell_exec ~workspace:(Sys.getcwd ()) ~workspace_only:true
+          ~allowed_commands:[ "ls" ] ~extra_allowed_paths:[]
+          ~sandbox:(mk_none_sandbox ())
       in
-      Alcotest.(check bool)
-        "streamed stderr" true
-        (contains (Buffer.contents chunks) "definitely-missing-file");
-      Alcotest.(check bool)
-        "result still includes stderr" true
-        (contains out "definitely-missing-file")
+      let args = `Assoc [ ("command", `String "ls definitely-missing-file") ] in
+      match tool.invoke_stream with
+      | None -> Alcotest.fail "expected shell streaming support"
+      | Some invoke_stream ->
+          let chunks = Buffer.create 16 in
+          let out =
+            Lwt_main.run
+              (invoke_stream
+                 ~on_output_chunk:(fun chunk ->
+                   Buffer.add_string chunks chunk;
+                   Lwt.return_unit)
+                 args)
+          in
+          Alcotest.(check bool)
+            "streamed stderr" true
+            (contains (Buffer.contents chunks) "definitely-missing-file");
+          Alcotest.(check bool)
+            "result still includes stderr" true
+            (contains out "definitely-missing-file"))
 
 let test_shell_rejects_absolute_path_arg () =
-  let tool =
-    Tools_builtin.shell_exec ~workspace:(Sys.getcwd ()) ~workspace_only:true
-      ~allowed_commands:[ "cat" ] ~extra_allowed_paths:[]
-      ~sandbox:(mk_none_sandbox ())
-  in
-  let args = `Assoc [ ("command", `String "cat /etc/passwd") ] in
-  let out = Lwt_main.run (tool.invoke args) in
-  Alcotest.(check bool)
-    "absolute path blocked" true
-    (contains out "disallowed in workspace_only mode")
+  with_drift_check "shell absolute path arg blocked" (fun () ->
+      let tool =
+        Tools_builtin.shell_exec ~workspace:(Sys.getcwd ()) ~workspace_only:true
+          ~allowed_commands:[ "cat" ] ~extra_allowed_paths:[]
+          ~sandbox:(mk_none_sandbox ())
+      in
+      let args = `Assoc [ ("command", `String "cat /etc/passwd") ] in
+      let out = Lwt_main.run (tool.invoke args) in
+      Alcotest.(check bool)
+        "absolute path blocked" true
+        (contains out "disallowed in workspace_only mode"))
 
 let test_shell_rejects_url_arg () =
-  let tool =
-    Tools_builtin.shell_exec ~workspace:(Sys.getcwd ()) ~workspace_only:true
-      ~allowed_commands:[ "git" ] ~extra_allowed_paths:[]
-      ~sandbox:(mk_none_sandbox ())
-  in
-  let args =
-    `Assoc [ ("command", `String "git clone https://example.com/repo") ]
-  in
-  let out = Lwt_main.run (tool.invoke args) in
-  Alcotest.(check bool)
-    "url blocked" true
-    (contains out "disallowed in workspace_only mode")
+  with_drift_check "shell url arg blocked" (fun () ->
+      let tool =
+        Tools_builtin.shell_exec ~workspace:(Sys.getcwd ()) ~workspace_only:true
+          ~allowed_commands:[ "git" ] ~extra_allowed_paths:[]
+          ~sandbox:(mk_none_sandbox ())
+      in
+      let args =
+        `Assoc [ ("command", `String "git clone https://example.com/repo") ]
+      in
+      let out = Lwt_main.run (tool.invoke args) in
+      Alcotest.(check bool)
+        "url blocked" true
+        (contains out "disallowed in workspace_only mode"))
 
 let test_shell_rejects_binary_path_bypass () =
-  let tool =
-    Tools_builtin.shell_exec ~workspace:(Sys.getcwd ()) ~workspace_only:true
-      ~allowed_commands:[ "ls" ] ~extra_allowed_paths:[]
-      ~sandbox:(mk_none_sandbox ())
-  in
-  let args = `Assoc [ ("command", `String "./ls") ] in
-  let out = Lwt_main.run (tool.invoke args) in
-  Alcotest.(check bool)
-    "binary path blocked" true
-    (contains out "binary path is disallowed")
+  with_drift_check "shell binary path bypass blocked" (fun () ->
+      let tool =
+        Tools_builtin.shell_exec ~workspace:(Sys.getcwd ()) ~workspace_only:true
+          ~allowed_commands:[ "ls" ] ~extra_allowed_paths:[]
+          ~sandbox:(mk_none_sandbox ())
+      in
+      let args = `Assoc [ ("command", `String "./ls") ] in
+      let out = Lwt_main.run (tool.invoke args) in
+      Alcotest.(check bool)
+        "binary path blocked" true
+        (contains out "binary path is disallowed"))
 
 let test_shell_rejects_option_assigned_absolute_path () =
-  let tool =
-    Tools_builtin.shell_exec ~workspace:(Sys.getcwd ()) ~workspace_only:true
-      ~allowed_commands:[ "tar" ] ~extra_allowed_paths:[]
-      ~sandbox:(mk_none_sandbox ())
-  in
-  let args =
-    `Assoc [ ("command", `String "tar --file=/tmp/out.tar -cf out.tar .") ]
-  in
-  let out = Lwt_main.run (tool.invoke args) in
-  Alcotest.(check bool)
-    "assigned path blocked" true
-    (contains out "disallowed in workspace_only mode")
+  with_drift_check "shell option assigned absolute path blocked" (fun () ->
+      let tool =
+        Tools_builtin.shell_exec ~workspace:(Sys.getcwd ()) ~workspace_only:true
+          ~allowed_commands:[ "tar" ] ~extra_allowed_paths:[]
+          ~sandbox:(mk_none_sandbox ())
+      in
+      let args =
+        `Assoc [ ("command", `String "tar --file=/tmp/out.tar -cf out.tar .") ]
+      in
+      let out = Lwt_main.run (tool.invoke args) in
+      Alcotest.(check bool)
+        "assigned path blocked" true
+        (contains out "disallowed in workspace_only mode"))
 
 let test_shell_rejects_git_network_subcommand () =
-  let tool =
-    Tools_builtin.shell_exec ~workspace:(Sys.getcwd ()) ~workspace_only:true
-      ~allowed_commands:[ "git" ] ~extra_allowed_paths:[]
-      ~sandbox:(mk_none_sandbox ())
-  in
-  let args = `Assoc [ ("command", `String "git clone repo") ] in
-  let out = Lwt_main.run (tool.invoke args) in
-  Alcotest.(check bool)
-    "git clone blocked" true
-    (contains out "disallowed in workspace_only mode")
+  with_drift_check "shell git network subcommand blocked" (fun () ->
+      let tool =
+        Tools_builtin.shell_exec ~workspace:(Sys.getcwd ()) ~workspace_only:true
+          ~allowed_commands:[ "git" ] ~extra_allowed_paths:[]
+          ~sandbox:(mk_none_sandbox ())
+      in
+      let args = `Assoc [ ("command", `String "git clone repo") ] in
+      let out = Lwt_main.run (tool.invoke args) in
+      Alcotest.(check bool)
+        "git clone blocked" true
+        (contains out "disallowed in workspace_only mode"))
 
 let test_shell_extra_allowed_paths_grants_access () =
   let base = Filename.get_temp_dir_name () in
@@ -225,31 +253,33 @@ let test_shell_extra_allowed_paths_grants_access () =
   Unix.mkdir extra_dir 0o755;
   Fun.protect
     (fun () ->
-      let tool =
-        Tools_builtin.shell_exec ~workspace ~workspace_only:true
-          ~allowed_commands:[ "ls" ] ~extra_allowed_paths:[ extra_dir ]
-          ~sandbox:(mk_none_sandbox ~workspace ())
-      in
-      let out =
-        Lwt_main.run
-          (tool.invoke (`Assoc [ ("command", `String ("ls " ^ extra_dir)) ]))
-      in
-      Alcotest.(check bool)
-        "extra allowed path usable in shell" true
-        (contains out "exit_code: 0");
-      let tool_no_extra =
-        Tools_builtin.shell_exec ~workspace ~workspace_only:true
-          ~allowed_commands:[ "ls" ] ~extra_allowed_paths:[]
-          ~sandbox:(mk_none_sandbox ())
-      in
-      let out2 =
-        Lwt_main.run
-          (tool_no_extra.invoke
-             (`Assoc [ ("command", `String ("ls " ^ extra_dir)) ]))
-      in
-      Alcotest.(check bool)
-        "without extra_allowed_paths blocked in shell" true
-        (contains out2 "disallowed in workspace_only mode"))
+      with_drift_check "shell extra allowed paths grants access" (fun () ->
+          let tool =
+            Tools_builtin.shell_exec ~workspace ~workspace_only:true
+              ~allowed_commands:[ "ls" ] ~extra_allowed_paths:[ extra_dir ]
+              ~sandbox:(mk_none_sandbox ~workspace ())
+          in
+          let out =
+            Lwt_main.run
+              (tool.invoke
+                 (`Assoc [ ("command", `String ("ls " ^ extra_dir)) ]))
+          in
+          Alcotest.(check bool)
+            "extra allowed path usable in shell" true
+            (contains out "exit_code: 0");
+          let tool_no_extra =
+            Tools_builtin.shell_exec ~workspace ~workspace_only:true
+              ~allowed_commands:[ "ls" ] ~extra_allowed_paths:[]
+              ~sandbox:(mk_none_sandbox ())
+          in
+          let out2 =
+            Lwt_main.run
+              (tool_no_extra.invoke
+                 (`Assoc [ ("command", `String ("ls " ^ extra_dir)) ]))
+          in
+          Alcotest.(check bool)
+            "without extra_allowed_paths blocked in shell" true
+            (contains out2 "disallowed in workspace_only mode")))
     ~finally:(fun () ->
       (try Unix.rmdir extra_dir with _ -> ());
       try Unix.rmdir workspace with _ -> ())

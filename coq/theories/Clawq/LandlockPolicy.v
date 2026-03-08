@@ -124,8 +124,8 @@ Proof.
   intros pc.
   destruct pc; unfold minimal_permission, access_fs_all,
     access_fs_rw, access_fs_read, access_fs_write;
-  simpl; admit.
-Admitted.
+  compute; lia.
+Qed.
 
 (** Minimal permission is never zero (except maybe ExtraPath with empty list) *)
 Lemma minimal_permission_nonzero :
@@ -133,16 +133,17 @@ Lemma minimal_permission_nonzero :
     minimal_permission pc > 0.
 Proof.
   intros pc.
-  destruct pc; unfold minimal_permission; simpl; admit.
-Admitted.
+  destruct pc; unfold minimal_permission, access_fs_rw, access_fs_read,
+    access_fs_write; compute; lia.
+Qed.
 
 (** Read permission is strictly less than read-write *)
 Lemma read_lt_rw :
   access_fs_read < access_fs_rw.
 Proof.
   unfold access_fs_read, access_fs_rw, access_fs_write.
-  simpl. admit.
-Admitted.
+  compute. lia.
+Qed.
 
 (** * Workspace Closure Property *)
 

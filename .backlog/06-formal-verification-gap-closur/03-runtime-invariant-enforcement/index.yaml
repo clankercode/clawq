@@ -9,7 +9,7 @@ epics:
       locked: false
       name: Runtime Assertions from Coq Specs
       path: 01-runtime-assertions-from-coq-sp
-      status: pending
+      status: done
     - complexity: medium
       depends_on: []
       description: For each spec-only Coq module, write OCaml tests exercising the same scenarios the Coq theorems prove, ensuring runtime implementations match proved specifications.
@@ -18,9 +18,9 @@ epics:
       locked: false
       name: Spec-Only Module Conformance Suite
       path: 02-spec-only-module-conformance-s
-      status: pending
+      status: done
 estimate_hours: 8
 id: P6.M3
 locked: false
 name: Runtime Invariant Enforcement
-status: pending
+status: done

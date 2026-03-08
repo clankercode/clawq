@@ -4,7 +4,7 @@ estimate_hours: 4
 id: P6.M3.E1
 locked: false
 name: Runtime Assertions from Coq Specs
-status: pending
+status: done
 tasks:
     - complexity: low
       depends_on: []
@@ -12,7 +12,8 @@ tasks:
       file: T001-add-runtime-assertions-for-rat.todo
       id: T001
       priority: low
-      status: pending
+      status: done
+      tags: []
       title: Add runtime assertions for RateLimiter proved invariants
     - complexity: low
       depends_on: []
@@ -20,5 +21,6 @@ tasks:
       file: T002-add-runtime-assertions-for-age.todo
       id: T002
       priority: low
-      status: pending
+      status: done
+      tags: []
       title: Add runtime assertions for AgentLoop history bounds

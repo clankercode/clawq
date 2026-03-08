@@ -12,6 +12,17 @@ let current_thinking_message current =
   Printf.sprintf "Current thinking level: %s"
     (Slash_commands.thinking_level_to_string current)
 
+let is_allowed_allowlist ~kind ~id allowlist =
+  let coq_allowed = Clawq_core.is_allowed0 id allowlist in
+  let ocaml_allowed =
+    match allowlist with [ "*" ] -> true | ids -> List.mem id ids
+  in
+  if coq_allowed <> ocaml_allowed then
+    Logs.warn (fun m ->
+        m "Slack allowlist drift for %s=%s: Coq=%b OCaml=%b" kind id coq_allowed
+          ocaml_allowed);
+  coq_allowed
+
 let set_thinking_level ~(session_manager : Session.t) ~channel_id ~user_id level
     =
   let cfg = Session.get_config session_manager in
@@ -38,14 +49,10 @@ let set_thinking_level ~(session_manager : Session.t) ~channel_id ~user_id level
 
 let is_allowed ~(config : Runtime_config.slack_config) ~channel_id ~user_id =
   let ch_ok =
-    match config.allow_channels with
-    | [ "*" ] -> true
-    | ids -> List.mem channel_id ids
+    is_allowed_allowlist ~kind:"channel" ~id:channel_id config.allow_channels
   in
   let usr_ok =
-    match config.allow_users with
-    | [ "*" ] -> true
-    | ids -> List.mem user_id ids
+    is_allowed_allowlist ~kind:"user" ~id:user_id config.allow_users
   in
   ch_ok && usr_ok
 

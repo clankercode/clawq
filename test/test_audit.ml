@@ -52,7 +52,7 @@ let test_audit_config_change () =
        { field = "model"; old_value = "gpt-3.5"; new_value = "gpt-4" });
   let rows = Audit.query ~db ~event_type:"config_change" ~limit:10 () in
   Alcotest.(check int) "1 config change" 1 (List.length rows);
-  let row = List.hd rows in
+  let row : Audit.row = List.hd rows in
   Alcotest.(check bool)
     "details contains field" true
     (match row.details with
@@ -200,6 +200,12 @@ let insert_legacy_signed_row ?session_key ?tool_name ?risk_level ~db ~key
   ignore (Sqlite3.finalize stmt);
   last_sig := Some signature
 
+let check_verified ~db ~key label =
+  match Audit.verify_chain ~db ~key with
+  | Ok () -> ()
+  | Error (id, reason) ->
+      Alcotest.fail (Printf.sprintf "%s, failed at id=%d: %s" label id reason)
+
 let test_export_jsonl_preserves_anchor_after_purge () =
   let db = Memory.init ~db_path:":memory:" () in
   Audit.init_schema db;
@@ -300,6 +306,57 @@ let test_signed_valid_chain () =
   | Error (id, reason) ->
       Alcotest.fail
         (Printf.sprintf "Chain verify failed at id=%d: %s" id reason)
+
+let test_verify_chain_append_preserves_validity () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Audit.init_schema db;
+  let key = Audit.derive_signing_key test_key in
+  let last_sig = ref None in
+  insert_signed_row ~db ~key ~timestamp:"2030-01-01 00:00:00"
+    ~event_type:"daemon_event" ~details:"append-one" ~last_sig ();
+  insert_signed_row ~db ~key ~timestamp:"2030-01-01 00:00:01"
+    ~event_type:"daemon_event" ~details:"append-two" ~last_sig ();
+  check_verified ~db ~key
+    "Expected verify_chain_append baseline chain to verify";
+  insert_signed_row ~db ~key ~timestamp:"2030-01-01 00:00:02"
+    ~event_type:"daemon_event" ~details:"append-three" ~last_sig ();
+  check_verified ~db ~key
+    "Expected verify_chain_append appended chain to verify"
+
+let test_build_chain_valid_from_sequential_signed_events () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Audit.init_schema db;
+  let key = Audit.derive_signing_key test_key in
+  let last_sig = ref None in
+  insert_signed_row ~db ~key ~timestamp:"2030-02-01 00:00:00"
+    ~event_type:"daemon_event" ~details:"build-one" ~last_sig ();
+  insert_signed_row ~db ~key ~timestamp:"2030-02-01 00:00:01"
+    ~event_type:"daemon_event" ~details:"build-two" ~last_sig ();
+  insert_signed_row ~db ~key ~timestamp:"2030-02-01 00:00:02"
+    ~event_type:"daemon_event" ~details:"build-three" ~last_sig ();
+  Alcotest.(check int)
+    "three sequential signed events inserted" 3
+    (List.length (Audit.query ~db ~limit:10 ()));
+  check_verified ~db ~key
+    "Expected build_chain_valid / verify_chain_build sequential chain to verify"
+
+let test_suffix_monotonicity_retained_suffix_verifies_with_anchor () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Audit.init_schema db;
+  let key = Audit.derive_signing_key test_key in
+  Audit.log_signed ~db ~key (DaemonEvent { action = "e1"; details = "first" });
+  Audit.log_signed ~db ~key (DaemonEvent { action = "e2"; details = "second" });
+  Audit.log_signed ~db ~key (DaemonEvent { action = "e3"; details = "third" });
+  Audit.log_signed ~db ~key (DaemonEvent { action = "e4"; details = "fourth" });
+  let deleted = Audit.purge_old ~db ~max_age_days:9999 ~max_entries:2 in
+  Alcotest.(check int) "two entries purged" 2 deleted;
+  let rows = Audit.query ~db ~limit:10 () in
+  Alcotest.(check (list string))
+    "retained suffix stays newest two entries"
+    [ "e4: fourth"; "e3: third" ]
+    (List.filter_map (fun (row : Audit.row) -> row.details) rows);
+  check_verified ~db ~key
+    "Expected suffix_monotonicity retained suffix to verify with anchor"
 
 let test_signed_tampered_entry () =
   let db = Memory.init ~db_path:":memory:" () in
@@ -802,6 +859,12 @@ let suite =
       `Quick test_purge_by_age_keeps_contiguous_suffix_for_signed_chain;
     Alcotest.test_case "retention tick" `Quick test_retention_tick;
     Alcotest.test_case "signed valid chain" `Quick test_signed_valid_chain;
+    Alcotest.test_case "verify_chain_append preserves validity" `Quick
+      test_verify_chain_append_preserves_validity;
+    Alcotest.test_case "build_chain_valid sequential signed events" `Quick
+      test_build_chain_valid_from_sequential_signed_events;
+    Alcotest.test_case "suffix_monotonicity retained suffix verifies" `Quick
+      test_suffix_monotonicity_retained_suffix_verifies_with_anchor;
     Alcotest.test_case "signed tampered entry" `Quick test_signed_tampered_entry;
     Alcotest.test_case "signed tampered metadata" `Quick
       test_signed_tampered_metadata;

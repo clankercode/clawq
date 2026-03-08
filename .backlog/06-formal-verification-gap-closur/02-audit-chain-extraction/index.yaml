@@ -9,9 +9,9 @@ epics:
       locked: false
       name: Instantiate AuditChain with Concrete Crypto
       path: 01-instantiate-auditchain-with-co
-      status: pending
+      status: done
 estimate_hours: 8
 id: P6.M2
 locked: false
 name: Audit Chain Extraction
-status: pending
+status: done

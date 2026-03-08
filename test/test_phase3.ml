@@ -1,5 +1,120 @@
 let default_config = Runtime_config.default
 
+let free_port () =
+  let sock = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
+  Fun.protect
+    ~finally:(fun () -> Unix.close sock)
+    (fun () ->
+      Unix.setsockopt sock Unix.SO_REUSEADDR true;
+      Unix.bind sock (Unix.ADDR_INET (Unix.inet_addr_loopback, 0));
+      match Unix.getsockname sock with
+      | Unix.ADDR_INET (_, port) -> port
+      | Unix.ADDR_UNIX _ -> Alcotest.fail "expected inet socket")
+
+let make_fake_provider_config base_url : Runtime_config.provider_config =
+  {
+    api_key = "test-key";
+    kind = None;
+    base_url = Some base_url;
+    default_model = Some "fake-model";
+    project_id = None;
+    location = None;
+    service_account_json = None;
+    thinking_budget_tokens = None;
+    oai_thinking_style = "none";
+    codex_oauth = None;
+  }
+
+let with_fake_tool_loop_provider f =
+  let port = free_port () in
+  let requests = ref 0 in
+  let callback _conn req _body =
+    incr requests;
+    match (Cohttp.Request.meth req, Uri.path (Cohttp.Request.uri req)) with
+    | `POST, "/chat/completions" ->
+        let response_body =
+          Yojson.Safe.to_string
+            (`Assoc
+               [
+                 ("id", `String "cmpl_fake_tool_loop");
+                 ("object", `String "chat.completion");
+                 ("model", `String "fake-model");
+                 ( "choices",
+                   `List
+                     [
+                       `Assoc
+                         [
+                           ("index", `Int 0);
+                           ( "message",
+                             `Assoc
+                               [
+                                 ("role", `String "assistant");
+                                 ("content", `String "");
+                                 ( "tool_calls",
+                                   `List
+                                     [
+                                       `Assoc
+                                         [
+                                           ("id", `String "call_1");
+                                           ("type", `String "function");
+                                           ( "function",
+                                             `Assoc
+                                               [
+                                                 ("name", `String "loop_tool");
+                                                 ("arguments", `String "{}");
+                                               ] );
+                                         ];
+                                     ] );
+                               ] );
+                           ("finish_reason", `String "tool_calls");
+                         ];
+                     ] );
+                 ( "usage",
+                   `Assoc
+                     [
+                       ("prompt_tokens", `Int 1); ("completion_tokens", `Int 1);
+                     ] );
+               ])
+        in
+        Cohttp_lwt_unix.Server.respond_string ~status:`OK ~body:response_body ()
+    | _ -> Cohttp_lwt_unix.Server.respond_string ~status:`Not_found ~body:"" ()
+  in
+  let stop, stopper = Lwt.wait () in
+  let server =
+    Cohttp_lwt_unix.Server.create
+      ~mode:(`TCP (`Port port))
+      (Cohttp_lwt_unix.Server.make ~callback ())
+  in
+  Lwt.async (fun () -> Lwt.pick [ server; stop ]);
+  Fun.protect
+    ~finally:(fun () -> Lwt.wakeup_later stopper ())
+    (fun () ->
+      let config =
+        {
+          Runtime_config.default with
+          default_provider = Some "fake";
+          providers =
+            [
+              ( "fake",
+                make_fake_provider_config
+                  (Printf.sprintf "http://127.0.0.1:%d" port) );
+            ];
+          prompt =
+            { Runtime_config.default.prompt with dynamic_enabled = false };
+          security =
+            { Runtime_config.default.security with tools_enabled = true };
+          agent_defaults =
+            {
+              Runtime_config.default.agent_defaults with
+              primary_model = "fake-model";
+              max_tool_iterations = 1;
+              show_thinking = false;
+              show_tool_calls = false;
+            };
+        }
+      in
+      f config requests)
+
 (* Test: system prompt from config *)
 let test_system_prompt_from_config () =
   let config =
@@ -161,6 +276,35 @@ let test_execute_tool_calls_stream_bounds_final_result () =
            ignore (Str.search_forward re result 0);
            true
          with Not_found -> false)
+
+let test_loop_terminates () =
+  with_fake_tool_loop_provider (fun config requests ->
+      let tool_invocations = ref 0 in
+      let registry = Tool_registry.create () in
+      let tool =
+        {
+          Tool.name = "loop_tool";
+          description = "Always succeeds";
+          parameters_schema = `Assoc [];
+          invoke =
+            (fun _ ->
+              incr tool_invocations;
+              Lwt.return "ok");
+          invoke_stream = None;
+          risk_level = Tool.Low;
+          deferred = false;
+        }
+      in
+      Tool_registry.register registry tool;
+      let agent = Agent.create ~config ~tool_registry:registry () in
+      let response = Lwt_main.run (Agent.turn agent ~user_message:"hello" ()) in
+      Alcotest.(check string)
+        "turn stops at max tool iterations"
+        "I've reached the maximum number of tool iterations. Here's what I was \
+         trying to do: loop_tool"
+        response;
+      Alcotest.(check int) "provider called twice" 2 !requests;
+      Alcotest.(check int) "tool executed once" 1 !tool_invocations)
 
 (* Test: memory store and load roundtrip *)
 let test_memory_roundtrip () =
@@ -574,6 +718,7 @@ let suite =
     Alcotest.test_case "tool invocation" `Quick test_tool_invocation;
     Alcotest.test_case "streamed tool result is bounded" `Quick
       test_execute_tool_calls_stream_bounds_final_result;
+    Alcotest.test_case "loop terminates" `Quick test_loop_terminates;
     Alcotest.test_case "memory roundtrip" `Quick test_memory_roundtrip;
     Alcotest.test_case "memory clear" `Quick test_memory_clear;
     Alcotest.test_case "memory list sessions" `Quick test_memory_list_sessions;

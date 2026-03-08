@@ -5,6 +5,17 @@ let current_thinking_message current =
   Printf.sprintf "Current thinking level: %s"
     (Slash_commands.thinking_level_to_string current)
 
+let is_allowed_allowlist ~kind ~id allowlist =
+  let coq_allowed = Clawq_core.is_allowed0 id allowlist in
+  let ocaml_allowed =
+    match allowlist with [ "*" ] -> true | ids -> List.mem id ids
+  in
+  if coq_allowed <> ocaml_allowed then
+    Logs.warn (fun m ->
+        m "Discord allowlist drift for %s=%s: Coq=%b OCaml=%b" kind id
+          coq_allowed ocaml_allowed);
+  coq_allowed
+
 let set_thinking_level ~(session_mgr : Session.t) ~channel_id ~author_id level =
   let cfg = Session.get_config session_mgr in
   let previous = cfg.agent_defaults.reasoning_effort in
@@ -44,14 +55,11 @@ type resume_state = {
 
 let is_allowed ~(config : Runtime_config.discord_config) ~guild_id ~user_id =
   let guild_ok =
-    match config.allow_guilds with
-    | [ "*" ] -> true
-    | ids -> ( match guild_id with Some g -> List.mem g ids | None -> false)
+    let guild_id = match guild_id with Some g -> g | None -> "" in
+    is_allowed_allowlist ~kind:"guild" ~id:guild_id config.allow_guilds
   in
   let user_ok =
-    match config.allow_users with
-    | [ "*" ] -> true
-    | ids -> List.mem user_id ids
+    is_allowed_allowlist ~kind:"user" ~id:user_id config.allow_users
   in
   guild_ok && user_ok
 

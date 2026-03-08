@@ -129,6 +129,36 @@ let test_force_compress_history_noop_when_small () =
   Alcotest.(check bool) "no compression on small history" false compressed;
   Alcotest.(check int) "history unchanged" 4 (List.length agent.history)
 
+let test_trim_history_idempotent () =
+  let config = make_config ~max_messages:3 () in
+  let agent = Agent.create ~config () in
+  for i = 1 to 8 do
+    agent.history <-
+      Provider.make_message ~role:"user" ~content:(Printf.sprintf "Msg %d" i)
+      :: agent.history
+  done;
+  Agent.trim_history agent;
+  let once = List.map (fun (m : Provider.message) -> m.content) agent.history in
+  Agent.trim_history agent;
+  let twice =
+    List.map (fun (m : Provider.message) -> m.content) agent.history
+  in
+  Alcotest.(check (list string)) "trim_history is idempotent" once twice
+
+let test_prepare_turn_history_enforces_max_messages () =
+  let config = make_config ~max_messages:3 () in
+  let agent = Agent.create ~config () in
+  for i = 1 to 8 do
+    agent.history <-
+      Provider.make_message ~role:"user" ~content:(Printf.sprintf "Msg %d" i)
+      :: agent.history
+  done;
+  ignore
+    (Lwt_main.run (Agent.prepare_turn_history agent ~user_message:"latest" ()));
+  Alcotest.(check int)
+    "history bounded before provider call" 3
+    (List.length agent.history)
+
 let test_session_load_trims_history () =
   let db = Memory.init ~db_path:":memory:" () in
   let config = make_config ~max_messages:10 () in
@@ -216,4 +246,8 @@ let suite =
       test_force_compress_history;
     Alcotest.test_case "force_compress_history noop when small" `Quick
       test_force_compress_history_noop_when_small;
+    Alcotest.test_case "trim_history idempotent" `Quick
+      test_trim_history_idempotent;
+    Alcotest.test_case "prepare_turn_history enforces max messages" `Quick
+      test_prepare_turn_history_enforces_max_messages;
   ]
