@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B097
+priority: high
+status: pending
+tags: []
+title: 'wt shell integration / tool execution ergonomics: after ''wt switch'' or ''wt switch --create'', subsequent tool commands in this environment do not inherit the new worktree CWD because each exec is non-persistent. Investigate whether clawq can maintain/update an explicit per-session cwd across shell_exec calls, or provide safer worktree-aware affordances. Evaluate whether auto-updating cwd after wt switch is good practice versus too implicit/confusing in a stateless command-exec model.'
+---
+
+wt shell integration / tool execution ergonomics: after 'wt switch' or 'wt switch --create', subsequent tool commands in this environment do not inherit the new worktree CWD because each exec is non-persistent. Investigate whether clawq can maintain/update an explicit per-session cwd across shell_exec calls, or provide safer worktree-aware affordances. Evaluate whether auto-updating cwd after wt switch is good practice versus too implicit/confusing in a stateless command-exec model.

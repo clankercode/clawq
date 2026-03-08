@@ -95,3 +95,4 @@ bugs:
     - file: B094-when-we-recieve-a-message-we-s.todo
     - file: B095-tool-calls-via-telegram-are-no.todo
     - file: B096-generalize-config-reload-refre.todo
+    - file: B097-wt-shell-integration-tool-exec.todo
