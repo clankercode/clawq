@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-06T18:33:45Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-08T09:35:33Z"
 complexity: medium
 depends_on: []
+duration_minutes: 2341.8015669810666
 estimate_hours: 1
 id: B028
 priority: high
 started_at: "2026-03-06T18:33:45Z"
-status: in_progress
+status: done
 tags: []
 title: openai codex oauth doesn't work
 ---

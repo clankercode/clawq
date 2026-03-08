@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-08T07:39:05Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-08T09:35:33Z"
 complexity: medium
 depends_on: []
+duration_minutes: 116.46820468645
 estimate_hours: 1
 id: B051
 priority: high
 started_at: "2026-03-08T07:39:05Z"
-status: in_progress
+status: done
 tags: []
 title: codex says instructions are required -- weird
 ---

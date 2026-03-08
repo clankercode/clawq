@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-08T09:25:46Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-08T09:48:08Z"
 complexity: medium
 depends_on: []
+duration_minutes: 22.37035805025
 estimate_hours: 1
 id: B057
 priority: high
 started_at: "2026-03-08T09:25:46Z"
-status: in_progress
+status: done
 tags: []
 title: After using /update in telegram, clawq automatically restarts itself (running /update) every time it loads. This unfortunately kills the process and thus we enter a reboot loop (well it doesn't automatically start again, but does require me starting it again)
 ---

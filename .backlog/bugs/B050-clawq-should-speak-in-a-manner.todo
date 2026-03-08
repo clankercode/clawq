@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-08T07:31:00Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-08T09:35:33Z"
 complexity: medium
 depends_on: []
+duration_minutes: 124.55152274371666
 estimate_hours: 1
 id: B050
 priority: high
 started_at: "2026-03-08T07:31:00Z"
-status: in_progress
+status: done
 tags: []
 title: Clawq should speak in a manner becoming of a custacean of his station.
 ---

@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-08T06:51:24Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-08T09:35:33Z"
 complexity: medium
 depends_on: []
+duration_minutes: 164.15155731973334
 estimate_hours: 1
 id: B046
 priority: high
 started_at: "2026-03-08T06:51:24Z"
-status: in_progress
+status: done
 tags: []
 title: telegram bot in a perpetual state of typing -- possibly only occurs after LLM API call failed
 ---
