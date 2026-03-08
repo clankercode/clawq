@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B092
+priority: high
+status: pending
+tags: []
+title: When we queue a message, we should have a log line for that, also when we send the LLM a queued message, we should log that too
+---
+
+When we queue a message, we should have a log line for that, also when we send the LLM a queued message, we should log that too
