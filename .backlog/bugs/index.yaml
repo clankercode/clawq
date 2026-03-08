@@ -103,3 +103,4 @@ bugs:
     - file: B102-agent-restart-during-graceful.todo
     - file: B103-interrupted-cohttp-streaming-b.todo
     - file: B104-startup-logs-warn-noisily-for.todo
+    - file: B105-background-tasks-can-be-enqueu.todo

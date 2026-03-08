@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B105
+priority: high
+status: pending
+tags: []
+title: 'Background tasks can be enqueued via CLI but remain stuck in queued state under the live daemon: no pid, no worktree, no log file, and wait times out. Investigate daemon polling/startup path, DB visibility, and task launch failure handling.'
+---
+
+Background tasks can be enqueued via CLI but remain stuck in queued state under the live daemon: no pid, no worktree, no log file, and wait times out. Investigate daemon polling/startup path, DB visibility, and task launch failure handling.
