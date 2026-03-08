@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B079
+priority: high
+status: pending
+tags: []
+title: 'Document tool/runtime caveats in llms-full.txt: grep path/file_glob behavior can silently miss matches; clarify search config/runtime reload semantics; document session-aware send_message behavior and live-session outbound messaging semantics.'
+---
+
+Document tool/runtime caveats in llms-full.txt: grep path/file_glob behavior can silently miss matches; clarify search config/runtime reload semantics; document session-aware send_message behavior and live-session outbound messaging semantics.

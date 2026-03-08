@@ -77,3 +77,4 @@ bugs:
     - file: B076-tool-call-one-liners-in-telegr.todo
     - file: B077-messages-sent-over-telegram-et.todo
     - file: B078-config-updates-should-be-live.todo
+    - file: B079-document-tool-runtime-caveats.todo
