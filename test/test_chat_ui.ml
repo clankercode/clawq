@@ -92,6 +92,28 @@ let test_chat_css_has_tool_panel () =
     "has tool-panel" true
     (contains Chat_ui_assets.chat_css "tool-panel")
 
+let test_chat_css_pairing_modal_hidden () =
+  let contains s sub =
+    try
+      ignore (Str.search_forward (Str.regexp_string sub) s 0);
+      true
+    with Not_found -> false
+  in
+  Alcotest.(check bool)
+    "pairing-modal[hidden] display:none present" true
+    (contains Chat_ui_assets.chat_css "pairing-modal[hidden]")
+
+let test_index_html_no_cjs_hljs () =
+  let contains s sub =
+    try
+      ignore (Str.search_forward (Str.regexp_string sub) s 0);
+      true
+    with Not_found -> false
+  in
+  Alcotest.(check bool)
+    "highlight.js CDN uses browser bundle not lib/common.min.js" false
+    (contains Chat_ui_assets.index_html "highlight.js/lib/common.min.js")
+
 let suite =
   [
     Alcotest.test_case "index_html non-empty" `Quick test_index_html_non_empty;
@@ -109,4 +131,8 @@ let suite =
       test_index_html_has_pair_modal;
     Alcotest.test_case "chat_css has tool-panel" `Quick
       test_chat_css_has_tool_panel;
+    Alcotest.test_case "pairing modal hidden overrides display" `Quick
+      test_chat_css_pairing_modal_hidden;
+    Alcotest.test_case "index_html no CJS highlight.js" `Quick
+      test_index_html_no_cjs_hljs;
   ]

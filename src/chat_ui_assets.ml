@@ -1,7 +1,7 @@
 (* Auto-generated chat UI assets - embedded UI bundle *)
 
 let ui_version =
-  {ui|sha256:28f3ec6733cea15a3ea8edd346f389b40d90487c2c5f5ecfab1b059fd38f8534|ui}
+  {ui|sha256:dd16eb8a83bc2b566a2f2713676047195750905b49281fd04aa5258a0324f141|ui}
 
 let index_html =
   {ui|<!DOCTYPE html>
@@ -14,7 +14,7 @@ let index_html =
   <link rel="stylesheet" href="/chat.css">
   <script defer src="https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js" integrity="sha384-JEyTNhjM6R1ElGoJns4U2Ln4ofPcqzSsynQkmEc/KGy6336qAZl70tDLufbkla+3" crossorigin="anonymous"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/marked@15.0.12/marked.min.js" integrity="sha384-948ahk4ZmxYVYOc+rxN1H2gM1EJ2Duhp7uHtZ4WSLkV4Vtx5MUqnV+l7u9B+jFv+" crossorigin="anonymous"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/highlight.js@11.11.1/lib/common.min.js" integrity="sha384-PaYbudF4+JA0o1XwzEg2SdOGwBFfJFwiZ0hFm3lEVQjMSBqHMsGAKTEc0k6Lh6ig" crossorigin="anonymous"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.11.1/highlight.min.js" integrity="sha384-RH2xi4eIQ/gjtbs9fUXM68sLSi99C7ZWBRX1vDrVv6GQXRibxXLbwO2NGZB74MbU" crossorigin="anonymous"></script>
 </head>
 <body>
   <div class="app-shell">
@@ -624,6 +624,10 @@ pre,
   place-items: center;
   background: rgba(31, 38, 48, 0.38);
   padding: 1rem;
+}
+
+.pairing-modal[hidden] {
+  display: none;
 }
 
 .pairing-dialog {

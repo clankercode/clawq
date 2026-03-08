@@ -524,6 +524,10 @@ pre,
   padding: 1rem;
 }
 
+.pairing-modal[hidden] {
+  display: none;
+}
+
 .pairing-dialog {
   width: min(32rem, 100%);
   padding: 1.6rem;

@@ -1,12 +1,18 @@
 ---
+claimed_at: "2026-03-07T23:37:58Z"
+claimed_by: cli-user
+completed_at: "2026-03-07T23:37:58Z"
 complexity: medium
 depends_on: []
+duration_minutes: 0.01401440725
 estimate_hours: 1
 id: B042
 priority: high
-status: pending
+started_at: "2026-03-07T23:37:58Z"
+status: done
 tags: []
 title: 'after otp pairing with clawq webui, the pair this browser modal does not go away and Uncaught ReferenceError: require is not defined'
 ---
 
 after otp pairing with clawq webui, the pair this browser modal does not go away and Uncaught ReferenceError: require is not defined
+
