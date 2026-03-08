@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B060
+priority: high
+status: pending
+tags: []
+title: clawq needs a way to automatically reactive after an /update. We can inject a message into the log after initialization is complete after an update run.
+---
+
+clawq needs a way to automatically reactive after an /update. We can inject a message into the log after initialization is complete after an update run.
