@@ -269,8 +269,19 @@ let otp_show_cmd =
   simple "otp-show"
     "Show the current browser pairing code and any Telegram TOTP codes."
 
+let version_cmd =
+  let info = Cmd.info "version" ~doc:"Print version and build info." in
+  Cmd.v info
+    Term.(
+      ret
+        (const (fun () ->
+             print_endline Build_info.version_string;
+             `Ok ())
+        $ const ()))
+
 let main_info =
-  Cmd.info "clawq" ~version:"0.1.0-dev" ~doc:"Coq-first AI assistant runtime"
+  Cmd.info "clawq" ~version:Build_info.version_string
+    ~doc:"Coq-first AI assistant runtime"
     ~man:
       [
         `S Manpage.s_description;
@@ -287,6 +298,10 @@ let main_info =
 let help_env var = match var with "MANPAGER" -> None | _ -> Sys.getenv_opt var
 
 let () =
+  let argv =
+    let args = Array.to_list Sys.argv in
+    match args with [ prog; "-v" ] -> [| prog; "--version" |] | _ -> Sys.argv
+  in
   let cmds =
     [
       config_cmd;
@@ -312,9 +327,10 @@ let () =
       reset_agent_cmd;
       reset_workspace_cmd;
       otp_show_cmd;
+      version_cmd;
       phase2_cmd;
       hardware_cmd;
       debug_cmd;
     ]
   in
-  exit (Cmd.eval ~env:help_env (Cmd.group main_info cmds))
+  exit (Cmd.eval ~argv ~env:help_env (Cmd.group main_info cmds))

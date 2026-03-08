@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-08T09:46:15Z"
+claimed_by: cli-user
+completed_at: "2026-03-08T09:48:38Z"
 complexity: medium
 depends_on: []
+duration_minutes: 2.3835856330666667
 estimate_hours: 1
 id: B059
 priority: high
-status: pending
+started_at: "2026-03-08T09:46:15Z"
+status: done
 tags: []
 title: When starting up, clawq should print its version number and git shorthash (from when it was built)
 ---

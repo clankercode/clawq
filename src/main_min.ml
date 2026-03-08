@@ -103,8 +103,18 @@ let service_cmd = disabled "service" "Manage the clawq system service"
 let hardware_cmd = disabled "hardware" "Hardware integration (deferred)"
 let otp_show_cmd = disabled "otp-show" "Show pairing codes"
 
+let version_cmd =
+  let info = Cmd.info "version" ~doc:"Print version and build info." in
+  Cmd.v info
+    Term.(
+      ret
+        (const (fun () ->
+             print_endline Build_info.version_string;
+             `Ok ())
+        $ const ()))
+
 let main_info =
-  Cmd.info "clawq-min" ~version:"0.1.0-dev"
+  Cmd.info "clawq-min" ~version:Build_info.version_string
     ~doc:"Minimal clawq CLI (core-only, no network integrations)"
     ~man:
       [
@@ -122,6 +132,10 @@ let main_info =
 let help_env var = match var with "MANPAGER" -> None | _ -> Sys.getenv_opt var
 
 let () =
+  let argv =
+    let args = Array.to_list Sys.argv in
+    match args with [ prog; "-v" ] -> [| prog; "--version" |] | _ -> Sys.argv
+  in
   let cmds =
     [
       status_cmd;
@@ -145,7 +159,8 @@ let () =
       tunnel_cmd;
       service_cmd;
       otp_show_cmd;
+      version_cmd;
       hardware_cmd;
     ]
   in
-  exit (Cmd.eval ~env:help_env (Cmd.group main_info cmds))
+  exit (Cmd.eval ~argv ~env:help_env (Cmd.group main_info cmds))

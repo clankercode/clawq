@@ -1,6 +1,14 @@
+(rule
+ (target build_info.ml)
+ (deps (universe))
+ (action
+  (bash
+   "hash=$(git rev-parse --short HEAD 2>/dev/null || echo unknown); printf 'let version = \"0.1.0-dev\"\\nlet git_shorthash = \"%s\"\\nlet version_string = \"0.1.0-dev (%s)\"\\n' \"$hash\" \"$hash\" > %{target}")))
+
 (library
  (name clawq_runtime_core)
  (modules
+  build_info
   phase2
   runtime_config
   config_loader

@@ -324,7 +324,8 @@ let run ~(config : Runtime_config.t) =
       if String.length name >= 6 && String.sub name 0 6 = "cohttp" then
         Logs.Src.set_level src (Some Logs.Warning))
     (Logs.Src.list ());
-  Logs.info (fun m -> m "clawq daemon starting (pid=%d)" (Unix.getpid ()));
+  Logs.info (fun m ->
+      m "clawq %s starting (pid=%d)" Build_info.version_string (Unix.getpid ()));
   let workspace = Runtime_config.effective_workspace config in
   Workspace_scaffold.ensure_dir workspace;
   let active_provider, _, active_model = Provider.select_provider ~config in
