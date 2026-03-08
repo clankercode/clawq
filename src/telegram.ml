@@ -152,9 +152,11 @@ let with_typing ~bot_token ~chat_id p =
         loop ()
   in
   Lwt.async (fun () -> loop ());
-  let+ result = p in
-  cancelled := true;
-  result
+  Lwt.finalize
+    (fun () -> p)
+    (fun () ->
+      cancelled := true;
+      Lwt.return_unit)
 
 let send_message ~bot_token ~chat_id ~text =
   let open Lwt.Syntax in
