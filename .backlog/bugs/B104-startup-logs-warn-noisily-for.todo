@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B104
+priority: high
+status: pending
+tags: []
+title: Startup logs warn noisily for many optional but merely unconfigured channels (Discord, Matrix, IRC, Email, etc.). Reduce severity or summarize absent optional integrations so logs distinguish misconfiguration from intentional non-use.
+---
+
+Startup logs warn noisily for many optional but merely unconfigured channels (Discord, Matrix, IRC, Email, etc.). Reduce severity or summarize absent optional integrations so logs distinguish misconfiguration from intentional non-use.

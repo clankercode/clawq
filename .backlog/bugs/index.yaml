@@ -102,3 +102,4 @@ bugs:
     - file: B101-post-restart-one-shot-confirma.todo
     - file: B102-agent-restart-during-graceful.todo
     - file: B103-interrupted-cohttp-streaming-b.todo
+    - file: B104-startup-logs-warn-noisily-for.todo
