@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B103
+priority: high
+status: pending
+tags: []
+title: Interrupted/cohttp streaming bodies are not always consumed/closed during restart/drain, producing 'Body not consumed, leaking stream!' warnings. Ensure restart/interrupt paths clean up response bodies promptly.
+---
+
+Interrupted/cohttp streaming bodies are not always consumed/closed during restart/drain, producing 'Body not consumed, leaking stream!' warnings. Ensure restart/interrupt paths clean up response bodies promptly.
