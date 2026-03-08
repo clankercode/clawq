@@ -54,3 +54,21 @@ let parse_channel_from_key key =
   match String.split_on_char ':' key with
   | channel :: id :: _ -> Some (channel, id)
   | _ -> None
+
+let env_key = "CLAWQ_RESTART_NOTIFY_JSON"
+
+let to_json_string ~channel ~channel_id =
+  Yojson.Safe.to_string
+    (`Assoc
+       [
+         ("channel", `String channel);
+         ("channel_id", `String channel_id);
+         ("timestamp", `Float (Unix.gettimeofday ()));
+       ])
+
+let from_json_string raw =
+  try
+    let json = Yojson.Safe.from_string raw in
+    let open Yojson.Safe.Util in
+    Some (json |> member "channel" |> to_string, json |> member "channel_id" |> to_string)
+  with _ -> None

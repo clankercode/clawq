@@ -35,6 +35,28 @@ let test_handle_daemon_exit_restart_sets_nofork_and_execs () =
         Some (path, argv, env_contains env "CLAWQ_DAEMON_NOFORK=1")
     | None -> None)
 
+let test_handle_daemon_exit_restart_carries_restart_notify_env () =
+  Restart_notify.write ~channel:"telegram" ~channel_id:"42";
+  let called = ref None in
+  Service.handle_daemon_exit
+    ~execve:(fun _ _ env -> called := Some env)
+    Daemon.Restart;
+  let contains_restart_json =
+    match !called with
+    | None -> false
+    | Some env ->
+        Array.exists
+          (fun entry ->
+            let prefix = Restart_notify.env_key ^ "=" in
+            let plen = String.length prefix in
+            String.length entry >= plen
+            && String.sub entry 0 plen = prefix
+            && String.contains entry '4')
+          env
+  in
+  Restart_notify.remove ();
+  Alcotest.(check bool) "restart notify env present" true contains_restart_json
+
 let test_handle_daemon_exit_shutdown_skips_exec () =
   let called = ref false in
   Service.handle_daemon_exit
@@ -125,6 +147,8 @@ let suite =
   [
     Alcotest.test_case "handle daemon exit restart sets nofork and execs" `Quick
       test_handle_daemon_exit_restart_sets_nofork_and_execs;
+    Alcotest.test_case "handle daemon exit restart carries restart notify env" `Quick
+      test_handle_daemon_exit_restart_carries_restart_notify_env;
     Alcotest.test_case "handle daemon exit shutdown skips exec" `Quick
       test_handle_daemon_exit_shutdown_skips_exec;
     Alcotest.test_case "run nofork start reexecs without public env" `Quick

@@ -157,10 +157,18 @@ let handle_daemon_exit ?(execve = Unix.execve) exit_intent =
   match exit_intent with
   | Daemon.Shutdown -> ()
   | Daemon.Restart ->
+      let set_vars =
+        match Restart_notify.read () with
+        | Some (channel, channel_id) ->
+            [
+              (nofork_env, "1");
+              (Restart_notify.env_key,
+               Restart_notify.to_json_string ~channel ~channel_id);
+            ]
+        | None -> [ (nofork_env, "1") ]
+      in
       execve Sys.executable_name (daemon_start_argv ())
-        (build_env
-           ~set_vars:[ (nofork_env, "1") ]
-           ~unset_vars:[ internal_nofork_env ])
+        (build_env ~set_vars ~unset_vars:[ internal_nofork_env ])
 
 let run_nofork_start ?(execve = Unix.execve)
     ?(run_daemon = fun ~config -> Lwt_main.run (Daemon.run ~config)) ~config ()

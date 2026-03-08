@@ -676,7 +676,15 @@ let run ~(config : Runtime_config.t) =
   let* () =
     Lwt.catch
       (fun () ->
-        match Restart_notify.read () with
+        let marker =
+          match Sys.getenv_opt Restart_notify.env_key with
+          | Some raw when String.trim raw <> "" -> (
+              match Restart_notify.from_json_string raw with
+              | Some marker -> Some marker
+              | None -> Restart_notify.read ())
+          | _ -> Restart_notify.read ()
+        in
+        match marker with
         | Some (channel, channel_id) ->
             Restart_notify.remove ();
             let text =
