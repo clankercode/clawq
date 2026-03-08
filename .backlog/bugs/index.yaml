@@ -114,3 +114,4 @@ bugs:
     - file: B113-busy-session-inbound-message-q.todo
     - file: B114-implement-a-one-shot-continuat.todo
     - file: B115-when-in-a-telegram-or-other-ch.todo
+    - file: B116-invalid-tool-call-ids-after-co.todo

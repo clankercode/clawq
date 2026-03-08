@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B116
+priority: high
+status: pending
+tags: []
+title: invalid tool call ids after compaction
+---
+
+invalid tool call ids after compaction
