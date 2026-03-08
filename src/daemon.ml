@@ -132,6 +132,10 @@ let dispatch_resumed_message ?(senders = default_resume_senders)
       | None -> Lwt.return (Error "slack channel is not configured"))
   | _ -> Lwt.return (Error (Printf.sprintf "unsupported channel %s" channel))
 
+let refresh_runtime_bound_tools ~(config : Runtime_config.t) registry =
+  Tool_registry.replace registry (Tools_builtin.web_search ~config);
+  Logs.info (fun m -> m "Refreshed runtime-bound tool: web_search")
+
 let default_resume_turn ~(session_manager : Session.t) ~session_key agent
     interrupt =
   let open Lwt.Syntax in
@@ -242,6 +246,7 @@ let pp_header_with_ts ppf t h =
     tm.Unix.tm_sec ms Logs_fmt.pp_header h
 
 let run ~(config : Runtime_config.t) =
+  let current_config = ref config in
   let open Lwt.Syntax in
   let is_loopback_host host =
     let h = String.lowercase_ascii (String.trim host) in
@@ -400,7 +405,7 @@ let run ~(config : Runtime_config.t) =
   let tool_registry =
     if config.security.tools_enabled then begin
       let registry = Tool_registry.create () in
-      Tools_builtin.register_all ~config ~sandbox registry;
+      Tools_builtin.register_all ~config:!current_config ~sandbox registry;
       let skills =
         Skills.load_all ~workspace_only:config.security.workspace_only
           ~allowed_commands:Tools_builtin.default_shell_allowlist ()
@@ -597,7 +602,7 @@ let run ~(config : Runtime_config.t) =
     | _ -> None
   in
   let session_manager =
-    Session.create ~config ?tool_registry ~sandbox ~landlock_enabled ?db ()
+    Session.create ~config:!current_config ?tool_registry ~sandbox ~landlock_enabled ?db ()
   in
   (match tool_registry with
   | Some registry ->
@@ -825,7 +830,11 @@ let run ~(config : Runtime_config.t) =
         Logs.info (fun m -> m "SIGHUP received, reloading config...");
         try
           let new_config = Config_loader.load () in
+          current_config := new_config;
           Session.update_config session_manager new_config;
+          (match tool_registry with
+          | Some registry -> refresh_runtime_bound_tools ~config:new_config registry
+          | None -> ());
           Logs.info (fun m -> m "Config reloaded successfully")
         with exn ->
           Logs.err (fun m ->
@@ -1008,7 +1017,11 @@ let run ~(config : Runtime_config.t) =
                if st.Unix.st_mtime > !last_config_mtime then begin
                  last_config_mtime := st.Unix.st_mtime;
                  let new_config = Config_loader.load () in
+                 current_config := new_config;
                  Session.update_config session_manager new_config;
+                 (match tool_registry with
+                 | Some registry -> refresh_runtime_bound_tools ~config:new_config registry
+                 | None -> ());
                  Logs.info (fun m -> m "Config auto-reloaded (file changed)")
                end
              with exn ->

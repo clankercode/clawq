@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-08T14:39:36Z"
+claimed_by: cli-user
+completed_at: "2026-03-08T14:43:20Z"
 complexity: medium
 depends_on: []
+duration_minutes: 3.7415869275
 estimate_hours: 1
 id: B080
 priority: high
-status: pending
+started_at: "2026-03-08T14:39:36Z"
+status: done
 tags: []
 title: Daemon config changes likely do not live-reload for web_search/Brave and related runtime tool config; inspect reload path and ensure changed config is applied without full restart, or document restart requirement clearly.
 ---

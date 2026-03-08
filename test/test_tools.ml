@@ -532,6 +532,42 @@ let test_doc_write_known_file () =
   (try Sys.remove (Filename.concat dir "RANDOM.md") with _ -> ());
   try Sys.rmdir dir with _ -> ()
 
+let test_web_search_reads_live_config_after_registry_refresh () =
+  let base = Runtime_config.default in
+  let registry = Tool_registry.create () in
+  let not_configured = { base with web_search = None } in
+  let configured =
+    {
+      base with
+      web_search =
+        Some
+          {
+            Runtime_config.search_provider = "brave";
+            search_api_key = "reloaded-key";
+            num_results = 7;
+            search_base_url = Some "https://brave.example.invalid/res/v1/web/search";
+          };
+    }
+  in
+  Tool_registry.register registry (Tools_builtin.web_search ~config:not_configured);
+  let tool1 = Option.get (Tool_registry.find registry "web_search") in
+  let out1 =
+    Lwt_main.run (tool1.invoke (`Assoc [ ("query", `String "clawq") ]))
+  in
+  Alcotest.(check string)
+    "initial tool reports missing config"
+    "Error: web_search not configured. Add a \"web_search\" section to ~/.clawq/config.json with provider and api_key."
+    out1;
+  Tool_registry.replace registry (Tools_builtin.web_search ~config:configured);
+  let tool2 = Option.get (Tool_registry.find registry "web_search") in
+  let out2 =
+    Lwt_main.run
+      (tool2.invoke (`Assoc [ ("query", `String "clawq"); ("limit", `Int 7) ]))
+  in
+  Alcotest.(check bool)
+    "replaced tool no longer uses missing-config closure" true
+    (not (String.equal out2 out1))
+
 let suite =
   [
     Alcotest.test_case "normalize absolute" `Quick test_normalize_absolute;
@@ -566,6 +602,8 @@ let suite =
       test_command_env_var_prefix;
     Alcotest.test_case "default allowlist includes basics" `Quick
       test_command_default_allowlist_includes_basics;
+    Alcotest.test_case "web_search reads live config after registry refresh" `Quick
+      test_web_search_reads_live_config_after_registry_refresh;
     Alcotest.test_case "safe command no special chars" `Quick
       test_safe_command_no_special;
     Alcotest.test_case "unsafe semicolon" `Quick test_unsafe_semicolon;
@@ -608,3 +646,4 @@ let suite =
     Alcotest.test_case "doc_write known file note" `Quick
       test_doc_write_known_file;
   ]
+
