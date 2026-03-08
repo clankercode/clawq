@@ -10,3 +10,25 @@ title: tool inconsitency grep
 ---
 
 tool inconsitency grep
+
+What we have now is not just a bad pattern. It points to a **tool-behavior 
+inconsistency** around directory/file handling or search implementation. Why I say that: 
+- `file_read` on `/home/xertrov/src/clawq/src/runtime_config.ml` clearly showed 
+`web_search_config`, `search_provider`, and `search_api_key`. - `grep` against that same 
+file path returned no matches for patterns that should have matched trivially. - This is 
+analogous in shape to the earlier shell/file mismatch: one tool can see or process 
+content that another tool mishandles. Possible causes: 1. **`grep` path handling bug**
+   It may treat `path` as directory-only even when given a file path. 2. **`file_glob` 
+interaction bug**
+   Applying `*.ml` when `path` is already a file may exclude the file entirely. 3. 
+**regex/parsing limitation**
+   The tool may not support alternation `|` as expected, or may treat the pattern 
+   literally.
+4. **implementation split** Directory search and single-file search may go through 
+   different code paths, one of them broken.
+My judgment: **the strongest suspect is file-vs-directory path semantics combined with 
+`file_glob` filtering**, not pure directory boundary issues in the filesystem sense. A 
+clean test would be: - grep for `search_provider` on the **directory** `src/` with 
+`*.ml` - grep for `search_provider` on the **exact file** without relying on 
+glob/alternation
+- grep for a known early token like `type provider_config`
