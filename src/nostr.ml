@@ -341,7 +341,11 @@ let listen_relay ~(config : Runtime_config.nostr_config) relay ~since_ts
                         in
                         match result with
                         | Ok response ->
-                            send_dm ~config ~recipient:sender ~content:response
+                            if Session.is_queued_message_response response then
+                              Lwt.return_unit
+                            else
+                              send_dm ~config ~recipient:sender
+                                ~content:response
                         | Error err ->
                             Logs.err (fun m ->
                                 m "Nostr: agent error for pubkey=%s: %s" sender

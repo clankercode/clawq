@@ -510,6 +510,80 @@ let test_clear_response_deferred_removes_marker () =
     "marker removed" false
     (Session.take_response_deferred mgr ~key:"telegram:2:u")
 
+let queued_message ?channel_name ?channel_type ?sender_id ?sender_name ?channel
+    ?channel_id message =
+  {
+    Session.message;
+    attachments = [];
+    channel_name;
+    channel_type;
+    sender_id;
+    sender_name;
+    channel;
+    channel_id;
+  }
+
+let test_enqueue_message_if_busy_marks_interrupt_and_preserves_message () =
+  let config = Runtime_config.default in
+  let mgr = Session.create ~config () in
+  let interrupt = ref None in
+  let mutex = Lwt_mutex.create () in
+  Hashtbl.replace mgr.sessions "telegram:1:u"
+    (Agent.create ~config (), mutex, interrupt);
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () = Lwt_mutex.lock mutex in
+     Session.register_channel_notifier mgr ~key:"telegram:1:u" (fun _ ->
+         Lwt.return_unit);
+     let* queued =
+       Session.enqueue_message_if_busy mgr ~key:"telegram:1:u"
+         (queued_message ~channel:"telegram" ~channel_id:"1" "hello later")
+     in
+     Alcotest.(check bool) "message queued" true queued;
+     Alcotest.(check (option string))
+       "interrupt marked" (Some "[queued inbound message]") !interrupt;
+     Lwt.return_unit);
+  match Session.take_next_queued_message mgr ~key:"telegram:1:u" with
+  | None -> Alcotest.fail "expected queued message"
+  | Some queued ->
+      Alcotest.(check string)
+        "queued content preserved" "hello later" queued.Session.message;
+      Alcotest.(check (option string))
+        "queue emptied" None
+        (Option.map
+           (fun msg -> msg.Session.message)
+           (Session.take_next_queued_message mgr ~key:"telegram:1:u"))
+
+let test_drain_queued_messages_sends_followup_response () =
+  with_fake_chat_provider (fun config ->
+      let db = Memory.init ~db_path:":memory:" () in
+      let mgr = Session.create ~config ~db () in
+      let sent = ref [] in
+      Lwt_main.run
+        (Session.with_registered_notifier mgr ~key:"telegram:1:u"
+           ~notify:(fun text ->
+             sent := text :: !sent;
+             Lwt.return_unit)
+           (fun () ->
+             Session.with_session_lock mgr ~key:"telegram:1:u"
+               (fun agent interrupt ->
+                 let open Lwt.Syntax in
+                 let* queued =
+                   Session.enqueue_message_if_busy mgr ~key:"telegram:1:u"
+                     (queued_message ~channel_name:"telegram" ~channel_type:"dm"
+                        ~channel:"telegram" ~channel_id:"1" "please continue")
+                 in
+                 Alcotest.(check bool) "busy queue succeeds" true queued;
+                 Session.drain_queued_messages mgr ~key:"telegram:1:u" agent
+                   interrupt)));
+      Alcotest.(check int) "followup sent once" 1 (List.length !sent);
+      Alcotest.(check bool)
+        "followup produced provider reply" true
+        (String.starts_with ~prefix:"reply:" (List.hd !sent));
+      Alcotest.(check bool)
+        "queue drained" true
+        (Session.take_next_queued_message mgr ~key:"telegram:1:u" = None))
+
 let test_turn_uses_special_command_handler () =
   let config = Runtime_config.default in
   let mgr = Session.create ~config () in
@@ -702,6 +776,13 @@ let suite =
       test_take_response_deferred_clears_marker;
     Alcotest.test_case "clear response deferred removes marker" `Quick
       test_clear_response_deferred_removes_marker;
+    Alcotest.test_case "clear response deferred removes marker" `Quick
+      test_clear_response_deferred_removes_marker;
+    Alcotest.test_case
+      "enqueue message if busy marks interrupt and preserves message" `Quick
+      test_enqueue_message_if_busy_marks_interrupt_and_preserves_message;
+    Alcotest.test_case "drain queued messages sends followup response" `Quick
+      test_drain_queued_messages_sends_followup_response;
     Alcotest.test_case "turn uses special command handler" `Quick
       test_turn_uses_special_command_handler;
     Alcotest.test_case "turn stream uses special command handler" `Quick

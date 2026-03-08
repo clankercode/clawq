@@ -176,7 +176,11 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
                           in
                           match result with
                           | Ok response ->
-                              send_imessage ~recipient:handle_id ~text:response
+                              if Session.is_queued_message_response response
+                              then Lwt.return_unit
+                              else
+                                send_imessage ~recipient:handle_id
+                                  ~text:response
                           | Error err ->
                               Logs.err (fun m ->
                                   m "iMessage: agent error for handle=%s: %s"

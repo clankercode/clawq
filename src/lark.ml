@@ -226,8 +226,11 @@ let handle_webhook_body ~(config : Runtime_config.lark_config)
               in
               match result with
               | Ok response ->
-                  let* () = send_message ~config ~chat_id ~text:response in
-                  Lwt.return (`Ok {|{"code":0}|})
+                  if Session.is_queued_message_response response then
+                    Lwt.return (`Ok {|{"code":0}|})
+                  else
+                    let* () = send_message ~config ~chat_id ~text:response in
+                    Lwt.return (`Ok {|{"code":0}|})
               | Error err ->
                   Logs.err (fun m ->
                       m "Lark: agent error for chat=%s user=%s: %s" chat_id

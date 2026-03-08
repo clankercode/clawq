@@ -624,16 +624,19 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
                       in
                       match result with
                       | Ok response ->
-                          Lwt.catch
-                            (fun () ->
-                              send_email ~cfg ~to_addr:msg.from_addr
-                                ~subject:reply_subject ~body:response
-                                ?in_reply_to ?references:in_reply_to ())
-                            (fun exn ->
-                              Logs.err (fun m ->
-                                  m "Email: send error to %s: %s" msg.from_addr
-                                    (Printexc.to_string exn));
-                              Lwt.return_unit)
+                          if Session.is_queued_message_response response then
+                            Lwt.return_unit
+                          else
+                            Lwt.catch
+                              (fun () ->
+                                send_email ~cfg ~to_addr:msg.from_addr
+                                  ~subject:reply_subject ~body:response
+                                  ?in_reply_to ?references:in_reply_to ())
+                              (fun exn ->
+                                Logs.err (fun m ->
+                                    m "Email: send error to %s: %s"
+                                      msg.from_addr (Printexc.to_string exn));
+                                Lwt.return_unit)
                       | Error err ->
                           Logs.err (fun m ->
                               m "Email: agent error for %s: %s" msg.from_addr

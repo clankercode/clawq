@@ -249,13 +249,18 @@ let handle_event ~(config : Runtime_config.slack_config)
                 in
                 match result with
                 | Ok response ->
-                    let* () =
-                      send_message_fn ~bot_token:config.bot_token ~channel_id
-                        ~text:response
-                    in
-                    if not (Session.take_response_deferred session_manager ~key)
-                    then Session.mark_response_sent session_manager ~key;
-                    Lwt.return "ok"
+                    if Session.is_queued_message_response response then
+                      Lwt.return "ok"
+                    else
+                      let* () =
+                        send_message_fn ~bot_token:config.bot_token ~channel_id
+                          ~text:response
+                      in
+                      if
+                        not
+                          (Session.take_response_deferred session_manager ~key)
+                      then Session.mark_response_sent session_manager ~key;
+                      Lwt.return "ok"
                 | Error err ->
                     Logs.err (fun m ->
                         m "Slack agent error for channel=%s user=%s: %s"

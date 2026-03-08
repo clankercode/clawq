@@ -203,6 +203,9 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
                                   Lwt.return (Error (Printexc.to_string exn))))
                         in
                         match result with
+                        | Ok response
+                          when Session.is_queued_message_response response ->
+                            Lwt.return_unit
                         | Ok response ->
                             send_message ~cfg ~room_id ~text:response
                         | Error err ->

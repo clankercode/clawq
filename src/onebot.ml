@@ -250,6 +250,10 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
                                             (Error (Printexc.to_string exn))))
                                 in
                                 match result with
+                                | Ok response
+                                  when Session.is_queued_message_response
+                                         response ->
+                                    Lwt.return_unit
                                 | Ok response -> (
                                     match (message_type, group_id) with
                                     | "group", Some gid ->

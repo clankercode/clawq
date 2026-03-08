@@ -306,7 +306,9 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
           in
           match result with
           | Ok response ->
-              send ~cfg ~recipient:from ~group_id_opt ~text:response
+              if Session.is_queued_message_response response then
+                Lwt.return_unit
+              else send ~cfg ~recipient:from ~group_id_opt ~text:response
           | Error err ->
               Logs.err (fun m -> m "Signal: agent error for %s: %s" from err);
               send ~cfg ~recipient:from ~group_id_opt

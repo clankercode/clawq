@@ -302,12 +302,15 @@ let run_session ~(cfg : Runtime_config.irc_config) ~conn
                     in
                     match result with
                     | Ok response ->
-                        let chunks = chunk_text response in
-                        Lwt_list.iter_s
-                          (fun chunk ->
-                            write_line conn
-                              ("PRIVMSG " ^ reply_target ^ " :" ^ chunk))
-                          chunks
+                        if Session.is_queued_message_response response then
+                          Lwt.return_unit
+                        else
+                          let chunks = chunk_text response in
+                          Lwt_list.iter_s
+                            (fun chunk ->
+                              write_line conn
+                                ("PRIVMSG " ^ reply_target ^ " :" ^ chunk))
+                            chunks
                     | Error err ->
                         Logs.err (fun m ->
                             m "IRC: agent error for %s: %s" sender err);

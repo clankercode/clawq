@@ -407,13 +407,16 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
           in
           match result with
           | Ok response ->
-              let* () =
-                send_message_fn ~bot_token:discord_config.bot_token
-                  ~channel_id:msg.channel_id ~text:response
-              in
-              if not (Session.take_response_deferred session_mgr ~key) then
-                Session.mark_response_sent session_mgr ~key;
-              Lwt.return_unit
+              if Session.is_queued_message_response response then
+                Lwt.return_unit
+              else
+                let* () =
+                  send_message_fn ~bot_token:discord_config.bot_token
+                    ~channel_id:msg.channel_id ~text:response
+                in
+                if not (Session.take_response_deferred session_mgr ~key) then
+                  Session.mark_response_sent session_mgr ~key;
+                Lwt.return_unit
           | Error err ->
               Logs.err (fun m ->
                   m "Discord agent error for channel=%s user=%s: %s"

@@ -169,6 +169,10 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
                                             (Error (Printexc.to_string exn))))
                                 in
                                 match result with
+                                | Ok response
+                                  when Session.is_queued_message_response
+                                         response ->
+                                    Lwt.return_unit
                                 | Ok response ->
                                     send_message ~config:mm_config ~channel_id
                                       ~text:response

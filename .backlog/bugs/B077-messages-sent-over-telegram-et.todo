@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-08T14:08:04Z"
+claimed_by: cli-user
+completed_at: "2026-03-08T14:20:54Z"
 complexity: medium
 depends_on: []
+duration_minutes: 12.8489477468
 estimate_hours: 1
 id: B077
 priority: high
-status: pending
+started_at: "2026-03-08T14:08:04Z"
+status: done
 tags: []
 title: Messages sent over telegram etc while the agent is working should be queued and sent at the next possible opportunity (eg after tool calls). When we inject a message in this way, we can tell the agent to reply and continue with their previous task (well, if that makes sense to at least).
 ---

@@ -562,21 +562,24 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
             in
             match result with
             | Ok response ->
-                let thinking = Stream_visibility.thinking_text visibility in
-                let* () =
-                  if thinking <> "" then
+                if Session.is_queued_message_response response then
+                  Lwt.return_unit
+                else
+                  let thinking = Stream_visibility.thinking_text visibility in
+                  let* () =
+                    if thinking <> "" then
+                      send_chunked ~bot_token ~chat_id:update.chat_id
+                        ~text:("_" ^ thinking ^ "_")
+                        ()
+                    else Lwt.return_unit
+                  in
+                  let* () =
                     send_chunked ~bot_token ~chat_id:update.chat_id
-                      ~text:("_" ^ thinking ^ "_")
-                      ()
-                  else Lwt.return_unit
-                in
-                let* () =
-                  send_chunked ~bot_token ~chat_id:update.chat_id ~text:response
-                    ()
-                in
-                if not (Session.take_response_deferred session_mgr ~key) then
-                  Session.mark_response_sent session_mgr ~key;
-                Lwt.return_unit
+                      ~text:response ()
+                  in
+                  if not (Session.take_response_deferred session_mgr ~key) then
+                    Session.mark_response_sent session_mgr ~key;
+                  Lwt.return_unit
             | Error err ->
                 Logs.err (fun m ->
                     m "Agent error for chat_id=%s: %s" update.chat_id err);
