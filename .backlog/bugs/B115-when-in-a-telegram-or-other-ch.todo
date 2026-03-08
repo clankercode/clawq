@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B115
+priority: high
+status: pending
+tags: []
+title: when in a telegram (or other) chat and compaction happens, a message saying 'compacting' should be sent to the user
+---
+
+when in a telegram (or other) chat and compaction happens, a message saying 'compacting' should be sent to the user
