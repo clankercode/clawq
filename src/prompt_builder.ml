@@ -91,6 +91,14 @@ type context_usage = {
   compacted_before_turn : bool;
 }
 
+type background_task_summary = {
+  id : int;
+  runner : string;
+  repo_label : string;
+  branch : string;
+  status : string;
+}
+
 type runtime_context_details = {
   session_id : string;
   session_name : string option;
@@ -103,6 +111,7 @@ type runtime_context_details = {
   shell_is_sandboxed : bool;
   shell_policy_summary : string;
   shell_visible_roots_summary : string;
+  background_tasks : background_task_summary list;
   context_usage : context_usage option;
 }
 
@@ -125,6 +134,19 @@ let add_runtime_details lines (details : runtime_context_details) =
        details.sandbox_backend_requested details.sandbox_backend_effective);
   add ("- Shell policy: " ^ details.shell_policy_summary);
   add ("- Shell visible roots: " ^ details.shell_visible_roots_summary);
+  (match details.background_tasks with
+  | [] -> ()
+  | tasks ->
+      add
+        ("- Background tasks:"
+        ^ String.concat ""
+            (List.map
+               (fun task ->
+                 Printf.sprintf
+                   "
+  - #%d %s %s repo=%s branch=%s"
+                   task.id task.runner task.status task.repo_label task.branch)
+               tasks)));
   match details.context_usage with
   | None -> ()
   | Some usage ->

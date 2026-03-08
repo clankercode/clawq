@@ -339,6 +339,27 @@ let shell_policy_summary mgr sandbox =
     backend_effective,
     shell_is_sandboxed )
 
+let active_background_task_summaries mgr =
+  match mgr.db with
+  | None -> []
+  | Some db ->
+      Background_task.init_schema db;
+      Background_task.list_tasks ~db
+      |> List.filter (fun t ->
+             match t.Background_task.status with
+             | Background_task.Queued | Background_task.Running -> true
+             | _ -> false)
+      |> List.sort (fun a b -> compare a.Background_task.id b.Background_task.id)
+      |> List.map (fun t ->
+             {
+               Prompt_builder.id = t.Background_task.id;
+               runner = Background_task.string_of_runner t.runner;
+               repo_label = Filename.basename t.repo_path;
+               branch =
+                 if t.branch = "" then "(auto)" else t.branch;
+               status = Background_task.string_of_status t.status;
+             })
+
 let runtime_context_details mgr ~agent ~key ~compacted_before_turn =
   let workspace = Runtime_config.effective_workspace mgr.config in
   let extra_allowed_paths =
@@ -364,6 +385,7 @@ let runtime_context_details mgr ~agent ~key ~compacted_before_turn =
       shell_visible_roots_summary
         ~workspace_only:mgr.config.security.workspace_only ~workspace
         ~extra_allowed_paths;
+    background_tasks = active_background_task_summaries mgr;
     context_usage =
       Some (Agent.runtime_context_usage agent ~compacted_before_turn);
   }
