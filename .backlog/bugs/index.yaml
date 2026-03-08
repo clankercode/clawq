@@ -64,3 +64,4 @@ bugs:
     - file: B063-implement-thinking-level-if-le.todo
     - file: B064-clawq-should-be-told-about-htt.todo
     - file: B065-llms-full-needs-more-details-p.todo
+    - file: B066-redesign-webui-opus-frontend-d.todo
