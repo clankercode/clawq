@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B053
+priority: high
+status: pending
+tags: []
+title: 'Allow setting thinking/reasoning effort. Optional: show thinking/reasoning in telegram (as italics).'
+---
+
+Allow setting thinking/reasoning effort. Optional: show thinking/reasoning in telegram (as italics).
