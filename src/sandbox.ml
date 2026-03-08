@@ -29,16 +29,21 @@ let wrap_command t cmd =
   | None -> cmd
   | Firejail ->
       Printf.sprintf
-        "firejail --private=%s --net=none --quiet --noprofile -- %s"
+        "firejail --private=%s --net=none --quiet --noprofile -- /bin/sh -c %s"
         (Filename.quote t.workspace)
-        cmd
+        (Filename.quote cmd)
   | Bubblewrap ->
       let extra_binds =
         bind_if_exists "/lib" ^ bind_if_exists "/lib64" ^ bind_if_exists "/bin"
+        ^ bind_if_exists "/etc"
+      in
+      let dev_binds =
+        " --dev /dev" ^ bind_if_exists "/dev/null"
+        ^ bind_if_exists "/dev/urandom"
       in
       Printf.sprintf
-        "bwrap --ro-bind /usr /usr --unshare-all --bind %s %s%s \
-         --die-with-parent -- %s"
+        "bwrap --ro-bind /usr /usr --unshare-all --bind %s %s%s%s --tmpfs /tmp \
+         --die-with-parent -- /bin/sh -c %s"
         (Filename.quote t.workspace)
         (Filename.quote t.workspace)
-        extra_binds cmd
+        extra_binds dev_binds (Filename.quote cmd)

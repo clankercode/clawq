@@ -344,11 +344,16 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key ~on_chunk
                  { session_key = sk; tool_name = tc.function_name; success })
         | _ -> ());
         let preview =
-          if String.length result > 200 then String.sub result 0 200 ^ "..."
+          let limit = if success then 200 else 1000 in
+          if String.length result > limit then String.sub result 0 limit ^ "..."
           else result
         in
-        Logs.info (fun m ->
-            m "%sTool result: %s -> %s" sk_tag tc.function_name preview);
+        if success then
+          Logs.info (fun m ->
+              m "%sTool result: %s -> %s" sk_tag tc.function_name preview)
+        else
+          Logs.warn (fun m ->
+              m "%sTool error: %s -> %s" sk_tag tc.function_name preview);
         let* () =
           on_chunk
             (Provider.ToolResult
@@ -439,11 +444,16 @@ let execute_tool_calls agent ~db ~audit_enabled ~session_key calls =
                  { session_key = sk; tool_name = tc.function_name; success })
         | _ -> ());
         let truncated =
-          if String.length result > 200 then String.sub result 0 200 ^ "..."
+          let limit = if success then 200 else 1000 in
+          if String.length result > limit then String.sub result 0 limit ^ "..."
           else result
         in
-        Logs.info (fun m ->
-            m "%sTool result: %s -> %s" sk_tag tc.function_name truncated);
+        if success then
+          Logs.info (fun m ->
+              m "%sTool result: %s -> %s" sk_tag tc.function_name truncated)
+        else
+          Logs.warn (fun m ->
+              m "%sTool error: %s -> %s" sk_tag tc.function_name truncated);
         Lwt.return (tc, result_msg))
       calls
   in

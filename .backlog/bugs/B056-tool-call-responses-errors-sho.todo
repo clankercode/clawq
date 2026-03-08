@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-08T09:11:20Z"
+claimed_by: cli-user
+completed_at: "2026-03-08T09:13:09Z"
 complexity: medium
 depends_on: []
+duration_minutes: 1.8201809619833333
 estimate_hours: 1
 id: B056
 priority: high
-status: pending
+started_at: "2026-03-08T09:11:20Z"
+status: done
 tags: []
 title: tool call responses/errors should be logged. agent complained about not being able to run `bl`.
 ---

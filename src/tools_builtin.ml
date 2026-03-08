@@ -424,63 +424,59 @@ let shell_exec ~workspace ~workspace_only ~allowed_commands ~extra_allowed_paths
       in
       let cwd = if workspace_only then Some workspace else None in
       let command = Sandbox.wrap_command sandbox command in
-      match split_command_words command with
-      | Error msg -> Lwt.return ("Error: " ^ msg)
-      | Ok argv -> (
-          let argv =
-            if workspace_only then List.map expand_home_in_arg argv else argv
+      let run_proc cmd =
+        let proc = Lwt_process.open_process_full ?cwd ~env cmd in
+        let timeout = Lwt_unix.sleep 30.0 in
+        let stdout_buf = Buffer.create 1024 in
+        let stderr_buf = Buffer.create 256 in
+        let runner =
+          let* _ =
+            Lwt.both
+              (read_channel ?on_chunk:on_output_chunk proc#stdout stdout_buf)
+              (read_channel ?on_chunk:on_output_chunk proc#stderr stderr_buf)
           in
-          match argv with
-          | [] -> Lwt.return "Error: command is required"
-          | cmd :: _
-            when workspace_only && not (is_workspace_safe_command_token cmd) ->
-              Lwt.return
-                "Error: command binary path is disallowed in workspace_only \
-                 mode"
-          | _
-            when workspace_only
-                 && has_workspace_unsafe_args ~workspace ~extra_allowed_paths
-                      argv ->
-              Lwt.return
-                "Error: command contains paths/targets disallowed in \
-                 workspace_only mode"
-          | _ ->
-              let cmd = ("", Array.of_list argv) in
-              let proc = Lwt_process.open_process_full ?cwd ~env cmd in
-              let timeout = Lwt_unix.sleep 30.0 in
-              let stdout_buf = Buffer.create 1024 in
-              let stderr_buf = Buffer.create 256 in
-              let runner =
-                let* _ =
-                  Lwt.both
-                    (read_channel ?on_chunk:on_output_chunk proc#stdout
-                       stdout_buf)
-                    (read_channel ?on_chunk:on_output_chunk proc#stderr
-                       stderr_buf)
-                in
-                let* status = proc#close in
-                let exit_code =
-                  match status with
-                  | Unix.WEXITED n -> n
-                  | Unix.WSIGNALED n -> 128 + n
-                  | Unix.WSTOPPED n -> 128 + n
-                in
+          let* status = proc#close in
+          let exit_code =
+            match status with
+            | Unix.WEXITED n -> n
+            | Unix.WSIGNALED n -> 128 + n
+            | Unix.WSTOPPED n -> 128 + n
+          in
+          Lwt.return
+            (Printf.sprintf "exit_code: %d\nstdout:\n%s\nstderr:\n%s" exit_code
+               (Buffer.contents stdout_buf)
+               (Buffer.contents stderr_buf))
+        in
+        let* result =
+          Lwt.pick
+            [
+              runner;
+              (let* () = timeout in
+               proc#kill Sys.sigkill;
+               Lwt.return "Error: command timed out after 30 seconds");
+            ]
+        in
+        Lwt.return result
+      in
+      if workspace_only then
+        match split_command_words command with
+        | Error msg -> Lwt.return ("Error: " ^ msg)
+        | Ok argv -> (
+            let argv = List.map expand_home_in_arg argv in
+            match argv with
+            | [] -> Lwt.return "Error: command is required"
+            | cmd :: _ when not (is_workspace_safe_command_token cmd) ->
                 Lwt.return
-                  (Printf.sprintf "exit_code: %d\nstdout:\n%s\nstderr:\n%s"
-                     exit_code
-                     (Buffer.contents stdout_buf)
-                     (Buffer.contents stderr_buf))
-              in
-              let* result =
-                Lwt.pick
-                  [
-                    runner;
-                    (let* () = timeout in
-                     proc#kill Sys.sigkill;
-                     Lwt.return "Error: command timed out after 30 seconds");
-                  ]
-              in
-              Lwt.return result)
+                  "Error: command binary path is disallowed in workspace_only \
+                   mode"
+            | _
+              when has_workspace_unsafe_args ~workspace ~extra_allowed_paths
+                     argv ->
+                Lwt.return
+                  "Error: command contains paths/targets disallowed in \
+                   workspace_only mode"
+            | _ -> run_proc ("", Array.of_list argv))
+      else run_proc (Lwt_process.shell command)
   in
   {
     Tool.name = "shell_exec";
