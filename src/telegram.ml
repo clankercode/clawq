@@ -211,20 +211,26 @@ let with_typing ~bot_token ~chat_id p =
       cancelled := true;
       Lwt.return_unit)
 
-let send_message ~bot_token ~chat_id ~text =
+let send_message ?(disable_notification = false) ~bot_token ~chat_id ~text () =
   let open Lwt.Syntax in
   let uri = Printf.sprintf "%s%s/sendMessage" api_base bot_token in
   let body =
-    `Assoc [ ("chat_id", `String chat_id); ("text", `String text) ]
+    `Assoc
+      [
+        ("chat_id", `String chat_id);
+        ("text", `String text);
+        ("disable_notification", `Bool disable_notification);
+      ]
     |> Yojson.Safe.to_string
   in
   let* _status, _body = Http_client.post_json ~uri ~headers:[] ~body in
   Lwt.return_unit
 
-let send_chunked ~bot_token ~chat_id ~text =
+let send_chunked ?(disable_notification = false) ~bot_token ~chat_id ~text () =
   let open Lwt.Syntax in
   Lwt_list.iter_s
-    (fun chunk -> send_message ~bot_token ~chat_id ~text:chunk)
+    (fun chunk ->
+      send_message ~disable_notification ~bot_token ~chat_id ~text:chunk ())
     (chunk_text text)
 
 let set_my_commands ~bot_token =
@@ -302,6 +308,7 @@ let handle_pair_command ~bot_token ~(account : Runtime_config.telegram_account)
           ~text:
             (Printf.sprintf "Pairing successful! Session valid for %d hours."
                t.session_ttl_hours)
+          ()
       end
       else begin
         Logs.warn (fun m ->
@@ -310,10 +317,11 @@ let handle_pair_command ~bot_token ~(account : Runtime_config.telegram_account)
           ~text:
             "Invalid code. Please try again with a valid TOTP code from `clawq \
              otp-show`."
+          ()
       end
   | _ ->
       send_message ~bot_token ~chat_id
-        ~text:"TOTP pairing is not configured for this account."
+        ~text:"TOTP pairing is not configured for this account." ()
 
 let requires_totp_auth ~(account : Runtime_config.telegram_account) ~chat_id =
   match account.totp with
@@ -345,7 +353,8 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
     send_message ~bot_token ~chat_id:update.chat_id
       ~text:
         "Please pair first: type `/pair <6-digit-code>`.\n\
-         Get the code from `clawq otp-show` command.")
+         Get the code from `clawq otp-show` command."
+      ())
   else if
     (not (is_allowed ~account ~chat_id:update.chat_id))
     && not (is_totp_paired ~chat_id:update.chat_id ~now:(Unix.gettimeofday ()))
@@ -374,6 +383,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
             ~text:
               "Please slow down, I can only process a limited number of \
                messages per minute."
+            ()
         in
         Lwt.return_unit
       end
@@ -443,7 +453,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
       if user_text = "" then Lwt.return_unit
       else if Update_tool.is_update_command user_text then
         let send_progress text =
-          send_chunked ~bot_token ~chat_id:update.chat_id ~text
+          send_chunked ~bot_token ~chat_id:update.chat_id ~text ()
         in
         let run_update_command =
           match run_update_command with
@@ -462,25 +472,27 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
               acknowledge_update ~bot_token ~update_id:update.update_id)
             ~send_progress ()
         in
-        send_chunked ~bot_token ~chat_id:update.chat_id ~text:response
+        send_chunked ~bot_token ~chat_id:update.chat_id ~text:response ()
       else
         match Slash_commands.handle user_text with
-        | Reply text -> send_message ~bot_token ~chat_id:update.chat_id ~text
+        | Reply text -> send_message ~bot_token ~chat_id:update.chat_id ~text ()
         | Reset ->
             let* () = Session.reset session_mgr ~key in
             send_message ~bot_token ~chat_id:update.chat_id
-              ~text:Slash_commands.reset_message
+              ~text:Slash_commands.reset_message ()
         | Thinking Slash_commands.ShowThinking ->
             let current =
               (Session.get_config session_mgr).agent_defaults.reasoning_effort
             in
             send_message ~bot_token ~chat_id:update.chat_id
               ~text:(current_thinking_message current)
+              ()
         | Thinking (Slash_commands.SetThinking level) ->
             send_message ~bot_token ~chat_id:update.chat_id
               ~text:
                 (set_thinking_level ~session_mgr ~chat_id:update.chat_id
                    ~user_id:update.user_id level)
+              ()
         | NotACommand -> (
             let msg = user_text in
             let agent_defaults =
@@ -491,18 +503,21 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
               {
                 show_thinking = agent_defaults.show_thinking;
                 show_tool_calls = agent_defaults.show_tool_calls;
+                notify_tool_starts = true;
+                notify_tool_successes = false;
               }
             in
             let on_chunk chunk =
               Stream_visibility.on_chunk visibility ~settings
                 ~notify:(fun text ->
-                  send_chunked ~bot_token ~chat_id:update.chat_id ~text)
+                  send_chunked ~disable_notification:true ~bot_token
+                    ~chat_id:update.chat_id ~text ())
                 chunk
             in
             let* result =
               Session.with_registered_notifier session_mgr ~key
                 ~notify:(fun text ->
-                  send_chunked ~bot_token ~chat_id:update.chat_id ~text)
+                  send_chunked ~bot_token ~chat_id:update.chat_id ~text ())
                 (fun () ->
                   Lwt.catch
                     (fun () ->
@@ -525,10 +540,12 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                   if thinking <> "" then
                     send_chunked ~bot_token ~chat_id:update.chat_id
                       ~text:("_" ^ thinking ^ "_")
+                      ()
                   else Lwt.return_unit
                 in
                 let* () =
                   send_chunked ~bot_token ~chat_id:update.chat_id ~text:response
+                    ()
                 in
                 Session.mark_response_sent session_mgr ~key;
                 Lwt.return_unit
@@ -541,6 +558,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                       (Printf.sprintf
                          "Sorry, an error occurred processing your message: %s"
                          err)
+                    ()
                 in
                 Session.mark_response_sent session_mgr ~key;
                 Lwt.return_unit)

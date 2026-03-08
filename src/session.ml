@@ -335,6 +335,8 @@ let stream_turn_with_visibility mgr ~notify agent ~key ~effective_message
     {
       show_thinking = mgr.config.agent_defaults.show_thinking;
       show_tool_calls = mgr.config.agent_defaults.show_tool_calls;
+      notify_tool_starts = false;
+      notify_tool_successes = true;
     }
   in
   let* response =

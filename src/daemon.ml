@@ -44,7 +44,9 @@ type resume_senders = {
 
 let default_resume_senders =
   {
-    send_telegram = Telegram.send_message;
+    send_telegram =
+      (fun ~bot_token ~chat_id ~text ->
+        Telegram.send_message ~bot_token ~chat_id ~text ());
     send_discord = Discord.send_message;
     send_slack = Slack.send_message;
   }

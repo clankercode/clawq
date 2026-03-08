@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-08T13:20:25Z"
+claimed_by: cli-user
+completed_at: "2026-03-08T13:25:52Z"
 complexity: medium
 depends_on: []
+duration_minutes: 5.465002070366666
 estimate_hours: 1
 id: B076
 priority: high
-status: pending
+started_at: "2026-03-08T13:20:25Z"
+status: done
 tags: []
 title: 'tool call one-liners in telegram: ideally shouldn''t notify the user of a new message, should include the filename for file_read, should include the command for shell_exec, other tool calls should similarly include a small amount of info or summary about what it''s doing.'
 ---
