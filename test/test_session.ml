@@ -156,7 +156,7 @@ let test_pending_turn_persists_user_message_before_response () =
     (Session.with_session_lock mgr ~key:"web:s1" (fun agent _ ->
          let open Lwt.Syntax in
          let history_before = List.length agent.Agent.history in
-         let* () =
+         let* _compacted =
            Agent.prepare_turn_history agent ~user_message:"hello" ~db ()
          in
          Session.persist_new_messages mgr ~key:"web:s1" ~history_before agent;

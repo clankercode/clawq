@@ -170,7 +170,7 @@ let compact_history_if_needed agent =
     (* Keep the most-recent messages verbatim; only summarise older ones. *)
     let keep = min compaction_keep_recent total in
     let compact_count = total - keep in
-    if compact_count = 0 then Lwt.return_unit
+    if compact_count = 0 then Lwt.return false
     else begin
       Logs.info (fun m ->
           m "Compacting history: %d messages -> summarise %d, keep %d recent"
@@ -203,10 +203,10 @@ let compact_history_if_needed agent =
       in
       (* Rebuild history (newest-first) as: recent messages then summary. *)
       agent.history <- List.rev (summary_msg :: to_keep);
-      Lwt.return_unit
+      Lwt.return true
     end
   end
-  else Lwt.return_unit
+  else Lwt.return false
 
 let tools_json agent =
   match agent.tool_registry with
@@ -534,8 +534,8 @@ let prepare_turn_history agent ~user_message ?db () =
 let turn agent ~user_message ?db ?session_key ?interrupt_check
     ?(history_prepared = false) () =
   let open Lwt.Syntax in
-  let* () =
-    if history_prepared then Lwt.return_unit
+  let* _compacted =
+    if history_prepared then Lwt.return false
     else prepare_turn_history agent ~user_message ?db ()
   in
   let audit_enabled = agent.config.security.audit_enabled in
@@ -667,8 +667,8 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check
 let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
     ?(history_prepared = false) ~on_chunk () =
   let open Lwt.Syntax in
-  let* () =
-    if history_prepared then Lwt.return_unit
+  let* _compacted =
+    if history_prepared then Lwt.return false
     else prepare_turn_history agent ~user_message ?db ()
   in
   let audit_enabled = agent.config.security.audit_enabled in

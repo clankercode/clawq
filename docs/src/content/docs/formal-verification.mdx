@@ -431,7 +431,7 @@ import fvStats from '../../data/fv-stats.json';
       <code class="ledger-module">AgentLoop.v</code>
     </div>
     <div class="ledger-center">
-      <span class="ledger-props">Fuel-bounded tool-iteration model, tool-call/tool-result cycle shape, trim ordering/idempotence</span>
+      <span class="ledger-props">Fuel-bounded tool-iteration model, tool-call/tool-result cycle shape, trim ordering/idempotence, compaction recent-message preservation and history-length reduction</span>
     </div>
     <div class="ledger-right">
       <span class="ledger-count"><span class="ledger-n">10</span> statements</span>
@@ -445,7 +445,7 @@ import fvStats from '../../data/fv-stats.json';
       <code class="ledger-module">SessionIsolation.v</code>
     </div>
     <div class="ledger-center">
-      <span class="ledger-props">Cross-key isolation plus same-key reset/create idempotence and stability</span>
+      <span class="ledger-props">Cross-key isolation plus same-key reset/create idempotence and stability, compaction-persistence round-trip consistency</span>
     </div>
     <div class="ledger-right">
       <span class="ledger-count"><span class="ledger-n">18</span> statements</span>
@@ -1034,9 +1034,9 @@ The remaining phase work (F7--F12) is prioritized by runtime-risk reduction and 
 
 **F9: Audit Retention Safety** -- Maintain anchored-retention correctness under runtime assumptions (suffix-preserving age purge + count purge). Extraction remains optional and limited to pure helper kernels.
 
-**F10: Agent Loop Termination** -- Spec-only proof that the agent turn loop stays within `max_tool_iterations`, preserves the tool-call/tool-result history shape, and keeps newest-first ordering under `trim_history` and emergency compaction. Models the loop as a Coq `Fixpoint` with fuel.
+**F10: Agent Loop Termination** -- Spec-only proof that the agent turn loop stays within `max_tool_iterations`, preserves the tool-call/tool-result history shape, and keeps newest-first ordering under `trim_history` and emergency compaction. Models the loop as a Coq `Fixpoint` with fuel. Planned extensions cover chat log compaction correctness: recent messages are preserved verbatim after compaction, compacted history length is strictly less than the pre-compaction length, and the compacted history remains well-formed (no orphaned tool results or dangling tool calls).
 
-**F11: Session Isolation** -- Spec-only proof using Coq `FMap` for cross-key non-interference plus same-key reset/create stability and idempotence; runtime lock behavior remains modeled with explicit assumptions and review notes.
+**F11: Session Isolation** -- Spec-only proof using Coq `FMap` for cross-key non-interference plus same-key reset/create stability and idempotence; runtime lock behavior remains modeled with explicit assumptions and review notes. Planned extensions cover compaction-persistence consistency: replacing a session's DB messages after compaction does not affect other sessions, and a load-compact-persist-reload cycle yields the same compacted history.
 
 **F12: Landlock Sandbox Policy** -- Spec-only proof of least-privilege access flags, path set closure under `extra_paths` extension, and policy monotonicity. Assumes C FFI stubs implement Landlock semantics correctly.
 

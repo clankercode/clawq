@@ -231,6 +231,22 @@ let load_history ~db ~session_key =
   ignore (Sqlite3.finalize stmt);
   List.rev !messages
 
+let replace_session_messages ~db ~session_key (messages : Provider.message list)
+    =
+  exec_exn db "BEGIN TRANSACTION";
+  try
+    let del_sql = "DELETE FROM messages WHERE session_key = ?" in
+    let del_stmt = Sqlite3.prepare db del_sql in
+    ignore (Sqlite3.bind del_stmt 1 (Sqlite3.Data.TEXT session_key));
+    ignore (Sqlite3.step del_stmt);
+    ignore (Sqlite3.finalize del_stmt);
+    List.iter (fun msg -> store_message ~db ~session_key msg) messages;
+    exec_exn db "COMMIT"
+  with exn ->
+    (try exec_exn db "ROLLBACK" with _ -> ());
+    Logs.warn (fun m ->
+        m "Failed to replace session messages: %s" (Printexc.to_string exn))
+
 let clear_session ~db ~session_key =
   let clear sql =
     let stmt = Sqlite3.prepare db sql in

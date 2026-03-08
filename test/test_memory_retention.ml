@@ -129,6 +129,57 @@ let test_force_compress_history_noop_when_small () =
   Alcotest.(check bool) "no compression on small history" false compressed;
   Alcotest.(check int) "history unchanged" 4 (List.length agent.history)
 
+let test_session_load_trims_history () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let config = make_config ~max_messages:10 () in
+  let session_manager = Session.create ~config ~db () in
+  (* Store 30 messages in the DB for session "s1" *)
+  for i = 1 to 30 do
+    Memory.store_message ~db ~session_key:"s1"
+      (Provider.make_message ~role:"user" ~content:(Printf.sprintf "Msg %d" i))
+  done;
+  (* Access the session, which triggers history load + trim *)
+  let agent_history_len =
+    Lwt_main.run
+      (Session.with_session_lock session_manager ~key:"s1"
+         (fun agent _interrupt -> Lwt.return (List.length agent.Agent.history)))
+  in
+  (* effective_max = min max_messages 500 = 10, so history should be trimmed *)
+  Alcotest.(check bool) "history trimmed on load" true (agent_history_len <= 10)
+
+let test_replace_session_messages () =
+  let db = Memory.init ~db_path:":memory:" () in
+  (* Store 10 original messages *)
+  for i = 1 to 10 do
+    Memory.store_message ~db ~session_key:"s1"
+      (Provider.make_message ~role:"user"
+         ~content:(Printf.sprintf "Original %d" i))
+  done;
+  let before = Memory.load_history ~db ~session_key:"s1" in
+  Alcotest.(check int) "10 messages before replace" 10 (List.length before);
+  (* Replace with 3 compacted messages *)
+  let compacted =
+    [
+      Provider.make_message ~role:"assistant" ~content:"[Summary of history]";
+      Provider.make_message ~role:"user" ~content:"Recent question";
+      Provider.make_message ~role:"assistant" ~content:"Recent answer";
+    ]
+  in
+  Memory.replace_session_messages ~db ~session_key:"s1" compacted;
+  let after = Memory.load_history ~db ~session_key:"s1" in
+  Alcotest.(check int) "3 messages after replace" 3 (List.length after);
+  Alcotest.(check string)
+    "first is summary" "[Summary of history]" (List.hd after).content;
+  (* Verify other sessions are unaffected *)
+  Memory.store_message ~db ~session_key:"s2"
+    (Provider.make_message ~role:"user" ~content:"Other session");
+  Memory.replace_session_messages ~db ~session_key:"s1"
+    [ Provider.make_message ~role:"user" ~content:"Only one" ];
+  let s1 = Memory.load_history ~db ~session_key:"s1" in
+  let s2 = Memory.load_history ~db ~session_key:"s2" in
+  Alcotest.(check int) "s1 replaced" 1 (List.length s1);
+  Alcotest.(check int) "s2 untouched" 1 (List.length s2)
+
 let test_cleanup_all () =
   let db = Memory.init ~db_path:":memory:" () in
   for i = 1 to 8 do
@@ -154,6 +205,10 @@ let suite =
     Alcotest.test_case "preserves newest" `Quick test_preserves_newest;
     Alcotest.test_case "configurable max_history" `Quick
       test_configurable_max_history;
+    Alcotest.test_case "session load trims history" `Quick
+      test_session_load_trims_history;
+    Alcotest.test_case "replace session messages" `Quick
+      test_replace_session_messages;
     Alcotest.test_case "cleanup_all" `Quick test_cleanup_all;
     Alcotest.test_case "trim_history count only" `Quick
       test_trim_history_count_only;

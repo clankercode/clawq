@@ -147,6 +147,9 @@ Current status note: the runtime now synchronizes `reset` with the same per-sess
 - `get_or_create` is idempotent at the abstract state level
 - same-key turn serialization or a documented race theorem if serialization is not modeled
 - persistence-order preservation theorem for restored and appended messages
+- **replace_session_messages isolation**: replacing session A's DB messages does not affect session B's persisted history
+- **compaction-persistence round-trip**: for a given session, `load → compact → replace → load` yields the same compacted history
+- **trim-on-load correctness**: after loading from DB, `trim_history` bounds in-memory history to `effective_max_messages`, and the retained messages are the most recent
 
 ### Runtime review tasks
 
@@ -159,6 +162,7 @@ Current status note: the runtime now synchronizes `reset` with the same per-sess
 - vacuous disjointness is removed
 - the theorem set states meaningful isolation properties
 - same-key behavior is either certified or explicitly narrowed by assumptions
+- compaction-persistence consistency properties are stated
 
 ## Phase 3: Secret-Store Alignment
 
@@ -252,11 +256,16 @@ Model the real loop in `src/agent.ml` more faithfully so that theorem work start
 - trimming preserves message order for retained history
 - compaction and trimming do not produce malformed history states
 - interrupt behavior cannot bypass the global turn bound in the model
+- **compaction preserves recent messages**: after `compact_history_if_needed`, the `compaction_keep_recent` newest messages in the history are unchanged
+- **compaction reduces history length**: if compaction fires, the resulting history length is strictly less than the pre-compaction length
+- **compaction summary is well-formed**: the summary message inserted by compaction has role `assistant` and replaces only messages outside the `keep_recent` window
+- **compaction idempotence**: running compaction on an already-compacted history (below threshold) is a no-op
 
 ### Exit criteria
 
 - the model is no longer a thin dummy loop
 - at least one theorem clearly constrains the real runtime turn structure
+- compaction correctness properties are stated and proven or have explicit admits with exit criteria
 
 Note: the roadmap tasks for this phase are complete, but the public F10 status remains `In Progress` because the status page tracks broader theorem verification state, not just roadmap task completion.
 

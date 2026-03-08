@@ -161,6 +161,9 @@
     - "Termination in max_tool_iterations"
     - "Tool-call/tool-result history shape"
     - "Trim and emergency compaction ordering"
+    - "Compaction preserves recent messages"
+    - "Compaction reduces history length"
+    - "Compaction idempotence below threshold"
 
 - phase: "F11"
   module: "SessionIsolation.v"
@@ -175,6 +178,8 @@
     - "Cross-key non-interference"
     - "Same-key reset/create stability"
     - "get_or_create and store_message isolation"
+    - "Compaction-persistence round-trip consistency"
+    - "replace_session_messages cross-key isolation"
 
 - phase: "F12"
   module: "LandlockPolicy.v"

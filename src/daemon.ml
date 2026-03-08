@@ -132,6 +132,10 @@ let dispatch_resumed_message ?(senders = default_resume_senders)
 
 let default_resume_turn ~(session_manager : Session.t) ~session_key agent
     interrupt =
+  let open Lwt.Syntax in
+  let* compacted = Agent.compact_history_if_needed agent in
+  if compacted then
+    Session.persist_compacted_history session_manager ~key:session_key agent;
   Agent.turn agent ~user_message:"" ?db:session_manager.db ~session_key
     ~interrupt_check:(fun () -> !interrupt)
     ~history_prepared:true ()

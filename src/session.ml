@@ -112,6 +112,7 @@ let get_or_create_locked mgr ~key =
             Memory.cleanup_session ~db ~session_key:key ~max_messages:max_msgs
               ~max_age_days:mgr.config.memory.max_message_age_days
       | None -> ());
+      Agent.trim_history agent;
       let mutex = Lwt_mutex.create () in
       let interrupt = ref None in
       let triple = (agent, mutex, interrupt) in
@@ -212,6 +213,13 @@ let persist_new_messages mgr ~key ~history_before agent =
       end
   | None -> ()
 
+let persist_compacted_history mgr ~key agent =
+  match mgr.db with
+  | Some db ->
+      let messages = List.rev agent.Agent.history in
+      Memory.replace_session_messages ~db ~session_key:key messages
+  | None -> ()
+
 let respond_if_draining ?on_chunk mgr =
   let open Lwt.Syntax in
   if mgr.draining then
@@ -277,11 +285,12 @@ let turn mgr ~key ~message ?(attachments = []) ?channel_name ?channel_type
                       ctx ^ "\n" ^ message
                 in
                 let history_before = List.length agent.history in
-                let* () =
+                let* compacted =
                   Agent.prepare_turn_history agent
                     ~user_message:effective_message ?db:mgr.db ()
                 in
-                persist_new_messages mgr ~key ~history_before agent;
+                if compacted then persist_compacted_history mgr ~key agent
+                else persist_new_messages mgr ~key ~history_before agent;
                 let prepared_history_len = List.length agent.history in
                 record_agent_turn mgr ~key ?channel ?channel_id ();
                 let* response =
@@ -371,11 +380,12 @@ let turn_stream mgr ~key ~message ?(attachments = []) ?channel_name
                       ctx ^ "\n" ^ message
                 in
                 let history_before = List.length agent.history in
-                let* () =
+                let* compacted =
                   Agent.prepare_turn_history agent
                     ~user_message:effective_message ?db:mgr.db ()
                 in
-                persist_new_messages mgr ~key ~history_before agent;
+                if compacted then persist_compacted_history mgr ~key agent
+                else persist_new_messages mgr ~key ~history_before agent;
                 let prepared_history_len = List.length agent.history in
                 record_agent_turn mgr ~key ?channel ?channel_id ();
                 let* response =
