@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B127
+priority: high
+status: pending
+tags: []
+title: B114 delegated implementation left repo with syntax-breaking commit in worktree
+---
+The delegated B114 worktree commit c3e6bf13/ecd97954 introduces syntax errors in src/session.ml and test/test_session.ml and cannot be built as-is. Need to either salvage the design selectively or reimplement B114 cleanly. This should be tracked separately because broken delegated commits can waste autonomous cycles and must be audited before merge.

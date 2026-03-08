@@ -125,3 +125,4 @@ bugs:
     - file: B124-support-a-special-self-sentine.todo
     - file: B125-telegram-status-message-when-u.todo
     - file: B126-document-and-support-explicit.todo
+    - file: B127-b114-delegated-implementation.todo
