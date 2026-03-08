@@ -75,3 +75,4 @@ bugs:
     - file: B074-fv-docs-out-of-date-eg-shows-6.todo
     - file: B075-tool-inconsitency-grep.todo
     - file: B076-tool-call-one-liners-in-telegr.todo
+    - file: B077-messages-sent-over-telegram-et.todo
