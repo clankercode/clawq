@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-08T14:24:34Z"
+claimed_by: cli-user
+completed_at: "2026-03-08T14:26:56Z"
 complexity: medium
 depends_on: []
+duration_minutes: 2.3764799395666665
 estimate_hours: 1
 id: B092
 priority: high
-status: pending
+started_at: "2026-03-08T14:24:34Z"
+status: done
 tags: []
 title: When we queue a message, we should have a log line for that, also when we send the LLM a queued message, we should log that too
 ---

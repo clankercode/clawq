@@ -427,8 +427,7 @@ let shell_exec ~workspace ~workspace_only ~allowed_commands ~extra_allowed_paths
     let timeout_secs =
       try
         let v = args |> member "timeout" |> to_number in
-        if v <= 0.0 then default_timeout
-        else Float.min v max_timeout
+        if v <= 0.0 then default_timeout else Float.min v max_timeout
       with _ -> default_timeout
     in
     if command = "" then Lwt.return "Error: command is required"
@@ -484,8 +483,7 @@ let shell_exec ~workspace ~workspace_only ~allowed_commands ~extra_allowed_paths
               (let* () = timeout in
                proc#kill Sys.sigkill;
                Lwt.return
-                 (Printf.sprintf
-                    "Error: command timed out after %.0f seconds"
+                 (Printf.sprintf "Error: command timed out after %.0f seconds"
                     timeout_secs));
             ]
         in
@@ -532,8 +530,7 @@ let shell_exec ~workspace ~workspace_only ~allowed_commands ~extra_allowed_paths
                     [
                       ("type", `String "number");
                       ( "description",
-                        `String
-                          "Timeout in seconds (default 30, max 600)" );
+                        `String "Timeout in seconds (default 30, max 600)" );
                     ] );
               ] );
           ("required", `List [ `String "command" ]);

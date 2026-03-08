@@ -92,9 +92,7 @@ let take_response_deferred mgr ~key =
   if deferred then Hashtbl.remove mgr.deferred_responses key;
   deferred
 
-let clear_response_deferred mgr ~key =
-  Hashtbl.remove mgr.deferred_responses key
-
+let clear_response_deferred mgr ~key = Hashtbl.remove mgr.deferred_responses key
 let is_queued_message_response response = response = queued_message_response
 
 let queueable_channel_key key =
@@ -115,6 +113,10 @@ let enqueue_message_if_busy mgr ~key queued_message =
             | None -> []
           in
           Hashtbl.replace mgr.queued_messages key (existing @ [ queued_message ]);
+          Logs.info (fun m ->
+              m "Queued inbound message for busy session %s (queue depth: %d)"
+                key
+                (List.length existing + 1));
           if !interrupt = None then interrupt := Some "[queued inbound message]";
           Lwt.return_true
       | _ -> Lwt.return_false)
@@ -554,6 +556,7 @@ let rec drain_queued_messages mgr ~key agent interrupt =
   with
   | Some queued, Some notify ->
       let open Lwt.Syntax in
+      Logs.info (fun m -> m "Sending queued message to LLM for session %s" key);
       let injected_message =
         queued_message_prompt
           (effective_message_for_turn ~message:queued.message
