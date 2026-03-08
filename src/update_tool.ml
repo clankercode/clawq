@@ -229,7 +229,7 @@ let run_update ?(find_repo_root = find_repo_root)
       finish_update
 
 let tool ~is_draining ?claim_update ?finish_update () =
-  let invoke_common ?context:_ ?on_output_chunk args =
+  let invoke_common ?context ?on_output_chunk args =
     let open Yojson.Safe.Util in
     let mode =
       try args |> member "mode" |> to_string
@@ -247,7 +247,19 @@ let tool ~is_draining ?claim_update ?finish_update () =
       | Some mode -> mode
       | None -> Auto
     in
-    run_update ?claim_update ?finish_update ~mode ~is_draining ~send_progress ()
+    let prepare_restart =
+      match context with
+      | Some { Tool.session_key = Some key; _ } ->
+          (fun () ->
+            (match Restart_notify.parse_channel_from_key key with
+            | Some (channel, channel_id) ->
+                Restart_notify.write ~channel ~channel_id
+            | None -> ());
+            Lwt.return (Ok ()))
+      | _ -> fun () -> Lwt.return (Ok ())
+    in
+    run_update ?claim_update ?finish_update ~mode ~is_draining
+      ~prepare_restart ~send_progress ()
   in
   {
     Tool.name = "update_clawq";
