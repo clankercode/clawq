@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B101
+priority: high
+status: pending
+tags: []
+title: Post-restart one-shot confirmation still fails after tool-path restart_notify fix. Need end-to-end tracing of marker write, survival across exec, daemon startup read, and channel dispatch so update-triggered restart reliably emits the confirmation.
+---
+
+Post-restart one-shot confirmation still fails after tool-path restart_notify fix. Need end-to-end tracing of marker write, survival across exec, daemon startup read, and channel dispatch so update-triggered restart reliably emits the confirmation.

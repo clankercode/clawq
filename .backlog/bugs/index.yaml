@@ -99,3 +99,4 @@ bugs:
     - file: B098-self-update-restart-handoff-so.todo
     - file: B099-improve-default-workspace-scaf.todo
     - file: B100-bootstrap-md-should-be-availab.todo
+    - file: B101-post-restart-one-shot-confirma.todo
