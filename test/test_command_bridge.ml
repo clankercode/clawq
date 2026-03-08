@@ -84,6 +84,14 @@ let with_temp_home f =
        with _ -> ());
       try Unix.rmdir dir with _ -> ())
 
+let init_git_repo path =
+  let cmd =
+    Printf.sprintf "git -C %s init -q >/dev/null 2>&1" (Filename.quote path)
+  in
+  match Sys.command cmd with
+  | 0 -> ()
+  | code -> Alcotest.failf "git init failed for %s (exit %d)" path code
+
 let test_handle_channel () =
   let result = Command_bridge.handle [ "channel" ] in
   Alcotest.(check bool)
@@ -155,6 +163,153 @@ let test_handle_cron_list () =
     "cron list returns output" true
     (String.length result > 0)
 
+let test_handle_background_list () =
+  let result = Command_bridge.handle [ "background"; "list" ] in
+  Alcotest.(check bool)
+    "background list returns output" true
+    (String.length result > 0)
+
+let test_handle_background_add_show_cancel () =
+  with_temp_home (fun home ->
+      let repo = Filename.concat home "repo" in
+      Unix.mkdir repo 0o755;
+      init_git_repo repo;
+      let add_result =
+        Command_bridge.handle
+          [ "background"; "add"; "codex"; repo; "Implement"; "the"; "feature" ]
+      in
+      Alcotest.(check bool)
+        "background add queues task" true
+        (String.length add_result > 0
+        &&
+        let prefix = "Queued background task " in
+        String.length add_result >= String.length prefix
+        && String.sub add_result 0 (String.length prefix) = prefix);
+      let show_result = Command_bridge.handle [ "background"; "show"; "1" ] in
+      Alcotest.(check bool)
+        "background show includes runner" true
+        (try
+           ignore
+             (Str.search_forward
+                (Str.regexp_string "runner: codex")
+                show_result 0);
+           true
+         with Not_found -> false);
+      let cancel_result =
+        Command_bridge.handle [ "background"; "cancel"; "1" ]
+      in
+      Alcotest.(check bool)
+        "background cancel returns output" true
+        (String.length cancel_result > 0))
+
+let test_handle_background_wait_and_logs () =
+  with_temp_home (fun home ->
+      let repo = Filename.concat home "repo" in
+      Unix.mkdir repo 0o755;
+      init_git_repo repo;
+      ignore
+        (Command_bridge.handle
+           [ "background"; "add"; "codex"; repo; "Implement"; "the"; "feature" ]);
+      let clawq_dir = Filename.concat home ".clawq" in
+      let db =
+        Memory.init ~db_path:(Filename.concat clawq_dir "memory.db") ()
+      in
+      Background_task.init_schema db;
+      let log_path = Filename.concat clawq_dir "task-1.log" in
+      let oc = open_out log_path in
+      output_string oc "alpha\nbeta\ngamma\n";
+      close_out oc;
+      ignore
+        (Background_task.set_running ~db ~id:1 ~branch:"clawq-bg-1"
+           ~worktree_path:(Filename.concat home "wt")
+           ~log_path ~pid:12345);
+      Background_task.finish ~db ~id:1 ~status:Background_task.Succeeded
+        ~result_preview:"ok";
+      let wait_result = Command_bridge.handle [ "background"; "wait"; "1" ] in
+      Alcotest.(check bool)
+        "background wait includes status" true
+        (try
+           ignore
+             (Str.search_forward
+                (Str.regexp_string "status: succeeded")
+                wait_result 0);
+           true
+         with Not_found -> false);
+      let logs_result =
+        Command_bridge.handle [ "background"; "logs"; "1"; "--lines"; "2" ]
+      in
+      Alcotest.(check bool)
+        "background logs includes tail" true
+        (try
+           ignore (Str.search_forward (Str.regexp_string "beta") logs_result 0);
+           ignore (Str.search_forward (Str.regexp_string "gamma") logs_result 0);
+           true
+         with Not_found -> false))
+
+let test_handle_delegate () =
+  with_temp_home (fun home ->
+      let repo = Filename.concat home "repo" in
+      Unix.mkdir repo 0o755;
+      init_git_repo repo;
+      let result =
+        Command_bridge.handle
+          [
+            "delegate";
+            "--runner";
+            "codex";
+            "--repo";
+            repo;
+            "implement";
+            "the";
+            "feature";
+          ]
+      in
+      Alcotest.(check bool)
+        "delegate queues task" true
+        (try
+           ignore
+             (Str.search_forward
+                (Str.regexp_string "Delegated task 1")
+                result 0);
+           true
+         with Not_found -> false))
+
+let test_handle_background_add_rejects_non_git_repo () =
+  with_temp_home (fun home ->
+      let repo = Filename.concat home "repo" in
+      Unix.mkdir repo 0o755;
+      let result =
+        Command_bridge.handle
+          [ "background"; "add"; "codex"; repo; "Implement"; "the"; "feature" ]
+      in
+      Alcotest.(check bool)
+        "background add rejects non-git repo" true
+        (try
+           ignore
+             (Str.search_forward
+                (Str.regexp_string "not a git repository")
+                result 0);
+           true
+         with Not_found -> false))
+
+let test_handle_delegate_rejects_non_git_repo () =
+  with_temp_home (fun home ->
+      let repo = Filename.concat home "repo" in
+      Unix.mkdir repo 0o755;
+      let result =
+        Command_bridge.handle
+          [ "delegate"; "--runner"; "codex"; "--repo"; repo; "implement" ]
+      in
+      Alcotest.(check bool)
+        "delegate rejects non-git repo" true
+        (try
+           ignore
+             (Str.search_forward
+                (Str.regexp_string "not a git repository")
+                result 0);
+           true
+         with Not_found -> false))
+
 let test_handle_service () =
   let result = Command_bridge.handle [ "service" ] in
   Alcotest.(check bool)
@@ -215,6 +370,42 @@ let test_handle_audit_usage_mentions_anchor () =
             ignore (Str.search_forward (Str.regexp_string "--anchor") result 0);
             true
           with Not_found -> false))
+
+let test_handle_background_wait_with_timeout () =
+  with_temp_home (fun home ->
+      let repo = Filename.concat home "repo" in
+      Unix.mkdir repo 0o755;
+      init_git_repo repo;
+      ignore
+        (Command_bridge.handle
+           [ "background"; "add"; "codex"; repo; "Implement"; "the"; "feature" ]);
+      let clawq_dir = Filename.concat home ".clawq" in
+      let db =
+        Memory.init ~db_path:(Filename.concat clawq_dir "memory.db") ()
+      in
+      Background_task.init_schema db;
+      let log_path = Filename.concat clawq_dir "task-1.log" in
+      let oc = open_out log_path in
+      output_string oc "done\n";
+      close_out oc;
+      ignore
+        (Background_task.set_running ~db ~id:1 ~branch:"clawq-bg-1"
+           ~worktree_path:(Filename.concat home "wt")
+           ~log_path ~pid:12345);
+      Background_task.finish ~db ~id:1 ~status:Background_task.Succeeded
+        ~result_preview:"ok";
+      let wait_result =
+        Command_bridge.handle [ "background"; "wait"; "1"; "--timeout"; "0.25" ]
+      in
+      Alcotest.(check bool)
+        "background wait timeout flag is accepted" true
+        (try
+           ignore
+             (Str.search_forward
+                (Str.regexp_string "status: succeeded")
+                wait_result 0);
+           true
+         with Not_found -> false))
 
 let test_handle_reloads_config_between_calls () =
   with_temp_home (fun home ->
@@ -505,6 +696,19 @@ let suite =
       test_handle_not_implemented;
     Alcotest.test_case "handle cron" `Quick test_handle_cron;
     Alcotest.test_case "handle cron list" `Quick test_handle_cron_list;
+    Alcotest.test_case "handle background list" `Quick
+      test_handle_background_list;
+    Alcotest.test_case "handle background add show cancel" `Quick
+      test_handle_background_add_show_cancel;
+    Alcotest.test_case "handle background add rejects non-git repo" `Quick
+      test_handle_background_add_rejects_non_git_repo;
+    Alcotest.test_case "handle background wait and logs" `Quick
+      test_handle_background_wait_and_logs;
+    Alcotest.test_case "handle background wait with timeout" `Quick
+      test_handle_background_wait_with_timeout;
+    Alcotest.test_case "handle delegate" `Quick test_handle_delegate;
+    Alcotest.test_case "handle delegate rejects non-git repo" `Quick
+      test_handle_delegate_rejects_non_git_repo;
     Alcotest.test_case "handle service" `Quick test_handle_service;
     Alcotest.test_case "handle service signal restart" `Quick
       test_handle_service_signal_restart;

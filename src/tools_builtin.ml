@@ -2697,5 +2697,15 @@ let register_all ~(config : Runtime_config.t) ~sandbox ?(db = None)
       Tool_registry.register registry (memory_store ~db);
       Tool_registry.register registry (memory_recall ~db);
       Tool_registry.register registry (memory_forget ~db);
-      Tool_registry.register registry (memory_list ~db)
+      Tool_registry.register registry (memory_list ~db);
+      Background_task.init_schema db;
+      Tool_registry.register registry
+        (Background_task.enqueue_tool_with_notify ~notify_cfg:config.notify ~db);
+      Tool_registry.register registry (Background_task.list_tool ~db);
+      Tool_registry.register registry (Background_task.wait_tool ~db);
+      Tool_registry.register registry (Background_task.logs_tool ~db);
+      Tool_registry.register registry
+        (Background_task.delegate_tool_with_notify ~db
+           ~default_repo_path:workspace ~notify_cfg:config.notify ());
+      Tool_registry.register registry (Background_task.cancel_tool ~db)
   | None -> ()

@@ -6,6 +6,7 @@ let () =
        ("command_bridge", Test_command_bridge.suite);
        ("phase3", Test_phase3.suite);
        ("scheduler", Test_scheduler.suite);
+       ("background_task", Test_background_task.suite);
        ("migrate", Test_migrate.suite);
        ("audit", Test_audit.suite);
        ("daemon", Test_daemon.suite);

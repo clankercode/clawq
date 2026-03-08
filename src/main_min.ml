@@ -22,6 +22,12 @@ let run name args =
 
 let rest_args docv = Arg.(value & pos_all string [] & info [] ~docv)
 
+let required_rest_args docv =
+  Arg.(non_empty & pos_all string [] & info [] ~docv)
+
+let required_trailing_args start docv =
+  Arg.(non_empty & pos_right start string [] & info [] ~docv)
+
 let simple name doc =
   Cmd.v (Cmd.info name ~doc) Term.(ret (const (run name) $ const []))
 
@@ -71,6 +77,172 @@ let cron_cmd =
       `I ("add NAME SESSION SCHEDULE MSG", "Add a cron job.");
       `I ("remove NAME", "Remove a cron job by name.");
     ]
+
+let background_list_cmd =
+  Cmd.v
+    (Cmd.info "list" ~doc:"Disabled in minimal build; use full clawq binary.")
+    Term.(ret (const (run "background") $ const [ "list" ]))
+
+let background_show_cmd =
+  let id = Arg.(required & pos 0 (some string) None & info [] ~docv:"ID") in
+  Cmd.v
+    (Cmd.info "show" ~doc:"Disabled in minimal build; use full clawq binary.")
+    Term.(ret (const (fun id -> run "background" [ "show"; id ]) $ id))
+
+let background_add_cmd =
+  let runner =
+    Arg.(required & pos 0 (some string) None & info [] ~docv:"RUNNER")
+  in
+  let repo = Arg.(required & pos 1 (some string) None & info [] ~docv:"REPO") in
+  let branch =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "branch" ] ~docv:"NAME" ~doc:"Branch name for the new worktree.")
+  in
+  let prompt = required_trailing_args 1 "PROMPT" in
+  Cmd.v
+    (Cmd.info "add" ~doc:"Disabled in minimal build; use full clawq binary.")
+    Term.(
+      ret
+        (const (fun runner repo branch prompt ->
+             let args = [ "add"; runner; repo ] in
+             let args =
+               match branch with
+               | Some name -> args @ [ "--branch"; name ]
+               | None -> args
+             in
+             run "background" (args @ prompt))
+        $ runner $ repo $ branch $ prompt))
+
+let background_wait_cmd =
+  let id = Arg.(required & pos 0 (some string) None & info [] ~docv:"ID") in
+  let timeout =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "timeout" ] ~docv:"SECONDS"
+          ~doc:"Maximum number of seconds to wait.")
+  in
+  Cmd.v
+    (Cmd.info "wait" ~doc:"Disabled in minimal build; use full clawq binary.")
+    Term.(
+      ret
+        (const (fun id timeout ->
+             let args = [ "wait"; id ] in
+             let args =
+               match timeout with
+               | Some seconds -> args @ [ "--timeout"; seconds ]
+               | None -> args
+             in
+             run "background" args)
+        $ id $ timeout))
+
+let background_logs_cmd =
+  let id = Arg.(required & pos 0 (some string) None & info [] ~docv:"ID") in
+  let lines =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "lines" ] ~docv:"COUNT"
+          ~doc:"How many trailing log lines to show.")
+  in
+  Cmd.v
+    (Cmd.info "logs" ~doc:"Disabled in minimal build; use full clawq binary.")
+    Term.(
+      ret
+        (const (fun id lines ->
+             let args = [ "logs"; id ] in
+             let args =
+               match lines with
+               | Some count -> args @ [ "--lines"; count ]
+               | None -> args
+             in
+             run "background" args)
+        $ id $ lines))
+
+let background_cancel_cmd =
+  let id = Arg.(required & pos 0 (some string) None & info [] ~docv:"ID") in
+  Cmd.v
+    (Cmd.info "cancel" ~doc:"Disabled in minimal build; use full clawq binary.")
+    Term.(ret (const (fun id -> run "background" [ "cancel"; id ]) $ id))
+
+let background_cmd =
+  Cmd.group
+    ~default:Term.(ret (const (run "background") $ const [ "list" ]))
+    (Cmd.info "background"
+       ~doc:"Manage background coding tasks (disabled in minimal build).")
+    [
+      background_list_cmd;
+      background_show_cmd;
+      background_add_cmd;
+      background_wait_cmd;
+      background_logs_cmd;
+      background_cancel_cmd;
+    ]
+
+let delegate_cmd =
+  let runner =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "runner" ] ~docv:"RUNNER"
+          ~doc:"Preferred runner: auto, codex, or claude.")
+  in
+  let repo =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "repo" ] ~docv:"PATH" ~doc:"Repository path to queue against.")
+  in
+  let branch =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "branch" ] ~docv:"NAME"
+          ~doc:"Optional branch name for the new worktree.")
+  in
+  let goal = required_rest_args "GOAL" in
+  Cmd.v
+    (Cmd.info "delegate"
+       ~doc:"High-level background-task workflow (disabled in minimal build)."
+       ~man:
+         [
+           `S "RELATED";
+           `I
+             ( "background list",
+               "Disabled in minimal build; use full clawq binary." );
+           `I
+             ( "background wait ID [--timeout SECONDS]",
+               "Disabled in minimal build; use full clawq binary." );
+           `I
+             ( "background logs ID [--lines COUNT]",
+               "Disabled in minimal build; use full clawq binary." );
+           `I
+             ( "background cancel ID",
+               "Disabled in minimal build; use full clawq binary." );
+         ])
+    Term.(
+      ret
+        (const (fun runner repo branch goal ->
+             let args = [] in
+             let args =
+               match runner with
+               | Some value -> args @ [ "--runner"; value ]
+               | None -> args
+             in
+             let args =
+               match repo with
+               | Some value -> args @ [ "--repo"; value ]
+               | None -> args
+             in
+             let args =
+               match branch with
+               | Some value -> args @ [ "--branch"; value ]
+               | None -> args
+             in
+             run "delegate" (args @ goal))
+        $ runner $ repo $ branch $ goal))
 
 let audit_cmd =
   with_args "audit" "View the security audit log."
@@ -148,6 +320,8 @@ let () =
       capabilities_cmd;
       auth_cmd;
       cron_cmd;
+      background_cmd;
+      delegate_cmd;
       audit_cmd;
       skills_cmd;
       migrate_cmd;

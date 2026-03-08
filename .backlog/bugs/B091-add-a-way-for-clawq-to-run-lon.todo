@@ -1,14 +1,15 @@
 ---
-claimed_at: "2026-03-08T14:17:55Z"
+claimed_at: "2026-03-08T14:18:14Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-08T14:42:52Z"
 complexity: medium
 depends_on: []
+duration_minutes: 24.646829436366666
 estimate_hours: 1
 id: B091
 priority: high
-started_at: "2026-03-08T14:17:55Z"
-status: in_progress
+started_at: "2026-03-08T14:18:14Z"
+status: done
 tags: []
 title: Add a way for clawq to run longer running background tasks (eg running codex or claude code with an implementation/feature prompt in a worktree)
 ---

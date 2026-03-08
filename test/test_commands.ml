@@ -74,6 +74,20 @@ let test_min_auth_status_shows_codex_oauth () =
   Alcotest.(check string)
     "minimal auth status label" "codex-oauth configured" status
 
+let test_min_background_disabled_message () =
+  let out = Command_bridge_min.handle [ "background"; "wait"; "1" ] in
+  Alcotest.(check bool)
+    "minimal background explains disabled surface" true
+    (contains out "disabled in the minimal build")
+
+let test_min_delegate_disabled_message () =
+  let out =
+    Command_bridge_min.handle [ "delegate"; "implement"; "something" ]
+  in
+  Alcotest.(check bool)
+    "minimal delegate explains disabled surface" true
+    (contains out "disabled in the minimal build")
+
 (* ===== Config parsing without file I/O ===== *)
 
 let test_config_default_model () =
@@ -203,6 +217,10 @@ let suite =
       test_min_auth_codex_disabled_message;
     Alcotest.test_case "minimal auth status shows codex oauth" `Quick
       test_min_auth_status_shows_codex_oauth;
+    Alcotest.test_case "minimal background disabled message" `Quick
+      test_min_background_disabled_message;
+    Alcotest.test_case "minimal delegate disabled message" `Quick
+      test_min_delegate_disabled_message;
     Alcotest.test_case "config default model" `Quick test_config_default_model;
     Alcotest.test_case "config default temperature" `Quick
       test_config_default_temperature;

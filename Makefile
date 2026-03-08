@@ -4,6 +4,19 @@ SHELL := opam exec --switch=$(SHELL_SWITCH) -- /usr/bin/env bash
 
 .PHONY: bootstrap build restart build-restart build-minimal build-wasm build-opt build-opt-all build-opt-speed build-opt-size build-opt-minimal build-opt-stripped build-opt-stripped-all build-opt-speed-stripped build-opt-size-stripped binary-size-report binary-size-check dependency-audit native-size-report packaging-report flambda-experiment extract extract-check coq-verify coq-check run phase2 test fmt fmt-check ui ui-dev ui-check clean release docker-build docker-run verify-report coverage coverage-summary coverage-switch-setup embed-ui update-fv fv-all
 
+LOCAL_DUNE_BUILD_DIRS := _build _build_opt_speed _build_opt_size _build_opt_min
+
+define check_dune_lock
+	@for dir in $(LOCAL_DUNE_BUILD_DIRS); do \
+		if [ -e "$$dir/.lock" ]; then \
+			echo "ERROR: Dune build lock present at $$dir/.lock" >&2; \
+			echo "Another dune command may already be running in this repo build dir." >&2; \
+			echo "Wait for it to finish or remove a stale lock if you are sure no dune process is active." >&2; \
+			exit 1; \
+		fi; \
+	done
+endef
+
 OPT ?= speed
 DIST_DIR := dist
 CLAWQ_BIN ?= ./_build/default/src/main.exe
@@ -20,6 +33,7 @@ bootstrap:
 	./scripts/bootstrap_coq.sh
 
 build:
+	$(call check_dune_lock,_build)
 	dune build
 
 restart:
@@ -30,6 +44,7 @@ build-restart:
 	$(MAKE) restart
 
 build-minimal:
+	$(call check_dune_lock,_build)
 	@CLAWQ_BUILD_MINIMAL=true dune build src/main_min.exe
 	@exe="$(MIN_EXE)"; \
 		size_kb=$$((($$(stat -c%s "$$exe") + 1023) / 1024)); \
@@ -48,6 +63,7 @@ build-opt:
 build-opt-all: build-opt-speed build-opt-size
 
 build-opt-minimal:
+	$(call check_dune_lock,_build_opt_min)
 	@DUNE_BUILD_DIR=_build_opt_min CLAWQ_BUILD_MINIMAL=true dune build --profile=release-size src/main_min.exe
 	@exe="_build_opt_min/default/src/main_min.exe"; \
 		size_kb=$$((($$(stat -c%s "$$exe") + 1023) / 1024)); \
@@ -66,12 +82,14 @@ build-opt-stripped:
 build-opt-stripped-all: build-opt-speed-stripped build-opt-size-stripped
 
 build-opt-speed:
+	$(call check_dune_lock,_build_opt_speed)
 	@DUNE_BUILD_DIR=_build_opt_speed dune build --profile=release-speed src/main.exe
 	@exe="$(SPEED_EXE)"; \
 		size_kb=$$((($$(stat -c%s "$$exe") + 1023) / 1024)); \
 		echo "$$exe $$size_kb KB"
 
 build-opt-size:
+	$(call check_dune_lock,_build_opt_size)
 	@DUNE_BUILD_DIR=_build_opt_size dune build --profile=release-size src/main.exe
 	@exe="$(SIZE_EXE)"; \
 		size_kb=$$((($$(stat -c%s "$$exe") + 1023) / 1024)); \
@@ -127,9 +145,11 @@ extract:
 	./scripts/extract.sh
 
 run:
+	$(call check_dune_lock,_build)
 	dune exec src/main.exe -- help
 
 phase2:
+	$(call check_dune_lock,_build)
 	dune exec src/main.exe -- phase2
 
 extract-check:
@@ -153,11 +173,13 @@ coq-check: coq-verify extract-check
 	@echo "Coq verification and extraction drift check passed."
 
 build-wasm:
+	$(call check_dune_lock,_build)
 	dune build src/main_wasm_exe.bc
 	@echo "WASM bytecode built: _build/default/src/main_wasm_exe.bc"
 	@echo "Run with: ocamlrun _build/default/src/main_wasm_exe.bc help"
 
 test:
+	$(call check_dune_lock,_build)
 	dune runtest
 
 COVERAGE_SWITCH := clawq-coverage
@@ -181,14 +203,13 @@ coverage-summary:
 	@exit 1
 
 fmt:
+	$(call check_dune_lock,_build)
 	dune fmt
 
 fmt-check:
+	$(call check_dune_lock,_build)
 	@tmp_log="$$(mktemp)"; \
 	status=0; \
-	if [ -f _build/.lock ] && ! grep -Eq '^[0-9]+$$' _build/.lock; then \
-		rm -f _build/.lock; \
-	fi; \
 	timeout 30s dune fmt >"$$tmp_log" 2>&1 || status=$$?; \
 	head -20 "$$tmp_log"; \
 	rm -f "$$tmp_log"; \
@@ -209,6 +230,7 @@ ui-check:
 	./scripts/gen_chat_ui_assets.sh --check
 
 release:
+	$(call check_dune_lock,_build)
 	dune build --release
 
 docker-build:
@@ -229,4 +251,5 @@ fv-all: coq-check update-fv verify-report
 	@echo "=== fv-all complete ==="
 
 clean:
+	$(call check_dune_lock,_build)
 	dune clean

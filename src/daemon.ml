@@ -147,6 +147,48 @@ let refresh_runtime_bound_tools ~(config : Runtime_config.t) registry =
        ~workspace_files:config.prompt.workspace_files);
   Logs.info (fun m -> m "Refreshed runtime-bound tools")
 
+let notify_background_task_finished ~(session_manager : Session.t) ~config task
+    =
+  let text = Background_task.status_message task in
+  let open Lwt.Syntax in
+  match task.Background_task.session_key with
+  | Some key -> (
+      match Session.find_registered_notifier session_manager ~key with
+      | Some notify ->
+          Lwt.catch
+            (fun () -> notify text)
+            (fun exn ->
+              Logs.warn (fun m ->
+                  m "Background task notifier failed: %s"
+                    (Printexc.to_string exn));
+              Lwt.return_unit)
+      | None -> (
+          match (task.channel, task.channel_id) with
+          | Some channel, Some channel_id -> (
+              let* result =
+                dispatch_resumed_message ~config ~channel ~channel_id ~text ()
+              in
+              match result with
+              | Ok () -> Lwt.return_unit
+              | Error err ->
+                  Logs.warn (fun m ->
+                      m "Background task completion dispatch failed: %s" err);
+                  Lwt.return_unit)
+          | _ -> Lwt.return_unit))
+  | None -> (
+      match (task.channel, task.channel_id) with
+      | Some channel, Some channel_id -> (
+          let* result =
+            dispatch_resumed_message ~config ~channel ~channel_id ~text ()
+          in
+          match result with
+          | Ok () -> Lwt.return_unit
+          | Error err ->
+              Logs.warn (fun m ->
+                  m "Background task completion dispatch failed: %s" err);
+              Lwt.return_unit)
+      | _ -> Lwt.return_unit)
+
 let default_resume_turn ~(session_manager : Session.t) ~session_key agent
     interrupt =
   let open Lwt.Syntax in
@@ -1059,6 +1101,7 @@ let run ~(config : Runtime_config.t) =
   (match db with
   | Some db ->
       Scheduler.init_schema db;
+      Background_task.init_schema db;
       Lwt.async (fun () ->
           Lwt.catch
             (fun () ->
@@ -1066,7 +1109,6 @@ let run ~(config : Runtime_config.t) =
               let last_retention_run = ref 0.0 in
               let rec loop () =
                 let open Lwt.Syntax in
-                let* () = Lwt_unix.sleep 60.0 in
                 let* () = Scheduler.tick ~db ~session_mgr:session_manager in
                 let now = Unix.gettimeofday () in
                 let cur_config = Session.get_config session_manager in
@@ -1110,12 +1152,31 @@ let run ~(config : Runtime_config.t) =
                   | Some t -> Telemetry.maybe_flush t
                   | None -> Lwt.return_unit
                 in
+                let* () = Lwt_unix.sleep 60.0 in
                 loop ()
               in
               loop ())
             (fun exn ->
               Logs.err (fun m ->
                   m "Cron scheduler error: %s" (Printexc.to_string exn));
+              Lwt.return_unit));
+      Lwt.async (fun () ->
+          Lwt.catch
+            (fun () ->
+              let rec loop () =
+                let open Lwt.Syntax in
+                let () =
+                  Background_task.start_queued_with_callback ~db
+                    ~on_task_finished:
+                      (notify_background_task_finished ~session_manager ~config)
+                in
+                let* () = Lwt_unix.sleep 5.0 in
+                loop ()
+              in
+              loop ())
+            (fun exn ->
+              Logs.err (fun m ->
+                  m "Background task loop error: %s" (Printexc.to_string exn));
               Lwt.return_unit));
       Logs.info (fun m -> m "Cron scheduler started")
   | None -> Logs.info (fun m -> m "Cron scheduler disabled (no database)"));

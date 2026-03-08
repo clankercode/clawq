@@ -563,6 +563,175 @@ let cmd_workspace () =
   let cfg = get_config () in
   Printf.sprintf "Workspace: %s" (Runtime_config.effective_workspace cfg)
 
+type background_add_args = {
+  runner : Background_task.runner;
+  repo_path : string;
+  branch : string option;
+  prompt : string;
+}
+
+type background_wait_args = { id : int; timeout_seconds : float }
+type background_logs_args = { id : int; lines : int }
+
+type delegate_args = {
+  preferred_runner : Background_task.runner option;
+  repo_path : string option;
+  branch : string option;
+  goal : string;
+}
+
+let notify_route (cfg : Runtime_config.t) =
+  match cfg.notify with
+  | Some notify -> (Some notify.notify_channel, Some notify.notify_target)
+  | None -> (None, None)
+
+let path_is_git_repo path =
+  Sys.command
+    (Printf.sprintf "git -C %s rev-parse --is-inside-work-tree >/dev/null 2>&1"
+       (Filename.quote path))
+  = 0
+
+let default_delegate_repo_path (cfg : Runtime_config.t) =
+  let cwd = Sys.getcwd () in
+  if path_is_git_repo cwd then cwd else Runtime_config.effective_workspace cfg
+
+let parse_background_add_args args =
+  let rec loop branch positionals = function
+    | [] -> (
+        let positionals = List.rev positionals in
+        match positionals with
+        | runner_s :: repo_path :: prompt_parts -> (
+            match Background_task.runner_of_string runner_s with
+            | None ->
+                Error "Runner must be one of: codex, claude (or claude-code)"
+            | Some runner ->
+                let prompt = String.concat " " prompt_parts |> String.trim in
+                if prompt = "" then Error "Prompt is required"
+                else Ok { runner; repo_path; branch; prompt })
+        | _ ->
+            Error
+              "Usage: clawq background add <codex|claude> <repo> [--branch \
+               <name>] <prompt>")
+    | "--branch" :: value :: rest -> loop (Some value) positionals rest
+    | arg :: rest -> loop branch (arg :: positionals) rest
+  in
+  loop None [] args
+
+let parse_background_wait_args args =
+  let rec loop timeout id = function
+    | [] -> (
+        match id with
+        | Some id -> Ok { id; timeout_seconds = timeout }
+        | None ->
+            Error "Usage: clawq background wait <id> [--timeout <seconds>]")
+    | "--timeout" :: seconds :: rest -> (
+        try loop (float_of_string seconds) id rest
+        with _ -> Error "Timeout must be a number")
+    | arg :: rest -> (
+        match id with
+        | Some _ ->
+            Error "Usage: clawq background wait <id> [--timeout <seconds>]"
+        | None -> (
+            try loop timeout (Some (int_of_string arg)) rest
+            with _ -> Error "Background task id must be an integer"))
+  in
+  loop 300.0 None args
+
+let parse_background_logs_args args =
+  let rec loop lines id = function
+    | [] -> (
+        match id with
+        | Some id -> Ok { id; lines }
+        | None -> Error "Usage: clawq background logs <id> [--lines <count>]")
+    | "--lines" :: count :: rest -> (
+        try loop (max 1 (int_of_string count)) id rest
+        with _ -> Error "Log line count must be an integer")
+    | arg :: rest -> (
+        match id with
+        | Some _ -> Error "Usage: clawq background logs <id> [--lines <count>]"
+        | None -> (
+            try loop lines (Some (int_of_string arg)) rest
+            with _ -> Error "Background task id must be an integer"))
+  in
+  loop 40 None args
+
+let parse_delegate_args args =
+  let rec loop preferred_runner repo_path branch positionals = function
+    | [] ->
+        let goal = String.concat " " (List.rev positionals) |> String.trim in
+        if goal = "" then
+          Error
+            "Usage: clawq delegate [--runner auto|codex|claude] [--repo \
+             <path>] [--branch <name>] <goal>"
+        else Ok { preferred_runner; repo_path; branch; goal }
+    | "--runner" :: value :: rest ->
+        let value = String.lowercase_ascii (String.trim value) in
+        let preferred_runner =
+          if value = "" || value = "auto" then None
+          else Background_task.runner_of_string value
+        in
+        if value <> "auto" && preferred_runner = None then
+          Error "Runner must be one of: auto, codex, claude"
+        else loop preferred_runner repo_path branch positionals rest
+    | "--repo" :: value :: rest ->
+        loop preferred_runner (Some value) branch positionals rest
+    | "--branch" :: value :: rest ->
+        loop preferred_runner repo_path (Some value) positionals rest
+    | arg :: rest ->
+        loop preferred_runner repo_path branch (arg :: positionals) rest
+  in
+  loop None None None [] args
+
+let format_background_task_row (task : Background_task.task) =
+  let branch = if task.branch = "" then "-" else task.branch in
+  Printf.sprintf "  %-4d %-8s %-8s %-18s %s" task.id
+    (Background_task.string_of_runner task.runner)
+    (Background_task.string_of_status task.status)
+    branch task.repo_path
+
+let format_background_task_details (task : Background_task.task) =
+  let add line acc = line :: acc in
+  let lines = ref [] in
+  lines := add (Printf.sprintf "id: %d" task.id) !lines;
+  lines :=
+    add
+      (Printf.sprintf "runner: %s"
+         (Background_task.string_of_runner task.runner))
+      !lines;
+  lines :=
+    add
+      (Printf.sprintf "status: %s"
+         (Background_task.string_of_status task.status))
+      !lines;
+  lines := add (Printf.sprintf "repo: %s" task.repo_path) !lines;
+  lines :=
+    add
+      (Printf.sprintf "branch: %s"
+         (if task.branch = "" then "(auto)" else task.branch))
+      !lines;
+  lines := add (Printf.sprintf "created_at: %s" task.created_at) !lines;
+  (match task.started_at with
+  | Some value -> lines := add (Printf.sprintf "started_at: %s" value) !lines
+  | None -> ());
+  (match task.finished_at with
+  | Some value -> lines := add (Printf.sprintf "finished_at: %s" value) !lines
+  | None -> ());
+  (match task.worktree_path with
+  | Some value -> lines := add (Printf.sprintf "worktree: %s" value) !lines
+  | None -> ());
+  (match task.log_path with
+  | Some value -> lines := add (Printf.sprintf "log: %s" value) !lines
+  | None -> ());
+  (match task.pid with
+  | Some value -> lines := add (Printf.sprintf "pid: %d" value) !lines
+  | None -> ());
+  (match task.result_preview with
+  | Some value when String.trim value <> "" ->
+      lines := add (Printf.sprintf "result: %s" value) !lines
+  | _ -> ());
+  lines := add (Printf.sprintf "prompt: %s" task.prompt) !lines;
+  String.concat "\n" (List.rev !lines)
+
 let cmd_capabilities () =
   let cfg = get_config () in
   let caps = ref [] in
@@ -938,6 +1107,116 @@ let cmd_cron args =
       \  cron remove <name>                           - Remove a job\n\
       \  cron history <name>                          - Show run history\n\
       \  cron runs [name]                             - Show all run history"
+
+let cmd_background args =
+  match args with
+  | [ "list" ] | [] ->
+      let db = get_db () in
+      Background_task.init_schema db;
+      Background_task.format_task_list (Background_task.list_tasks ~db)
+  | [ "show"; id_s ] -> (
+      let db = get_db () in
+      Background_task.init_schema db;
+      let id = try int_of_string id_s with _ -> -1 in
+      if id < 0 then "Error: background task id must be an integer"
+      else
+        match Background_task.get_task ~db ~id with
+        | None -> Printf.sprintf "No background task found with id %d" id
+        | Some task -> Background_task.format_task_summary task)
+  | "add" :: rest -> (
+      let cfg = get_config () in
+      let db = get_db () in
+      Background_task.init_schema db;
+      match parse_background_add_args rest with
+      | Error msg -> "Error: " ^ msg
+      | Ok parsed -> (
+          let channel, channel_id = notify_route cfg in
+          match
+            Background_task.enqueue ~db ~runner:parsed.runner
+              ~repo_path:parsed.repo_path ~prompt:parsed.prompt
+              ?branch:parsed.branch ?channel ?channel_id ()
+          with
+          | Ok id ->
+              Printf.sprintf
+                "Queued background task %d (%s). Use `clawq background wait \
+                 %d` or `clawq background show %d` to track it."
+                id
+                (Background_task.string_of_runner parsed.runner)
+                id id
+          | Error msg -> "Error: " ^ msg))
+  | "wait" :: rest -> (
+      let db = get_db () in
+      Background_task.init_schema db;
+      match parse_background_wait_args rest with
+      | Error msg -> "Error: " ^ msg
+      | Ok parsed -> (
+          match
+            Lwt_main.run
+              (Background_task.wait_until_terminal
+                 ~timeout_seconds:parsed.timeout_seconds ~db ~id:parsed.id ())
+          with
+          | Ok task -> Background_task.format_task_summary task
+          | Error msg -> "Error: " ^ msg))
+  | "logs" :: rest -> (
+      let db = get_db () in
+      Background_task.init_schema db;
+      match parse_background_logs_args rest with
+      | Error msg -> "Error: " ^ msg
+      | Ok parsed -> (
+          match Background_task.get_task ~db ~id:parsed.id with
+          | None ->
+              Printf.sprintf "Error: No background task found with id %d"
+                parsed.id
+          | Some task -> (
+              match Background_task.log_excerpt ~lines:parsed.lines task with
+              | Ok text -> text
+              | Error msg -> "Error: " ^ msg)))
+  | [ "cancel"; id_s ] -> (
+      let db = get_db () in
+      Background_task.init_schema db;
+      let id = try int_of_string id_s with _ -> -1 in
+      if id < 0 then "Error: background task id must be an integer"
+      else
+        match Background_task.cancel ~db ~id with
+        | Ok msg -> msg
+        | Error msg -> "Error: " ^ msg)
+  | _ ->
+      "Usage: clawq background <list|show|add|wait|logs|cancel>\n\
+      \  background list                                         - List queued \
+       and completed tasks\n\
+      \  background show <id>                                    - Show task \
+       details\n\
+      \  background add <codex|claude> <repo> [--branch <name>] <prompt> - \
+       Queue a worktree runner\n\
+      \  background wait <id> [--timeout <seconds>]              - Wait for a \
+       task to finish\n\
+      \  background logs <id> [--lines <count>]                  - Show recent \
+       task log lines\n\
+      \  background cancel <id>                                  - Cancel a \
+       queued/running task"
+
+let cmd_delegate args =
+  let cfg = get_config () in
+  let db = get_db () in
+  Background_task.init_schema db;
+  match parse_delegate_args args with
+  | Error msg -> "Error: " ^ msg
+  | Ok parsed -> (
+      match
+        Background_task.delegate_enqueue ~db ?notify_cfg:cfg.notify
+          ?preferred_runner:parsed.preferred_runner ?repo_path:parsed.repo_path
+          ?branch:parsed.branch
+          ~default_repo_path:(default_delegate_repo_path cfg)
+          ~goal:parsed.goal ()
+      with
+      | Ok (id, runner, repo_path) ->
+          Printf.sprintf
+            "Delegated task %d (%s) for %s. Use `clawq background wait %d` or \
+             `clawq background show %d` to track it."
+            id
+            (Background_task.string_of_runner runner)
+            repo_path id id
+      | Error msg -> "Error: " ^ msg)
 
 let cmd_audit args =
   let cfg = get_config () in
@@ -1597,6 +1876,8 @@ let handle args =
   | "transcribe" :: rest -> cmd_transcribe rest
   | "mcp" :: _ -> cmd_mcp ()
   | "cron" :: rest -> cmd_cron rest
+  | "background" :: rest -> cmd_background rest
+  | "delegate" :: rest -> cmd_delegate rest
   | "skills" :: rest -> cmd_skills rest
   | "audit" :: rest -> cmd_audit rest
   | "runtime" :: rest -> cmd_runtime rest

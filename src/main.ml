@@ -26,6 +26,12 @@ let run name args =
 
 let rest_args docv = Arg.(value & pos_all string [] & info [] ~docv)
 
+let required_rest_args docv =
+  Arg.(non_empty & pos_all string [] & info [] ~docv)
+
+let required_trailing_args start docv =
+  Arg.(non_empty & pos_right start string [] & info [] ~docv)
+
 (* Commands with no meaningful positional args *)
 let simple name doc =
   Cmd.v (Cmd.info name ~doc) Term.(ret (const (run name) $ const []))
@@ -119,6 +125,180 @@ let cron_cmd =
       `I ("remove NAME", "Remove a cron job by name.");
       `I ("history NAME", "Show the last 10 run records for a job.");
     ]
+
+let background_list_cmd =
+  Cmd.v
+    (Cmd.info "list"
+       ~doc:"List queued, running, and completed background tasks.")
+    Term.(ret (const (run "background") $ const [ "list" ]))
+
+let background_show_cmd =
+  let id = Arg.(required & pos 0 (some string) None & info [] ~docv:"ID") in
+  Cmd.v
+    (Cmd.info "show"
+       ~doc:"Show detailed task status, including worktree and log paths.")
+    Term.(ret (const (fun id -> run "background" [ "show"; id ]) $ id))
+
+let background_add_cmd =
+  let runner =
+    Arg.(required & pos 0 (some string) None & info [] ~docv:"RUNNER")
+  in
+  let repo = Arg.(required & pos 1 (some string) None & info [] ~docv:"REPO") in
+  let branch =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "branch" ] ~docv:"NAME" ~doc:"Branch name for the new worktree.")
+  in
+  let prompt = required_trailing_args 1 "PROMPT" in
+  Cmd.v
+    (Cmd.info "add"
+       ~doc:"Queue a Codex or Claude background task for a repository.")
+    Term.(
+      ret
+        (const (fun runner repo branch prompt ->
+             let args = [ "add"; runner; repo ] in
+             let args =
+               match branch with
+               | Some name -> args @ [ "--branch"; name ]
+               | None -> args
+             in
+             run "background" (args @ prompt))
+        $ runner $ repo $ branch $ prompt))
+
+let background_wait_cmd =
+  let id = Arg.(required & pos 0 (some string) None & info [] ~docv:"ID") in
+  let timeout =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "timeout" ] ~docv:"SECONDS"
+          ~doc:"Maximum number of seconds to wait.")
+  in
+  Cmd.v
+    (Cmd.info "wait"
+       ~doc:"Wait for a task to finish and print its final status.")
+    Term.(
+      ret
+        (const (fun id timeout ->
+             let args = [ "wait"; id ] in
+             let args =
+               match timeout with
+               | Some seconds -> args @ [ "--timeout"; seconds ]
+               | None -> args
+             in
+             run "background" args)
+        $ id $ timeout))
+
+let background_logs_cmd =
+  let id = Arg.(required & pos 0 (some string) None & info [] ~docv:"ID") in
+  let lines =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "lines" ] ~docv:"COUNT"
+          ~doc:"How many trailing log lines to show.")
+  in
+  Cmd.v
+    (Cmd.info "logs"
+       ~doc:"Show the task log output for a queued, running, or finished task.")
+    Term.(
+      ret
+        (const (fun id lines ->
+             let args = [ "logs"; id ] in
+             let args =
+               match lines with
+               | Some count -> args @ [ "--lines"; count ]
+               | None -> args
+             in
+             run "background" args)
+        $ id $ lines))
+
+let background_cancel_cmd =
+  let id = Arg.(required & pos 0 (some string) None & info [] ~docv:"ID") in
+  Cmd.v
+    (Cmd.info "cancel" ~doc:"Cancel a queued or running background task.")
+    Term.(ret (const (fun id -> run "background" [ "cancel"; id ]) $ id))
+
+let background_cmd =
+  Cmd.group
+    ~default:Term.(ret (const (run "background") $ const [ "list" ]))
+    (Cmd.info "background"
+       ~doc:
+         "Manage background coding tasks that run Codex or Claude in git \
+          worktrees.")
+    [
+      background_list_cmd;
+      background_show_cmd;
+      background_add_cmd;
+      background_wait_cmd;
+      background_logs_cmd;
+      background_cancel_cmd;
+    ]
+
+let delegate_cmd =
+  let runner =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "runner" ] ~docv:"RUNNER"
+          ~doc:"Preferred runner: auto, codex, or claude.")
+  in
+  let repo =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "repo" ] ~docv:"PATH" ~doc:"Repository path to queue against.")
+  in
+  let branch =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "branch" ] ~docv:"NAME"
+          ~doc:"Optional branch name for the new worktree.")
+  in
+  let goal = required_rest_args "GOAL" in
+  Cmd.v
+    (Cmd.info "delegate"
+       ~doc:
+         "High-level workflow for delegating coding tasks to background \
+          runners."
+       ~man:
+         [
+           `S "RELATED";
+           `I
+             ("background list", "Inspect queued and completed delegated tasks.");
+           `I
+             ( "background wait ID [--timeout SECONDS]",
+               "Wait for a delegated task to finish." );
+           `I
+             ( "background logs ID [--lines COUNT]",
+               "Show the log output for a delegated task." );
+           `I
+             ( "background cancel ID",
+               "Cancel a queued or running delegated task." );
+         ])
+    Term.(
+      ret
+        (const (fun runner repo branch goal ->
+             let args = [] in
+             let args =
+               match runner with
+               | Some value -> args @ [ "--runner"; value ]
+               | None -> args
+             in
+             let args =
+               match repo with
+               | Some value -> args @ [ "--repo"; value ]
+               | None -> args
+             in
+             let args =
+               match branch with
+               | Some value -> args @ [ "--branch"; value ]
+               | None -> args
+             in
+             run "delegate" (args @ goal))
+        $ runner $ repo $ branch $ goal))
 
 let audit_list_cmd =
   let limit =
@@ -321,6 +501,8 @@ let () =
       transcribe_cmd;
       mcp_cmd;
       cron_cmd;
+      background_cmd;
+      delegate_cmd;
       audit_cmd;
       skills_cmd;
       service_cmd;

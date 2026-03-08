@@ -35,6 +35,14 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 | `cron add NAME SESSION SCHEDULE MSG` | Add a cron job |
 | `cron remove NAME` | Remove a cron job by name |
 | `cron history NAME` | Show last 10 run records for a job |
+| `background` | Inspect and control background coding tasks (default: list) |
+| `background list` | List queued, running, and completed background tasks |
+| `background show ID` | Show detailed status for a background task |
+| `background add RUNNER REPO [--branch NAME] PROMPT` | Queue a Codex or Claude task in a git worktree |
+| `background wait ID [--timeout SECONDS]` | Wait for a background task to finish, then print its final status/result summary |
+| `background logs ID [--lines COUNT]` | Print the captured log for a background task |
+| `background cancel ID` | Cancel a queued or running background task |
+| `delegate [--runner auto|codex|claude] [--repo PATH] [--branch NAME] GOAL` | High-level shortcut for handing off repository work as a background task with sensible defaults |
 | `debug` | Internal debugging utilities |
 | `debug html-preview [PORT]` | Serve HTML preview test pages on localhost |
 | `doctor` | Check config for common issues |
@@ -240,7 +248,7 @@ To encrypt API keys at rest: set `security.encrypt_secrets` to true, set `CLAWQ_
 
 ## Your Tools
 
-You have up to 21 built-in tools. 14 are always registered; `web_search`, `send_message`, `transcribe`, and the four memory tools are conditional on runtime configuration/wiring.
+You have up to 27 built-in tools. 14 are always registered; `web_search`, `send_message`, `transcribe`, the four memory tools, and the six background/delegation tools are conditional on runtime configuration/wiring.
 
 | Tool | Description |
 |------|-------------|
@@ -265,6 +273,18 @@ You have up to 21 built-in tools. 14 are always registered; `web_search`, `send_
 | `memory_recall` | Recall a value from memory |
 | `memory_forget` | Forget a memory entry |
 | `memory_list` | List all memory keys |
+| `background_task_enqueue` | Queue a Codex or Claude background coding task in a git worktree; captures session/channel metadata when available |
+| `background_task_list` | List background tasks or inspect a single task by id, including status, branch, log path, and result preview |
+| `background_task_wait` | Wait for a background task to reach a terminal state and return its final summary |
+| `background_task_logs` | Read the latest lines from a background task log file |
+| `delegate` | Queue a delegated background coding task with auto-runner and default-repo behavior |
+| `background_task_cancel` | Cancel a queued or running background task |
+
+Background delegation notes:
+- `delegate` is the high-level user-facing entry point for handing off repository work asynchronously.
+- The `background` command family is the lower-level control surface: queue work, inspect task metadata, wait for completion, read captured logs, or cancel a run.
+- Background task worktrees live under `~/.clawq/background-worktrees/`.
+- Background task logs live under `~/.clawq/background-logs/`.
 
 Security features:
 - Dual path safety: Coq-extracted pure check (PathSafety.v) AND OCaml realpath check — both must pass

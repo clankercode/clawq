@@ -141,6 +141,7 @@ clawq auth             Show provider auth status, run Codex OAuth login, or encr
 clawq capabilities     List all active runtime capabilities
 clawq channel          List configured channels
 clawq config           Manage configuration (wizard, get/set/show)
+clawq background       Inspect and control background Codex/Claude worktree tasks
 clawq cron             Manage cron jobs for scheduled agent messages
 clawq doctor           Check configuration for common issues
 clawq mcp              Start the MCP server (Model Context Protocol)
@@ -155,6 +156,7 @@ clawq runtime          Manage native and Docker runtimes
 clawq service          Manage the clawq system service (start/stop/restart)
 clawq skills           Manage agent skills (shell-script tool extensions)
 clawq status           Show runtime configuration and daemon status
+clawq delegate         Queue a high-level background Codex/Claude coding handoff
 clawq transcribe       Transcribe an audio file using the configured STT provider
 clawq tunnel           Manage a public tunnel to the local gateway
 clawq workspace        Print the current workspace directory
@@ -184,6 +186,35 @@ clawq auth codex-logout [PROVIDER] Remove saved Codex OAuth credentials
 ```
 
 Run `clawq COMMAND --help` for per-command usage.
+
+### Background task examples
+
+```bash
+# High-level handoff for a background coding run
+clawq delegate "implement the feature described in TODO.md"
+
+# Explicit runner/repo overrides when needed
+clawq delegate --runner codex --repo /path/to/repo "implement the feature described in TODO.md"
+
+# Low-level queue command for the same flow
+clawq background add codex /path/to/repo "implement the feature described in TODO.md"
+
+# Queue a Claude task on a specific branch
+clawq background add claude /path/to/repo --branch clawq-experiment "fix failing tests and summarize the changes"
+
+# Inspect progress
+clawq background list
+clawq background show 3
+clawq background wait 3
+clawq background logs 3
+
+# Cancel a queued or running task
+clawq background cancel 3
+```
+
+`clawq delegate` is the friendly entry point for handing off repository work asynchronously. The `background` command family is the lower-level surface for listing tasks, waiting for completion, reading captured logs, and cancelling work.
+
+The full daemon picks up queued background tasks automatically. Each task gets its own git worktree under `~/.clawq/background-worktrees/` and a log file under `~/.clawq/background-logs/` for later inspection.
 
 ## Make Targets
 

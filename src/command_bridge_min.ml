@@ -323,6 +323,14 @@ let cmd_cron args =
       else Printf.sprintf "No job found with name '%s'" name
   | _ -> "Usage: clawq-min cron <list|add|remove>"
 
+let cmd_background _args =
+  "Background task execution is disabled in the minimal build. Use the full \
+   clawq binary."
+
+let cmd_delegate _args =
+  "Background task delegation is disabled in the minimal build. Use the full \
+   clawq binary."
+
 let cmd_audit args =
   let cfg = get_config () in
   if not cfg.security.audit_enabled then
@@ -381,6 +389,8 @@ let handle args =
   | "capabilities" :: _ -> cmd_capabilities ()
   | "auth" :: rest -> cmd_auth rest
   | "cron" :: rest -> cmd_cron rest
+  | "background" :: rest -> cmd_background rest
+  | "delegate" :: rest -> cmd_delegate rest
   | "skills" :: rest -> cmd_skills rest
   | "audit" :: rest -> cmd_audit rest
   | "otp-show" :: _ -> unsupported "otp-show"

@@ -18,6 +18,12 @@ Every clawq command is listed below. Run `clawq COMMAND --help` for per-command 
 | `clawq auth codex-status [PROVIDER]` | Show saved Codex OAuth status |
 | `clawq auth codex-logout [PROVIDER]` | Remove saved Codex OAuth credentials |
 | `clawq capabilities` | List all active runtime capabilities |
+| `clawq background` | Inspect and control background Codex or Claude worktree tasks |
+| `clawq background add RUNNER REPO [--branch NAME] PROMPT` | Queue a background coding task in a fresh git worktree |
+| `clawq background show ID` | Inspect one background task, including log/worktree paths when available |
+| `clawq background wait ID [--timeout SECONDS]` | Block until a background task finishes, then print the final summary |
+| `clawq background logs ID [--lines COUNT]` | Show the captured log for a background task |
+| `clawq background cancel ID` | Cancel a queued or running background task |
 | `clawq channel` | List configured channels |
 | `clawq config` | Manage configuration (wizard, get/set/show) |
 | `clawq cron` | Manage cron jobs for scheduled agent messages |
@@ -27,6 +33,7 @@ Every clawq command is listed below. Run `clawq COMMAND --help` for per-command 
 | `clawq migrate` | Run database migrations |
 | `clawq models` | List configured LLM providers and their default models |
 | `clawq onboard` | Interactive setup wizard (or template when not in a TTY) |
+| `clawq delegate [--runner auto|codex|claude] [--repo PATH] [--branch NAME] GOAL` | High-level shortcut for handing off a background coding task with sensible defaults |
 | `clawq phase2` | Show Phase 2 feature status |
 | `clawq otp-show` | Show the current browser pairing code and any Telegram TOTP codes |
 | `clawq reset-agent` | Wipe all session history, cron jobs, and workspace files |
@@ -102,7 +109,7 @@ clawq config show security     # security section only
 ```bash
 clawq onboard          # interactive wizard
 clawq doctor           # validate configuration
-clawq workspace init   # initialize workspace files
+clawq workspace        # show the active workspace path
 clawq agent            # start the daemon
 ```
 
@@ -114,6 +121,24 @@ clawq models           # list providers and models
 clawq channel          # list active channels
 clawq capabilities     # list available features
 ```
+
+### Background coding runs
+
+```bash
+clawq delegate "implement the task from TASK.md"
+clawq delegate --runner codex --repo /path/to/repo "implement the task from TASK.md"
+clawq background add codex /path/to/repo "implement the task from TASK.md"
+clawq background add claude /path/to/repo --branch clawq-fixup "repair the failing tests"
+clawq background list
+clawq background show 1
+clawq background wait 1
+clawq background logs 1
+clawq background cancel 1
+```
+
+`clawq delegate` is the high-level handoff command for this flow. The `background` subcommands are the more explicit control surface when you want to inspect queue state, wait for completion in the terminal, or read the saved task log.
+
+Background tasks are daemon-owned. The full `clawq agent` process polls the queue, creates a fresh git worktree for each task under `~/.clawq/background-worktrees/`, runs the selected CLI non-interactively, and stores the task log under `~/.clawq/background-logs/`.
 
 ### Security and auditing
 
