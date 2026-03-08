@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B081
+priority: high
+status: pending
+tags: []
+title: 'Add/verify self-update and self-restart operational path for autonomous agent use: expose/document safe in-band update/restart flow, daemon re-entry, and post-restart continuation trigger/resume semantics.'
+---
+
+Add/verify self-update and self-restart operational path for autonomous agent use: expose/document safe in-band update/restart flow, daemon re-entry, and post-restart continuation trigger/resume semantics.

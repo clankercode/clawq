@@ -79,3 +79,4 @@ bugs:
     - file: B078-config-updates-should-be-live.todo
     - file: B079-document-tool-runtime-caveats.todo
     - file: B080-daemon-config-changes-likely-d.todo
+    - file: B081-add-verify-self-update-and-sel.todo
