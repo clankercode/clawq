@@ -751,6 +751,10 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
     | Some reason when reason = restart_interrupt_token -> true
     | _ -> false
   in
+  let is_queued_message_interrupt = function
+    | Some reason when reason = queued_message_interrupt_token -> true
+    | _ -> false
+  in
   let open Lwt.Syntax in
   let* _compacted =
     if history_prepared then Lwt.return false

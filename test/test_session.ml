@@ -1114,3 +1114,33 @@ let suite =
     Alcotest.test_case "mid-turn injection adds to history" `Quick
       test_mid_turn_injection_adds_to_history;
   ]
+
+let test_drain_queued_messages_drains_all_pending_without_relock () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let config = Runtime_config.default in
+  let session_manager = Session.create ~config ~db () in
+  let notified = ref [] in
+  let key = "telegram:1:1" in
+  Session.register_channel_notifier session_manager ~key (fun text ->
+      notified := text :: !notified;
+      Lwt.return_unit);
+  let agent = Agent.create ~config ~workspace:"/tmp" () in
+  let interrupt = ref None in
+  let mkq msg =
+    {
+      Session.message = msg;
+      attachments = [];
+      channel_name = None;
+      channel_type = None;
+      sender_id = None;
+      sender_name = None;
+      channel = Some "telegram";
+      channel_id = Some "1";
+    }
+  in
+  ignore (Session.enqueue_message_if_busy session_manager ~key (mkq "one") |> Lwt_main.run);
+  ignore (Session.enqueue_message_if_busy session_manager ~key (mkq "two") |> Lwt_main.run);
+  ignore (Session.enqueue_message_if_busy session_manager ~key (mkq "three") |> Lwt_main.run);
+  Lwt_main.run (Session.drain_queued_messages session_manager ~key agent interrupt);
+  Alcotest.(check int) "all queued messages notified" 3 (List.length !notified)
+
