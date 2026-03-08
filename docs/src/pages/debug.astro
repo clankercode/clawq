@@ -1,0 +1,232 @@
+---
+import LandingLayout from "../layouts/LandingLayout.astro";
+
+const DEBUG_PAGE_DETAILS: Record<string, { eyebrow: string; summary: string }> = {
+  "debug-constraint-solver": {
+    eyebrow: "Backdrop Snapshot",
+    summary: "Inspect the constraint-solver backdrop with seed and target-count controls.",
+  },
+  "debug-design": {
+    eyebrow: "Design System",
+    summary: "Review palette, typography, shared components, and UI tokens in one place.",
+  },
+  "debug-gears": {
+    eyebrow: "Geometry Workbench",
+    summary: "Tune the hero gear pair live and inspect path geometry, guides, and intersections.",
+  },
+  "debug-topology-first": {
+    eyebrow: "Backdrop Snapshot",
+    summary: "Inspect the topology-first backdrop with the same raw and presented debug views.",
+  },
+};
+
+const toTitle = (slug: string) =>
+  slug
+    .replace(/^debug-/, "")
+    .split("-")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+
+const debugPages = Object.keys(import.meta.glob("./debug-*.astro"))
+  .map((path) => path.replace("./", "").replace(".astro", ""))
+  .sort((left, right) => left.localeCompare(right))
+  .map((slug) => ({
+    slug,
+    href: `/${slug}`,
+    title: toTitle(slug),
+    eyebrow: DEBUG_PAGE_DETAILS[slug]?.eyebrow ?? "Debug Page",
+    summary: DEBUG_PAGE_DETAILS[slug]?.summary ?? "Open this internal debug surface.",
+  }));
+---
+
+<LandingLayout title="Debug Index" description="Internal index of Clawq debug routes.">
+  <section class="debug-index">
+    <div class="debug-shell">
+      <header class="hero-panel corner-brackets">
+        <p class="eyebrow">Internal Surface Map</p>
+        <h1>Debug Routes</h1>
+        <p class="lede">
+          A single landing page for the internal `debug-*` routes. This index is generated from `src/pages`,
+          so new debug pages show up here automatically.
+        </p>
+        <div class="hero-meta">
+          <span class="meta-chip">{debugPages.length} routes discovered</span>
+          <span class="meta-chip">Not linked from primary navigation</span>
+        </div>
+      </header>
+
+      <div class="debug-grid">
+        {debugPages.map((page, index) => (
+          <a class="debug-card" href={page.href}>
+            <span class="card-count">{String(index + 1).padStart(2, "0")}</span>
+            <p class="card-eyebrow">{page.eyebrow}</p>
+            <h2>{page.title}</h2>
+            <p class="card-summary">{page.summary}</p>
+            <span class="card-link">
+              Open route
+              <span aria-hidden="true">/</span>
+              <code>{page.slug}</code>
+            </span>
+          </a>
+        ))}
+      </div>
+    </div>
+  </section>
+</LandingLayout>
+
+<style>
+  .debug-index {
+    min-height: calc(100vh - 3rem);
+    padding: 3rem 1.5rem 4rem;
+  }
+
+  .debug-shell {
+    width: min(72rem, 100%);
+    margin: 0 auto;
+    display: grid;
+    gap: 1.75rem;
+  }
+
+  .hero-panel {
+    position: relative;
+    padding: clamp(1.75rem, 4vw, 3rem);
+    border: 1px solid var(--border);
+    border-radius: 2rem;
+    background:
+      linear-gradient(145deg, rgba(201, 168, 76, 0.1), transparent 42%),
+      linear-gradient(180deg, rgba(46, 139, 122, 0.08), transparent 58%),
+      var(--bg-secondary);
+    box-shadow:
+      0 1.5rem 3rem rgba(0, 0, 0, 0.22),
+      inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  }
+
+  .eyebrow {
+    font-family: var(--font-label);
+    font-size: var(--fs-sm);
+    font-variant: small-caps;
+    letter-spacing: 0.18em;
+    color: var(--brass-primary);
+    margin-bottom: 0.85rem;
+  }
+
+  h1 {
+    margin: 0;
+    font-size: clamp(2.25rem, 7vw, 4.5rem);
+    line-height: 0.95;
+  }
+
+  .lede {
+    max-width: 44rem;
+    margin-top: 1rem;
+    color: var(--text-secondary);
+    font-size: var(--fs-md);
+    line-height: 1.7;
+  }
+
+  .hero-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+  }
+
+  .meta-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.65rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: rgba(19, 17, 26, 0.72);
+    color: var(--text-secondary);
+    font-family: var(--font-ui);
+    font-size: var(--fs-sm);
+  }
+
+  .debug-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+    gap: 1rem;
+  }
+
+  .debug-card {
+    display: grid;
+    gap: 0.8rem;
+    min-height: 15rem;
+    padding: 1.35rem;
+    border: 1px solid var(--border);
+    border-radius: 1.5rem;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 28%),
+      var(--bg-secondary);
+    color: var(--text-primary);
+    transition:
+      transform 160ms ease,
+      border-color 160ms ease,
+      box-shadow 160ms ease,
+      background-color 160ms ease;
+  }
+
+  .debug-card:hover {
+    color: var(--text-primary);
+    transform: translateY(-3px);
+    border-color: var(--border-emphasis);
+    box-shadow: 0 1.2rem 2.5rem rgba(0, 0, 0, 0.18);
+    background-color: var(--bg-hover);
+  }
+
+  .card-count {
+    color: var(--text-tertiary);
+    font-family: var(--font-mono);
+    font-size: var(--fs-sm);
+    letter-spacing: 0.16em;
+  }
+
+  .card-eyebrow {
+    color: var(--coq-teal-light);
+    font-family: var(--font-label);
+    font-size: var(--fs-sm);
+    font-variant: small-caps;
+    letter-spacing: 0.12em;
+  }
+
+  .debug-card h2 {
+    margin: 0;
+    font-size: var(--fs-xl);
+    line-height: 1.1;
+  }
+
+  .card-summary {
+    color: var(--text-secondary);
+    line-height: 1.65;
+  }
+
+  .card-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    margin-top: auto;
+    color: var(--brass-primary);
+    font-family: var(--font-ui);
+    font-size: var(--fs-sm);
+  }
+
+  .card-link code {
+    padding: 0.18rem 0.45rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+  }
+
+  @media (max-width: 40rem) {
+    .debug-index {
+      padding-inline: 1rem;
+    }
+
+    .debug-card {
+      min-height: unset;
+    }
+  }
+</style>
