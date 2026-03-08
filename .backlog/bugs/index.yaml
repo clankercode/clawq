@@ -73,3 +73,4 @@ bugs:
     - file: B072-tool-call-info-over-connectors.todo
     - file: B073-implement-messages-from-connec.todo
     - file: B074-fv-docs-out-of-date-eg-shows-6.todo
+    - file: B075-tool-inconsitency-grep.todo
