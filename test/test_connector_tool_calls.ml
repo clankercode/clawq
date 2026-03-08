@@ -37,6 +37,7 @@ let make_runtime_config base_url =
         primary_model = "fake-model";
         show_tool_calls = true;
         show_thinking = false;
+        tool_status_mode = "individual";
       };
   }
 
@@ -121,7 +122,7 @@ let test_slack_handle_event_emits_tool_call_notifications () =
       in
       let sent = ref [] in
       let body =
-        {|{"type":"event_callback","event":{"type":"message","channel":"C123","user":"U456","text":"hello"}}|}
+        {|{"type":"event_callback","event":{"type":"message","channel":"C123","user":"U456","text":"hello","ts":"1234567890.123456"}}|}
       in
       let result =
         Lwt_main.run
@@ -134,7 +135,10 @@ let test_slack_handle_event_emits_tool_call_notifications () =
       Alcotest.(check string) "returns ok" "ok" result;
       Alcotest.(check (list string))
         "tool notifications and final response"
-        [ "\xF0\x9F\x94\xA7 test_tool \xE2\x9C\x93"; "final answer" ]
+        [
+          "\xF0\x9F\x94\xA7 *test_tool* \xE2\x9C\x93 \xE2\x86\x92 _ran hi_";
+          "final answer";
+        ]
         (List.rev !sent))
 
 let test_discord_handle_message_emits_tool_call_notifications () =
@@ -155,6 +159,7 @@ let test_discord_handle_message_emits_tool_call_notifications () =
       let sent = ref [] in
       let msg : Discord.message =
         {
+          id = "msg123";
           channel_id = "ch1";
           guild_id = Some "g1";
           author_id = "u1";
@@ -170,7 +175,10 @@ let test_discord_handle_message_emits_tool_call_notifications () =
            msg);
       Alcotest.(check (list string))
         "tool notifications and final response"
-        [ "\xF0\x9F\x94\xA7 test_tool \xE2\x9C\x93"; "final answer" ]
+        [
+          "\xF0\x9F\x94\xA7 *test_tool* \xE2\x9C\x93 \xE2\x86\x92 _ran hi_";
+          "final answer";
+        ]
         (List.rev !sent))
 
 let suite =

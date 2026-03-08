@@ -16,6 +16,8 @@
   provider
   prompt_builder
   stream_visibility
+  format_adapter
+  status_message
   workspace_scaffold
   agent
   session
@@ -82,6 +84,7 @@
  (modules
   http_server
   telegram
+  telegram_format
   daemon
   mcp_server
   service

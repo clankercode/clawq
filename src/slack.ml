@@ -5,6 +5,7 @@ type event =
       user_id : string;
       text : string;
       bot_id : string option;
+      ts : string;
     }
   | Other
 
@@ -79,6 +80,66 @@ let send_message ~bot_token ~channel_id ~text =
   let* _status, _body = Http_client.post_json ~uri ~headers ~body in
   Lwt.return_unit
 
+let send_message_with_id ~bot_token ~channel_id ~text =
+  let open Lwt.Syntax in
+  let uri = "https://slack.com/api/chat.postMessage" in
+  let headers = [ ("Authorization", "Bearer " ^ bot_token) ] in
+  let body =
+    `Assoc [ ("channel", `String channel_id); ("text", `String text) ]
+    |> Yojson.Safe.to_string
+  in
+  let* _status, resp_body = Http_client.post_json ~uri ~headers ~body in
+  let ts =
+    try
+      let json = Yojson.Safe.from_string resp_body in
+      json |> Yojson.Safe.Util.member "ts" |> Yojson.Safe.Util.to_string
+    with _ -> "0"
+  in
+  Lwt.return ts
+
+let edit_message ~bot_token ~channel_id ~ts ~text =
+  let open Lwt.Syntax in
+  let uri = "https://slack.com/api/chat.update" in
+  let headers = [ ("Authorization", "Bearer " ^ bot_token) ] in
+  let body =
+    `Assoc
+      [
+        ("channel", `String channel_id);
+        ("ts", `String ts);
+        ("text", `String text);
+      ]
+    |> Yojson.Safe.to_string
+  in
+  let* _status, _body = Http_client.post_json ~uri ~headers ~body in
+  Lwt.return_unit
+
+let delete_message ~bot_token ~channel_id ~ts =
+  let open Lwt.Syntax in
+  let uri = "https://slack.com/api/chat.delete" in
+  let headers = [ ("Authorization", "Bearer " ^ bot_token) ] in
+  let body =
+    `Assoc [ ("channel", `String channel_id); ("ts", `String ts) ]
+    |> Yojson.Safe.to_string
+  in
+  let* _status, _body = Http_client.post_json ~uri ~headers ~body in
+  Lwt.return_unit
+
+let add_reaction ~bot_token ~channel_id ~timestamp ~emoji_name =
+  let open Lwt.Syntax in
+  let uri = "https://slack.com/api/reactions.add" in
+  let headers = [ ("Authorization", "Bearer " ^ bot_token) ] in
+  let body =
+    `Assoc
+      [
+        ("channel", `String channel_id);
+        ("timestamp", `String timestamp);
+        ("name", `String emoji_name);
+      ]
+    |> Yojson.Safe.to_string
+  in
+  let* _status, _body = Http_client.post_json ~uri ~headers ~body in
+  Lwt.return_unit
+
 let _rate_limit_warnings : (string, float) Hashtbl.t = Hashtbl.create 16
 
 let parse_event body =
@@ -103,7 +164,8 @@ let parse_event body =
             let bot_id =
               try Some (evt |> member "bot_id" |> to_string) with _ -> None
             in
-            Some (Message { channel_id; user_id; text; bot_id })
+            let ts = try evt |> member "ts" |> to_string with _ -> "" in
+            Some (Message { channel_id; user_id; text; bot_id; ts })
         | _ -> Some Other)
     | _ -> Some Other
   with _ -> None
@@ -119,7 +181,7 @@ let handle_event ~(config : Runtime_config.slack_config)
       in
       Lwt.return resp
   | Some (Message { bot_id = Some _; _ }) -> Lwt.return "ok"
-  | Some (Message { channel_id; user_id; text; bot_id = None }) ->
+  | Some (Message { channel_id; user_id; text; bot_id = None; ts }) ->
       if not (is_allowed ~config ~channel_id ~user_id) then begin
         Logs.warn (fun m ->
             m "Slack: ignoring message from unauthorized channel=%s user=%s"
@@ -231,6 +293,73 @@ let handle_event ~(config : Runtime_config.slack_config)
                 in
                 Lwt.return "ok"
             | NotACommand -> (
+                let agent_defaults =
+                  (Session.get_config session_manager).agent_defaults
+                in
+                let use_consolidated =
+                  agent_defaults.show_tool_calls
+                  && agent_defaults.tool_status_mode = "consolidated"
+                in
+                let thinking_buf = Buffer.create 256 in
+                let status_msg =
+                  if use_consolidated then
+                    let status_notifier : Status_message.notifier =
+                      {
+                        send =
+                          (fun ?parse_mode:_ text ->
+                            send_message_with_id ~bot_token:config.bot_token
+                              ~channel_id ~text);
+                        edit =
+                          (fun msg_ts ?parse_mode:_ text ->
+                            edit_message ~bot_token:config.bot_token ~channel_id
+                              ~ts:msg_ts ~text);
+                        delete =
+                          (fun msg_ts ->
+                            delete_message ~bot_token:config.bot_token
+                              ~channel_id ~ts:msg_ts);
+                      }
+                    in
+                    Some
+                      (Status_message.create ~notifier:status_notifier
+                         ~parse_mode:"mrkdwn" ())
+                  else None
+                in
+                let visibility = Stream_visibility.create () in
+                let on_chunk chunk =
+                  match status_msg with
+                  | Some sm -> (
+                      match chunk with
+                      | Provider.ToolStart { id; name; arguments } ->
+                          let summary =
+                            Stream_visibility.summarize_tool_arguments ~name
+                              arguments
+                          in
+                          Status_message.tool_start sm ~id ~name ~summary
+                      | Provider.ToolResult { id; name; result; is_error } ->
+                          Status_message.tool_result sm ~id ~name ~result
+                            ~is_error
+                      | Provider.ThinkingDelta text ->
+                          if agent_defaults.show_thinking then
+                            Buffer.add_string thinking_buf text;
+                          Lwt.return_unit
+                      | Provider.Delta _ | Provider.ToolCallDelta _
+                      | Provider.ToolOutputDelta _ | Provider.Done ->
+                          Lwt.return_unit)
+                  | None ->
+                      let settings : Stream_visibility.settings =
+                        {
+                          show_thinking = agent_defaults.show_thinking;
+                          show_tool_calls = agent_defaults.show_tool_calls;
+                          notify_tool_starts = false;
+                          notify_tool_successes = true;
+                        }
+                      in
+                      Stream_visibility.on_chunk visibility ~settings
+                        ~notify:(fun text ->
+                          send_message_fn ~bot_token:config.bot_token
+                            ~channel_id ~text)
+                        chunk
+                in
                 let* result =
                   Session.with_registered_notifier session_manager ~key
                     ~notify:(fun text ->
@@ -240,21 +369,46 @@ let handle_event ~(config : Runtime_config.slack_config)
                       Lwt.catch
                         (fun () ->
                           let* response =
-                            Session.turn session_manager ~key ~message:text
-                              ~channel_name:channel_id ~channel_type:"group"
-                              ~sender_id:user_id ~channel:"slack" ~channel_id ()
+                            Session.turn_stream session_manager ~key
+                              ~message:text ~channel_name:channel_id
+                              ~channel_type:"group" ~sender_id:user_id
+                              ~channel:"slack" ~channel_id ~on_chunk ()
                           in
                           Lwt.return (Ok response))
                         (fun exn -> Lwt.return (Error (Printexc.to_string exn))))
                 in
                 match result with
                 | Ok response ->
+                    let* () =
+                      match status_msg with
+                      | Some sm -> Status_message.finalize sm
+                      | None -> Lwt.return_unit
+                    in
                     if Session.is_queued_message_response response then
                       Lwt.return "ok"
                     else
+                      let thinking =
+                        match status_msg with
+                        | Some _ -> Buffer.contents thinking_buf
+                        | None -> Stream_visibility.thinking_text visibility
+                      in
+                      let* () =
+                        if thinking <> "" then
+                          send_message_fn ~bot_token:config.bot_token
+                            ~channel_id
+                            ~text:("_" ^ thinking ^ "_")
+                        else Lwt.return_unit
+                      in
                       let* () =
                         send_message_fn ~bot_token:config.bot_token ~channel_id
                           ~text:response
+                      in
+                      let* () =
+                        Lwt.catch
+                          (fun () ->
+                            add_reaction ~bot_token:config.bot_token ~channel_id
+                              ~timestamp:ts ~emoji_name:"white_check_mark")
+                          (fun _exn -> Lwt.return_unit)
                       in
                       if
                         not
@@ -266,12 +420,24 @@ let handle_event ~(config : Runtime_config.slack_config)
                         m "Slack agent error for channel=%s user=%s: %s"
                           channel_id user_id err);
                     let* () =
+                      match status_msg with
+                      | Some sm -> Status_message.finalize sm
+                      | None -> Lwt.return_unit
+                    in
+                    let* () =
                       send_message_fn ~bot_token:config.bot_token ~channel_id
                         ~text:
                           (Printf.sprintf
                              "Sorry, an error occurred processing your \
                               message: %s"
                              err)
+                    in
+                    let* () =
+                      Lwt.catch
+                        (fun () ->
+                          add_reaction ~bot_token:config.bot_token ~channel_id
+                            ~timestamp:ts ~emoji_name:"warning")
+                        (fun _exn -> Lwt.return_unit)
                     in
                     if not (Session.take_response_deferred session_manager ~key)
                     then Session.mark_response_sent session_manager ~key;

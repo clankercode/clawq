@@ -55,7 +55,7 @@ let get_bool_field fields key =
   match List.assoc_opt key fields with Some (`Bool b) -> Some b | _ -> None
 
 let summarize_file_change ~verb ~path ~content =
-  Printf.sprintf "%s %s +%dL" path verb (count_lines content)
+  Printf.sprintf "%s %s \xF0\x9F\x9F\xA2+%dL" path verb (count_lines content)
 
 let shorten_for_summary ?(max_chars = 60) text = truncate_text ~max_chars text
 
@@ -82,8 +82,8 @@ let summarize_file_edit fields =
       in
       let scope = if replace_all then " all" else "" in
       Some
-        (Printf.sprintf "%s -%dL/+%dL%s" path (count_lines old_text)
-           (count_lines new_text) scope)
+        (Printf.sprintf "%s \xF0\x9F\x94\xB4-%dL/\xF0\x9F\x9F\xA2+%dL%s" path
+           (count_lines old_text) (count_lines new_text) scope)
   | _ -> None
 
 let summarize_file_edit_lines fields =
@@ -95,7 +95,8 @@ let summarize_file_edit_lines fields =
   with
   | Some path, Some start_line, Some end_line, Some content ->
       Some
-        (Printf.sprintf "%s L%d-%d -%dL/+%dL" path start_line end_line
+        (Printf.sprintf "%s L%d-%d \xF0\x9F\x94\xB4-%dL/\xF0\x9F\x9F\xA2+%dL"
+           path start_line end_line
            (end_line - start_line + 1)
            (count_lines content))
   | _ -> None
@@ -280,22 +281,121 @@ let summarize_tool_arguments ~name arguments =
     let text = String.trim arguments in
     if text = "" then None else Some (truncate_text ~max_chars:120 text)
 
+let tool_emoji name =
+  match name with
+  | "file_read" -> "\xF0\x9F\x93\x96"
+  | "file_write" -> "\xE2\x9C\x8F\xEF\xB8\x8F"
+  | "file_append" -> "\xF0\x9F\x93\x8E"
+  | "file_edit" | "file_edit_lines" -> "\xF0\x9F\x94\x84"
+  | "shell_exec" -> "\xF0\x9F\x92\xBB"
+  | "http_get" | "web_fetch" | "http_request" -> "\xF0\x9F\x8C\x90"
+  | "web_search" -> "\xF0\x9F\x94\x8D"
+  | "memory_store" -> "\xF0\x9F\x92\xBE"
+  | "memory_recall" -> "\xF0\x9F\xA7\xA0"
+  | "memory_forget" -> "\xF0\x9F\x97\x91\xEF\xB8\x8F"
+  | "memory_list" -> "\xF0\x9F\x93\x8B"
+  | "glob" | "find_files" -> "\xF0\x9F\x93\x82"
+  | "grep" | "search_in_files" -> "\xF0\x9F\x94\x8E"
+  | "list_dir" -> "\xF0\x9F\x93\x81"
+  | "git_operations" -> "\xF0\x9F\x8C\xBF"
+  | "send_message" -> "\xF0\x9F\x92\xAC"
+  | "transcribe" -> "\xF0\x9F\x8E\x99\xEF\xB8\x8F"
+  | "doc_write" -> "\xF0\x9F\x93\x9D"
+  | "run_tests" | "build" -> "\xF0\x9F\x8F\x97\xEF\xB8\x8F"
+  | _ -> "\xF0\x9F\x94\xA7"
+
+let summarize_tool_result ~name result =
+  let line_count = count_lines in
+  let first_line text =
+    match String.split_on_char '\n' text with
+    | [] -> ""
+    | l :: _ -> truncate_text ~max_chars:50 (String.trim l)
+  in
+  match name with
+  | "file_read" ->
+      let lines = line_count result in
+      Some (Printf.sprintf "%d lines" lines)
+  | "shell_exec" ->
+      let trimmed = String.trim result in
+      if trimmed = "" then Some "empty output"
+      else Some (truncate_text ~max_chars:50 (first_line trimmed))
+  | "grep" | "search_in_files" ->
+      let lines = line_count result in
+      if String.trim result = "" || lines = 0 then Some "no matches"
+      else Some (Printf.sprintf "%d matches" lines)
+  | "glob" | "find_files" ->
+      let trimmed = String.trim result in
+      if trimmed = "" then Some "no files"
+      else
+        let lines = line_count trimmed in
+        if lines <= 3 then
+          Some
+            (truncate_text ~max_chars:55
+               (String.concat ", " (String.split_on_char '\n' trimmed)))
+        else Some (Printf.sprintf "%d files" lines)
+  | "list_dir" ->
+      let lines = line_count result in
+      Some (Printf.sprintf "%d entries" lines)
+  | "web_search" ->
+      let lines = line_count result in
+      if lines = 0 then Some "no results"
+      else Some (Printf.sprintf "%d results" lines)
+  | "web_fetch" | "http_get" ->
+      let len = String.length result in
+      if len < 1024 then Some (Printf.sprintf "%d B" len)
+      else Some (Printf.sprintf "%.1f KB" (float_of_int len /. 1024.0))
+  | "memory_recall" ->
+      let trimmed = String.trim result in
+      if trimmed = "" || trimmed = "No matching memories found." then
+        Some "no match"
+      else Some (Printf.sprintf "found, %d chars" (String.length trimmed))
+  | "memory_store" -> Some "stored"
+  | "memory_forget" ->
+      if String.starts_with ~prefix:"Deleted" (String.trim result) then
+        Some "deleted"
+      else Some "not found"
+  | "memory_list" ->
+      let lines = line_count result in
+      Some (Printf.sprintf "%d keys" lines)
+  | "git_operations" -> Some (truncate_text ~max_chars:50 (first_line result))
+  | _ ->
+      let len = String.length result in
+      if len = 0 then None
+      else if len <= 60 then
+        Some (truncate_text ~max_chars:55 (first_line result))
+      else Some (Printf.sprintf "%d chars" len)
+
 let tool_start_message ~name ~summary =
+  let emoji = tool_emoji name in
   match summary with
-  | Some text -> Printf.sprintf "\xF0\x9F\x94\xA7 %s %s" name text
-  | None -> Printf.sprintf "\xF0\x9F\x94\xA7 %s" name
+  | Some text -> Printf.sprintf "%s *%s* \xE2\x80\x94 `%s`" emoji name text
+  | None -> Printf.sprintf "%s *%s*" emoji name
 
 let tool_call_message ~name ~summary ~result ~is_error =
   if is_error then
-    let detail =
-      match summary with
-      | Some text -> text ^ " - " ^ truncate_text ~max_chars:200 result
-      | None -> truncate_text ~max_chars:200 result
+    let error_detail = truncate_text ~max_chars:200 result in
+    match summary with
+    | Some text ->
+        Printf.sprintf "\xE2\x9D\x8C *%s* \xE2\x80\x94 `%s`\n\xE2\x94\x94 _%s_"
+          name text error_detail
+    | None ->
+        Printf.sprintf "\xE2\x9D\x8C *%s* \xE2\x80\x94 _%s_" name error_detail
+  else
+    let emoji = tool_emoji name in
+    let preview = summarize_tool_result ~name result in
+    let preview_suffix =
+      match preview with
+      | Some p -> Printf.sprintf " \xE2\x86\x92 _%s_" p
+      | None -> ""
     in
-    Printf.sprintf "\xF0\x9F\x94\xA7 %s \xE2\x9C\x97 %s" name detail
-  else Printf.sprintf "\xF0\x9F\x94\xA7 %s \xE2\x9C\x93" name
+    match summary with
+    | Some text ->
+        Printf.sprintf "%s *%s* \xE2\x9C\x93 `%s`%s" emoji name text
+          preview_suffix
+    | None -> Printf.sprintf "%s *%s* \xE2\x9C\x93%s" emoji name preview_suffix
 
-let thinking_message text = "Thinking:\n" ^ text
+let thinking_message text =
+  "\xF0\x9F\x92\xAD *Thinking:*\n" ^ truncate_text ~max_chars:600 text
 
 let on_chunk t ~(settings : settings) ~notify = function
   | Provider.ThinkingDelta text ->

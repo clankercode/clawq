@@ -205,16 +205,19 @@ let test_update_tool_writes_restart_marker_from_session_context () =
   Restart_notify.remove ();
   let result =
     Lwt_main.run
-      ((Update_tool.tool ~is_draining:(fun () -> false) ()).Tool.invoke
+      ((Update_tool.tool
+          ~is_draining:(fun () -> false)
+          ~find_repo_root:(fun ?start_path:_ ?exists:_ () -> Some "/repo")
+          ~run_command:(fun ~cwd:_ ~argv:_ ~send_progress:_ -> Lwt.return 0)
+          ~send_signal:(fun pid sig_ -> sent_signal := Some (pid, sig_))
+          ())
+         .Tool.invoke
          ~context:
            { Tool.session_key = Some "telegram:123:456"; send_progress = None }
          (`Assoc [ ("mode", `String "git") ]))
   in
   Alcotest.(check string)
-    "update result"
-    "Update complete. Restarting now. This session will hand off to the \
-     replacement daemon."
-    result;
+    "update result" "Build complete. Sending restart signal..." result;
   Alcotest.(check (option (pair string string)))
     "restart marker"
     (Some ("telegram", "123"))

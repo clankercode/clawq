@@ -228,7 +228,8 @@ let run_update ?(find_repo_root = find_repo_root)
             Lwt.return message)
       finish_update
 
-let tool ~is_draining ?claim_update ?finish_update () =
+let tool ~is_draining ?claim_update ?finish_update ?find_repo_root ?run_command
+    ?send_signal () =
   let invoke_common ?context ?on_output_chunk args =
     let open Yojson.Safe.Util in
     let mode =
@@ -258,8 +259,8 @@ let tool ~is_draining ?claim_update ?finish_update () =
             Lwt.return (Ok ())
       | _ -> fun () -> Lwt.return (Ok ())
     in
-    run_update ?claim_update ?finish_update ~mode ~is_draining ~prepare_restart
-      ~send_progress ()
+    run_update ?find_repo_root ?run_command ?send_signal ?claim_update
+      ?finish_update ~mode ~is_draining ~prepare_restart ~send_progress ()
   in
   {
     Tool.name = "update_clawq";

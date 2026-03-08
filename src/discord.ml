@@ -40,6 +40,7 @@ let set_thinking_level ~(session_mgr : Session.t) ~channel_id ~author_id level =
       "Failed to update thinking level: " ^ err
 
 type message = {
+  id : string;
   channel_id : string;
   guild_id : string option;
   author_id : string;
@@ -168,6 +169,76 @@ let discord_rest_call ~route ~f =
       end
       else Lwt.return (status, body))
 
+let send_message_with_id ?(suppress_notifications = false) ~bot_token
+    ~channel_id ~text () =
+  let open Lwt.Syntax in
+  let route = "POST /channels/" ^ channel_id ^ "/messages" in
+  let uri = Printf.sprintf "%s/channels/%s/messages" api_base channel_id in
+  let headers = [ ("Authorization", "Bot " ^ bot_token) ] in
+  let fields =
+    [ ("content", `String text) ]
+    @ if suppress_notifications then [ ("flags", `Int 4096) ] else []
+  in
+  let body = `Assoc fields |> Yojson.Safe.to_string in
+  let* _status, resp_body =
+    discord_rest_call ~route ~f:(fun () ->
+        Http_client.post_json_with_headers ~uri ~headers ~body)
+  in
+  let msg_id =
+    try
+      let json = Yojson.Safe.from_string resp_body in
+      json |> Yojson.Safe.Util.member "id" |> Yojson.Safe.Util.to_string
+    with _ -> "0"
+  in
+  Lwt.return msg_id
+
+let edit_message ~bot_token ~channel_id ~message_id ~text =
+  let open Lwt.Syntax in
+  let route = "PATCH /channels/" ^ channel_id ^ "/messages/" ^ message_id in
+  let uri =
+    Printf.sprintf "%s/channels/%s/messages/%s" api_base channel_id message_id
+  in
+  let headers = [ ("Authorization", "Bot " ^ bot_token) ] in
+  let body = `Assoc [ ("content", `String text) ] |> Yojson.Safe.to_string in
+  let* _status, _body =
+    discord_rest_call ~route ~f:(fun () ->
+        let* status, body = Http_client.patch_json ~uri ~headers ~body in
+        let empty_headers = Cohttp.Header.init () in
+        Lwt.return (status, empty_headers, body))
+  in
+  Lwt.return_unit
+
+let delete_message ~bot_token ~channel_id ~message_id =
+  let open Lwt.Syntax in
+  let route = "DELETE /channels/" ^ channel_id ^ "/messages/" ^ message_id in
+  let uri =
+    Printf.sprintf "%s/channels/%s/messages/%s" api_base channel_id message_id
+  in
+  let headers = [ ("Authorization", "Bot " ^ bot_token) ] in
+  let* _status, _body =
+    discord_rest_call ~route ~f:(fun () ->
+        let* status, body = Http_client.delete ~uri ~headers ~body:"" in
+        let empty_headers = Cohttp.Header.init () in
+        Lwt.return (status, empty_headers, body))
+  in
+  Lwt.return_unit
+
+let add_reaction ~bot_token ~channel_id ~message_id ~emoji =
+  let open Lwt.Syntax in
+  let encoded_emoji = Uri.pct_encode emoji in
+  let route =
+    "PUT /channels/" ^ channel_id ^ "/messages/" ^ message_id ^ "/reactions"
+  in
+  let uri =
+    Printf.sprintf "%s/channels/%s/messages/%s/reactions/%s/@me" api_base
+      channel_id message_id encoded_emoji
+  in
+  let headers = [ ("Authorization", "Bot " ^ bot_token) ] in
+  let* _status, _body =
+    discord_rest_call ~route ~f:(fun () -> Http_client.put_empty ~uri ~headers)
+  in
+  Lwt.return_unit
+
 let send_message ~bot_token ~channel_id ~text =
   let open Lwt.Syntax in
   let route = "POST /channels/" ^ channel_id ^ "/messages" in
@@ -291,13 +362,15 @@ let parse_message_create json =
       let author_bot =
         try author |> member "bot" |> to_bool with _ -> false
       in
+      let id = d |> member "id" |> to_string in
       let content = d |> member "content" |> to_string in
-      Some { channel_id; guild_id; author_id; author_bot; content }
+      Some { id; channel_id; guild_id; author_id; author_bot; content }
   with _ -> None
 
 let parse_dispatch_message d =
   let open Yojson.Safe.Util in
   try
+    let id = d |> member "id" |> to_string in
     let channel_id = d |> member "channel_id" |> to_string in
     let guild_id =
       try Some (d |> member "guild_id" |> to_string) with _ -> None
@@ -306,7 +379,7 @@ let parse_dispatch_message d =
     let author_id = author |> member "id" |> to_string in
     let author_bot = try author |> member "bot" |> to_bool with _ -> false in
     let content = d |> member "content" |> to_string in
-    Some { channel_id; guild_id; author_id; author_bot; content }
+    Some { id; channel_id; guild_id; author_id; author_bot; content }
   with _ -> None
 
 let is_bot_message json =
@@ -387,6 +460,72 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
           let discord_channel_type =
             match msg.guild_id with Some _ -> "group" | None -> "dm"
           in
+          let agent_defaults =
+            (Session.get_config session_mgr).agent_defaults
+          in
+          let use_consolidated =
+            agent_defaults.show_tool_calls
+            && agent_defaults.tool_status_mode = "consolidated"
+          in
+          let thinking_buf = Buffer.create 256 in
+          let status_msg =
+            if use_consolidated then
+              let status_notifier : Status_message.notifier =
+                {
+                  send =
+                    (fun ?parse_mode:_ text ->
+                      send_message_with_id ~suppress_notifications:true
+                        ~bot_token:discord_config.bot_token
+                        ~channel_id:msg.channel_id ~text ());
+                  edit =
+                    (fun msg_id ?parse_mode:_ text ->
+                      edit_message ~bot_token:discord_config.bot_token
+                        ~channel_id:msg.channel_id ~message_id:msg_id ~text);
+                  delete =
+                    (fun msg_id ->
+                      delete_message ~bot_token:discord_config.bot_token
+                        ~channel_id:msg.channel_id ~message_id:msg_id);
+                }
+              in
+              Some
+                (Status_message.create ~notifier:status_notifier
+                   ~parse_mode:"Markdown" ())
+            else None
+          in
+          let visibility = Stream_visibility.create () in
+          let on_chunk chunk =
+            match status_msg with
+            | Some sm -> (
+                match chunk with
+                | Provider.ToolStart { id; name; arguments } ->
+                    let summary =
+                      Stream_visibility.summarize_tool_arguments ~name arguments
+                    in
+                    Status_message.tool_start sm ~id ~name ~summary
+                | Provider.ToolResult { id; name; result; is_error } ->
+                    Status_message.tool_result sm ~id ~name ~result ~is_error
+                | Provider.ThinkingDelta text ->
+                    if agent_defaults.show_thinking then
+                      Buffer.add_string thinking_buf text;
+                    Lwt.return_unit
+                | Provider.Delta _ | Provider.ToolCallDelta _
+                | Provider.ToolOutputDelta _ | Provider.Done ->
+                    Lwt.return_unit)
+            | None ->
+                let settings : Stream_visibility.settings =
+                  {
+                    show_thinking = agent_defaults.show_thinking;
+                    show_tool_calls = agent_defaults.show_tool_calls;
+                    notify_tool_starts = false;
+                    notify_tool_successes = true;
+                  }
+                in
+                Stream_visibility.on_chunk visibility ~settings
+                  ~notify:(fun text ->
+                    send_message_fn ~bot_token:discord_config.bot_token
+                      ~channel_id:msg.channel_id ~text)
+                  chunk
+          in
           let* result =
             Session.with_registered_notifier session_mgr ~key
               ~notify:(fun text ->
@@ -396,23 +535,48 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                 Lwt.catch
                   (fun () ->
                     let* response =
-                      Session.turn session_mgr ~key ~message:msg.content
+                      Session.turn_stream session_mgr ~key ~message:msg.content
                         ~channel_name:msg.channel_id
                         ~channel_type:discord_channel_type
                         ~sender_id:msg.author_id ~channel:"discord"
-                        ~channel_id:msg.channel_id ()
+                        ~channel_id:msg.channel_id ~on_chunk ()
                     in
                     Lwt.return (Ok response))
                   (fun exn -> Lwt.return (Error (Printexc.to_string exn))))
           in
           match result with
           | Ok response ->
+              let* () =
+                match status_msg with
+                | Some sm -> Status_message.finalize sm
+                | None -> Lwt.return_unit
+              in
               if Session.is_queued_message_response response then
                 Lwt.return_unit
               else
+                let thinking =
+                  match status_msg with
+                  | Some _ -> Buffer.contents thinking_buf
+                  | None -> Stream_visibility.thinking_text visibility
+                in
+                let* () =
+                  if thinking <> "" then
+                    send_message_fn ~bot_token:discord_config.bot_token
+                      ~channel_id:msg.channel_id
+                      ~text:("_" ^ thinking ^ "_")
+                  else Lwt.return_unit
+                in
                 let* () =
                   send_message_fn ~bot_token:discord_config.bot_token
                     ~channel_id:msg.channel_id ~text:response
+                in
+                let* () =
+                  Lwt.catch
+                    (fun () ->
+                      add_reaction ~bot_token:discord_config.bot_token
+                        ~channel_id:msg.channel_id ~message_id:msg.id
+                        ~emoji:"\xE2\x9C\x85")
+                    (fun _exn -> Lwt.return_unit)
                 in
                 if not (Session.take_response_deferred session_mgr ~key) then
                   Session.mark_response_sent session_mgr ~key;
@@ -422,12 +586,25 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                   m "Discord agent error for channel=%s user=%s: %s"
                     msg.channel_id msg.author_id err);
               let* () =
+                match status_msg with
+                | Some sm -> Status_message.finalize sm
+                | None -> Lwt.return_unit
+              in
+              let* () =
                 send_message_fn ~bot_token:discord_config.bot_token
                   ~channel_id:msg.channel_id
                   ~text:
                     (Printf.sprintf
                        "Sorry, an error occurred processing your message: %s"
                        err)
+              in
+              let* () =
+                Lwt.catch
+                  (fun () ->
+                    add_reaction ~bot_token:discord_config.bot_token
+                      ~channel_id:msg.channel_id ~message_id:msg.id
+                      ~emoji:"\xE2\x9A\xA0\xEF\xB8\x8F")
+                  (fun _exn -> Lwt.return_unit)
               in
               if not (Session.take_response_deferred session_mgr ~key) then
                 Session.mark_response_sent session_mgr ~key;

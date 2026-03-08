@@ -82,6 +82,16 @@ let post_multipart ~uri ~headers ~parts =
   let* body_str = Cohttp_lwt.Body.to_string body in
   Lwt.return (status, body_str)
 
+let put_empty ~uri ~headers =
+  let open Lwt.Syntax in
+  let uri = Uri.of_string uri in
+  let headers = Cohttp.Header.of_list (("Content-Length", "0") :: headers) in
+  let* response, body = Cohttp_lwt_unix.Client.put ~headers uri in
+  let status = Cohttp.Response.status response |> Cohttp.Code.code_of_status in
+  let resp_headers = Cohttp.Response.headers response in
+  let* body_str = Cohttp_lwt.Body.to_string body in
+  Lwt.return (status, resp_headers, body_str)
+
 let post_stream ~uri ~headers ~body =
   let open Lwt.Syntax in
   let uri = Uri.of_string uri in

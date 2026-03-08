@@ -1,6 +1,7 @@
 let mk_update ~update_id ~chat_id =
   {
     Telegram.update_id;
+    message_id = 0;
     chat_id;
     user_id = chat_id;
     text = "hello";
@@ -35,8 +36,8 @@ let test_should_process_update_scopes_by_chat () =
 
 let test_send_silent_chunked_forces_disable_notification () =
   let calls = ref [] in
-  let fake_send_chunked ?(disable_notification = false) ~bot_token:_ ~chat_id
-      ~text () =
+  let fake_send_chunked ?(disable_notification = false) ?parse_mode:_
+      ~bot_token:_ ~chat_id ~text () =
     calls := (chat_id, text, disable_notification) :: !calls;
     Lwt.return_unit
   in

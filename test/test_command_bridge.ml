@@ -478,6 +478,9 @@ let test_cmd_agent_reexecs_on_restart () =
   let execd = ref None in
   let result =
     Command_bridge.cmd_agent
+      ~acquire_lock:(fun () ->
+        Some (Unix.openfile "/dev/null" [ Unix.O_RDONLY ] 0))
+      ~release_lock:(fun fd_opt -> Option.iter Unix.close fd_opt)
       ~run_daemon:(fun ~config:_ -> Daemon.Restart)
       ~execv:(fun path argv -> execd := Some (path, Array.to_list argv))
       ()
@@ -492,6 +495,9 @@ let test_cmd_agent_stops_on_shutdown () =
   let execd = ref false in
   let result =
     Command_bridge.cmd_agent
+      ~acquire_lock:(fun () ->
+        Some (Unix.openfile "/dev/null" [ Unix.O_RDONLY ] 0))
+      ~release_lock:(fun fd_opt -> Option.iter Unix.close fd_opt)
       ~run_daemon:(fun ~config:_ -> Daemon.Shutdown)
       ~execv:(fun _ _ -> execd := true)
       ()

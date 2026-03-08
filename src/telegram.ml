@@ -36,6 +36,7 @@ let redact_token token =
 
 type update = {
   update_id : int;
+  message_id : int;
   chat_id : string;
   user_id : string;
   text : string;
@@ -46,6 +47,18 @@ type update = {
   caption : string option;
 }
 
+type callback_query = {
+  cb_bot_token : string;
+  callback_query_id : string;
+  cb_chat_id : string;
+  cb_message_id : int;
+  data : string;
+}
+
+let pending_callbacks : callback_query Queue.t = Queue.create ()
+
+(* Keyed by "chat_id:tool_id" to prevent cross-chat data leakage *)
+let tool_result_cache : (string, string) Hashtbl.t = Hashtbl.create 32
 let recently_seen_updates : (string, float) Hashtbl.t = Hashtbl.create 256
 let duplicate_update_ttl_seconds = 600.0
 
@@ -85,12 +98,21 @@ let get_updates ~bot_token ~offset ~timeout =
     in
     let open Yojson.Safe.Util in
     let results = try json |> member "result" |> to_list with _ -> [] in
+    (* Track max update_id across all results including non-message updates *)
+    let max_update_id = ref 0 in
     let updates =
       List.filter_map
         (fun u ->
+          (try
+             let uid = u |> member "update_id" |> to_int in
+             if uid > !max_update_id then max_update_id := uid
+           with _ -> ());
           try
             let update_id = u |> member "update_id" |> to_int in
             let msg = u |> member "message" in
+            let message_id =
+              try msg |> member "message_id" |> to_int with _ -> 0
+            in
             let chat = msg |> member "chat" in
             let chat_id = chat |> member "id" |> to_int |> string_of_int in
             let user_id =
@@ -127,6 +149,7 @@ let get_updates ~bot_token ~offset ~timeout =
             Some
               {
                 update_id;
+                message_id;
                 chat_id;
                 user_id;
                 text;
@@ -136,22 +159,43 @@ let get_updates ~bot_token ~offset ~timeout =
                 document_name;
                 caption;
               }
-          with _ ->
-            let update_id =
-              try Yojson.Safe.Util.(u |> member "update_id" |> to_int)
-              with _ -> -1
-            in
-            Logs.debug (fun m ->
-                m "Telegram: dropping malformed update (update_id=%d)" update_id);
-            None)
+          with _ -> (
+            let open Yojson.Safe.Util in
+            try
+              let cq = u |> member "callback_query" in
+              if cq = `Null then raise Not_found;
+              let callback_query_id = cq |> member "id" |> to_string in
+              let msg = cq |> member "message" in
+              let chat = msg |> member "chat" in
+              let cb_chat_id = chat |> member "id" |> to_int |> string_of_int in
+              let cb_message_id = msg |> member "message_id" |> to_int in
+              let data = try cq |> member "data" |> to_string with _ -> "" in
+              Queue.push
+                {
+                  cb_bot_token = bot_token;
+                  callback_query_id;
+                  cb_chat_id;
+                  cb_message_id;
+                  data;
+                }
+                pending_callbacks;
+              None
+            with _ ->
+              let update_id =
+                try u |> member "update_id" |> to_int with _ -> -1
+              in
+              Logs.debug (fun m ->
+                  m "Telegram: dropping malformed update (update_id=%d)"
+                    update_id);
+              None))
         results
     in
-    Lwt.return updates
+    Lwt.return (!max_update_id, updates)
   else (
     Logs.warn (fun m ->
         m "Telegram getUpdates error (HTTP %d) for token=%s" status
           (redact_token bot_token));
-    Lwt.return [])
+    Lwt.return (0, []))
 
 let acknowledge_update ~bot_token ~update_id =
   let open Lwt.Syntax in
@@ -216,6 +260,15 @@ let send_chat_action ~bot_token ~chat_id ~action =
   let* _status, _body = Http_client.post_json ~uri ~headers:[] ~body in
   Lwt.return_unit
 
+let chat_action_for_tool name =
+  match name with
+  | "file_write" | "file_append" | "file_edit" | "file_edit_lines" | "doc_write"
+    ->
+      "upload_document"
+  | "web_fetch" | "web_search" | "http_get" | "http_request" -> "find_location"
+  | "transcribe" -> "record_voice"
+  | _ -> "typing"
+
 (* Send typing action repeatedly every ~4s until [p] resolves. *)
 let with_typing ~bot_token ~chat_id p =
   let open Lwt.Syntax in
@@ -236,30 +289,192 @@ let with_typing ~bot_token ~chat_id p =
       cancelled := true;
       Lwt.return_unit)
 
-let send_message ?(disable_notification = false) ~bot_token ~chat_id ~text () =
+let send_message_with_id ?(disable_notification = false) ?parse_mode ~bot_token
+    ~chat_id ~text () =
   let open Lwt.Syntax in
   let uri = Printf.sprintf "%s%s/sendMessage" api_base bot_token in
+  let base_fields =
+    [
+      ("chat_id", `String chat_id);
+      ("text", `String text);
+      ("disable_notification", `Bool disable_notification);
+    ]
+  in
+  let fields =
+    match parse_mode with
+    | Some mode -> ("parse_mode", `String mode) :: base_fields
+    | None -> base_fields
+  in
+  let body = `Assoc fields |> Yojson.Safe.to_string in
+  let* status, resp_body = Http_client.post_json ~uri ~headers:[] ~body in
+  let* resp_body =
+    if parse_mode = Some "MarkdownV2" && status >= 400 then
+      let plain_body = `Assoc base_fields |> Yojson.Safe.to_string in
+      let* _status, resp_body =
+        Http_client.post_json ~uri ~headers:[] ~body:plain_body
+      in
+      Lwt.return resp_body
+    else Lwt.return resp_body
+  in
+  let msg_id =
+    try
+      let json = Yojson.Safe.from_string resp_body in
+      let result = json |> Yojson.Safe.Util.member "result" in
+      result
+      |> Yojson.Safe.Util.member "message_id"
+      |> Yojson.Safe.Util.to_int |> string_of_int
+    with _ -> "0"
+  in
+  Lwt.return msg_id
+
+let send_message_with_keyboard ?(disable_notification = false) ?parse_mode
+    ~bot_token ~chat_id ~text ~buttons () =
+  let open Lwt.Syntax in
+  let uri = Printf.sprintf "%s%s/sendMessage" api_base bot_token in
+  let inline_buttons =
+    List.map
+      (fun (label, callback_data) ->
+        `Assoc
+          [ ("text", `String label); ("callback_data", `String callback_data) ])
+      buttons
+  in
+  let reply_markup =
+    `Assoc [ ("inline_keyboard", `List [ `List inline_buttons ]) ]
+  in
+  let base_fields =
+    [
+      ("chat_id", `String chat_id);
+      ("text", `String text);
+      ("disable_notification", `Bool disable_notification);
+      ("reply_markup", reply_markup);
+    ]
+  in
+  let fields =
+    match parse_mode with
+    | Some mode -> ("parse_mode", `String mode) :: base_fields
+    | None -> base_fields
+  in
+  let body = `Assoc fields |> Yojson.Safe.to_string in
+  let* _status, resp_body = Http_client.post_json ~uri ~headers:[] ~body in
+  let msg_id =
+    try
+      let json = Yojson.Safe.from_string resp_body in
+      json
+      |> Yojson.Safe.Util.member "result"
+      |> Yojson.Safe.Util.member "message_id"
+      |> Yojson.Safe.Util.to_int |> string_of_int
+    with _ -> "0"
+  in
+  Lwt.return msg_id
+
+let answer_callback_query ~bot_token ~callback_query_id ?(text = "") () =
+  let open Lwt.Syntax in
+  let uri = Printf.sprintf "%s%s/answerCallbackQuery" api_base bot_token in
   let body =
     `Assoc
       [
-        ("chat_id", `String chat_id);
-        ("text", `String text);
-        ("disable_notification", `Bool disable_notification);
+        ("callback_query_id", `String callback_query_id); ("text", `String text);
       ]
     |> Yojson.Safe.to_string
   in
   let* _status, _body = Http_client.post_json ~uri ~headers:[] ~body in
   Lwt.return_unit
 
-let send_chunked ?(disable_notification = false) ~bot_token ~chat_id ~text () =
+let edit_message ?parse_mode ~bot_token ~chat_id ~message_id ~text () =
+  let open Lwt.Syntax in
+  let uri = Printf.sprintf "%s%s/editMessageText" api_base bot_token in
+  let base_fields =
+    [
+      ("chat_id", `String chat_id);
+      ("message_id", `Int (try int_of_string message_id with _ -> 0));
+      ("text", `String text);
+    ]
+  in
+  let fields =
+    match parse_mode with
+    | Some mode -> ("parse_mode", `String mode) :: base_fields
+    | None -> base_fields
+  in
+  let body = `Assoc fields |> Yojson.Safe.to_string in
+  let* status, _body = Http_client.post_json ~uri ~headers:[] ~body in
+  if parse_mode = Some "MarkdownV2" && status >= 400 then
+    let plain_body = `Assoc base_fields |> Yojson.Safe.to_string in
+    let* _status, _body =
+      Http_client.post_json ~uri ~headers:[] ~body:plain_body
+    in
+    Lwt.return_unit
+  else Lwt.return_unit
+
+let delete_message ~bot_token ~chat_id ~message_id () =
+  let open Lwt.Syntax in
+  let uri = Printf.sprintf "%s%s/deleteMessage" api_base bot_token in
+  let body =
+    `Assoc
+      [
+        ("chat_id", `String chat_id);
+        ("message_id", `Int (try int_of_string message_id with _ -> 0));
+      ]
+    |> Yojson.Safe.to_string
+  in
+  let* _status, _body = Http_client.post_json ~uri ~headers:[] ~body in
+  Lwt.return_unit
+
+let set_message_reaction ~bot_token ~chat_id ~message_id ~emoji () =
+  let open Lwt.Syntax in
+  let uri = Printf.sprintf "%s%s/setMessageReaction" api_base bot_token in
+  let reaction =
+    `Assoc [ ("type", `String "emoji"); ("emoji", `String emoji) ]
+  in
+  let body =
+    `Assoc
+      [
+        ("chat_id", `String chat_id);
+        ("message_id", `Int message_id);
+        ("reaction", `List [ reaction ]);
+      ]
+    |> Yojson.Safe.to_string
+  in
+  let* _status, _body = Http_client.post_json ~uri ~headers:[] ~body in
+  Lwt.return_unit
+
+let send_message ?(disable_notification = false) ?parse_mode ~bot_token ~chat_id
+    ~text () =
+  let open Lwt.Syntax in
+  let uri = Printf.sprintf "%s%s/sendMessage" api_base bot_token in
+  let base_fields =
+    [
+      ("chat_id", `String chat_id);
+      ("text", `String text);
+      ("disable_notification", `Bool disable_notification);
+    ]
+  in
+  let fields =
+    match parse_mode with
+    | Some mode -> ("parse_mode", `String mode) :: base_fields
+    | None -> base_fields
+  in
+  let body = `Assoc fields |> Yojson.Safe.to_string in
+  let* status, _body = Http_client.post_json ~uri ~headers:[] ~body in
+  if parse_mode <> None && status >= 400 then
+    let plain_body = `Assoc base_fields |> Yojson.Safe.to_string in
+    let* _status, _body =
+      Http_client.post_json ~uri ~headers:[] ~body:plain_body
+    in
+    Lwt.return_unit
+  else Lwt.return_unit
+
+let send_chunked ?(disable_notification = false) ?parse_mode ~bot_token ~chat_id
+    ~text () =
   let open Lwt.Syntax in
   Lwt_list.iter_s
     (fun chunk ->
-      send_message ~disable_notification ~bot_token ~chat_id ~text:chunk ())
+      send_message ~disable_notification ?parse_mode ~bot_token ~chat_id
+        ~text:chunk ())
     (chunk_text text)
 
 type chunk_sender =
   ?disable_notification:bool ->
+  ?parse_mode:string ->
   bot_token:string ->
   chat_id:string ->
   text:string ->
@@ -537,27 +752,152 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
             let agent_defaults =
               (Session.get_config session_mgr).agent_defaults
             in
+            let use_consolidated =
+              agent_defaults.show_tool_calls
+              && agent_defaults.tool_status_mode = "consolidated"
+            in
+            (* Clear stale tool results for this chat at turn start *)
+            let prefix = update.chat_id ^ ":" in
+            Hashtbl.filter_map_inplace
+              (fun key v ->
+                if String.starts_with ~prefix key then None else Some v)
+              tool_result_cache;
+            let thinking_buf = Buffer.create 256 in
+            let status_msg =
+              if use_consolidated then
+                let status_notifier : Status_message.notifier =
+                  {
+                    send =
+                      (fun ?parse_mode text ->
+                        let pm =
+                          match parse_mode with
+                          | Some m -> Some m
+                          | None -> Some "MarkdownV2"
+                        in
+                        let text = Telegram_format.markdown_to_mdv2 text in
+                        send_message_with_id ~disable_notification:true
+                          ?parse_mode:pm ~bot_token ~chat_id:update.chat_id
+                          ~text ());
+                    edit =
+                      (fun msg_id ?parse_mode text ->
+                        let pm =
+                          match parse_mode with
+                          | Some m -> Some m
+                          | None -> Some "MarkdownV2"
+                        in
+                        let text = Telegram_format.markdown_to_mdv2 text in
+                        edit_message ?parse_mode:pm ~bot_token
+                          ~chat_id:update.chat_id ~message_id:msg_id ~text ());
+                    delete =
+                      (fun msg_id ->
+                        delete_message ~bot_token ~chat_id:update.chat_id
+                          ~message_id:msg_id ());
+                  }
+                in
+                Some
+                  (Status_message.create ~notifier:status_notifier
+                     ~parse_mode:"MarkdownV2" ())
+              else None
+            in
             let visibility = Stream_visibility.create () in
-            let settings : Stream_visibility.settings =
-              {
-                show_thinking = agent_defaults.show_thinking;
-                show_tool_calls = agent_defaults.show_tool_calls;
-                notify_tool_starts = true;
-                notify_tool_successes = false;
-              }
+            let send_expandable ~name ~result ~is_error =
+              if is_error then
+                let formatted = Telegram_format.format_error_trace result in
+                send_chunked ~disable_notification:true ~parse_mode:"MarkdownV2"
+                  ~bot_token ~chat_id:update.chat_id ~text:formatted ()
+              else
+                match Telegram_format.format_sensitive_result ~name result with
+                | Some formatted ->
+                    send_chunked ~disable_notification:true
+                      ~parse_mode:"MarkdownV2" ~bot_token
+                      ~chat_id:update.chat_id ~text:formatted ()
+                | None -> (
+                    match
+                      Telegram_format.format_verbose_result ~name result
+                    with
+                    | Some formatted ->
+                        send_chunked ~disable_notification:true
+                          ~parse_mode:"MarkdownV2" ~bot_token
+                          ~chat_id:update.chat_id ~text:formatted ()
+                    | None -> Lwt.return_unit)
             in
             let on_chunk chunk =
-              Stream_visibility.on_chunk visibility ~settings
-                ~notify:(fun text ->
-                  send_silent_chunked send_chunked ~bot_token
-                    ~chat_id:update.chat_id ~text)
-                chunk
+              match status_msg with
+              | Some sm -> (
+                  match chunk with
+                  | Provider.ToolStart { id; name; arguments } ->
+                      let summary =
+                        Stream_visibility.summarize_tool_arguments ~name
+                          arguments
+                      in
+                      let* () =
+                        Status_message.tool_start sm ~id ~name ~summary
+                      in
+                      let action = chat_action_for_tool name in
+                      Lwt.catch
+                        (fun () ->
+                          send_chat_action ~bot_token ~chat_id:update.chat_id
+                            ~action)
+                        (fun _exn -> Lwt.return_unit)
+                  | Provider.ToolResult { id; name; result; is_error } ->
+                      let open Lwt.Syntax in
+                      let* () =
+                        Status_message.tool_result sm ~id ~name ~result
+                          ~is_error
+                      in
+                      Hashtbl.replace tool_result_cache
+                        (update.chat_id ^ ":" ^ id)
+                        (Stream_visibility.truncate_text ~max_chars:2000 result);
+                      send_expandable ~name ~result ~is_error
+                  | Provider.ThinkingDelta text ->
+                      if agent_defaults.show_thinking then
+                        Buffer.add_string thinking_buf text;
+                      Lwt.return_unit
+                  | Provider.Delta _ | Provider.ToolCallDelta _
+                  | Provider.ToolOutputDelta _ | Provider.Done ->
+                      Lwt.return_unit)
+              | None -> (
+                  let open Lwt.Syntax in
+                  let* () =
+                    match chunk with
+                    | Provider.ToolStart { name; _ } ->
+                        let action = chat_action_for_tool name in
+                        Lwt.catch
+                          (fun () ->
+                            send_chat_action ~bot_token ~chat_id:update.chat_id
+                              ~action)
+                          (fun _exn -> Lwt.return_unit)
+                    | _ -> Lwt.return_unit
+                  in
+                  let settings : Stream_visibility.settings =
+                    {
+                      show_thinking = agent_defaults.show_thinking;
+                      show_tool_calls = agent_defaults.show_tool_calls;
+                      notify_tool_starts = true;
+                      notify_tool_successes = false;
+                    }
+                  in
+                  let* () =
+                    Stream_visibility.on_chunk visibility ~settings
+                      ~notify:(fun text ->
+                        let text = Telegram_format.markdown_to_mdv2 text in
+                        send_chunked ~disable_notification:true
+                          ~parse_mode:"MarkdownV2" ~bot_token
+                          ~chat_id:update.chat_id ~text ())
+                      chunk
+                  in
+                  match chunk with
+                  | Provider.ToolResult { name; result; is_error; _ } ->
+                      send_expandable ~name ~result ~is_error
+                  | _ -> Lwt.return_unit)
             in
             let* result =
               Session.with_registered_notifier session_mgr ~key
                 ~notify:(fun text ->
-                  send_silent_chunked send_chunked ~bot_token
-                    ~chat_id:update.chat_id ~text)
+                  send_chunked ~disable_notification:true
+                    ~parse_mode:"MarkdownV2" ~bot_token ~chat_id:update.chat_id
+                    ~text:(Telegram_format.markdown_to_mdv2 text)
+                    ())
                 (fun () ->
                   Lwt.catch
                     (fun () ->
@@ -575,20 +915,56 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
             in
             match result with
             | Ok response ->
+                let* () =
+                  match status_msg with
+                  | Some sm -> Status_message.finalize sm
+                  | None -> Lwt.return_unit
+                in
                 if Session.is_queued_message_response response then
                   Lwt.return_unit
                 else
-                  let thinking = Stream_visibility.thinking_text visibility in
+                  let* () =
+                    let has_cached =
+                      Hashtbl.fold
+                        (fun k _ acc ->
+                          acc
+                          || String.starts_with ~prefix:(update.chat_id ^ ":") k)
+                        tool_result_cache false
+                    in
+                    if status_msg <> None && has_cached then
+                      let* _msg_id =
+                        send_message_with_keyboard ~disable_notification:true
+                          ~bot_token ~chat_id:update.chat_id
+                          ~text:"\xF0\x9F\x93\x8B Tool output available"
+                          ~buttons:[ ("Show Details", "show_details") ]
+                          ()
+                      in
+                      Lwt.return_unit
+                    else Lwt.return_unit
+                  in
+                  let thinking =
+                    match status_msg with
+                    | Some _ -> Buffer.contents thinking_buf
+                    | None -> Stream_visibility.thinking_text visibility
+                  in
                   let* () =
                     if thinking <> "" then
-                      send_chunked ~bot_token ~chat_id:update.chat_id
-                        ~text:("_" ^ thinking ^ "_")
+                      send_chunked ~parse_mode:"MarkdownV2" ~bot_token
+                        ~chat_id:update.chat_id
+                        ~text:("_" ^ Telegram_format.escape_mdv2 thinking ^ "_")
                         ()
                     else Lwt.return_unit
                   in
                   let* () =
                     send_chunked ~bot_token ~chat_id:update.chat_id
                       ~text:response ()
+                  in
+                  let* () =
+                    Lwt.catch
+                      (fun () ->
+                        set_message_reaction ~bot_token ~chat_id:update.chat_id
+                          ~message_id:update.message_id ~emoji:"\xE2\x9C\x85" ())
+                      (fun _exn -> Lwt.return_unit)
                   in
                   if not (Session.take_response_deferred session_mgr ~key) then
                     Session.mark_response_sent session_mgr ~key;
@@ -597,12 +973,24 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                 Logs.err (fun m ->
                     m "Agent error for chat_id=%s: %s" update.chat_id err);
                 let* () =
+                  match status_msg with
+                  | Some sm -> Status_message.finalize sm
+                  | None -> Lwt.return_unit
+                in
+                let* () =
                   send_message ~bot_token ~chat_id:update.chat_id
                     ~text:
                       (Printf.sprintf
                          "Sorry, an error occurred processing your message: %s"
                          err)
                     ()
+                in
+                let* () =
+                  Lwt.catch
+                    (fun () ->
+                      set_message_reaction ~bot_token ~chat_id:update.chat_id
+                        ~message_id:update.message_id ~emoji:"\xE2\x9A\xA0" ())
+                    (fun _exn -> Lwt.return_unit)
                 in
                 if not (Session.take_response_deferred session_mgr ~key) then
                   Session.mark_response_sent session_mgr ~key;
@@ -632,15 +1020,16 @@ let poll_account ~bot_token ~(account : Runtime_config.telegram_account) ~name
       Logs.info (fun m ->
           m "Telegram polling stable, suppressing routine poll logs for '%s'"
             name);
-    let* updates =
+    let* max_uid, updates =
       Lwt.catch
         (fun () -> get_updates ~bot_token ~offset:!offset ~timeout:30)
         (fun exn ->
           Logs.err (fun m ->
               m "Telegram poll error for '%s': %s" name (Printexc.to_string exn));
           let* () = Lwt_unix.sleep 5.0 in
-          Lwt.return [])
+          Lwt.return (0, []))
     in
+    if max_uid + 1 > !offset then offset := max_uid + 1;
     let* () =
       Lwt_list.iter_s
         (fun update ->
@@ -655,6 +1044,67 @@ let poll_account ~bot_token ~(account : Runtime_config.telegram_account) ~name
             Lwt.return_unit
           end)
         updates
+    in
+    let* () =
+      let rec drain_callbacks () =
+        if Queue.is_empty pending_callbacks then Lwt.return_unit
+        else
+          let cb = Queue.pop pending_callbacks in
+          if cb.cb_bot_token <> bot_token then begin
+            (* Re-queue callbacks for other accounts *)
+            Queue.push cb pending_callbacks;
+            Lwt.return_unit
+          end
+          else
+            let* () =
+              Lwt.catch
+                (fun () ->
+                  match cb.data with
+                  | "show_details" ->
+                      let prefix = cb.cb_chat_id ^ ":" in
+                      let details =
+                        Hashtbl.fold
+                          (fun key result acc ->
+                            if String.starts_with ~prefix key then
+                              acc
+                              ^ Stream_visibility.truncate_text ~max_chars:300
+                                  result
+                              ^ "\n---\n"
+                            else acc)
+                          tool_result_cache ""
+                      in
+                      let text =
+                        if details = "" then "No details available."
+                        else details
+                      in
+                      let* () =
+                        answer_callback_query ~bot_token
+                          ~callback_query_id:cb.callback_query_id ()
+                      in
+                      let* () =
+                        send_message ~disable_notification:true ~bot_token
+                          ~chat_id:cb.cb_chat_id ~text ()
+                      in
+                      (* Only clear entries for this chat *)
+                      Hashtbl.filter_map_inplace
+                        (fun key v ->
+                          if String.starts_with ~prefix key then None
+                          else Some v)
+                        tool_result_cache;
+                      Lwt.return_unit
+                  | _ ->
+                      answer_callback_query ~bot_token
+                        ~callback_query_id:cb.callback_query_id
+                        ~text:"Unknown action" ())
+                (fun exn ->
+                  Logs.err (fun m ->
+                      m "Telegram: callback handling error: %s"
+                        (Printexc.to_string exn));
+                  Lwt.return_unit)
+            in
+            drain_callbacks ()
+      in
+      drain_callbacks ()
     in
     poll ()
   in

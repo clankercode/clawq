@@ -210,7 +210,7 @@ let test_parse_dispatch_message_malformed () =
 let test_parse_dispatch_message () =
   let d =
     Yojson.Safe.from_string
-      {|{"channel_id":"ch1","guild_id":"g1","author":{"id":"u1","bot":false},"content":"test"}|}
+      {|{"id":"msg1","channel_id":"ch1","guild_id":"g1","author":{"id":"u1","bot":false},"content":"test"}|}
   in
   match Discord.parse_dispatch_message d with
   | None -> Alcotest.fail "expected Some message"
@@ -224,7 +224,7 @@ let test_parse_dispatch_message () =
 let test_parse_dispatch_message_dm () =
   let d =
     Yojson.Safe.from_string
-      {|{"channel_id":"dm1","author":{"id":"u2"},"content":"dm test"}|}
+      {|{"id":"msg2","channel_id":"dm1","author":{"id":"u2"},"content":"dm test"}|}
   in
   match Discord.parse_dispatch_message d with
   | None -> Alcotest.fail "expected Some message"

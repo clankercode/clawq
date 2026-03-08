@@ -4,8 +4,8 @@ let test_tool_start_message_uses_summary () =
       ~summary:(Some "src/main.ml")
   in
   Alcotest.(check string)
-    "tool start summary message" "\xF0\x9F\x94\xA7 file_read src/main.ml"
-    message
+    "tool start summary message"
+    "\xF0\x9F\x93\x96 *file_read* \xE2\x80\x94 `src/main.ml`" message
 
 let test_tool_call_message_error_includes_summary_and_truncates () =
   let result = String.make 300 'x' in
@@ -16,10 +16,10 @@ let test_tool_call_message_error_includes_summary_and_truncates () =
   Alcotest.(check bool)
     "tool call error has prefix" true
     (String.starts_with
-       ~prefix:"\xF0\x9F\x94\xA7 shell_exec \xE2\x9C\x97 ls -la - " message);
+       ~prefix:"\xE2\x9D\x8C *shell_exec* \xE2\x80\x94 `ls -la`" message);
   Alcotest.(check bool)
     "tool call error truncated" true
-    (String.ends_with ~suffix:"..." message)
+    (String.ends_with ~suffix:"..._" message)
 
 let test_summarize_tool_arguments_uses_key_context () =
   Alcotest.(check (option string))
@@ -41,22 +41,26 @@ let test_summarize_tool_arguments_uses_key_context () =
 
 let test_summarize_tool_arguments_shows_file_edit_details () =
   Alcotest.(check (option string))
-    "file_edit shows line delta" (Some "src/main.ml -1L/+2L all")
+    "file_edit shows line delta"
+    (Some "src/main.ml \xF0\x9F\x94\xB4-1L/\xF0\x9F\x9F\xA2+2L all")
     (Stream_visibility.summarize_tool_arguments ~name:"file_edit"
        {|{"path":"src/main.ml","old_text":"a","new_text":"b
 c","replace_all":true}|});
   Alcotest.(check (option string))
-    "file_edit_lines shows range and delta" (Some "src/main.ml L10-12 -3L/+2L")
+    "file_edit_lines shows range and delta"
+    (Some "src/main.ml L10-12 \xF0\x9F\x94\xB4-3L/\xF0\x9F\x9F\xA2+2L")
     (Stream_visibility.summarize_tool_arguments ~name:"file_edit_lines"
        {|{"path":"src/main.ml","start_line":10,"end_line":12,"content":"x
 y"}|});
   Alcotest.(check (option string))
-    "file_write shows added lines" (Some "src/main.ml write +2L")
+    "file_write shows added lines"
+    (Some "src/main.ml write \xF0\x9F\x9F\xA2+2L")
     (Stream_visibility.summarize_tool_arguments ~name:"file_write"
        {|{"path":"src/main.ml","content":"x
 y"}|});
   Alcotest.(check (option string))
-    "file_append shows added lines" (Some "src/main.ml append +2L")
+    "file_append shows added lines"
+    (Some "src/main.ml append \xF0\x9F\x9F\xA2+2L")
     (Stream_visibility.summarize_tool_arguments ~name:"file_append"
        {|{"path":"src/main.ml","content":"x
 y"}|})
@@ -92,9 +96,92 @@ let test_summarize_tool_arguments_shows_other_tool_details () =
        {|{"filename":"TOOLS.md","append":true,"content":"a
 b"}|})
 
+let test_summarize_tool_result_previews () =
+  Alcotest.(check (option string))
+    "file_read shows line count" (Some "3 lines")
+    (Stream_visibility.summarize_tool_result ~name:"file_read" "a\nb\nc");
+  Alcotest.(check (option string))
+    "shell_exec empty" (Some "empty output")
+    (Stream_visibility.summarize_tool_result ~name:"shell_exec" "  ");
+  Alcotest.(check (option string))
+    "shell_exec first line" (Some "hello world")
+    (Stream_visibility.summarize_tool_result ~name:"shell_exec"
+       "hello world\nmore stuff");
+  Alcotest.(check (option string))
+    "grep matches" (Some "2 matches")
+    (Stream_visibility.summarize_tool_result ~name:"grep" "line1\nline2");
+  Alcotest.(check (option string))
+    "grep no matches" (Some "no matches")
+    (Stream_visibility.summarize_tool_result ~name:"grep" "");
+  Alcotest.(check (option string))
+    "glob few files" (Some "a.ml, b.ml")
+    (Stream_visibility.summarize_tool_result ~name:"glob" "a.ml\nb.ml");
+  Alcotest.(check (option string))
+    "glob many files" (Some "5 files")
+    (Stream_visibility.summarize_tool_result ~name:"glob"
+       "a.ml\nb.ml\nc.ml\nd.ml\ne.ml");
+  Alcotest.(check (option string))
+    "glob no files" (Some "no files")
+    (Stream_visibility.summarize_tool_result ~name:"glob" "");
+  Alcotest.(check (option string))
+    "memory_store" (Some "stored")
+    (Stream_visibility.summarize_tool_result ~name:"memory_store" "OK");
+  Alcotest.(check (option string))
+    "memory_recall found" (Some "found, 11 chars")
+    (Stream_visibility.summarize_tool_result ~name:"memory_recall" "hello world");
+  Alcotest.(check (option string))
+    "memory_recall no match" (Some "no match")
+    (Stream_visibility.summarize_tool_result ~name:"memory_recall"
+       "No matching memories found.");
+  Alcotest.(check (option string))
+    "web_fetch small" (Some "500 B")
+    (Stream_visibility.summarize_tool_result ~name:"web_fetch"
+       (String.make 500 'x'));
+  Alcotest.(check (option string))
+    "generic short" (Some "done")
+    (Stream_visibility.summarize_tool_result ~name:"custom_tool" "done");
+  Alcotest.(check (option string))
+    "generic long" (Some "100 chars")
+    (Stream_visibility.summarize_tool_result ~name:"custom_tool"
+       (String.make 100 'x'));
+  Alcotest.(check (option string))
+    "generic empty" None
+    (Stream_visibility.summarize_tool_result ~name:"custom_tool" "")
+
+let test_tool_call_message_includes_result_preview () =
+  let message =
+    Stream_visibility.tool_call_message ~name:"file_read"
+      ~summary:(Some "src/main.ml") ~result:"line1\nline2\nline3"
+      ~is_error:false
+  in
+  Alcotest.(check bool)
+    "success has arrow" true
+    (String.length message > 0
+    &&
+      try
+        ignore (Str.search_forward (Str.regexp_string "\xE2\x86\x92") message 0);
+        true
+      with Not_found -> false);
+  Alcotest.(check bool)
+    "success preview has line count" true
+    (try
+       ignore (Str.search_forward (Str.regexp_string "3 lines") message 0);
+       true
+     with Not_found -> false);
+  let message2 =
+    Stream_visibility.tool_call_message ~name:"memory_store" ~summary:None
+      ~result:"OK" ~is_error:false
+  in
+  Alcotest.(check bool)
+    "no-summary success has preview" true
+    (try
+       ignore (Str.search_forward (Str.regexp_string "stored") message2 0);
+       true
+     with Not_found -> false)
+
 let test_thinking_message_prefixes_content () =
   Alcotest.(check string)
-    "thinking message" "Thinking:\nplan first"
+    "thinking message" "\xF0\x9F\x92\xAD *Thinking:*\nplan first"
     (Stream_visibility.thinking_message "plan first")
 
 let suite =
@@ -109,6 +196,10 @@ let suite =
       test_summarize_tool_arguments_shows_file_edit_details;
     Alcotest.test_case "other tool summaries" `Quick
       test_summarize_tool_arguments_shows_other_tool_details;
+    Alcotest.test_case "result preview extraction" `Quick
+      test_summarize_tool_result_previews;
+    Alcotest.test_case "tool call message includes result preview" `Quick
+      test_tool_call_message_includes_result_preview;
     Alcotest.test_case "thinking message prefixes content" `Quick
       test_thinking_message_prefixes_content;
   ]
