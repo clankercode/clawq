@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B128
+priority: high
+status: pending
+tags: []
+title: Implement /config slash command with command-like behavior and autosuggestions
+---
+Add a /config slash command that behaves like the existing `clawq config` command family but is available in chat. It should support autosuggestions/completion-friendly UX and expose the same useful subcommands or flows where practical.
