@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-08T16:24:11Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B102
 priority: high
-status: pending
+started_at: "2026-03-08T16:24:11Z"
+status: in_progress
 tags: []
 title: Agent restart during graceful restart/drain is being fed into generic retry logic as Agent.Restart_requested, causing pointless retry attempts during shutdown handoff. Treat restart-requested as a control-flow outcome, not a retriable failure.
 ---
