@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B112
+priority: high
+status: pending
+tags: []
+title: Add a compact background-task summary to the runtime context section of the system prompt, showing queued/running delegated work when present so the agent can see active background activity without full task history.
+---
+
+Add a compact background-task summary to the runtime context section of the system prompt, showing queued/running delegated work when present so the agent can see active background activity without full task history.

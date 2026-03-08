@@ -110,3 +110,4 @@ bugs:
     - file: B109-send-message-is-called-bu-tthe.todo
     - file: B110-implement-a-compact-command-to.todo
     - file: B111-update-clawq-should-surface-ac.todo
+    - file: B112-add-a-compact-background-task.todo
