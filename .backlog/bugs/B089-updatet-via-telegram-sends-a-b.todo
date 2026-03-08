@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B089
+priority: high
+status: pending
+tags: []
+title: /updatet via telegram sends a bunch of status messages. these should be set so they don't trigger notifications
+---
+
+/updatet via telegram sends a bunch of status messages. these should be set so they don't trigger notifications

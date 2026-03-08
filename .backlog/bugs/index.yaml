@@ -87,3 +87,4 @@ bugs:
     - file: B086-agent-cutover-restart-can-leav.todo
     - file: B087-should-log-date-at-start-of-lo.todo
     - file: B088-should-allow-for-tool-calls-ba.todo
+    - file: B089-updatet-via-telegram-sends-a-b.todo
