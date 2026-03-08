@@ -53,3 +53,4 @@ bugs:
     - file: B052-check-whether-compaction-is-re.todo
     - file: B053-allow-setting-thinking-reasoni.todo
     - file: B054-tool-call-log-lines-should-sho.todo
+    - file: B055-add-ability-for-clawq-to-write.todo
