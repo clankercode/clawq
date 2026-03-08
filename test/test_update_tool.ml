@@ -84,6 +84,43 @@ let test_run_update_aborts_on_build_failure () =
     [ ("/repo", [ "git"; "pull" ]); ("/repo", [ "make"; "build" ]) ]
     (List.rev !commands)
 
+let test_run_update_reports_dune_lock_detail () =
+  let progress = ref [] in
+  let result =
+    Lwt_main.run
+      (Update_tool.run_update
+         ~find_repo_root:(fun ?start_path:_ ?exists:_ () -> Some "/repo")
+         ~run_command:(fun ~cwd:_ ~argv ~send_progress ->
+           let open Lwt.Syntax in
+           (match Array.to_list argv with
+           | [ "git"; "pull" ] ->
+               let* () = send_progress "Already up to date." in
+               Lwt.return 0
+           | [ "make"; "build" ] ->
+               let* () = send_progress
+                 "ERROR: Dune build lock present at _build/.lock" in
+               let* () = send_progress
+                 "Another dune command may already be running in this repo build dir." in
+               Lwt.return 2
+           | _ -> Lwt.return 99))
+         ~is_draining:(fun () -> false)
+         ~send_progress:(fun text ->
+           progress := text :: !progress;
+           Lwt.return_unit)
+         ())
+  in
+  Alcotest.(check bool) "mentions dune lock" true
+    (String.contains result 'D'
+    && String.length result > 0
+    && (try
+          ignore
+            (Str.search_forward
+               (Str.regexp_string "Dune lock contention") result 0);
+          true
+        with Not_found -> false));
+  Alcotest.(check bool) "progress includes final message" true
+    (List.exists (fun s -> String.length s > 0 && s = result) !progress)
+
 let test_run_update_rejects_when_draining () =
   let ran = ref false in
   let progress = ref [] in
@@ -297,6 +334,8 @@ let suite =
       test_run_update_continues_after_git_failure;
     Alcotest.test_case "run update aborts on build failure" `Quick
       test_run_update_aborts_on_build_failure;
+    Alcotest.test_case "run update reports dune lock detail" `Quick
+      test_run_update_reports_dune_lock_detail;
     Alcotest.test_case "run update rejects when draining" `Quick
       test_run_update_rejects_when_draining;
     Alcotest.test_case "run update rejects when claimed" `Quick

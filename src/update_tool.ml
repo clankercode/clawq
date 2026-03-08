@@ -60,6 +60,41 @@ let stream_process ~cwd ~argv ~send_progress =
   let* status = proc#close in
   Lwt.return (exit_code_of_status status)
 
+let trim s = String.trim s
+
+let contains_sub s sub =
+  let len_s = String.length s in
+  let len_sub = String.length sub in
+  let rec loop i =
+    if i + len_sub > len_s then false
+    else if String.sub s i len_sub = sub then true
+    else loop (i + 1)
+  in
+  if len_sub = 0 then true else loop 0
+
+let summarize_failure_lines lines =
+  let cleaned =
+    lines
+    |> List.map trim
+    |> List.filter (fun s -> s <> "")
+    |> List.rev
+  in
+  let dune_lock =
+    List.find_opt
+      (fun line ->
+        contains_sub line "Dune build lock present"
+        || contains_sub line "_build/.lock")
+      cleaned
+  in
+  match dune_lock with
+  | Some line ->
+      "Build blocked by Dune lock contention. Another build may still be        running, or a stale _build/.lock may need cleanup. Detail: "
+      ^ line
+  | None -> (
+      match cleaned with
+      | line :: _ -> line
+      | [] -> "no build output captured")
+
 let binary_url_of_env () =
   match Sys.getenv_opt "CLAWQ_UPDATE_BINARY_URL" with
   | Some url when String.trim url <> "" -> Some (String.trim url)
@@ -67,6 +102,11 @@ let binary_url_of_env () =
 
 let run_git_update ~repo_root ~run_command ~send_signal ~send_progress
     ~prepare_restart =
+  let progress_lines = ref [] in
+  let send_progress text =
+    progress_lines := text :: !progress_lines;
+    send_progress text
+  in
   let open Lwt.Syntax in
   let* () = send_progress "Starting update..." in
   let* () = send_progress "Mode: git" in
@@ -86,8 +126,11 @@ let run_git_update ~repo_root ~run_command ~send_signal ~send_progress
     run_command ~cwd:repo_root ~argv:[| "make"; "build" |] ~send_progress
   in
   if build_exit <> 0 then begin
+    let detail = summarize_failure_lines !progress_lines in
     let message =
-      Printf.sprintf "Build failed (exit %d). Restart aborted." build_exit
+      Printf.sprintf
+        "Build failed (exit %d). Restart aborted. Most relevant detail: %s"
+        build_exit detail
     in
     let* () = send_progress message in
     Lwt.return message
