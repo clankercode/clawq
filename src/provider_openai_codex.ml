@@ -123,11 +123,27 @@ let tools_to_responses_tools = function
       `List mapped
   | Some _ -> `List []
 
+let extract_instructions messages =
+  let system_parts =
+    List.filter_map
+      (fun (msg : Provider.message) ->
+        if msg.role = "system" && msg.content <> "" then Some msg.content
+        else None)
+      messages
+  in
+  let non_system =
+    List.filter (fun (msg : Provider.message) -> msg.role <> "system") messages
+  in
+  let instructions = String.concat "\n\n" system_parts in
+  (instructions, non_system)
+
 let build_body ~model ~messages tools =
+  let instructions, non_system_messages = extract_instructions messages in
   `Assoc
     ([
        ("model", `String (strip_provider_prefix model));
-       ("input", `List (messages_to_input messages));
+       ("input", `List (messages_to_input non_system_messages));
+       ("instructions", `String instructions);
        ("stream", `Bool true);
        ("store", `Bool false);
        ("parallel_tool_calls", `Bool true);
