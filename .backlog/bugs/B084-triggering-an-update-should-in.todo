@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B084
+priority: high
+status: pending
+tags: []
+title: triggering an update should interrupt agent at an opportune moment to perform restart and then resume.
+---
+
+triggering an update should interrupt agent at an opportune moment to perform restart and then resume.
