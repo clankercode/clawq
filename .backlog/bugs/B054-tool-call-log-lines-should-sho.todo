@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B054
+priority: high
+status: pending
+tags: []
+title: Tool call log lines should show the session id
+---
+
+Tool call log lines should show the session id
