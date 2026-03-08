@@ -1,15 +1,12 @@
 ---
-claimed_at: "2026-03-08T19:00:07Z"
-claimed_by: cli-user
-completed_at: "2026-03-08T19:00:20Z"
+completed_at: null
 complexity: medium
 depends_on: []
-duration_minutes: 0.23012324265
 estimate_hours: 1
 id: B127
 priority: high
-started_at: "2026-03-08T19:00:07Z"
-status: done
+started_at: null
+status: pending
 tags: []
 title: B114 delegated implementation left repo with syntax-breaking commit in worktree
 ---
