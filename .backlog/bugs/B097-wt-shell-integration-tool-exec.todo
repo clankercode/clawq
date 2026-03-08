@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-08T15:48:57Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B097
 priority: high
-status: pending
+started_at: "2026-03-08T15:48:57Z"
+status: in_progress
 tags: []
 title: 'wt shell integration / tool execution ergonomics: after ''wt switch'' or ''wt switch --create'', subsequent tool commands in this environment do not inherit the new worktree CWD because each exec is non-persistent. Investigate whether clawq can maintain/update an explicit per-session cwd across shell_exec calls, or provide safer worktree-aware affordances. Evaluate whether auto-updating cwd after wt switch is good practice versus too implicit/confusing in a stateless command-exec model.'
 ---
