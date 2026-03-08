@@ -64,3 +64,5 @@ ideas:
       title: Add more tools -- research ~/src/nullclaw and use subagents to search for and/or brainstorm necessary tool ideas for coding and devops
     - file: I008-qt-qml-desktop-companion-app-f.todo
       id: I008
+    - file: I009-list.todo
+      id: I009
