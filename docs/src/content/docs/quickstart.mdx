@@ -5,6 +5,8 @@ section: "preface"
 order: 2
 ---
 
+import Callout from '../../components/Callout.astro';
+
 The quickest path from zero to a running clawq instance takes about five minutes. This guide covers building from source, configuring a provider, opening the streaming web UI, and optionally adding a chat channel such as Telegram.
 
 ## Prerequisites
@@ -174,6 +176,14 @@ If you configured Telegram, open Telegram and message your bot. Built-in command
 | `/new` | Reset conversation history |
 
 The bot maintains conversation history per chat, so follow-up questions work naturally.
+
+<Callout type="tip" title="Interrupt a stuck turn">
+  If a response is still running and you want to interrupt it, send a message
+  starting with <code>!</code>. For example, <code>!stop</code> interrupts the
+  current turn for that session and then sends <code>stop</code> as the next
+  normal message. This works in the browser UI and in chat channels such as
+  Telegram.
+</Callout>
 
 Open the browser UI at `http://127.0.0.1:13451/`:
 

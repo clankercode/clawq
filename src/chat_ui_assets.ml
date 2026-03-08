@@ -77,7 +77,7 @@ let index_html =
             <button class="command-chip" data-command="/new ">/new</button>
             <button class="command-chip" data-command="/status ">/status</button>
           </div>
-          <p class="sidebar-card__hint">Type <code>/</code> in the composer for live command suggestions.</p>
+          <p class="sidebar-card__hint">Type <code>/</code> for command suggestions. Prefix a message with <code>!</code> to interrupt the current turn.</p>
         </section>
       </aside>
 
@@ -90,7 +90,7 @@ let index_html =
             <label class="composer__label" for="composer-input">Message</label>
             <textarea id="composer-input" rows="4" placeholder="Ask clawq to reason, inspect files, or run a tool..." autocomplete="off"></textarea>
             <div class="composer__actions">
-              <p class="composer__hint">Shift+Enter for a newline. Tool output streams inline.</p>
+              <p class="composer__hint">Shift+Enter for a newline. Prefix with <code>!</code> to interrupt the current turn.</p>
               <div class="composer__buttons">
                 <button class="ghost-button" id="stop-btn" type="button" hidden>Stop</button>
                 <button id="send-btn" type="submit">Send</button>

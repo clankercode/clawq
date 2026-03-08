@@ -5,10 +5,20 @@ section: "runtime"
 order: 3
 ---
 
+import Callout from '../../components/Callout.astro';
+
 Clawq communicates with the outside world through *channels* --- modular
 communication backends that implement a common interface. Three channels ship
 with full implementations today (Telegram, Discord, Slack), and the architecture
 is designed so additional channels can be added with minimal ceremony.
+
+<Callout type="tip" title="Interrupting a running turn">
+  In chat channels, prefix a message with <code>!</code> to interrupt the
+  current turn for that same session and then send the rest as a normal
+  message. For example, <code>!stop</code> interrupts the in-flight turn and
+  sends <code>stop</code> next. A bare <code>!</code> becomes
+  <code>[interrupted]</code>.
+</Callout>
 
 ## The Channel.S Module Type
 

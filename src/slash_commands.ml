@@ -50,6 +50,9 @@ let help_text =
     List.map (fun c -> Printf.sprintf "/%s - %s" c.name c.description) commands
   in
   "Available commands:\n" ^ String.concat "\n" lines
+  ^ "\n\n\
+     Prefix a message with ! to interrupt the current turn in this session and \
+     send the rest as a normal message."
 
 let handle text =
   let trimmed = String.trim text in
@@ -70,7 +73,8 @@ let handle text =
         | "start" ->
             Reply
               "clawq bot ready. Send me a message and I'll respond using AI.\n\
-               Use /help to see available commands."
+               Use /help to see available commands. Prefix a message with ! to \
+               interrupt the current turn."
         | "help" -> Reply help_text
         | "new" -> Reset
         | "status" -> Reply "Bot is running."

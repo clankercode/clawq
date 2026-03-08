@@ -81,6 +81,14 @@ Available in chat-integrated channels that support slash commands.
 - `/status` — report bot status
 - `/thinking [low|medium|high|off|xhigh|max]` — show or set the current thinking level; `off` clears `agent_defaults.reasoning_effort`
 
+## `!` Messages
+
+- Any incoming message whose first character is `!` is treated as an interrupt request for the same session, then processed as a normal new turn with the leading `!` removed.
+- Example: `!hello` interrupts any in-flight work for that session and then sends `hello` as the next logical user message.
+- A bare `!` becomes the normalized user message `[interrupted]`.
+- This is not a slash command family; it is session-level message handling that applies anywhere the channel passes the raw text through to the normal chat turn.
+- In practice this works for the web chat/gateway and normal text channels such as Telegram, Discord, Slack, WhatsApp, LINE, Signal, IRC, Nostr, Lark, Matrix, OneBot, and WebChannel.
+
 ## Configuring Yourself
 
 All config is in `~/.clawq/config.json`. Modify via CLI or edit the file directly. After manual edits, validate with `clawq doctor`.
@@ -476,6 +484,7 @@ Tell users:
 - **Shell builtin fails with `No such file or directory`**: you are likely in direct-exec mode, not `/bin/sh -c` mode.
 - **Git or tools complain about missing `/dev/null`**: inspect sandbox backend. Bubblewrap tries to bind `/dev` and `/dev/null`; if this still fails, verify host `/dev/null` exists and try `security.sandbox_backend = "none"` or `"firejail"` to isolate the backend problem.
 - **Heartbeats expected but not appearing**: confirm `heartbeat_enabled = true`, quiet hours are not suppressing the tick, `HEARTBEAT.md` exists and is non-empty, and the daemon log shows heartbeat activity. Also remember current heartbeat logic logs intended notifications instead of sending them.
+- **A turn seems stuck or you want to interrupt it from chat**: send a message starting with `!`. Example: `!stop` interrupts the in-flight turn for that session and then sends `stop` as the next normal message; a bare `!` becomes `[interrupted]`.
 - **Service restarted but autonomous work did not resume**: only recent pending sessions with stored channel + channel_id for Telegram/Discord/Slack are resumed automatically.
 - **Behavior differs because session is not `__main__`**: heartbeat/autonomous checks use `__main__`; normal user chats use per-channel session keys and separate histories/locks.
 - **Bot not responding**: check daemon is running (`clawq status`), verify token (`clawq doctor`), check allow_from/allow_users/allow_guilds includes the user or is `["*"]`.
