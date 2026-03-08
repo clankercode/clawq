@@ -1,13 +1,13 @@
 ---
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 10
 id: I009
 priority: medium
-status: pending
-tags:
-    - idea
-    - planning
+started_at: null
+status: done
+tags: []
 title: list
 ---
 
