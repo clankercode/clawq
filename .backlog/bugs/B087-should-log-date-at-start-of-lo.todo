@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B087
+priority: high
+status: pending
+tags: []
+title: should log date at start of log (and if the day advances)
+---
+
+should log date at start of log (and if the day advances)

@@ -85,3 +85,4 @@ bugs:
     - file: B084-triggering-an-update-should-in.todo
     - file: B085-llms-full-txt-operational-docs.todo
     - file: B086-agent-cutover-restart-can-leav.todo
+    - file: B087-should-log-date-at-start-of-lo.todo
