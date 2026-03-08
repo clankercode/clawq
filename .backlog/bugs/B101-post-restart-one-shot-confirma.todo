@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-08T16:10:04Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-08T16:19:46Z"
 complexity: medium
 depends_on: []
+duration_minutes: 9.708275214483333
 estimate_hours: 1
 id: B101
 priority: high
 started_at: "2026-03-08T16:10:04Z"
-status: in_progress
+status: done
 tags: []
 title: Post-restart one-shot confirmation still fails after tool-path restart_notify fix. Need end-to-end tracing of marker write, survival across exec, daemon startup read, and channel dispatch so update-triggered restart reliably emits the confirmation.
 ---
