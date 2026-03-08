@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-08T16:43:34Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-08T16:51:32Z"
 complexity: medium
 depends_on: []
+duration_minutes: 7.979467352616666
 estimate_hours: 1
 id: B109
 priority: high
 started_at: "2026-03-08T16:43:34Z"
-status: in_progress
+status: done
 tags: []
 title: send_message is called bu tthen messages are not sent immediately (they should be). They apepar to be delivered when the agent finsihes their current turn
 ---

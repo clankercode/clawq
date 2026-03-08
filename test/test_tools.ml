@@ -437,15 +437,15 @@ let test_doc_write_rejects_traversal () =
      with Not_found -> false);
   try Sys.rmdir dir with _ -> ()
 
-let test_send_message_prefers_session_notifier () =
-  let sent = ref [] in
-  let fallback_called = ref false in
+let test_send_message_uses_send_fn_over_send_progress () =
+  let send_fn_called = ref [] in
+  let send_progress_called = ref false in
   let tool =
     Tools_builtin.send_message
       ~send_fn:
         (Some
-           (fun ~text:_ ->
-             fallback_called := true;
+           (fun ~text ->
+             send_fn_called := text :: !send_fn_called;
              Lwt.return_unit))
   in
   let result =
@@ -456,16 +456,16 @@ let test_send_message_prefers_session_notifier () =
              Tool.session_key = Some "telegram:1:1";
              send_progress =
                Some
-                 (fun text ->
-                   sent := text :: !sent;
+                 (fun _text ->
+                   send_progress_called := true;
                    Lwt.return_unit);
            }
          (`Assoc [ ("text", `String "status update") ]))
   in
   Alcotest.(check string) "tool result" "Message sent" result;
   Alcotest.(check (list string))
-    "session notifier used" [ "status update" ] (List.rev !sent);
-  Alcotest.(check bool) "fallback not used" false !fallback_called
+    "send_fn used" [ "status update" ] (List.rev !send_fn_called);
+  Alcotest.(check bool) "send_progress not used" false !send_progress_called
 
 let test_send_message_falls_back_to_notify_channel () =
   let sent = ref [] in
@@ -693,8 +693,8 @@ let suite =
       test_path_safety_random_conformance;
     Alcotest.test_case "shell safety random conformance" `Quick
       test_shell_safety_random_conformance;
-    Alcotest.test_case "send_message prefers session notifier" `Quick
-      test_send_message_prefers_session_notifier;
+    Alcotest.test_case "send_message uses send_fn over send_progress" `Quick
+      test_send_message_uses_send_fn_over_send_progress;
     Alcotest.test_case "send_message falls back to notify channel" `Quick
       test_send_message_falls_back_to_notify_channel;
     Alcotest.test_case "send_message errors without notifier" `Quick

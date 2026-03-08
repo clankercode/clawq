@@ -2528,18 +2528,12 @@ let send_message ~(send_fn : (text:string -> unit Lwt.t) option) =
           ("required", `List [ `String "text" ]);
         ];
     invoke =
-      (fun ?context args ->
+      (fun ?context:_ args ->
         let open Yojson.Safe.Util in
         let text = try args |> member "text" |> to_string with _ -> "" in
         if text = "" then Lwt.return "Error: text is required"
         else
-          let effective_send_fn =
-            match context with
-            | Some { Tool.send_progress = Some send; _ } ->
-                Some (fun ~text -> send text)
-            | _ -> send_fn
-          in
-          match effective_send_fn with
+          match send_fn with
           | None ->
               Lwt.return
                 "Error: no active session notifier or configured notification \
