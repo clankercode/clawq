@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B058
+priority: high
+status: pending
+tags: []
+title: clawq config set allows setting nonexistant config entries.
+---
+
+clawq config set allows setting nonexistant config entries.
