@@ -83,3 +83,4 @@ bugs:
     - file: B082-graceful-restart-can-race-and.todo
     - file: B083-compaction-seems-to-happen-a-b.todo
     - file: B084-triggering-an-update-should-in.todo
+    - file: B085-llms-full-txt-operational-docs.todo

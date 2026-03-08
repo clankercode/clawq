@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B085
+priority: high
+status: pending
+tags: []
+title: llms-full.txt / operational docs should distinguish service-managed daemon restarts from direct  execution. Current live session showed  does not apply when no pid file exists, despite daemon_state showing a live agent process.
+---
+
+llms-full.txt / operational docs should distinguish service-managed daemon restarts from direct  execution. Current live session showed  does not apply when no pid file exists, despite daemon_state showing a live agent process.
