@@ -46,3 +46,4 @@ bugs:
     - file: B045-telegram-api-path-https-api-te.todo
     - file: B046-telegram-bot-in-a-perpetual-st.todo
     - file: B047-i-should-be-logged-in-to-codex.todo
+    - file: B048-implement-gear-editor-plan-md.todo
