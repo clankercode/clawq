@@ -25,6 +25,13 @@ let local_time ~year ~month ~day ~hour ~minute ~second =
          tm_isdst = false;
        })
 
+let render_header_at t =
+  let buf = Buffer.create 64 in
+  let ppf = Format.formatter_of_buffer buf in
+  Daemon.pp_header_with_ts ppf t (Logs.Info, None);
+  Format.pp_print_flush ppf ();
+  Buffer.contents buf
+
 let render_date_banners times =
   let buf = Buffer.create 64 in
   let ppf = Format.formatter_of_buffer buf in
@@ -234,6 +241,21 @@ let test_parse_channel_from_key () =
     "main key" None
     (Restart_notify.parse_channel_from_key "__main__")
 
+let test_pp_header_with_ts_includes_full_date () =
+  let output =
+    render_header_at
+      (local_time ~year:2026 ~month:3 ~day:8 ~hour:10 ~minute:11 ~second:12)
+  in
+  let has_prefix =
+    try
+      ignore
+        (Str.search_forward
+           (Str.regexp_string "[2026-03-08 10:11:12.") output 0);
+      true
+    with Not_found -> false
+  in
+  Alcotest.(check bool) "header includes full date" true has_prefix
+
 let test_maybe_emit_date_banner_logs_first_entry_date () =
   let output =
     render_date_banners
@@ -276,6 +298,8 @@ let suite =
       test_restart_notify_missing_marker;
     Alcotest.test_case "parse channel from key" `Quick
       test_parse_channel_from_key;
+    Alcotest.test_case "pp_header_with_ts includes full date" `Quick
+      test_pp_header_with_ts_includes_full_date;
     Alcotest.test_case "date banner logs first entry date" `Quick
       test_maybe_emit_date_banner_logs_first_entry_date;
     Alcotest.test_case "date banner logs on day rollover" `Quick

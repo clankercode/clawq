@@ -234,14 +234,15 @@ let maybe_emit_date_banner ppf last_date_ref t =
     last_date_ref := Some date_key
   end
 
+let pp_header_with_ts ppf t h =
+  let tm = Unix.localtime t in
+  let ms = int_of_float ((t -. floor t) *. 1000.0) in
+  Fmt.pf ppf "[%04d-%02d-%02d %02d:%02d:%02d.%03d] %a"
+    (tm.Unix.tm_year + 1900) (tm.Unix.tm_mon + 1) tm.Unix.tm_mday tm.Unix.tm_hour
+    tm.Unix.tm_min tm.Unix.tm_sec ms Logs_fmt.pp_header h
+
 let run ~(config : Runtime_config.t) =
   let open Lwt.Syntax in
-  let pp_header_with_ts ppf t h =
-    let tm = Unix.localtime t in
-    let ms = int_of_float ((t -. floor t) *. 1000.0) in
-    Fmt.pf ppf "[%02d:%02d:%02d.%03d] %a" tm.Unix.tm_hour tm.Unix.tm_min
-      tm.Unix.tm_sec ms Logs_fmt.pp_header h
-  in
   let is_loopback_host host =
     let h = String.lowercase_ascii (String.trim host) in
     h = "127.0.0.1" || h = "localhost" || h = "::1"
@@ -354,7 +355,8 @@ let run ~(config : Runtime_config.t) =
         Logs.Src.set_level src (Some Logs.Warning))
     (Logs.Src.list ());
   Logs.info (fun m ->
-      m "clawq %s starting (pid=%d)" Build_info.version_string (Unix.getpid ()));
+      m "clawq %s starting (pid=%d build=%s)" Build_info.version_string
+        (Unix.getpid ()) Build_info.version_string);
   let workspace = Runtime_config.effective_workspace config in
   Workspace_scaffold.ensure_dir workspace;
   let active_provider, _, active_model = Provider.select_provider ~config in
