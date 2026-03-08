@@ -1,0 +1,20 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B069
+priority: high
+status: pending
+tags: []
+title: runtime context improvement suggestions
+---
+A further improvement I would want, if you are refining it, is:
+- session name / session id
+- whether this session is considered `main`
+- whether heartbeat routing applies here
+- whether shell execution is sandboxed, and under what policy
+- effective workspace from config
+- `workspace_only` status
+- sandbox backend in use
+- visible root/path summary for shell execution
+- context usage and limits (and when compaction will occur)
