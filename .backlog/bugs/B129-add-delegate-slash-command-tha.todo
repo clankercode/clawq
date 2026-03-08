@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B129
+priority: high
+status: pending
+tags: []
+title: Add /delegate slash command that runs a temporary subagent session
+---
+Add a /delegate slash command that takes a prompt and spawns a new agent in a temporary session. The delegated session should be retired/cleaned up automatically after completion. Design it so delegation from chat is smooth and does not pollute the main session history with a permanent extra session.
