@@ -66,6 +66,7 @@ let test_command_of_task_codex () =
     {
       Background_task.id = 1;
       runner = Background_task.Codex;
+      model = None;
       repo_path = "/tmp/repo";
       prompt = "ship it";
       branch = "clawq-bg-1";
@@ -94,6 +95,7 @@ let test_command_of_task_claude () =
     {
       Background_task.id = 2;
       runner = Background_task.Claude;
+      model = None;
       repo_path = "/tmp/repo";
       prompt = "ship it";
       branch = "clawq-bg-2";
@@ -355,14 +357,78 @@ let test_enqueue_rejects_non_git_repo () =
            true
          with Not_found -> false)
 
+let test_command_of_task_codex_with_model () =
+  let task =
+    {
+      Background_task.id = 3;
+      runner = Background_task.Codex;
+      model = Some "gpt-5.4";
+      repo_path = "/tmp/repo";
+      prompt = "ship it";
+      branch = "clawq-bg-3";
+      worktree_path = Some "/tmp/worktree";
+      log_path = Some "/tmp/task.log";
+      status = Background_task.Queued;
+      session_key = None;
+      channel = None;
+      channel_id = None;
+      pid = None;
+      result_preview = None;
+      created_at = "";
+      started_at = None;
+      finished_at = None;
+    }
+  in
+  Alcotest.(check (array string))
+    "codex argv with model"
+    [|
+      "codex"; "exec"; "--model"; "gpt-5.4";
+      "--dangerously-bypass-approvals-and-sandbox"; "ship it";
+    |]
+    (Background_task.command_of_task task)
+
+let test_command_of_task_claude_with_model () =
+  let task =
+    {
+      Background_task.id = 4;
+      runner = Background_task.Claude;
+      model = Some "claude-sonnet-4-6";
+      repo_path = "/tmp/repo";
+      prompt = "ship it";
+      branch = "clawq-bg-4";
+      worktree_path = Some "/tmp/worktree";
+      log_path = Some "/tmp/task.log";
+      status = Background_task.Queued;
+      session_key = None;
+      channel = None;
+      channel_id = None;
+      pid = None;
+      result_preview = None;
+      created_at = "";
+      started_at = None;
+      finished_at = None;
+    }
+  in
+  Alcotest.(check (array string))
+    "claude argv with model"
+    [|
+      "claude"; "-p"; "--model"; "claude-sonnet-4-6";
+      "--dangerously-skip-permissions"; "ship it";
+    |]
+    (Background_task.command_of_task task)
+
 let suite =
   [
     Alcotest.test_case "enqueue and list tasks" `Quick
       test_enqueue_and_list_tasks;
     Alcotest.test_case "cancel queued task" `Quick test_cancel_queued_task;
     Alcotest.test_case "command_of_task codex" `Quick test_command_of_task_codex;
+    Alcotest.test_case "command_of_task codex with model" `Quick
+      test_command_of_task_codex_with_model;
     Alcotest.test_case "command_of_task claude" `Quick
       test_command_of_task_claude;
+    Alcotest.test_case "command_of_task claude with model" `Quick
+      test_command_of_task_claude_with_model;
     Alcotest.test_case "enqueue tool uses context session key" `Quick
       test_enqueue_tool_uses_context_session_key;
     Alcotest.test_case "list tool returns task summary" `Quick
@@ -380,3 +446,4 @@ let suite =
     Alcotest.test_case "enqueue rejects non-git repo" `Quick
       test_enqueue_rejects_non_git_repo;
   ]
+

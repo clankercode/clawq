@@ -566,6 +566,7 @@ let cmd_workspace () =
 
 type background_add_args = {
   runner : Background_task.runner;
+  model : string option;
   repo_path : string;
   branch : string option;
   prompt : string;
@@ -576,6 +577,7 @@ type background_logs_args = { id : int; lines : int }
 
 type delegate_args = {
   preferred_runner : Background_task.runner option;
+  model : string option;
   repo_path : string option;
   branch : string option;
   goal : string;
@@ -597,7 +599,7 @@ let default_delegate_repo_path (cfg : Runtime_config.t) =
   if path_is_git_repo cwd then cwd else Runtime_config.effective_workspace cfg
 
 let parse_background_add_args args =
-  let rec loop branch positionals = function
+  let rec loop model branch positionals = function
     | [] -> (
         let positionals = List.rev positionals in
         match positionals with
@@ -608,15 +610,16 @@ let parse_background_add_args args =
             | Some runner ->
                 let prompt = String.concat " " prompt_parts |> String.trim in
                 if prompt = "" then Error "Prompt is required"
-                else Ok { runner; repo_path; branch; prompt })
+                else Ok { runner; model; repo_path; branch; prompt })
         | _ ->
             Error
-              "Usage: clawq background add <codex|claude> <repo> [--branch \
+              "Usage: clawq background add <codex|claude> [--model <name>] <repo> [--branch \
                <name>] <prompt>")
-    | "--branch" :: value :: rest -> loop (Some value) positionals rest
-    | arg :: rest -> loop branch (arg :: positionals) rest
+    | "--model" :: value :: rest -> loop (Some value) branch positionals rest
+    | "--branch" :: value :: rest -> loop model (Some value) positionals rest
+    | arg :: rest -> loop model branch (arg :: positionals) rest
   in
-  loop None [] args
+  loop None None [] args
 
 let parse_background_wait_args args =
   let rec loop timeout id = function
@@ -657,14 +660,14 @@ let parse_background_logs_args args =
   loop 40 None args
 
 let parse_delegate_args args =
-  let rec loop preferred_runner repo_path branch positionals = function
+  let rec loop preferred_runner model repo_path branch positionals = function
     | [] ->
         let goal = String.concat " " (List.rev positionals) |> String.trim in
         if goal = "" then
           Error
-            "Usage: clawq delegate [--runner auto|codex|claude] [--repo \
+            "Usage: clawq delegate [--runner auto|codex|claude] [--model <name>] [--repo \
              <path>] [--branch <name>] <goal>"
-        else Ok { preferred_runner; repo_path; branch; goal }
+        else Ok { preferred_runner; model; repo_path; branch; goal }
     | "--runner" :: value :: rest ->
         let value = String.lowercase_ascii (String.trim value) in
         let preferred_runner =
@@ -673,15 +676,17 @@ let parse_delegate_args args =
         in
         if value <> "auto" && preferred_runner = None then
           Error "Runner must be one of: auto, codex, claude"
-        else loop preferred_runner repo_path branch positionals rest
+        else loop preferred_runner model repo_path branch positionals rest
+    | "--model" :: value :: rest ->
+        loop preferred_runner (Some value) repo_path branch positionals rest
     | "--repo" :: value :: rest ->
-        loop preferred_runner (Some value) branch positionals rest
+        loop preferred_runner model (Some value) branch positionals rest
     | "--branch" :: value :: rest ->
-        loop preferred_runner repo_path (Some value) positionals rest
+        loop preferred_runner model repo_path (Some value) positionals rest
     | arg :: rest ->
-        loop preferred_runner repo_path branch (arg :: positionals) rest
+        loop preferred_runner model repo_path branch (arg :: positionals) rest
   in
-  loop None None None [] args
+  loop None None None None [] args
 
 let format_background_task_row (task : Background_task.task) =
   let branch = if task.branch = "" then "-" else task.branch in
@@ -1133,7 +1138,7 @@ let cmd_background args =
       | Ok parsed -> (
           let channel, channel_id = notify_route cfg in
           match
-            Background_task.enqueue ~db ~runner:parsed.runner
+            Background_task.enqueue ~db ~runner:parsed.runner ?model:parsed.model
               ~repo_path:parsed.repo_path ~prompt:parsed.prompt
               ?branch:parsed.branch ?channel ?channel_id ()
           with
@@ -1205,8 +1210,8 @@ let cmd_delegate args =
   | Ok parsed -> (
       match
         Background_task.delegate_enqueue ~db ?notify_cfg:cfg.notify
-          ?preferred_runner:parsed.preferred_runner ?repo_path:parsed.repo_path
-          ?branch:parsed.branch
+          ?preferred_runner:parsed.preferred_runner ?model:parsed.model
+          ?repo_path:parsed.repo_path ?branch:parsed.branch
           ~default_repo_path:(default_delegate_repo_path cfg)
           ~goal:parsed.goal ()
       with

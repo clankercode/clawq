@@ -4,6 +4,7 @@ type status = Queued | Running | Succeeded | Failed | Cancelled
 type task = {
   id : int;
   runner : runner;
+  model : string option;
   repo_path : string;
   prompt : string;
   branch : string;
@@ -129,6 +130,10 @@ let format_task_summary (task : task) =
   let add line = lines := line :: !lines in
   add (Printf.sprintf "task: %d" task.id);
   add (Printf.sprintf "runner: %s" (string_of_runner task.runner));
+  (match task.model with
+  | Some model when String.trim model <> "" ->
+      add (Printf.sprintf "model: %s" model)
+  | _ -> ());
   add (Printf.sprintf "status: %s" (status_summary task.status));
   add (Printf.sprintf "repo: %s" task.repo_path);
   add (Printf.sprintf "branch: %s" branch);
@@ -182,23 +187,24 @@ let task_of_stmt stmt =
       |> Option.value ~default:"codex"
       |> runner_of_string
       |> Option.value ~default:Codex;
-    repo_path = Sqlite3.column stmt 2 |> sql_text |> Option.value ~default:"";
-    prompt = Sqlite3.column stmt 3 |> sql_text |> Option.value ~default:"";
-    branch = Sqlite3.column stmt 4 |> sql_text |> Option.value ~default:"";
-    worktree_path = Sqlite3.column stmt 5 |> sql_text;
-    log_path = Sqlite3.column stmt 6 |> sql_text;
+    model = Sqlite3.column stmt 2 |> sql_text;
+    repo_path = Sqlite3.column stmt 3 |> sql_text |> Option.value ~default:"";
+    prompt = Sqlite3.column stmt 4 |> sql_text |> Option.value ~default:"";
+    branch = Sqlite3.column stmt 5 |> sql_text |> Option.value ~default:"";
+    worktree_path = Sqlite3.column stmt 6 |> sql_text;
+    log_path = Sqlite3.column stmt 7 |> sql_text;
     status =
-      Sqlite3.column stmt 7 |> sql_text
+      Sqlite3.column stmt 8 |> sql_text
       |> Option.value ~default:"failed"
       |> status_of_string;
-    session_key = Sqlite3.column stmt 8 |> sql_text;
-    channel = Sqlite3.column stmt 9 |> sql_text;
-    channel_id = Sqlite3.column stmt 10 |> sql_text;
-    pid = Sqlite3.column stmt 11 |> sql_int;
-    result_preview = Sqlite3.column stmt 12 |> sql_text;
-    created_at = Sqlite3.column stmt 13 |> sql_text |> Option.value ~default:"";
-    started_at = Sqlite3.column stmt 14 |> sql_text;
-    finished_at = Sqlite3.column stmt 15 |> sql_text;
+    session_key = Sqlite3.column stmt 9 |> sql_text;
+    channel = Sqlite3.column stmt 10 |> sql_text;
+    channel_id = Sqlite3.column stmt 11 |> sql_text;
+    pid = Sqlite3.column stmt 12 |> sql_int;
+    result_preview = Sqlite3.column stmt 13 |> sql_text;
+    created_at = Sqlite3.column stmt 14 |> sql_text |> Option.value ~default:"";
+    started_at = Sqlite3.column stmt 15 |> sql_text;
+    finished_at = Sqlite3.column stmt 16 |> sql_text;
   }
 
 let init_schema db =
@@ -214,6 +220,7 @@ let init_schema db =
     "CREATE TABLE IF NOT EXISTS background_tasks (\n\
     \  id INTEGER PRIMARY KEY AUTOINCREMENT,\n\
     \  runner TEXT NOT NULL,\n\
+    \  model TEXT,\n\
     \  repo_path TEXT NOT NULL,\n\
     \  prompt TEXT NOT NULL,\n\
     \  branch TEXT,\n\
@@ -231,16 +238,25 @@ let init_schema db =
      )";
   exec
     "CREATE INDEX IF NOT EXISTS idx_background_tasks_status ON \
-     background_tasks (status)"
+     background_tasks (status)";
+  (match
+     Sqlite3.exec db "ALTER TABLE background_tasks ADD COLUMN model TEXT"
+   with
+  | Sqlite3.Rc.OK -> ()
+  | Sqlite3.Rc.ERROR -> ()
+  | rc ->
+      failwith
+        (Printf.sprintf "SQLite error: %s (sql: %s)" (Sqlite3.Rc.to_string rc)
+           "ALTER TABLE background_tasks ADD COLUMN model TEXT"))
 
-let enqueue ~db ~runner ~repo_path ~prompt ?branch ?session_key ?channel
-    ?channel_id () =
+let enqueue ~db ~runner ?model ~repo_path ~prompt ?branch ?session_key
+    ?channel ?channel_id () =
   match validate_repo_path repo_path with
   | Error _ as err -> err
   | Ok () ->
       let sql =
-        "INSERT INTO background_tasks (runner, repo_path, prompt, branch, \
-         session_key, channel, channel_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO background_tasks (runner, model, repo_path, prompt, branch, \
+         session_key, channel, channel_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
       in
       let stmt = Sqlite3.prepare db sql in
       Fun.protect
@@ -248,22 +264,18 @@ let enqueue ~db ~runner ~repo_path ~prompt ?branch ?session_key ?channel
         (fun () ->
           ignore
             (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT (string_of_runner runner)));
-          ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT repo_path));
-          ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.TEXT prompt));
-          ignore
-            (Sqlite3.bind stmt 4
-               (match branch with
-               | Some value when String.trim value <> "" ->
-                   Sqlite3.Data.TEXT value
-               | _ -> Sqlite3.Data.NULL));
           let bind_opt index = function
-            | Some value ->
+            | Some value when String.trim value <> "" ->
                 ignore (Sqlite3.bind stmt index (Sqlite3.Data.TEXT value))
-            | None -> ignore (Sqlite3.bind stmt index Sqlite3.Data.NULL)
+            | _ -> ignore (Sqlite3.bind stmt index Sqlite3.Data.NULL)
           in
-          bind_opt 5 session_key;
-          bind_opt 6 channel;
-          bind_opt 7 channel_id;
+          bind_opt 2 model;
+          ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.TEXT repo_path));
+          ignore (Sqlite3.bind stmt 4 (Sqlite3.Data.TEXT prompt));
+          bind_opt 5 branch;
+          bind_opt 6 session_key;
+          bind_opt 7 channel;
+          bind_opt 8 channel_id;
           match Sqlite3.step stmt with
           | Sqlite3.Rc.DONE -> Ok (Int64.to_int (Sqlite3.last_insert_rowid db))
           | rc ->
@@ -273,7 +285,7 @@ let enqueue ~db ~runner ~repo_path ~prompt ?branch ?session_key ?channel
 
 let list_tasks ~db =
   let sql =
-    "SELECT id, runner, repo_path, prompt, COALESCE(branch, ''), \
+    "SELECT id, runner, model, repo_path, prompt, COALESCE(branch, ''), \
      worktree_path, log_path, status, session_key, channel, channel_id, pid, \
      result_preview, created_at, started_at, finished_at FROM background_tasks \
      ORDER BY id DESC"
@@ -290,7 +302,7 @@ let list_tasks ~db =
 
 let get_task ~db ~id =
   let sql =
-    "SELECT id, runner, repo_path, prompt, COALESCE(branch, ''), \
+    "SELECT id, runner, model, repo_path, prompt, COALESCE(branch, ''), \
      worktree_path, log_path, status, session_key, channel, channel_id, pid, \
      result_preview, created_at, started_at, finished_at FROM background_tasks \
      WHERE id = ?"
@@ -479,8 +491,8 @@ let build_delegate_prompt ~goal =
        explicitly asked.";
     ]
 
-let delegate_enqueue ?context ?notify_cfg ~db ?preferred_runner ?repo_path
-    ?branch ~default_repo_path ~goal () =
+let delegate_enqueue ?context ?notify_cfg ~db ?preferred_runner ?model
+    ?repo_path ?branch ~default_repo_path ~goal () =
   let chosen_repo_path =
     match repo_path with
     | Some path when String.trim path <> "" -> path
@@ -500,23 +512,33 @@ let delegate_enqueue ?context ?notify_cfg ~db ?preferred_runner ?repo_path
               routing_from_context ?context ?notify_cfg ()
             in
             match
-              enqueue ~db ~runner ~repo_path:chosen_repo_path ~prompt ?branch
-                ?session_key ?channel ?channel_id ()
+              enqueue ~db ~runner ?model ~repo_path:chosen_repo_path ~prompt
+                ?branch ?session_key ?channel ?channel_id ()
             with
             | Ok id -> Ok (id, runner, chosen_repo_path)
             | Error _ as err -> err))
 
 let command_of_task task =
+  let model_args flag =
+    match task.model with
+    | Some model when String.trim model <> "" -> [| flag; model |]
+    | _ -> [||]
+  in
   match task.runner with
   | Codex ->
-      [|
-        "codex";
-        "exec";
-        "--dangerously-bypass-approvals-and-sandbox";
-        task.prompt;
-      |]
+      Array.concat
+        [
+          [| "codex"; "exec" |];
+          model_args "--model";
+          [| "--dangerously-bypass-approvals-and-sandbox"; task.prompt |];
+        ]
   | Claude ->
-      [| "claude"; "-p"; "--dangerously-skip-permissions"; task.prompt |]
+      Array.concat
+        [
+          [| "claude"; "-p" |];
+          model_args "--model";
+          [| "--dangerously-skip-permissions"; task.prompt |];
+        ]
 
 let status_message (task : task) =
   let headline =
@@ -783,6 +805,15 @@ let enqueue_tool_with_notify ~notify_cfg ~db =
                           "Optional branch name for the new worktree. Defaults \
                            to clawq-bg-<task-id>." );
                     ] );
+                ( "model",
+                  `Assoc
+                    [
+                      ("type", `String "string");
+                      ( "description",
+                        `String
+                          "Optional explicit model for the external runner, \
+                           e.g. gpt-5.4 or claude-sonnet-4-6." );
+                    ] );
               ] );
           ( "required",
             `List [ `String "runner"; `String "repo_path"; `String "prompt" ] );
@@ -805,6 +836,13 @@ let enqueue_tool_with_notify ~notify_cfg ~db =
             | _ -> None
           with _ -> None
         in
+        let model =
+          try
+            match args |> member "model" with
+            | `String s when String.trim s <> "" -> Some (String.trim s)
+            | _ -> None
+          with _ -> None
+        in
         match runner_of_string runner_s with
         | None -> Lwt.return "Error: runner must be 'codex' or 'claude'"
         | Some runner when String.trim repo_path = "" ->
@@ -816,8 +854,8 @@ let enqueue_tool_with_notify ~notify_cfg ~db =
               routing_from_context ?context ?notify_cfg ()
             in
             match
-              enqueue ~db ~runner ~repo_path ~prompt ?branch ?session_key
-                ?channel ?channel_id ()
+              enqueue ~db ~runner ?model ~repo_path ~prompt ?branch
+                ?session_key ?channel ?channel_id ()
             with
             | Ok id ->
                 Lwt.return
@@ -1031,6 +1069,15 @@ let delegate_tool_with_notify ~db ~default_repo_path ~notify_cfg () =
                           "Optional branch name for the worktree. Defaults to \
                            clawq-bg-<task-id>." );
                     ] );
+                ( "model",
+                  `Assoc
+                    [
+                      ("type", `String "string");
+                      ( "description",
+                        `String
+                          "Optional explicit model for the external runner, \
+                           e.g. gpt-5.4 or claude-sonnet-4-6." );
+                    ] );
               ] );
           ("required", `List [ `String "goal" ]);
           ("additionalProperties", `Bool false);
@@ -1065,13 +1112,20 @@ let delegate_tool_with_notify ~db ~default_repo_path ~notify_cfg () =
             | _ -> None
           with _ -> None
         in
+        let model =
+          try
+            match args |> member "model" with
+            | `String s when String.trim s <> "" -> Some (String.trim s)
+            | _ -> None
+          with _ -> None
+        in
         if String.trim goal = "" then Lwt.return "Error: goal is required"
         else if runner_error <> None then
           Lwt.return ("Error: " ^ Option.get runner_error)
         else
           match
             delegate_enqueue ?context ?notify_cfg ~db
-              ?preferred_runner:runner_pref ?repo_path ?branch
+              ?preferred_runner:runner_pref ?model ?repo_path ?branch
               ~default_repo_path ~goal ()
           with
           | Ok (id, runner, repo) ->
