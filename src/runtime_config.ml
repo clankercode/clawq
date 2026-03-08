@@ -24,6 +24,8 @@ type agent_defaults = {
   system_prompt : string;
   max_tool_iterations : int;
   tool_search_enabled : bool;
+  reasoning_effort : string option;
+  show_thinking : bool;
 }
 
 type totp_config = {
@@ -393,6 +395,8 @@ let default =
         system_prompt = "";
         max_tool_iterations = 10;
         tool_search_enabled = false;
+        reasoning_effort = None;
+        show_thinking = false;
       };
     prompt = default_prompt;
     channels =
@@ -770,12 +774,17 @@ let to_json (cfg : t) : Yojson.Safe.t =
         );
         ( "agent_defaults",
           `Assoc
-            [
-              ("primary_model", `String ad.primary_model);
-              ("system_prompt", `String ad.system_prompt);
-              ("max_tool_iterations", `Int ad.max_tool_iterations);
-              ("tool_search_enabled", `Bool ad.tool_search_enabled);
-            ] );
+            ([
+               ("primary_model", `String ad.primary_model);
+               ("system_prompt", `String ad.system_prompt);
+               ("max_tool_iterations", `Int ad.max_tool_iterations);
+               ("tool_search_enabled", `Bool ad.tool_search_enabled);
+               ("show_thinking", `Bool ad.show_thinking);
+             ]
+            @
+            match ad.reasoning_effort with
+            | Some re -> [ ("reasoning_effort", `String re) ]
+            | None -> []) );
         ( "prompt",
           `Assoc
             [

@@ -387,6 +387,20 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
               ~text:Slash_commands.reset_message
         | NotACommand -> (
             let msg = user_text in
+            let show_thinking =
+              (Session.get_config session_mgr).agent_defaults.show_thinking
+            in
+            let thinking_buf = Buffer.create 256 in
+            let content_buf = Buffer.create 1024 in
+            let on_chunk = function
+              | Provider.ThinkingDelta text ->
+                  if show_thinking then Buffer.add_string thinking_buf text;
+                  Lwt.return_unit
+              | Provider.Delta text ->
+                  Buffer.add_string content_buf text;
+                  Lwt.return_unit
+              | _ -> Lwt.return_unit
+            in
             let* result =
               Session.with_registered_notifier session_mgr ~key
                 ~notify:(fun text ->
@@ -395,9 +409,10 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                   Lwt.catch
                     (fun () ->
                       let turn_p =
-                        Session.turn session_mgr ~key ~message:msg
+                        Session.turn_stream session_mgr ~key ~message:msg
                           ~channel_name:"telegram" ~channel_type:"dm"
-                          ~channel:"telegram" ~channel_id:update.chat_id ()
+                          ~channel:"telegram" ~channel_id:update.chat_id
+                          ~on_chunk ()
                       in
                       let* response =
                         with_typing ~bot_token ~chat_id:update.chat_id turn_p
@@ -407,6 +422,14 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
             in
             match result with
             | Ok response ->
+                let thinking = Buffer.contents thinking_buf in
+                let* () =
+                  if thinking <> "" then
+                    send_chunked ~bot_token ~chat_id:update.chat_id
+                      ~text:("_" ^ thinking ^ "_")
+                  else Lwt.return_unit
+                in
+                let _ = content_buf in
                 let* () =
                   send_chunked ~bot_token ~chat_id:update.chat_id ~text:response
                 in

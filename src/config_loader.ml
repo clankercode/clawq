@@ -124,11 +124,21 @@ let parse_config ?(resolve_secrets = true) json =
         try ad |> member "tool_search_enabled" |> to_bool
         with _ -> default.agent_defaults.tool_search_enabled
       in
+      let reasoning_effort =
+        try Some (ad |> member "reasoning_effort" |> to_string)
+        with _ -> default.agent_defaults.reasoning_effort
+      in
+      let show_thinking =
+        try ad |> member "show_thinking" |> to_bool
+        with _ -> default.agent_defaults.show_thinking
+      in
       ({
          primary_model;
          system_prompt;
          max_tool_iterations;
          tool_search_enabled;
+         reasoning_effort;
+         show_thinking;
        }
         : Runtime_config.agent_defaults)
     with _ -> default.agent_defaults

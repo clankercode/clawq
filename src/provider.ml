@@ -496,6 +496,11 @@ let complete ~(config : Runtime_config.t) ~messages ?tools () =
         | Some t when t <> `List [] -> body_fields @ [ ("tools", t) ]
         | _ -> body_fields
       in
+      let body_fields =
+        match config.agent_defaults.reasoning_effort with
+        | Some re -> body_fields @ [ ("reasoning_effort", `String re) ]
+        | None -> body_fields
+      in
       let body = `Assoc body_fields |> Yojson.Safe.to_string in
       let headers = [ ("Authorization", "Bearer " ^ provider.api_key) ] in
       Logs.info (fun m ->
@@ -810,6 +815,11 @@ let complete_stream ~(config : Runtime_config.t) ~messages ?tools ~on_chunk () =
         match tools with
         | Some t when t <> `List [] -> body_fields @ [ ("tools", t) ]
         | _ -> body_fields
+      in
+      let body_fields =
+        match config.agent_defaults.reasoning_effort with
+        | Some re -> body_fields @ [ ("reasoning_effort", `String re) ]
+        | None -> body_fields
       in
       let body = `Assoc body_fields |> Yojson.Safe.to_string in
       let headers = [ ("Authorization", "Bearer " ^ provider.api_key) ] in
