@@ -419,9 +419,18 @@ let shell_exec ~workspace ~workspace_only ~allowed_commands ~extra_allowed_paths
     in
     loop ()
   in
+  let max_timeout = 600.0 in
+  let default_timeout = 30.0 in
   let run_command ?context:_ ?on_output_chunk args =
     let open Yojson.Safe.Util in
     let command = try args |> member "command" |> to_string with _ -> "" in
+    let timeout_secs =
+      try
+        let v = args |> member "timeout" |> to_number in
+        if v <= 0.0 then default_timeout
+        else Float.min v max_timeout
+      with _ -> default_timeout
+    in
     if command = "" then Lwt.return "Error: command is required"
     else if workspace_only && has_unsafe_shell_syntax command then
       Lwt.return
@@ -447,7 +456,7 @@ let shell_exec ~workspace ~workspace_only ~allowed_commands ~extra_allowed_paths
       let command = Sandbox.wrap_command sandbox command in
       let run_proc cmd =
         let proc = Lwt_process.open_process_full ?cwd ~env cmd in
-        let timeout = Lwt_unix.sleep 30.0 in
+        let timeout = Lwt_unix.sleep timeout_secs in
         let stdout_buf = Buffer.create 1024 in
         let stderr_buf = Buffer.create 256 in
         let runner =
@@ -474,7 +483,10 @@ let shell_exec ~workspace ~workspace_only ~allowed_commands ~extra_allowed_paths
               runner;
               (let* () = timeout in
                proc#kill Sys.sigkill;
-               Lwt.return "Error: command timed out after 30 seconds");
+               Lwt.return
+                 (Printf.sprintf
+                    "Error: command timed out after %.0f seconds"
+                    timeout_secs));
             ]
         in
         Lwt.return result
@@ -514,6 +526,14 @@ let shell_exec ~workspace ~workspace_only ~allowed_commands ~extra_allowed_paths
                     [
                       ("type", `String "string");
                       ("description", `String "Shell command to execute");
+                    ] );
+                ( "timeout",
+                  `Assoc
+                    [
+                      ("type", `String "number");
+                      ( "description",
+                        `String
+                          "Timeout in seconds (default 30, max 600)" );
                     ] );
               ] );
           ("required", `List [ `String "command" ]);

@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-08T14:12:03Z"
+claimed_by: cli-user
+completed_at: "2026-03-08T14:14:19Z"
 complexity: medium
 depends_on: []
+duration_minutes: 2.2766983368333333
 estimate_hours: 1
 id: B088
 priority: high
-status: pending
+started_at: "2026-03-08T14:12:03Z"
+status: done
 tags: []
 title: should allow for tool calls (bash) longer than 30s with some kind of arg
 ---

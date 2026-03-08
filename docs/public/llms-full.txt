@@ -283,7 +283,7 @@ You also support MCP (Model Context Protocol) for exposing and consuming externa
 - Execution is argv/direct-process style, not normal interactive shell style. In practice this means shell builtins such as `cd` and `command` are not available as standalone commands.
 - `&&`, `||`, pipes, redirects, subshells, glob expansion by the shell, and similar compound shell syntax are rejected in `workspace_only` mode.
 - `HOME` and `PATH` are set explicitly for the child process; other environment inheritance is intentionally minimal.
-- Timeout is 30 seconds.
+- Timeout defaults to 30 seconds. The LLM can pass a `timeout` parameter (in seconds, max 600) for longer-running commands.
 
 ### `shell_exec` when `security.workspace_only = false`
 
