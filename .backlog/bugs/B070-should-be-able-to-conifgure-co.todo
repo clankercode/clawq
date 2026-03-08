@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B070
+priority: high
+status: pending
+tags: []
+title: should be able to conifgure compaction limit in config
+---
+
+should be able to conifgure compaction limit in config
