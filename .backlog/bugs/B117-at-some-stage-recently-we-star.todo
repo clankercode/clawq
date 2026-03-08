@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B117
+priority: high
+status: pending
+tags: []
+title: At some stage recently we started getting stale build locks. Not sure why. Might be related to some restart logic tests? or any other reason that dune might exit early or improperly.
+---
+
+At some stage recently we started getting stale build locks. Not sure why. Might be related to some restart logic tests? or any other reason that dune might exit early or improperly.
