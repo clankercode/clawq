@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B100
+priority: high
+status: pending
+tags: []
+title: BOOTSTRAP.md should be available to the agent on first contact even if not in default workspace_files. Prompt builder should include BOOTSTRAP.md opportunistically when it exists, so bootstrap guidance is present initially without paying permanent prompt rent afterward.
+---
+
+BOOTSTRAP.md should be available to the agent on first contact even if not in default workspace_files. Prompt builder should include BOOTSTRAP.md opportunistically when it exists, so bootstrap guidance is present initially without paying permanent prompt rent afterward.
