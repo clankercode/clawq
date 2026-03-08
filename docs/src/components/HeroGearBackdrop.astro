@@ -15,6 +15,7 @@ interface Props {
 
 const { algorithm = DEFAULT_HERO_GEAR_ALGORITHM } = Astro.props as Props;
 const showDebugLabel = import.meta.env.DEV;
+const USE_CANVAS_BACKDROP = true;
 const debugAlgorithms = BACKDROP_ALGORITHMS;
 const renderedCache = new Map<BackdropAlgorithm, { rendered: RenderedGear[]; trueMeshEdges: RenderedMeshEdge[] }>();
 const organicFieldSnapshot = organicFieldLanding as {
@@ -59,6 +60,22 @@ type RenderedMeshEdge = {
   y1: number;
   x2: number;
   y2: number;
+};
+
+type CanvasGear = {
+  id: string;
+  center: { x: number; y: number };
+  path: string;
+  line: string;
+  fill: string;
+  stroke: number;
+  insetStroke: number;
+  pitchRadius: number;
+  innerRingRadius: number;
+  holeRadius: number;
+  phaseDeg: number;
+  periodSec: number;
+  rotationDirection: RotationDirection;
 };
 
 const TRUE_MESH_RENDER_EPSILON = 0.06;
@@ -253,9 +270,44 @@ const renderedByAlgorithm = renderAlgorithms.map((method) => ({
   method,
   ...buildRenderedForAlgorithm(method as BackdropAlgorithm),
 }));
+const canvasPayloadId = `hero-gear-canvas-data-${algorithm}`;
+const canvasPayload = {
+  viewbox: {
+    minX: VIEWBOX.minX,
+    minY: VIEWBOX.minY,
+    width: VIEWBOX.width,
+    height: VIEWBOX.height,
+    scale: DEFAULT_VIEWBOX_SCALE,
+    panYRatio: DEFAULT_VIEWBOX_PAN_Y_RATIO,
+  },
+  gears: renderedByAlgorithm[0]?.rendered.map(
+    ({ gear, path, line, fill, stroke, insetStroke }): CanvasGear => ({
+      id: gear.id,
+      center: gear.center,
+      path,
+      line,
+      fill,
+      stroke,
+      insetStroke,
+      pitchRadius: gear.pitchRadius,
+      innerRingRadius: gear.innerRingRadius,
+      holeRadius: gear.holeRadius,
+      phaseDeg: gear.phaseDeg,
+      periodSec: gear.periodSec,
+      rotationDirection: gear.rotationDirection,
+    }),
+  ) ?? [],
+};
 ---
 
 <div class="hero-gear-backdrop" aria-hidden="true">
+  {USE_CANVAS_BACKDROP && (
+    <>
+      <canvas class="hero-gear-canvas" data-canvas-payload-id={canvasPayloadId}></canvas>
+      <script type="application/json" id={canvasPayloadId} set:html={JSON.stringify(canvasPayload)}></script>
+    </>
+  )}
+  {!USE_CANVAS_BACKDROP && (
   <svg
     class="hero-gear-svg"
     viewBox={`${VIEWBOX.minX} ${VIEWBOX.minY} ${VIEWBOX.width} ${VIEWBOX.height}`}
@@ -326,7 +378,14 @@ const renderedByAlgorithm = renderAlgorithms.map((method) => ({
       );
     })}
   </svg>
+  )}
 </div>
+
+  {USE_CANVAS_BACKDROP && (
+  <script>
+    import "../scripts/hero-gear-canvas.ts";
+  </script>
+)}
 
 <script is:inline>
   (() => {
@@ -410,6 +469,50 @@ const renderedByAlgorithm = renderAlgorithms.map((method) => ({
       <span id="hero-gear-debug-scale-value">{DEFAULT_VIEWBOX_SCALE.toFixed(2)}x</span>
     </label>
   </details>
+)}
+
+{showDebugLabel && (
+  <script is:inline>
+    (() => {
+      const existing = document.getElementById('hero-gear-stats-root');
+      if (existing) return;
+
+      const mountStats = () => {
+        const StatsCtor = window.Stats;
+        if (typeof StatsCtor !== 'function') return;
+
+        const stats = new StatsCtor();
+        stats.showPanel(0);
+        stats.dom.id = 'hero-gear-stats-root';
+        stats.dom.style.position = 'fixed';
+        stats.dom.style.left = '0';
+        stats.dom.style.top = '0';
+        stats.dom.style.zIndex = '102';
+        stats.dom.style.pointerEvents = 'auto';
+        stats.dom.addEventListener('pointerdown', (event) => event.stopPropagation(), true);
+        stats.dom.addEventListener('click', (event) => event.stopPropagation(), true);
+        document.body.appendChild(stats.dom);
+
+        const tick = () => {
+          stats.begin();
+          stats.end();
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      };
+
+      if (typeof window.Stats === 'function') {
+        mountStats();
+        return;
+      }
+
+      const script = document.createElement('script');
+      script.src = '/vendor/stats.min.js';
+      script.async = true;
+      script.onload = mountStats;
+      document.head.appendChild(script);
+    })();
+  </script>
 )}
 
 {showDebugLabel && (
@@ -811,6 +914,12 @@ const renderedByAlgorithm = renderAlgorithms.map((method) => ({
     height: 100%;
     display: block;
     overflow: visible;
+  }
+
+  .hero-gear-canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
   }
 
   .hero-gear-entry {
