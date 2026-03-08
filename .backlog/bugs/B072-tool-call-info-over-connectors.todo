@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B072
+priority: high
+status: pending
+tags: []
+title: Tool call info over connectors is too verbose. Should be 1 message only per tool call; and when they are done in parallel we can send a message about them in parallel. Also use an emoji to indicate they're tool calls. Maybe style the message a bit differently too
+---
+
+Tool call info over connectors is too verbose. Should be 1 message only per tool call; and when they are done in parallel we can send a message about them in parallel. Also use an emoji to indicate they're tool calls. Maybe style the message a bit differently too
