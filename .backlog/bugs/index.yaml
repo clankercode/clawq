@@ -107,3 +107,4 @@ bugs:
     - file: B106-background-task-smoke-test-sti.todo
     - file: B107-implement-version-which-shows.todo
     - file: B108-autonomous-loop-messaging-disc.todo
+    - file: B109-send-message-is-called-bu-tthe.todo

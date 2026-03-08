@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B109
+priority: high
+status: pending
+tags: []
+title: send_message is called bu tthen messages are not sent immediately (they should be). They apepar to be delivered when the agent finsihes their current turn
+---
+
+send_message is called bu tthen messages are not sent immediately (they should be). They apepar to be delivered when the agent finsihes their current turn
