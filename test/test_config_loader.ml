@@ -142,6 +142,11 @@ let test_parse_lark_defaults_disabled () =
   | None -> Alcotest.fail "expected lark config"
   | Some lk -> Alcotest.(check bool) "lark disabled by default" false lk.enabled
 
+let test_agent_defaults_show_tool_calls_defaults_true () =
+  let cfg = Config_loader.parse_config (`Assoc []) in
+  Alcotest.(check bool)
+    "show_tool_calls defaults true" true cfg.agent_defaults.show_tool_calls
+
 let test_backfill_does_not_persist_resolved_secrets () =
   Unix.putenv "CLAWQ_TEST_SECRET_BACKFILL" "sk-live-secret";
   let json =
@@ -303,6 +308,8 @@ let suite =
       test_parse_gateway_auth_token;
     Alcotest.test_case "parse lark defaults disabled" `Quick
       test_parse_lark_defaults_disabled;
+    Alcotest.test_case "agent defaults show_tool_calls defaults true" `Quick
+      test_agent_defaults_show_tool_calls_defaults_true;
     Alcotest.test_case "backfill does not persist resolved secrets" `Quick
       test_backfill_does_not_persist_resolved_secrets;
     Alcotest.test_case "backfill infers default provider" `Quick

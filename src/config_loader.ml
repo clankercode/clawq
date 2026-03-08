@@ -132,6 +132,10 @@ let parse_config ?(resolve_secrets = true) json =
         try ad |> member "show_thinking" |> to_bool
         with _ -> default.agent_defaults.show_thinking
       in
+      let show_tool_calls =
+        try ad |> member "show_tool_calls" |> to_bool
+        with _ -> default.agent_defaults.show_tool_calls
+      in
       ({
          primary_model;
          system_prompt;
@@ -139,6 +143,7 @@ let parse_config ?(resolve_secrets = true) json =
          tool_search_enabled;
          reasoning_effort;
          show_thinking;
+         show_tool_calls;
        }
         : Runtime_config.agent_defaults)
     with _ -> default.agent_defaults

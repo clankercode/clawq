@@ -183,6 +183,7 @@ let config_schema =
             ("tool_search_enabled", L);
             ("reasoning_effort", L);
             ("show_thinking", L);
+            ("show_tool_calls", L);
           ] );
       ( "prompt",
         O

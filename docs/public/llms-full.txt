@@ -82,6 +82,7 @@ clawq config set agent_defaults.primary_model "openai/gpt-4o"
 clawq config set agent_defaults.max_tool_iterations 10
 clawq config set agent_defaults.reasoning_effort "medium"
 clawq config set agent_defaults.show_thinking true
+clawq config set agent_defaults.show_tool_calls true
 clawq config set channels.telegram.accounts.main.bot_token "123:ABC..."
 clawq config set channels.telegram.accounts.main.allow_from '["*"]'
 clawq config set channels.discord.bot_token "MTIz..."
@@ -129,7 +130,7 @@ clawq config show security
 
 **providers** — keyed by provider name. Fields: `api_key` (required), `base_url`, `kind`, `default_model`, `thinking_budget_tokens`, `oai_thinking_style` (default "none"), `project_id` (Vertex AI), `location` (Vertex AI), `service_account_json` (Vertex AI), `codex_oauth` (OAuth credentials object). Set `default_provider` at the top level to select which one is active.
 
-**agent_defaults** — `primary_model` (default "openai/gpt-4o"), `system_prompt` (default ""), `max_tool_iterations` (default 10), `tool_search_enabled` (default false), `reasoning_effort` (optional string), `show_thinking` (default false).
+**agent_defaults** — `primary_model` (default "openai/gpt-4o"), `system_prompt` (default ""), `max_tool_iterations` (default 10), `tool_search_enabled` (default false), `reasoning_effort` (optional string), `show_thinking` (default false), `show_tool_calls` (default true for connector notifiers).
 
 **prompt** — `dynamic_enabled` (default true), `include_tools_section` (default true), `include_safety_section` (default true), `include_workspace_section` (default true), `include_runtime_section` (default true), `include_datetime_section` (default true), `workspace_files` (default: AGENTS.md, EGO.md, SOUL.md, TOOLS.md, IDENTITY.md, USER.md, HEARTBEAT.md, BOOTSTRAP.md, MEMORY.md, memory.md), `max_workspace_file_chars` (default 8000), `max_workspace_total_chars` (default 20000).
 

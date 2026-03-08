@@ -15,6 +15,7 @@
   http_client
   provider
   prompt_builder
+  stream_visibility
   workspace_scaffold
   agent
   session

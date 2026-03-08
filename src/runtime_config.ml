@@ -26,6 +26,7 @@ type agent_defaults = {
   tool_search_enabled : bool;
   reasoning_effort : string option;
   show_thinking : bool;
+  show_tool_calls : bool;
 }
 
 type totp_config = {
@@ -397,6 +398,7 @@ let default =
         tool_search_enabled = false;
         reasoning_effort = None;
         show_thinking = false;
+        show_tool_calls = true;
       };
     prompt = default_prompt;
     channels =
@@ -780,6 +782,7 @@ let to_json (cfg : t) : Yojson.Safe.t =
                ("max_tool_iterations", `Int ad.max_tool_iterations);
                ("tool_search_enabled", `Bool ad.tool_search_enabled);
                ("show_thinking", `Bool ad.show_thinking);
+               ("show_tool_calls", `Bool ad.show_tool_calls);
              ]
             @
             match ad.reasoning_effort with

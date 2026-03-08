@@ -283,7 +283,8 @@ let is_bot_message json =
   with _ -> false
 
 let handle_message ~(discord_config : Runtime_config.discord_config)
-    ~(session_mgr : Session.t) ?message_limiter (msg : message) =
+    ~(session_mgr : Session.t) ?(send_message_fn = send_message)
+    ?message_limiter (msg : message) =
   let open Lwt.Syntax in
   if msg.author_bot then Lwt.return_unit
   else if
@@ -314,7 +315,7 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
       in
       if should_warn then begin
         Hashtbl.replace _rate_limit_warnings limiter_key now;
-        send_message ~bot_token:discord_config.bot_token
+        send_message_fn ~bot_token:discord_config.bot_token
           ~channel_id:msg.channel_id
           ~text:
             "Please slow down, I can only process a limited number of messages \
@@ -328,11 +329,11 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
       in
       match Slash_commands.handle msg.content with
       | Reply text ->
-          send_message ~bot_token:discord_config.bot_token
+          send_message_fn ~bot_token:discord_config.bot_token
             ~channel_id:msg.channel_id ~text
       | Reset ->
           let* () = Session.reset session_mgr ~key in
-          send_message ~bot_token:discord_config.bot_token
+          send_message_fn ~bot_token:discord_config.bot_token
             ~channel_id:msg.channel_id ~text:Slash_commands.reset_message
       | NotACommand -> (
           let discord_channel_type =
@@ -341,7 +342,7 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
           let* result =
             Session.with_registered_notifier session_mgr ~key
               ~notify:(fun text ->
-                send_message ~bot_token:discord_config.bot_token
+                send_message_fn ~bot_token:discord_config.bot_token
                   ~channel_id:msg.channel_id ~text)
               (fun () ->
                 Lwt.catch
@@ -359,7 +360,7 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
           match result with
           | Ok response ->
               let* () =
-                send_message ~bot_token:discord_config.bot_token
+                send_message_fn ~bot_token:discord_config.bot_token
                   ~channel_id:msg.channel_id ~text:response
               in
               Session.mark_response_sent session_mgr ~key;
@@ -369,7 +370,7 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                   m "Discord agent error for channel=%s user=%s: %s"
                     msg.channel_id msg.author_id err);
               let* () =
-                send_message ~bot_token:discord_config.bot_token
+                send_message_fn ~bot_token:discord_config.bot_token
                   ~channel_id:msg.channel_id
                   ~text:
                     (Printf.sprintf

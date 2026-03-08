@@ -252,6 +252,37 @@ let respond_if_draining ?on_chunk mgr =
         Lwt.return_some draining_message
   else Lwt.return_none
 
+let stream_turn_with_visibility mgr ~notify agent ~key ~effective_message
+    ~prepared_history_len ~interrupt_check =
+  let open Lwt.Syntax in
+  let visibility = Stream_visibility.create () in
+  let settings : Stream_visibility.settings =
+    {
+      show_thinking = mgr.config.agent_defaults.show_thinking;
+      show_tool_calls = mgr.config.agent_defaults.show_tool_calls;
+    }
+  in
+  let* response =
+    Agent.turn_stream agent ~user_message:effective_message ?db:mgr.db
+      ~session_key:key ~interrupt_check ~history_prepared:true
+      ~on_chunk:(Stream_visibility.on_chunk visibility ~settings ~notify)
+      ()
+  in
+  let thinking = Stream_visibility.thinking_text visibility in
+  let* () =
+    if settings.show_thinking && thinking <> "" then
+      notify (Stream_visibility.thinking_message thinking)
+    else Lwt.return_unit
+  in
+  persist_new_messages mgr ~key ~history_before:prepared_history_len agent;
+  (match mgr.db with
+  | Some db when mgr.config.security.audit_enabled ->
+      Audit.log ~db
+        (ChatMessage
+           { session_key = key; role = "assistant"; content_preview = response })
+  | _ -> ());
+  Lwt.return response
+
 let turn mgr ~key ~message ?(attachments = []) ?channel_name ?channel_type
     ?sender_id ?sender_name ?channel ?channel_id () =
   let open Lwt.Syntax in
@@ -313,28 +344,43 @@ let turn mgr ~key ~message ?(attachments = []) ?channel_name ?channel_type
                 if compacted then persist_compacted_history mgr ~key agent
                 else persist_new_messages mgr ~key ~history_before agent;
                 let prepared_history_len = List.length agent.history in
+                let notify = find_registered_notifier mgr ~key in
                 record_agent_turn mgr ~key ?channel ?channel_id ();
                 let* response =
                   let* draining_response = respond_if_draining mgr in
                   match draining_response with
                   | Some response -> Lwt.return response
-                  | None ->
-                      Agent.turn agent ~user_message:effective_message
-                        ?db:mgr.db ~session_key:key ~interrupt_check
-                        ~history_prepared:true ()
+                  | None -> (
+                      match notify with
+                      | Some send
+                        when mgr.config.agent_defaults.show_thinking
+                             || mgr.config.agent_defaults.show_tool_calls ->
+                          stream_turn_with_visibility mgr ~notify:send agent
+                            ~key ~effective_message ~prepared_history_len
+                            ~interrupt_check
+                      | _ ->
+                          Agent.turn agent ~user_message:effective_message
+                            ?db:mgr.db ~session_key:key ~interrupt_check
+                            ~history_prepared:true ())
                 in
-                persist_new_messages mgr ~key
-                  ~history_before:prepared_history_len agent;
-                (match mgr.db with
-                | Some db when mgr.config.security.audit_enabled ->
-                    Audit.log ~db
-                      (ChatMessage
-                         {
-                           session_key = key;
-                           role = "assistant";
-                           content_preview = response;
-                         })
-                | _ -> ());
+                (match notify with
+                | Some _
+                  when mgr.config.agent_defaults.show_thinking
+                       || mgr.config.agent_defaults.show_tool_calls ->
+                    ()
+                | _ -> (
+                    persist_new_messages mgr ~key
+                      ~history_before:prepared_history_len agent;
+                    match mgr.db with
+                    | Some db when mgr.config.security.audit_enabled ->
+                        Audit.log ~db
+                          (ChatMessage
+                             {
+                               session_key = key;
+                               role = "assistant";
+                               content_preview = response;
+                             })
+                    | _ -> ()));
                 Lwt.return response))
   end
 
