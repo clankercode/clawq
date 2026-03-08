@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-08T15:25:56Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B098
 priority: high
-status: pending
+started_at: "2026-03-08T15:25:56Z"
+status: in_progress
 tags: []
 title: Self-update/restart handoff sometimes omits restart_notify marker, so replacement daemon does not send the one-shot post-restart confirmation. Investigate update_clawq/tool-driven restart path versus special-command/channel update path, identify where prepare_restart is skipped or marker is lost, and make post-restart confirmation reliable.
 ---
