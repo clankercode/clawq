@@ -246,7 +246,7 @@ let process_stream stream ~on_chunk =
       let item_type = try item |> member "type" |> to_string with _ -> "" in
       if item_type = "function_call" || item_type = "tool_call" then begin
         let idx =
-          try item |> member "output_index" |> to_int
+          try json |> member "output_index" |> to_int
           with _ -> Hashtbl.length tool_buffers
         in
         let call_id =
@@ -260,21 +260,6 @@ let process_stream stream ~on_chunk =
           | None -> Buffer.create 128
         in
         Hashtbl.replace tool_buffers idx (call_id, name, args_buf);
-        Lwt.return_unit
-      end
-      else if event_type = "response.output_item.done" then begin
-        let response_json = json |> member "response" in
-        let fallback_text, fallback_tools =
-          extract_final_output response_json
-        in
-        if Buffer.length content_acc = 0 && fallback_text <> "" then
-          Buffer.add_string content_acc fallback_text;
-        List.iteri
-          (fun idx (tc : Provider.tool_call) ->
-            let buf = Buffer.create (String.length tc.arguments) in
-            Buffer.add_string buf tc.arguments;
-            Hashtbl.replace tool_buffers idx (tc.id, tc.function_name, buf))
-          fallback_tools;
         Lwt.return_unit
       end
       else Lwt.return_unit
@@ -305,15 +290,37 @@ let process_stream stream ~on_chunk =
     else if event_type = "response.completed" || event_type = "response.done"
     then begin
       let response_json = json |> member "response" in
-      let fallback_text, fallback_tools = extract_final_output response_json in
+      let fallback_text, _fallback_tools = extract_final_output response_json in
       if Buffer.length content_acc = 0 && fallback_text <> "" then
         Buffer.add_string content_acc fallback_text;
+      (* Backfill tool entries using output array index, only for missing/empty *)
+      let output =
+        try response_json |> member "output" |> to_list with _ -> []
+      in
       List.iteri
-        (fun idx (tc : Provider.tool_call) ->
-          let buf = Buffer.create (String.length tc.arguments) in
-          Buffer.add_string buf tc.arguments;
-          Hashtbl.replace tool_buffers idx (tc.id, tc.function_name, buf))
-        fallback_tools;
+        (fun arr_idx item ->
+          let item_type =
+            try item |> member "type" |> to_string with _ -> ""
+          in
+          if item_type = "function_call" || item_type = "tool_call" then
+            match Hashtbl.find_opt tool_buffers arr_idx with
+            | Some (_, _, buf) when Buffer.length buf > 0 -> ()
+            | _ ->
+                let call_id =
+                  try item |> member "call_id" |> to_string
+                  with _ -> (
+                    try item |> member "id" |> to_string with _ -> "")
+                in
+                let name =
+                  try item |> member "name" |> to_string with _ -> ""
+                in
+                let args =
+                  try item |> member "arguments" |> to_string with _ -> ""
+                in
+                let buf = Buffer.create (String.length args) in
+                Buffer.add_string buf args;
+                Hashtbl.replace tool_buffers arr_idx (call_id, name, buf))
+        output;
       let model =
         try response_json |> member "model" |> to_string with _ -> ""
       in

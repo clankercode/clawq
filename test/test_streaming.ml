@@ -357,6 +357,223 @@ let test_select_provider_keeps_raw_model_when_target_provider_missing () =
   Alcotest.(check string) "fallback provider selected" "groq" provider_name;
   Alcotest.(check string) "raw model preserved" "zai_coding:glm-5" model
 
+let test_codex_stream_no_duplicate_tool_calls () =
+  (* Simulate OpenAI Codex Responses API streaming with 3 tool calls.
+     Event sequence: 3x output_item.added, 3x argument deltas,
+     3x output_item.done, then response.completed.
+     Bug B071: output_index was read from item (always missing) instead of json,
+     causing done events to create duplicate entries with empty args. *)
+  let sse json = "data: " ^ Yojson.Safe.to_string json ^ "\n\n" in
+  let mk_item idx call_id name =
+    `Assoc
+      [
+        ("type", `String "function_call");
+        ("call_id", `String call_id);
+        ("name", `String name);
+      ]
+    |> fun item ->
+    ( idx,
+      item,
+      `Assoc
+        [
+          ("type", `String "response.output_item.added");
+          ("output_index", `Int idx);
+          ("item", item);
+        ] )
+  in
+  let mk_delta idx delta =
+    `Assoc
+      [
+        ("type", `String "response.function_call_arguments.delta");
+        ("output_index", `Int idx);
+        ("delta", `String delta);
+      ]
+  in
+  let mk_done idx call_id name args =
+    `Assoc
+      [
+        ("type", `String "response.output_item.done");
+        ("output_index", `Int idx);
+        ( "item",
+          `Assoc
+            [
+              ("type", `String "function_call");
+              ("call_id", `String call_id);
+              ("name", `String name);
+              ("arguments", `String args);
+            ] );
+      ]
+  in
+  let _, _, added0 = mk_item 0 "call_a" "shell_exec" in
+  let _, _, added1 = mk_item 1 "call_b" "file_read" in
+  let _, _, added2 = mk_item 2 "call_c" "memory_store" in
+  let chunks =
+    [
+      sse added0;
+      sse added1;
+      sse added2;
+      sse (mk_delta 0 {|{"command":"|});
+      sse (mk_delta 0 {|ls"}|});
+      sse (mk_delta 1 {|{"path":"foo.ml"}|});
+      sse (mk_delta 2 {|{"key":"k","value":"v"}|});
+      sse (mk_done 0 "call_a" "shell_exec" {|{"command":"ls"}|});
+      sse (mk_done 1 "call_b" "file_read" {|{"path":"foo.ml"}|});
+      sse (mk_done 2 "call_c" "memory_store" {|{"key":"k","value":"v"}|});
+      sse
+        (`Assoc
+           [
+             ("type", `String "response.completed");
+             ( "response",
+               `Assoc
+                 [
+                   ("model", `String "codex-mini");
+                   ( "usage",
+                     `Assoc
+                       [
+                         ("input_tokens", `Int 100); ("output_tokens", `Int 50);
+                       ] );
+                   ( "output",
+                     `List
+                       [
+                         `Assoc
+                           [
+                             ("type", `String "function_call");
+                             ("call_id", `String "call_a");
+                             ("name", `String "shell_exec");
+                             ("arguments", `String {|{"command":"ls"}|});
+                           ];
+                         `Assoc
+                           [
+                             ("type", `String "function_call");
+                             ("call_id", `String "call_b");
+                             ("name", `String "file_read");
+                             ("arguments", `String {|{"path":"foo.ml"}|});
+                           ];
+                         `Assoc
+                           [
+                             ("type", `String "function_call");
+                             ("call_id", `String "call_c");
+                             ("name", `String "memory_store");
+                             ("arguments", `String {|{"key":"k","value":"v"}|});
+                           ];
+                       ] );
+                 ] );
+           ]);
+    ]
+  in
+  let stream = Lwt_stream.of_list chunks in
+  let result =
+    Lwt_main.run
+      (Provider_openai_codex.process_stream stream ~on_chunk:(fun _ ->
+           Lwt.return_unit))
+  in
+  match result with
+  | Provider.ToolCalls { calls; model; _ } ->
+      Alcotest.(check int)
+        "exactly 3 tool calls (no duplicates)" 3 (List.length calls);
+      Alcotest.(check string) "model" "codex-mini" model;
+      let tc0 = List.nth calls 0 in
+      Alcotest.(check string) "tc0 id" "call_a" tc0.id;
+      Alcotest.(check string) "tc0 name" "shell_exec" tc0.function_name;
+      Alcotest.(check string) "tc0 args" {|{"command":"ls"}|} tc0.arguments;
+      let tc1 = List.nth calls 1 in
+      Alcotest.(check string) "tc1 id" "call_b" tc1.id;
+      Alcotest.(check string) "tc1 name" "file_read" tc1.function_name;
+      Alcotest.(check string) "tc1 args" {|{"path":"foo.ml"}|} tc1.arguments;
+      let tc2 = List.nth calls 2 in
+      Alcotest.(check string) "tc2 id" "call_c" tc2.id;
+      Alcotest.(check string) "tc2 name" "memory_store" tc2.function_name;
+      Alcotest.(check string)
+        "tc2 args" {|{"key":"k","value":"v"}|} tc2.arguments
+  | Provider.Text { content; _ } ->
+      Alcotest.fail
+        (Printf.sprintf "Expected ToolCalls but got Text: %s" content)
+
+let test_codex_stream_backfill_only_missing () =
+  (* Test that response.completed only backfills tool calls that were NOT
+     already populated by streaming deltas. *)
+  let sse json = "data: " ^ Yojson.Safe.to_string json ^ "\n\n" in
+  let chunks =
+    [
+      (* Tool at index 0 gets streamed args *)
+      sse
+        (`Assoc
+           [
+             ("type", `String "response.output_item.added");
+             ("output_index", `Int 0);
+             ( "item",
+               `Assoc
+                 [
+                   ("type", `String "function_call");
+                   ("call_id", `String "call_x");
+                   ("name", `String "file_read");
+                 ] );
+           ]);
+      sse
+        (`Assoc
+           [
+             ("type", `String "response.function_call_arguments.delta");
+             ("output_index", `Int 0);
+             ("delta", `String {|{"path":"streamed.ml"}|});
+           ]);
+      (* response.completed includes both tools — index 0 already has args,
+         index 1 was never streamed so should be backfilled *)
+      sse
+        (`Assoc
+           [
+             ("type", `String "response.completed");
+             ( "response",
+               `Assoc
+                 [
+                   ("model", `String "codex-mini");
+                   ( "usage",
+                     `Assoc
+                       [ ("input_tokens", `Int 10); ("output_tokens", `Int 5) ]
+                   );
+                   ( "output",
+                     `List
+                       [
+                         `Assoc
+                           [
+                             ("type", `String "function_call");
+                             ("call_id", `String "call_x");
+                             ("name", `String "file_read");
+                             ("arguments", `String {|{"path":"fallback.ml"}|});
+                           ];
+                         `Assoc
+                           [
+                             ("type", `String "function_call");
+                             ("call_id", `String "call_y");
+                             ("name", `String "shell_exec");
+                             ("arguments", `String {|{"command":"pwd"}|});
+                           ];
+                       ] );
+                 ] );
+           ]);
+    ]
+  in
+  let stream = Lwt_stream.of_list chunks in
+  let result =
+    Lwt_main.run
+      (Provider_openai_codex.process_stream stream ~on_chunk:(fun _ ->
+           Lwt.return_unit))
+  in
+  match result with
+  | Provider.ToolCalls { calls; _ } ->
+      Alcotest.(check int) "2 tool calls" 2 (List.length calls);
+      let tc0 = List.nth calls 0 in
+      (* Index 0 should keep streamed args, NOT fallback *)
+      Alcotest.(check string)
+        "tc0 keeps streamed args" {|{"path":"streamed.ml"}|} tc0.arguments;
+      let tc1 = List.nth calls 1 in
+      (* Index 1 should be backfilled from response.completed *)
+      Alcotest.(check string) "tc1 backfilled id" "call_y" tc1.id;
+      Alcotest.(check string)
+        "tc1 backfilled name" "shell_exec" tc1.function_name;
+      Alcotest.(check string)
+        "tc1 backfilled args" {|{"command":"pwd"}|} tc1.arguments
+  | _ -> Alcotest.fail "Expected ToolCalls response"
+
 let suite =
   [
     Alcotest.test_case "SSE parse delta line" `Quick test_parse_sse_line_delta;
@@ -383,4 +600,8 @@ let suite =
       test_select_provider_prefers_colon_model_provider;
     Alcotest.test_case "preserve raw model when provider missing" `Quick
       test_select_provider_keeps_raw_model_when_target_provider_missing;
+    Alcotest.test_case "codex stream no duplicate tool calls" `Quick
+      test_codex_stream_no_duplicate_tool_calls;
+    Alcotest.test_case "codex stream backfill only missing" `Quick
+      test_codex_stream_backfill_only_missing;
   ]
