@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B094
+priority: high
+status: pending
+tags: []
+title: when we recieve a ! message, we should log it so we can tell if bang messages are working
+---
+
+when we recieve a ! message, we should log it so we can tell if bang messages are working
