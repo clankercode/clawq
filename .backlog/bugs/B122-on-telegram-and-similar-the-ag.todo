@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B122
+priority: high
+status: pending
+tags: []
+title: on telegram and similar, the agent should use reaction emojis to indicate status (responding, executing, error, done, waiting, etc)
+---
+
+on telegram and similar, the agent should use reaction emojis to indicate status (responding, executing, error, done, waiting, etc)
