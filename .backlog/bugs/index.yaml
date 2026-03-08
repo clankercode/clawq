@@ -57,3 +57,4 @@ bugs:
     - file: B056-tool-call-responses-errors-sho.todo
     - file: B057-after-using-update-in-telegram.todo
     - file: B058-clawq-config-set-allows-settin.todo
+    - file: B059-when-starting-up-clawq-should.todo

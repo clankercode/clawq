@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B059
+priority: high
+status: pending
+tags: []
+title: When starting up, clawq should print its version number and git shorthash (from when it was built)
+---
+
+When starting up, clawq should print its version number and git shorthash (from when it was built)
