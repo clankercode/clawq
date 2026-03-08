@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B076
+priority: high
+status: pending
+tags: []
+title: 'tool call one-liners in telegram: ideally shouldn''t notify the user of a new message, should include the filename for file_read, should include the command for shell_exec, other tool calls should similarly include a small amount of info or summary about what it''s doing.'
+---
+
+tool call one-liners in telegram: ideally shouldn't notify the user of a new message, should include the filename for file_read, should include the command for shell_exec, other tool calls should similarly include a small amount of info or summary about what it's doing.
