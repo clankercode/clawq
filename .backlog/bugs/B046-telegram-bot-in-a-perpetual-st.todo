@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B046
+priority: high
+status: pending
+tags: []
+title: telegram bot in a perpetual state of typing -- possibly only occurs after LLM API call failed
+---
+
+telegram bot in a perpetual state of typing -- possibly only occurs after LLM API call failed

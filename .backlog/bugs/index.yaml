@@ -44,3 +44,4 @@ bugs:
     - file: B043-lots-of-info-logs-from-telegra.todo
     - file: B044-codex-provider-does-not-appear.todo
     - file: B045-telegram-api-path-https-api-te.todo
+    - file: B046-telegram-bot-in-a-perpetual-st.todo
