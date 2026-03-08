@@ -312,6 +312,94 @@ let test_otp_show_reads_live_gateway_pairing_code () =
            true
          with Not_found -> false))
 
+let test_debug_prompt_prints_logical_messages () =
+  with_temp_home (fun home ->
+      let clawq_dir = Filename.concat home ".clawq" in
+      Unix.mkdir clawq_dir 0o755;
+      let config_path = Filename.concat clawq_dir "config.json" in
+      let oc = open_out config_path in
+      output_string oc
+        {|{
+  "default_provider": "testprov",
+  "providers": {
+    "testprov": {
+      "api_key": "sk-test",
+      "default_model": "test-model"
+    }
+  },
+  "agent_defaults": {
+    "system_prompt": "Custom debug prompt"
+  },
+  "prompt": {
+    "dynamic_enabled": false
+  },
+  "security": {
+    "tools_enabled": false
+  }
+}|};
+      close_out oc;
+      let result = Command_bridge.handle [ "debug"; "prompt"; "hello world" ] in
+      Alcotest.(check bool)
+        "debug prompt includes provider" true
+        (try
+           ignore
+             (Str.search_forward
+                (Str.regexp_string "provider: testprov")
+                result 0);
+           true
+         with Not_found -> false);
+      Alcotest.(check bool)
+        "debug prompt includes model" true
+        (try
+           ignore (Str.search_forward (Str.regexp_string "model:") result 0);
+           true
+         with Not_found -> false);
+      Alcotest.(check bool)
+        "debug prompt includes system section" true
+        (try
+           ignore
+             (Str.search_forward (Str.regexp_string "--- system ---") result 0);
+           true
+         with Not_found -> false);
+      Alcotest.(check bool)
+        "debug prompt includes system prompt" true
+        (try
+           ignore
+             (Str.search_forward
+                (Str.regexp_string "Custom debug prompt")
+                result 0);
+           true
+         with Not_found -> false);
+      Alcotest.(check bool)
+        "debug prompt includes user section" true
+        (try
+           ignore
+             (Str.search_forward (Str.regexp_string "--- user ---") result 0);
+           true
+         with Not_found -> false);
+      Alcotest.(check bool)
+        "debug prompt includes user message" true
+        (try
+           ignore
+             (Str.search_forward (Str.regexp_string "hello world") result 0);
+           true
+         with Not_found -> false))
+
+let test_debug_usage_mentions_prompt_and_html_preview () =
+  let result = Command_bridge.handle [ "debug" ] in
+  Alcotest.(check bool)
+    "debug usage mentions html-preview" true
+    (try
+       ignore (Str.search_forward (Str.regexp_string "html-preview") result 0);
+       true
+     with Not_found -> false);
+  Alcotest.(check bool)
+    "debug usage mentions prompt" true
+    (try
+       ignore (Str.search_forward (Str.regexp_string "prompt") result 0);
+       true
+     with Not_found -> false)
+
 let suite =
   [
     Alcotest.test_case "handle phase2" `Quick test_handle_phase2;
@@ -350,4 +438,8 @@ let suite =
       test_status_cleans_stale_daemon_state;
     Alcotest.test_case "otp-show reads live gateway pairing code" `Quick
       test_otp_show_reads_live_gateway_pairing_code;
+    Alcotest.test_case "debug prompt prints logical messages" `Quick
+      test_debug_prompt_prints_logical_messages;
+    Alcotest.test_case "debug usage mentions prompt and html-preview" `Quick
+      test_debug_usage_mentions_prompt_and_html_preview;
   ]

@@ -251,6 +251,9 @@ let debug_cmd =
       `I
         ( "html-preview [PORT]",
           "Serve Html_page test pages on localhost (default port 8099)." );
+      `I
+        ( "prompt [MESSAGE]",
+          "Print the normalized logical messages for a single agent turn." );
     ]
 
 let reset_agent_cmd =

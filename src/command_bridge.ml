@@ -86,6 +86,54 @@ let redact_key s =
   if len <= 8 then String.make len '*'
   else String.sub s 0 4 ^ "..." ^ String.sub s (len - 4) 4
 
+let build_tool_registry (cfg : Runtime_config.t) =
+  if not cfg.security.tools_enabled then None
+  else begin
+    let registry = Tool_registry.create () in
+    let ws = Runtime_config.effective_workspace cfg in
+    let sandbox = Sandbox.create ~workspace:ws () in
+    Tools_builtin.register_all ~config:cfg ~sandbox registry;
+    let skills =
+      Skills.load_all ~workspace_only:cfg.security.workspace_only
+        ~allowed_commands:Tools_builtin.default_shell_allowlist ()
+    in
+    List.iter (fun s -> Tool_registry.register registry s) skills;
+    Tool_registry.register registry
+      (Skills.skill_create_tool ~workspace_only:cfg.security.workspace_only
+         ~allowed_commands:Tools_builtin.default_shell_allowlist registry);
+    Tool_registry.register registry (Skills.skill_list_tool ());
+    Some registry
+  end
+
+let format_debug_messages messages =
+  let lines = ref [] in
+  let add line = lines := line :: !lines in
+  List.iter
+    (fun (msg : Provider.message) ->
+      add (Printf.sprintf "--- %s ---" msg.role);
+      add msg.content;
+      add "")
+    messages;
+  String.concat "\n" (List.rev !lines)
+
+let cmd_debug_prompt args =
+  let cfg : Runtime_config.t = get_config () in
+  let tool_registry = build_tool_registry cfg in
+  let provider_name, _provider, model = Provider.select_provider ~config:cfg in
+  let agent = Agent.create ~config:cfg ?tool_registry () in
+  let user_message = String.concat " " args in
+  let messages =
+    if user_message = "" then Agent.build_messages agent
+    else begin
+      let _compacted =
+        Lwt_main.run (Agent.prepare_turn_history agent ~user_message ())
+      in
+      Agent.build_messages agent
+    end
+  in
+  Printf.sprintf "provider: %s\nmodel: %s\n\n%s" provider_name model
+    (format_debug_messages messages)
+
 let cmd_status () =
   let cfg = get_config () in
   let lines = ref [] in
@@ -478,19 +526,11 @@ let cmd_capabilities () =
        (if cfg.memory.search_enabled then "enabled" else "disabled"));
   (* Tools *)
   if cfg.security.tools_enabled then begin
-    let registry = Tool_registry.create () in
-    let ws = Runtime_config.effective_workspace cfg in
-    let sandbox = Sandbox.create ~workspace:ws () in
-    Tools_builtin.register_all ~config:cfg ~sandbox registry;
-    let skills =
-      Skills.load_all ~workspace_only:cfg.security.workspace_only
-        ~allowed_commands:Tools_builtin.default_shell_allowlist ()
+    let registry =
+      match build_tool_registry cfg with
+      | Some registry -> registry
+      | None -> assert false
     in
-    List.iter (fun s -> Tool_registry.register registry s) skills;
-    Tool_registry.register registry
-      (Skills.skill_create_tool ~workspace_only:cfg.security.workspace_only
-         ~allowed_commands:Tools_builtin.default_shell_allowlist registry);
-    Tool_registry.register registry (Skills.skill_list_tool ());
     let tool_names = List.map (fun (t : Tool.t) -> t.name) registry.tools in
     add
       (Printf.sprintf "  - Tools: %d registered (%s)" (List.length tool_names)
@@ -702,19 +742,11 @@ let cmd_mcp () =
   else if not cfg.security.tools_enabled then
     "MCP server requires security.tools_enabled=true to expose tools."
   else begin
-    let registry = Tool_registry.create () in
-    let ws = Runtime_config.effective_workspace cfg in
-    let sandbox = Sandbox.create ~workspace:ws () in
-    Tools_builtin.register_all ~config:cfg ~sandbox registry;
-    let skills =
-      Skills.load_all ~workspace_only:cfg.security.workspace_only
-        ~allowed_commands:Tools_builtin.default_shell_allowlist ()
+    let registry =
+      match build_tool_registry cfg with
+      | Some registry -> registry
+      | None -> assert false
     in
-    List.iter (fun s -> Tool_registry.register registry s) skills;
-    Tool_registry.register registry
-      (Skills.skill_create_tool ~workspace_only:cfg.security.workspace_only
-         ~allowed_commands:Tools_builtin.default_shell_allowlist registry);
-    Tool_registry.register registry (Skills.skill_list_tool ());
     (* Filter to exposed_tools allowlist if configured *)
     (match cfg.mcp.exposed_tools with
     | Some allowed ->
@@ -1406,6 +1438,7 @@ let debug_html_preview_pages =
 
 let cmd_debug args =
   match args with
+  | "prompt" :: rest -> cmd_debug_prompt rest
   | [ "html-preview" ] | [ "html-preview"; _ ] ->
       let port =
         match args with
@@ -1465,7 +1498,9 @@ let cmd_debug args =
       "debug html-preview: stopped"
   | _ ->
       "Usage: clawq debug html-preview [PORT]\n\
-       Serves Html_page test pages on localhost (default port 8099)."
+       Serves Html_page test pages on localhost (default port 8099).\n\n\
+       Usage: clawq debug prompt [MESSAGE]\n\
+       Prints the normalized logical messages for a single agent turn."
 
 let handle args =
   match args with

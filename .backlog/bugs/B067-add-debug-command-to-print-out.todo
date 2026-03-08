@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-08T10:52:17Z"
+claimed_by: cli-user
+completed_at: "2026-03-08T11:04:50Z"
 complexity: medium
 depends_on: []
+duration_minutes: 12.566526232416667
 estimate_hours: 1
 id: B067
 priority: high
-status: pending
+started_at: "2026-03-08T10:52:17Z"
+status: done
 tags: []
 title: add debug command to print out entire prompt for agent (up to first user message)
 ---
