@@ -869,3 +869,13 @@ let reset mgr ~key =
       Lwt_mutex.unlock mutex;
       Lwt.return_unit
   | None -> Lwt.return_unit
+
+let compact mgr ~key =
+  let open Lwt.Syntax in
+  with_session_lock mgr ~key (fun agent _interrupt ->
+      let* compacted = Agent.force_compact_history agent in
+      if compacted then begin
+        persist_compacted_history mgr ~key agent;
+        Lwt.return true
+      end
+      else Lwt.return false)

@@ -6,6 +6,7 @@ let result_to_string = function
       "Thinking(Set off)"
   | Slash_commands.Thinking (Slash_commands.SetThinking (Some level)) ->
       "Thinking(Set " ^ level ^ ")"
+  | Slash_commands.Compact -> "Compact"
   | Slash_commands.NotACommand -> "NotACommand"
 
 let result_eq a b =
@@ -18,6 +19,7 @@ let result_eq a b =
   | ( Slash_commands.Thinking (Slash_commands.SetThinking a),
       Slash_commands.Thinking (Slash_commands.SetThinking b) ) ->
       a = b
+  | Slash_commands.Compact, Slash_commands.Compact -> true
   | Slash_commands.NotACommand, Slash_commands.NotACommand -> true
   | _ -> false
 
@@ -58,6 +60,10 @@ let test_status () =
   | other ->
       Alcotest.fail
         (Printf.sprintf "expected Reply, got %s" (result_to_string other))
+
+let test_compact () =
+  Alcotest.check result_testable "compact" Slash_commands.Compact
+    (Slash_commands.handle "/compact")
 
 let test_unknown_command () =
   Alcotest.check result_testable "unknown cmd" Slash_commands.NotACommand
@@ -136,6 +142,7 @@ let test_commands_list () =
   Alcotest.(check bool) "has new" true (List.mem "new" names);
   Alcotest.(check bool) "has status" true (List.mem "status" names);
   Alcotest.(check bool) "has thinking" true (List.mem "thinking" names);
+  Alcotest.(check bool) "has compact" true (List.mem "compact" names);
   Alcotest.(check bool) "has update" true (List.mem "update" names)
 
 let test_case_insensitive () =
@@ -177,6 +184,7 @@ let suite =
     Alcotest.test_case "handle /start" `Quick test_start;
     Alcotest.test_case "handle /help" `Quick test_help;
     Alcotest.test_case "handle /new" `Quick test_new;
+    Alcotest.test_case "handle /compact" `Quick test_compact;
     Alcotest.test_case "handle /status" `Quick test_status;
     Alcotest.test_case "handle /thinking" `Quick test_thinking_show;
     Alcotest.test_case "handle /thinking levels" `Quick test_thinking_set_levels;

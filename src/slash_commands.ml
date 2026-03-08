@@ -4,6 +4,7 @@ type thinking_action = ShowThinking | SetThinking of string option
 type result =
   | Reply of string
   | Reset
+  | Compact
   | Thinking of thinking_action
   | NotACommand
 
@@ -37,6 +38,10 @@ let commands =
     {
       name = "thinking";
       description = "Show or set thinking level: /thinking [level]";
+    };
+    {
+      name = "compact";
+      description = "Compact session history (summarize older messages)";
     };
     { name = "pair"; description = "Pair with TOTP code: /pair <6-digit-code>" };
     {
@@ -77,6 +82,7 @@ let handle text =
                interrupt the current turn."
         | "help" -> Reply help_text
         | "new" -> Reset
+        | "compact" -> Compact
         | "status" -> Reply "Bot is running."
         | "thinking" -> (
             match args with

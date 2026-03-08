@@ -271,6 +271,44 @@ let compact_history_if_needed agent =
   end
   else Lwt.return false
 
+let force_compact_history agent =
+  let open Lwt.Syntax in
+  let history_chrono = List.rev agent.history in
+  let total = List.length history_chrono in
+  let keep = min compaction_keep_recent total in
+  let compact_count = total - keep in
+  if compact_count = 0 then Lwt.return false
+  else begin
+    Logs.info (fun m ->
+        m
+          "Force-compacting history: %d messages -> summarise %d, keep %d \
+           recent"
+          total compact_count keep);
+    let to_compact =
+      List.filteri (fun i _ -> i < compact_count) history_chrono
+    in
+    let to_keep = List.filteri (fun i _ -> i >= compact_count) history_chrono in
+    let mid = compact_count / 2 in
+    let first_half = List.filteri (fun i _ -> i < mid) to_compact in
+    let second_half = List.filteri (fun i _ -> i >= mid) to_compact in
+    let* summary1 = summarize_messages agent first_half in
+    let* summary2 = summarize_messages agent second_half in
+    let merged_summary =
+      Printf.sprintf
+        "[Conversation history compacted]\n\n\
+         Earlier context:\n\
+         %s\n\n\
+         Recent context:\n\
+         %s"
+        summary1 summary2
+    in
+    let summary_msg =
+      Provider.make_message ~role:"assistant" ~content:merged_summary
+    in
+    agent.history <- List.rev (summary_msg :: to_keep);
+    Lwt.return true
+  end
+
 let tools_json agent =
   match agent.tool_registry with
   | Some r when agent.config.security.tools_enabled ->

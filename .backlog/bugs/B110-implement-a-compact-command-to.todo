@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-08T17:20:53Z"
+claimed_by: cli-user
+completed_at: "2026-03-08T17:27:21Z"
 complexity: medium
 depends_on: []
+duration_minutes: 6.475324338816667
 estimate_hours: 1
 id: B110
 priority: high
-status: pending
+started_at: "2026-03-08T17:20:53Z"
+status: done
 tags: []
 title: Implement a /compact command to manually trigger session history compaction on demand, so a user can force compaction without waiting for automatic thresholds.
 ---

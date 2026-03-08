@@ -443,6 +443,15 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
           let* () = Session.reset session_mgr ~key in
           send_message_fn ~bot_token:discord_config.bot_token
             ~channel_id:msg.channel_id ~text:Slash_commands.reset_message
+      | Compact ->
+          let* compacted = Session.compact session_mgr ~key in
+          let text =
+            if compacted then
+              "Session history compacted. Older messages have been summarized."
+            else "Nothing to compact — session history is already short enough."
+          in
+          send_message ~bot_token:discord_config.bot_token
+            ~channel_id:msg.channel_id ~text
       | Thinking Slash_commands.ShowThinking ->
           let current =
             (Session.get_config session_mgr).agent_defaults.reasoning_effort

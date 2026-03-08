@@ -274,6 +274,20 @@ let handle_event ~(config : Runtime_config.slack_config)
                     ~text:Slash_commands.reset_message
                 in
                 Lwt.return "ok"
+            | Compact ->
+                let* compacted = Session.compact session_manager ~key in
+                let text =
+                  if compacted then
+                    "Session history compacted. Older messages have been \
+                     summarized."
+                  else
+                    "Nothing to compact — session history is already short \
+                     enough."
+                in
+                let* () =
+                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
+                in
+                Lwt.return "ok"
             | Thinking Slash_commands.ShowThinking ->
                 let current =
                   (Session.get_config session_manager).agent_defaults
