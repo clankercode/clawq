@@ -1,3 +1,5 @@
+(* Force-link provider_init.ml so its native-provider registrations run. *)
+let _link_provider_init = Provider_init.registered
 let get_config () = Config_loader.load ()
 
 let daemon_state_path () =

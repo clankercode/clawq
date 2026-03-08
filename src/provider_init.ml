@@ -25,3 +25,7 @@ let () =
     Provider_vertex.complete_streaming;
   Provider.register_native_stream Provider.Cohere
     Provider_cohere.complete_streaming
+
+(* Sentinel referenced by command_bridge.ml to force-link this module.
+   Without an exported symbol the native linker drops the registration code. *)
+let registered = true
