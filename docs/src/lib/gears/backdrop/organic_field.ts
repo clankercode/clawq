@@ -41,6 +41,7 @@ const defaultBackdrop = assertBackdropResult(defaultOrganicFieldBackdrop, "organ
 const BUCKETS = 14;
 const ROW_BUCKETS = 6;
 const MAX_DEGREE = 4;
+const MAX_ORGANIC_TEETH = 24;
 const MIN_CONTACT_SEPARATION = 0.5;
 const MESH_DISTANCE_TOLERANCE = 0.75;
 const NON_NEIGHBOR_CLEARANCE = 14;
@@ -122,12 +123,12 @@ function candidateTeeth(random: () => number, parentTeeth: number): number[] {
   const ordered: number[] = [];
   for (let attempt = 0; attempt < 24; attempt += 1) {
     const offset = randInt(random, -7, 8);
-    const teeth = clamp(parentTeeth + offset, 12, 28);
+    const teeth = clamp(parentTeeth + offset, 12, MAX_ORGANIC_TEETH);
     if (seen.has(teeth)) continue;
     seen.add(teeth);
     ordered.push(teeth);
   }
-  return ordered.length > 0 ? ordered : [clamp(parentTeeth + 4, 12, 28)];
+  return ordered.length > 0 ? ordered : [clamp(parentTeeth + 4, 12, MAX_ORGANIC_TEETH)];
 }
 
 function degreeByGearId(edges: DraftMeshEdge[]): Map<string, number> {
@@ -206,6 +207,41 @@ function localRowCrowding(state: WorkingState, gear: DraftGear, bounds: ReturnTy
   return state.gears.filter((entry) => yBucket(entry.center.y, bounds) === row).length;
 }
 
+function provisionalDegreeSummary(state: WorkingState, candidate: DraftGear, neighbors: DraftGear[]) {
+  const degrees = degreeByGearId(state.edges);
+  for (const neighbor of neighbors) {
+    degrees.set(neighbor.id, (degrees.get(neighbor.id) ?? 0) + 1);
+  }
+  degrees.set(candidate.id, neighbors.length);
+
+  const values = [...degrees.values()];
+  return {
+    degrees,
+    degreeTwoCount: values.filter((degree) => degree === 2).length,
+    leafCount: values.filter((degree) => degree <= 1).length,
+    richCount: values.filter((degree) => degree >= 3).length,
+  };
+}
+
+function topologyDeltaScore(state: WorkingState, candidate: DraftGear, neighbors: DraftGear[]): number {
+  const priorDegrees = degreeByGearId(state.edges);
+  const summary = provisionalDegreeSummary(state, candidate, neighbors);
+  const cycleClosureBonus = neighbors.length >= 2 ? 8.5 + neighbors.length * 1.8 : 0;
+  const branchSupport = neighbors.reduce((sum, neighbor) => {
+    const prior = priorDegrees.get(neighbor.id) ?? 0;
+    const next = prior + 1;
+    return sum + (next >= 3 ? 1.9 : next === 2 ? 0.25 : -1.4);
+  }, 0);
+  const loneChainPenalty =
+    neighbors.length === 1
+      ? ((priorDegrees.get(neighbors[0].id) ?? 0) <= 1 ? 4.8 : 2.4) + 1.2
+      : 0;
+  const degreeTwoPenalty = Math.max(0, summary.degreeTwoCount - summary.richCount * 1.6) * 0.18;
+  const leafPressurePenalty = Math.max(0, summary.leafCount - summary.richCount * 1.15) * 0.24;
+
+  return cycleClosureBonus + branchSupport - loneChainPenalty - degreeTwoPenalty - leafPressurePenalty;
+}
+
 function localBridgePotential(state: WorkingState, candidate: DraftGear): number {
   let count = 0;
   for (const other of state.gears) {
@@ -234,6 +270,7 @@ function scoreCandidate(
   const coverageScore = occupancyGain(occupiedBuckets, candidate, bounds) * 4.5;
   const verticalScore = verticalBandGain(state, candidate, bounds) * 5.5;
   const spacingScore = clamp((minDistance - 120) / 36, -3, 4);
+  const topologyScore = topologyDeltaScore(state, candidate, neighbors);
   const contactScore = neighbors.reduce(
     (sum, neighbor) => sum + contactAngleScore(Math.atan2(candidate.center.y - neighbor.center.y, candidate.center.x - neighbor.center.x)),
     0,
@@ -244,7 +281,7 @@ function scoreCandidate(
   }, 0);
   const rowCrowdingPenalty = Math.max(0, localRowCrowding(state, candidate, bounds) - 4) * 0.75;
 
-  return coverageScore + verticalScore + spacingScore + bridgePotential + contactScore - yPenalty - degreePenalty - horizontalSpinePenalty - rowCrowdingPenalty;
+  return coverageScore + verticalScore + spacingScore + bridgePotential + topologyScore + contactScore - yPenalty - degreePenalty - horizontalSpinePenalty - rowCrowdingPenalty;
 }
 
 function attachExtraEdges(state: WorkingState, gear: DraftGear, seededNeighbors: DraftGear[]): DraftGear[] {
@@ -351,7 +388,7 @@ function tryBridgePlacement(
     const separation = dist(a.center, b.center);
     if (
       separation < Math.abs(a.pitchRadius - b.pitchRadius) + 28 ||
-      separation > a.pitchRadius + b.pitchRadius + pitchRadiusFromTeeth(28, HERO_GEAR_CIRCULAR_PITCH) * 2
+      separation > a.pitchRadius + b.pitchRadius + pitchRadiusFromTeeth(MAX_ORGANIC_TEETH, HERO_GEAR_CIRCULAR_PITCH) * 2
     ) {
       continue;
     }
@@ -486,16 +523,18 @@ function layoutScore(state: WorkingState, bounds: ReturnType<typeof resolveBound
   const degrees = degreeByGearId(state.edges);
   const occupied = occupiedBuckets(state, bounds).size;
   const rich = [...degrees.values()].filter((degree) => degree >= 3).length;
+  const degreeTwo = [...degrees.values()].filter((degree) => degree === 2).length;
   const leaves = [...degrees.values()].filter((degree) => degree <= 1).length;
   const spanX =
     Math.max(...state.gears.map((gear) => gear.center.x + gear.outerRadius)) -
     Math.min(...state.gears.map((gear) => gear.center.x - gear.outerRadius));
   const cycleRank = state.edges.length - state.gears.length + componentSummary(state.gears, state.edges).length;
-  return occupied * 14 + rich * 6 + cycleRank * 8 + spanX * 0.02 - leaves * 2.5;
+  const cycleDensity = state.gears.length > 0 ? cycleRank / state.gears.length : 0;
+  return occupied * 14 + rich * 9 + cycleRank * 18 + cycleDensity * 220 + spanX * 0.02 - degreeTwo * 1.35 - leaves * 3.2;
 }
 
 function buildOrganicField(random: () => number, targetCount: number, bounds: ReturnType<typeof resolveBounds>): WorkingState {
-  const rootTeeth = randInt(random, 15, 21);
+  const rootTeeth = randInt(random, 14, 18);
   const root = gearWithTeeth({
     id: "hero-g0",
     teeth: rootTeeth,
@@ -514,8 +553,9 @@ function buildOrganicField(random: () => number, targetCount: number, bounds: Re
     contactAnglesByGearId: new Map<string, number[]>(),
   };
 
+  const growthTarget = Math.max(14, Math.floor(targetCount * 0.68));
   let stalled = 0;
-  while (state.gears.length < targetCount && stalled < targetCount * 3) {
+  while (state.gears.length < growthTarget && stalled < targetCount * 3) {
     const occupied = occupiedBuckets(state, bounds);
     const placement =
       state.gears.length >= 8 && random() < 0.5
@@ -529,6 +569,33 @@ function buildOrganicField(random: () => number, targetCount: number, bounds: Re
 
     registerPlacement(state, placement);
     stalled = 0;
+  }
+
+  let loopFailures = 0;
+  while (state.gears.length < targetCount && loopFailures < targetCount * 2) {
+    const occupied = occupiedBuckets(state, bounds);
+    const placement = tryBridgePlacement(state, random, occupied, state.gears.length, bounds);
+    if (!placement) {
+      loopFailures += 1;
+      continue;
+    }
+    registerPlacement(state, placement);
+    loopFailures = 0;
+  }
+
+  let finishFailures = 0;
+  while (state.gears.length < targetCount && finishFailures < targetCount * 2) {
+    const occupied = occupiedBuckets(state, bounds);
+    const placement =
+      random() < 0.65
+        ? tryBridgePlacement(state, random, occupied, state.gears.length, bounds) ?? tryGrowthPlacement(state, random, occupied, state.gears.length, bounds)
+        : tryGrowthPlacement(state, random, occupied, state.gears.length, bounds) ?? tryBridgePlacement(state, random, occupied, state.gears.length, bounds);
+    if (!placement) {
+      finishFailures += 1;
+      continue;
+    }
+    registerPlacement(state, placement);
+    finishFailures = 0;
   }
 
   return pruneBackdrop(state);
