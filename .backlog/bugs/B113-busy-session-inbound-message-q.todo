@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-08T17:29:46Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B113
 priority: high
-status: pending
+started_at: "2026-03-08T17:29:46Z"
+status: in_progress
 tags: []
 title: Busy-session inbound message queue may be draining only one queued message per turn/interrupt boundary instead of fully consuming consecutive pending user messages. Investigate queue-drain semantics in Session and channel handlers; responsiveness under multiple rapid messages is too staircase-like.
 ---
