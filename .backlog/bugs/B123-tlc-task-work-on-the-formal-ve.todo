@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B123
+priority: high
+status: pending
+tags: []
+title: 'TLC task: work on the formal verification goals -- expand what we verify, plan new things, figure out highest value next things to verify, update docs, etc; create new tasks for any new verification items you come up with'
+---
+
+TLC task: work on the formal verification goals -- expand what we verify, plan new things, figure out highest value next things to verify, update docs, etc; create new tasks for any new verification items you come up with
