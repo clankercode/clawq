@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-08T17:18:05Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B111
 priority: high
-status: pending
+started_at: "2026-03-08T17:18:05Z"
+status: in_progress
 tags: []
 title: update_clawq should surface actionable build/restart failures instead of opaque exit-code summaries. Preserve decisive stderr/progress context from make build, and special-case common blockers such as Dune lock contention so restart failures explain what actually needs doing.
 ---
