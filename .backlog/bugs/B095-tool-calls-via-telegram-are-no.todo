@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B095
+priority: high
+status: pending
+tags: []
+title: Tool calls via telegram are notifying me again but they should not trigger notifications
+---
+
+Tool calls via telegram are notifying me again but they should not trigger notifications

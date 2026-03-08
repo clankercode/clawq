@@ -93,3 +93,4 @@ bugs:
     - file: B092-when-we-queue-a-message-we-sho.todo
     - file: B093-add-to-system-prompt-info-abou.todo
     - file: B094-when-we-recieve-a-message-we-s.todo
+    - file: B095-tool-calls-via-telegram-are-no.todo
