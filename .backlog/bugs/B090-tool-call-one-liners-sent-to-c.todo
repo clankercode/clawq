@@ -1,10 +1,12 @@
 ---
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B090
 priority: high
-status: pending
+started_at: null
+status: done
 tags: []
 title: tool call one-liners sent to connectors like telegram should use creative formatting to make the messages more readable. eg bold, dashes, `mono`, italics, emoji (colorful ones) and whatever else is available.
 ---
