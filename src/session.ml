@@ -467,6 +467,17 @@ let normalize_incoming_message mgr ~key ~message =
   if String.length message > 0 && message.[0] = '!' then begin
     let raw = String.sub message 1 (String.length message - 1) in
     let normalized = if String.trim raw = "" then "[interrupted]" else raw in
+    let session_exists = Hashtbl.mem mgr.sessions key in
+    let session_busy =
+      match Hashtbl.find_opt mgr.sessions key with
+      | Some (_, mutex, _) -> Lwt_mutex.is_locked mutex
+      | None -> false
+    in
+    Logs.info (fun m ->
+        m
+          "Bang message received for session %s: raw=%S normalized=%S \
+           session_exists=%b session_busy=%b"
+          key raw normalized session_exists session_busy);
     let* () = set_interrupt_if_present mgr ~key normalized in
     Lwt.return normalized
   end

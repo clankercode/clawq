@@ -1,12 +1,15 @@
 ---
-completed_at: null
+claimed_at: "2026-03-08T14:41:11Z"
+claimed_by: cli-user
+completed_at: "2026-03-08T14:44:30Z"
 complexity: medium
 depends_on: []
+duration_minutes: 3.331708535033333
 estimate_hours: 1
 id: B094
 priority: high
-started_at: "2026-03-08T14:44:57Z"
-status: pending
+started_at: "2026-03-08T14:41:11Z"
+status: done
 tags: []
 title: when we recieve a ! message, we should log it so we can tell if bang messages are working
 ---

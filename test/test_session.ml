@@ -785,6 +785,133 @@ let test_empty_bang_message_becomes_interrupted_message () =
         [ "[interrupted]"; "reply:[interrupted]" ]
         (List.map (fun msg -> msg.Provider.content) history))
 
+let make_fake_tool name invocations =
+  {
+    Tool.name;
+    description = "fake tool " ^ name;
+    parameters_schema = `Assoc [];
+    invoke =
+      (fun ?context:_ _args ->
+        invocations := name :: !invocations;
+        Lwt.return ("result:" ^ name));
+    invoke_stream = None;
+    risk_level = Tool.Low;
+    deferred = false;
+  }
+
+let make_tool_call ~id ~name =
+  { Provider.id; function_name = name; arguments = "{}" }
+
+let test_interrupt_skips_tool_calls_in_batch () =
+  let config = Runtime_config.default in
+  let invocations = ref [] in
+  let registry = Tool_registry.create () in
+  List.iter
+    (fun n -> Tool_registry.register registry (make_fake_tool n invocations))
+    [ "tool_a"; "tool_b"; "tool_c" ];
+  let agent = Agent.create ~config ~tool_registry:registry () in
+  let interrupt_check () = Some "user interrupted" in
+  let calls =
+    [
+      make_tool_call ~id:"tc1" ~name:"tool_a";
+      make_tool_call ~id:"tc2" ~name:"tool_b";
+      make_tool_call ~id:"tc3" ~name:"tool_c";
+    ]
+  in
+  Lwt_main.run
+    (Agent.execute_tool_calls agent ~db:None ~audit_enabled:false
+       ~session_key:None ~interrupt_check calls);
+  Alcotest.(check (list string)) "no tools invoked" [] (List.rev !invocations);
+  Alcotest.(check int)
+    "three tool results in history" 3
+    (List.length agent.history);
+  List.iter
+    (fun (msg : Provider.message) ->
+      Alcotest.(check string)
+        "skipped content" "[skipped: interrupted by user]" msg.content)
+    agent.history
+
+let test_interrupt_skips_remaining_tools_stream () =
+  let config = Runtime_config.default in
+  let invocations = ref [] in
+  let registry = Tool_registry.create () in
+  List.iter
+    (fun n -> Tool_registry.register registry (make_fake_tool n invocations))
+    [ "tool_a"; "tool_b"; "tool_c" ];
+  let agent = Agent.create ~config ~tool_registry:registry () in
+  let interrupt_check () = Some "user interrupted" in
+  let chunks = ref [] in
+  let on_chunk chunk =
+    chunks := chunk :: !chunks;
+    Lwt.return_unit
+  in
+  let calls =
+    [
+      make_tool_call ~id:"tc1" ~name:"tool_a";
+      make_tool_call ~id:"tc2" ~name:"tool_b";
+      make_tool_call ~id:"tc3" ~name:"tool_c";
+    ]
+  in
+  Lwt_main.run
+    (Agent.execute_tool_calls_stream agent ~db:None ~audit_enabled:false
+       ~session_key:None ~interrupt_check ~on_chunk calls);
+  Alcotest.(check (list string)) "no tools invoked" [] (List.rev !invocations);
+  Alcotest.(check int)
+    "three tool results in history" 3
+    (List.length agent.history);
+  let tool_results =
+    List.filter_map
+      (fun chunk ->
+        match chunk with
+        | Provider.ToolResult { result; _ } -> Some result
+        | _ -> None)
+      (List.rev !chunks)
+  in
+  Alcotest.(check (list string))
+    "all three tool results are skipped"
+    [
+      "[skipped: interrupted by user]";
+      "[skipped: interrupted by user]";
+      "[skipped: interrupted by user]";
+    ]
+    tool_results
+
+let test_interrupt_latch_skips_after_first_tool () =
+  let config = Runtime_config.default in
+  let invocations = ref [] in
+  let call_count = ref 0 in
+  let registry = Tool_registry.create () in
+  List.iter
+    (fun n -> Tool_registry.register registry (make_fake_tool n invocations))
+    [ "tool_a"; "tool_b"; "tool_c" ];
+  let agent = Agent.create ~config ~tool_registry:registry () in
+  let interrupt_check () =
+    incr call_count;
+    if !call_count >= 2 then Some "interrupted" else None
+  in
+  let calls =
+    [
+      make_tool_call ~id:"tc1" ~name:"tool_a";
+      make_tool_call ~id:"tc2" ~name:"tool_b";
+      make_tool_call ~id:"tc3" ~name:"tool_c";
+    ]
+  in
+  Lwt_main.run
+    (Agent.execute_tool_calls agent ~db:None ~audit_enabled:false
+       ~session_key:None ~interrupt_check calls);
+  let results =
+    List.map (fun (msg : Provider.message) -> msg.content) agent.history
+  in
+  let skipped =
+    List.filter (fun c -> c = "[skipped: interrupted by user]") results
+  in
+  Alcotest.(check bool)
+    "at least one tool skipped" true
+    (List.length skipped >= 1);
+  Alcotest.(check int)
+    "three tool results in history" 3
+    (List.length agent.history)
+
 let suite =
   [
     Alcotest.test_case "reset clears active session and history" `Quick
@@ -843,4 +970,10 @@ let suite =
       test_bang_message_turn_stream_processes_normally;
     Alcotest.test_case "empty bang message becomes interrupted message" `Quick
       test_empty_bang_message_becomes_interrupted_message;
+    Alcotest.test_case "interrupt skips tool calls in batch" `Quick
+      test_interrupt_skips_tool_calls_in_batch;
+    Alcotest.test_case "interrupt skips remaining tools stream" `Quick
+      test_interrupt_skips_remaining_tools_stream;
+    Alcotest.test_case "interrupt latch skips after first tool" `Quick
+      test_interrupt_latch_skips_after_first_tool;
   ]
