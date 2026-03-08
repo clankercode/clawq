@@ -10,7 +10,7 @@ let dummy_tool =
             `Assoc [ ("text", `Assoc [ ("type", `String "string") ]) ] );
         ];
     invoke =
-      (fun args ->
+      (fun ?context:_ args ->
         let open Yojson.Safe.Util in
         let text = try args |> member "text" |> to_string with _ -> "" in
         Lwt.return ("echo: " ^ text));

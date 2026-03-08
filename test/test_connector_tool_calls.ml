@@ -48,7 +48,7 @@ let make_tool_registry () =
       description = "A test tool";
       parameters_schema = `Assoc [];
       invoke =
-        (fun args ->
+        (fun ?context:_ args ->
           let open Yojson.Safe.Util in
           let value = try args |> member "value" |> to_string with _ -> "" in
           Lwt.return ("ran " ^ value));

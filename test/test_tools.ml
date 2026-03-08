@@ -285,6 +285,63 @@ let test_doc_write_rejects_traversal () =
      with Not_found -> false);
   try Sys.rmdir dir with _ -> ()
 
+let test_send_message_prefers_session_notifier () =
+  let sent = ref [] in
+  let fallback_called = ref false in
+  let tool =
+    Tools_builtin.send_message
+      ~send_fn:
+        (Some
+           (fun ~text:_ ->
+             fallback_called := true;
+             Lwt.return_unit))
+  in
+  let result =
+    Lwt_main.run
+      (tool.invoke
+         ~context:
+           {
+             Tool.session_key = Some "telegram:1:1";
+             send_progress =
+               Some
+                 (fun text ->
+                   sent := text :: !sent;
+                   Lwt.return_unit);
+           }
+         (`Assoc [ ("text", `String "status update") ]))
+  in
+  Alcotest.(check string) "tool result" "Message sent" result;
+  Alcotest.(check (list string))
+    "session notifier used" [ "status update" ] (List.rev !sent);
+  Alcotest.(check bool) "fallback not used" false !fallback_called
+
+let test_send_message_falls_back_to_notify_channel () =
+  let sent = ref [] in
+  let tool =
+    Tools_builtin.send_message
+      ~send_fn:
+        (Some
+           (fun ~text ->
+             sent := text :: !sent;
+             Lwt.return_unit))
+  in
+  let result =
+    Lwt_main.run
+      (tool.invoke (`Assoc [ ("text", `String "fallback update") ]))
+  in
+  Alcotest.(check string) "tool result" "Message sent" result;
+  Alcotest.(check (list string))
+    "fallback send used" [ "fallback update" ] (List.rev !sent)
+
+let test_send_message_errors_without_any_notifier () =
+  let tool = Tools_builtin.send_message ~send_fn:None in
+  let result =
+    Lwt_main.run (tool.invoke (`Assoc [ ("text", `String "hello") ]))
+  in
+  Alcotest.(check bool)
+    "error reported" true
+    (String.starts_with ~prefix:"Error: no active session notifier" result)
+
 let test_doc_write_known_file () =
   let dir = make_tmp_workspace () in
   let tool =
@@ -381,6 +438,12 @@ let suite =
       test_unsafe_double_ampersand;
     Alcotest.test_case "safe command with flags" `Quick
       test_safe_single_command_with_flags;
+    Alcotest.test_case "send_message prefers session notifier" `Quick
+      test_send_message_prefers_session_notifier;
+    Alcotest.test_case "send_message falls back to notify channel" `Quick
+      test_send_message_falls_back_to_notify_channel;
+    Alcotest.test_case "send_message errors without notifier" `Quick
+      test_send_message_errors_without_any_notifier;
     Alcotest.test_case "doc_write creates file" `Quick test_doc_write_creates;
     Alcotest.test_case "doc_write appends" `Quick test_doc_write_appends;
     Alcotest.test_case "doc_write rejects traversal" `Quick

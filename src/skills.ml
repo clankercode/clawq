@@ -60,7 +60,7 @@ let load_skill ?(workspace_only = true)
         description;
         parameters_schema;
         invoke =
-          (fun args ->
+          (fun ?context:_ args ->
             let cmd = substitute_template command args in
             if workspace_only && Tools_builtin.has_unsafe_shell_syntax cmd then
               Lwt.return
@@ -286,7 +286,7 @@ let skill_create_tool ~workspace_only ~allowed_commands registry =
           );
         ];
     invoke =
-      (fun args ->
+      (fun ?context:_ args ->
         let open Yojson.Safe.Util in
         let name = try args |> member "name" |> to_string with _ -> "" in
         let description =
@@ -374,7 +374,7 @@ let skill_list_tool () =
     parameters_schema =
       `Assoc [ ("type", `String "object"); ("properties", `Assoc []) ];
     invoke =
-      (fun _args ->
+      (fun ?context:_ _args ->
         let dir = skills_dir () in
         let files = list_skills () in
         if files = [] then Lwt.return ("No skills found in " ^ dir)

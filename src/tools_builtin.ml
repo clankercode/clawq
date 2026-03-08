@@ -398,7 +398,7 @@ let shell_exec ~workspace ~workspace_only ~allowed_commands ~extra_allowed_paths
     in
     loop ()
   in
-  let run_command ?on_output_chunk args =
+  let run_command ?context:_ ?on_output_chunk args =
     let open Yojson.Safe.Util in
     let command = try args |> member "command" |> to_string with _ -> "" in
     if command = "" then Lwt.return "Error: command is required"
@@ -497,9 +497,11 @@ let shell_exec ~workspace ~workspace_only ~allowed_commands ~extra_allowed_paths
               ] );
           ("required", `List [ `String "command" ]);
         ];
-    invoke = run_command;
+    invoke = (fun ?context args -> run_command ?context args);
     invoke_stream =
-      Some (fun ~on_output_chunk args -> run_command ~on_output_chunk args);
+      Some
+        (fun ?context ~on_output_chunk args ->
+          run_command ?context ~on_output_chunk args);
     risk_level = High;
     deferred = false;
   }
@@ -546,7 +548,7 @@ let file_read ~workspace ~workspace_only ~extra_allowed_paths =
           ("required", `List [ `String "path" ]);
         ];
     invoke =
-      (fun args ->
+      (fun ?context:_ args ->
         let open Yojson.Safe.Util in
         let path = try args |> member "path" |> to_string with _ -> "" in
         let offset_input = parse_optional_int_field args "offset" in
@@ -639,7 +641,7 @@ let file_append ~workspace ~workspace_only ~extra_allowed_paths =
           ("required", `List [ `String "path"; `String "content" ]);
         ];
     invoke =
-      (fun args ->
+      (fun ?context:_ args ->
         let open Yojson.Safe.Util in
         let path = try args |> member "path" |> to_string with _ -> "" in
         let content =
@@ -702,7 +704,7 @@ let file_write ~workspace ~workspace_only ~extra_allowed_paths =
           ("required", `List [ `String "path"; `String "content" ]);
         ];
     invoke =
-      (fun args ->
+      (fun ?context:_ args ->
         let open Yojson.Safe.Util in
         let path = try args |> member "path" |> to_string with _ -> "" in
         let content =
@@ -775,7 +777,7 @@ let file_edit ~workspace ~workspace_only ~extra_allowed_paths =
             `List [ `String "path"; `String "old_text"; `String "new_text" ] );
         ];
     invoke =
-      (fun args ->
+      (fun ?context:_ args ->
         let open Yojson.Safe.Util in
         let path = try args |> member "path" |> to_string with _ -> "" in
         let old_text =
@@ -910,7 +912,7 @@ let file_edit_lines ~workspace ~workspace_only ~extra_allowed_paths =
               ] );
         ];
     invoke =
-      (fun args ->
+      (fun ?context:_ args ->
         let open Yojson.Safe.Util in
         let path = try args |> member "path" |> to_string with _ -> "" in
         let start_line =
@@ -1015,7 +1017,7 @@ let http_get ~workspace_only =
           ("required", `List [ `String "url" ]);
         ];
     invoke =
-      (fun args ->
+      (fun ?context:_ args ->
         let open Yojson.Safe.Util in
         let url = try args |> member "url" |> to_string with _ -> "" in
         if url = "" then Lwt.return "Error: url is required"
@@ -1061,7 +1063,7 @@ let transcribe ~(config : Runtime_config.t) =
           ("required", `List [ `String "file_path" ]);
         ];
     invoke =
-      (fun args ->
+      (fun ?context:_ args ->
         let open Yojson.Safe.Util in
         let file_path =
           try args |> member "file_path" |> to_string with _ -> ""
@@ -1132,7 +1134,7 @@ let memory_store ~db =
           ("required", `List [ `String "key"; `String "content" ]);
         ];
     invoke =
-      (fun args ->
+      (fun ?context:_ args ->
         let open Yojson.Safe.Util in
         let key = try args |> member "key" |> to_string with _ -> "" in
         let content =
@@ -1180,7 +1182,7 @@ let memory_recall ~db =
           ("required", `List [ `String "query" ]);
         ];
     invoke =
-      (fun args ->
+      (fun ?context:_ args ->
         let open Yojson.Safe.Util in
         let query = try args |> member "query" |> to_string with _ -> "" in
         let limit = try args |> member "limit" |> to_int with _ -> 5 in
@@ -1222,7 +1224,7 @@ let memory_forget ~db =
           ("required", `List [ `String "key" ]);
         ];
     invoke =
-      (fun args ->
+      (fun ?context:_ args ->
         let open Yojson.Safe.Util in
         let key = try args |> member "key" |> to_string with _ -> "" in
         if key = "" then Lwt.return "Error: key is required"
@@ -1257,7 +1259,7 @@ let memory_list ~db =
           ("required", `List []);
         ];
     invoke =
-      (fun args ->
+      (fun ?context:_ args ->
         let open Yojson.Safe.Util in
         let category =
           try args |> member "category" |> to_string with _ -> ""
@@ -1357,7 +1359,7 @@ let glob ~workspace ~workspace_only ~extra_allowed_paths =
           ("required", `List [ `String "pattern" ]);
         ];
     invoke =
-      (fun args ->
+      (fun ?context:_ args ->
         let open Yojson.Safe.Util in
         let pattern =
           try args |> member "pattern" |> to_string with _ -> ""
@@ -1453,7 +1455,7 @@ let list_dir ~workspace ~workspace_only ~extra_allowed_paths =
           ("required", `List []);
         ];
     invoke =
-      (fun args ->
+      (fun ?context:_ args ->
         let open Yojson.Safe.Util in
         let path_arg = try args |> member "path" |> to_string with _ -> "" in
         let show_hidden =
@@ -1574,7 +1576,7 @@ let grep ~workspace ~workspace_only ~extra_allowed_paths =
           ("required", `List [ `String "pattern" ]);
         ];
     invoke =
-      (fun args ->
+      (fun ?context:_ args ->
         let open Yojson.Safe.Util in
         let pattern =
           try args |> member "pattern" |> to_string with _ -> ""
@@ -1722,7 +1724,7 @@ let http_request ~workspace_only =
           ("required", `List [ `String "url" ]);
         ];
     invoke =
-      (fun args ->
+      (fun ?context:_ args ->
         let open Yojson.Safe.Util in
         let url = try args |> member "url" |> to_string with _ -> "" in
         let meth =
@@ -1899,7 +1901,7 @@ let web_fetch ~workspace_only =
           ("required", `List [ `String "url" ]);
         ];
     invoke =
-      (fun args ->
+      (fun ?context:_ args ->
         let open Yojson.Safe.Util in
         let url = try args |> member "url" |> to_string with _ -> "" in
         if url = "" then Lwt.return "Error: url is required"
@@ -1956,7 +1958,7 @@ let web_search ~(config : Runtime_config.t) =
           ("required", `List [ `String "query" ]);
         ];
     invoke =
-      (fun args ->
+      (fun ?context:_ args ->
         let open Yojson.Safe.Util in
         let query = try args |> member "query" |> to_string with _ -> "" in
         let limit =
@@ -2232,7 +2234,7 @@ let git_operations ~workspace =
           ("required", `List [ `String "operation" ]);
         ];
     invoke =
-      (fun args ->
+      (fun ?context:_ args ->
         let open Yojson.Safe.Util in
         let operation =
           try args |> member "operation" |> to_string with _ -> ""
@@ -2355,8 +2357,9 @@ let send_message ~(send_fn : (text:string -> unit Lwt.t) option) =
   {
     Tool.name = "send_message";
     description =
-      "Send a message via the configured notification channel (Telegram, \
-       Discord, etc.)";
+      "Send a message immediately to the current session when available, \
+       otherwise via the configured notification channel (Telegram, Discord, \
+       etc.)";
     parameters_schema =
       `Assoc
         [
@@ -2374,16 +2377,22 @@ let send_message ~(send_fn : (text:string -> unit Lwt.t) option) =
           ("required", `List [ `String "text" ]);
         ];
     invoke =
-      (fun args ->
+      (fun ?context args ->
         let open Yojson.Safe.Util in
         let text = try args |> member "text" |> to_string with _ -> "" in
         if text = "" then Lwt.return "Error: text is required"
         else
-          match send_fn with
+          let effective_send_fn =
+            match context with
+            | Some { Tool.send_progress = Some send; _ } ->
+                Some (fun ~text -> send text)
+            | _ -> send_fn
+          in
+          match effective_send_fn with
           | None ->
               Lwt.return
-                "Error: no notification channel configured. Set notify.channel \
-                 and notify.target in ~/.clawq/config.json."
+                "Error: no active session notifier or configured notification \
+                 channel."
           | Some f ->
               Lwt.catch
                 (fun () ->
@@ -2444,7 +2453,7 @@ let doc_write ~workspace ~workspace_files =
           ("required", `List [ `String "filename"; `String "content" ]);
         ];
     invoke =
-      (fun args ->
+      (fun ?context:_ args ->
         let open Yojson.Safe.Util in
         let filename =
           try args |> member "filename" |> to_string with _ -> ""

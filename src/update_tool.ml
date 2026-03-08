@@ -226,7 +226,7 @@ let run_update ?(find_repo_root = find_repo_root)
       finish_update
 
 let tool ~is_draining ?claim_update ?finish_update () =
-  let invoke_common ?on_output_chunk args =
+  let invoke_common ?context:_ ?on_output_chunk args =
     let open Yojson.Safe.Util in
     let mode =
       try args |> member "mode" |> to_string
@@ -274,9 +274,11 @@ let tool ~is_draining ?claim_update ?finish_update () =
               ] );
           ("additionalProperties", `Bool false);
         ];
-    invoke = invoke_common;
+    invoke = (fun ?context args -> invoke_common ?context args);
     invoke_stream =
-      Some (fun ~on_output_chunk args -> invoke_common ~on_output_chunk args);
+      Some
+        (fun ?context ~on_output_chunk args ->
+          invoke_common ?context ~on_output_chunk args);
     risk_level = Medium;
     deferred = false;
   }

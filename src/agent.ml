@@ -339,16 +339,28 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key ~on_chunk
                             try Yojson.Safe.from_string tc.arguments
                             with _ -> `Assoc []
                           in
+                          let context =
+                            {
+                              Tool.session_key;
+                              send_progress =
+                                Some
+                                  (fun text ->
+                                    streamed_output := true;
+                                    on_chunk
+                                      (Provider.ToolOutputDelta
+                                         { id = tc.id; chunk = text }));
+                            }
+                          in
                           match tool.invoke_stream with
                           | Some invoke_stream ->
-                              invoke_stream
+                              invoke_stream ~context
                                 ~on_output_chunk:(fun chunk ->
                                   streamed_output := true;
                                   on_chunk
                                     (Provider.ToolOutputDelta
                                        { id = tc.id; chunk }))
                                 args
-                          | None -> tool.invoke args)
+                          | None -> tool.invoke ~context args)
                         (fun exn ->
                           Lwt.return
                             ("Error invoking tool: " ^ Printexc.to_string exn)))
@@ -454,7 +466,10 @@ let execute_tool_calls agent ~db ~audit_enabled ~session_key calls =
                             try Yojson.Safe.from_string tc.arguments
                             with _ -> `Assoc []
                           in
-                          tool.invoke args)
+                          let context =
+                            { Tool.session_key; send_progress = None }
+                          in
+                          tool.invoke ~context args)
                         (fun exn ->
                           Lwt.return
                             ("Error invoking tool: " ^ Printexc.to_string exn)))

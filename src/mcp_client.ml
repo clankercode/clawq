@@ -98,7 +98,7 @@ let tool_of_mcp_definition ~client (tool_json : Yojson.Safe.t) : Tool.t option =
     let parameters_schema =
       try tool_json |> member "inputSchema" with _ -> `Assoc []
     in
-    let invoke args =
+    let invoke ?context:_ args =
       let open Lwt.Syntax in
       let* resp =
         send_request client ~method_:"tools/call"
