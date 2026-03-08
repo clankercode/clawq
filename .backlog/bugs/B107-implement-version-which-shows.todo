@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B107
+priority: high
+status: pending
+tags: []
+title: implement /version which shows the current version, git shorthash, and build date
+---
+
+implement /version which shows the current version, git shorthash, and build date
