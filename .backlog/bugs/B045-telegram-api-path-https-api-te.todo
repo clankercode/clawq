@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B045
+priority: high
+status: pending
+tags: []
+title: telegram api path https://api.telegram.org/bot---key---/sendChatAction contains API key -- need to redact when logging.
+---
+
+telegram api path https://api.telegram.org/bot---key---/sendChatAction contains API key -- need to redact when logging.
