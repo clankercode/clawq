@@ -545,18 +545,21 @@ let test_web_search_reads_live_config_after_registry_refresh () =
             Runtime_config.search_provider = "brave";
             search_api_key = "reloaded-key";
             num_results = 7;
-            search_base_url = Some "https://brave.example.invalid/res/v1/web/search";
+            search_base_url =
+              Some "https://brave.example.invalid/res/v1/web/search";
           };
     }
   in
-  Tool_registry.register registry (Tools_builtin.web_search ~config:not_configured);
+  Tool_registry.register registry
+    (Tools_builtin.web_search ~config:not_configured);
   let tool1 = Option.get (Tool_registry.find registry "web_search") in
   let out1 =
     Lwt_main.run (tool1.invoke (`Assoc [ ("query", `String "clawq") ]))
   in
   Alcotest.(check string)
     "initial tool reports missing config"
-    "Error: web_search not configured. Add a \"web_search\" section to ~/.clawq/config.json with provider and api_key."
+    "Error: web_search not configured. Add a \"web_search\" section to \
+     ~/.clawq/config.json with provider and api_key."
     out1;
   Tool_registry.replace registry (Tools_builtin.web_search ~config:configured);
   let tool2 = Option.get (Tool_registry.find registry "web_search") in
@@ -602,8 +605,8 @@ let suite =
       test_command_env_var_prefix;
     Alcotest.test_case "default allowlist includes basics" `Quick
       test_command_default_allowlist_includes_basics;
-    Alcotest.test_case "web_search reads live config after registry refresh" `Quick
-      test_web_search_reads_live_config_after_registry_refresh;
+    Alcotest.test_case "web_search reads live config after registry refresh"
+      `Quick test_web_search_reads_live_config_after_registry_refresh;
     Alcotest.test_case "safe command no special chars" `Quick
       test_safe_command_no_special;
     Alcotest.test_case "unsafe semicolon" `Quick test_unsafe_semicolon;
@@ -646,4 +649,3 @@ let suite =
     Alcotest.test_case "doc_write known file note" `Quick
       test_doc_write_known_file;
   ]
-

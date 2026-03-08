@@ -258,6 +258,18 @@ let send_chunked ?(disable_notification = false) ~bot_token ~chat_id ~text () =
       send_message ~disable_notification ~bot_token ~chat_id ~text:chunk ())
     (chunk_text text)
 
+type chunk_sender =
+  ?disable_notification:bool ->
+  bot_token:string ->
+  chat_id:string ->
+  text:string ->
+  unit ->
+  unit Lwt.t
+
+let send_silent_chunked (send_chunked : chunk_sender) ~bot_token ~chat_id ~text
+    =
+  send_chunked ~disable_notification:true ~bot_token ~chat_id ~text ()
+
 let set_my_commands ~bot_token =
   let open Lwt.Syntax in
   let cmds =
@@ -478,8 +490,8 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
       if user_text = "" then Lwt.return_unit
       else if Update_tool.is_update_command user_text then
         let send_progress text =
-          send_chunked ~disable_notification:true ~bot_token
-            ~chat_id:update.chat_id ~text ()
+          send_silent_chunked send_chunked ~bot_token ~chat_id:update.chat_id
+            ~text
         in
         let run_update_command =
           match run_update_command with
@@ -498,8 +510,8 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
               acknowledge_update ~bot_token ~update_id:update.update_id)
             ~send_progress ()
         in
-        send_chunked ~disable_notification:true ~bot_token
-          ~chat_id:update.chat_id ~text:response ()
+        send_silent_chunked send_chunked ~bot_token ~chat_id:update.chat_id
+          ~text:response
       else
         match Slash_commands.handle user_text with
         | Reply text -> send_message ~bot_token ~chat_id:update.chat_id ~text ()
@@ -537,14 +549,15 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
             let on_chunk chunk =
               Stream_visibility.on_chunk visibility ~settings
                 ~notify:(fun text ->
-                  send_chunked ~disable_notification:true ~bot_token
-                    ~chat_id:update.chat_id ~text ())
+                  send_silent_chunked send_chunked ~bot_token
+                    ~chat_id:update.chat_id ~text)
                 chunk
             in
             let* result =
               Session.with_registered_notifier session_mgr ~key
                 ~notify:(fun text ->
-                  send_chunked ~bot_token ~chat_id:update.chat_id ~text ())
+                  send_silent_chunked send_chunked ~bot_token
+                    ~chat_id:update.chat_id ~text)
                 (fun () ->
                   Lwt.catch
                     (fun () ->

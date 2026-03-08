@@ -166,9 +166,10 @@ Comments:
 
 1. Read relevant modules and adjacent tests first.
 2. Implement smallest viable change.
-3. Run focused test(s), then `make test`.
-4. Run formatting checks if OCaml files changed.
-5. Summarize behavior changes and verification commands in final handoff.
+3. Use the todo tool to keep track of current tasks when it helps maintain progress.
+4. Run focused test(s), then `make test`.
+5. Run formatting checks if OCaml files changed.
+6. Summarize behavior changes and verification commands in final handoff.
 
 ## Formal Verification Docs Maintenance
 

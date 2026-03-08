@@ -602,7 +602,8 @@ let run ~(config : Runtime_config.t) =
     | _ -> None
   in
   let session_manager =
-    Session.create ~config:!current_config ?tool_registry ~sandbox ~landlock_enabled ?db ()
+    Session.create ~config:!current_config ?tool_registry ~sandbox
+      ~landlock_enabled ?db ()
   in
   (match tool_registry with
   | Some registry ->
@@ -833,7 +834,8 @@ let run ~(config : Runtime_config.t) =
           current_config := new_config;
           Session.update_config session_manager new_config;
           (match tool_registry with
-          | Some registry -> refresh_runtime_bound_tools ~config:new_config registry
+          | Some registry ->
+              refresh_runtime_bound_tools ~config:new_config registry
           | None -> ());
           Logs.info (fun m -> m "Config reloaded successfully")
         with exn ->
@@ -1020,7 +1022,8 @@ let run ~(config : Runtime_config.t) =
                  current_config := new_config;
                  Session.update_config session_manager new_config;
                  (match tool_registry with
-                 | Some registry -> refresh_runtime_bound_tools ~config:new_config registry
+                 | Some registry ->
+                     refresh_runtime_bound_tools ~config:new_config registry
                  | None -> ());
                  Logs.info (fun m -> m "Config auto-reloaded (file changed)")
                end
