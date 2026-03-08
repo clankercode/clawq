@@ -46,7 +46,8 @@ async function ensureMermaid() {
       script.addEventListener("error", () => reject(new Error("Failed to load mermaid")), { once: true });
       document.head.append(script);
     }).then(() => {
-      window.mermaid?.initialize({ startOnLoad: false, theme: "neutral" });
+      const mermaidTheme = document.documentElement.getAttribute("data-theme") === "light" ? "neutral" : "dark";
+      window.mermaid?.initialize({ startOnLoad: false, theme: mermaidTheme });
     });
   }
   await mermaidLoader;
@@ -158,6 +159,10 @@ export class AssistantTurnView {
     }
     const rendered = window.marked.parse(this.rawText);
     this.textBody.innerHTML = window.DOMPurify.sanitize(rendered);
+    const qed = document.createElement("div");
+    qed.className = "qed-marker";
+    qed.textContent = "\u25FC";
+    this.textBody.append(qed);
     await renderMermaidBlocks(this.textBody);
   }
 }

@@ -19,6 +19,7 @@ const pairingCode = document.querySelector<HTMLInputElement>("#pairing-code");
 const pairingSubmit = document.querySelector<HTMLButtonElement>("#pairing-submit");
 const pairingError = document.querySelector<HTMLParagraphElement>("#pairing-error");
 const newSessionButton = document.querySelector<HTMLButtonElement>("#new-session-btn");
+const themeToggle = document.querySelector<HTMLButtonElement>("#theme-toggle");
 const versionBanner = document.querySelector<HTMLElement>("#version-banner");
 const versionDismiss = document.querySelector<HTMLButtonElement>("#version-dismiss");
 const versionReload = document.querySelector<HTMLButtonElement>("#version-reload");
@@ -285,6 +286,13 @@ pairingCode.addEventListener("keydown", (event) => {
 newSessionButton.addEventListener("click", () => {
   resetSession();
   setStatus("idle", "new session");
+});
+
+themeToggle?.addEventListener("click", () => {
+  const current = document.documentElement.getAttribute("data-theme");
+  const next = current === "light" ? "dark" : "light";
+  document.documentElement.setAttribute("data-theme", next);
+  localStorage.setItem("clawq_theme", next);
 });
 
 for (const chip of document.querySelectorAll<HTMLButtonElement>(".command-chip")) {
