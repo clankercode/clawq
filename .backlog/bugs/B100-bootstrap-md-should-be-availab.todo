@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-08T15:43:22Z"
+claimed_by: cli-user
+completed_at: "2026-03-08T15:45:57Z"
 complexity: medium
 depends_on: []
+duration_minutes: 2.58743501125
 estimate_hours: 1
 id: B100
 priority: high
-status: pending
+started_at: "2026-03-08T15:43:22Z"
+status: done
 tags: []
 title: BOOTSTRAP.md should be available to the agent on first contact even if not in default workspace_files. Prompt builder should include BOOTSTRAP.md opportunistically when it exists, so bootstrap guidance is present initially without paying permanent prompt rent afterward.
 ---
