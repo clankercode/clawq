@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B102
+priority: high
+status: pending
+tags: []
+title: Agent restart during graceful restart/drain is being fed into generic retry logic as Agent.Restart_requested, causing pointless retry attempts during shutdown handoff. Treat restart-requested as a control-flow outcome, not a retriable failure.
+---
+
+Agent restart during graceful restart/drain is being fed into generic retry logic as Agent.Restart_requested, causing pointless retry attempts during shutdown handoff. Treat restart-requested as a control-flow outcome, not a retriable failure.
