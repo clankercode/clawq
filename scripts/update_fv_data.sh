@@ -312,3 +312,110 @@ if [ ! -f "docs/src/content/docs/formal-verification.mdx" ]; then
   echo "ERROR: docs/src/content/docs/formal-verification.mdx not found."
   exit 1
 fi
+
+# --- Patch hardcoded numbers in .mdx from YAML ---
+echo ""
+echo "--- Patching .mdx hardcoded counts from YAML ---"
+MDX_FILE="docs/src/content/docs/formal-verification.mdx"
+python3 - "$YML_FILE" "$MDX_FILE" <<'PYEOF'
+import re, sys, yaml
+
+yml_path, mdx_path = sys.argv[1], sys.argv[2]
+
+with open(yml_path) as f:
+    phases = yaml.safe_load(f)
+
+# Build phase -> (theorems, status) map.  F0 uses "F0", F1 uses "F1", etc.
+phase_data = {}
+for p in phases:
+    pid = p['phase']
+    phase_data[pid] = {'theorems': p['theorems'], 'status': p['status']}
+
+with open(mdx_path) as f:
+    content = f.read()
+
+changes = 0
+
+# 1. Patch ledger rows: find pattern <span class="ledger-id">F#</span> ...
+#    then update <span class="ledger-n">N</span> on a nearby line.
+# Strategy: split into ledger-row blocks, update each.
+def patch_ledger_block(block):
+    global changes
+    m = re.search(r'<span class="ledger-id">(F\d+)</span>', block)
+    if not m:
+        return block
+    pid = m.group(1)
+    if pid not in phase_data:
+        return block
+    n = phase_data[pid]['theorems']
+    old = block
+    block = re.sub(
+        r'(<span class="ledger-n">)\d+(</span>)',
+        lambda m: f'{m.group(1)}{n}{m.group(2)}',
+        block
+    )
+    if block != old:
+        changes += 1
+        print(f"  {pid} ledger-n -> {n}")
+    return block
+
+# Split on ledger-row divs, patch each
+parts = re.split(r'(<div class="ledger-row[^"]*">)', content)
+patched = []
+i = 0
+while i < len(parts):
+    if re.match(r'<div class="ledger-row', parts[i]):
+        # Collect the opening tag + content until next ledger-row or end
+        block = parts[i]
+        if i + 1 < len(parts):
+            block += parts[i + 1]
+            i += 2
+        else:
+            i += 1
+        patched.append(patch_ledger_block(block))
+    else:
+        patched.append(parts[i])
+        i += 1
+content = ''.join(patched)
+
+# 2. Patch scroll-count: <span class="scroll-count">N/N verified</span>
+# These appear after <span class="scroll-title">F#: ...</span>
+# Use a context-aware regex: find F# in scroll-title, then patch next scroll-count
+def patch_scroll_counts(content):
+    global changes
+    # Find all scroll-item blocks
+    items = list(re.finditer(
+        r'<span class="scroll-title">F(\d+):[^<]*</span>',
+        content
+    ))
+    for m in reversed(items):  # reverse to preserve offsets
+        pid = f'F{m.group(1)}'
+        if pid not in phase_data:
+            continue
+        n = phase_data[pid]['theorems']
+        status = phase_data[pid]['status']
+        # Find next scroll-count after this match
+        rest = content[m.end():]
+        sc = re.search(r'(<span class="scroll-count">)\d+/\d+ \w+(</span>)', rest)
+        if sc:
+            label = 'verified' if status == 'verified' else 'in progress' if status == 'in_progress' else 'planned'
+            new_val = f'{sc.group(1)}{n}/{n} {label}{sc.group(2)}'
+            old_val = sc.group(0)
+            if old_val != new_val:
+                pos = m.end() + sc.start()
+                content = content[:pos] + new_val + content[pos + len(old_val):]
+                changes += 1
+                print(f"  {pid} scroll-count -> {n}/{n} {label}")
+    return content
+
+content = patch_scroll_counts(content)
+
+with open(mdx_path, 'w') as f:
+    f.write(content)
+
+if changes == 0:
+    print("  All .mdx counts already match YAML.")
+else:
+    print(f"  Patched {changes} count(s) in .mdx.")
+PYEOF
+echo ""

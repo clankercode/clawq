@@ -170,6 +170,29 @@ Comments:
 4. Run formatting checks if OCaml files changed.
 5. Summarize behavior changes and verification commands in final handoff.
 
+## Formal Verification Docs Maintenance
+
+Data pipeline: `coq/theories/Clawq/*.v` → `docs/src/data/formal_verification.yml` → `docs/src/data/fv-stats.json` → `docs/src/content/docs/formal-verification.mdx`.
+
+**Automated by `make update-fv`** (runs `scripts/update_fv_data.sh`):
+- Theorem/lemma counts in YAML (grepped from `.v` files)
+- All derived stats in JSON (totals, percentages, verified/in-progress/planned counts)
+- Validation that verified-phase YAML counts match actual `.v` file counts
+- Hardcoded counts in `.mdx` (ledger-n values, scroll-count N/N labels)
+
+**Full pipeline including Coq proof check**: `make fv-all` (runs `coq-check` + `update-fv` + `verify-report`).
+
+**Manual steps still required when adding/completing a phase**:
+- Update `status` field in `docs/src/data/formal_verification.yml` (e.g. `in_progress` → `verified`)
+- Update `extracted` field if extraction status changed
+- Add new phase entries to `formal_verification.yml` for new Coq modules
+- Add/update phase card, ledger row, and module breakdown accordion in `formal-verification.mdx` (structure and prose — counts are patched automatically)
+
+**When to run `make update-fv`**:
+- After adding, removing, or modifying any Theorem/Lemma in a `.v` file
+- After changing phase status in `formal_verification.yml`
+- Before committing FV-related changes
+
 ## llms.txt Maintenance
 
 Two files in `docs/public/`:
