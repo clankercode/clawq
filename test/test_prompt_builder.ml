@@ -148,6 +148,7 @@ let test_runtime_context_includes_session_details () =
               shell_policy_summary =
                 "shell allowlist + path checks; bubblewrap workspace isolation";
               shell_visible_roots_summary = workspace ^ ", /tmp/extra";
+              background_tasks = [];
               context_usage =
                 Some
                   {

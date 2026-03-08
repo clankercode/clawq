@@ -188,6 +188,7 @@ let cmd_debug_prompt args =
               shell_is_sandboxed;
               shell_policy_summary;
               shell_visible_roots_summary = shell_visible_roots_summary cfg;
+              background_tasks = [];
               context_usage =
                 Some
                   (Agent.runtime_context_usage agent

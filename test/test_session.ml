@@ -1124,7 +1124,7 @@ let test_drain_queued_messages_drains_all_pending_without_relock () =
   Session.register_channel_notifier session_manager ~key (fun text ->
       notified := text :: !notified;
       Lwt.return_unit);
-  let agent = Agent.create ~config ~workspace:"/tmp" () in
+  let agent = Agent.create ~config () in
   let interrupt = ref None in
   let mkq msg =
     {
