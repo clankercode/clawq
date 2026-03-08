@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-08T17:41:09Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B114
 priority: high
-status: pending
+started_at: "2026-03-08T17:41:09Z"
+status: in_progress
 tags: []
 title: 'Implement a one-shot continuation check for autonomous sessions: after autonomous work goes quiet, schedule a delayed self-message to the session. The agent must either resume work or reply STAY_IDLE, which disarms further nudges until new autonomous activity begins. Make it session-scoped, cancellable on new activity, and avoid heartbeat entanglement.'
 ---
