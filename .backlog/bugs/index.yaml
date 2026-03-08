@@ -54,3 +54,4 @@ bugs:
     - file: B053-allow-setting-thinking-reasoni.todo
     - file: B054-tool-call-log-lines-should-sho.todo
     - file: B055-add-ability-for-clawq-to-write.todo
+    - file: B056-tool-call-responses-errors-sho.todo

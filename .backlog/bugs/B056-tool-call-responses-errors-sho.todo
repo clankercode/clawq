@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B056
+priority: high
+status: pending
+tags: []
+title: tool call responses/errors should be logged. agent complained about not being able to run `bl`.
+---
+
+tool call responses/errors should be logged. agent complained about not being able to run `bl`.
