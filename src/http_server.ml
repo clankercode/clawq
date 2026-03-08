@@ -665,7 +665,7 @@ let handler ~session_manager ~require_pairing ~auth_token ?slack_config
 let start ~port ~host ~require_pairing ~auth_token ~session_manager
     ?slack_config ?github_config ?github_api_limiter ?ip_limiter
     ?session_limiter ?slack_event_limiter ?slack_run_update_command ?web_channel
-    ?whatsapp_config ?line_config ?lark_config ?pairing ?ui_server () =
+    ?whatsapp_config ?line_config ?lark_config ?pairing ?ui_server ?stop () =
   let open Lwt.Syntax in
   let callback =
     handler ~session_manager ~require_pairing ~auth_token ?slack_config
@@ -675,6 +675,11 @@ let start ~port ~host ~require_pairing ~auth_token ~session_manager
   in
   let* ctx = Conduit_lwt_unix.init ~src:host () in
   let ctx = Cohttp_lwt_unix.Net.init ~ctx () in
-  Cohttp_lwt_unix.Server.create ~ctx
-    ~mode:(`TCP (`Port port))
-    (Cohttp_lwt_unix.Server.make ~callback ())
+  let server = Cohttp_lwt_unix.Server.make ~callback () in
+  match stop with
+  | Some stop ->
+      Cohttp_lwt_unix.Server.create ~ctx ~stop
+        ~mode:(`TCP (`Port port)) server
+  | None ->
+      Cohttp_lwt_unix.Server.create ~ctx
+        ~mode:(`TCP (`Port port)) server

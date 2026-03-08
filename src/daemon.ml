@@ -376,7 +376,9 @@ let run ~(config : Runtime_config.t) =
   let tool_registry =
     if config.security.tools_enabled then begin
       let registry = Tool_registry.create () in
-      Tools_builtin.register_all ~config ~sandbox registry;
+      Tools_builtin.register_all ~config ~sandbox
+        ~send_fn:(fun ~text -> Session.notify_channel_sessions session_manager text)
+        registry;
       let skills =
         Skills.load_all ~workspace_only:config.security.workspace_only
           ~allowed_commands:Tools_builtin.default_shell_allowlist ()
@@ -729,6 +731,7 @@ let run ~(config : Runtime_config.t) =
         ("onebot", "starting");
         ("lark", "starting");
       ];
+  let gateway_stop, stop_gateway = Lwt.wait () in
   let gateway =
     Lwt.catch
       (fun () ->
@@ -745,7 +748,7 @@ let run ~(config : Runtime_config.t) =
             (match config.channels.lark with
             | Some lc when lc.enabled && lc.mode = "webhook" -> Some lc
             | _ -> None)
-          ?pairing ~ui_server ())
+          ?pairing ~ui_server ~stop:gateway_stop ())
       (fun exn ->
         Logs.err (fun m ->
             m "Gateway server error: %s" (Printexc.to_string exn));
@@ -1154,9 +1157,14 @@ let run ~(config : Runtime_config.t) =
   in
   let* final_intent =
     match picked_intent with
-    | Shutdown -> Lwt.return Shutdown
+    | Shutdown ->
+        Lwt.wakeup_later stop_gateway ();
+        let* () = gateway in
+        Lwt.return Shutdown
     | Restart ->
         let* () = Session.start_draining session_manager in
+        Lwt.wakeup_later stop_gateway ();
+        let* () = gateway in
         let* () =
           Session.notify_channel_sessions session_manager initial_drain_warning
         in

@@ -10,3 +10,12 @@ title: triggering an update should interrupt agent at an opportune moment to per
 ---
 
 triggering an update should interrupt agent at an opportune moment to perform restart and then resume.
+
+
+telegram example of multiple tool calls and update waiting logic:
+
+Clawq, [9/3/26 12:43 am] 🔧 shell_exec ✓ Clawq, [9/3/26 12:43 am] 🔧 shell_exec ✓ Clawq, [9/3/26 12:43 am] Restarting soon, 
+finishing current requests... Clawq, [9/3/26 12:43 am] 🔧 shell_exec ✓ Clawq, [9/3/26 12:43 am] Still restarting, please wait 
+(5s)... Clawq, [9/3/26 12:43 am] Still restarting (10s)... Clawq, [9/3/26 12:44 am] 🔧 git_operations ✓ Clawq, [9/3/26 
+12:44 am]
+Still restarting (15s)...
