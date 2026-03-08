@@ -66,3 +66,4 @@ bugs:
     - file: B065-llms-full-needs-more-details-p.todo
     - file: B066-redesign-webui-opus-frontend-d.todo
     - file: B067-add-debug-command-to-print-out.todo
+    - file: B068-tool-allowable-files-inconsist.todo

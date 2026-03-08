@@ -1,0 +1,48 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B068
+priority: high
+status: pending
+tags: []
+title: Tool allowable files inconsistency
+---
+There is an inconsistency between Clawq’s file tools and shell execution environment.
+
+Observed behavior:
+- File tools can read from `/home/xertrov/src/clawq` and `/home/xertrov/src/pag-server`
+- File tools can also write outside the workspace, e.g. writing `/home/xertrov/src/test.txt` succeeded
+- But shell execution cannot see the same paths
+
+Concrete reproductions:
+- `pwd` via shell returns `/home/xertrov`
+- `ls` in that directory returned no output
+- `ls ~/src` via shell failed with:
+  - `ls: cannot access '/home/xertrov/src': No such file or directory`
+
+This suggests:
+- file tools and shell tools are not operating against the same filesystem view
+- shell execution is likely still sandboxed or mounted differently
+- the shell may be in a restricted `workspace_only` or bubblewrap/firejail view, while file tools have broader host access
+
+Why this is a bug:
+- Clawq can inspect and mutate files in locations that its shell cannot access
+- that makes reasoning unreliable and can break autonomous operation
+- the agent effectively has inconsistent capabilities across tools
+
+Please investigate:
+1. Why file tools can access `/home/xertrov/src/...` while shell execution cannot
+2. Whether `security.workspace_only` or sandbox mount configuration is causing the shell restriction
+3. Whether file tools are bypassing the same confinement policy applied to shell tools
+4. What the intended consistency model is:
+   - should shell be broadened to match file tools?
+   - should file tools be constrained to match shell?
+   - or should there be explicit, well-documented divergence?
+5. What paths are actually visible to shell execution versus file tools
+6. Whether cwd reporting (`/home/xertrov`) is misleading inside the shell sandbox
+7. Whether this inconsistency exists only in the current runtime/tool wrapper or also in mainline `clawq`
+
+Desired outcome:
+- Clawq should be able to trust that filesystem paths it can read/write via file tools are either also usable from shell execution, or the difference should be explicit, intentional, and inspectable
+- ideally, Clawq should be able to diagnose this itself via runtime docs and tooling
