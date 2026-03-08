@@ -117,3 +117,4 @@ bugs:
     - file: B116-invalid-tool-call-ids-after-co.todo
     - file: B117-at-some-stage-recently-we-star.todo
     - file: B118-when-we-truncate-stdout-of-a-t.todo
+    - file: B119-we-should-consider-adding-head.todo
