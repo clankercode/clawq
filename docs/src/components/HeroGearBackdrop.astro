@@ -433,9 +433,34 @@ const renderedByAlgorithm = renderAlgorithms.map((method) => ({
         }
       };
 
+      let collisionRafId = 0;
+      const requestCollisionFrame = () => {
+        if (collisionRafId !== 0) return;
+        collisionRafId = requestAnimationFrame(updateCollisionOverlay);
+      };
+
+      const hideCollisionMarkers = () => {
+        if (!(backdrop instanceof HTMLDivElement)) return;
+        for (const marker of backdrop.querySelectorAll('.hero-gear-collision-marker')) {
+          if (marker instanceof SVGCircleElement) {
+            marker.style.display = 'none';
+          }
+        }
+      };
+
       const applyMeshOverlay = (enabled) => {
         if (!(backdrop instanceof HTMLDivElement)) return;
         backdrop.classList.toggle('hero-gear-show-mesh', enabled);
+        edgeState.clear();
+        hideCollisionMarkers();
+        if (!enabled) {
+          if (collisionRafId !== 0) {
+            cancelAnimationFrame(collisionRafId);
+            collisionRafId = 0;
+          }
+          return;
+        }
+        requestCollisionFrame();
       };
 
       const applyScale = (value) => {
@@ -535,24 +560,21 @@ const renderedByAlgorithm = renderAlgorithms.map((method) => ({
       };
 
       const updateCollisionOverlay = () => {
+        collisionRafId = 0;
+        if (!backdrop?.classList.contains('hero-gear-show-mesh')) {
+          hideCollisionMarkers();
+          return;
+        }
+
         const activeGroup = groups().find(
           (group) => group instanceof SVGGElement && group.getAttribute('display') !== 'none'
         );
         if (!(activeGroup instanceof SVGGElement)) {
-          requestAnimationFrame(updateCollisionOverlay);
+          requestCollisionFrame();
           return;
         }
 
         const markers = Array.from(activeGroup.querySelectorAll('.hero-gear-collision-marker'));
-        if (!backdrop?.classList.contains('hero-gear-show-mesh')) {
-          for (const marker of markers) {
-            if (marker instanceof SVGCircleElement) {
-              marker.style.display = 'none';
-            }
-          }
-          requestAnimationFrame(updateCollisionOverlay);
-          return;
-        }
 
         const rotors = Array.from(activeGroup.querySelectorAll('[data-gear-id]'));
         const gearById = new Map();
@@ -636,10 +658,8 @@ const renderedByAlgorithm = renderAlgorithms.map((method) => ({
           marker.style.display = 'inline';
         }
 
-        requestAnimationFrame(updateCollisionOverlay);
+        requestCollisionFrame();
       };
-
-      requestAnimationFrame(updateCollisionOverlay);
 
       if (meshToggle instanceof HTMLInputElement) {
         const url = new URL(window.location.href);

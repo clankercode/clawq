@@ -1,10 +1,13 @@
 ---
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B048
 priority: high
-status: pending
+reason: USER
+started_at: null
+status: blocked
 tags: []
 title: 'Implement: _GEAR_EDITOR_PLAN.md'
 ---
