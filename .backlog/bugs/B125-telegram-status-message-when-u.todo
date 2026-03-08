@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B125
+priority: high
+status: pending
+tags: []
+title: telegram status message when updated too fast can end up posting like 6 status update messages (the message with the progress bar).
+---
+
+telegram status message when updated too fast can end up posting like 6 status update messages (the message with the progress bar).
