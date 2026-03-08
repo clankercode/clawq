@@ -325,6 +325,80 @@ let test_prepopulated_channel_token_prefills () =
       Alcotest.(check string) "telegram token prefilled" "123:EXISTING" ti.value
   | _ -> Alcotest.fail "expected TextInput widget"
 
+let test_wizard_merge_preserves_codex_oauth () =
+  let base = Filename.get_temp_dir_name () in
+  let dir =
+    Filename.concat base ("clawq_wiz_" ^ string_of_int (Random.bits ()))
+  in
+  Unix.mkdir dir 0o755;
+  let old_home = Sys.getenv_opt "HOME" in
+  Unix.putenv "HOME" dir;
+  Fun.protect
+    (fun () ->
+      let clawq_dir = Filename.concat dir ".clawq" in
+      Unix.mkdir clawq_dir 0o755;
+      let config_path = Filename.concat clawq_dir "config.json" in
+      let oc = open_out config_path in
+      output_string oc
+        {|{
+  "providers": {
+    "openai-codex": {
+      "kind": "openai-codex",
+      "base_url": "https://chatgpt.com/backend-api/codex",
+      "default_model": "openai-codex/gpt-5.4",
+      "codex_oauth": {
+        "access_token": "secret-access",
+        "refresh_token": "secret-refresh",
+        "expires_at_ms": 4102444800000,
+        "account_id": "acct_test",
+        "email": "test@example.com"
+      }
+    }
+  }
+}|};
+      close_out oc;
+      let m =
+        {
+          (Config_wizard_model.initial_model Onboard) with
+          providers =
+            [
+              {
+                Config_wizard_model.empty_provider with
+                name = "openai-codex";
+                kind = Some "openai-codex";
+                base_url = "https://chatgpt.com/backend-api/codex";
+                default_model = "openai-codex/gpt-5.4";
+              };
+            ];
+          primary_model = "openai-codex/gpt-5.4";
+        }
+      in
+      let _path = Config_wizard_tui.write_wizard_config m in
+      let json = Yojson.Safe.from_file config_path in
+      let open Yojson.Safe.Util in
+      let oauth =
+        json |> member "providers" |> member "openai-codex"
+        |> member "codex_oauth"
+      in
+      match oauth with
+      | `Null -> Alcotest.fail "codex_oauth was stripped by wizard merge"
+      | `Assoc _ ->
+          let at = oauth |> member "access_token" |> to_string in
+          Alcotest.(check string) "access_token preserved" "secret-access" at;
+          let rt = oauth |> member "refresh_token" |> to_string in
+          Alcotest.(check string) "refresh_token preserved" "secret-refresh" rt
+      | _ -> Alcotest.fail "codex_oauth has unexpected type")
+    ~finally:(fun () ->
+      (match old_home with
+      | Some v -> Unix.putenv "HOME" v
+      | None -> Unix.putenv "HOME" "");
+      (try
+         Unix.unlink
+           (Filename.concat (Filename.concat dir ".clawq") "config.json")
+       with _ -> ());
+      (try Unix.rmdir (Filename.concat dir ".clawq") with _ -> ());
+      try Unix.rmdir dir with _ -> ())
+
 let suite =
   [
     Alcotest.test_case "welcome -> provider select" `Quick
@@ -352,4 +426,6 @@ let suite =
       test_prepopulated_provider_replaces_not_duplicates;
     Alcotest.test_case "prepopulated channel token prefills" `Quick
       test_prepopulated_channel_token_prefills;
+    Alcotest.test_case "wizard merge preserves codex_oauth" `Quick
+      test_wizard_merge_preserves_codex_oauth;
   ]

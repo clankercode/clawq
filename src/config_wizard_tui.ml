@@ -158,25 +158,31 @@ let write_wizard_config (m : model) =
   (try if not (Sys.file_exists config_dir) then Unix.mkdir config_dir 0o755
    with _ -> ());
   let json = build_config_json m in
-  (* If existing config, merge to preserve unknown fields *)
+  (* If existing config, deep-merge to preserve per-provider fields
+     the wizard doesn't manage (e.g. codex_oauth). *)
+  let rec deep_merge_assoc orig overlay =
+    List.fold_left
+      (fun acc (k, v) ->
+        if List.mem_assoc k acc then
+          List.map
+            (fun (n, ov) ->
+              if n = k then
+                match (ov, v) with
+                | `Assoc old_fields, `Assoc new_fields ->
+                    (n, `Assoc (deep_merge_assoc old_fields new_fields))
+                | _ -> (n, v)
+              else (n, ov))
+            acc
+        else acc @ [ (k, v) ])
+      orig overlay
+  in
   let final =
     if Sys.file_exists config_path then
       try
         let existing = Yojson.Safe.from_file config_path in
-        (* Overlay wizard values onto existing *)
         match (existing, json) with
         | `Assoc orig, `Assoc new_fields ->
-            let merged =
-              List.fold_left
-                (fun acc (k, v) ->
-                  if List.mem_assoc k acc then
-                    List.map
-                      (fun (n, ov) -> if n = k then (n, v) else (n, ov))
-                      acc
-                  else acc @ [ (k, v) ])
-                orig new_fields
-            in
-            `Assoc merged
+            `Assoc (deep_merge_assoc orig new_fields)
         | _ -> json
       with _ -> json
     else json

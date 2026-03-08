@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-08T06:51:38Z"
+claimed_by: cli-user
+completed_at: "2026-03-08T07:10:30Z"
 complexity: medium
 depends_on: []
+duration_minutes: 18.8688435375
 estimate_hours: 1
 id: B047
 priority: high
-status: pending
+started_at: "2026-03-08T06:51:38Z"
+status: done
 tags: []
 title: i should be logged in to codex auth but clawq complains that i am not
 ---

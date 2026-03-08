@@ -567,13 +567,35 @@ let provider_from_disk provider_name =
   let cfg = Config_loader.load () in
   match List.assoc_opt provider_name cfg.providers with
   | Some provider -> provider
-  | None -> default_provider_config ()
+  | None ->
+      Logs.warn (fun m ->
+          m "Provider %S not found in config (have: %s); using codex defaults"
+            provider_name
+            (String.concat ", "
+               (List.map (fun (n, _) -> Printf.sprintf "%S" n) cfg.providers)));
+      default_provider_config ()
+
+let disk_fallback_warned = ref false
 
 let get_auth_header ~provider_name ~provider =
   let open Lwt.Syntax in
   let provider =
     match provider_name with
-    | Some name -> provider_from_disk name
+    | Some name ->
+        let disk = provider_from_disk name in
+        if Runtime_config.provider_has_codex_oauth disk then disk
+        else if Runtime_config.provider_has_codex_oauth provider then begin
+          if not !disk_fallback_warned then begin
+            disk_fallback_warned := true;
+            Logs.warn (fun m ->
+                m
+                  "Codex OAuth credentials not found on disk for provider %S; \
+                   using in-memory credentials"
+                  name)
+          end;
+          provider
+        end
+        else disk
     | None -> provider
   in
   match provider.Runtime_config.codex_oauth with

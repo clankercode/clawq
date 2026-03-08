@@ -134,6 +134,146 @@ let test_save_provider_credentials_encrypts_when_enabled () =
             "refresh token encrypted" true
             (Secret_store.is_encrypted refresh_token))
 
+let test_save_then_load_roundtrip () =
+  with_temp_home (fun home ->
+      let clawq_dir = Filename.concat home ".clawq" in
+      Unix.mkdir clawq_dir 0o755;
+      let config_path = Filename.concat clawq_dir "config.json" in
+      let oc = open_out config_path in
+      output_string oc
+        {|{
+  "providers": {
+    "openai-codex": {
+      "kind": "openai-codex"
+    }
+  }
+}|};
+      close_out oc;
+      let creds =
+        {
+          Runtime_config.access_token = "access-token-roundtrip";
+          refresh_token = "refresh-token-roundtrip";
+          expires_at_ms = 4102444800000;
+          account_id = Some "acct_456";
+          email = Some "rt@example.com";
+        }
+      in
+      (match
+         Openai_codex_oauth.save_provider_credentials
+           ~provider_name:"openai-codex" creds
+       with
+      | Error msg -> Alcotest.fail ("save failed: " ^ msg)
+      | Ok () -> ());
+      let cfg = Config_loader.load () in
+      match List.assoc_opt "openai-codex" cfg.providers with
+      | None -> Alcotest.fail "provider openai-codex not found after save+load"
+      | Some provider -> (
+          match provider.Runtime_config.codex_oauth with
+          | None ->
+              Alcotest.fail "codex_oauth is None after save+load roundtrip"
+          | Some oauth ->
+              Alcotest.(check string)
+                "access_token roundtrip" "access-token-roundtrip"
+                oauth.access_token;
+              Alcotest.(check string)
+                "refresh_token roundtrip" "refresh-token-roundtrip"
+                oauth.refresh_token;
+              Alcotest.(check int)
+                "expires_at_ms roundtrip" 4102444800000 oauth.expires_at_ms))
+
+let test_save_then_load_roundtrip_encrypted () =
+  with_temp_home ~master_key:"test-master-key" (fun home ->
+      let clawq_dir = Filename.concat home ".clawq" in
+      Unix.mkdir clawq_dir 0o755;
+      let config_path = Filename.concat clawq_dir "config.json" in
+      let oc = open_out config_path in
+      output_string oc
+        {|{
+  "security": {
+    "encrypt_secrets": true
+  },
+  "providers": {
+    "openai-codex": {
+      "kind": "openai-codex"
+    }
+  }
+}|};
+      close_out oc;
+      let creds =
+        {
+          Runtime_config.access_token = "access-token-enc";
+          refresh_token = "refresh-token-enc";
+          expires_at_ms = 4102444800000;
+          account_id = Some "acct_789";
+          email = Some "enc@example.com";
+        }
+      in
+      (match
+         Openai_codex_oauth.save_provider_credentials
+           ~provider_name:"openai-codex" creds
+       with
+      | Error msg -> Alcotest.fail ("save failed: " ^ msg)
+      | Ok () -> ());
+      let cfg = Config_loader.load () in
+      match List.assoc_opt "openai-codex" cfg.providers with
+      | None ->
+          Alcotest.fail
+            "provider openai-codex not found after encrypted save+load"
+      | Some provider -> (
+          match provider.Runtime_config.codex_oauth with
+          | None ->
+              Alcotest.fail
+                "codex_oauth is None after encrypted save+load roundtrip"
+          | Some oauth ->
+              Alcotest.(check string)
+                "access_token decrypted" "access-token-enc" oauth.access_token;
+              Alcotest.(check string)
+                "refresh_token decrypted" "refresh-token-enc"
+                oauth.refresh_token))
+
+let test_backfill_preserves_codex_oauth () =
+  with_temp_home (fun home ->
+      let clawq_dir = Filename.concat home ".clawq" in
+      Unix.mkdir clawq_dir 0o755;
+      let config_path = Filename.concat clawq_dir "config.json" in
+      let oc = open_out config_path in
+      output_string oc
+        {|{
+  "providers": {
+    "openai-codex": {
+      "kind": "openai-codex",
+      "codex_oauth": {
+        "access_token": "my-token",
+        "refresh_token": "my-refresh",
+        "expires_at_ms": 4102444800000,
+        "account_id": "acct_bf",
+        "email": "bf@example.com"
+      }
+    }
+  }
+}|};
+      close_out oc;
+      (* First load triggers backfill (adds default fields) *)
+      let _cfg1 = Config_loader.load () in
+      (* Second load reads the backfilled file *)
+      let cfg2 = Config_loader.load () in
+      match List.assoc_opt "openai-codex" cfg2.providers with
+      | None ->
+          Alcotest.fail
+            "provider openai-codex not found after backfill roundtrip"
+      | Some provider -> (
+          match provider.Runtime_config.codex_oauth with
+          | None ->
+              Alcotest.fail
+                "codex_oauth is None after backfill — backfill stripped it!"
+          | Some oauth ->
+              Alcotest.(check string)
+                "access_token preserved" "my-token" oauth.access_token;
+              Alcotest.(check string)
+                "refresh_token preserved" "my-refresh" oauth.refresh_token;
+              Alcotest.(check int)
+                "expires_at_ms preserved" 4102444800000 oauth.expires_at_ms))
+
 let suite =
   [
     Alcotest.test_case "parse callback input url" `Quick
@@ -146,4 +286,10 @@ let suite =
       `Quick test_validate_provider_name_rejects_non_codex_provider;
     Alcotest.test_case "save provider credentials encrypts when enabled" `Quick
       test_save_provider_credentials_encrypts_when_enabled;
+    Alcotest.test_case "save then load roundtrip" `Quick
+      test_save_then_load_roundtrip;
+    Alcotest.test_case "save then load roundtrip encrypted" `Quick
+      test_save_then_load_roundtrip_encrypted;
+    Alcotest.test_case "backfill preserves codex_oauth" `Quick
+      test_backfill_preserves_codex_oauth;
   ]
