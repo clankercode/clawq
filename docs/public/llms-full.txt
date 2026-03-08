@@ -227,7 +227,7 @@ clawq config show security
 
 **notify** — `notify_channel`, `notify_target`. Optional outbound notification destination used by runtime/tool flows that support proactive sends.
 
-**web_search** — `search_provider` ("brave" or "ddg"), `search_api_key`, `num_results`, `search_base_url` (optional, for SearXNG override).
+**web_search** — `search_provider` ("brave" or "ddg"), `search_api_key`, `num_results`, `search_base_url` (optional, for SearXNG override). When the daemon is running, config reload updates the active runtime config object, so changes here are intended to take effect without a full restart.
 
 **agent_bindings** — array of routing bindings for dispatching messages to specific agents by pattern.
 
@@ -255,7 +255,7 @@ You have up to 21 built-in tools. 14 are always registered; `web_search`, `send_
 | `web_fetch` | Fetch a URL and return page content as readable text |
 | `web_search` | Search the web (conditional: only if web_search config is set) |
 | `git_operations` | Git operations: status, diff, log, branch, add, commit, checkout, stash, show |
-| `send_message` | Send a message via configured notification channel (conditional: only if send_fn is provided) |
+| `send_message` | Send a message via the current live session when possible, otherwise via configured notification channel (conditional: only if runtime wiring provides a send function) |
 | `doc_write` | Write or update a workspace document |
 | `transcribe` | Transcribe an audio file |
 | `memory_store` | Store a key-value pair in memory |
@@ -299,6 +299,16 @@ You also support MCP (Model Context Protocol) for exposing and consuming externa
 - File tools always use direct OCaml filesystem access with path checks.
 - In `workspace_only = true`, shell and file tools are intended to agree on the allowed roots: workspace plus `security.extra_allowed_paths`.
 - In `workspace_only = false`, shell and file tools both use the host filesystem view.
+
+### `grep` caveats
+
+- `grep` uses OCaml filesystem walking, not shell `grep`.
+- `path` defaults to the workspace root if omitted.
+- `include` is an alias for `file_glob`; if both are present, `include` wins.
+- The filename filter is matched only against the file basename, not the full relative path. `*.ml` works; patterns that expect directory segments do not.
+- The filter also applies when `path` points to a single file. If you pass `path: "src/runtime_config.ml"` with `include: "*.txt"`, the file is skipped and you will get "No matches found".
+- `pattern` is treated as a regular expression. To match a literal `|`, escape it as `\|`; an unescaped `|` is alternation.
+- If a file is unreadable or disappears during traversal, the tool silently skips it.
 
 ### Path and cwd diagnostics
 
@@ -351,12 +361,23 @@ You also support MCP (Model Context Protocol) for exposing and consuming externa
 - If channel metadata is missing, the daemon marks the session as no longer pending and does not resume delivery.
 - A separate `restart_notify.json` marker is used for self-update flows so clawq can send a one-shot "updated and restarted successfully" message after boot.
 
+### Runtime reload and tool registration caveats
+
+- The daemon supports config reload both on `SIGHUP` and via file-mtime polling (every 10 seconds).
+- Reload updates the in-memory runtime config used by active and future sessions.
+- This means settings such as provider defaults, memory limits, heartbeat timing, and `web_search` configuration are intended to apply without a restart.
+- Startup-structural settings still require restart: enabling or disabling channels, changing gateway bind host/port, and similar boot-time wiring.
+- Tool registration itself is not fully rebuilt on each reload. Conditional tools that depend on startup wiring remain governed by how the daemon was initialized.
+- In particular, `send_message` depends on runtime wiring, not config alone.
+
 ## Autonomous Continuation and Proactive Messaging
 
 - Clawq can resume some interrupted agent turns after restart, but there is no general "re-prompt every unfinished idea" system.
 - Resume depends on persisted session state plus a supported channel destination.
 - Heartbeats are the built-in periodic autonomous mechanism.
-- The `send_message` built-in tool exists only when the runtime registers it with a send function. If absent, proactive outbound messaging from tools is unavailable.
+- The `send_message` built-in tool exists only when the runtime registers it with a send function. Configuring `notify.notify_channel` / `notify.notify_target` alone does not guarantee the tool is available.
+- When invoked during an active channel turn, `send_message` prefers the live session notifier from tool context, so the message goes straight back to the current attached session.
+- Outside an active notified session, behavior falls back to the runtime-provided send function if one exists; if no send function was wired at startup, the tool is absent or returns an error.
 - Current heartbeat code does not itself emit outbound notifications; it only logs the intended target when a non-`HEARTBEAT_OK` reply is produced.
 - During an active channel turn, the runtime can send additional text to that same session via the registered notifier.
 - Turn ownership is effectively per session key: one session runs at a time under a mutex, while different session keys can proceed independently.

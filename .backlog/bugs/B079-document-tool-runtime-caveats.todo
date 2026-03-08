@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-08T14:36:46Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B079
 priority: high
-status: pending
+started_at: "2026-03-08T14:36:46Z"
+status: in_progress
 tags: []
 title: 'Document tool/runtime caveats in llms-full.txt: grep path/file_glob behavior can silently miss matches; clarify search config/runtime reload semantics; document session-aware send_message behavior and live-session outbound messaging semantics.'
 ---
