@@ -364,7 +364,6 @@ let default_workspace_files =
     "IDENTITY.md";
     "USER.md";
     "HEARTBEAT.md";
-    "BOOTSTRAP.md";
     "MEMORY.md";
     "memory.md";
   ]
