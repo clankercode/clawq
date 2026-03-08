@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B113
+priority: high
+status: pending
+tags: []
+title: Busy-session inbound message queue may be draining only one queued message per turn/interrupt boundary instead of fully consuming consecutive pending user messages. Investigate queue-drain semantics in Session and channel handlers; responsiveness under multiple rapid messages is too staircase-like.
+---
+
+Busy-session inbound message queue may be draining only one queued message per turn/interrupt boundary instead of fully consuming consecutive pending user messages. Investigate queue-drain semantics in Session and channel handlers; responsiveness under multiple rapid messages is too staircase-like.
