@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-08T11:48:54Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-08T12:41:01Z"
 complexity: medium
 depends_on: []
+duration_minutes: 52.1330839746
 estimate_hours: 1
 id: B072
 priority: high
 started_at: "2026-03-08T11:48:54Z"
-status: in_progress
+status: done
 tags: []
 title: Tool call info over connectors is too verbose. Should be 1 message only per tool call; and when they are done in parallel we can send a message about them in parallel. Also use an emoji to indicate they're tool calls. Maybe style the message a bit differently too
 ---

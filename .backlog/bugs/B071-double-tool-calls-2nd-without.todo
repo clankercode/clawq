@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-08T11:47:24Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-08T12:41:01Z"
 complexity: medium
 depends_on: []
+duration_minutes: 53.633098869133335
 estimate_hours: 1
 id: B071
 priority: high
 started_at: "2026-03-08T11:47:24Z"
-status: in_progress
+status: done
 tags: []
 title: double tool calls, 2nd without args
 ---
