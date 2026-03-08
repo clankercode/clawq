@@ -338,6 +338,82 @@ let test_file_read_uses_configured_workspace_root () =
       (try Unix.unlink path with _ -> ());
       try Unix.rmdir workspace with _ -> ())
 
+let test_grep_supports_regex_and_include_alias () =
+  with_temp_workspace (fun workspace ->
+      let path = "runtime_config.ml" in
+      let oc = open_out path in
+      output_string oc
+        "type provider_config = unit\nlet search_provider = \"brave\"\n";
+      close_out oc;
+      let tool =
+        Tools_builtin.grep ~workspace ~workspace_only:true
+          ~extra_allowed_paths:[]
+      in
+      let out =
+        Lwt_main.run
+          (tool.invoke
+             (`Assoc
+                [
+                  ("pattern", `String "type provider_config|search_provider");
+                  ("path", `String path);
+                  ("include", `String "*.ml");
+                ]))
+      in
+      Alcotest.(check bool)
+        "regex matches first line" true
+        (contains out "type provider_config = unit");
+      Alcotest.(check bool)
+        "regex matches second line" true
+        (contains out "let search_provider = \"brave\""))
+
+let test_grep_single_file_respects_include_filter () =
+  with_temp_workspace (fun workspace ->
+      let path = "runtime_config.ml" in
+      let oc = open_out path in
+      output_string oc "let search_provider = \"brave\"\n";
+      close_out oc;
+      let tool =
+        Tools_builtin.grep ~workspace ~workspace_only:true
+          ~extra_allowed_paths:[]
+      in
+      let out =
+        Lwt_main.run
+          (tool.invoke
+             (`Assoc
+                [
+                  ("pattern", `String "search_provider");
+                  ("path", `String path);
+                  ("include", `String "*.txt");
+                ]))
+      in
+      Alcotest.(check bool)
+        "non-matching include skips single file" true
+        (contains out "No matches found"))
+
+let test_grep_honors_case_sensitive_flag () =
+  with_temp_workspace (fun workspace ->
+      let path = "runtime_config.ml" in
+      let oc = open_out path in
+      output_string oc "let search_provider = \"brave\"\n";
+      close_out oc;
+      let tool =
+        Tools_builtin.grep ~workspace ~workspace_only:true
+          ~extra_allowed_paths:[]
+      in
+      let out =
+        Lwt_main.run
+          (tool.invoke
+             (`Assoc
+                [
+                  ("pattern", `String "SEARCH_PROVIDER");
+                  ("path", `String path);
+                  ("case_sensitive", `Bool false);
+                ]))
+      in
+      Alcotest.(check bool)
+        "case-insensitive regex matches" true
+        (contains out "search_provider"))
+
 let test_transcribe_rejects_outside_workspace () =
   with_temp_workspace (fun _workspace ->
       let cfg = Runtime_config.default in
@@ -819,6 +895,12 @@ let suite =
       test_file_edit_replaces_first_match;
     Alcotest.test_case "file_read uses configured workspace" `Quick
       test_file_read_uses_configured_workspace_root;
+    Alcotest.test_case "grep supports regex and include alias" `Quick
+      test_grep_supports_regex_and_include_alias;
+    Alcotest.test_case "grep single file respects include filter" `Quick
+      test_grep_single_file_respects_include_filter;
+    Alcotest.test_case "grep honors case_sensitive flag" `Quick
+      test_grep_honors_case_sensitive_flag;
     Alcotest.test_case "file_read large file requires paging" `Quick
       test_file_read_large_file_requires_paged_read;
     Alcotest.test_case "file_read paged window" `Quick

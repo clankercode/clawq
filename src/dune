@@ -73,7 +73,8 @@
   kdf.pbkdf
   digestif.c
   base64
-  eqaf))
+  eqaf
+  str))
 
 (library
  (name clawq_runtime_integrations)

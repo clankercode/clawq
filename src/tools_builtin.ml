@@ -1580,6 +1580,15 @@ let grep ~workspace ~workspace_only ~extra_allowed_paths =
                           "Glob filter for filenames, e.g. \"*.ml\" (optional)"
                       );
                     ] );
+                ( "include",
+                  `Assoc
+                    [
+                      ("type", `String "string");
+                      ( "description",
+                        `String
+                          "Alias for file_glob; glob filter for filenames \
+                           (optional)" );
+                    ] );
                 ( "case_sensitive",
                   `Assoc
                     [
@@ -1604,7 +1613,9 @@ let grep ~workspace ~workspace_only ~extra_allowed_paths =
         in
         let path_arg = try args |> member "path" |> to_string with _ -> "" in
         let file_glob =
-          try args |> member "file_glob" |> to_string with _ -> ""
+          try args |> member "include" |> to_string
+          with _ -> (
+            try args |> member "file_glob" |> to_string with _ -> "")
         in
         let case_sensitive =
           try args |> member "case_sensitive" |> to_bool with _ -> true
@@ -1614,74 +1625,128 @@ let grep ~workspace ~workspace_only ~extra_allowed_paths =
         in
         if pattern = "" then Lwt.return "Error: pattern is required"
         else
-          let root =
-            if path_arg = "" then workspace
-            else resolve_path ~workspace path_arg
+          let split_unescaped_pipes s =
+            let parts = ref [] in
+            let buf = Buffer.create (String.length s) in
+            let flush () =
+              parts := Buffer.contents buf :: !parts;
+              Buffer.clear buf
+            in
+            let rec loop i escaped =
+              if i >= String.length s then flush ()
+              else
+                let ch = s.[i] in
+                if escaped then begin
+                  Buffer.add_char buf ch;
+                  loop (i + 1) false
+                end
+                else
+                  match ch with
+                  | '\\' ->
+                      Buffer.add_char buf ch;
+                      loop (i + 1) true
+                  | '|' ->
+                      flush ();
+                      loop (i + 1) false
+                  | _ ->
+                      Buffer.add_char buf ch;
+                      loop (i + 1) false
+            in
+            loop 0 false;
+            List.rev !parts
           in
-          if
-            workspace_only
-            && not
-                 (is_path_within_allowed_roots ~workspace ~extra_allowed_paths
-                    root)
-          then
-            Lwt.return
-              "Error: path is outside the workspace in workspace_only mode"
-          else
-            let matches = ref [] in
-            let match_count = ref 0 in
-            let search_file file_path =
-              if !match_count >= max_results then ()
+          match
+            try
+              Ok
+                (List.map
+                   (fun part ->
+                     if case_sensitive then Str.regexp part
+                     else Str.regexp_case_fold part)
+                   (split_unescaped_pipes pattern))
+            with Failure msg -> Error msg
+          with
+          | Error msg -> Lwt.return ("Error: invalid regex pattern: " ^ msg)
+          | Ok regexes ->
+              let file_matches_glob file_path =
+                file_glob = ""
+                || glob_match_segment file_glob (Filename.basename file_path)
+              in
+              let line_matches line =
+                List.exists
+                  (fun regex ->
+                    try
+                      ignore (Str.search_forward regex line 0);
+                      true
+                    with Not_found -> false)
+                  regexes
+              in
+              let root =
+                if path_arg = "" then workspace
+                else resolve_path ~workspace path_arg
+              in
+              if
+                workspace_only
+                && not
+                     (is_path_within_allowed_roots ~workspace
+                        ~extra_allowed_paths root)
+              then
+                Lwt.return
+                  "Error: path is outside the workspace in workspace_only mode"
               else
-                try
-                  let ic = open_in file_path in
-                  let lnum = ref 0 in
-                  (try
-                     while !match_count < max_results do
-                       let line = input_line ic in
-                       incr lnum;
-                       if
-                         contains_substr ~haystack:line ~needle:pattern
-                           ~case_sensitive
-                       then begin
-                         matches :=
-                           Printf.sprintf "%s:%d: %s" file_path !lnum line
-                           :: !matches;
-                         incr match_count
-                       end
-                     done
-                   with End_of_file -> ());
-                  close_in ic
-                with Sys_error _ -> ()
-            in
-            let rec walk dir =
-              if !match_count >= max_results then ()
-              else
-                match Sys.readdir dir with
-                | entries ->
-                    Array.iter
-                      (fun entry ->
-                        if !match_count < max_results then begin
-                          let full = Filename.concat dir entry in
-                          try
-                            if Sys.is_directory full then walk full
-                            else if
-                              file_glob = ""
-                              || glob_match_segment file_glob entry
-                            then search_file full
-                          with Sys_error _ -> ()
-                        end)
-                      entries
-                | exception Sys_error _ -> ()
-            in
-            (try if Sys.is_directory root then walk root else search_file root
-             with Sys_error _ -> ());
-            let sorted = List.rev !matches in
-            if sorted = [] then
-              Lwt.return (Printf.sprintf "No matches found for '%s'" pattern)
-            else
-              Lwt.return
-                (String.concat "\n" sorted
-                ^ Printf.sprintf "\n\n(%d matches)" (List.length sorted)));
+                let matches = ref [] in
+                let match_count = ref 0 in
+                let search_file file_path =
+                  if
+                    !match_count >= max_results
+                    || not (file_matches_glob file_path)
+                  then ()
+                  else
+                    try
+                      let ic = open_in file_path in
+                      let lnum = ref 0 in
+                      (try
+                         while !match_count < max_results do
+                           let line = input_line ic in
+                           incr lnum;
+                           if line_matches line then begin
+                             matches :=
+                               Printf.sprintf "%s:%d: %s" file_path !lnum line
+                               :: !matches;
+                             incr match_count
+                           end
+                         done
+                       with End_of_file -> ());
+                      close_in ic
+                    with Sys_error _ -> ()
+                in
+                let rec walk dir =
+                  if !match_count >= max_results then ()
+                  else
+                    match Sys.readdir dir with
+                    | entries ->
+                        Array.iter
+                          (fun entry ->
+                            if !match_count < max_results then begin
+                              let full = Filename.concat dir entry in
+                              try
+                                if Sys.is_directory full then walk full
+                                else search_file full
+                              with Sys_error _ -> ()
+                            end)
+                          entries
+                    | exception Sys_error _ -> ()
+                in
+                (try
+                   if Sys.is_directory root then walk root else search_file root
+                 with Sys_error _ -> ());
+                let sorted = List.rev !matches in
+                if sorted = [] then
+                  Lwt.return
+                    (Printf.sprintf "No matches found for '%s'" pattern)
+                else
+                  Lwt.return
+                    (String.concat "\n" sorted
+                    ^ Printf.sprintf "\n\n(%d matches)" (List.length sorted)));
     invoke_stream = None;
     risk_level = Low;
     deferred = false;
