@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-08T09:31:02Z"
+claimed_by: cli-user
+completed_at: "2026-03-08T09:46:52Z"
 complexity: medium
 depends_on: []
+duration_minutes: 15.8370952686
 estimate_hours: 1
 id: B055
 priority: high
-status: pending
+started_at: "2026-03-08T09:31:02Z"
+status: done
 tags: []
 title: Add ability for clawq to write its own docs and skills. Those skills should be persistent and usable going forward.
 ---

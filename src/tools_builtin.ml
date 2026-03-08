@@ -2397,6 +2397,104 @@ let send_message ~(send_fn : (text:string -> unit Lwt.t) option) =
     deferred = false;
   }
 
+let doc_write ~workspace ~workspace_files =
+  let known_files = String.concat ", " workspace_files in
+  {
+    Tool.name = "doc_write";
+    description =
+      Printf.sprintf
+        "Write or update a workspace document in the clawq workspace \
+         directory. These documents persist across sessions and are injected \
+         into the system prompt. Known effective files: %s. You may also \
+         create new files but they will only appear in the prompt if added to \
+         the workspace_files config."
+        known_files;
+    parameters_schema =
+      `Assoc
+        [
+          ("type", `String "object");
+          ( "properties",
+            `Assoc
+              [
+                ( "filename",
+                  `Assoc
+                    [
+                      ("type", `String "string");
+                      ( "description",
+                        `String
+                          ("Filename to write (e.g. TOOLS.md, MEMORY.md). \
+                            Known files: " ^ known_files) );
+                    ] );
+                ( "content",
+                  `Assoc
+                    [
+                      ("type", `String "string");
+                      ("description", `String "Content to write");
+                    ] );
+                ( "append",
+                  `Assoc
+                    [
+                      ("type", `String "boolean");
+                      ( "description",
+                        `String
+                          "If true, append to existing file instead of \
+                           overwriting (default: false)" );
+                    ] );
+              ] );
+          ("required", `List [ `String "filename"; `String "content" ]);
+        ];
+    invoke =
+      (fun args ->
+        let open Yojson.Safe.Util in
+        let filename =
+          try args |> member "filename" |> to_string with _ -> ""
+        in
+        let content =
+          try args |> member "content" |> to_string with _ -> ""
+        in
+        let append = try args |> member "append" |> to_bool with _ -> false in
+        if filename = "" then Lwt.return "Error: filename is required"
+        else if not (Prompt_builder.safe_prompt_filename filename) then
+          Lwt.return "Error: invalid filename (must not contain .., /, or \\)"
+        else if content = "" then Lwt.return "Error: content is required"
+        else
+          let path = Filename.concat workspace filename in
+          let is_known = List.mem filename workspace_files in
+          Lwt.catch
+            (fun () ->
+              let open Lwt.Syntax in
+              let* () =
+                if append then
+                  let* existing =
+                    Lwt.catch
+                      (fun () ->
+                        Lwt_io.with_file ~mode:Lwt_io.Input path Lwt_io.read)
+                      (fun _ -> Lwt.return "")
+                  in
+                  Lwt_io.with_file ~mode:Lwt_io.Output path (fun oc ->
+                      Lwt_io.write oc (existing ^ content))
+                else
+                  Lwt_io.with_file ~mode:Lwt_io.Output path (fun oc ->
+                      Lwt_io.write oc content)
+              in
+              let action = if append then "Appended to" else "Written" in
+              let note =
+                if is_known then
+                  " (active workspace file — will appear in system prompt)"
+                else
+                  " (not in workspace_files list — add to config for prompt \
+                   injection)"
+              in
+              Lwt.return
+                (Printf.sprintf "%s %d bytes to %s%s" action
+                   (String.length content) path note))
+            (fun exn ->
+              Lwt.return ("Error writing document: " ^ Printexc.to_string exn)));
+    invoke_stream = None;
+    risk_level = Medium;
+    deferred = false;
+  }
+
 let register_all ~(config : Runtime_config.t) ~sandbox ?(db = None)
     ?(send_fn = None) registry =
   let workspace_only = config.security.workspace_only in
@@ -2432,6 +2530,8 @@ let register_all ~(config : Runtime_config.t) ~sandbox ?(db = None)
   | None -> ());
   if config.stt <> None then
     Tool_registry.register registry (transcribe ~config);
+  Tool_registry.register registry
+    (doc_write ~workspace ~workspace_files:config.prompt.workspace_files);
   match db with
   | Some db ->
       Tool_registry.register registry (memory_store ~db);

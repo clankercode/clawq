@@ -209,3 +209,198 @@ let create_example () =
     close_out oc;
     "Created example skill at " ^ path
   end
+
+let is_valid_skill_name name =
+  name <> ""
+  && String.length name <= 64
+  &&
+  let ok = ref true in
+  String.iter
+    (fun c ->
+      match c with
+      | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '_' | '-' -> ()
+      | _ -> ok := false)
+    name;
+  !ok
+
+let skill_create_tool ~workspace_only ~allowed_commands registry =
+  {
+    Tool.name = "skill_create";
+    description =
+      "Create a persistent user-defined skill (shell command tool). The skill \
+       is saved to ~/.clawq/skills/ and becomes available immediately and in \
+       future sessions. The command field supports {{key}} template variables \
+       that map to the parameters schema.";
+    parameters_schema =
+      `Assoc
+        [
+          ("type", `String "object");
+          ( "properties",
+            `Assoc
+              [
+                ( "name",
+                  `Assoc
+                    [
+                      ("type", `String "string");
+                      ( "description",
+                        `String
+                          "Skill name (alphanumeric, underscore, hyphen only)"
+                      );
+                    ] );
+                ( "description",
+                  `Assoc
+                    [
+                      ("type", `String "string");
+                      ("description", `String "What this skill does");
+                    ] );
+                ( "command",
+                  `Assoc
+                    [
+                      ("type", `String "string");
+                      ( "description",
+                        `String
+                          "Shell command template. Use {{key}} for parameter \
+                           substitution." );
+                    ] );
+                ( "parameters",
+                  `Assoc
+                    [
+                      ("type", `String "object");
+                      ( "description",
+                        `String
+                          "JSON schema for command parameters (optional, \
+                           default: empty object)" );
+                    ] );
+                ( "risk_level",
+                  `Assoc
+                    [
+                      ("type", `String "string");
+                      ( "description",
+                        `String
+                          "Risk level: low, medium, or high (default: medium)"
+                      );
+                    ] );
+              ] );
+          ( "required",
+            `List [ `String "name"; `String "description"; `String "command" ]
+          );
+        ];
+    invoke =
+      (fun args ->
+        let open Yojson.Safe.Util in
+        let name = try args |> member "name" |> to_string with _ -> "" in
+        let description =
+          try args |> member "description" |> to_string with _ -> ""
+        in
+        let command =
+          try args |> member "command" |> to_string with _ -> ""
+        in
+        let parameters =
+          try
+            let p = args |> member "parameters" in
+            if p = `Null then
+              `Assoc [ ("type", `String "object"); ("properties", `Assoc []) ]
+            else p
+          with _ ->
+            `Assoc [ ("type", `String "object"); ("properties", `Assoc []) ]
+        in
+        let risk_level =
+          try args |> member "risk_level" |> to_string with _ -> "medium"
+        in
+        if name = "" then Lwt.return "Error: name is required"
+        else if not (is_valid_skill_name name) then
+          Lwt.return
+            "Error: name must contain only alphanumeric characters, \
+             underscores, and hyphens (max 64 chars)"
+        else if description = "" then
+          Lwt.return "Error: description is required"
+        else if command = "" then Lwt.return "Error: command is required"
+        else
+          let collision =
+            match Tool_registry.find registry name with
+            | Some _ -> true
+            | None -> false
+          in
+          let dir = init_dir () in
+          let path = Filename.concat dir (name ^ ".json") in
+          let json =
+            `Assoc
+              [
+                ("name", `String name);
+                ("description", `String description);
+                ("parameters", parameters);
+                ("command", `String command);
+                ("risk_level", `String risk_level);
+              ]
+          in
+          let content = Yojson.Safe.pretty_to_string json in
+          Lwt.catch
+            (fun () ->
+              let open Lwt.Syntax in
+              let* () =
+                Lwt_io.with_file ~mode:Lwt_io.Output path (fun oc ->
+                    Lwt_io.write oc content)
+              in
+              match load_skill ~workspace_only ~allowed_commands path with
+              | None ->
+                  Lwt.return
+                    (Printf.sprintf
+                       "Written skill to %s but it failed validation — check \
+                        command syntax"
+                       path)
+              | Some tool ->
+                  if not collision then Tool_registry.register registry tool;
+                  let note =
+                    if collision then
+                      " (note: name collides with existing tool, not \
+                       hot-reloaded — will take effect on restart)"
+                    else " (hot-reloaded into current session)"
+                  in
+                  Lwt.return
+                    (Printf.sprintf "Created skill '%s' at %s%s" name path note))
+            (fun exn ->
+              Lwt.return ("Error writing skill: " ^ Printexc.to_string exn)));
+    invoke_stream = None;
+    risk_level = Medium;
+    deferred = false;
+  }
+
+let skill_list_tool () =
+  {
+    Tool.name = "skill_list";
+    description =
+      "List all user-defined skills from ~/.clawq/skills/ with their names and \
+       descriptions";
+    parameters_schema =
+      `Assoc [ ("type", `String "object"); ("properties", `Assoc []) ];
+    invoke =
+      (fun _args ->
+        let dir = skills_dir () in
+        let files = list_skills () in
+        if files = [] then Lwt.return ("No skills found in " ^ dir)
+        else
+          let entries =
+            List.filter_map
+              (fun f ->
+                let path = Filename.concat dir f in
+                try
+                  let json = Yojson.Safe.from_file path in
+                  let open Yojson.Safe.Util in
+                  let name =
+                    try json |> member "name" |> to_string with _ -> f
+                  in
+                  let desc =
+                    try json |> member "description" |> to_string
+                    with _ -> "(no description)"
+                  in
+                  Some (Printf.sprintf "- %s: %s" name desc)
+                with _ -> Some (Printf.sprintf "- %s: (parse error)" f))
+              files
+          in
+          Lwt.return
+            (Printf.sprintf "Skills in %s:\n%s" dir
+               (String.concat "\n" entries)));
+    invoke_stream = None;
+    risk_level = Low;
+    deferred = false;
+  }

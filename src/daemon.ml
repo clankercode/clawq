@@ -380,6 +380,10 @@ let run ~(config : Runtime_config.t) =
           Tool_registry.register registry s;
           Logs.info (fun m -> m "Loaded skill: %s" s.Tool.name))
         skills;
+      Tool_registry.register registry
+        (Skills.skill_create_tool ~workspace_only:config.security.workspace_only
+           ~allowed_commands:Tools_builtin.default_shell_allowlist registry);
+      Tool_registry.register registry (Skills.skill_list_tool ());
       Logs.info (fun m ->
           m "Tools enabled, registered built-in tools + %d skills"
             (List.length skills));

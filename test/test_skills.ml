@@ -194,6 +194,130 @@ let test_skill_invoke_workspace_binary_path_blocked () =
          with Not_found -> false));
   Sys.remove tmp
 
+let test_is_valid_skill_name () =
+  Alcotest.(check bool) "simple" true (Skills.is_valid_skill_name "hello");
+  Alcotest.(check bool)
+    "with hyphens" true
+    (Skills.is_valid_skill_name "my-skill");
+  Alcotest.(check bool)
+    "with underscores" true
+    (Skills.is_valid_skill_name "my_skill");
+  Alcotest.(check bool)
+    "with digits" true
+    (Skills.is_valid_skill_name "skill123");
+  Alcotest.(check bool) "empty" false (Skills.is_valid_skill_name "");
+  Alcotest.(check bool)
+    "with spaces" false
+    (Skills.is_valid_skill_name "my skill");
+  Alcotest.(check bool)
+    "with dots" false
+    (Skills.is_valid_skill_name "my.skill");
+  Alcotest.(check bool)
+    "with slash" false
+    (Skills.is_valid_skill_name "my/skill");
+  Alcotest.(check bool)
+    "too long" false
+    (Skills.is_valid_skill_name (String.make 65 'a'))
+
+let make_tmp_skills_dir () =
+  let dir =
+    Filename.get_temp_dir_name ()
+    ^ "/clawq_skill_create_"
+    ^ string_of_int (Random.int 100000)
+  in
+  (try Sys.mkdir dir 0o755 with _ -> ());
+  dir
+
+let test_skill_create_valid () =
+  let registry = Tool_registry.create () in
+  let tool =
+    Skills.skill_create_tool ~workspace_only:false ~allowed_commands:[] registry
+  in
+  let tmp_dir = make_tmp_skills_dir () in
+  let orig_home = try Some (Sys.getenv "HOME") with Not_found -> None in
+  Unix.putenv "HOME" (Filename.get_temp_dir_name ());
+  let parent = Filename.concat (Filename.get_temp_dir_name ()) ".clawq" in
+  (try Sys.mkdir parent 0o755 with _ -> ());
+  let sdir = Filename.concat parent "skills" in
+  (try Sys.mkdir sdir 0o755 with _ -> ());
+  let result =
+    Lwt_main.run
+      (tool.invoke
+         (`Assoc
+            [
+              ("name", `String "test_create");
+              ("description", `String "A test skill");
+              ("command", `String "echo hello");
+            ]))
+  in
+  let has_created =
+    try
+      ignore (Str.search_forward (Str.regexp_string "Created skill") result 0);
+      true
+    with Not_found -> false
+  in
+  Alcotest.(check bool) "skill created" true has_created;
+  let found = Tool_registry.find registry "test_create" in
+  Alcotest.(check bool) "hot-reloaded" true (found <> None);
+  (try Sys.remove (Filename.concat sdir "test_create.json") with _ -> ());
+  (try Sys.rmdir sdir with _ -> ());
+  (try Sys.rmdir parent with _ -> ());
+  (try Sys.rmdir tmp_dir with _ -> ());
+  match orig_home with Some h -> Unix.putenv "HOME" h | None -> ()
+
+let test_skill_create_invalid_name () =
+  let registry = Tool_registry.create () in
+  let tool =
+    Skills.skill_create_tool ~workspace_only:false ~allowed_commands:[] registry
+  in
+  let result =
+    Lwt_main.run
+      (tool.invoke
+         (`Assoc
+            [
+              ("name", `String "bad/name");
+              ("description", `String "desc");
+              ("command", `String "echo");
+            ]))
+  in
+  Alcotest.(check bool)
+    "rejected" true
+    (try
+       ignore (Str.search_forward (Str.regexp_string "Error:") result 0);
+       true
+     with Not_found -> false)
+
+let test_skill_create_missing_fields () =
+  let registry = Tool_registry.create () in
+  let tool =
+    Skills.skill_create_tool ~workspace_only:false ~allowed_commands:[] registry
+  in
+  let r1 = Lwt_main.run (tool.invoke (`Assoc [ ("name", `String "x") ])) in
+  Alcotest.(check bool)
+    "missing desc" true
+    (try
+       ignore
+         (Str.search_forward (Str.regexp_string "description is required") r1 0);
+       true
+     with Not_found -> false);
+  let r2 =
+    Lwt_main.run
+      (tool.invoke
+         (`Assoc [ ("name", `String "x"); ("description", `String "d") ]))
+  in
+  Alcotest.(check bool)
+    "missing command" true
+    (try
+       ignore
+         (Str.search_forward (Str.regexp_string "command is required") r2 0);
+       true
+     with Not_found -> false)
+
+let test_skill_list_empty () =
+  let tool = Skills.skill_list_tool () in
+  let result = Lwt_main.run (tool.invoke (`Assoc [])) in
+  Alcotest.(check bool) "returns something" true (String.length result > 0)
+
 let suite =
   [
     Alcotest.test_case "template substitution" `Quick test_substitute_template;
@@ -211,4 +335,11 @@ let suite =
       test_skill_invoke_workspace_path_blocked;
     Alcotest.test_case "skill invoke workspace binary path blocked" `Quick
       test_skill_invoke_workspace_binary_path_blocked;
+    Alcotest.test_case "valid skill name" `Quick test_is_valid_skill_name;
+    Alcotest.test_case "skill_create valid" `Quick test_skill_create_valid;
+    Alcotest.test_case "skill_create invalid name" `Quick
+      test_skill_create_invalid_name;
+    Alcotest.test_case "skill_create missing fields" `Quick
+      test_skill_create_missing_fields;
+    Alcotest.test_case "skill_list tool" `Quick test_skill_list_empty;
   ]

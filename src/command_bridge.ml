@@ -487,6 +487,10 @@ let cmd_capabilities () =
         ~allowed_commands:Tools_builtin.default_shell_allowlist ()
     in
     List.iter (fun s -> Tool_registry.register registry s) skills;
+    Tool_registry.register registry
+      (Skills.skill_create_tool ~workspace_only:cfg.security.workspace_only
+         ~allowed_commands:Tools_builtin.default_shell_allowlist registry);
+    Tool_registry.register registry (Skills.skill_list_tool ());
     let tool_names = List.map (fun (t : Tool.t) -> t.name) registry.tools in
     add
       (Printf.sprintf "  - Tools: %d registered (%s)" (List.length tool_names)
@@ -707,6 +711,10 @@ let cmd_mcp () =
         ~allowed_commands:Tools_builtin.default_shell_allowlist ()
     in
     List.iter (fun s -> Tool_registry.register registry s) skills;
+    Tool_registry.register registry
+      (Skills.skill_create_tool ~workspace_only:cfg.security.workspace_only
+         ~allowed_commands:Tools_builtin.default_shell_allowlist registry);
+    Tool_registry.register registry (Skills.skill_list_tool ());
     (* Filter to exposed_tools allowlist if configured *)
     (match cfg.mcp.exposed_tools with
     | Some allowed ->

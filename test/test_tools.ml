@@ -193,6 +193,137 @@ let test_safe_single_command_with_flags () =
     "flags safe" false
     (Tools_builtin.has_unsafe_shell_syntax "git log --oneline -n 10")
 
+let make_tmp_workspace () =
+  let dir =
+    Filename.get_temp_dir_name ()
+    ^ "/clawq_doc_test_"
+    ^ string_of_int (Random.int 100000)
+  in
+  (try Sys.mkdir dir 0o755 with _ -> ());
+  dir
+
+let test_doc_write_creates () =
+  let dir = make_tmp_workspace () in
+  let tool =
+    Tools_builtin.doc_write ~workspace:dir ~workspace_files:[ "TOOLS.md" ]
+  in
+  let result =
+    Lwt_main.run
+      (tool.invoke
+         (`Assoc
+            [
+              ("filename", `String "TOOLS.md");
+              ("content", `String "hello world");
+            ]))
+  in
+  Alcotest.(check bool)
+    "written" true
+    (try
+       ignore (Str.search_forward (Str.regexp_string "Written") result 0);
+       true
+     with Not_found -> false);
+  let content =
+    let ic = open_in (Filename.concat dir "TOOLS.md") in
+    let s = input_line ic in
+    close_in ic;
+    s
+  in
+  Alcotest.(check string) "content matches" "hello world" content;
+  Sys.remove (Filename.concat dir "TOOLS.md");
+  try Sys.rmdir dir with _ -> ()
+
+let test_doc_write_appends () =
+  let dir = make_tmp_workspace () in
+  let path = Filename.concat dir "NOTES.md" in
+  let oc = open_out path in
+  output_string oc "first\n";
+  close_out oc;
+  let tool =
+    Tools_builtin.doc_write ~workspace:dir ~workspace_files:[ "TOOLS.md" ]
+  in
+  let result =
+    Lwt_main.run
+      (tool.invoke
+         (`Assoc
+            [
+              ("filename", `String "NOTES.md");
+              ("content", `String "second\n");
+              ("append", `Bool true);
+            ]))
+  in
+  Alcotest.(check bool)
+    "appended" true
+    (try
+       ignore (Str.search_forward (Str.regexp_string "Appended") result 0);
+       true
+     with Not_found -> false);
+  let ic = open_in path in
+  let content = really_input_string ic (in_channel_length ic) in
+  close_in ic;
+  Alcotest.(check string) "content appended" "first\nsecond\n" content;
+  Sys.remove path;
+  try Sys.rmdir dir with _ -> ()
+
+let test_doc_write_rejects_traversal () =
+  let dir = make_tmp_workspace () in
+  let tool =
+    Tools_builtin.doc_write ~workspace:dir ~workspace_files:[ "TOOLS.md" ]
+  in
+  let result =
+    Lwt_main.run
+      (tool.invoke
+         (`Assoc
+            [
+              ("filename", `String "../etc/passwd"); ("content", `String "hack");
+            ]))
+  in
+  Alcotest.(check bool)
+    "rejected" true
+    (try
+       ignore (Str.search_forward (Str.regexp_string "Error:") result 0);
+       true
+     with Not_found -> false);
+  try Sys.rmdir dir with _ -> ()
+
+let test_doc_write_known_file () =
+  let dir = make_tmp_workspace () in
+  let tool =
+    Tools_builtin.doc_write ~workspace:dir ~workspace_files:[ "TOOLS.md" ]
+  in
+  let result =
+    Lwt_main.run
+      (tool.invoke
+         (`Assoc
+            [ ("filename", `String "TOOLS.md"); ("content", `String "data") ]))
+  in
+  Alcotest.(check bool)
+    "mentions active" true
+    (try
+       ignore
+         (Str.search_forward
+            (Str.regexp_string "active workspace file")
+            result 0);
+       true
+     with Not_found -> false);
+  let result_unknown =
+    Lwt_main.run
+      (tool.invoke
+         (`Assoc
+            [ ("filename", `String "RANDOM.md"); ("content", `String "data") ]))
+  in
+  Alcotest.(check bool)
+    "mentions not in list" true
+    (try
+       ignore
+         (Str.search_forward
+            (Str.regexp_string "not in workspace_files")
+            result_unknown 0);
+       true
+     with Not_found -> false);
+  (try Sys.remove (Filename.concat dir "TOOLS.md") with _ -> ());
+  (try Sys.remove (Filename.concat dir "RANDOM.md") with _ -> ());
+  try Sys.rmdir dir with _ -> ()
+
 let suite =
   [
     Alcotest.test_case "normalize absolute" `Quick test_normalize_absolute;
@@ -250,4 +381,10 @@ let suite =
       test_unsafe_double_ampersand;
     Alcotest.test_case "safe command with flags" `Quick
       test_safe_single_command_with_flags;
+    Alcotest.test_case "doc_write creates file" `Quick test_doc_write_creates;
+    Alcotest.test_case "doc_write appends" `Quick test_doc_write_appends;
+    Alcotest.test_case "doc_write rejects traversal" `Quick
+      test_doc_write_rejects_traversal;
+    Alcotest.test_case "doc_write known file note" `Quick
+      test_doc_write_known_file;
   ]
