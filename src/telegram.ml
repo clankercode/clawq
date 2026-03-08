@@ -46,6 +46,31 @@ type update = {
   caption : string option;
 }
 
+let recently_seen_updates : (string, float) Hashtbl.t = Hashtbl.create 256
+let duplicate_update_ttl_seconds = 600.0
+
+let update_dedupe_key (u : update) =
+  Printf.sprintf "%s:%d" u.chat_id u.update_id
+
+let cleanup_recently_seen_updates ~now =
+  let expired = ref [] in
+  Hashtbl.iter
+    (fun key seen_at ->
+      if now -. seen_at >= duplicate_update_ttl_seconds then
+        expired := key :: !expired)
+    recently_seen_updates;
+  List.iter (Hashtbl.remove recently_seen_updates) !expired
+
+let should_process_update (u : update) =
+  let now = Unix.gettimeofday () in
+  cleanup_recently_seen_updates ~now;
+  let key = update_dedupe_key u in
+  if Hashtbl.mem recently_seen_updates key then false
+  else begin
+    Hashtbl.replace recently_seen_updates key now;
+    true
+  end
+
 let get_updates ~bot_token ~offset ~timeout =
   let open Lwt.Syntax in
   let uri =
@@ -604,8 +629,15 @@ let poll_account ~bot_token ~(account : Runtime_config.telegram_account) ~name
       Lwt_list.iter_s
         (fun update ->
           offset := update.update_id + 1;
-          handle_update ~bot_token ~account ~session_mgr ?run_update_command
-            ?chat_limiter update)
+          if should_process_update update then
+            handle_update ~bot_token ~account ~session_mgr ?run_update_command
+              ?chat_limiter update
+          else begin
+            Logs.info (fun m ->
+                m "Telegram: ignoring duplicate update update_id=%d chat_id=%s"
+                  update.update_id update.chat_id);
+            Lwt.return_unit
+          end)
         updates
     in
     poll ()

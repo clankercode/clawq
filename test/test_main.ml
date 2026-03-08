@@ -65,6 +65,7 @@ let () =
        ("commands", Test_commands.suite);
        ("contracts", Test_contracts.suite);
        ("tools", Test_tools.suite);
+       ("telegram_dedupe", Test_telegram_dedupe.suite);
        ("config_set", Test_config_set.suite);
        ("config_show", Test_config_show.suite);
        ("config_wizard", Test_config_wizard.suite);
