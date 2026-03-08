@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-08T14:32:56Z"
+claimed_by: cli-user
+completed_at: "2026-03-08T14:39:01Z"
 complexity: medium
 depends_on: []
+duration_minutes: 6.0897020353333335
 estimate_hours: 1
 id: B083
 priority: high
-status: pending
+started_at: "2026-03-08T14:32:56Z"
+status: done
 tags: []
 title: Compaction seems to happen a bit too early (gpt-5.4; context limit is 272k so should compact at 75% of that, but compacted at like 120k.) Also should put a message in chat/telegram when compacting
 ---

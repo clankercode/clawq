@@ -10,6 +10,15 @@ let query_single_text_option db sql =
           | _ -> None)
       | _ -> None)
 
+let string_contains haystack needle =
+  let hay_len = String.length haystack and needle_len = String.length needle in
+  let rec loop i =
+    if i + needle_len > hay_len then false
+    else if String.sub haystack i needle_len = needle then true
+    else loop (i + 1)
+  in
+  needle_len = 0 || loop 0
+
 let free_port () =
   let sock = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
   Fun.protect
@@ -652,6 +661,45 @@ let test_turn_stream_uses_special_command_handler () =
     "stream done sent" true
     (List.exists (function Provider.Done -> true | _ -> false) !chunks)
 
+let test_turn_stream_emits_compaction_notice () =
+  with_fake_chat_provider (fun config ->
+      let config =
+        {
+          config with
+          memory = { config.memory with max_messages_per_session = 21 };
+        }
+      in
+      let mgr = Session.create ~config () in
+      Lwt_main.run
+        (Session.with_session_lock mgr ~key:"web:s-compact" (fun agent _ ->
+             for i = 1 to 25 do
+               agent.Agent.history <-
+                 Provider.make_message ~role:"user"
+                   ~content:(Printf.sprintf "seed message %02d" i)
+                 :: agent.Agent.history
+             done;
+             Lwt.return_unit));
+      let chunks = ref [] in
+      ignore
+        (Lwt_main.run
+           (Session.turn_stream mgr ~key:"web:s-compact" ~message:"hello"
+              ~on_chunk:(fun chunk ->
+                chunks := chunk :: !chunks;
+                Lwt.return_unit)
+              ()));
+      let deltas =
+        List.rev_map
+          (function
+            | Provider.Delta text -> text | Provider.Done -> "[DONE]" | _ -> "")
+          (List.filter
+             (function Provider.Delta _ | Provider.Done -> true | _ -> false)
+             !chunks)
+      in
+      let output = String.concat "" deltas in
+      Alcotest.(check bool)
+        "compaction notice text present" true
+        (string_contains output Session.compaction_notice))
+
 let test_bang_message_interrupts_before_lock_and_turns_normally () =
   with_fake_chat_provider (fun config ->
       let db = Memory.init ~db_path:":memory:" () in
@@ -787,6 +835,8 @@ let suite =
       test_turn_uses_special_command_handler;
     Alcotest.test_case "turn stream uses special command handler" `Quick
       test_turn_stream_uses_special_command_handler;
+    Alcotest.test_case "turn stream emits compaction notice" `Quick
+      test_turn_stream_emits_compaction_notice;
     Alcotest.test_case "bang message interrupts before lock and turns normally"
       `Quick test_bang_message_interrupts_before_lock_and_turns_normally;
     Alcotest.test_case "bang message turn stream processes normally" `Quick

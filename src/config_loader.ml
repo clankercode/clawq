@@ -105,6 +105,18 @@ let parse_config ?(resolve_secrets = true) json =
               : Runtime_config.provider_config) ))
     with _ -> []
   in
+  let model_context_limits =
+    try
+      json
+      |> member "model_context_limits"
+      |> to_assoc
+      |> List.filter_map (fun (name, value) ->
+          try
+            let limit = value |> to_int in
+            if limit > 0 then Some (name, limit) else None
+          with _ -> None)
+    with _ -> []
+  in
   let agent_defaults =
     try
       let ad = json |> member "agent_defaults" in
@@ -1213,6 +1225,7 @@ let parse_config ?(resolve_secrets = true) json =
     Runtime_config.default_temperature;
     default_provider;
     providers;
+    model_context_limits;
     agent_defaults;
     prompt;
     channels;

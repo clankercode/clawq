@@ -261,6 +261,50 @@ let test_parse_invalid_memory_compaction_threshold_percent_uses_default () =
     Runtime_config.default.memory.compaction_threshold_percent
     cfg.memory.compaction_threshold_percent
 
+let test_parse_model_context_limits () =
+  let json =
+    Yojson.Safe.from_string
+      {|{
+        "model_context_limits": {
+          "openai-codex/gpt-5.4": 272000,
+          "custom/model-x": 64000,
+          "invalid": 0
+        }
+      }|}
+  in
+  let cfg = Config_loader.parse_config json in
+  Alcotest.(check (list (pair string int)))
+    "model context limits parsed"
+    [ ("openai-codex/gpt-5.4", 272000); ("custom/model-x", 64000) ]
+    cfg.model_context_limits
+
+let test_to_json_omits_empty_model_context_limits () =
+  let json = Runtime_config.to_json Runtime_config.default in
+  let open Yojson.Safe.Util in
+  Alcotest.(check bool)
+    "empty model_context_limits omitted" true
+    (json |> member "model_context_limits" = `Null)
+
+let test_to_json_preserves_model_context_limits () =
+  let json =
+    Runtime_config.to_json
+      {
+        Runtime_config.default with
+        model_context_limits =
+          [ ("openai-codex/gpt-5.4", 272000); ("custom/model-x", 64000) ];
+      }
+  in
+  let open Yojson.Safe.Util in
+  Alcotest.(check int)
+    "gpt-5.4 limit serialized" 272000
+    (json
+    |> member "model_context_limits"
+    |> member "openai-codex/gpt-5.4"
+    |> to_int);
+  Alcotest.(check int)
+    "custom limit serialized" 64000
+    (json |> member "model_context_limits" |> member "custom/model-x" |> to_int)
+
 let test_parse_lark_defaults_disabled () =
   let json =
     Yojson.Safe.from_string
@@ -460,6 +504,12 @@ let suite =
     Alcotest.test_case
       "parse invalid memory compaction threshold percent uses default" `Quick
       test_parse_invalid_memory_compaction_threshold_percent_uses_default;
+    Alcotest.test_case "parse model context limits" `Quick
+      test_parse_model_context_limits;
+    Alcotest.test_case "to_json omits empty model context limits" `Quick
+      test_to_json_omits_empty_model_context_limits;
+    Alcotest.test_case "to_json preserves model context limits" `Quick
+      test_to_json_preserves_model_context_limits;
     Alcotest.test_case "parse lark defaults disabled" `Quick
       test_parse_lark_defaults_disabled;
     Alcotest.test_case "agent defaults show_tool_calls defaults true" `Quick

@@ -334,6 +334,7 @@ type t = {
   default_temperature : float;
   default_provider : string option;
   providers : (string * provider_config) list;
+  model_context_limits : (string * int) list;
   agent_defaults : agent_defaults;
   prompt : prompt_config;
   channels : channel_config;
@@ -391,6 +392,7 @@ let default =
     default_temperature = 0.7;
     default_provider = None;
     providers = [];
+    model_context_limits = [];
     agent_defaults =
       {
         primary_model = "openai/gpt-4o";
@@ -561,6 +563,7 @@ let context_window_table =
     ("gpt-4-turbo", 128000);
     ("gpt-4", 8192);
     ("gpt-3.5-turbo", 16385);
+    ("gpt-5.4", 272000);
     ("o1", 200000);
     ("o1-mini", 128000);
     ("o1-preview", 128000);
@@ -594,29 +597,47 @@ let strip_date_suffix_cfg s =
     if all_digits then String.sub s 0 (len - 9) else s
   else s
 
-let context_window_for_model model_name =
+let normalize_model_name_for_context_lookup model_name =
   let norm =
     String.lowercase_ascii (strip_date_suffix_cfg (String.trim model_name))
   in
-  let strip_provider s =
-    match String.index_opt s '/' with
-    | Some i when i + 1 < String.length s ->
-        String.sub s (i + 1) (String.length s - i - 1)
-    | _ -> s
-  in
-  let bare = strip_provider norm in
+  match String.index_opt norm '/' with
+  | Some i when i + 1 < String.length norm ->
+      String.sub norm (i + 1) (String.length norm - i - 1)
+  | _ -> norm
+
+let context_window_for_model ?(configured_limits = []) model_name =
+  let bare = normalize_model_name_for_context_lookup model_name in
   let find_prefix hay needle =
     String.length hay >= String.length needle
     && String.sub hay 0 (String.length needle) = needle
   in
-  match List.find_opt (fun (k, _) -> bare = k) context_window_table with
+  let normalized_configured_limits =
+    List.map
+      (fun (name, limit) ->
+        (normalize_model_name_for_context_lookup name, limit))
+      configured_limits
+  in
+  match List.find_opt (fun (k, _) -> bare = k) normalized_configured_limits with
   | Some (_, v) -> Some v
   | None -> (
-      match
-        List.find_opt (fun (k, _) -> find_prefix bare k) context_window_table
-      with
+      match List.find_opt (fun (k, _) -> bare = k) context_window_table with
       | Some (_, v) -> Some v
-      | None -> None)
+      | None -> (
+          match
+            List.find_opt
+              (fun (k, _) -> find_prefix bare k)
+              normalized_configured_limits
+          with
+          | Some (_, v) -> Some v
+          | None -> (
+              match
+                List.find_opt
+                  (fun (k, _) -> find_prefix bare k)
+                  context_window_table
+              with
+              | Some (_, v) -> Some v
+              | None -> None)))
 
 let effective_primary_model (ad : agent_defaults) =
   (effective_primary_target ad).model
@@ -780,6 +801,23 @@ let to_json (cfg : t) : Yojson.Safe.t =
           `Assoc
             (List.map (fun (name, p) -> (name, provider_json p)) cfg.providers)
         );
+      ]
+  in
+  let fields =
+    if cfg.model_context_limits = [] then fields
+    else
+      fields
+      @ [
+          ( "model_context_limits",
+            `Assoc
+              (List.map
+                 (fun (name, limit) -> (name, `Int limit))
+                 cfg.model_context_limits) );
+        ]
+  in
+  let fields =
+    fields
+    @ [
         ( "agent_defaults",
           `Assoc
             ([

@@ -162,6 +162,20 @@ let with_registered_notifier mgr ~key ~notify f =
 let find_registered_notifier mgr ~key =
   Hashtbl.find_opt mgr.channel_notifiers key
 
+let compaction_notice =
+  "Compacting earlier chat history to stay within the model's context window."
+
+let notify_compaction_if_needed ?notify compacted =
+  match (compacted, notify) with
+  | true, Some send ->
+      Lwt.catch
+        (fun () -> send compaction_notice)
+        (fun exn ->
+          Logs.warn (fun m ->
+              m "Failed to send compaction notice: %s" (Printexc.to_string exn));
+          Lwt.return_unit)
+  | _ -> Lwt.return_unit
+
 let handle_special_command mgr ~key ~message ?send_progress () =
   match mgr.special_command_handler with
   | None -> Lwt.return_none
@@ -487,10 +501,12 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(attachments = [])
       ?sender_name ()
   in
   let history_before = List.length agent.history in
+  let notify = find_registered_notifier mgr ~key in
   let* compacted =
     Agent.prepare_turn_history agent ~user_message:effective_message ?db:mgr.db
       ()
   in
+  let* () = notify_compaction_if_needed ?notify compacted in
   if compacted then persist_compacted_history mgr ~key agent
   else persist_new_messages mgr ~key ~history_before agent;
   let runtime_context =
@@ -501,7 +517,6 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(attachments = [])
       ()
   in
   let prepared_history_len = List.length agent.history in
-  let notify = find_registered_notifier mgr ~key in
   record_agent_turn mgr ~key ?channel ?channel_id ();
   let* response =
     Lwt.catch
@@ -690,6 +705,12 @@ let turn_stream mgr ~key ~message ?(attachments = []) ?channel_name
                 let* compacted =
                   Agent.prepare_turn_history agent
                     ~user_message:effective_message ?db:mgr.db ()
+                in
+                let* () =
+                  notify_compaction_if_needed
+                    ~notify:(fun text ->
+                      on_chunk (Provider.Delta (text ^ "\n")))
+                    compacted
                 in
                 if compacted then persist_compacted_history mgr ~key agent
                 else persist_new_messages mgr ~key ~history_before agent;

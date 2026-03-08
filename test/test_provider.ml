@@ -118,6 +118,7 @@ let test_context_window_known () =
   in
   check "claude-opus-4-6" 200000;
   check "gpt-4o" 128000;
+  check "gpt-5.4" 272000;
   check "gpt-4o-mini" 128000;
   check "llama-3.3-70b" 128000;
   check "gemini-1.5-pro" 2097152
@@ -131,6 +132,18 @@ let test_context_window_with_date () =
   Alcotest.(check (option int))
     "with date suffix" (Some 128000)
     (Runtime_config.context_window_for_model "gpt-4o-20250101")
+
+let test_context_window_codex_prefix () =
+  Alcotest.(check (option int))
+    "codex provider prefix" (Some 272000)
+    (Runtime_config.context_window_for_model "openai-codex/gpt-5.4")
+
+let test_context_window_uses_configured_override () =
+  Alcotest.(check (option int))
+    "configured override" (Some 384000)
+    (Runtime_config.context_window_for_model
+       ~configured_limits:[ ("openai-codex/gpt-5.4", 384000) ]
+       "gpt-5.4")
 
 let test_context_window_unknown () =
   Alcotest.(check (option int))
@@ -424,6 +437,10 @@ let suite =
       test_context_window_with_prefix;
     Alcotest.test_case "context window with date" `Quick
       test_context_window_with_date;
+    Alcotest.test_case "context window codex prefix" `Quick
+      test_context_window_codex_prefix;
+    Alcotest.test_case "context window uses configured override" `Quick
+      test_context_window_uses_configured_override;
     Alcotest.test_case "context window unknown" `Quick
       test_context_window_unknown;
     Alcotest.test_case "detect kind anthropic" `Quick test_detect_kind_anthropic;

@@ -174,6 +174,7 @@ let config_schema =
       ("default_temperature", L);
       ("default_provider", L);
       ("providers", D provider_schema);
+      ("model_context_limits", O []);
       ( "agent_defaults",
         O
           [

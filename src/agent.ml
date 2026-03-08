@@ -48,7 +48,10 @@ let context_window_for_agent agent =
   let model =
     Runtime_config.effective_primary_model agent.config.agent_defaults
   in
-  match Runtime_config.context_window_for_model model with
+  match
+    Runtime_config.context_window_for_model
+      ~configured_limits:agent.config.model_context_limits model
+  with
   | Some w -> w
   | None -> 128000
 

@@ -171,6 +171,7 @@ let convert (json : Yojson.Safe.t) =
       default_temperature;
       default_provider = None;
       providers;
+      model_context_limits = [];
       agent_defaults = { default.agent_defaults with primary_model };
       prompt = default.prompt;
       channels;
