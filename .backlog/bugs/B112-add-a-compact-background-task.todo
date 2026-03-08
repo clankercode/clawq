@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-08T17:25:24Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-08T17:26:34Z"
 complexity: medium
 depends_on: []
+duration_minutes: 1.1766891851166668
 estimate_hours: 1
 id: B112
 priority: high
 started_at: "2026-03-08T17:25:24Z"
-status: in_progress
+status: done
 tags: []
 title: Add a compact background-task summary to the runtime context section of the system prompt, showing queued/running delegated work when present so the agent can see active background activity without full task history.
 ---
