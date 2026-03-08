@@ -1,0 +1,100 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B065
+priority: high
+status: pending
+tags: []
+title: llms-full needs more details. Provided in body.
+---
+
+llms-full needs more details. Clawq asks:
+
+
+Please improve `llms-full.txt` so it is materially more useful for self-diagnosis and autonomous operation, not just for user-facing setup.
+
+Goals:
+- Clawq should be able to diagnose why shell tools and file tools see different filesystem views
+- Clawq should be able to determine why it cannot access paths like `~/src` from shell execution even when file tools can read them
+- Clawq should be able to understand whether commands are executed through a shell or via direct `execvp`
+- Clawq should be able to reason about sandboxing, mounts, cwd, restart/resume behavior, session identity, heartbeat routing, and proactive messaging
+- Clawq should be able to troubleshoot its own runtime behavior without reading source code for every issue
+
+Please add or improve sections covering:
+
+1. Shell execution model
+- how shell/tool commands are actually run
+- whether commands use `/bin/sh -c`, `bash -lc`, direct exec, bubblewrap, firejail, etc
+- whether builtins like `cd` and `command` work
+- whether `&&`, `||`, pipes, redirects, and compound shell syntax are supported
+
+2. Sandbox and filesystem visibility
+- what filesystem paths are mounted into shell/tool execution
+- whether shell tools and file tools share the same filesystem view
+- what `/dev`, `/tmp`, `/proc`, `/etc`, `$HOME`, and workspace visibility should look like
+- how `workspace_only` changes behavior
+- how to diagnose when shell-visible paths differ from file-visible paths
+
+3. Working directory semantics
+- default cwd for tool execution
+- how cwd is chosen
+- whether it defaults to workspace root, home, or session-specific directories
+- how to deliberately run commands in repo directories
+
+4. Session identity and routing
+- meaning of session names like `main` and `telegram:<id>:<id>`
+- which session is considered the main session
+- where heartbeat messages are expected to appear
+- how session routing affects memory loading, heartbeat handling, and autonomous behavior
+
+5. Heartbeat model
+- how heartbeats are delivered
+- how they should be recognized
+- whether they appear in normal history
+- what configuration controls them
+- how to troubleshoot missing heartbeat messages
+
+6. Restart and resume model
+- what `service signal-restart` does internally
+- whether restart is graceful
+- what state is persisted
+- whether pending replies or pending work are resumed automatically
+- how Clawq can inspect resume state after restart
+
+7. Autonomous continuation
+- whether Clawq can automatically continue work after restart
+- whether an automatic re-prompt or model invocation is expected
+- how proactive outbound messages work
+- whether Clawq can message the user while background work continues
+- any limitations around concurrency or turn ownership
+
+8. Self-diagnostics checklist
+Please add a concise troubleshooting section with examples such as:
+- shell tools cannot access `~/src` but file tools can
+- shell builtins fail with “No such file or directory”
+- git fails because `/dev/null` is missing
+- heartbeats are expected but not appearing
+- service restarted, but autonomous work did not resume
+- session is not `main`, so expected behavior differs
+
+9. Runtime architecture summary
+Add a compact overview of:
+- daemon/service layer
+- channels
+- tool runner
+- sandbox layer
+- scheduler/heartbeat
+- persistence/resume state
+- outbound messaging path
+
+The desired outcome:
+`llms-full.txt` should let Clawq answer questions like:
+- Why can I read `/home/xertrov/src/clawq` with file tools but not access `~/src` from shell?
+- Am I in a sandbox, and what exactly can I see from there?
+- Why did `cd ~/src/clawq && ...` fail?
+- Where should heartbeat messages appear?
+- What happens when I restart myself?
+- Can I continue autonomous work after restart, and if not, what is missing?
+
+Please keep it concise but operationally concrete. It should be a real diagnostic reference, not marketing prose.
