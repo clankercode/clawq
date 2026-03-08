@@ -484,7 +484,8 @@ let test_tool_cycle_history_shape () =
 
 let suite =
   [
-    Alcotest.test_case "init sets busy_timeout" `Quick test_init_sets_busy_timeout;
+    Alcotest.test_case "init sets busy_timeout" `Quick
+      test_init_sets_busy_timeout;
     Alcotest.test_case "init creates db" `Quick test_init_creates_db;
     Alcotest.test_case "init search enabled" `Quick test_init_search_enabled;
     Alcotest.test_case "init search disabled" `Quick test_init_search_disabled;

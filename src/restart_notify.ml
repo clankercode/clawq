@@ -70,5 +70,7 @@ let from_json_string raw =
   try
     let json = Yojson.Safe.from_string raw in
     let open Yojson.Safe.Util in
-    Some (json |> member "channel" |> to_string, json |> member "channel_id" |> to_string)
+    Some
+      ( json |> member "channel" |> to_string,
+        json |> member "channel_id" |> to_string )
   with _ -> None

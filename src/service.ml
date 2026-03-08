@@ -162,8 +162,8 @@ let handle_daemon_exit ?(execve = Unix.execve) exit_intent =
         | Some (channel, channel_id) ->
             [
               (nofork_env, "1");
-              (Restart_notify.env_key,
-               Restart_notify.to_json_string ~channel ~channel_id);
+              ( Restart_notify.env_key,
+                Restart_notify.to_json_string ~channel ~channel_id );
             ]
         | None -> [ (nofork_env, "1") ]
       in

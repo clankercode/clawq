@@ -1,14 +1,15 @@
 ---
-claimed_at: "2026-03-08T16:40:52Z"
+claimed_at: "2026-03-08T16:41:22Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-08T16:44:41Z"
 complexity: medium
 depends_on: []
+duration_minutes: 3.3319716407833333
 estimate_hours: 1
 id: B107
 priority: high
-started_at: "2026-03-08T16:40:52Z"
-status: in_progress
+started_at: "2026-03-08T16:41:22Z"
+status: done
 tags: []
 title: implement /version which shows the current version, git shorthash, and build date
 ---

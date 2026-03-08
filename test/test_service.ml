@@ -147,8 +147,8 @@ let suite =
   [
     Alcotest.test_case "handle daemon exit restart sets nofork and execs" `Quick
       test_handle_daemon_exit_restart_sets_nofork_and_execs;
-    Alcotest.test_case "handle daemon exit restart carries restart notify env" `Quick
-      test_handle_daemon_exit_restart_carries_restart_notify_env;
+    Alcotest.test_case "handle daemon exit restart carries restart notify env"
+      `Quick test_handle_daemon_exit_restart_carries_restart_notify_env;
     Alcotest.test_case "handle daemon exit shutdown skips exec" `Quick
       test_handle_daemon_exit_shutdown_skips_exec;
     Alcotest.test_case "run nofork start reexecs without public env" `Quick

@@ -272,9 +272,11 @@ let test_spawn_task_marks_failed_when_worktree_creation_fails () =
       match Background_task.get_task ~db ~id with
       | None -> Alcotest.fail "expected task"
       | Some task ->
-          Alcotest.(check string) "status failed" "failed"
+          Alcotest.(check string)
+            "status failed" "failed"
             (Background_task.string_of_status task.status);
-          Alcotest.(check bool) "result mentions failure" true
+          Alcotest.(check bool)
+            "result mentions failure" true
             (match task.result_preview with
             | Some s -> String.contains s 'f'
             | None -> false))
@@ -355,8 +357,8 @@ let suite =
       test_logs_tool_returns_excerpt;
     Alcotest.test_case "start queued spawns queued tasks" `Quick
       test_start_queued_spawns_queued_tasks;
-    Alcotest.test_case "spawn task marks failed when worktree creation fails" `Quick
-      test_spawn_task_marks_failed_when_worktree_creation_fails;
+    Alcotest.test_case "spawn task marks failed when worktree creation fails"
+      `Quick test_spawn_task_marks_failed_when_worktree_creation_fails;
     Alcotest.test_case "delegate tool queues task" `Quick
       test_delegate_tool_queues_task;
     Alcotest.test_case "enqueue rejects non-git repo" `Quick
