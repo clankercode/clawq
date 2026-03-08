@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B061
+priority: high
+status: pending
+tags: []
+title: add llms.txt to docs site. get a research subagent to find out how to do llms.txt properly.
+---
+
+add llms.txt to docs site. get a research subagent to find out how to do llms.txt properly.

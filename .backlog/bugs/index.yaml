@@ -59,3 +59,4 @@ bugs:
     - file: B058-clawq-config-set-allows-settin.todo
     - file: B059-when-starting-up-clawq-should.todo
     - file: B060-clawq-needs-a-way-to-automatic.todo
+    - file: B061-add-llms-txt-to-docs-site-get.todo
