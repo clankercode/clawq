@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B080
+priority: high
+status: pending
+tags: []
+title: Daemon config changes likely do not live-reload for web_search/Brave and related runtime tool config; inspect reload path and ensure changed config is applied without full restart, or document restart requirement clearly.
+---
+
+Daemon config changes likely do not live-reload for web_search/Brave and related runtime tool config; inspect reload path and ensure changed config is applied without full restart, or document restart requirement clearly.
