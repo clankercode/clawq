@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 4
+id: P6.M1.E1.T002
+priority: medium
+status: pending
+tags: []
+title: Wire ChannelAuth is_allowed into channel authorization paths
+---
+Clawq_core.is_allowed from ChannelAuth.v is already extracted. Wire it into the actual allowlist checks in src/slack.ml, src/discord.ml, and src/telegram.ml (replacing or augmenting OCaml implementations). Add dual-check logging if keeping OCaml version as fallback. Acceptance: channel authorization uses Coq-extracted allowlist logic; make test passes.

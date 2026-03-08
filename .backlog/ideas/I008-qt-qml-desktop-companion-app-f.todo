@@ -15,6 +15,73 @@ title: Qt/QML desktop companion app for Clawq
 
 Qt/QML desktop companion app for Clawq
 
+
+Build a Linux desktop companion for Clawq using Qt/QML, designed primarily for Plasma and Hyprland.
+
+The app should begin as a persistent but noninvasive chat companion and be able to grow into a richer desktop client or operator console over time.
+
+### Product goals
+- Provide a primary daily desktop interface for chatting with Clawq
+- Feel always available without being obtrusive
+- Support compact summonable use and expanded full-window use
+- Connect through the existing Clawq gateway so it can work both locally and from another machine on the same network
+- Preserve a visually austere, elegant, terminal-adjacent design suitable for Clawq
+
+### V1 scope
+- Main conversation view with history
+- Chat input composer
+- Streaming assistant replies
+- Thinking display
+- Connection/runtime indicator
+- Notifications
+- Unread/activity indicator
+- Compact mode and expanded mode
+- Tray integration where supported
+- Global shortcut to summon/hide
+- Startup on login
+- Session-oriented architecture, even if V1 emphasizes one main conversation
+
+### Desktop targets
+- Plasma
+- Hyprland
+- Wayland-first behavior
+- Good focus behavior and noninvasive presence
+
+### Architecture
+- Qt/QML app
+- Use existing Clawq gateway rather than inventing a new protocol
+- Support local and LAN-hosted Clawq instances
+- Handle reconnects, pairing/auth, and streaming cleanly
+
+### Aesthetic direction
+- Austere
+- Elegant
+- Terminal-adjacent
+- Dark-first
+- Minimal chrome
+- High readability
+- Serious and befitting Clawq
+
+### Explicitly deferred but should be documented
+- Rich operator console mode
+- Runtime/service controls
+- Heartbeat and task views
+- Multi-pane administrative tools
+- Voice/peripheral integrations
+- DBus automation
+- More advanced compositor/window-manager integrations
+
+### Open design work
+- Exact compact-mode interaction model
+- Expanded-mode information architecture
+- Session switching UX
+- Notifications UX
+- Summon/hide behavior across Plasma and Hyprland
+- Pairing/auth flow for remote gateway use
+
+
+
+
 ## Planning Task (Equivalent of /plan-task)
 
 - Run `/plan-task I008` to decompose this idea into actionable work.

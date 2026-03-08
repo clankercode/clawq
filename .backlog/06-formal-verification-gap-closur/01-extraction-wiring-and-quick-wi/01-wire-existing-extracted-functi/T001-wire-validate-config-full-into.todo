@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 2
+id: P6.M1.E1.T001
+priority: high
+status: pending
+tags: []
+title: Wire validate_config_full into config_loader.ml
+---
+Call Clawq_core.validate_config_full from config_loader.ml after JSON parsing. Map Runtime_config.t fields to Clawq_core.clawqConfig at the validation point. Log/warn on failure. The function is already extracted -- it just needs a call site. Acceptance: make test passes, invalid port/temperature/weights configs produce warnings.

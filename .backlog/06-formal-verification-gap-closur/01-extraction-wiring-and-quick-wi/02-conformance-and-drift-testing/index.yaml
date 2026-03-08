@@ -1,0 +1,34 @@
+complexity: medium
+depends_on: []
+estimate_hours: 4
+id: P6.M1.E2
+locked: false
+name: Conformance and Drift Testing
+status: pending
+tasks:
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 3
+      file: T001-property-based-conformance-tes.todo
+      id: T001
+      priority: high
+      status: pending
+      title: Property-based conformance tests for path safety (Coq vs OCaml)
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 3
+      file: T002-property-based-conformance-tes.todo
+      id: T002
+      priority: high
+      status: pending
+      title: Property-based conformance tests for shell safety (Coq vs OCaml)
+    - complexity: medium
+      depends_on:
+        - P6.M1.E2.T001
+        - P6.M1.E2.T002
+      estimate_hours: 2
+      file: T003-promote-dual-check-drift-warni.todo
+      id: T003
+      priority: medium
+      status: pending
+      title: Promote dual-check drift warnings to test failures

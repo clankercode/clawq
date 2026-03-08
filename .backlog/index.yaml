@@ -53,6 +53,16 @@ phases:
       priority: high
       status: pending
       weeks: 8
+    - depends_on: []
+      description: 'Close the gap between Coq proofs and runtime enforcement. Wire already-extracted functions, add conformance tests, instantiate abstract Coq modules with concrete implementations, and add runtime assertions for spec-only invariants. Ref: docs/FV_SPEC_IMPL_GAP_AUDIT_2026_03_08.md'
+      estimate_hours: 40
+      id: P6
+      locked: false
+      name: Formal Verification Gap Closure
+      path: 06-formal-verification-gap-closur
+      priority: high
+      status: pending
+      weeks: 2
 project: Clawq
 stats:
     blocked: 0

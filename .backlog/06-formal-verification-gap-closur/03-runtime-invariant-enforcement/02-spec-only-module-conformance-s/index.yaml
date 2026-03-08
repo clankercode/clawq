@@ -1,0 +1,32 @@
+complexity: medium
+depends_on: []
+estimate_hours: 4
+id: P6.M3.E2
+locked: false
+name: Spec-Only Module Conformance Suite
+status: pending
+tasks:
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 4
+      file: T001-conformance-tests-for-auditcha.todo
+      id: T001
+      priority: medium
+      status: pending
+      title: Conformance tests for AuditChain/AuditRetention theorems
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 3
+      file: T002-conformance-tests-for-sessioni.todo
+      id: T002
+      priority: medium
+      status: pending
+      title: Conformance tests for SessionIsolation theorems
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 3
+      file: T003-conformance-tests-for-ratelimi.todo
+      id: T003
+      priority: medium
+      status: pending
+      title: Conformance tests for RateLimiter/AgentLoop theorems

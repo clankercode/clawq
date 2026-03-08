@@ -1,0 +1,24 @@
+complexity: medium
+depends_on: []
+estimate_hours: 4
+id: P6.M1.E1
+locked: false
+name: Wire Existing Extracted Functions
+status: pending
+tasks:
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 2
+      file: T001-wire-validate-config-full-into.todo
+      id: T001
+      priority: high
+      status: pending
+      title: Wire validate_config_full into config_loader.ml
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 4
+      file: T002-wire-channelauth-is-allowed-in.todo
+      id: T002
+      priority: medium
+      status: pending
+      title: Wire ChannelAuth is_allowed into channel authorization paths

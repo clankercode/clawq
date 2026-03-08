@@ -1,0 +1,26 @@
+complexity: medium
+depends_on: []
+epics:
+    - complexity: medium
+      depends_on: []
+      description: Inject runtime assertions into OCaml modules that enforce invariants proved in spec-only Coq modules (RateLimiter, AgentLoop).
+      estimate_hours: 4
+      id: E1
+      locked: false
+      name: Runtime Assertions from Coq Specs
+      path: 01-runtime-assertions-from-coq-sp
+      status: pending
+    - complexity: medium
+      depends_on: []
+      description: For each spec-only Coq module, write OCaml tests exercising the same scenarios the Coq theorems prove, ensuring runtime implementations match proved specifications.
+      estimate_hours: 4
+      id: E2
+      locked: false
+      name: Spec-Only Module Conformance Suite
+      path: 02-spec-only-module-conformance-s
+      status: pending
+estimate_hours: 8
+id: P6.M3
+locked: false
+name: Runtime Invariant Enforcement
+status: pending

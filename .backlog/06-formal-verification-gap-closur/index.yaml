@@ -1,0 +1,36 @@
+complexity: medium
+depends_on: []
+estimate_hours: 40
+id: P6
+locked: false
+milestones:
+    - complexity: medium
+      depends_on: []
+      description: Wire already-extracted Coq functions into runtime, add conformance tests for dual-check paths, discharge remaining admits. No new Coq proofs needed — immediate assurance gain.
+      estimate_hours: 8
+      id: M1
+      locked: false
+      name: Extraction Wiring and Quick Wins
+      path: 01-extraction-wiring-and-quick-wi
+      status: pending
+    - complexity: medium
+      depends_on: []
+      description: Instantiate the parameterized AuditChain Coq module with concrete SHA256/HMAC-SHA256, extract, and wire into src/audit.ml. Closes the biggest single spec-implementation gap (7 proved theorems with zero runtime protection).
+      estimate_hours: 8
+      id: M2
+      locked: false
+      name: Audit Chain Extraction
+      path: 02-audit-chain-extraction
+      status: pending
+    - complexity: medium
+      depends_on: []
+      description: Add runtime assertions derived from spec-only Coq proofs and comprehensive conformance test suites for all spec-only modules.
+      estimate_hours: 8
+      id: M3
+      locked: false
+      name: Runtime Invariant Enforcement
+      path: 03-runtime-invariant-enforcement
+      status: pending
+name: Formal Verification Gap Closure
+status: pending
+weeks: 2

@@ -1,0 +1,13 @@
+---
+complexity: medium
+depends_on:
+    - P6.M1.E2.T001
+    - P6.M1.E2.T002
+estimate_hours: 2
+id: P6.M1.E2.T003
+priority: medium
+status: pending
+tags: []
+title: Promote dual-check drift warnings to test failures
+---
+In tools_builtin.ml, the dual path/shell safety checks log drift warnings when Coq and OCaml disagree. Ensure test runs surface drift as failures, not just log lines. Options: hook into Logs reporter, add a drift counter, or assert no drift in test teardown. Acceptance: drift between Coq and OCaml checks during tests causes test failure.

@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 3
+id: P6.M1.E2.T001
+priority: high
+status: pending
+tags: []
+title: Property-based conformance tests for path safety (Coq vs OCaml)
+---
+Generate random path segments (including .., ., empty, normal, symlink-like). Assert Clawq_core.is_path_safe_segs and is_path_safe_ocaml agree on all inputs. Use QCheck or simple random generator. Acceptance: make test includes path safety conformance tests; any disagreement fails the test.

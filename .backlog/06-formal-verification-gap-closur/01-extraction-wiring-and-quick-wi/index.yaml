@@ -1,0 +1,35 @@
+complexity: medium
+depends_on: []
+epics:
+    - complexity: medium
+      depends_on: []
+      description: Call Coq-extracted functions that already exist in clawq_core.ml but are never invoked by the runtime.
+      estimate_hours: 4
+      id: E1
+      locked: false
+      name: Wire Existing Extracted Functions
+      path: 01-wire-existing-extracted-functi
+      status: pending
+    - complexity: medium
+      depends_on: []
+      description: Add property-based tests comparing Coq-extracted and OCaml-native implementations, and promote drift warnings to test failures.
+      estimate_hours: 4
+      id: E2
+      locked: false
+      name: Conformance and Drift Testing
+      path: 02-conformance-and-drift-testing
+      status: pending
+    - complexity: medium
+      depends_on: []
+      description: Discharge remaining admitted lemmas to reach zero admits in the Coq codebase.
+      estimate_hours: 4
+      id: E3
+      locked: false
+      name: Proof Cleanup
+      path: 03-proof-cleanup
+      status: pending
+estimate_hours: 8
+id: P6.M1
+locked: false
+name: Extraction Wiring and Quick Wins
+status: pending

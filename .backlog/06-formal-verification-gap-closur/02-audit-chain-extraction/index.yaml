@@ -1,0 +1,17 @@
+complexity: medium
+depends_on: []
+epics:
+    - complexity: medium
+      depends_on: []
+      description: Create a concrete Coq instantiation of the parameterized AuditChain module with SHA256/HMAC-SHA256 wrappers, extract the instantiated functions, and wire them into src/audit.ml.
+      estimate_hours: 4
+      id: E1
+      locked: false
+      name: Instantiate AuditChain with Concrete Crypto
+      path: 01-instantiate-auditchain-with-co
+      status: pending
+estimate_hours: 8
+id: P6.M2
+locked: false
+name: Audit Chain Extraction
+status: pending

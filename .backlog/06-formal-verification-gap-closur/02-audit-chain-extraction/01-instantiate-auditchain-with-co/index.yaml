@@ -1,0 +1,34 @@
+complexity: medium
+depends_on: []
+estimate_hours: 4
+id: P6.M2.E1
+locked: false
+name: Instantiate AuditChain with Concrete Crypto
+status: pending
+tasks:
+    - complexity: high
+      depends_on: []
+      estimate_hours: 4
+      file: T001-coq-instantiate-auditchain-wit.todo
+      id: T001
+      priority: high
+      status: pending
+      title: 'Coq: instantiate AuditChain with SHA256/HMAC-SHA256 wrappers'
+    - complexity: medium
+      depends_on:
+        - P6.M2.E1.T001
+      estimate_hours: 2
+      file: T002-extract-instantiated-verify-ch.todo
+      id: T002
+      priority: high
+      status: pending
+      title: Extract instantiated verify_chain and make_entry to OCaml
+    - complexity: high
+      depends_on:
+        - P6.M2.E1.T002
+      estimate_hours: 4
+      file: T003-wire-extracted-chain-functions.todo
+      id: T003
+      priority: high
+      status: pending
+      title: Wire extracted chain functions into src/audit.ml

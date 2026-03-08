@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 3
+id: P6.M3.E2.T003
+priority: medium
+status: pending
+tags: []
+title: Conformance tests for RateLimiter/AgentLoop theorems
+---
+Translate RateLimiter theorems (bounded_refill, consume_semantics) and AgentLoop theorems (trim_history_length, trim_history_idempotent, loop_terminates) into OCaml tests against src/rate_limiter.ml and src/agent.ml. Acceptance: make test passes.

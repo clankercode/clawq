@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 3
+id: P6.M3.E2.T002
+priority: medium
+status: pending
+tags: []
+title: Conformance tests for SessionIsolation theorems
+---
+Translate SessionIsolation theorems (store_message_isolated, get_or_create_preserves_other, reset_session_idempotent) into OCaml tests against src/session.ml. Test cross-session isolation, same-key stability, and reset behavior. Acceptance: make test passes.

@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 3
+id: P6.M1.E2.T002
+priority: high
+status: pending
+tags: []
+title: Property-based conformance tests for shell safety (Coq vs OCaml)
+---
+Generate random shell strings (including metacharacters, quotes, spaces, unicode). Assert Clawq_core.is_shell_safe vs has_unsafe_shell_syntax_ocaml and Clawq_core.split_words vs split_command_words_ocaml agree on all inputs. Acceptance: make test includes shell safety conformance tests.

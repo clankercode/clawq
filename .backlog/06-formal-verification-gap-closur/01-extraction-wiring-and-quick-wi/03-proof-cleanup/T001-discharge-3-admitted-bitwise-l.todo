@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 2
+id: P6.M1.E3.T001
+priority: low
+status: pending
+tags: []
+title: Discharge 3 admitted bitwise lemmas in LandlockPolicy.v
+---
+LandlockPolicy.v has 3 Admitted statements: minimal_permission_valid, minimal_permission_nonzero, read_lt_rw. These are trivially true for the concrete bitmask values. Discharge by unfolding concrete flag definitions and using compute/case analysis on path_class (5 concrete cases). Acceptance: make coq-verify passes with 0 Admitted in LandlockPolicy.v.

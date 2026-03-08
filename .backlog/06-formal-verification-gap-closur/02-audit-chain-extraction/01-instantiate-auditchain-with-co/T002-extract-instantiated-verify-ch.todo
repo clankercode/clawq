@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on:
+    - P6.M2.E1.T001
+estimate_hours: 2
+id: P6.M2.E1.T002
+priority: high
+status: pending
+tags: []
+title: Extract instantiated verify_chain and make_entry to OCaml
+---
+Add extraction directives for the concrete AuditChain instance to Extract.v. Regenerate clawq_core.ml/mli. Verify the extracted functions have usable OCaml signatures. Acceptance: make extract-check passes; new functions visible in clawq_core.mli.

@@ -1,0 +1,11 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 1
+id: P6.M3.E1.T001
+priority: low
+status: pending
+tags: []
+title: Add runtime assertions for RateLimiter proved invariants
+---
+RateLimiter.v proves tokens <= max_tokens after refill, tokens >= 0 after consume, and consume decreases by exactly 1. Add lightweight assertions in src/rate_limiter.ml enforcing these at runtime. Catches float rounding violations. Acceptance: make test passes with assertions enabled.

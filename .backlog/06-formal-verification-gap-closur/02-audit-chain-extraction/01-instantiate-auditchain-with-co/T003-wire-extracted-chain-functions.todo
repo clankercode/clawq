@@ -1,0 +1,12 @@
+---
+complexity: high
+depends_on:
+    - P6.M2.E1.T002
+estimate_hours: 4
+id: P6.M2.E1.T003
+priority: high
+status: pending
+tags: []
+title: Wire extracted chain functions into src/audit.ml
+---
+Replace or augment the OCaml chain construction/verification in src/audit.ml with calls to the extracted Clawq_core functions. At minimum, verify_chain should use the extracted version. If the extracted make_entry signature is compatible, use it for chain construction too. Acceptance: make test passes; audit verification uses Coq-extracted code path.

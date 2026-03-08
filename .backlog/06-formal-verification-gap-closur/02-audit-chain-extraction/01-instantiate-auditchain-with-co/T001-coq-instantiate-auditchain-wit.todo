@@ -1,0 +1,11 @@
+---
+complexity: high
+depends_on: []
+estimate_hours: 4
+id: P6.M2.E1.T001
+priority: high
+status: pending
+tags: []
+title: 'Coq: instantiate AuditChain with SHA256/HMAC-SHA256 wrappers'
+---
+Create a new Coq module (e.g. AuditChainConcrete.v) that instantiates the parameterized AuditChain module with concrete hash/hmac functions. Use string-wrapping functions suitable for extraction. All 7 AuditChain theorems should carry over to the concrete instance. Acceptance: make coq-verify passes with the new module.

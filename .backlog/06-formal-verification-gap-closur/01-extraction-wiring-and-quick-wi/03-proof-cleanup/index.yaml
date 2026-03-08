@@ -1,0 +1,16 @@
+complexity: medium
+depends_on: []
+estimate_hours: 4
+id: P6.M1.E3
+locked: false
+name: Proof Cleanup
+status: pending
+tasks:
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 2
+      file: T001-discharge-3-admitted-bitwise-l.todo
+      id: T001
+      priority: low
+      status: pending
+      title: Discharge 3 admitted bitwise lemmas in LandlockPolicy.v

@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 4
+id: P6.M3.E2.T001
+priority: medium
+status: pending
+tags: []
+title: Conformance tests for AuditChain/AuditRetention theorems
+---
+Translate key AuditChain theorems (verify_chain_append, build_chain_valid, suffix_monotonicity) and AuditRetention theorems (purge_by_count_suffix, purge_preserves_validity) into concrete OCaml test scenarios against src/audit.ml. Acceptance: make test passes; each key theorem has a corresponding test.
