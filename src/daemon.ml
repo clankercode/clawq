@@ -1165,6 +1165,15 @@ let run ~(config : Runtime_config.t) =
             (fun () ->
               let rec loop () =
                 let open Lwt.Syntax in
+                let queued =
+                  List.filter
+                    (fun t -> t.Background_task.status = Background_task.Queued)
+                    (Background_task.list_tasks ~db)
+                in
+                if queued <> [] then
+                  Logs.info (fun m ->
+                      m "Background task poll: %d queued task(s) pending"
+                        (List.length queued));
                 let () =
                   Background_task.start_queued_with_callback ~db
                     ~on_task_finished:

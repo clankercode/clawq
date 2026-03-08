@@ -234,6 +234,51 @@ let test_logs_tool_returns_excerpt () =
          with Not_found -> false);
       Sys.remove log_path)
 
+let test_start_queued_spawns_queued_tasks () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"implement feature" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      let spawned = ref [] in
+      Background_task.start_queued_with_callback ~db
+        ~spawn_task:(fun ~on_task_finished:_ ~db:_ task -> spawned := task.id :: !spawned)
+        ~on_task_finished:(fun _ -> Lwt.return_unit);
+      Alcotest.(check (list int)) "queued task spawned" [ id ] (List.rev !spawned))
+
+let test_spawn_task_marks_failed_when_worktree_creation_fails () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"implement feature" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      Background_task.spawn_task ~db
+        ~run_simple_command:(fun ~cwd:_ _argv ->
+          Lwt.return (1, "", "simulated worktree failure"))
+        { (Option.get (Background_task.get_task ~db ~id)) with id };
+      Unix.sleepf 0.05;
+      match Background_task.get_task ~db ~id with
+      | None -> Alcotest.fail "expected task"
+      | Some task ->
+          Alcotest.(check string) "status failed" "failed"
+            (Background_task.string_of_status task.status);
+          Alcotest.(check bool) "result mentions failure" true
+            (match task.result_preview with
+            | Some s -> String.contains s 'f'
+            | None -> false))
+
 let test_delegate_tool_queues_task () =
   with_temp_git_repo (fun repo ->
       let db = Memory.init ~db_path:":memory:" () in
@@ -308,6 +353,10 @@ let suite =
       test_wait_tool_returns_terminal_summary;
     Alcotest.test_case "logs tool returns excerpt" `Quick
       test_logs_tool_returns_excerpt;
+    Alcotest.test_case "start queued spawns queued tasks" `Quick
+      test_start_queued_spawns_queued_tasks;
+    Alcotest.test_case "spawn task marks failed when worktree creation fails" `Quick
+      test_spawn_task_marks_failed_when_worktree_creation_fails;
     Alcotest.test_case "delegate tool queues task" `Quick
       test_delegate_tool_queues_task;
     Alcotest.test_case "enqueue rejects non-git repo" `Quick

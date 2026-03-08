@@ -591,7 +591,7 @@ let run_simple_command ~cwd argv =
   let* status = proc#close in
   Lwt.return (exit_code_of_status status, stdout, stderr)
 
-let prepare_worktree task =
+let prepare_worktree ?(run_simple_command = run_simple_command) task =
   let branch =
     if task.branch <> "" then task.branch else default_branch_name task.id
   in
@@ -626,7 +626,8 @@ let prepare_worktree task =
 
 let running : (int, unit) Hashtbl.t = Hashtbl.create 16
 
-let spawn_task ?(on_task_finished = fun _ -> Lwt.return_unit) ~db task =
+let spawn_task ?(on_task_finished = fun _ -> Lwt.return_unit)
+    ?(run_simple_command = run_simple_command) ~db task =
   Hashtbl.replace running task.id ();
   Lwt.async (fun () ->
       let open Lwt.Syntax in
@@ -636,7 +637,7 @@ let spawn_task ?(on_task_finished = fun _ -> Lwt.return_unit) ~db task =
       in
       Lwt.finalize
         (fun () ->
-          let* prepared = prepare_worktree task in
+          let* prepared = prepare_worktree ~run_simple_command task in
           match prepared with
           | Error err ->
               finish ~db ~id:task.id ~status:Failed ~result_preview:err;
@@ -715,7 +716,7 @@ let spawn_task ?(on_task_finished = fun _ -> Lwt.return_unit) ~db task =
                 Lwt.return_unit)
         finalize)
 
-let start_queued_with_callback ~on_task_finished ~db =
+let start_queued_with_callback ?(spawn_task = spawn_task) ~on_task_finished ~db =
   let queued =
     List.filter
       (fun t -> t.status = Queued && not (Hashtbl.mem running t.id))
