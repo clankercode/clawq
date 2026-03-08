@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B052
+priority: high
+status: pending
+tags: []
+title: check whether compaction is required on startup and compact if so.
+---
+
+check whether compaction is required on startup and compact if so.
