@@ -582,8 +582,8 @@ let run ~(config : Runtime_config.t) =
         update_in_progress := false;
         Lwt.return_unit)
   in
-  let run_update ~send_progress () =
-    Update_tool.run_update ~claim_update ~finish_update
+  let run_update ?prepare_restart ~send_progress () =
+    Update_tool.run_update ?prepare_restart ~claim_update ~finish_update
       ~is_draining:(fun () -> Session.is_draining session_manager)
       ~send_progress ()
   in
@@ -692,6 +692,7 @@ let run ~(config : Runtime_config.t) =
           ?slack_config:config.channels.slack
           ?github_config:config.channels.github ~github_api_limiter ~ip_limiter
           ~session_limiter ~slack_event_limiter ?web_channel:web_channel_handler
+          ~slack_run_update_command:run_update
           ?whatsapp_config:config.channels.whatsapp
           ?line_config:config.channels.line
           ?lark_config:
@@ -707,7 +708,8 @@ let run ~(config : Runtime_config.t) =
   let telegram =
     Lwt.catch
       (fun () ->
-        Telegram.start_polling ~config ~session_manager ~chat_limiter ())
+        Telegram.start_polling ~config ~session_manager
+          ~run_update_command:run_update ~chat_limiter ())
       (fun exn ->
         Logs.err (fun m ->
             m "Telegram polling error: %s" (Printexc.to_string exn));

@@ -99,6 +99,30 @@ let get_updates ~bot_token ~offset ~timeout =
           (redact_token bot_token));
     Lwt.return [])
 
+let acknowledge_update ~bot_token ~update_id =
+  let open Lwt.Syntax in
+  let uri =
+    Printf.sprintf "%s%s/getUpdates?offset=%d&timeout=0" api_base bot_token
+      (update_id + 1)
+  in
+  Lwt.catch
+    (fun () ->
+      let* status, _body = Http_client.get ~uri ~headers:[] in
+      if status >= 200 && status < 300 then Lwt.return (Ok ())
+      else
+        Lwt.return
+          (Error
+             (Printf.sprintf
+                "Failed to acknowledge Telegram update %d before restart (HTTP \
+                 %d). Restart aborted."
+                update_id status)))
+    (fun exn ->
+      Lwt.return
+        (Error
+           (Printf.sprintf
+              "Failed to acknowledge Telegram update %d before restart: %s"
+              update_id (Printexc.to_string exn))))
+
 let telegram_max_message_len = 4096
 
 (* Split text into chunks no larger than max_len, preferring newline boundaries *)
@@ -261,7 +285,7 @@ let requires_totp_auth ~(account : Runtime_config.telegram_account) ~chat_id =
   | _ -> false
 
 let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
-    ~(session_mgr : Session.t) ?chat_limiter update =
+    ~(session_mgr : Session.t) ?run_update_command ?chat_limiter update =
   let open Lwt.Syntax in
   (* Check /pair command first (before auth checks) *)
   let trimmed = String.trim update.text in
@@ -378,6 +402,26 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                 | None -> Lwt.return update.text))
       in
       if user_text = "" then Lwt.return_unit
+      else if Update_tool.is_update_command user_text then
+        let send_progress text =
+          send_chunked ~bot_token ~chat_id:update.chat_id ~text
+        in
+        let run_update_command =
+          match run_update_command with
+          | Some run_update_command -> run_update_command
+          | None ->
+              fun ?prepare_restart ~send_progress () ->
+                Update_tool.run_update ?prepare_restart
+                  ~is_draining:(fun () -> Session.is_draining session_mgr)
+                  ~send_progress ()
+        in
+        let* response =
+          run_update_command
+            ~prepare_restart:(fun () ->
+              acknowledge_update ~bot_token ~update_id:update.update_id)
+            ~send_progress ()
+        in
+        send_chunked ~bot_token ~chat_id:update.chat_id ~text:response
       else
         match Slash_commands.handle user_text with
         | Reply text -> send_message ~bot_token ~chat_id:update.chat_id ~text
@@ -449,7 +493,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                 Lwt.return_unit)
 
 let poll_account ~bot_token ~(account : Runtime_config.telegram_account) ~name
-    ~(session_mgr : Session.t) ?chat_limiter () =
+    ~(session_mgr : Session.t) ?run_update_command ?chat_limiter () =
   let open Lwt.Syntax in
   Logs.info (fun m -> m "Starting Telegram polling for account '%s'" name);
   let* () =
@@ -485,7 +529,8 @@ let poll_account ~bot_token ~(account : Runtime_config.telegram_account) ~name
       Lwt_list.iter_s
         (fun update ->
           offset := update.update_id + 1;
-          handle_update ~bot_token ~account ~session_mgr ?chat_limiter update)
+          handle_update ~bot_token ~account ~session_mgr ?run_update_command
+            ?chat_limiter update)
         updates
     in
     poll ()
@@ -493,7 +538,7 @@ let poll_account ~bot_token ~(account : Runtime_config.telegram_account) ~name
   poll ()
 
 let start_polling ~(config : Runtime_config.t) ~(session_manager : Session.t)
-    ?chat_limiter () =
+    ?run_update_command ?chat_limiter () =
   match config.channels.telegram with
   | None ->
       Logs.info (fun m -> m "No Telegram config found, skipping polling");
@@ -515,7 +560,8 @@ let start_polling ~(config : Runtime_config.t) ~(session_manager : Session.t)
                 else
                   Some
                     (poll_account ~bot_token:account.bot_token ~account ~name
-                       ~session_mgr:session_manager ?chat_limiter ()))
+                       ~session_mgr:session_manager ?run_update_command
+                       ?chat_limiter ()))
               accounts
           in
           match poll_loops with

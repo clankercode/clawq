@@ -244,6 +244,31 @@ let test_handle_tunnel_status () =
            true
          with Not_found -> false))
 
+let test_cmd_agent_reexecs_on_restart () =
+  let execd = ref None in
+  let result =
+    Command_bridge.cmd_agent
+      ~run_daemon:(fun ~config:_ -> Daemon.Restart)
+      ~execv:(fun path argv -> execd := Some (path, Array.to_list argv))
+      ()
+  in
+  Alcotest.(check string) "restart result" "Daemon restart requested." result;
+  Alcotest.(check (option (pair string (list string))))
+    "re-execs agent"
+    (Some (Sys.executable_name, [ Sys.executable_name; "agent" ]))
+    !execd
+
+let test_cmd_agent_stops_on_shutdown () =
+  let execd = ref false in
+  let result =
+    Command_bridge.cmd_agent
+      ~run_daemon:(fun ~config:_ -> Daemon.Shutdown)
+      ~execv:(fun _ _ -> execd := true)
+      ()
+  in
+  Alcotest.(check string) "shutdown result" "Daemon stopped." result;
+  Alcotest.(check bool) "no re-exec" false !execd
+
 let test_status_cleans_stale_daemon_state () =
   with_temp_home (fun home ->
       let clawq_dir = Filename.concat home ".clawq" in
@@ -317,6 +342,10 @@ let suite =
     Alcotest.test_case "handle reloads config between calls" `Quick
       test_handle_reloads_config_between_calls;
     Alcotest.test_case "handle tunnel status" `Quick test_handle_tunnel_status;
+    Alcotest.test_case "cmd_agent reexecs on restart" `Quick
+      test_cmd_agent_reexecs_on_restart;
+    Alcotest.test_case "cmd_agent stops on shutdown" `Quick
+      test_cmd_agent_stops_on_shutdown;
     Alcotest.test_case "status cleans stale daemon state" `Quick
       test_status_cleans_stale_daemon_state;
     Alcotest.test_case "otp-show reads live gateway pairing code" `Quick

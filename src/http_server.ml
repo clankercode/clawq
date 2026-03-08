@@ -167,8 +167,8 @@ let lookup_github_repo path (gc : Runtime_config.github_config) =
 
 let handler ~session_manager ~require_pairing ~auth_token ?slack_config
     ?github_config ?github_api_limiter ?ip_limiter ?session_limiter
-    ?slack_event_limiter ?web_channel ?whatsapp_config ?line_config ?lark_config
-    ?pairing ?ui_server _conn req body =
+    ?slack_event_limiter ?slack_run_update_command ?web_channel ?whatsapp_config
+    ?line_config ?lark_config ?pairing ?ui_server _conn req body =
   let open Lwt.Syntax in
   let uri = Cohttp.Request.uri req in
   let path = Uri.path uri in
@@ -429,6 +429,7 @@ let handler ~session_manager ~require_pairing ~auth_token ?slack_config
       else
         let* result =
           Slack.handle_event ~config:sc ~session_manager
+            ?run_update_command:slack_run_update_command
             ?event_limiter:slack_event_limiter body_str
         in
         Cohttp_lwt_unix.Server.respond_string ~status:`OK ~headers:json_headers
@@ -663,14 +664,14 @@ let handler ~session_manager ~require_pairing ~auth_token ?slack_config
 
 let start ~port ~host ~require_pairing ~auth_token ~session_manager
     ?slack_config ?github_config ?github_api_limiter ?ip_limiter
-    ?session_limiter ?slack_event_limiter ?web_channel ?whatsapp_config
-    ?line_config ?lark_config ?pairing ?ui_server () =
+    ?session_limiter ?slack_event_limiter ?slack_run_update_command ?web_channel
+    ?whatsapp_config ?line_config ?lark_config ?pairing ?ui_server () =
   let open Lwt.Syntax in
   let callback =
     handler ~session_manager ~require_pairing ~auth_token ?slack_config
       ?github_config ?github_api_limiter ?ip_limiter ?session_limiter
-      ?slack_event_limiter ?web_channel ?whatsapp_config ?line_config
-      ?lark_config ?pairing ?ui_server
+      ?slack_event_limiter ?slack_run_update_command ?web_channel
+      ?whatsapp_config ?line_config ?lark_config ?pairing ?ui_server
   in
   let* ctx = Conduit_lwt_unix.init ~src:host () in
   let ctx = Cohttp_lwt_unix.Net.init ~ctx () in

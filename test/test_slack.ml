@@ -131,6 +131,38 @@ let test_session_key_format () =
       Alcotest.(check string) "session key format" "slack:C123:U456" key
   | _ -> Alcotest.fail "expected Message"
 
+let test_handle_event_update_returns_before_restart_finishes () =
+  let config = make_config () in
+  let session_manager = Session.create ~config:Runtime_config.default () in
+  let sent = ref [] in
+  let started = ref false in
+  let gate, release = Lwt.wait () in
+  let body =
+    {|{"type":"event_callback","event":{"type":"message","channel":"C123","user":"U456","text":"/update"}}|}
+  in
+  let result =
+    Lwt_main.run
+      (Slack.handle_event ~config ~session_manager
+         ~send_message_fn:(fun ~bot_token:_ ~channel_id:_ ~text ->
+           sent := text :: !sent;
+           Lwt.return_unit)
+         ~run_update_command:(fun ?prepare_restart:_ ~send_progress () ->
+           let open Lwt.Syntax in
+           started := true;
+           let* () = send_progress "Starting update..." in
+           let* () = gate in
+           Lwt.return "Build complete. Sending restart signal...")
+         body)
+  in
+  Alcotest.(check string) "returns ok immediately" "ok" result;
+  Lwt.wakeup_later release ();
+  Lwt_main.run (Lwt_unix.sleep 0.01);
+  Alcotest.(check bool) "background update started" true !started;
+  Alcotest.(check (list string))
+    "progress and final message sent"
+    [ "Starting update..."; "Build complete. Sending restart signal..." ]
+    (List.rev !sent)
+
 let suite =
   [
     Alcotest.test_case "is_allowed wildcard" `Quick test_is_allowed_wildcard;
@@ -152,4 +184,6 @@ let suite =
     Alcotest.test_case "parse event non-message callback" `Quick
       test_parse_event_non_message_callback;
     Alcotest.test_case "session key format" `Quick test_session_key_format;
+    Alcotest.test_case "handle event update returns before restart finishes"
+      `Quick test_handle_event_update_returns_before_restart_finishes;
   ]

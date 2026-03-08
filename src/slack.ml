@@ -74,7 +74,8 @@ let parse_event body =
   with _ -> None
 
 let handle_event ~(config : Runtime_config.slack_config)
-    ~(session_manager : Session.t) ?event_limiter body =
+    ~(session_manager : Session.t) ?(send_message_fn = send_message)
+    ?run_update_command ?event_limiter body =
   let open Lwt.Syntax in
   match parse_event body with
   | Some (UrlVerification challenge) ->
@@ -111,7 +112,7 @@ let handle_event ~(config : Runtime_config.slack_config)
           if should_warn then begin
             Hashtbl.replace _rate_limit_warnings limiter_key now;
             let* () =
-              send_message ~bot_token:config.bot_token ~channel_id
+              send_message_fn ~bot_token:config.bot_token ~channel_id
                 ~text:
                   "Please slow down, I can only process a limited number of \
                    messages per minute."
@@ -122,57 +123,94 @@ let handle_event ~(config : Runtime_config.slack_config)
         end
         else
           let key = "slack:" ^ channel_id ^ ":" ^ user_id in
-          match Slash_commands.handle text with
-          | Reply reply_text ->
-              let* () =
-                send_message ~bot_token:config.bot_token ~channel_id
-                  ~text:reply_text
-              in
-              Lwt.return "ok"
-          | Reset ->
-              let* () = Session.reset session_manager ~key in
-              let* () =
-                send_message ~bot_token:config.bot_token ~channel_id
-                  ~text:Slash_commands.reset_message
-              in
-              Lwt.return "ok"
-          | NotACommand -> (
-              let* result =
-                Session.with_registered_notifier session_manager ~key
-                  ~notify:(fun text ->
-                    send_message ~bot_token:config.bot_token ~channel_id ~text)
+          if Update_tool.is_update_command text then begin
+            let notify text =
+              send_message_fn ~bot_token:config.bot_token ~channel_id ~text
+            in
+            let run_update_command =
+              match run_update_command with
+              | Some run_update_command -> run_update_command
+              | None ->
+                  fun ?prepare_restart:_ ~send_progress () ->
+                    Update_tool.run_update
+                      ~is_draining:(fun () ->
+                        Session.is_draining session_manager)
+                      ~send_progress ()
+            in
+            Session.register_channel_notifier session_manager ~key notify;
+            Lwt.async (fun () ->
+                Lwt.finalize
                   (fun () ->
                     Lwt.catch
                       (fun () ->
                         let* response =
-                          Session.turn session_manager ~key ~message:text
-                            ~channel_name:channel_id ~channel_type:"group"
-                            ~sender_id:user_id ~channel:"slack" ~channel_id ()
+                          run_update_command ~send_progress:notify ()
                         in
-                        Lwt.return (Ok response))
-                      (fun exn -> Lwt.return (Error (Printexc.to_string exn))))
-              in
-              match result with
-              | Ok response ->
-                  let* () =
-                    send_message ~bot_token:config.bot_token ~channel_id
-                      ~text:response
-                  in
-                  Session.mark_response_sent session_manager ~key;
-                  Lwt.return "ok"
-              | Error err ->
-                  Logs.err (fun m ->
-                      m "Slack agent error for channel=%s user=%s: %s"
-                        channel_id user_id err);
-                  let* () =
-                    send_message ~bot_token:config.bot_token ~channel_id
-                      ~text:
-                        (Printf.sprintf
-                           "Sorry, an error occurred processing your message: \
-                            %s"
-                           err)
-                  in
-                  Session.mark_response_sent session_manager ~key;
-                  Lwt.return "ok")
+                        notify response)
+                      (fun exn ->
+                        notify
+                          (Printf.sprintf
+                             "Sorry, an error occurred processing your \
+                              message: %s"
+                             (Printexc.to_string exn))))
+                  (fun () ->
+                    Session.unregister_channel_notifier session_manager ~key;
+                    Lwt.return_unit));
+            Lwt.return "ok"
+          end
+          else
+            match Slash_commands.handle text with
+            | Reply reply_text ->
+                let* () =
+                  send_message_fn ~bot_token:config.bot_token ~channel_id
+                    ~text:reply_text
+                in
+                Lwt.return "ok"
+            | Reset ->
+                let* () = Session.reset session_manager ~key in
+                let* () =
+                  send_message_fn ~bot_token:config.bot_token ~channel_id
+                    ~text:Slash_commands.reset_message
+                in
+                Lwt.return "ok"
+            | NotACommand -> (
+                let* result =
+                  Session.with_registered_notifier session_manager ~key
+                    ~notify:(fun text ->
+                      send_message_fn ~bot_token:config.bot_token ~channel_id
+                        ~text)
+                    (fun () ->
+                      Lwt.catch
+                        (fun () ->
+                          let* response =
+                            Session.turn session_manager ~key ~message:text
+                              ~channel_name:channel_id ~channel_type:"group"
+                              ~sender_id:user_id ~channel:"slack" ~channel_id ()
+                          in
+                          Lwt.return (Ok response))
+                        (fun exn -> Lwt.return (Error (Printexc.to_string exn))))
+                in
+                match result with
+                | Ok response ->
+                    let* () =
+                      send_message_fn ~bot_token:config.bot_token ~channel_id
+                        ~text:response
+                    in
+                    Session.mark_response_sent session_manager ~key;
+                    Lwt.return "ok"
+                | Error err ->
+                    Logs.err (fun m ->
+                        m "Slack agent error for channel=%s user=%s: %s"
+                          channel_id user_id err);
+                    let* () =
+                      send_message_fn ~bot_token:config.bot_token ~channel_id
+                        ~text:
+                          (Printf.sprintf
+                             "Sorry, an error occurred processing your \
+                              message: %s"
+                             err)
+                    in
+                    Session.mark_response_sent session_manager ~key;
+                    Lwt.return "ok")
       end
   | Some Other | None -> Lwt.return "ok"

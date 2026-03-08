@@ -65,7 +65,8 @@ let binary_url_of_env () =
   | Some url when String.trim url <> "" -> Some (String.trim url)
   | _ -> None
 
-let run_git_update ~repo_root ~run_command ~send_signal ~send_progress =
+let run_git_update ~repo_root ~run_command ~send_signal ~send_progress
+    ~prepare_restart =
   let open Lwt.Syntax in
   let* () = send_progress "Starting update..." in
   let* () = send_progress "Mode: git" in
@@ -93,12 +94,28 @@ let run_git_update ~repo_root ~run_command ~send_signal ~send_progress =
   end
   else begin
     let message = "Build complete. Sending restart signal..." in
-    send_signal (Unix.getpid ()) Sys.sigusr1;
-    Lwt.return message
+    let* prepared = prepare_restart ~send_progress in
+    match prepared with
+    | Some err -> Lwt.return err
+    | None ->
+        send_signal (Unix.getpid ()) Sys.sigusr1;
+        Lwt.return message
   end
 
+let run_prepare_restart prepare_restart ~send_progress =
+  let open Lwt.Syntax in
+  match prepare_restart with
+  | None -> Lwt.return_none
+  | Some prepare_restart -> (
+      let* result = prepare_restart () in
+      match result with
+      | Ok () -> Lwt.return_none
+      | Error err ->
+          let* () = send_progress err in
+          Lwt.return_some err)
+
 let run_binary_update ~binary_url ~target_path ~run_command ~send_signal
-    ~send_progress =
+    ~send_progress ~prepare_restart =
   let open Lwt.Syntax in
   let cwd = Filename.dirname target_path in
   let tmp_path = target_path ^ ".download" in
@@ -147,15 +164,19 @@ let run_binary_update ~binary_url ~target_path ~run_command ~send_signal
       end
       else begin
         let message = "Binary update complete. Sending restart signal..." in
-        send_signal (Unix.getpid ()) Sys.sigusr1;
-        Lwt.return message
+        let* prepared = prepare_restart ~send_progress in
+        match prepared with
+        | Some err -> Lwt.return err
+        | None ->
+            send_signal (Unix.getpid ()) Sys.sigusr1;
+            Lwt.return message
       end
     end
   end
 
 let run_update ?(find_repo_root = find_repo_root)
     ?(run_command = stream_process) ?(send_signal = Unix.kill) ?claim_update
-    ?(finish_update = fun () -> Lwt.return_unit)
+    ?(finish_update = fun () -> Lwt.return_unit) ?prepare_restart
     ?(binary_url = binary_url_of_env ()) ?start_path ?(mode = Auto) ~is_draining
     ~send_progress () =
   let open Lwt.Syntax in
@@ -184,9 +205,11 @@ let run_update ?(find_repo_root = find_repo_root)
             Lwt.return message
         | (Auto | Git), Some repo_root, _ ->
             run_git_update ~repo_root ~run_command ~send_signal ~send_progress
+              ~prepare_restart:(run_prepare_restart prepare_restart)
         | Binary, _, Some binary_url | Auto, None, Some binary_url ->
             run_binary_update ~binary_url ~target_path ~run_command ~send_signal
               ~send_progress
+              ~prepare_restart:(run_prepare_restart prepare_restart)
         | Binary, _, None ->
             let message =
               "Binary update mode requires CLAWQ_UPDATE_BINARY_URL to be set."

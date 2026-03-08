@@ -727,17 +727,22 @@ let cmd_mcp () =
     ""
   end
 
-let cmd_agent () =
+let agent_argv () = [| Sys.executable_name; "agent" |]
+
+let cmd_agent ?(run_daemon = fun ~config -> Lwt_main.run (Daemon.run ~config))
+    ?(execv = Unix.execv) () =
   let cfg = get_config () in
   let result =
-    try Lwt_main.run (Daemon.run ~config:cfg)
+    try run_daemon ~config:cfg
     with Failure msg ->
       print_endline ("Error: " ^ msg);
       exit 1
   in
   match result with
   | Daemon.Shutdown -> "Daemon stopped."
-  | Daemon.Restart -> "Daemon restart requested."
+  | Daemon.Restart ->
+      execv Sys.executable_name (agent_argv ());
+      "Daemon restart requested."
 
 let cmd_cron args =
   match args with

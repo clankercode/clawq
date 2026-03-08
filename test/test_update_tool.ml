@@ -200,6 +200,59 @@ let test_run_update_binary_mode_requires_url () =
     [ "Binary update mode requires CLAWQ_UPDATE_BINARY_URL to be set." ]
     (List.rev !progress)
 
+let test_run_update_prepares_restart_before_signal () =
+  let prepared = ref false in
+  let signaled = ref false in
+  let result =
+    Lwt_main.run
+      (Update_tool.run_update
+         ~find_repo_root:(fun ?start_path:_ ?exists:_ () -> Some "/repo")
+         ~run_command:(fun ~cwd:_ ~argv:_ ~send_progress:_ -> Lwt.return 0)
+         ~prepare_restart:(fun () ->
+           prepared := true;
+           Lwt.return (Ok ()))
+         ~send_signal:(fun _ _ -> signaled := true)
+         ~is_draining:(fun () -> false)
+         ~send_progress:(fun _ -> Lwt.return_unit)
+         ())
+  in
+  Alcotest.(check string)
+    "success result" "Build complete. Sending restart signal..." result;
+  Alcotest.(check bool) "prepare called" true !prepared;
+  Alcotest.(check bool) "restart signal sent" true !signaled
+
+let test_run_update_aborts_when_prepare_restart_fails () =
+  let progress = ref [] in
+  let signaled = ref false in
+  let result =
+    Lwt_main.run
+      (Update_tool.run_update
+         ~find_repo_root:(fun ?start_path:_ ?exists:_ () -> Some "/repo")
+         ~run_command:(fun ~cwd:_ ~argv:_ ~send_progress:_ -> Lwt.return 0)
+         ~prepare_restart:(fun () ->
+           Lwt.return
+             (Error
+                "Failed to acknowledge Telegram update 42 before restart. \
+                 Restart aborted."))
+         ~send_signal:(fun _ _ -> signaled := true)
+         ~is_draining:(fun () -> false)
+         ~send_progress:(fun text ->
+           progress := text :: !progress;
+           Lwt.return_unit)
+         ())
+  in
+  Alcotest.(check string)
+    "prepare failure result"
+    "Failed to acknowledge Telegram update 42 before restart. Restart aborted."
+    result;
+  Alcotest.(check bool) "restart signal suppressed" false !signaled;
+  Alcotest.(check bool)
+    "prepare failure reported" true
+    (List.mem
+       "Failed to acknowledge Telegram update 42 before restart. Restart \
+        aborted."
+       !progress)
+
 let suite =
   [
     Alcotest.test_case "find repo root returns none when missing" `Quick
@@ -216,4 +269,8 @@ let suite =
       test_run_update_uses_binary_mode_when_repo_missing;
     Alcotest.test_case "run update binary mode requires url" `Quick
       test_run_update_binary_mode_requires_url;
+    Alcotest.test_case "run update prepares restart before signal" `Quick
+      test_run_update_prepares_restart_before_signal;
+    Alcotest.test_case "run update aborts when prepare restart fails" `Quick
+      test_run_update_aborts_when_prepare_restart_fails;
   ]
