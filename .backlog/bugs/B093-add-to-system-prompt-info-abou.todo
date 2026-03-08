@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B093
+priority: high
+status: pending
+tags: []
+title: 'Add to system prompt: info about current Clarq runtime (version, git shorthash, build date)'
+---
+
+Add to system prompt: info about current Clarq runtime (version, git shorthash, build date)

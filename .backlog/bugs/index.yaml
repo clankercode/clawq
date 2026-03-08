@@ -91,3 +91,4 @@ bugs:
     - file: B090-tool-call-one-liners-sent-to-c.todo
     - file: B091-add-a-way-for-clawq-to-run-lon.todo
     - file: B092-when-we-queue-a-message-we-sho.todo
+    - file: B093-add-to-system-prompt-info-abou.todo
