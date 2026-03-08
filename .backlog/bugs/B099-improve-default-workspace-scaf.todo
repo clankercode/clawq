@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-08T15:38:07Z"
+claimed_by: cli-user
+completed_at: "2026-03-08T15:41:05Z"
 complexity: medium
 depends_on: []
+duration_minutes: 2.9666937026666664
 estimate_hours: 1
 id: B099
 priority: high
-status: pending
+started_at: "2026-03-08T15:38:07Z"
+status: done
 tags: []
 title: 'Improve default workspace scaffold and injected workspace_files: include TOOLS.md by default, stop injecting BOOTSTRAP.md by default, add MEMORY.md scaffold, and refresh scaffolded EGO/IDENTITY/HEARTBEAT defaults to better reflect the intended agent operating model and register.'
 ---
