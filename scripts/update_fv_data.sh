@@ -269,10 +269,33 @@ with open(yml_path) as f:
     phases = yaml.safe_load(f)
 
 public_phases = [phase for phase in phases if phase['phase'] != 'F0']
-public_phase_total = sum(phase['theorems'] for phase in public_phases)
-public_verified_total = sum(phase['theorems'] for phase in public_phases if phase['status'] == 'verified')
-public_in_progress_total = sum(phase['theorems'] for phase in public_phases if phase['status'] == 'in_progress')
-public_planned_total = sum(phase['theorems'] for phase in public_phases if phase['status'] == 'planned')
+
+# Deduplicate public_phase_total by coq_file to avoid double-counting
+# (e.g. F1 and F5 both reference ConfigProofs.v)
+_seen_files = set()
+public_phase_total = 0
+for phase in public_phases:
+    files = phase.get('coq_files', [phase['coq_file']] if 'coq_file' in phase else [])
+    has_new_file = any(f not in _seen_files for f in files)
+    _seen_files.update(files)
+    if has_new_file:
+        public_phase_total += phase['theorems']
+# Also deduplicate verified/in_progress/planned by coq_file
+def _dedup_sum(phases, status_filter):
+    seen = set()
+    total = 0
+    for phase in phases:
+        if phase['status'] != status_filter:
+            continue
+        files = phase.get('coq_files', [phase['coq_file']] if 'coq_file' in phase else [])
+        if any(f not in seen for f in files):
+            seen.update(files)
+            total += phase['theorems']
+    return total
+
+public_verified_total = _dedup_sum(public_phases, 'verified')
+public_in_progress_total = _dedup_sum(public_phases, 'in_progress')
+public_planned_total = _dedup_sum(public_phases, 'planned')
 verified_domain_count = sum(1 for phase in public_phases if phase['status'] == 'verified')
 
 stats = {
@@ -299,13 +322,7 @@ with open(json_path, 'w') as f:
 PYEOF
 
 echo "DONE: $JSON_FILE updated."
-echo "  repository_total=${total}, public_phase_total=$(python3 - <<'PYEOF'
-import yaml
-with open('docs/src/data/formal_verification.yml') as f:
-    phases = yaml.safe_load(f)
-print(sum(p['theorems'] for p in phases if p['phase'] != 'F0'))
-PYEOF
-)"
+echo "  repository_total=${total}, public_phase_total=$(python3 -c "import json; print(json.load(open('$JSON_FILE'))['public_phase_total'])")"
 echo "  verified=${_v_total}, remaining=${remaining_count}, extracted=${extracted_count}, lines=${coq_lines}, date=${today}"
 
 if [ ! -f "docs/src/content/docs/formal-verification.mdx" ]; then

@@ -24,11 +24,11 @@ import fvStats from '../../data/fv-stats.json';
 </p>
 
 <p style="font-size: var(--fs-xs); color: var(--text-tertiary); font-family: var(--font-label); margin-bottom: 3rem;">
-  Last verification refresh: {fvStats.generated_on} &middot; Coq {fvStats.coq_version} &middot; {fvStats.public_phase_total} theorem/lemma statements tracked across public phases F1&ndash;F12
+  Last verification refresh: {fvStats.generated_on} &middot; Coq {fvStats.coq_version} &middot; {fvStats.repository_total} verified theorem/lemma statements across {fvStats.verified_domain_count} phases
 </p>
 
 <div style="margin-bottom: 2rem; padding: 1rem 1.1rem; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px;">
-  <strong>Status note.</strong> All 12 phases are verified. The next focus is <em>gap closure</em>: wiring extracted functions into runtime, adding conformance tests, and instantiating abstract modules with concrete implementations. See <a href="/formal-verification-roadmap-2026-03-07/">Roadmap</a> and <a href="/formal-verification-audit-2026-03-07/">Audit</a>.
+  <strong>Status note.</strong> All 12 phases are verified. The next focus is <em>P6 gap closure</em> (14 tasks): wiring extracted functions into runtime, property-based conformance testing, instantiating AuditChain with concrete crypto, and enforcing Coq-proved invariants at runtime. See <a href="#verification-roadmap">Roadmap</a> below and the <a href="/formal-verification-audit-2026-03-07/">Audit</a>.
 </div>
 
 {/* ===== VERIFICATION SEAL ===== */}
@@ -40,7 +40,7 @@ import fvStats from '../../data/fv-stats.json';
 {/* ===== MECHANICAL COUNTERS ===== */}
 
 <div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 3rem; margin-bottom: 3.5rem;">
-  <MechanicalCounter value={fvStats.public_phase_total} label="Public Phase Statements" />
+  <MechanicalCounter value={fvStats.repository_total} label="Verified Statements" />
   <MechanicalCounter value={fvStats.extracted_modules} label="Modules Extracted" />
   <MechanicalCounter value={fvStats.coq_lines} label="Lines of Coq" />
 </div>
@@ -1099,9 +1099,19 @@ Sandbox initialization always returns a result, whether Landlock is available or
 
 ## Verification Roadmap
 
-All 12 verification phases (F1--F12) are complete, with 163 theorem/lemma statements across 13 Coq files. The next priority is closing the gap between proved specifications and runtime enforcement. See the <a href="/formal-verification-roadmap-2026-03-07/">Formal Verification Roadmap</a> for the proof-expansion history and the <a href="/formal-verification-audit-2026-03-07/">Formal Verification Audit</a> for the gap analysis.
+All 12 verification phases (F1–F12) are complete, with {fvStats.repository_total} theorem/lemma statements across 13 Coq files. The next priority is **gap closure** (Phase 6 / P6): closing the distance between proved specifications and the shipped runtime. See the <a href="/formal-verification-roadmap-2026-03-07/">Formal Verification Roadmap</a> for proof-expansion history and the <a href="/formal-verification-audit-2026-03-07/">Formal Verification Audit</a> for the gap analysis.
 
-Extraction is selective and deferred unless a pure kernel is stable and demonstrably worth replacing in shipped OCaml.
+### Gap Closure (P6)
+
+P6 has three milestones with 14 tasks:
+
+**M1 — Extraction Wiring and Quick Wins** (6 tasks). Wire already-extracted Coq functions into the runtime: connect `validate_config_full` into `config_loader.ml`, connect `ChannelAuth.is_allowed` into channel authorization paths. Add property-based conformance tests that run both the Coq-extracted and native OCaml implementations of path safety and shell safety side by side, and promote dual-check drift warnings to hard test failures. Discharge the 3 admitted bitwise lemmas in `LandlockPolicy.v`.
+
+**M2 — Audit Chain Extraction** (3 tasks). Instantiate the abstract `AuditChain` functor with concrete SHA256/HMAC-SHA256 wrappers in Coq, extract the instantiated `verify_chain` and `make_entry` to OCaml, and wire those extracted functions into `src/audit.ml` so the audit chain uses verified code end-to-end.
+
+**M3 — Runtime Invariant Enforcement** (5 tasks). Add runtime assertions derived from Coq-proved invariants: `RateLimiter` bounded-refill and consume semantics, `AgentLoop` history-length bounds. Build a conformance test suite that exercises the theorems from spec-only modules (`AuditChain`/`AuditRetention`, `SessionIsolation`, `RateLimiter`/`AgentLoop`) against the OCaml runtime to verify that proved properties hold in practice.
+
+Extraction remains selective and deferred unless a pure kernel is stable and demonstrably worth replacing in shipped OCaml.
 
 <Callout type="note" title="FAQ: Should Every Formalization Be Extracted?">
   No. We aim to extract the right pure kernels, not every formalization by default.
