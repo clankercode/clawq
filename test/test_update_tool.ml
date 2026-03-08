@@ -224,7 +224,8 @@ let test_run_update_prepares_restart_before_signal () =
   Alcotest.(check bool) "prepare called" true !prepared;
   Alcotest.(check bool)
     "prepare progress emitted" true
-    (List.mem "Restart requested. Finishing this turn before handoff..." !progress);
+    (List.mem "Restart requested. Finishing this turn before handoff..."
+       !progress);
   Alcotest.(check bool) "restart signal sent" true !signaled
 
 let test_run_update_aborts_when_prepare_restart_fails () =
@@ -254,7 +255,8 @@ let test_run_update_aborts_when_prepare_restart_fails () =
   Alcotest.(check bool) "restart signal suppressed" false !signaled;
   Alcotest.(check bool)
     "prepare progress emitted" true
-    (List.mem "Restart requested. Finishing this turn before handoff..." !progress);
+    (List.mem "Restart requested. Finishing this turn before handoff..."
+       !progress);
   Alcotest.(check bool)
     "prepare failure reported" true
     (List.mem

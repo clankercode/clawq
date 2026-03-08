@@ -107,7 +107,9 @@ let run_prepare_restart prepare_restart ~send_progress =
   match prepare_restart with
   | None -> Lwt.return_none
   | Some prepare_restart -> (
-      let* () = send_progress "Restart requested. Finishing this turn before handoff..." in
+      let* () =
+        send_progress "Restart requested. Finishing this turn before handoff..."
+      in
       let* result = prepare_restart () in
       match result with
       | Ok () -> Lwt.return_none

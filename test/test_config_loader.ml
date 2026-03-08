@@ -474,4 +474,21 @@ let suite =
       test_to_json_preserves_codex_oauth_provider;
     Alcotest.test_case "parse provider thinking fields" `Quick
       test_parse_provider_thinking_fields;
+    Alcotest.test_case "default_path returns config.json path" `Quick (fun () ->
+        let path = Config_loader.default_path () in
+        Alcotest.(check bool)
+          "ends with config.json" true
+          (Filename.basename path = "config.json"));
+    Alcotest.test_case "session update_config propagates to get_config" `Quick
+      (fun () ->
+        let cfg1 = Runtime_config.default in
+        let mgr = Session.create ~config:cfg1 () in
+        Alcotest.(check (float 0.001))
+          "initial temperature" cfg1.default_temperature
+          (Session.get_config mgr).default_temperature;
+        let cfg2 = { cfg1 with default_temperature = 0.42 } in
+        Session.update_config mgr cfg2;
+        Alcotest.(check (float 0.001))
+          "updated temperature" 0.42
+          (Session.get_config mgr).default_temperature);
   ]

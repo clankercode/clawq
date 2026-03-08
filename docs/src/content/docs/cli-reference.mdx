@@ -140,6 +140,16 @@ clawq runtime docker health
 clawq runtime status
 ```
 
+### Daemon signals
+
+| Signal | Effect |
+|--------|--------|
+| `SIGHUP` | Reload `~/.clawq/config.json` immediately |
+| `SIGUSR1` | Graceful restart (drain in-flight requests, then restart) |
+| `SIGINT` / `SIGTERM` | Graceful shutdown |
+
+Config is also auto-reloaded every 10 seconds when the file changes on disk.
+
 ### Tunnel management
 
 ```bash

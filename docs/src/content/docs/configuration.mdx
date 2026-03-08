@@ -53,6 +53,18 @@ After editing, validate with:
 clawq doctor
 ```
 
+### Live Reload
+
+When the daemon is running (`clawq agent`), config changes are picked up automatically — the daemon polls the file every 10 seconds and reloads when it detects a modification. Changes to provider settings, agent defaults, memory limits, heartbeat timing, and security flags take effect without a restart.
+
+You can also force an immediate reload by sending `SIGHUP`:
+
+```bash
+kill -HUP $(cat ~/.clawq/daemon_state.json | jq .pid)
+```
+
+Structural changes that affect startup (enabling/disabling channels, changing gateway port/host) still require a daemon restart.
+
 ## Environment Variables
 
 | Variable | Purpose |

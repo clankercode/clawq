@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-08T13:57:48Z"
+claimed_by: cli-user
+completed_at: "2026-03-08T14:07:26Z"
 complexity: medium
 depends_on: []
+duration_minutes: 9.648898757333333
 estimate_hours: 1
 id: B078
 priority: high
-status: pending
+started_at: "2026-03-08T13:57:48Z"
+status: done
 tags: []
 title: config updates should be live-reloaded
 ---

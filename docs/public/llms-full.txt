@@ -93,6 +93,14 @@ Available in chat-integrated channels that support slash commands.
 
 All config is in `~/.clawq/config.json`. Modify via CLI or edit the file directly. After manual edits, validate with `clawq doctor`.
 
+### Live config reload
+
+The daemon automatically detects changes to `~/.clawq/config.json` by polling the file's mtime every 10 seconds. When a change is detected, the config is reloaded and propagated to all active sessions and agents. No restart is required for most config changes (provider settings, agent defaults, memory limits, heartbeat timing, security flags, etc.).
+
+Manual reload: send `SIGHUP` to the daemon process (`kill -HUP <pid>`) to force an immediate config reload. The daemon logs "Config reloaded successfully" on success or "Config reload failed: ..." on error.
+
+Note: Structural changes that affect daemon startup (enabling/disabling channels, changing gateway port/host, adding new channel credentials) require a daemon restart (`SIGUSR1` for graceful restart, or stop and start).
+
 ### Config set/get examples
 
 ```

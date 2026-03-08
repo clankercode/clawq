@@ -987,6 +987,37 @@ let run ~(config : Runtime_config.t) =
                   m "Lark channel error: %s" (Printexc.to_string exn));
               Lwt.return_unit))
   | Some _ | None -> ());
+  (* Config file watcher: stat every 10s, reload on mtime change *)
+  let last_config_mtime = ref 0.0 in
+  let config_watch_path = Config_loader.default_path () in
+  (try
+     let st = Unix.stat config_watch_path in
+     last_config_mtime := st.Unix.st_mtime
+   with _ -> ());
+  Lwt.async (fun () ->
+      Lwt.catch
+        (fun () ->
+          let rec config_watch_loop () =
+            let open Lwt.Syntax in
+            let* () = Lwt_unix.sleep 10.0 in
+            (try
+               let st = Unix.stat config_watch_path in
+               if st.Unix.st_mtime > !last_config_mtime then begin
+                 last_config_mtime := st.Unix.st_mtime;
+                 let new_config = Config_loader.load () in
+                 Session.update_config session_manager new_config;
+                 Logs.info (fun m -> m "Config auto-reloaded (file changed)")
+               end
+             with exn ->
+               Logs.debug (fun m ->
+                   m "Config watch stat failed: %s" (Printexc.to_string exn)));
+            config_watch_loop ()
+          in
+          config_watch_loop ())
+        (fun exn ->
+          Logs.err (fun m ->
+              m "Config watch loop error: %s" (Printexc.to_string exn));
+          Lwt.return_unit));
   (match db with
   | Some db ->
       Scheduler.init_schema db;
@@ -1000,20 +1031,21 @@ let run ~(config : Runtime_config.t) =
                 let* () = Lwt_unix.sleep 60.0 in
                 let* () = Scheduler.tick ~db ~session_mgr:session_manager in
                 let now = Unix.gettimeofday () in
+                let cur_config = Session.get_config session_manager in
                 if now -. !last_memory_cleanup >= 3600.0 then begin
                   last_memory_cleanup := now;
-                  let mem = config.memory in
+                  let mem = cur_config.memory in
                   Logs.info (fun m -> m "Running periodic memory cleanup");
                   Memory.cleanup_all ~db
                     ~max_messages:mem.max_messages_per_session
                     ~max_age_days:mem.max_message_age_days
                 end;
                 if
-                  config.security.audit_enabled
+                  cur_config.security.audit_enabled
                   && now -. !last_retention_run >= 3600.0
                 then begin
                   last_retention_run := now;
-                  ignore (Audit.retention_tick ~db ~config)
+                  ignore (Audit.retention_tick ~db ~config:cur_config)
                 end;
                 let* () =
                   Rate_limiter.cleanup_expired ip_limiter
@@ -1060,18 +1092,20 @@ let run ~(config : Runtime_config.t) =
           (fun () ->
             let rec hb_loop () =
               let open Lwt.Syntax in
+              let cur_hb = (Session.get_config session_manager).heartbeat in
               let* () =
-                Lwt_unix.sleep (float_of_int hb.heartbeat_interval_seconds)
+                Lwt_unix.sleep (float_of_int cur_hb.heartbeat_interval_seconds)
               in
               let tm = Unix.localtime (Unix.gettimeofday ()) in
               let hour = tm.Unix.tm_hour in
               let in_quiet =
-                if hb.heartbeat_quiet_start > hb.heartbeat_quiet_end then
-                  hour >= hb.heartbeat_quiet_start
-                  || hour < hb.heartbeat_quiet_end
+                if cur_hb.heartbeat_quiet_start > cur_hb.heartbeat_quiet_end
+                then
+                  hour >= cur_hb.heartbeat_quiet_start
+                  || hour < cur_hb.heartbeat_quiet_end
                 else
-                  hour >= hb.heartbeat_quiet_start
-                  && hour < hb.heartbeat_quiet_end
+                  hour >= cur_hb.heartbeat_quiet_start
+                  && hour < cur_hb.heartbeat_quiet_end
               in
               if in_quiet then begin
                 Logs.debug (fun m -> m "Heartbeat: quiet hours, skipping");
@@ -1113,8 +1147,12 @@ let run ~(config : Runtime_config.t) =
                                   Agent.prepare_turn_history agent
                                     ~user_message:content ?db ()
                                 in
+                                let cur_cfg =
+                                  Session.get_config session_manager
+                                in
                                 let runtime_context =
-                                  Prompt_builder.build_runtime_context ~config
+                                  Prompt_builder.build_runtime_context
+                                    ~config:cur_cfg
                                     ~details:
                                       (Session.runtime_context_details
                                          session_manager ~agent ~key
@@ -1146,7 +1184,9 @@ let run ~(config : Runtime_config.t) =
                             Logs.info (fun m ->
                                 m "Heartbeat: agent response (%d chars)"
                                   (String.length trimmed));
-                            match config.notify with
+                            match
+                              (Session.get_config session_manager).notify
+                            with
                             | Some nc ->
                                 Logs.info (fun m ->
                                     m "Heartbeat: would notify via %s -> %s"

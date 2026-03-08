@@ -1391,13 +1391,12 @@ let warn_invalid_config ~config_path issues =
       config_path
       (String.concat ", " issues)
 
+let default_path () =
+  let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
+  Filename.concat (Filename.concat home ".clawq") "config.json"
+
 let load ?(path = "") () : Runtime_config.t =
-  let config_path =
-    if path <> "" then path
-    else
-      let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
-      Filename.concat (Filename.concat home ".clawq") "config.json"
-  in
+  let config_path = if path <> "" then path else default_path () in
   if not (Sys.file_exists config_path) then Runtime_config.default
   else
     let json =
