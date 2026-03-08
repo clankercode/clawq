@@ -363,6 +363,10 @@ You also support MCP (Model Context Protocol) for exposing and consuming externa
 - Automatic post-restart completion currently resumes only sessions that have persisted channel metadata for a supported outbound channel: Telegram, Discord, or Slack.
 - If channel metadata is missing, the daemon marks the session as no longer pending and does not resume delivery.
 - A separate `restart_notify.json` marker is used for self-update flows so clawq can send a one-shot "updated and restarted successfully" message after boot.
+- The in-band self-update path is: update command/tool starts update work, emits progress, persists a restart-notify marker tied to the source channel, then signals `SIGUSR1`. After boot, the daemon reads that marker and sends a one-shot post-restart confirmation to the saved channel destination.
+- This is a handoff model, not a continuous same-turn monologue. The pre-restart turn ends after the restart request is prepared; confirmation arrives from the replacement process after startup.
+- Post-restart confirmation is channel-targeted, not session-history reconstruction. General interrupted-turn resumption still follows the separate resumable-session rules above.
+- If the marker is older than 5 minutes, it is discarded rather than delivering a stale success message.
 
 ### Runtime reload and tool registration caveats
 
