@@ -347,13 +347,15 @@ You also support MCP (Model Context Protocol) for exposing and consuming externa
 
 ## Restart and Resume Model
 
-- `clawq service signal-restart` sends `SIGUSR1` to the running daemon.
-- `SIGUSR1` triggers graceful restart logic: the daemon enters draining mode, warns active channel sessions, waits for in-flight requests to finish, then restarts itself.
+- There are two daemon launch modes in practice: service-managed (`clawq service start`) and direct agent execution (`clawq agent`). They share most runtime code but not identical operational control paths.
+- `clawq service signal-restart` only targets the daemon discovered via the service PID file. If no PID file exists, that command reports "Daemon is not running" even if a directly launched `clawq agent` process is alive and reflected in `daemon_state.json`.
+- `SIGUSR1` on the live daemon process triggers graceful restart logic: the daemon enters draining mode, warns active channel sessions, waits for in-flight requests to finish, then restarts itself.
 - Drain warnings go to currently registered live channel notifiers immediately, then again at 5s, 10s, 15s, 30s, 45s, and 60s while waiting.
 - If drain does not finish within about 60 seconds, the daemon forces the restart.
-- The actual restart path is `execve` of the current executable into `clawq service start` with internal no-fork environment flags; this is an in-place process replacement, not a shell-script wrapper.
-- `clawq service restart` is different: it is stop, sleep 1 second, start. That path is not graceful.
+- The actual restart path is an in-place `execve` re-entry. In service-managed mode this goes back through `clawq service start` with internal no-fork environment flags; direct `clawq agent` restart uses the agent re-exec path instead.
+- `clawq service restart` is different: it is stop, sleep 1 second, start. That path is not graceful and is meaningful only for service-managed daemon instances.
 - Persisted service/runtime state lives under `~/.clawq/`, especially `daemon.pid`, `daemon.pid.meta`, `daemon.log`, and `daemon_state.json`.
+- `daemon_state.json` is runtime state, not authoritative proof that service commands can control the process. The service PID file governs `clawq service stop|restart|signal-restart`; `daemon_state.json` is primarily for status/introspection.
 
 ### What resumes after restart
 
@@ -509,7 +511,7 @@ Tell users:
 
 1. Identify the path and session involved: workspace path (`clawq workspace`), session key shape (`web:...`, `telegram:...`, `__main__`, etc.), and channel.
 2. Inspect security posture: `clawq config show security` and note `workspace_only`, `sandbox_backend`, and `extra_allowed_paths`.
-3. Inspect daemon state: `clawq service status`, `clawq status`, `~/.clawq/daemon.log`, `~/.clawq/daemon_state.json`.
+3. Inspect daemon state: `clawq service status`, `clawq status`, `~/.clawq/daemon.log`, `~/.clawq/daemon_state.json`. Distinguish service PID-file state from general runtime state.
 4. Distinguish path-policy errors from shell-semantics errors: file tools use direct OCaml I/O; shell may still reject commands because of allowlist/direct-exec rules even when the filesystem view matches.
 5. For restart/resume issues, inspect whether the session had channel metadata and whether the response was marked sent in SQLite state.
 
@@ -521,6 +523,8 @@ Tell users:
 - **Git or tools complain about missing `/dev/null`**: inspect sandbox backend. Bubblewrap tries to bind `/dev` and `/dev/null`; if this still fails, verify host `/dev/null` exists and try `security.sandbox_backend = "none"` or `"firejail"` to isolate the backend problem.
 - **Heartbeats expected but not appearing**: confirm `heartbeat_enabled = true`, quiet hours are not suppressing the tick, `HEARTBEAT.md` exists and is non-empty, and the daemon log shows heartbeat activity. Also remember current heartbeat logic logs intended notifications instead of sending them.
 - **A turn seems stuck or you want to interrupt it from chat**: send a message starting with `!`. Example: `!stop` interrupts the in-flight turn for that session and then sends `stop` as the next normal message; a bare `!` becomes `[interrupted]`.
+- **`clawq service signal-restart` says daemon is not running, but `daemon_state.json` shows a live pid**: you are likely running a direct `clawq agent` process rather than a service-managed daemon. `clawq service ...` commands follow the service PID file, not `daemon_state.json`.
+- **Need graceful restart for a direct `clawq agent` process**: send `SIGUSR1` to the live process itself; do not assume `clawq service signal-restart` can reach it unless it was started through the service path.
 - **Service restarted but autonomous work did not resume**: only recent pending sessions with stored channel + channel_id for Telegram/Discord/Slack are resumed automatically.
 - **Behavior differs because session is not `__main__`**: heartbeat/autonomous checks use `__main__`; normal user chats use per-channel session keys and separate histories/locks.
 - **Bot not responding**: check daemon is running (`clawq status`), verify token (`clawq doctor`), check allow_from/allow_users/allow_guilds includes the user or is `["*"]`.
