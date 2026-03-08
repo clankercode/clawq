@@ -756,12 +756,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
               agent_defaults.show_tool_calls
               && agent_defaults.tool_status_mode = "consolidated"
             in
-            (* Clear stale tool results for this chat at turn start *)
-            let prefix = update.chat_id ^ ":" in
-            Hashtbl.filter_map_inplace
-              (fun key v ->
-                if String.starts_with ~prefix key then None else Some v)
-              tool_result_cache;
+            let current_turn_has_tools = ref false in
             let thinking_buf = Buffer.create 256 in
             let status_msg =
               if use_consolidated then
@@ -845,10 +840,17 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                         Status_message.tool_result sm ~id ~name ~result
                           ~is_error
                       in
+                      (* Cap cache size to prevent unbounded growth *)
+                      if Hashtbl.length tool_result_cache > 200 then
+                        Hashtbl.clear tool_result_cache;
                       Hashtbl.replace tool_result_cache
                         (update.chat_id ^ ":" ^ id)
                         (Stream_visibility.truncate_text ~max_chars:2000 result);
-                      send_expandable ~name ~result ~is_error
+                      current_turn_has_tools := true;
+                      (* Only send inline messages for errors; non-error
+                         output is available via "Show Details" button *)
+                      if is_error then send_expandable ~name ~result ~is_error
+                      else Lwt.return_unit
                   | Provider.ThinkingDelta text ->
                       if agent_defaults.show_thinking then
                         Buffer.add_string thinking_buf text;
@@ -924,14 +926,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                   Lwt.return_unit
                 else
                   let* () =
-                    let has_cached =
-                      Hashtbl.fold
-                        (fun k _ acc ->
-                          acc
-                          || String.starts_with ~prefix:(update.chat_id ^ ":") k)
-                        tool_result_cache false
-                    in
-                    if status_msg <> None && has_cached then
+                    if status_msg <> None && !current_turn_has_tools then
                       let* _msg_id =
                         send_message_with_keyboard ~disable_notification:true
                           ~bot_token ~chat_id:update.chat_id

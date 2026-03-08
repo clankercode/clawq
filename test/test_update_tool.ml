@@ -73,12 +73,14 @@ let test_run_update_aborts_on_build_failure () =
            Lwt.return_unit)
          ())
   in
-  Alcotest.(check string)
-    "build failure result" "Build failed (exit 2). Restart aborted." result;
+  let expected_msg =
+    "Build failed (exit 2). Restart aborted. Most relevant detail: \
+     Starting update..."
+  in
+  Alcotest.(check string) "build failure result" expected_msg result;
   Alcotest.(check bool) "no restart signal" false !signaled;
   Alcotest.(check bool)
-    "build failure reported" true
-    (List.mem "Build failed (exit 2). Restart aborted." !progress);
+    "build failure reported" true (List.mem expected_msg !progress);
   Alcotest.(check (list (pair string (list string))))
     "commands still ran in order"
     [ ("/repo", [ "git"; "pull" ]); ("/repo", [ "make"; "build" ]) ]

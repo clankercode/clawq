@@ -21,6 +21,7 @@ type tool_entry = {
   is_error : bool;
   error_detail : string option;
   result_preview : string option;
+  output_tail : string option;
 }
 (** A tracked tool call *)
 
@@ -117,8 +118,17 @@ let render t =
       Buffer.add_string buf
         (Printf.sprintf "\xE2\x9C\x93 %d tools completed\n" collapsed_count);
     (* Render visible completed *)
-    List.iter
-      (fun (entry : tool_entry) ->
+    let n_visible = List.length visible_completed in
+    let is_last_overall entry =
+      List.length running = 0
+      && List.length pending = 0
+      && entry.id
+         = (let last_id = ref "" in
+            List.iter (fun (e : tool_entry) -> last_id := e.id) visible_completed;
+            !last_id)
+    in
+    List.iteri
+      (fun i (entry : tool_entry) ->
         let timing =
           match entry.finished_at with
           | Some fin ->
@@ -138,7 +148,14 @@ let render t =
         in
         Buffer.add_string buf
           (Printf.sprintf "\xE2\x9C\x93 %s *%s*%s%s%s\n" entry.emoji entry.name
-             summary_part preview_part timing))
+             summary_part preview_part timing);
+        (* Show output tail for the last completed shell_exec when no tools
+           are still running, so the user sees recent stdout briefly *)
+        if i = n_visible - 1 && is_last_overall entry then
+          match entry.output_tail with
+          | Some tail ->
+              Buffer.add_string buf (Printf.sprintf "```\n%s\n```\n" tail)
+          | None -> ())
       visible_completed;
     (* Render failed (always expanded) *)
     List.iter
@@ -290,6 +307,7 @@ let tool_start t ~id ~name ~summary =
       is_error = false;
       error_detail = None;
       result_preview = None;
+      output_tail = None;
     }
   in
   Hashtbl.replace t.tools id entry;
@@ -331,6 +349,19 @@ let tool_start t ~id ~name ~summary =
   end;
   Lwt.return_unit
 
+let last_n_lines ~n text =
+  let lines = String.split_on_char '\n' (String.trim text) in
+  let len = List.length lines in
+  if len <= n then lines
+  else
+    let to_drop = len - n in
+    let rec drop k = function
+      | [] -> []
+      | _ :: rest when k > 0 -> drop (k - 1) rest
+      | l -> l
+    in
+    drop to_drop lines
+
 let tool_result t ~id ~name:_ ~result ~is_error =
   let open Lwt.Syntax in
   let now = Unix.gettimeofday () in
@@ -351,6 +382,23 @@ let tool_result t ~id ~name:_ ~result ~is_error =
         if is_error then None
         else Stream_visibility.summarize_tool_result ~name:entry.name result
       in
+      let output_tail =
+        match entry.name with
+        | "shell_exec" when not is_error ->
+            let trimmed = String.trim result in
+            if trimmed = "" then None
+            else
+              let tail = last_n_lines ~n:4 trimmed in
+              let text =
+                String.concat "\n"
+                  (List.map
+                     (fun l ->
+                       Stream_visibility.truncate_text ~max_chars:60 l)
+                     tail)
+              in
+              Some text
+        | _ -> None
+      in
       let updated =
         {
           entry with
@@ -359,6 +407,7 @@ let tool_result t ~id ~name:_ ~result ~is_error =
           is_error;
           error_detail;
           result_preview;
+          output_tail;
         }
       in
       Hashtbl.replace t.tools id updated;
