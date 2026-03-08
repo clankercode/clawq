@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B126
+priority: high
+status: pending
+tags: []
+title: Document and support explicit model selection for delegated codex/claude runs
+---
+Need a reliable way to launch delegated Codex/Claude work with an explicit model rather than inheriting a weak default. Investigate current background task invocation, add support if missing, and document the exact invocation/configuration path in TOOLS.md or local docs. Also verify current defaults (e.g. gpt-5.3-codex) are sensible.
