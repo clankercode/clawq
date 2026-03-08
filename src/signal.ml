@@ -310,7 +310,9 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
           | Error err ->
               Logs.err (fun m -> m "Signal: agent error for %s: %s" from err);
               send ~cfg ~recipient:from ~group_id_opt
-                ~text:"Sorry, an error occurred processing your message."
+                ~text:
+                  (Printf.sprintf
+                     "Sorry, an error occurred processing your message: %s" err)
         in
         if cfg.api_mode = "rest" then receive_loop_rest ~cfg ~on_message ()
         else receive_loop_jsonrpc ~cfg ~on_message ()

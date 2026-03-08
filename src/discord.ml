@@ -371,7 +371,10 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
               let* () =
                 send_message ~bot_token:discord_config.bot_token
                   ~channel_id:msg.channel_id
-                  ~text:"Sorry, an error occurred processing your message."
+                  ~text:
+                    (Printf.sprintf
+                       "Sorry, an error occurred processing your message: %s"
+                       err)
               in
               Session.mark_response_sent session_mgr ~key;
               Lwt.return_unit)

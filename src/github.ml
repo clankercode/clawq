@@ -95,7 +95,7 @@ let handle_webhook ~(repo_config : Runtime_config.github_repo_config)
                   | Result.Error err ->
                       Logs.err (fun m ->
                           m "GitHub: agent error for %s/%s: %s" owner repo err);
-                      ( "Sorry, an error occurred. Please try again.",
+                      ( Printf.sprintf "Sorry, an error occurred: %s" err,
                         "error commented" )
                 in
                 let* () =

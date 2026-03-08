@@ -313,7 +313,7 @@ let run_session ~(cfg : Runtime_config.irc_config) ~conn
                             m "IRC: agent error for %s: %s" sender err);
                         write_line conn
                           ("PRIVMSG " ^ reply_target
-                         ^ " :Sorry, an error occurred.")
+                         ^ " :Sorry, an error occurred: " ^ err)
                   end
               | _ -> Lwt.return_unit)
         in

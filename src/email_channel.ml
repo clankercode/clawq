@@ -643,8 +643,10 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
                               send_email ~cfg ~to_addr:msg.from_addr
                                 ~subject:("Re: " ^ msg.subject)
                                 ~body:
-                                  "Sorry, an error occurred processing your \
-                                   message."
+                                  (Printf.sprintf
+                                     "Sorry, an error occurred processing your \
+                                      message: %s"
+                                     err)
                                 ())
                             (fun _ -> Lwt.return_unit)
                     end)

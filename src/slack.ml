@@ -166,7 +166,11 @@ let handle_event ~(config : Runtime_config.slack_config)
                         channel_id user_id err);
                   let* () =
                     send_message ~bot_token:config.bot_token ~channel_id
-                      ~text:"Sorry, an error occurred processing your message."
+                      ~text:
+                        (Printf.sprintf
+                           "Sorry, an error occurred processing your message: \
+                            %s"
+                           err)
                   in
                   Session.mark_response_sent session_manager ~key;
                   Lwt.return "ok")

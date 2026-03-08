@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-08T07:11:38Z"
+claimed_by: cli-user
+completed_at: "2026-03-08T07:13:34Z"
 complexity: medium
 depends_on: []
+duration_minutes: 1.9384614363833332
 estimate_hours: 1
 id: B049
 priority: high
-status: pending
+started_at: "2026-03-08T07:11:38Z"
+status: done
 tags: []
 title: Error messages sent to telegram are not very descriptive. The web UI console by comparison tells me 'Failure("Provider is not logged in with Codex OAuth")'. We should have better error msgs over telegram
 ---

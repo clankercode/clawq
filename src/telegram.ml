@@ -418,8 +418,9 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                 let* () =
                   send_message ~bot_token ~chat_id:update.chat_id
                     ~text:
-                      "Sorry, an error occurred processing your message. \
-                       Please try again."
+                      (Printf.sprintf
+                         "Sorry, an error occurred processing your message: %s"
+                         err)
                 in
                 Session.mark_response_sent session_mgr ~key;
                 Lwt.return_unit)

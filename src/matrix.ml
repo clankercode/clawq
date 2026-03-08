@@ -211,8 +211,10 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
                                   room_id sender err);
                             send_message ~cfg ~room_id
                               ~text:
-                                "Sorry, an error occurred processing your \
-                                 message.")
+                                (Printf.sprintf
+                                   "Sorry, an error occurred processing your \
+                                    message: %s"
+                                   err))
                       events
                   in
                   backoff := 1.0;
