@@ -77,6 +77,9 @@ let take_response_deferred mgr ~key =
   if deferred then Hashtbl.remove mgr.deferred_responses key;
   deferred
 
+let clear_response_deferred mgr ~key =
+  Hashtbl.remove mgr.deferred_responses key
+
 let resumable_channel = function
   | "telegram" | "slack" | "discord" -> true
   | _ -> false

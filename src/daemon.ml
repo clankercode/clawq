@@ -173,6 +173,7 @@ let resume_agent_session ?(senders = default_resume_senders) ?run_turn
       in
       match dispatch_result with
       | Ok () ->
+          Session.clear_response_deferred session_manager ~key:session_key;
           Session.mark_response_sent session_manager ~key:session_key;
           Lwt.return_unit
       | Error msg ->

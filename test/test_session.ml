@@ -501,6 +501,15 @@ let test_take_response_deferred_clears_marker () =
     "second read cleared" false
     (Session.take_response_deferred mgr ~key:"telegram:1:u")
 
+let test_clear_response_deferred_removes_marker () =
+  let config = Runtime_config.default in
+  let mgr = Session.create ~config () in
+  Session.set_response_deferred mgr ~key:"telegram:2:u";
+  Session.clear_response_deferred mgr ~key:"telegram:2:u";
+  Alcotest.(check bool)
+    "marker removed" false
+    (Session.take_response_deferred mgr ~key:"telegram:2:u")
+
 let test_turn_uses_special_command_handler () =
   let config = Runtime_config.default in
   let mgr = Session.create ~config () in
@@ -691,6 +700,8 @@ let suite =
       test_interrupt_resumable_channel_sessions_targets_supported_channels;
     Alcotest.test_case "take response deferred clears marker" `Quick
       test_take_response_deferred_clears_marker;
+    Alcotest.test_case "clear response deferred removes marker" `Quick
+      test_clear_response_deferred_removes_marker;
     Alcotest.test_case "turn uses special command handler" `Quick
       test_turn_uses_special_command_handler;
     Alcotest.test_case "turn stream uses special command handler" `Quick
