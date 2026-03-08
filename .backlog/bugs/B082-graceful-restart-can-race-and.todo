@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B082
+priority: high
+status: pending
+tags: []
+title: 'Graceful restart can race and spawn a replacement daemon before the old gateway socket is released, causing EADDRINUSE and failed restart takeover. Repro: send SIGUSR1 to live agent process running via ; replacement starts, old/new both contend for gateway port 13451.'
+---
+
+Graceful restart can race and spawn a replacement daemon before the old gateway socket is released, causing EADDRINUSE and failed restart takeover. Repro: send SIGUSR1 to live agent process running via ; replacement starts, old/new both contend for gateway port 13451.

@@ -80,3 +80,4 @@ bugs:
     - file: B079-document-tool-runtime-caveats.todo
     - file: B080-daemon-config-changes-likely-d.todo
     - file: B081-add-verify-self-update-and-sel.todo
+    - file: B082-graceful-restart-can-race-and.todo
