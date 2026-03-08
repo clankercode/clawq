@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-08T10:20:26Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B064
 priority: high
-status: pending
+started_at: "2026-03-08T10:20:26Z"
+status: in_progress
 tags: []
 title: clawq should be told about https://clawq.org/llms-full.txt so it can alter itself
 ---

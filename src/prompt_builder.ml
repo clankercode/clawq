@@ -237,6 +237,15 @@ let build ~(config : Runtime_config.t) ~tool_registry ?(attachments = [])
       add (Printf.sprintf "- Tools enabled: %b" config.security.tools_enabled);
       add (Printf.sprintf "- Workspace only: %b" config.security.workspace_only)
     end;
+    add "";
+    add "## Self-Reference";
+    add "- Full self-knowledge document: https://clawq.org/llms-full.txt";
+    add
+      "- Contains: all CLI commands, config fields with defaults, built-in \
+       tools, channels, gateway endpoints, setup guides.";
+    add
+      "- Fetch this when you need to understand your own capabilities or \
+       modify your own configuration/behavior.";
     if config.prompt.include_datetime_section then begin
       add "";
       add "## DateTime";

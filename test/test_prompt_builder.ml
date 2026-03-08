@@ -71,6 +71,17 @@ let test_dynamic_prompt_includes_workspace_files () =
         "includes AGENTS contents" true
         (contains prompt "AGENTS SENTINEL"))
 
+let test_dynamic_prompt_includes_self_reference () =
+  with_temp_workspace (fun workspace ->
+      let cfg = { Runtime_config.default with workspace } in
+      let prompt = Prompt_builder.build ~config:cfg ~tool_registry:None () in
+      Alcotest.(check bool)
+        "has self-reference section" true
+        (contains prompt "## Self-Reference");
+      Alcotest.(check bool)
+        "has llms-full.txt URL" true
+        (contains prompt "https://clawq.org/llms-full.txt"))
+
 let suite =
   [
     Alcotest.test_case "dynamic prompt disabled uses base prompt" `Quick
@@ -79,4 +90,6 @@ let suite =
       test_default_prompt_enables_dynamic_workspace_context;
     Alcotest.test_case "dynamic prompt includes workspace files" `Quick
       test_dynamic_prompt_includes_workspace_files;
+    Alcotest.test_case "dynamic prompt includes self-reference" `Quick
+      test_dynamic_prompt_includes_self_reference;
   ]
