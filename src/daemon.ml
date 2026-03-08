@@ -1023,30 +1023,29 @@ let run ~(config : Runtime_config.t) =
                               (fun agent _interrupt ->
                                 Logs.info (fun m ->
                                     m
-                                      "Heartbeat: processing HEARTBEAT.md \
-                                       (%d chars) on main session"
+                                      "Heartbeat: processing HEARTBEAT.md (%d \
+                                       chars) on main session"
                                       (String.length content));
                                 Agent.turn agent ~user_message:content ?db
                                   ~session_key:key ()))
                           (fun exn ->
                             Logs.err (fun m ->
-                                m "Heartbeat error: %s"
-                                  (Printexc.to_string exn));
+                                m "Heartbeat error: %s" (Printexc.to_string exn));
                             Lwt.return_none)
                       in
                       (match result with
                       | None ->
                           Logs.info (fun m ->
                               m
-                                "Heartbeat: main session busy, skipping \
-                                 this tick")
+                                "Heartbeat: main session busy, skipping this \
+                                 tick")
                       | Some response ->
                           let trimmed = String.trim response in
                           if trimmed = "HEARTBEAT_OK" then
                             Logs.info (fun m ->
                                 m
-                                  "Heartbeat: agent replied HEARTBEAT_OK, \
-                                   no outbound")
+                                  "Heartbeat: agent replied HEARTBEAT_OK, no \
+                                   outbound")
                           else begin
                             Logs.info (fun m ->
                                 m "Heartbeat: agent response (%d chars)"
@@ -1054,15 +1053,13 @@ let run ~(config : Runtime_config.t) =
                             match config.notify with
                             | Some nc ->
                                 Logs.info (fun m ->
-                                    m
-                                      "Heartbeat: would notify via %s -> %s"
+                                    m "Heartbeat: would notify via %s -> %s"
                                       nc.notify_channel nc.notify_target)
                             | None ->
                                 Logs.warn (fun m ->
                                     m
                                       "Heartbeat: agent wants to send a \
-                                       message but no notify target \
-                                       configured")
+                                       message but no notify target configured")
                           end);
                       hb_loop ()
                     end

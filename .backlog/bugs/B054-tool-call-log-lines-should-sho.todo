@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-08T08:46:24Z"
+claimed_by: cli-user
+completed_at: "2026-03-08T08:48:02Z"
 complexity: medium
 depends_on: []
+duration_minutes: 1.6419650732166666
 estimate_hours: 1
 id: B054
 priority: high
-status: pending
+started_at: "2026-03-08T08:46:24Z"
+status: done
 tags: []
 title: Tool call log lines should show the session id
 ---

@@ -252,11 +252,12 @@ let resolve_tool_search agent (tc : Provider.tool_call) =
 let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key ~on_chunk
     calls =
   let open Lwt.Syntax in
+  let sk_tag = match session_key with Some s -> "[" ^ s ^ "] " | None -> "" in
   let* results =
     Lwt_list.map_p
       (fun (tc : Provider.tool_call) ->
         Logs.info (fun m ->
-            m "Tool call: %s (id=%s) args=%s" tc.function_name tc.id
+            m "%sTool call: %s (id=%s) args=%s" sk_tag tc.function_name tc.id
               tc.arguments);
         (match (db, audit_enabled, session_key) with
         | Some db, true, Some sk ->
@@ -346,7 +347,8 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key ~on_chunk
           if String.length result > 200 then String.sub result 0 200 ^ "..."
           else result
         in
-        Logs.info (fun m -> m "Tool result: %s -> %s" tc.function_name preview);
+        Logs.info (fun m ->
+            m "%sTool result: %s -> %s" sk_tag tc.function_name preview);
         let* () =
           on_chunk
             (Provider.ToolResult
@@ -368,11 +370,12 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key ~on_chunk
 
 let execute_tool_calls agent ~db ~audit_enabled ~session_key calls =
   let open Lwt.Syntax in
+  let sk_tag = match session_key with Some s -> "[" ^ s ^ "] " | None -> "" in
   let* results =
     Lwt_list.map_p
       (fun (tc : Provider.tool_call) ->
         Logs.info (fun m ->
-            m "Tool call: %s (id=%s) args=%s" tc.function_name tc.id
+            m "%sTool call: %s (id=%s) args=%s" sk_tag tc.function_name tc.id
               tc.arguments);
         (match (db, audit_enabled, session_key) with
         | Some db, true, Some sk ->
@@ -440,7 +443,7 @@ let execute_tool_calls agent ~db ~audit_enabled ~session_key calls =
           else result
         in
         Logs.info (fun m ->
-            m "Tool result: %s -> %s" tc.function_name truncated);
+            m "%sTool result: %s -> %s" sk_tag tc.function_name truncated);
         Lwt.return (tc, result_msg))
       calls
   in
