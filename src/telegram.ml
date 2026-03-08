@@ -1,5 +1,34 @@
 let api_base = "https://api.telegram.org/bot"
 
+let current_thinking_message current =
+  Printf.sprintf "Current thinking level: %s"
+    (Slash_commands.thinking_level_to_string current)
+
+let set_thinking_level ~(session_mgr : Session.t) ~chat_id ~user_id level =
+  let cfg = Session.get_config session_mgr in
+  let previous = cfg.agent_defaults.reasoning_effort in
+  match Config_set.set_reasoning_effort level with
+  | Ok () ->
+      let agent_defaults =
+        { cfg.agent_defaults with reasoning_effort = level }
+      in
+      Session.update_config session_mgr { cfg with agent_defaults };
+      Logs.info (fun m ->
+          m
+            "Telegram thinking level updated chat_id=%s user_id=%s from=%s \
+             to=%s"
+            chat_id user_id
+            (Slash_commands.thinking_level_to_string previous)
+            (Slash_commands.thinking_level_to_string level));
+      Printf.sprintf "Thinking level changed from %s to %s."
+        (Slash_commands.thinking_level_to_string previous)
+        (Slash_commands.thinking_level_to_string level)
+  | Error err ->
+      Logs.err (fun m ->
+          m "Telegram thinking level update failed chat_id=%s user_id=%s: %s"
+            chat_id user_id err);
+      "Failed to update thinking level: " ^ err
+
 let redact_token token =
   let len = String.length token in
   if len <= 8 then "***"
@@ -431,6 +460,17 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
             let* () = Session.reset session_mgr ~key in
             send_message ~bot_token ~chat_id:update.chat_id
               ~text:Slash_commands.reset_message
+        | Thinking Slash_commands.ShowThinking ->
+            let current =
+              (Session.get_config session_mgr).agent_defaults.reasoning_effort
+            in
+            send_message ~bot_token ~chat_id:update.chat_id
+              ~text:(current_thinking_message current)
+        | Thinking (Slash_commands.SetThinking level) ->
+            send_message ~bot_token ~chat_id:update.chat_id
+              ~text:
+                (set_thinking_level ~session_mgr ~chat_id:update.chat_id
+                   ~user_id:update.user_id level)
         | NotACommand -> (
             let msg = user_text in
             let agent_defaults =

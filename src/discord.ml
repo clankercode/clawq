@@ -1,6 +1,33 @@
 let name = "discord"
 let api_base = "https://discord.com/api/v10"
 
+let current_thinking_message current =
+  Printf.sprintf "Current thinking level: %s"
+    (Slash_commands.thinking_level_to_string current)
+
+let set_thinking_level ~(session_mgr : Session.t) ~channel_id ~author_id level =
+  let cfg = Session.get_config session_mgr in
+  let previous = cfg.agent_defaults.reasoning_effort in
+  match Config_set.set_reasoning_effort level with
+  | Ok () ->
+      let agent_defaults =
+        { cfg.agent_defaults with reasoning_effort = level }
+      in
+      Session.update_config session_mgr { cfg with agent_defaults };
+      Logs.info (fun m ->
+          m "Discord thinking level updated channel=%s user=%s from=%s to=%s"
+            channel_id author_id
+            (Slash_commands.thinking_level_to_string previous)
+            (Slash_commands.thinking_level_to_string level));
+      Printf.sprintf "Thinking level changed from %s to %s."
+        (Slash_commands.thinking_level_to_string previous)
+        (Slash_commands.thinking_level_to_string level)
+  | Error err ->
+      Logs.err (fun m ->
+          m "Discord thinking level update failed channel=%s user=%s: %s"
+            channel_id author_id err);
+      "Failed to update thinking level: " ^ err
+
 type message = {
   channel_id : string;
   guild_id : string option;
@@ -335,6 +362,19 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
           let* () = Session.reset session_mgr ~key in
           send_message_fn ~bot_token:discord_config.bot_token
             ~channel_id:msg.channel_id ~text:Slash_commands.reset_message
+      | Thinking Slash_commands.ShowThinking ->
+          let current =
+            (Session.get_config session_mgr).agent_defaults.reasoning_effort
+          in
+          send_message ~bot_token:discord_config.bot_token
+            ~channel_id:msg.channel_id
+            ~text:(current_thinking_message current)
+      | Thinking (Slash_commands.SetThinking level) ->
+          send_message ~bot_token:discord_config.bot_token
+            ~channel_id:msg.channel_id
+            ~text:
+              (set_thinking_level ~session_mgr ~channel_id:msg.channel_id
+                 ~author_id:msg.author_id level)
       | NotACommand -> (
           let discord_channel_type =
             match msg.guild_id with Some _ -> "group" | None -> "dm"

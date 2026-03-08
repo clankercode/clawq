@@ -439,21 +439,31 @@ let write_json path json =
     Ok ()
   with exn -> Error (Printexc.to_string exn)
 
-let set_value key value =
+let set_json_value key json_val =
   let path = config_path () in
   match load_json path with
-  | Error e -> Printf.sprintf "Error loading config: %s" e
+  | Error e -> Error (Printf.sprintf "Error loading config: %s" e)
   | Ok json -> (
       let segments = split_path key in
-      if segments = [ "" ] then "Error: empty key"
+      if segments = [ "" ] then Error "Error: empty key"
       else if not (validate_path segments config_schema) then
-        suggest_key key segments
+        Error (suggest_key key segments)
       else
-        let json_val = infer_value value in
         let updated = json_set segments json_val json in
         match write_json path updated with
-        | Ok () -> Printf.sprintf "Set %s = %s" key value
-        | Error e -> Printf.sprintf "Error writing config: %s" e)
+        | Ok () -> Ok ()
+        | Error e -> Error (Printf.sprintf "Error writing config: %s" e))
+
+let set_reasoning_effort value =
+  let json_val =
+    match value with None -> `Null | Some level -> `String level
+  in
+  set_json_value "agent_defaults.reasoning_effort" json_val
+
+let set_value key value =
+  match set_json_value key (infer_value value) with
+  | Ok () -> Printf.sprintf "Set %s = %s" key value
+  | Error err -> err
 
 let get_value key =
   let path = config_path () in

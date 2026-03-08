@@ -8,6 +8,34 @@ type event =
     }
   | Other
 
+let current_thinking_message current =
+  Printf.sprintf "Current thinking level: %s"
+    (Slash_commands.thinking_level_to_string current)
+
+let set_thinking_level ~(session_manager : Session.t) ~channel_id ~user_id level
+    =
+  let cfg = Session.get_config session_manager in
+  let previous = cfg.agent_defaults.reasoning_effort in
+  match Config_set.set_reasoning_effort level with
+  | Ok () ->
+      let agent_defaults =
+        { cfg.agent_defaults with reasoning_effort = level }
+      in
+      Session.update_config session_manager { cfg with agent_defaults };
+      Logs.info (fun m ->
+          m "Slack thinking level updated channel=%s user=%s from=%s to=%s"
+            channel_id user_id
+            (Slash_commands.thinking_level_to_string previous)
+            (Slash_commands.thinking_level_to_string level));
+      Printf.sprintf "Thinking level changed from %s to %s."
+        (Slash_commands.thinking_level_to_string previous)
+        (Slash_commands.thinking_level_to_string level)
+  | Error err ->
+      Logs.err (fun m ->
+          m "Slack thinking level update failed channel=%s user=%s: %s"
+            channel_id user_id err);
+      "Failed to update thinking level: " ^ err
+
 let is_allowed ~(config : Runtime_config.slack_config) ~channel_id ~user_id =
   let ch_ok =
     match config.allow_channels with
@@ -175,6 +203,24 @@ let handle_event ~(config : Runtime_config.slack_config)
                 let* () =
                   send_message_fn ~bot_token:config.bot_token ~channel_id
                     ~text:Slash_commands.reset_message
+                in
+                Lwt.return "ok"
+            | Thinking Slash_commands.ShowThinking ->
+                let current =
+                  (Session.get_config session_manager).agent_defaults
+                    .reasoning_effort
+                in
+                let* () =
+                  send_message_fn ~bot_token:config.bot_token ~channel_id
+                    ~text:(current_thinking_message current)
+                in
+                Lwt.return "ok"
+            | Thinking (Slash_commands.SetThinking level) ->
+                let* () =
+                  send_message_fn ~bot_token:config.bot_token ~channel_id
+                    ~text:
+                      (set_thinking_level ~session_manager ~channel_id ~user_id
+                         level)
                 in
                 Lwt.return "ok"
             | NotACommand -> (

@@ -71,6 +71,16 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 | `version` | Print version and build info |
 | `workspace` | Print the current workspace directory |
 
+## Slash Commands
+
+Available in chat-integrated channels that support slash commands.
+
+- `/start` — show the ready message
+- `/help` — list available slash commands
+- `/new` — reset the current session
+- `/status` — report bot status
+- `/thinking [low|medium|high|off|xhigh|max]` — show or set the current thinking level; `off` clears `agent_defaults.reasoning_effort`
+
 ## Configuring Yourself
 
 All config is in `~/.clawq/config.json`. Modify via CLI or edit the file directly. After manual edits, validate with `clawq doctor`.
