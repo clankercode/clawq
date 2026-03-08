@@ -199,22 +199,28 @@ let workspace_doc_blocks ~(config : Runtime_config.t)
   let is_group = session_type = "group" in
   let budget = ref config.prompt.max_workspace_total_chars in
   let blocks = ref [] in
-  List.iter
-    (fun file ->
-      if
-        safe_prompt_filename file && !budget > 0
-        && (not (file = "SOUL.md" && ego_exists))
-        && not (is_group && List.mem file private_only_files)
-      then
-        let path = Filename.concat workspace file in
-        if Sys.file_exists path then
-          let cap = min !budget config.prompt.max_workspace_file_chars in
-          let content = read_file_limited path cap in
-          if content <> "" then begin
-            budget := !budget - min !budget (String.length content);
-            blocks := (file, content) :: !blocks
-          end)
-    config.prompt.workspace_files;
+  let seen = Hashtbl.create 16 in
+  let add_file file =
+    if
+      safe_prompt_filename file && !budget > 0
+      && not (Hashtbl.mem seen file)
+      && (not (file = "SOUL.md" && ego_exists))
+      && not (is_group && List.mem file private_only_files)
+    then begin
+      Hashtbl.replace seen file true;
+      let path = Filename.concat workspace file in
+      if Sys.file_exists path then
+        let cap = min !budget config.prompt.max_workspace_file_chars in
+        let content = read_file_limited path cap in
+        if content <> "" then begin
+          budget := !budget - min !budget (String.length content);
+          blocks := (file, content) :: !blocks
+        end
+    end
+  in
+  List.iter add_file config.prompt.workspace_files;
+  if Sys.file_exists (Filename.concat workspace "BOOTSTRAP.md") then
+    add_file "BOOTSTRAP.md";
   List.rev !blocks
 
 let tools_block tool_registry =
