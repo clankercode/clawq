@@ -241,6 +241,7 @@ let default_resume_turn ~(session_manager : Session.t) ~notify ~session_key
     ?runtime_context ~history_prepared:true ()
 
 let resume_agent_session ?(senders = default_resume_senders) ?run_turn
+    ?(after_dispatch = fun ~response:_ -> Lwt.return_unit)
     ~(session_manager : Session.t) ~(config : Runtime_config.t) ~session_key
     ~channel ~channel_id () =
   let notify text =
@@ -268,6 +269,7 @@ let resume_agent_session ?(senders = default_resume_senders) ?run_turn
       in
       match dispatch_result with
       | Ok () ->
+          let* () = after_dispatch ~response in
           Session.clear_response_deferred session_manager ~key:session_key;
           Session.mark_response_sent session_manager ~key:session_key;
           Lwt.return_unit
@@ -284,8 +286,15 @@ let resume_pending_agent_sessions ?(senders = default_resume_senders)
     | Some f -> f
     | None ->
         fun ~session_key ~channel ~channel_id ->
-          resume_agent_session ~senders ~session_manager ~config ~session_key
-            ~channel ~channel_id ()
+          let after_dispatch =
+            if session_key = "__main__" then
+              fun ~response ->
+                Session.process_autonomous_turn_result session_manager
+                  ~key:session_key ~response
+            else fun ~response:_ -> Lwt.return_unit
+          in
+          resume_agent_session ~senders ~after_dispatch ~session_manager
+            ~config ~session_key ~channel ~channel_id ()
   in
   let pending =
     Session.load_pending_agent_sessions session_manager ~max_age_seconds:3600

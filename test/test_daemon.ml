@@ -434,6 +434,55 @@ let test_maybe_emit_date_banner_logs_when_day_advances () =
   Alcotest.(check string)
     "date rollover banners" "=== 2026-03-08 ===\n=== 2026-03-09 ===\n" output
 
+let test_resume_pending_main_session_arms_autonomous_continuation () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let slack_config =
+    {
+      Runtime_config.bot_token = "xoxb-test";
+      signing_secret = "secret";
+      events_path = "/slack/events";
+      allow_channels = [];
+      allow_users = [];
+      app_token = "";
+      socket_mode = false;
+    }
+  in
+  let config =
+    {
+      Runtime_config.default with
+      channels = { Runtime_config.default.channels with slack = Some slack_config };
+    }
+  in
+  let session_manager = Session.create ~config ~db () in
+  Session.record_agent_turn session_manager ~key:"__main__" ~channel:"slack"
+    ~channel_id:"c1" ();
+  let resumed = ref [] in
+  let resume_one ~session_key ~channel ~channel_id =
+    Daemon.resume_agent_session ~session_manager ~config ~session_key ~channel
+      ~channel_id
+      ~senders:
+        {
+          Daemon.default_resume_senders with
+          send_slack =
+            (fun ~bot_token:_ ~channel_id:_ ~text ->
+              resumed := text :: !resumed;
+              Lwt.return_unit);
+        }
+      ~run_turn:(fun agent _interrupt ->
+        agent.Agent.history <-
+          Provider.make_message ~role:"assistant" ~content:"continue_work" :: agent.Agent.history;
+        Lwt.return "continue_work")
+      ~after_dispatch:(fun ~response ->
+        Session.process_autonomous_turn_result session_manager ~key:session_key
+          ~response)
+      ()
+  in
+  Lwt_main.run
+    (Daemon.resume_pending_agent_sessions ~session_manager ~config ~resume_one ());
+  let state = Hashtbl.find session_manager.Session.continuation_checks "__main__" in
+  Alcotest.(check bool) "main session not disarmed" false state.disarmed;
+  Alcotest.(check bool) "continuation armed" true (Option.is_some state.cancel)
+
 let suite =
   [
     Alcotest.test_case "dispatch resumed message routes telegram" `Quick
@@ -445,6 +494,9 @@ let suite =
       `Quick test_resume_agent_session_persists_response_and_marks_sent;
     Alcotest.test_case "resume agent session sends compaction notice" `Quick
       test_resume_agent_session_sends_compaction_notice;
+    Alcotest.test_case
+      "resume pending main session arms autonomous continuation" `Quick
+      test_resume_pending_main_session_arms_autonomous_continuation;
     Alcotest.test_case "wait for drain returns when in-flight reaches zero"
       `Quick test_wait_for_drain_returns_when_in_flight_reaches_zero;
     Alcotest.test_case "wait for drain reports timeout" `Quick
@@ -466,3 +518,4 @@ let suite =
     Alcotest.test_case "date banner logs on day rollover" `Quick
       test_maybe_emit_date_banner_logs_when_day_advances;
   ]
+
