@@ -10,6 +10,110 @@ let query_single_text_option db sql =
           | _ -> None)
       | _ -> None)
 
+let free_port () =
+  let sock = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
+  Fun.protect
+    ~finally:(fun () -> Unix.close sock)
+    (fun () ->
+      Unix.setsockopt sock Unix.SO_REUSEADDR true;
+      Unix.bind sock (Unix.ADDR_INET (Unix.inet_addr_loopback, 0));
+      match Unix.getsockname sock with
+      | Unix.ADDR_INET (_, port) -> port
+      | Unix.ADDR_UNIX _ -> Alcotest.fail "expected inet socket")
+
+let make_fake_provider_config base_url : Runtime_config.provider_config =
+  {
+    api_key = "test-key";
+    kind = None;
+    base_url = Some base_url;
+    default_model = Some "fake-model";
+    project_id = None;
+    location = None;
+    service_account_json = None;
+    thinking_budget_tokens = None;
+    oai_thinking_style = "none";
+    codex_oauth = None;
+  }
+
+let with_fake_chat_provider f =
+  let port = free_port () in
+  let callback _conn req body =
+    let open Lwt.Syntax in
+    let* body_text = Cohttp_lwt.Body.to_string body in
+    let json = Yojson.Safe.from_string body_text in
+    let open Yojson.Safe.Util in
+    let messages = json |> member "messages" |> to_list in
+    let user_messages =
+      messages
+      |> List.filter_map (fun msg ->
+          try
+            if msg |> member "role" |> to_string = "user" then
+              Some (msg |> member "content" |> to_string)
+            else None
+          with _ -> None)
+    in
+    let latest = match List.rev user_messages with x :: _ -> x | [] -> "" in
+    let response_body =
+      Yojson.Safe.to_string
+        (`Assoc
+           [
+             ("id", `String "cmpl_fake");
+             ("object", `String "chat.completion");
+             ("model", `String "fake-model");
+             ( "choices",
+               `List
+                 [
+                   `Assoc
+                     [
+                       ("index", `Int 0);
+                       ( "message",
+                         `Assoc
+                           [
+                             ("role", `String "assistant");
+                             ("content", `String ("reply:" ^ latest));
+                           ] );
+                       ("finish_reason", `String "stop");
+                     ];
+                 ] );
+           ])
+    in
+    Cohttp_lwt_unix.Server.respond_string ~status:`OK ~body:response_body ()
+  in
+  let server =
+    Cohttp_lwt_unix.Server.create
+      ~mode:(`TCP (`Port port))
+      (Cohttp_lwt_unix.Server.make ~callback ())
+  in
+  let stop, stopper = Lwt.wait () in
+  Lwt.async (fun () -> Lwt.pick [ server; stop ]);
+  Fun.protect
+    ~finally:(fun () -> Lwt.wakeup_later stopper ())
+    (fun () ->
+      let config =
+        {
+          Runtime_config.default with
+          default_provider = Some "fake";
+          providers =
+            [
+              ( "fake",
+                make_fake_provider_config
+                  (Printf.sprintf "http://127.0.0.1:%d" port) );
+            ];
+          prompt =
+            { Runtime_config.default.prompt with dynamic_enabled = false };
+          security =
+            { Runtime_config.default.security with tools_enabled = false };
+          agent_defaults =
+            {
+              Runtime_config.default.agent_defaults with
+              primary_model = "fake-model";
+              show_thinking = false;
+              show_tool_calls = false;
+            };
+        }
+      in
+      f config)
+
 let local_time ~year ~month ~day ~hour ~minute ~second =
   fst
     (Unix.mktime
@@ -152,6 +256,60 @@ let test_resume_agent_session_persists_response_and_marks_sent () =
        (Session.load_pending_agent_sessions session_manager
           ~max_age_seconds:3600))
 
+let test_resume_agent_session_sends_compaction_notice () =
+  with_fake_chat_provider (fun base_config ->
+      let db = Memory.init ~db_path:":memory:" () in
+      let slack_config =
+        {
+          Runtime_config.bot_token = "xoxb-test";
+          signing_secret = "secret";
+          events_path = "/slack/events";
+          allow_channels = [];
+          allow_users = [];
+          app_token = "";
+          socket_mode = false;
+        }
+      in
+      let config =
+        {
+          base_config with
+          channels = { base_config.channels with slack = Some slack_config };
+          memory = { base_config.memory with max_messages_per_session = 21 };
+          model_context_limits = [ ("fake-model", 1000) ];
+        }
+      in
+      let session_manager = Session.create ~config ~db () in
+      for i = 1 to 21 do
+        Memory.store_message ~db ~session_key:"slack:c1:u1"
+          (Provider.make_message ~role:"user"
+             ~content:
+               (Printf.sprintf "%s seed message %02d" (String.make 200 'x') i))
+      done;
+      Session.record_agent_turn session_manager ~key:"slack:c1:u1"
+        ~channel:"slack" ~channel_id:"c1" ();
+      let dispatched = ref [] in
+      let senders =
+        {
+          Daemon.default_resume_senders with
+          send_slack =
+            (fun ~bot_token:_ ~channel_id:_ ~text ->
+              dispatched := text :: !dispatched;
+              Lwt.return_unit);
+        }
+      in
+      Lwt_main.run
+        (Daemon.resume_agent_session ~senders ~session_manager ~config
+           ~session_key:"slack:c1:u1" ~channel:"slack" ~channel_id:"c1" ());
+      let sent = List.rev !dispatched in
+      Alcotest.(check int)
+        "compaction notice plus response" 2 (List.length sent);
+      Alcotest.(check string)
+        "first message is compaction notice" Session.compaction_notice
+        (List.nth sent 0);
+      Alcotest.(check bool)
+        "second message is response" true
+        (String.starts_with ~prefix:"reply:" (List.nth sent 1)))
+
 let test_wait_for_drain_returns_when_in_flight_reaches_zero () =
   let config = Runtime_config.default in
   let session_manager = Session.create ~config () in
@@ -285,6 +443,8 @@ let suite =
       test_resume_pending_agent_sessions_marks_missing_channel_info;
     Alcotest.test_case "resume agent session persists response and marks sent"
       `Quick test_resume_agent_session_persists_response_and_marks_sent;
+    Alcotest.test_case "resume agent session sends compaction notice" `Quick
+      test_resume_agent_session_sends_compaction_notice;
     Alcotest.test_case "wait for drain returns when in-flight reaches zero"
       `Quick test_wait_for_drain_returns_when_in_flight_reaches_zero;
     Alcotest.test_case "wait for drain reports timeout" `Quick

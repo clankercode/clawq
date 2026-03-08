@@ -132,6 +132,39 @@ let dispatch_resumed_message ?(senders = default_resume_senders)
       | None -> Lwt.return (Error "slack channel is not configured"))
   | _ -> Lwt.return (Error (Printf.sprintf "unsupported channel %s" channel))
 
+let notify_resumed_session ?(senders = default_resume_senders)
+    ~(session_manager : Session.t) ~(config : Runtime_config.t) ~session_key
+    ~channel ~channel_id text =
+  let open Lwt.Syntax in
+  match Session.find_registered_notifier session_manager ~key:session_key with
+  | Some notify ->
+      Lwt.catch
+        (fun () -> notify text)
+        (fun exn ->
+          Logs.warn (fun m ->
+              m "Resumed session notifier failed for %s: %s" session_key
+                (Printexc.to_string exn));
+          Lwt.return_unit)
+  | None ->
+      Lwt.catch
+        (fun () ->
+          let* result =
+            dispatch_resumed_message ~senders ~config ~channel ~channel_id ~text
+              ()
+          in
+          match result with
+          | Ok () -> Lwt.return_unit
+          | Error err ->
+              Logs.warn (fun m ->
+                  m "Failed to send resumed session notice for %s via %s:%s: %s"
+                    session_key channel channel_id err);
+              Lwt.return_unit)
+        (fun exn ->
+          Logs.warn (fun m ->
+              m "Resumed session notice dispatch failed for %s: %s" session_key
+                (Printexc.to_string exn));
+          Lwt.return_unit)
+
 let refresh_runtime_bound_tools ~(config : Runtime_config.t) registry =
   let refresh_optional name ~configured make_tool =
     if configured then Tool_registry.replace registry (make_tool ())
@@ -189,10 +222,11 @@ let notify_background_task_finished ~(session_manager : Session.t) ~config task
               Lwt.return_unit)
       | _ -> Lwt.return_unit)
 
-let default_resume_turn ~(session_manager : Session.t) ~session_key agent
-    interrupt =
+let default_resume_turn ~(session_manager : Session.t) ~notify ~session_key
+    agent interrupt =
   let open Lwt.Syntax in
   let* compacted = Agent.compact_history_if_needed agent in
+  let* () = Session.notify_compaction_if_needed ~notify compacted in
   if compacted then
     Session.persist_compacted_history session_manager ~key:session_key agent;
   let runtime_context =
@@ -209,10 +243,14 @@ let default_resume_turn ~(session_manager : Session.t) ~session_key agent
 let resume_agent_session ?(senders = default_resume_senders) ?run_turn
     ~(session_manager : Session.t) ~(config : Runtime_config.t) ~session_key
     ~channel ~channel_id () =
+  let notify text =
+    notify_resumed_session ~senders ~session_manager ~config ~session_key
+      ~channel ~channel_id text
+  in
   let run_turn =
     match run_turn with
     | Some f -> f
-    | None -> default_resume_turn ~session_manager ~session_key
+    | None -> default_resume_turn ~session_manager ~notify ~session_key
   in
   let open Lwt.Syntax in
   Session.with_session_lock session_manager ~key:session_key
