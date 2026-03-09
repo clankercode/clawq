@@ -10,6 +10,7 @@ Require Import Clawq.ShellSafety.
 Require Import Clawq.ChannelAuth.
 Require Import Clawq.AuditChain.
 Require Import Clawq.AuditChainConcrete.
+Require Import Clawq.AgentLoop.
 
 Extraction Language OCaml.
 
@@ -113,4 +114,15 @@ Extraction "src/extracted/clawq_core.ml"
   Clawq.ChannelAuth.is_allowed
   (* Audit chain (F3 concrete extracted path) *)
   Clawq.AuditChainConcrete.make_entry
-  Clawq.AuditChainConcrete.verify_chain.
+  Clawq.AuditChainConcrete.verify_chain
+  (* AgentLoop history helpers (F10 partial) *)
+  AgentLoop.string_in
+  AgentLoop.trim_history
+  AgentLoop.force_compress_history
+  AgentLoop.collect_tool_call_ids
+  AgentLoop.collect_tool_result_ids
+  AgentLoop.filter_tool_calls_with_results
+  AgentLoop.sanitize_tool_result_with_calls
+  AgentLoop.sanitize_assistant_calls_with_results
+  AgentLoop.ensure_tool_group_integrity
+  AgentLoop.adjust_split_for_tool_groups.

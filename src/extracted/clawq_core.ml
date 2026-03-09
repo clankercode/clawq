@@ -5,6 +5,12 @@ let negb = function
 | true -> false
 | false -> true
 
+(** val length : 'a1 list -> int **)
+
+let rec length = function
+| [] -> 0
+| _ :: l' -> Stdlib.Int.succ (length l')
+
 (** val app : 'a1 list -> 'a1 list -> 'a1 list **)
 
 let rec app l m =
@@ -20,6 +26,14 @@ type positive =
 type n =
 | N0
 | Npos of positive
+
+module Nat =
+ struct
+  (** val ltb : int -> int -> bool **)
+
+  let ltb n0 m =
+    (<=) (Stdlib.Int.succ n0) m
+ end
 
 module Pos =
  struct
@@ -50,6 +64,22 @@ module N =
       n0
  end
 
+(** val map : ('a1 -> 'a2) -> 'a1 list -> 'a2 list **)
+
+let rec map f = function
+| [] -> []
+| a :: l0 -> (f a) :: (map f l0)
+
+(** val firstn : int -> 'a1 list -> 'a1 list **)
+
+let rec firstn n0 l =
+  (fun fO fS n -> if n=0 then fO () else fS (n-1))
+    (fun _ -> [])
+    (fun n1 -> match l with
+               | [] -> []
+               | a :: l0 -> a :: (firstn n1 l0))
+    n0
+
 (** val rev : 'a1 list -> 'a1 list **)
 
 let rec rev = function
@@ -61,6 +91,12 @@ let rec rev = function
 let rec existsb f = function
 | [] -> false
 | a :: l0 -> (||) (f a) (existsb f l0)
+
+(** val filter : ('a1 -> bool) -> 'a1 list -> 'a1 list **)
+
+let rec filter f = function
+| [] -> []
+| x :: l0 -> if f x then x :: (filter f l0) else filter f l0
 
 type command =
 | CmdAgent
@@ -576,3 +612,105 @@ let rec verify_chain key prev_sig = function
 | e :: rest ->
   (&&) (verify_link key prev_sig e)
     (verify_chain key (Some e.ae_signature) rest)
+
+module AgentLoop =
+ struct
+  type tool_call = { tc_id : string; tc_name : string }
+
+  (** val tc_id : tool_call -> string **)
+
+  let tc_id t =
+    t.tc_id
+
+  type message =
+  | UserMsg of string
+  | AssistantMsg of string
+  | AssistantToolCallsMsg of tool_call list
+  | ToolResultMsg of string * string
+
+  type history = message list
+
+  (** val string_in : string -> string list -> bool **)
+
+  let string_in id ids =
+    existsb ((=) id) ids
+
+  (** val trim_history : int -> history -> history **)
+
+  let trim_history max h =
+    if Nat.ltb (length h) max then h else firstn max h
+
+  (** val force_compress_history : int -> history -> history **)
+
+  let force_compress_history =
+    firstn
+
+  (** val collect_tool_call_ids : history -> string list **)
+
+  let rec collect_tool_call_ids = function
+  | [] -> []
+  | m :: rest ->
+    (match m with
+     | AssistantToolCallsMsg calls ->
+       app (map (fun t -> t.tc_id) calls) (collect_tool_call_ids rest)
+     | _ -> collect_tool_call_ids rest)
+
+  (** val collect_tool_result_ids : history -> string list **)
+
+  let rec collect_tool_result_ids = function
+  | [] -> []
+  | m :: rest ->
+    (match m with
+     | ToolResultMsg (id, _) -> id :: (collect_tool_result_ids rest)
+     | _ -> collect_tool_result_ids rest)
+
+  (** val filter_tool_calls_with_results :
+      string list -> tool_call list -> tool_call list **)
+
+  let filter_tool_calls_with_results result_ids calls =
+    filter (fun call -> string_in call.tc_id result_ids) calls
+
+  (** val sanitize_tool_result_with_calls :
+      string list -> message -> message option **)
+
+  let sanitize_tool_result_with_calls call_ids msg = match msg with
+  | ToolResultMsg (id, _) -> if string_in id call_ids then Some msg else None
+  | _ -> Some msg
+
+  (** val sanitize_assistant_calls_with_results :
+      string list -> message -> message **)
+
+  let sanitize_assistant_calls_with_results result_ids msg = match msg with
+  | AssistantToolCallsMsg calls ->
+    AssistantToolCallsMsg (filter_tool_calls_with_results result_ids calls)
+  | _ -> msg
+
+  (** val option_filter_map : ('a1 -> 'a2 option) -> 'a1 list -> 'a2 list **)
+
+  let rec option_filter_map f = function
+  | [] -> []
+  | x :: rest ->
+    (match f x with
+     | Some y -> y :: (option_filter_map f rest)
+     | None -> option_filter_map f rest)
+
+  (** val ensure_tool_group_integrity : history -> history **)
+
+  let ensure_tool_group_integrity msgs =
+    let call_ids = collect_tool_call_ids msgs in
+    let result_ids = collect_tool_result_ids msgs in
+    map (sanitize_assistant_calls_with_results result_ids)
+      (option_filter_map (sanitize_tool_result_with_calls call_ids) msgs)
+
+  (** val adjust_split_for_tool_groups :
+      history -> history -> history * history **)
+
+  let rec adjust_split_for_tool_groups to_compact to_keep = match to_keep with
+  | [] -> (to_compact, to_keep)
+  | m :: rest ->
+    (match m with
+     | ToolResultMsg (id, name) ->
+       adjust_split_for_tool_groups
+         (app to_compact ((ToolResultMsg (id, name)) :: [])) rest
+     | _ -> (to_compact, to_keep))
+ end

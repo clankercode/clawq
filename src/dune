@@ -16,6 +16,7 @@
   http_client
   provider
   message_history
+  agent_loop_conformance
   prompt_builder
   stream_visibility
   format_adapter

@@ -1,6 +1,8 @@
 
 val negb : bool -> bool
 
+val length : 'a1 list -> int
+
 val app : 'a1 list -> 'a1 list -> 'a1 list
 
 type positive =
@@ -11,6 +13,11 @@ type positive =
 type n =
 | N0
 | Npos of positive
+
+module Nat :
+ sig
+  val ltb : int -> int -> bool
+ end
 
 module Pos :
  sig
@@ -24,9 +31,15 @@ module N :
   val of_nat : int -> n
  end
 
+val map : ('a1 -> 'a2) -> 'a1 list -> 'a2 list
+
+val firstn : int -> 'a1 list -> 'a1 list
+
 val rev : 'a1 list -> 'a1 list
 
 val existsb : ('a1 -> bool) -> 'a1 list -> bool
+
+val filter : ('a1 -> bool) -> 'a1 list -> 'a1 list
 
 type command =
 | CmdAgent
@@ -166,3 +179,43 @@ val make_entry :
 val verify_link : string -> string option -> audit_entry -> bool
 
 val verify_chain : string -> string option -> audit_entry list -> bool
+
+module AgentLoop :
+ sig
+  type tool_call = { tc_id : string; tc_name : string }
+
+  val tc_id : tool_call -> string
+
+  type message =
+  | UserMsg of string
+  | AssistantMsg of string
+  | AssistantToolCallsMsg of tool_call list
+  | ToolResultMsg of string * string
+
+  type history = message list
+
+  val string_in : string -> string list -> bool
+
+  val trim_history : int -> history -> history
+
+  val force_compress_history : int -> history -> history
+
+  val collect_tool_call_ids : history -> string list
+
+  val collect_tool_result_ids : history -> string list
+
+  val filter_tool_calls_with_results :
+    string list -> tool_call list -> tool_call list
+
+  val sanitize_tool_result_with_calls :
+    string list -> message -> message option
+
+  val sanitize_assistant_calls_with_results :
+    string list -> message -> message
+
+  val option_filter_map : ('a1 -> 'a2 option) -> 'a1 list -> 'a2 list
+
+  val ensure_tool_group_integrity : history -> history
+
+  val adjust_split_for_tool_groups : history -> history -> history * history
+ end
