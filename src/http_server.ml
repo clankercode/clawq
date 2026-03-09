@@ -588,13 +588,60 @@ let handler ~session_manager ~require_pairing ~auth_token
                     in
                     sse_reply text
                 | Slash_commands.Delegate prompt ->
-                    let* result = Session.delegate_turn session_manager ~prompt in
-                    let text =
-                      match result with
-                      | Ok response -> response
-                      | Error msg -> msg
+                    let stream, push = Lwt_stream.create () in
+                    let push_sse text =
+                      let data =
+                        Yojson.Safe.to_string
+                          (json_of_stream_event (Provider.Delta text))
+                      in
+                      push (Some (Printf.sprintf "data: %s\n\n" data))
                     in
-                    sse_reply text
+                    push_sse "Delegating...";
+                    Session.delegate_turn session_manager ~prompt
+                      ~send_reply:(fun text ->
+                        push_sse text;
+                        push (Some "data: [DONE]\n\n");
+                        push None;
+                        Lwt.return_unit);
+                    let headers =
+                      Cohttp.Header.of_list
+                        [
+                          ("Content-Type", "text/event-stream");
+                          ("Cache-Control", "no-cache");
+                          ("Connection", "keep-alive");
+                        ]
+                    in
+                    Cohttp_lwt_unix.Server.respond ~status:`OK ~headers
+                      ~body:(Cohttp_lwt.Body.of_stream stream)
+                      ()
+                | Slash_commands.ForkAnd prompt ->
+                    let key = "web:" ^ session_id in
+                    let stream, push = Lwt_stream.create () in
+                    let push_sse text =
+                      let data =
+                        Yojson.Safe.to_string
+                          (json_of_stream_event (Provider.Delta text))
+                      in
+                      push (Some (Printf.sprintf "data: %s\n\n" data))
+                    in
+                    push_sse "Forking session...";
+                    Session.fork_and_run session_manager ~parent_key:key ~prompt
+                      ~send_reply:(fun text ->
+                        push_sse text;
+                        push (Some "data: [DONE]\n\n");
+                        push None;
+                        Lwt.return_unit);
+                    let headers =
+                      Cohttp.Header.of_list
+                        [
+                          ("Content-Type", "text/event-stream");
+                          ("Cache-Control", "no-cache");
+                          ("Connection", "keep-alive");
+                        ]
+                    in
+                    Cohttp_lwt_unix.Server.respond ~status:`OK ~headers
+                      ~body:(Cohttp_lwt.Body.of_stream stream)
+                      ()
                 | Slash_commands.NotACommand ->
                     let key = "web:" ^ session_id in
                     let stream, push = Lwt_stream.create () in

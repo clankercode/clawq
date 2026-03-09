@@ -529,7 +529,8 @@ let respond_if_draining ?on_chunk mgr =
   else Lwt.return_none
 
 let stream_turn_with_visibility mgr ~notify agent ~key ~effective_message
-    ~prepared_history_len ~interrupt_check ~inject_messages ~runtime_context =
+    ~persisted_up_to ~interrupt_check ~inject_messages ~runtime_context
+    ~on_history_update =
   let open Lwt.Syntax in
   let visibility = Stream_visibility.create () in
   let settings : Stream_visibility.settings =
@@ -543,7 +544,7 @@ let stream_turn_with_visibility mgr ~notify agent ~key ~effective_message
   let* response =
     Agent.turn_stream agent ~user_message:effective_message ?db:mgr.db
       ~session_key:key ~interrupt_check ~inject_messages ?runtime_context
-      ~history_prepared:true
+      ~history_prepared:true ~on_history_update
       ~on_chunk:(Stream_visibility.on_chunk visibility ~settings ~notify)
       ()
   in
@@ -553,7 +554,7 @@ let stream_turn_with_visibility mgr ~notify agent ~key ~effective_message
       notify (Stream_visibility.thinking_message thinking)
     else Lwt.return_unit
   in
-  persist_new_messages mgr ~key ~history_before:prepared_history_len agent;
+  persist_new_messages mgr ~key ~history_before:!persisted_up_to agent;
   (match mgr.db with
   | Some db when mgr.config.security.audit_enabled ->
       Audit.log ~db
@@ -629,6 +630,16 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(attachments = [])
   in
   let prepared_history_len = List.length agent.history in
   record_agent_turn mgr ~key ?channel ?channel_id ();
+  let persisted_up_to = ref prepared_history_len in
+  let on_history_update new_msgs =
+    match mgr.db with
+    | Some db ->
+        List.iter
+          (fun msg -> Memory.store_message ~db ~session_key:key msg)
+          new_msgs;
+        persisted_up_to := List.length agent.Agent.history
+    | None -> ()
+  in
   let inject_messages () =
     let msgs = take_all_queued_messages_for_injection mgr ~key in
     List.map
@@ -651,16 +662,15 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(attachments = [])
               when mgr.config.agent_defaults.show_thinking
                    || mgr.config.agent_defaults.show_tool_calls ->
                 stream_turn_with_visibility mgr ~notify:send agent ~key
-                  ~effective_message ~prepared_history_len ~interrupt_check
-                  ~inject_messages ~runtime_context
+                  ~effective_message ~persisted_up_to ~interrupt_check
+                  ~inject_messages ~runtime_context ~on_history_update
             | _ ->
                 Agent.turn agent ~user_message:effective_message ?db:mgr.db
                   ~session_key:key ~interrupt_check ~inject_messages
-                  ?runtime_context ~history_prepared:true ()))
+                  ?runtime_context ~history_prepared:true ~on_history_update ()))
       (function
         | Agent.Restart_requested ->
-            persist_new_messages mgr ~key ~history_before:prepared_history_len
-              agent;
+            persist_new_messages mgr ~key ~history_before:!persisted_up_to agent;
             set_response_deferred mgr ~key;
             Lwt.return draining_message
         | exn -> Lwt.fail exn)
@@ -672,7 +682,7 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(attachments = [])
       ()
   | _ ->
       if not (response_deferred mgr ~key) then begin
-        persist_new_messages mgr ~key ~history_before:prepared_history_len agent;
+        persist_new_messages mgr ~key ~history_before:!persisted_up_to agent;
         match mgr.db with
         | Some db when mgr.config.security.audit_enabled ->
             Audit.log ~db
@@ -765,23 +775,77 @@ let rec turn mgr ~key ~message ?(attachments = []) ?channel_name ?channel_type
                 let* () = drain_queued_messages mgr ~key agent interrupt in
                 Lwt.return response))
 
-let delegate_turn mgr ~prompt =
-  let open Lwt.Syntax in
-  if mgr.draining then Lwt.return (Error draining_message)
-  else
-    with_in_flight mgr (fun () ->
-        let agent =
-          Agent.create ~config:mgr.config ?tool_registry:mgr.tool_registry ()
-        in
+let delegate_turn mgr ~prompt ~send_reply =
+  if mgr.draining then
+    Lwt.async (fun () ->
         Lwt.catch
-          (fun () ->
-            let* response = Agent.turn agent ~user_message:prompt () in
-            Lwt.return (Ok response))
-          (fun exn ->
-            Lwt.return
-              (Error
-                 (Printf.sprintf "Delegation failed: %s"
-                    (Printexc.to_string exn)))))
+          (fun () -> send_reply draining_message)
+          (fun _ -> Lwt.return_unit))
+  else
+    Lwt.async (fun () ->
+        with_in_flight mgr (fun () ->
+            let agent =
+              Agent.create ~config:mgr.config ?tool_registry:mgr.tool_registry
+                ()
+            in
+            Lwt.catch
+              (fun () ->
+                let open Lwt.Syntax in
+                let* response = Agent.turn agent ~user_message:prompt () in
+                send_reply response)
+              (fun exn ->
+                Logs.err (fun m ->
+                    m "Delegation failed: %s" (Printexc.to_string exn));
+                Lwt.catch
+                  (fun () ->
+                    send_reply
+                      (Printf.sprintf "Delegation failed: %s"
+                         (Printexc.to_string exn)))
+                  (fun _ -> Lwt.return_unit))))
+
+let snapshot_history mgr ~key =
+  Lwt_mutex.with_lock mgr.sessions_lock (fun () ->
+      match Hashtbl.find_opt mgr.sessions key with
+      | Some (agent, _, _) ->
+          let history = List.rev agent.Agent.history in
+          Lwt.return (Message_history.ensure_tool_group_integrity history)
+      | None ->
+          let history =
+            match mgr.db with
+            | Some db -> Memory.load_history ~db ~session_key:key
+            | None -> []
+          in
+          Lwt.return history)
+
+let fork_and_run mgr ~parent_key ~prompt ~send_reply =
+  if mgr.draining then
+    Lwt.async (fun () ->
+        Lwt.catch
+          (fun () -> send_reply draining_message)
+          (fun _ -> Lwt.return_unit))
+  else
+    Lwt.async (fun () ->
+        with_in_flight mgr (fun () ->
+            let open Lwt.Syntax in
+            let* parent_history = snapshot_history mgr ~key:parent_key in
+            let agent =
+              Agent.create ~config:mgr.config ?tool_registry:mgr.tool_registry
+                ()
+            in
+            agent.Agent.history <- List.rev parent_history;
+            Lwt.catch
+              (fun () ->
+                let* response = Agent.turn agent ~user_message:prompt () in
+                send_reply response)
+              (fun exn ->
+                Logs.err (fun m ->
+                    m "Fork failed for parent=%s: %s" parent_key
+                      (Printexc.to_string exn));
+                Lwt.catch
+                  (fun () ->
+                    send_reply
+                      (Printf.sprintf "Fork failed: %s" (Printexc.to_string exn)))
+                  (fun _ -> Lwt.return_unit))))
 
 let get_config mgr = mgr.config
 
@@ -878,6 +942,17 @@ let turn_stream mgr ~key ~message ?(attachments = []) ?channel_name
                 in
                 let prepared_history_len = List.length agent.history in
                 record_agent_turn mgr ~key ?channel ?channel_id ();
+                let persisted_up_to = ref prepared_history_len in
+                let on_history_update new_msgs =
+                  match mgr.db with
+                  | Some db ->
+                      List.iter
+                        (fun msg ->
+                          Memory.store_message ~db ~session_key:key msg)
+                        new_msgs;
+                      persisted_up_to := List.length agent.Agent.history
+                  | None -> ()
+                in
                 let inject_messages () =
                   let msgs = take_all_queued_messages_for_injection mgr ~key in
                   List.map
@@ -901,11 +976,12 @@ let turn_stream mgr ~key ~message ?(attachments = []) ?channel_name
                           Agent.turn_stream agent
                             ~user_message:effective_message ?db:mgr.db
                             ~session_key:key ~interrupt_check ~inject_messages
-                            ?runtime_context ~history_prepared:true ~on_chunk ())
+                            ?runtime_context ~history_prepared:true
+                            ~on_history_update ~on_chunk ())
                     (function
                       | Agent.Restart_requested ->
                           persist_new_messages mgr ~key
-                            ~history_before:prepared_history_len agent;
+                            ~history_before:!persisted_up_to agent;
                           set_response_deferred mgr ~key;
                           let* () =
                             on_chunk (Provider.Delta draining_message)
@@ -915,8 +991,8 @@ let turn_stream mgr ~key ~message ?(attachments = []) ?channel_name
                       | exn -> Lwt.fail exn)
                 in
                 if not (response_deferred mgr ~key) then begin
-                  persist_new_messages mgr ~key
-                    ~history_before:prepared_history_len agent;
+                  persist_new_messages mgr ~key ~history_before:!persisted_up_to
+                    agent;
                   match mgr.db with
                   | Some db when mgr.config.security.audit_enabled ->
                       Audit.log ~db

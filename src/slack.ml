@@ -322,17 +322,22 @@ let handle_event ~(config : Runtime_config.slack_config)
                 in
                 Lwt.return "ok"
             | Delegate prompt ->
-                let* () =
-                  send_message_fn ~bot_token:config.bot_token ~channel_id
-                    ~text:"Delegating to a temporary session..."
-                in
-                let* result = Session.delegate_turn session_manager ~prompt in
-                let text =
-                  match result with Ok response -> response | Error msg -> msg
-                in
-                let* () =
-                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
-                in
+                Lwt.async (fun () ->
+                    send_message_fn ~bot_token:config.bot_token ~channel_id
+                      ~text:"Delegating to a temporary session...");
+                Session.delegate_turn session_manager ~prompt
+                  ~send_reply:(fun text ->
+                    send_message_fn ~bot_token:config.bot_token ~channel_id
+                      ~text);
+                Lwt.return "ok"
+            | ForkAnd prompt ->
+                Lwt.async (fun () ->
+                    send_message_fn ~bot_token:config.bot_token ~channel_id
+                      ~text:"Forking session...");
+                Session.fork_and_run session_manager ~parent_key:key ~prompt
+                  ~send_reply:(fun text ->
+                    send_message_fn ~bot_token:config.bot_token ~channel_id
+                      ~text);
                 Lwt.return "ok"
             | NotACommand -> (
                 let agent_defaults =

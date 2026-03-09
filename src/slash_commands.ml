@@ -7,6 +7,7 @@ type result =
   | Compact
   | Thinking of thinking_action
   | Delegate of string
+  | ForkAnd of string
   | NotACommand
 
 let allowed_thinking_levels = [ "low"; "medium"; "high"; "off"; "xhigh"; "max" ]
@@ -57,6 +58,11 @@ let commands =
     {
       name = "config";
       description = "View or modify config: /config <show|get|set|keys>";
+    };
+    {
+      name = "fork-and";
+      description =
+        "Fork the current session and run a prompt: /fork-and <prompt>";
     };
   ]
 
@@ -190,6 +196,10 @@ let handle text =
                      "Unknown config subcommand '%s'.\n\
                       Use /config for usage help."
                      sub))
+        | "fork-and" -> (
+            match args with
+            | [] -> Reply "Usage: /fork-and <prompt>"
+            | _ -> ForkAnd (String.concat " " args))
         | "" -> NotACommand
         | _ -> NotACommand)
 

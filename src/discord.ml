@@ -471,12 +471,20 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
               ~channel_id:msg.channel_id
               ~text:"Delegating to a temporary session..."
           in
-          let* result = Session.delegate_turn session_mgr ~prompt in
-          let text =
-            match result with Ok response -> response | Error msg -> msg
+          Session.delegate_turn session_mgr ~prompt ~send_reply:(fun text ->
+              send_message_fn ~bot_token:discord_config.bot_token
+                ~channel_id:msg.channel_id ~text);
+          Lwt.return_unit
+      | ForkAnd prompt ->
+          let* () =
+            send_message_fn ~bot_token:discord_config.bot_token
+              ~channel_id:msg.channel_id ~text:"Forking session..."
           in
-          send_message_fn ~bot_token:discord_config.bot_token
-            ~channel_id:msg.channel_id ~text
+          Session.fork_and_run session_mgr ~parent_key:key ~prompt
+            ~send_reply:(fun text ->
+              send_message_fn ~bot_token:discord_config.bot_token
+                ~channel_id:msg.channel_id ~text);
+          Lwt.return_unit
       | NotACommand when Update_tool.is_update_command msg.content -> (
           let send_first text =
             send_message_with_id ~suppress_notifications:true

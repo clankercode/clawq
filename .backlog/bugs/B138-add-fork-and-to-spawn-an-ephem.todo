@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-09T10:12:33Z"
+claimed_by: cli-user
+completed_at: "2026-03-09T11:08:47Z"
 complexity: medium
 depends_on: []
+duration_minutes: 56.24580275613334
 estimate_hours: 1
 id: B138
 priority: high
-status: pending
+started_at: "2026-03-09T10:12:33Z"
+status: done
 tags: []
 title: Add /fork-and to spawn an ephemeral forked session from the current channel thread
 ---

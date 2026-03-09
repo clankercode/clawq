@@ -826,11 +826,18 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
               send_message ~bot_token ~chat_id:update.chat_id
                 ~text:"Delegating to a temporary session..." ()
             in
-            let* result = Session.delegate_turn session_mgr ~prompt in
-            let text =
-              match result with Ok response -> response | Error msg -> msg
+            Session.delegate_turn session_mgr ~prompt ~send_reply:(fun text ->
+                send_chunked ~bot_token ~chat_id:update.chat_id ~text ());
+            Lwt.return_unit
+        | ForkAnd prompt ->
+            let* () =
+              send_message ~bot_token ~chat_id:update.chat_id
+                ~text:"Forking session..." ()
             in
-            send_message ~bot_token ~chat_id:update.chat_id ~text ()
+            Session.fork_and_run session_mgr ~parent_key:key ~prompt
+              ~send_reply:(fun text ->
+                send_chunked ~bot_token ~chat_id:update.chat_id ~text ());
+            Lwt.return_unit
         | NotACommand -> (
             let msg = user_text in
             let agent_defaults =

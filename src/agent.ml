@@ -802,7 +802,7 @@ let prepare_turn_history agent ~user_message ?db () =
   Lwt.return compacted
 
 let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
-    ?runtime_context ?(history_prepared = false) () =
+    ?runtime_context ?(history_prepared = false) ?on_history_update () =
   let is_restart_interrupt = function
     | Some reason when reason = restart_interrupt_token -> true
     | _ -> false
@@ -855,6 +855,17 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
         Cost_tracker.record_turn ~model ~prompt_tokens:pt ~completion_tokens:ct
           ~session_id:sid
     | _ -> ()
+  in
+  let fire_history_update len_before =
+    match on_history_update with
+    | Some cb ->
+        let len_after = List.length agent.history in
+        if len_after > len_before then begin
+          let reversed = List.rev agent.history in
+          let new_msgs = List.filteri (fun i _ -> i >= len_before) reversed in
+          cb new_msgs
+        end
+    | None -> ()
   in
   let rec loop iteration =
     let* response =
@@ -913,6 +924,7 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
         trim_history agent;
         Lwt.return content
     | Provider.ToolCalls { calls; provider_response_items_json; _ } -> (
+        let len_before_tool_loop = List.length agent.history in
         let assistant_msg =
           {
             Provider.role = "assistant";
@@ -938,6 +950,7 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
                   :: agent.history)
               msgs
         | None -> ());
+        fire_history_update len_before_tool_loop;
         match interrupt_check with
         | Some check -> (
             match check () with
@@ -961,7 +974,8 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
   loop 0
 
 let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
-    ?inject_messages ?runtime_context ?(history_prepared = false) ~on_chunk () =
+    ?inject_messages ?runtime_context ?(history_prepared = false)
+    ?on_history_update ~on_chunk () =
   let is_restart_interrupt = function
     | Some reason when reason = restart_interrupt_token -> true
     | _ -> false
@@ -1041,6 +1055,17 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
           ~session_id:sid
     | _ -> ()
   in
+  let fire_history_update len_before =
+    match on_history_update with
+    | Some cb ->
+        let len_after = List.length agent.history in
+        if len_after > len_before then begin
+          let reversed = List.rev agent.history in
+          let new_msgs = List.filteri (fun i _ -> i >= len_before) reversed in
+          cb new_msgs
+        end
+    | None -> ()
+  in
   let rec loop iteration =
     Lwt.catch
       (fun () ->
@@ -1096,6 +1121,7 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
             let* () = on_chunk (Provider.Delta content) in
             Lwt.return content
         | Provider.ToolCalls { calls; provider_response_items_json; _ } -> (
+            let len_before_tool_loop = List.length agent.history in
             let assistant_msg =
               {
                 Provider.role = "assistant";
@@ -1121,6 +1147,7 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
                       :: agent.history)
                   msgs
             | None -> ());
+            fire_history_update len_before_tool_loop;
             match interrupt_check with
             | Some check -> (
                 match check () with

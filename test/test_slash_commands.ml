@@ -8,6 +8,7 @@ let result_to_string = function
       "Thinking(Set " ^ level ^ ")"
   | Slash_commands.Compact -> "Compact"
   | Slash_commands.Delegate s -> "Delegate(" ^ s ^ ")"
+  | Slash_commands.ForkAnd s -> "ForkAnd(" ^ s ^ ")"
   | Slash_commands.NotACommand -> "NotACommand"
 
 let result_eq a b =
@@ -22,6 +23,7 @@ let result_eq a b =
       a = b
   | Slash_commands.Compact, Slash_commands.Compact -> true
   | Slash_commands.Delegate a, Slash_commands.Delegate b -> a = b
+  | Slash_commands.ForkAnd a, Slash_commands.ForkAnd b -> a = b
   | Slash_commands.NotACommand, Slash_commands.NotACommand -> true
   | _ -> false
 
@@ -147,7 +149,8 @@ let test_commands_list () =
   Alcotest.(check bool) "has compact" true (List.mem "compact" names);
   Alcotest.(check bool) "has update" true (List.mem "update" names);
   Alcotest.(check bool) "has delegate" true (List.mem "delegate" names);
-  Alcotest.(check bool) "has config" true (List.mem "config" names)
+  Alcotest.(check bool) "has config" true (List.mem "config" names);
+  Alcotest.(check bool) "has fork-and" true (List.mem "fork-and" names)
 
 let test_case_insensitive () =
   (match Slash_commands.handle "/HELP" with
@@ -189,6 +192,21 @@ let test_delegate_multi_word () =
   Alcotest.check result_testable "delegate multi-word"
     (Slash_commands.Delegate "a b c d")
     (Slash_commands.handle "/delegate a b c d")
+
+let test_fork_and_with_prompt () =
+  Alcotest.check result_testable "fork-and with prompt"
+    (Slash_commands.ForkAnd "summarize this")
+    (Slash_commands.handle "/fork-and summarize this")
+
+let test_fork_and_no_args () =
+  Alcotest.check result_testable "fork-and no args"
+    (Slash_commands.Reply "Usage: /fork-and <prompt>")
+    (Slash_commands.handle "/fork-and")
+
+let test_fork_and_multi_word () =
+  Alcotest.check result_testable "fork-and multi-word"
+    (Slash_commands.ForkAnd "a b c d")
+    (Slash_commands.handle "/fork-and a b c d")
 
 let test_leading_whitespace () =
   match Slash_commands.handle "  /status  " with
@@ -347,6 +365,10 @@ let suite =
     Alcotest.test_case "delegate no args" `Quick test_delegate_no_args;
     Alcotest.test_case "delegate multi-word prompt" `Quick
       test_delegate_multi_word;
+    Alcotest.test_case "fork-and with prompt" `Quick test_fork_and_with_prompt;
+    Alcotest.test_case "fork-and no args" `Quick test_fork_and_no_args;
+    Alcotest.test_case "fork-and multi-word prompt" `Quick
+      test_fork_and_multi_word;
     Alcotest.test_case "/config usage" `Quick test_config_usage;
     Alcotest.test_case "/config show" `Quick test_config_show;
     Alcotest.test_case "/config get missing key" `Quick test_config_get_missing;
