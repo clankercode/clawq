@@ -1694,6 +1694,74 @@ let memory_list ~db =
     deferred = false;
   }
 
+let history_search ~db =
+  {
+    Tool.name = "history_search";
+    description =
+      "Search your own chat/session message history across current and \
+       archived epochs. Returns matching messages with role, content snippet, \
+       timestamp, and source epoch.";
+    parameters_schema =
+      `Assoc
+        [
+          ("type", `String "object");
+          ( "properties",
+            `Assoc
+              [
+                ( "query",
+                  `Assoc
+                    [
+                      ("type", `String "string");
+                      ( "description",
+                        `String "Text to search for in message history" );
+                    ] );
+                ( "limit",
+                  `Assoc
+                    [
+                      ("type", `String "integer");
+                      ( "description",
+                        `String "Maximum number of results (default: 10)" );
+                    ] );
+              ] );
+          ("required", `List [ `String "query" ]);
+        ];
+    invoke =
+      (fun ?context args ->
+        let open Yojson.Safe.Util in
+        let query = try args |> member "query" |> to_string with _ -> "" in
+        let limit = try args |> member "limit" |> to_int with _ -> 10 in
+        if query = "" then Lwt.return "Error: query is required"
+        else
+          let session_key =
+            match context with Some ctx -> ctx.Tool.session_key | None -> None
+          in
+          match session_key with
+          | None -> Lwt.return "Error: no session context available"
+          | Some sk ->
+              let results =
+                Memory.search_session_history ~db ~session_key:sk ~query ~limit
+                  ()
+              in
+              if results = [] then Lwt.return "No matching messages found"
+              else
+                let lines =
+                  List.map
+                    (fun (r : Memory.history_search_result) ->
+                      let snippet =
+                        if String.length r.content > 200 then
+                          String.sub r.content 0 200 ^ "..."
+                        else r.content
+                      in
+                      Printf.sprintf "[%s] (%s) [%s]: %s" r.source r.role
+                        r.created_at snippet)
+                    results
+                in
+                Lwt.return (String.concat "\n" lines));
+    invoke_stream = None;
+    risk_level = Low;
+    deferred = false;
+  }
+
 (* ───── Filesystem navigation tools ───── *)
 
 (* Glob pattern matching helpers *)
@@ -3090,6 +3158,7 @@ let register_all ~(config : Runtime_config.t) ~sandbox ?(db = None)
       Tool_registry.register registry (memory_recall ~db);
       Tool_registry.register registry (memory_forget ~db);
       Tool_registry.register registry (memory_list ~db);
+      Tool_registry.register registry (history_search ~db);
       Background_task.init_schema db;
       Tool_registry.register registry
         (Background_task.enqueue_tool_with_notify ~notify_cfg:config.notify ~db);

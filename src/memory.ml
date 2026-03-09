@@ -36,6 +36,13 @@ type session_epoch = {
 
 type epoch_selector = Current | Archived of int
 
+type history_search_result = {
+  role : string;
+  content : string;
+  created_at : string;
+  source : string;
+}
+
 let exec_exn db sql =
   match Sqlite3.exec db sql with
   | Sqlite3.Rc.OK -> ()
@@ -374,7 +381,7 @@ let load_raw_history ~db ~session_key =
     ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
     (fun () -> raw_messages_of_stmt stmt)
 
-let archive_session_epoch ~db ~session_key rows =
+let archive_session_epoch ~db ~session_key (rows : raw_message list) =
   match rows with
   | [] -> ()
   | first :: _ ->
@@ -406,7 +413,7 @@ let archive_session_epoch ~db ~session_key rows =
          ?, ?, ?)"
       in
       List.iteri
-        (fun ordinal row ->
+        (fun ordinal (row : raw_message) ->
           let stmt = Sqlite3.prepare db msg_sql in
           ignore
             (Sqlite3.bind stmt 1 (Sqlite3.Data.INT (Int64.of_int epoch_id)));
@@ -1047,3 +1054,137 @@ let search ~db ~query ?session_key ~limit () =
   done;
   ignore (Sqlite3.finalize stmt);
   List.rev !messages
+
+let escape_like s =
+  let buf = Buffer.create (String.length s) in
+  String.iter
+    (fun c ->
+      match c with
+      | '%' | '_' | '\\' ->
+          Buffer.add_char buf '\\';
+          Buffer.add_char buf c
+      | _ -> Buffer.add_char buf c)
+    s;
+  Buffer.contents buf
+
+let search_session_history ~db ~session_key ~query ~limit () =
+  let like_pattern = "%" ^ escape_like query ^ "%" in
+  let current_results =
+    let fts_results =
+      try
+        let sql =
+          "SELECT m.role, m.content, m.created_at, 'current' AS source FROM \
+           messages m JOIN messages_fts f ON m.id = f.rowid WHERE messages_fts \
+           MATCH ? AND f.session_key = ? ORDER BY f.rank LIMIT ?"
+        in
+        let stmt = Sqlite3.prepare db sql in
+        Fun.protect
+          ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+          (fun () ->
+            ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT query));
+            ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT session_key));
+            ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.INT (Int64.of_int limit)));
+            let rows = ref [] in
+            while Sqlite3.step stmt = Sqlite3.Rc.ROW do
+              let role =
+                match Sqlite3.column stmt 0 with
+                | Sqlite3.Data.TEXT s -> s
+                | _ -> ""
+              in
+              let content =
+                match Sqlite3.column stmt 1 with
+                | Sqlite3.Data.TEXT s -> s
+                | _ -> ""
+              in
+              let created_at =
+                match Sqlite3.column stmt 2 with
+                | Sqlite3.Data.TEXT s -> s
+                | _ -> ""
+              in
+              rows := { role; content; created_at; source = "current" } :: !rows
+            done;
+            Some (List.rev !rows))
+      with _ -> None
+    in
+    match fts_results with
+    | Some r -> r
+    | None ->
+        let sql =
+          "SELECT role, content, created_at, 'current' AS source FROM messages \
+           WHERE session_key = ? AND content LIKE ? ESCAPE '\\' ORDER BY \
+           created_at DESC LIMIT ?"
+        in
+        let stmt = Sqlite3.prepare db sql in
+        Fun.protect
+          ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+          (fun () ->
+            ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT session_key));
+            ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT like_pattern));
+            ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.INT (Int64.of_int limit)));
+            let rows = ref [] in
+            while Sqlite3.step stmt = Sqlite3.Rc.ROW do
+              let role =
+                match Sqlite3.column stmt 0 with
+                | Sqlite3.Data.TEXT s -> s
+                | _ -> ""
+              in
+              let content =
+                match Sqlite3.column stmt 1 with
+                | Sqlite3.Data.TEXT s -> s
+                | _ -> ""
+              in
+              let created_at =
+                match Sqlite3.column stmt 2 with
+                | Sqlite3.Data.TEXT s -> s
+                | _ -> ""
+              in
+              rows := { role; content; created_at; source = "current" } :: !rows
+            done;
+            List.rev !rows)
+  in
+  let archived_results =
+    let sql =
+      "SELECT em.role, em.content, em.created_at, 'epoch:' || e.id AS source \
+       FROM session_log_epoch_messages em JOIN session_log_epochs e ON \
+       em.epoch_id = e.id WHERE e.session_key = ? AND em.content LIKE ? ESCAPE \
+       '\\' ORDER BY em.created_at DESC LIMIT ?"
+    in
+    let stmt = Sqlite3.prepare db sql in
+    Fun.protect
+      ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+      (fun () ->
+        ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT session_key));
+        ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT like_pattern));
+        ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.INT (Int64.of_int limit)));
+        let rows = ref [] in
+        while Sqlite3.step stmt = Sqlite3.Rc.ROW do
+          let role =
+            match Sqlite3.column stmt 0 with
+            | Sqlite3.Data.TEXT s -> s
+            | _ -> ""
+          in
+          let content =
+            match Sqlite3.column stmt 1 with
+            | Sqlite3.Data.TEXT s -> s
+            | _ -> ""
+          in
+          let created_at =
+            match Sqlite3.column stmt 2 with
+            | Sqlite3.Data.TEXT s -> s
+            | _ -> ""
+          in
+          let source =
+            match Sqlite3.column stmt 3 with
+            | Sqlite3.Data.TEXT s -> s
+            | _ -> "epoch:?"
+          in
+          rows := { role; content; created_at; source } :: !rows
+        done;
+        List.rev !rows)
+  in
+  let merged = current_results @ archived_results in
+  let sorted =
+    List.sort (fun a b -> String.compare b.created_at a.created_at) merged
+  in
+  if List.length sorted <= limit then sorted
+  else List.filteri (fun i _ -> i < limit) sorted

@@ -17,6 +17,7 @@ let () =
        ("update_tool", Test_update_tool.suite);
        ("skills", Test_skills.suite);
        ("memory_search", Test_memory_search.suite);
+       ("history_search", Test_history_search.suite);
        ("streaming", Test_streaming.suite);
        ("stream_visibility", Test_stream_visibility.suite);
        ("connector_tool_calls", Test_connector_tool_calls.suite);

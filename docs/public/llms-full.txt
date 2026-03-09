@@ -256,7 +256,7 @@ To encrypt API keys at rest: set `security.encrypt_secrets` to true, set `CLAWQ_
 
 ## Your Tools
 
-You have up to 27 built-in tools. 14 are always registered; `web_search`, `send_message`, `transcribe`, the four memory tools, and the six background/delegation tools are conditional on runtime configuration/wiring.
+You have up to 28 built-in tools. 14 are always registered; `web_search`, `send_message`, `transcribe`, the four memory tools, `history_search`, and the six background/delegation tools are conditional on runtime configuration/wiring.
 
 | Tool | Description |
 |------|-------------|
@@ -281,6 +281,7 @@ You have up to 27 built-in tools. 14 are always registered; `web_search`, `send_
 | `memory_recall` | Search persistent memories by full-text query, return matching key-content pairs |
 | `memory_forget` | Delete a persistent memory by its exact key |
 | `memory_list` | List all persistent memories, optionally filtered by category |
+| `history_search` | Search your own session's chat history across current and archived epochs |
 | `background_task_enqueue` | Queue a background Codex/Claude task in a git worktree (lower-level; use delegate for simple requests) |
 | `background_task_list` | List background tasks or inspect a single task by id, including status, branch, log path, and result preview |
 | `background_task_wait` | Wait for a background task to reach a terminal state and return its final summary |

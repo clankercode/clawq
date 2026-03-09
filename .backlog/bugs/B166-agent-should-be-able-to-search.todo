@@ -1,14 +1,14 @@
 ---
 claimed_at: "2026-03-09T12:38:00Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-09T13:00:00Z"
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B166
 priority: high
 started_at: "2026-03-09T12:38:00Z"
-status: in_progress
+status: done
 tags: []
 title: Agent should be able to search it's own session/chat log history (even for archived epochs)
 ---
