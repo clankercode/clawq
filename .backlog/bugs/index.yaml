@@ -200,3 +200,4 @@ bugs:
     - file: B199-update-system-prompt-to-encour.todo
     - file: B200-background-tasks-delegate-and.todo
     - file: B201-post-restart-send-message-can.todo
+    - file: B202-tool-calls-no-longer-visible-s.todo

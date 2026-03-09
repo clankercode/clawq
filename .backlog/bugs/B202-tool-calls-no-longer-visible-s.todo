@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B202
+priority: high
+status: pending
+tags: []
+title: Tool calls no longer visible/stremed in telegram due to some recent change.
+---
+
+Tool calls no longer visible/stremed in telegram due to some recent change.
