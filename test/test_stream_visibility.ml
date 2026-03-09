@@ -131,7 +131,7 @@ let test_summarize_tool_result_previews () =
     "memory_store" (Some "stored")
     (Stream_visibility.summarize_tool_result ~name:"memory_store" "OK");
   Alcotest.(check (option string))
-    "memory_recall found" (Some "found, 11 chars")
+    "memory_recall found" (Some "found, ~2 tokens")
     (Stream_visibility.summarize_tool_result ~name:"memory_recall" "hello world");
   Alcotest.(check (option string))
     "memory_recall no match" (Some "no match")
@@ -145,7 +145,7 @@ let test_summarize_tool_result_previews () =
     "generic short" (Some "done")
     (Stream_visibility.summarize_tool_result ~name:"custom_tool" "done");
   Alcotest.(check (option string))
-    "generic long" (Some "100 chars")
+    "generic long" (Some "~17 tokens")
     (Stream_visibility.summarize_tool_result ~name:"custom_tool"
        (String.make 100 'x'));
   Alcotest.(check (option string))
@@ -188,6 +188,26 @@ let test_thinking_message_prefixes_content () =
     "thinking message" "\xF0\x9F\x92\xAD *Thinking:*\nplan first"
     (Stream_visibility.thinking_message "plan first")
 
+let test_estimate_tokens () =
+  let check label expected input =
+    Alcotest.(check int)
+      label expected
+      (Stream_visibility.estimate_tokens input)
+  in
+  check "empty" 0 "";
+  check "single word" 1 "hello";
+  check "two words" 2 "hello world";
+  check "number" 1 "12345";
+  check "decimal" 5 "3,141.59";
+  check "punctuation pair" 1 "()";
+  check "punctuation seq" 3 "-----";
+  check "short token" 1 "hi";
+  check "whitespace only" 0 "   ";
+  check "CJK" 3 "\xe4\xbd\xa0\xe5\xa5\xbd\xe5\x90\x97";
+  check "long word ceil(10/6)=2" 2 "everything";
+  check "accented ceil(5/3)=2" 2 "caf\xc3\xa9s";
+  check "mixed sentence" 8 "Hello, world! How are you?"
+
 let suite =
   [
     Alcotest.test_case "tool call success message" `Quick
@@ -206,4 +226,5 @@ let suite =
       test_tool_call_message_includes_result_preview;
     Alcotest.test_case "thinking message prefixes content" `Quick
       test_thinking_message_prefixes_content;
+    Alcotest.test_case "estimate tokens heuristic" `Quick test_estimate_tokens;
   ]

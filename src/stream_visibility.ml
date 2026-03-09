@@ -20,6 +20,132 @@ let create () =
     tool_calls = Hashtbl.create 8;
   }
 
+(* Token estimation ported from johannschopplich/tokenx (MIT).
+   Heuristic rules that achieve ~96% accuracy vs full BPE tokenizers. *)
+
+let default_chars_per_token = 6
+let short_token_threshold = 3
+
+let is_cjk_codepoint cp =
+  (cp >= 0x4E00 && cp <= 0x9FFF)
+  || (cp >= 0x3400 && cp <= 0x4DBF)
+  || (cp >= 0x3000 && cp <= 0x303F)
+  || (cp >= 0xFF00 && cp <= 0xFFEF)
+  || (cp >= 0x30A0 && cp <= 0x30FF)
+  || (cp >= 0x2E80 && cp <= 0x2EFF)
+  || (cp >= 0x31C0 && cp <= 0x31EF)
+  || (cp >= 0x3200 && cp <= 0x32FF)
+  || (cp >= 0x3300 && cp <= 0x33FF)
+  || (cp >= 0xAC00 && cp <= 0xD7AF)
+  || (cp >= 0x1100 && cp <= 0x11FF)
+  || (cp >= 0x3130 && cp <= 0x318F)
+  || (cp >= 0xA960 && cp <= 0xA97F)
+  || (cp >= 0xD7B0 && cp <= 0xD7FF)
+
+let is_accented_codepoint cp =
+  (cp >= 0xC0 && cp <= 0xD6)
+  || (cp >= 0xD8 && cp <= 0xF6)
+  || (cp >= 0xF8 && cp <= 0xFF)
+
+let is_slavic_codepoint cp = cp >= 0x100 && cp <= 0x17F
+
+let decode_utf8 s i len =
+  let b = Char.code s.[i] in
+  if b land 0x80 = 0 then (b, i + 1)
+  else if b land 0xE0 = 0xC0 && i + 1 < len then
+    (((b land 0x1F) lsl 6) lor (Char.code s.[i + 1] land 0x3F), i + 2)
+  else if b land 0xF0 = 0xE0 && i + 2 < len then
+    ( ((b land 0x0F) lsl 12)
+      lor ((Char.code s.[i + 1] land 0x3F) lsl 6)
+      lor (Char.code s.[i + 2] land 0x3F),
+      i + 3 )
+  else if b land 0xF8 = 0xF0 && i + 3 < len then
+    ( ((b land 0x07) lsl 18)
+      lor ((Char.code s.[i + 1] land 0x3F) lsl 12)
+      lor ((Char.code s.[i + 2] land 0x3F) lsl 6)
+      lor (Char.code s.[i + 3] land 0x3F),
+      i + 4 )
+  else (b, i + 1)
+
+type utf8_scan = {
+  codepoints : int;
+  has_cjk : bool;
+  has_accented : bool;
+  has_slavic : bool;
+}
+
+let scan_utf8 s =
+  let len = String.length s in
+  let i = ref 0 in
+  let codepoints = ref 0 in
+  let has_cjk = ref false in
+  let has_accented = ref false in
+  let has_slavic = ref false in
+  while !i < len do
+    let cp, next = decode_utf8 s !i len in
+    incr codepoints;
+    if is_cjk_codepoint cp then has_cjk := true;
+    if is_accented_codepoint cp then has_accented := true;
+    if is_slavic_codepoint cp then has_slavic := true;
+    i := next
+  done;
+  {
+    codepoints = !codepoints;
+    has_cjk = !has_cjk;
+    has_accented = !has_accented;
+    has_slavic = !has_slavic;
+  }
+
+let is_all_whitespace s = String.trim s = ""
+
+let is_all_numeric s =
+  s <> ""
+  && String.fold_left
+       (fun ok c -> ok && ((c >= '0' && c <= '9') || c = '.' || c = ','))
+       true s
+
+let is_punctuation c =
+  match c with
+  | '.' | ',' | '!' | '?' | ';' | '(' | ')' | '{' | '}' | '[' | ']' | '<' | '>'
+  | ':' | '/' | '\\' | '|' | '@' | '#' | '$' | '%' | '^' | '&' | '*' | '+' | '='
+  | '`' | '~' | '_' | '-' ->
+      true
+  | _ -> false
+
+let is_all_punctuation s =
+  s <> "" && String.fold_left (fun ok c -> ok && is_punctuation c) true s
+
+let estimate_segment_tokens seg =
+  if is_all_whitespace seg then 0
+  else if is_all_numeric seg then 1
+  else
+    let len = String.length seg in
+    if len <= short_token_threshold then 1
+    else if is_all_punctuation seg then if len > 1 then (len + 1) / 2 else 1
+    else
+      let scan = scan_utf8 seg in
+      if scan.has_cjk then scan.codepoints
+      else
+        let cpt =
+          if scan.has_slavic then 3
+          else if scan.has_accented then 3
+          else default_chars_per_token
+        in
+        (scan.codepoints + cpt - 1) / cpt
+
+let split_re =
+  Str.regexp "\\([ \t\n\r]+\\|[][.,!?;(){}<>:/\\\\|@#$%^&*+=`~_-]+\\)"
+
+let estimate_tokens s =
+  if s = "" then 0
+  else
+    let parts = Str.full_split split_re s in
+    List.fold_left
+      (fun acc part ->
+        let seg = match part with Str.Text t -> t | Str.Delim d -> d in
+        acc + estimate_segment_tokens seg)
+      0 parts
+
 let truncate_text ?(max_chars = 800) text =
   if String.length text <= max_chars then text
   else String.sub text 0 max_chars ^ "..."
@@ -393,7 +519,7 @@ let summarize_tool_result ~name result =
       let trimmed = String.trim result in
       if trimmed = "" || trimmed = "No matching memories found." then
         Some "no match"
-      else Some (Printf.sprintf "found, %d chars" (String.length trimmed))
+      else Some (Printf.sprintf "found, ~%d tokens" (estimate_tokens trimmed))
   | "memory_store" -> Some "stored"
   | "memory_forget" ->
       if String.starts_with ~prefix:"Deleted" (String.trim result) then
@@ -408,7 +534,7 @@ let summarize_tool_result ~name result =
       if len = 0 then None
       else if len <= 60 then
         Some (truncate_text ~max_chars:55 (first_line result))
-      else Some (Printf.sprintf "%d chars" len)
+      else Some (Printf.sprintf "~%d tokens" (estimate_tokens result))
 
 let tool_start_message ~name ~summary =
   let emoji = tool_emoji name in
