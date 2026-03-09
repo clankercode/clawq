@@ -1,0 +1,19 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B244
+priority: high
+status: pending
+tags: []
+title: 'Add new runner for bg coding tasks: `cursor-cli`'
+---
+
+Add new runner for bg coding tasks: `cursor-cli`
+
+run `cursor-cli --help`
+
+You may need to check that all required features are supported
+
+preferred model is Composer 1.5 (see if you can list models to get the name we should pass)
+
