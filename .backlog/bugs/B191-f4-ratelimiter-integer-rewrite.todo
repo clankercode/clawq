@@ -1,0 +1,16 @@
+---
+claimed_at: null
+claimed_by: null
+completed_at: null
+complexity: medium
+depends_on: []
+estimate_hours: 8
+id: B191
+priority: medium
+started_at: null
+status: pending
+tags: [formal-verification, extraction]
+title: 'F4: RateLimiter integer rewrite for extraction'
+---
+
+Rewrite RateLimiter.v from Q rationals to scaled integers (e.g., millitokens) so the core refill/try_consume functions can be extracted to OCaml without a rational arithmetic dependency. Extract refill and try_consume as conformance oracles in rate_limiter.ml. Re-prove all 6 existing theorems with the integer representation. Update Extract.v.

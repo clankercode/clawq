@@ -28,7 +28,7 @@ import fvStats from '../../data/fv-stats.json';
 </p>
 
 <div style="margin-bottom: 2rem; padding: 1rem 1.1rem; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px;">
-  <strong>Status note.</strong> All 12 phases are verified. The next focus is <em>P6 gap closure</em> (14 tasks): wiring extracted functions into runtime, property-based conformance testing, instantiating AuditChain with concrete crypto, and enforcing Coq-proved invariants at runtime. See <a href="#verification-roadmap">Roadmap</a> below and the <a href="/formal-verification-audit-2026-03-07/">Audit</a>.
+  <strong>Status note.</strong> All 12 public verification phases (F1–F12) are verified, with 174 theorem/lemma statements across 13 Coq files. P5 (Formal Verification Expansion) and P6 (Gap Closure) are complete. The next focus is expanding verification to new domains — tool invocation safety (F13), config merge semantics (F14), MCP protocol framing (F15) — and reducing the axiom count in SecretStore.v. See <a href="#verification-roadmap">Roadmap</a> below.
 </div>
 
 {/* ===== VERIFICATION SEAL ===== */}
@@ -1102,17 +1102,19 @@ Sandbox initialization always returns a result, whether Landlock is available or
 
 ## Verification Roadmap
 
-All 12 verification phases (F1–F12) are complete, with {fvStats.repository_total} theorem/lemma statements across 13 Coq files. The next priority is **gap closure** (Phase 6 / P6): closing the distance between proved specifications and the shipped runtime. See the <a href="/formal-verification-roadmap-2026-03-07/">Formal Verification Roadmap</a> for proof-expansion history and the <a href="/formal-verification-audit-2026-03-07/">Formal Verification Audit</a> for the gap analysis.
+All 12 verification phases (F1–F12) are complete, with {fvStats.repository_total} theorem/lemma statements across 13 Coq files. Both P5 (Formal Verification Expansion) and P6 (Gap Closure) are complete. The next wave targets new verification domains: tool safety, config merge, MCP framing, and SecretStore axiom reduction. See the <a href="/formal-verification-roadmap-2026-03-07/">Formal Verification Roadmap</a> for proof-expansion history and the <a href="/formal-verification-audit-2026-03-07/">Formal Verification Audit</a> for the gap analysis.
 
-### Gap Closure (P6)
+### Gap Closure (P6) — Complete
 
-P6 has three milestones with 14 tasks:
+P6 closed the distance between proved specifications and the shipped runtime across three milestones (14 tasks):
 
-**M1 — Extraction Wiring and Quick Wins** (6 tasks). Wire already-extracted Coq functions into the runtime: connect `validate_config_full` into `config_loader.ml`, connect `ChannelAuth.is_allowed` into channel authorization paths. Add property-based conformance tests that run both the Coq-extracted and native OCaml implementations of path safety and shell safety side by side, and promote dual-check drift warnings to hard test failures. Discharge the 3 admitted bitwise lemmas in `LandlockPolicy.v`.
+- **Extraction Wiring**: Connected extracted Coq functions (`validate_config_full`, `ChannelAuth.is_allowed`, path/shell safety) into runtime paths with conformance tests.
+- **Audit Chain Extraction**: Instantiated the abstract `AuditChain` functor with concrete SHA256/HMAC-SHA256, extracted and wired `verify_chain`/`make_entry` into `src/audit.ml`.
+- **Runtime Invariant Enforcement**: Added runtime assertions for `RateLimiter` bounded-refill, `AgentLoop` history-length bounds, and conformance test suites exercising all spec-only modules. Discharged all admitted bitwise lemmas in `LandlockPolicy.v`.
 
-**M2 — Audit Chain Extraction** (3 tasks). Instantiate the abstract `AuditChain` functor with concrete SHA256/HMAC-SHA256 wrappers in Coq, extract the instantiated `verify_chain` and `make_entry` to OCaml, and wire those extracted functions into `src/audit.ml` so the audit chain uses verified code end-to-end.
+### Next Wave: Domain Expansion
 
-**M3 — Runtime Invariant Enforcement** (5 tasks). Add runtime assertions derived from Coq-proved invariants: `RateLimiter` bounded-refill and consume semantics, `AgentLoop` history-length bounds. Build a conformance test suite that exercises the theorems from spec-only modules (`AuditChain`/`AuditRetention`, `SessionIsolation`, `RateLimiter`/`AgentLoop`) against the OCaml runtime to verify that proved properties hold in practice.
+The next verification targets extend coverage to new runtime surfaces. Quick wins include reducing SecretStore.v axioms (5 string-operation axioms are dischargeable) and extracting AgentLoop history helpers as conformance oracles. New modules (F13–F17) cover tool registry safety, config merge semantics, MCP protocol framing, memory isolation, and sandbox containment.
 
 Extraction remains selective and deferred unless a pure kernel is stable and demonstrably worth replacing in shipped OCaml.
 
@@ -1142,52 +1144,44 @@ Extraction remains selective and deferred unless a pure kernel is stable and dem
   </thead>
   <tbody>
     <tr>
-      <td>F7</td>
-      <td><code>SecretStore.v</code></td>
-      <td>No (spec)</td>
-      <td>High</td>
+      <td>F13</td>
+      <td><code>ToolSafety.v</code></td>
+      <td>Yes</td>
+      <td>Very High</td>
       <td>Medium</td>
       <td style="font-weight: 600; color: var(--brass-primary);">1st</td>
     </tr>
     <tr>
-      <td>F8</td>
-      <td><code>ChannelAuth.v</code></td>
-      <td>Candidate later (allowlist kernels only)</td>
+      <td>F14</td>
+      <td><code>ConfigMerge.v</code></td>
+      <td>Partial</td>
       <td>High</td>
-      <td>Low</td>
+      <td>Medium</td>
       <td style="font-weight: 600; color: var(--brass-primary);">2nd</td>
     </tr>
     <tr>
-      <td>F9</td>
-      <td><code>AuditRetention.v</code></td>
-      <td>Candidate later (pure purge helpers only)</td>
+      <td>F15</td>
+      <td><code>McpFraming.v</code></td>
+      <td>Yes</td>
       <td>Medium-High</td>
-      <td>Low</td>
+      <td>Medium</td>
       <td style="font-weight: 600; color: var(--brass-primary);">3rd</td>
     </tr>
     <tr>
-      <td>F10</td>
-      <td><code>AgentLoop.v</code></td>
+      <td>F16</td>
+      <td><code>MemoryIsolation.v</code></td>
       <td>No (spec)</td>
+      <td>Medium-High</td>
       <td>Medium</td>
-      <td>Low</td>
       <td>4th</td>
     </tr>
     <tr>
-      <td>F11</td>
-      <td><code>SessionIsolation.v</code></td>
+      <td>F17</td>
+      <td><code>SandboxSafety.v</code></td>
       <td>No (spec)</td>
-      <td>Medium-High</td>
       <td>Medium</td>
+      <td>High</td>
       <td>5th</td>
-    </tr>
-    <tr>
-      <td>F12</td>
-      <td><code>LandlockPolicy.v</code></td>
-      <td>No (spec)</td>
-      <td>Medium</td>
-      <td>Medium-High</td>
-      <td>6th</td>
     </tr>
   </tbody>
 </table>
@@ -1195,17 +1189,15 @@ Extraction remains selective and deferred unless a pure kernel is stable and dem
 
 ### Planned Phases
 
-**F7: Encryption Correctness** -- Spec-only proofs for `secret_store.ml`. Prove encrypt/decrypt is identity (modelling AES-GCM as abstract parameters), nonce uniqueness birthday-bound, and `resolve_secret` completeness across encrypted, env-var, and plaintext cases.
+**F13: Tool Invocation Safety** -- Prove tool registry name uniqueness (no shadowing), risk-level monotonicity (deferred tool discovery cannot silently elevate risk), and invocation dispatch correctness (find returns the registered tool). Extract registry lookup and risk-level gate as pure functions.
 
-**F8: Channel Authentication** -- Keep formal/runtime alignment current for shared allowlist, replay/freshness semantics, and Telegram pairing validity. Treat extraction as optional follow-through once kernels are stable.
+**F14: Config Merge Semantics** -- Model JSON config as association lists. Prove default preservation for missing fields, security field floor (workspace_only/audit_enabled cannot be silently disabled by user config), and single-application of resolve_secret per API key.
 
-**F9: Audit Retention Safety** -- Maintain anchored-retention correctness under runtime assumptions (suffix-preserving age purge + count purge). Extraction remains optional and limited to pure helper kernels.
+**F15: MCP Protocol Framing** -- Prove JSON-RPC request/response ID pairing, method dispatch correctness, and Content-Length framing round-trip. Extract framing and dispatch as verified pure functions.
 
-**F10: Agent Loop Termination** -- Spec-only proof that the agent turn loop stays within `max_tool_iterations`, preserves the tool-call/tool-result history shape, and keeps newest-first ordering under `trim_history` and emergency compaction. The model now also includes runtime-aligned tool-group sanitization and split-boundary repair, proving that compacted histories remain replay-safe for OpenAI/Codex tool-call replay (no orphaned tool results or dangling assistant tool calls).
+**F16: Memory Store Isolation** -- Spec-only proof of cross-session non-interference for memory store/recall/forget operations. Prove key-scoped search returns only results from the querying session's namespace.
 
-**F11: Session Isolation** -- Spec-only proof using Coq `FMap` for cross-key non-interference plus same-key reset/create stability and idempotence; runtime lock behavior remains modeled with explicit assumptions and review notes. Planned extensions cover compaction-persistence consistency: replacing a session's DB messages after compaction does not affect other sessions, and a load-compact-persist-reload cycle yields the same compacted history.
-
-**F12: Landlock Sandbox Policy** -- Spec-only proof of least-privilege access flags, path set closure under `extra_paths` extension, and policy monotonicity. Assumes C FFI stubs implement Landlock semantics correctly.
+**F17: Sandbox Containment** -- Spec-only proof that workspace containment holds for all wrapped commands and that backend selection (Firejail/Bubblewrap/None) is correct given the security config. Assumes OS-level sandbox enforcement by the backend.
 
 <hr class="ornamental-rule" />
 

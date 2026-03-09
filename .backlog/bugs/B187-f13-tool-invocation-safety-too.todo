@@ -1,0 +1,21 @@
+---
+claimed_at: null
+claimed_by: null
+completed_at: null
+complexity: high
+depends_on: []
+estimate_hours: 12
+id: B187
+priority: high
+started_at: null
+status: pending
+tags: [formal-verification, new-phase]
+title: 'F13: Tool Invocation Safety — ToolSafety.v'
+---
+
+Create coq/theories/Clawq/ToolSafety.v with proofs for:
+- Registry name uniqueness (no tool shadowing after registration)
+- Risk-level monotonicity (deferred tool discovery cannot silently elevate risk level)
+- Invocation dispatch correctness (find returns the registered tool, not a different one)
+
+Extract registry lookup and risk-level gate as pure functions. Wire extracted functions into tool_registry.ml as conformance oracles. Update Extract.v to include ToolSafety extraction. Target: ~12 theorem/lemma statements.

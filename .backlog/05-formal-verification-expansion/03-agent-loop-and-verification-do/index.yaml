@@ -11,7 +11,7 @@ epics:
       locked: false
       name: Agent Loop Runtime Invariants
       path: 01-agent-loop-runtime-invariants
-      status: pending
+      status: done
     - complexity: medium
       depends_on:
         - P5.M1.E1
@@ -25,7 +25,7 @@ epics:
       locked: false
       name: Verification Status and Extraction Docs
       path: 02-verification-status-and-extrac
-      status: pending
+      status: done
 estimate_hours: 20
 id: P5.M3
 locked: false
@@ -36,4 +36,4 @@ stats:
     in_progress: 0
     pending: 0
     total_tasks: 5
-status: pending
+status: done

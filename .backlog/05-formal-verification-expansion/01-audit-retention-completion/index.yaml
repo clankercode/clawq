@@ -9,7 +9,7 @@ epics:
       locked: false
       name: Anchored Audit Lifecycle Alignment
       path: 01-anchored-audit-lifecycle-align
-      status: pending
+      status: done
 estimate_hours: 22
 id: P5.M1
 locked: false
@@ -20,4 +20,4 @@ stats:
     in_progress: 0
     pending: 0
     total_tasks: 3
-status: pending
+status: done

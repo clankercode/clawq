@@ -1,0 +1,16 @@
+---
+claimed_at: null
+claimed_by: null
+completed_at: null
+complexity: medium
+depends_on: []
+estimate_hours: 4
+id: B185
+priority: high
+started_at: null
+status: pending
+tags: [formal-verification, quick-win]
+title: 'Discharge 5 string-operation axioms in SecretStore.v'
+---
+
+Discharge 5 string-operation axioms in SecretStore.v: replace has_prefix_app, strip_prefix_app, has_prefix_strip_prefix, string_length_dollar_app_gt1, is_encrypted_implies_secret_prefix with proofs using Coq string library. Reduces axiom count from 11 to 6, shrinking the trust surface significantly. The remaining 6 axioms (aes_gcm_correct, aes_gcm_authentication_failure, base64_roundtrip, nonce_collision_probability, split_concat_inverse, encrypt_decrypt_identity) are genuine crypto/framing trust boundaries.

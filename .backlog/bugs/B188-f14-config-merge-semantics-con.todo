@@ -1,0 +1,22 @@
+---
+claimed_at: null
+claimed_by: null
+completed_at: null
+complexity: high
+depends_on: []
+estimate_hours: 10
+id: B188
+priority: high
+started_at: null
+status: pending
+tags: [formal-verification, new-phase]
+title: 'F14: Config Merge Semantics — ConfigMerge.v'
+---
+
+Create coq/theories/Clawq/ConfigMerge.v with proofs for:
+- Model JSON config as association list (key-value pairs)
+- Default preservation: missing JSON fields retain Runtime_config.default values
+- Security field floor: workspace_only and audit_enabled cannot be silently disabled by user config
+- Single-application of resolve_secret: each API key has resolve_secret applied exactly once
+
+Partial extraction of merge logic. Target: ~10 theorem/lemma statements.

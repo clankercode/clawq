@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-09T14:18:53Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B123
 priority: high
-status: pending
+started_at: "2026-03-09T14:18:53Z"
+status: in_progress
 tags: []
 title: 'TLC task: work on the formal verification goals -- expand what we verify, plan new things, figure out highest value next things to verify, update docs, etc; create new tasks for any new verification items you come up with'
 ---

@@ -1,0 +1,21 @@
+---
+claimed_at: null
+claimed_by: null
+completed_at: null
+complexity: high
+depends_on: []
+estimate_hours: 14
+id: B190
+priority: medium
+started_at: null
+status: pending
+tags: [formal-verification, new-phase]
+title: 'F15: MCP Protocol Framing — McpFraming.v'
+---
+
+Create coq/theories/Clawq/McpFraming.v with proofs for:
+- JSON-RPC request/response ID pairing (every response matches a pending request ID)
+- Method dispatch correctness (method string maps to the correct handler)
+- Content-Length framing round-trip (encode then decode yields the original payload)
+
+Extract framing and dispatch as verified pure functions. Wire into mcp_server.ml and mcp_client.ml. Target: ~10 theorem/lemma statements.

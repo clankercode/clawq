@@ -9,7 +9,7 @@ epics:
       locked: false
       name: Session Isolation Hardening
       path: 01-session-isolation-hardening
-      status: pending
+      status: done
     - complexity: medium
       depends_on: []
       description: Finish aligning SecretStore proofs to the real runtime API and discharge the remaining important admits and behavioral gaps.
@@ -18,7 +18,7 @@ epics:
       locked: false
       name: Secret Store Alignment Completion
       path: 02-secret-store-alignment-complet
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: Align ChannelAuth proofs with the actual Slack, Discord, and Telegram authorization logic or replace mismatched abstractions.
@@ -27,7 +27,7 @@ epics:
       locked: false
       name: Channel Authorization Alignment
       path: 03-channel-authorization-alignmen
-      status: pending
+      status: done
 estimate_hours: 42
 id: P5.M2
 locked: false
@@ -38,4 +38,4 @@ stats:
     in_progress: 0
     pending: 0
     total_tasks: 9
-status: pending
+status: done

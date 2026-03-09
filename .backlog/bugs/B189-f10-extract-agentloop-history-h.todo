@@ -1,0 +1,16 @@
+---
+claimed_at: null
+claimed_by: null
+completed_at: null
+complexity: medium
+depends_on: []
+estimate_hours: 8
+id: B189
+priority: medium
+started_at: null
+status: pending
+tags: [formal-verification, extraction]
+title: 'F10 partial: Extract AgentLoop history helpers'
+---
+
+Extract trim_history, force_compress_history, strip_orphan_tool_results, and strip_orphan_tool_calls from AgentLoop.v to OCaml. Wire extracted functions as conformance oracles in agent.ml — run both Coq-extracted and native OCaml implementations side by side and assert equality. Update Extract.v to include these functions.

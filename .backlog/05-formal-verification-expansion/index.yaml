@@ -12,7 +12,7 @@ milestones:
       locked: false
       name: Audit Retention Completion
       path: 01-audit-retention-completion
-      status: pending
+      status: done
     - complexity: high
       depends_on: []
       description: Complete the remaining high-value security proof work by aligning Coq models and runtime behavior for sessions, secret handling, and channel authorization.
@@ -21,7 +21,7 @@ milestones:
       locked: false
       name: Runtime-Aligned Security Proofs
       path: 02-runtime-aligned-security-proof
-      status: pending
+      status: done
     - complexity: medium
       depends_on:
         - P5.M1
@@ -32,7 +32,7 @@ milestones:
       locked: false
       name: Agent Loop and Verification Docs
       path: 03-agent-loop-and-verification-do
-      status: pending
+      status: done
 name: Formal Verification Expansion
 stats:
     blocked: 0
@@ -40,5 +40,5 @@ stats:
     in_progress: 0
     pending: 0
     total_tasks: 17
-status: pending
+status: done
 weeks: 8

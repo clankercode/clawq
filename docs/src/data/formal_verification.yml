@@ -195,3 +195,71 @@
     - "Least-privilege access flags"
     - "Path set closure"
     - "Policy monotonicity"
+
+- phase: "F13"
+  module: "ToolSafety.v"
+  title: "Tool Invocation Safety"
+  status: "planned"
+  theorems: 0
+  extracted: false
+  security_roi: "very_high"
+  difficulty: "medium"
+  coq_file: "coq/theories/Clawq/ToolSafety.v"
+  key_properties:
+    - "Registry name uniqueness (no shadowing)"
+    - "Risk-level monotonicity (deferred discovery cannot elevate risk)"
+    - "Invocation dispatch correctness"
+
+- phase: "F14"
+  module: "ConfigMerge.v"
+  title: "Config Merge Semantics"
+  status: "planned"
+  theorems: 0
+  extracted: false
+  security_roi: "high"
+  difficulty: "medium"
+  coq_file: "coq/theories/Clawq/ConfigMerge.v"
+  key_properties:
+    - "Default preservation for missing JSON fields"
+    - "Security field floor (workspace_only/audit_enabled cannot be silently disabled)"
+    - "Single-application of resolve_secret per API key"
+
+- phase: "F15"
+  module: "McpFraming.v"
+  title: "MCP Protocol Framing"
+  status: "planned"
+  theorems: 0
+  extracted: false
+  security_roi: "medium"
+  difficulty: "medium"
+  coq_file: "coq/theories/Clawq/McpFraming.v"
+  key_properties:
+    - "JSON-RPC request/response ID pairing"
+    - "Method dispatch correctness"
+    - "Content-Length framing round-trip"
+
+- phase: "F16"
+  module: "MemoryIsolation.v"
+  title: "Memory Store Isolation"
+  status: "planned"
+  theorems: 0
+  extracted: false
+  security_roi: "medium"
+  difficulty: "medium"
+  coq_file: "coq/theories/Clawq/MemoryIsolation.v"
+  key_properties:
+    - "Cross-session non-interference for memory store/recall/forget"
+    - "Key-scoped search correctness"
+
+- phase: "F17"
+  module: "SandboxSafety.v"
+  title: "Sandbox Containment"
+  status: "planned"
+  theorems: 0
+  extracted: false
+  security_roi: "medium"
+  difficulty: "high"
+  coq_file: "coq/theories/Clawq/SandboxSafety.v"
+  key_properties:
+    - "Workspace containment of wrapped commands"
+    - "Backend selection correctness"
