@@ -375,6 +375,12 @@ let notify_background_task_finished ?(senders = default_resume_senders)
         ?channel:task.channel ?channel_id:task.channel_id task
   | None -> Lwt.return_unit
 
+let resume_turn_prompt =
+  "Automatic resume after daemon restart: autonomous work was in progress in "
+  ^ "this session when the daemon restarted. Continue the interrupted work in "
+  ^ "this same session without waiting for a new user message. If nothing "
+  ^ "meaningful remains to do right now, reply exactly STAY_IDLE."
+
 let default_resume_turn ~(session_manager : Session.t) ~notify ~session_key
     agent interrupt =
   let open Lwt.Syntax in
@@ -382,6 +388,12 @@ let default_resume_turn ~(session_manager : Session.t) ~notify ~session_key
   let* () = Session.notify_compaction_if_needed ~notify compacted in
   if compacted then
     Session.persist_compacted_history session_manager ~key:session_key agent;
+  Logs.info (fun m ->
+      m "Resuming pending session with automatic prompt session=%s prompt=%S"
+        session_key resume_turn_prompt);
+  agent.Agent.history <-
+    Provider.make_message ~role:"system" ~content:resume_turn_prompt
+    :: agent.Agent.history;
   let runtime_context =
     Prompt_builder.build_runtime_context ~config:session_manager.config
       ~details:
@@ -389,7 +401,8 @@ let default_resume_turn ~(session_manager : Session.t) ~notify ~session_key
            ~compacted_before_turn:compacted)
       ()
   in
-  Agent.turn agent ~user_message:"" ?db:session_manager.db ~session_key
+  Agent.turn agent ~user_message:resume_turn_prompt ?db:session_manager.db
+    ~session_key
     ~interrupt_check:(fun () -> !interrupt)
     ?runtime_context ~history_prepared:true ()
 

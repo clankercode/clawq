@@ -197,6 +197,55 @@ let test_resume_pending_agent_sessions_marks_missing_channel_info () =
     (query_single_text_option db
        "SELECT turn FROM session_state WHERE session_key = 'resume:missing'")
 
+let test_default_resume_turn_uses_explicit_resume_prompt () =
+  with_fake_chat_provider (fun base_config ->
+      let db = Memory.init ~db_path:":memory:" () in
+      let telegram_account =
+        { Runtime_config.bot_token = "tg-token"; allow_from = []; totp = None }
+      in
+      let config =
+        {
+          base_config with
+          channels =
+            {
+              base_config.channels with
+              telegram = Some { accounts = [ ("main", telegram_account) ] };
+            };
+        }
+      in
+      let session_manager = Session.create ~config ~db () in
+      Session.record_agent_turn session_manager ~key:"telegram:42:user"
+        ~channel:"telegram" ~channel_id:"42" ();
+      let dispatched = ref [] in
+      Lwt_main.run
+        (Daemon.resume_agent_session ~session_manager ~config
+           ~senders:
+             {
+               Daemon.default_resume_senders with
+               send_telegram =
+                 (fun ~bot_token:_ ~chat_id ~text ->
+                   dispatched := (chat_id, text) :: !dispatched;
+                   Lwt.return_unit);
+             }
+           ~session_key:"telegram:42:user" ~channel:"telegram" ~channel_id:"42"
+           ());
+      Alcotest.(check int)
+        "resumed response dispatched once" 1 (List.length !dispatched);
+      let _chat_id, text = List.hd !dispatched in
+      Alcotest.(check bool)
+        "resume response is not empty" true
+        (String.trim text <> "");
+      let history = Memory.load_history ~db ~session_key:"telegram:42:user" in
+      let resume_prompt_present =
+        List.exists
+          (fun (msg : Provider.message) ->
+            (msg.role = "system" || msg.role = "user")
+            && msg.content = Daemon.resume_turn_prompt)
+          history
+      in
+      Alcotest.(check bool)
+        "resume prompt persisted into history" true resume_prompt_present)
+
 let test_resume_agent_session_persists_response_and_marks_sent () =
   let db = Memory.init ~db_path:":memory:" () in
   let slack_config =
@@ -786,6 +835,8 @@ let suite =
     Alcotest.test_case
       "resume pending sessions marks missing channel info as sent" `Quick
       test_resume_pending_agent_sessions_marks_missing_channel_info;
+    Alcotest.test_case "default resume turn uses explicit automatic prompt"
+      `Quick test_default_resume_turn_uses_explicit_resume_prompt;
     Alcotest.test_case "resume agent session persists response and marks sent"
       `Quick test_resume_agent_session_persists_response_and_marks_sent;
     Alcotest.test_case "background completion dispatches and injects wake-up"
