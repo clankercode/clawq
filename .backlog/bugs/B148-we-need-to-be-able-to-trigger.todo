@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B148
+priority: high
+status: pending
+tags: []
+title: 'We need to be able to trigger an update of the daemon from the cli (particularly the repo). Example solution: add a `clawq update` subcommand which updates the binary and triggers the deamon to update. If there''s already a CLI command to do this, let me know. Investigate the codebase for how we can most elegantly satisfy our requirement.'
+---
+
+We need to be able to trigger an update of the daemon from the cli (particularly the repo). Example solution: add a `clawq update` subcommand which updates the binary and triggers the deamon to update. If there's already a CLI command to do this, let me know. Investigate the codebase for how we can most elegantly satisfy our requirement.
