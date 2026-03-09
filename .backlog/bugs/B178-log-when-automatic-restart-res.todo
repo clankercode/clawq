@@ -1,0 +1,11 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 1
+id: B178
+priority: medium
+status: pending
+tags: []
+title: Log when automatic restart-resume prompt is fired
+---
+Observed during B171/B172 work: automatic post-restart resume prompts are currently hard to inspect from logs, especially when they are internal and not visible in Telegram chat. Add explicit logging when the daemon fires the automatic resume prompt for a resumed session, including target session/routing and enough context to correlate with the resulting resumed response, without leaking sensitive content. Acceptance criteria: (1) logs clearly state when the automatic restart-resume prompt is emitted; (2) session/routing target is included; (3) wording makes it distinct from ordinary user messages and continuation self-checks; (4) no secrets or full prompt text are unnecessarily exposed.
