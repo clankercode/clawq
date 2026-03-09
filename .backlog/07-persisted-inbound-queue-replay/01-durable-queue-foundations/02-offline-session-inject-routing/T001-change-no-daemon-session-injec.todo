@@ -1,16 +1,18 @@
 ---
+claimed_at: "2026-03-09T19:13:18Z"
+claimed_by: cli-user
+completed_at: "2026-03-09T19:16:26Z"
 complexity: medium
 depends_on:
     - P7.M1.E1.T001
     - P7.M1.E1.T002
+duration_minutes: 3.14579852255
 estimate_hours: 2
 id: P7.M1.E2.T001
 priority: high
-status: pending
-tags:
-    - queue
-    - cli
-    - session
+started_at: "2026-03-09T19:13:18Z"
+status: done
+tags: []
 title: Change no-daemon session inject to enqueue durable inbound rows instead of appending chat history
 ---
 

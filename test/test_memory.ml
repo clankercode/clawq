@@ -87,10 +87,10 @@ let test_init_double_call () =
   ignore db1;
   ignore db2
 
-let test_init_schema_version_is_4 () =
+let test_init_schema_version_is_5 () =
   let db = Memory.init ~db_path:":memory:" () in
   Alcotest.(check int)
-    "schema version is 4" 4
+    "schema version is 5" 5
     (query_single_int db "SELECT version FROM schema_version")
 
 let test_init_creates_session_persistence_tables () =
@@ -109,7 +109,10 @@ let test_init_creates_session_persistence_tables () =
     (table_exists db "session_log_epochs");
   Alcotest.(check bool)
     "session_log_epoch_messages exists" true
-    (table_exists db "session_log_epoch_messages")
+    (table_exists db "session_log_epoch_messages");
+  Alcotest.(check bool)
+    "inbound_queue exists" true
+    (table_exists db "inbound_queue")
 
 let test_migrates_v1_db_to_v4_without_data_loss () =
   with_temp_db (fun db_path ->
@@ -133,7 +136,7 @@ let test_migrates_v1_db_to_v4_without_data_loss () =
       ignore (Sqlite3.db_close db);
       let migrated = Memory.init ~db_path () in
       Alcotest.(check int)
-        "schema version migrated" 4
+        "schema version migrated" 5
         (query_single_int migrated "SELECT version FROM schema_version");
       Alcotest.(check bool)
         "session_state exists after migration" true
@@ -150,6 +153,9 @@ let test_migrates_v1_db_to_v4_without_data_loss () =
       Alcotest.(check bool)
         "session_log_epoch_messages exists after migration" true
         (table_exists migrated "session_log_epoch_messages");
+      Alcotest.(check bool)
+        "inbound_queue exists after migration" true
+        (table_exists migrated "inbound_queue");
       let msgs = Memory.load_history ~db:migrated ~session_key:"legacy" in
       Alcotest.(check int) "legacy row preserved" 1 (List.length msgs);
       Alcotest.(check string)
@@ -558,6 +564,305 @@ let test_provider_response_items_roundtrip () =
     "provider response items preserved" msg.provider_response_items_json
     loaded.provider_response_items_json
 
+(* --- inbound queue tests --- *)
+
+let test_queue_init_creates_table () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Alcotest.(check bool)
+    "inbound_queue table exists" true
+    (table_exists db "inbound_queue")
+
+let test_queue_enqueue_and_list () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let _id =
+    Memory.queue_enqueue ~db ~session_key:"s1" ~source:"cli"
+      ~payload_json:{|{"message":"hello"}|}
+  in
+  let rows = Memory.queue_list ~db ~session_key:"s1" in
+  Alcotest.(check int) "one queued row" 1 (List.length rows);
+  let row = List.hd rows in
+  Alcotest.(check string) "session_key" "s1" row.session_key;
+  Alcotest.(check string) "source" "cli" row.source;
+  Alcotest.(check string) "payload" {|{"message":"hello"}|} row.payload_json;
+  Alcotest.(check int) "attempt_count" 0 row.attempt_count;
+  Alcotest.(check (option string)) "last_error" None row.last_error
+
+let test_queue_enqueue_fifo_ordering () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let _id1 =
+    Memory.queue_enqueue ~db ~session_key:"s1" ~source:"cli"
+      ~payload_json:{|{"n":1}|}
+  in
+  let _id2 =
+    Memory.queue_enqueue ~db ~session_key:"s1" ~source:"cli"
+      ~payload_json:{|{"n":2}|}
+  in
+  let _id3 =
+    Memory.queue_enqueue ~db ~session_key:"s1" ~source:"cli"
+      ~payload_json:{|{"n":3}|}
+  in
+  let rows = Memory.queue_list ~db ~session_key:"s1" in
+  let payloads = List.map (fun (r : Memory.queue_row) -> r.payload_json) rows in
+  Alcotest.(check (list string))
+    "FIFO order"
+    [ {|{"n":1}|}; {|{"n":2}|}; {|{"n":3}|} ]
+    payloads
+
+let test_queue_claim_exclusive () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let _id =
+    Memory.queue_enqueue ~db ~session_key:"s1" ~source:"cli"
+      ~payload_json:{|{"message":"claim me"}|}
+  in
+  let result1 = Memory.queue_claim ~db ~session_key:"s1" in
+  (match result1 with
+  | Memory.Claim_ok row ->
+      Alcotest.(check string)
+        "claimed payload" {|{"message":"claim me"}|} row.payload_json
+  | Memory.Claim_empty -> Alcotest.fail "expected claim to succeed");
+  let result2 = Memory.queue_claim ~db ~session_key:"s1" in
+  match result2 with
+  | Memory.Claim_empty -> ()
+  | Memory.Claim_ok _ -> Alcotest.fail "expected second claim to fail"
+
+let test_queue_claim_empty () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let result = Memory.queue_claim ~db ~session_key:"s1" in
+  match result with
+  | Memory.Claim_empty -> ()
+  | Memory.Claim_ok _ -> Alcotest.fail "expected claim on empty queue to fail"
+
+let test_queue_release_makes_reclaimable () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let _id =
+    Memory.queue_enqueue ~db ~session_key:"s1" ~source:"cli"
+      ~payload_json:{|{"msg":"test"}|}
+  in
+  let row =
+    match Memory.queue_claim ~db ~session_key:"s1" with
+    | Memory.Claim_ok r -> r
+    | Memory.Claim_empty -> Alcotest.failf "expected claim"
+  in
+  let released = Memory.queue_release ~db ~queue_id:row.queue_id in
+  Alcotest.(check bool) "release succeeded" true released;
+  let reclaim = Memory.queue_claim ~db ~session_key:"s1" in
+  match reclaim with
+  | Memory.Claim_ok r ->
+      Alcotest.(check int) "same row reclaimed" row.queue_id r.queue_id
+  | Memory.Claim_empty -> Alcotest.fail "expected reclaim to succeed"
+
+let test_queue_delete_removes_row () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let _id =
+    Memory.queue_enqueue ~db ~session_key:"s1" ~source:"cli"
+      ~payload_json:{|{"msg":"del"}|}
+  in
+  let row =
+    match Memory.queue_claim ~db ~session_key:"s1" with
+    | Memory.Claim_ok r -> r
+    | Memory.Claim_empty -> Alcotest.failf "expected claim"
+  in
+  let deleted = Memory.queue_delete ~db ~queue_id:row.queue_id in
+  Alcotest.(check bool) "delete succeeded" true deleted;
+  let rows = Memory.queue_list ~db ~session_key:"s1" in
+  Alcotest.(check int) "queue empty after delete" 0 (List.length rows)
+
+let test_queue_record_failure_tracks_error () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let _id =
+    Memory.queue_enqueue ~db ~session_key:"s1" ~source:"cli"
+      ~payload_json:{|{"msg":"fail"}|}
+  in
+  let row =
+    match Memory.queue_claim ~db ~session_key:"s1" with
+    | Memory.Claim_ok r -> r
+    | Memory.Claim_empty -> Alcotest.failf "expected claim"
+  in
+  Memory.queue_record_failure ~db ~queue_id:row.queue_id ~error:"timeout";
+  let rows = Memory.queue_list ~db ~session_key:"s1" in
+  let updated = List.hd rows in
+  Alcotest.(check int) "attempt_count incremented" 1 updated.attempt_count;
+  Alcotest.(check (option string))
+    "last_error" (Some "timeout") updated.last_error
+
+let test_queue_reclaim_stale () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let _id =
+    Memory.queue_enqueue ~db ~session_key:"s1" ~source:"cli"
+      ~payload_json:{|{"msg":"stale"}|}
+  in
+  let _claimed =
+    match Memory.queue_claim ~db ~session_key:"s1" with
+    | Memory.Claim_ok r -> r
+    | Memory.Claim_empty -> Alcotest.failf "expected claim"
+  in
+  (* Manually backdate claimed_at to make it stale *)
+  exec_exn db
+    "UPDATE inbound_queue SET claimed_at = datetime('now', '-7200 seconds') \
+     WHERE session_key = 's1'";
+  let reclaimed = Memory.queue_reclaim_stale ~db ~older_than_seconds:3600 in
+  Alcotest.(check int) "one row reclaimed" 1 reclaimed;
+  let result = Memory.queue_claim ~db ~session_key:"s1" in
+  match result with
+  | Memory.Claim_ok _ -> ()
+  | Memory.Claim_empty -> Alcotest.fail "expected reclaimed row to be claimable"
+
+let test_queue_reclaim_failed () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let _id =
+    Memory.queue_enqueue ~db ~session_key:"s1" ~source:"cli"
+      ~payload_json:{|{"msg":"retry"}|}
+  in
+  let row =
+    match Memory.queue_claim ~db ~session_key:"s1" with
+    | Memory.Claim_ok r -> r
+    | Memory.Claim_empty -> Alcotest.failf "expected claim"
+  in
+  Memory.queue_record_failure ~db ~queue_id:row.queue_id ~error:"boom";
+  let reclaimed = Memory.queue_reclaim_failed ~db in
+  Alcotest.(check int) "one failed row reclaimed" 1 reclaimed;
+  let result = Memory.queue_claim ~db ~session_key:"s1" in
+  match result with
+  | Memory.Claim_ok _ -> ()
+  | Memory.Claim_empty -> Alcotest.fail "expected failed row to be reclaimable"
+
+let test_queue_count () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Alcotest.(check int)
+    "empty count" 0
+    (Memory.queue_count ~db ~session_key:"s1");
+  let _id =
+    Memory.queue_enqueue ~db ~session_key:"s1" ~source:"cli"
+      ~payload_json:{|{"n":1}|}
+  in
+  let _id =
+    Memory.queue_enqueue ~db ~session_key:"s1" ~source:"cli"
+      ~payload_json:{|{"n":2}|}
+  in
+  Alcotest.(check int)
+    "two pending" 2
+    (Memory.queue_count ~db ~session_key:"s1");
+  let _ = Memory.queue_claim ~db ~session_key:"s1" in
+  Alcotest.(check int)
+    "one pending after claim" 1
+    (Memory.queue_count ~db ~session_key:"s1")
+
+let test_queue_session_isolation () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let _id =
+    Memory.queue_enqueue ~db ~session_key:"s1" ~source:"cli"
+      ~payload_json:{|{"from":"s1"}|}
+  in
+  let _id =
+    Memory.queue_enqueue ~db ~session_key:"s2" ~source:"cli"
+      ~payload_json:{|{"from":"s2"}|}
+  in
+  let s1_rows = Memory.queue_list ~db ~session_key:"s1" in
+  let s2_rows = Memory.queue_list ~db ~session_key:"s2" in
+  Alcotest.(check int) "s1 has 1" 1 (List.length s1_rows);
+  Alcotest.(check int) "s2 has 1" 1 (List.length s2_rows)
+
+let test_queue_clear_session_scoped () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let _id =
+    Memory.queue_enqueue ~db ~session_key:"s1" ~source:"cli"
+      ~payload_json:{|{"msg":"1"}|}
+  in
+  let _id =
+    Memory.queue_enqueue ~db ~session_key:"s1" ~source:"cli"
+      ~payload_json:{|{"msg":"2"}|}
+  in
+  let _id =
+    Memory.queue_enqueue ~db ~session_key:"s2" ~source:"cli"
+      ~payload_json:{|{"msg":"3"}|}
+  in
+  let cleared = Memory.queue_clear ~db ~session_key:"s1" in
+  Alcotest.(check int) "cleared 2 rows" 2 cleared;
+  Alcotest.(check int)
+    "s1 empty" 0
+    (List.length (Memory.queue_list ~db ~session_key:"s1"));
+  Alcotest.(check int)
+    "s2 unaffected" 1
+    (List.length (Memory.queue_list ~db ~session_key:"s2"))
+
+let test_queue_clear_via_clear_session () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let _id =
+    Memory.queue_enqueue ~db ~session_key:"s1" ~source:"cli"
+      ~payload_json:{|{"msg":"test"}|}
+  in
+  Memory.store_message ~db ~session_key:"s1" (mk_msg "user" "hello");
+  Memory.clear_session ~db ~session_key:"s1";
+  let queue_rows = Memory.queue_list ~db ~session_key:"s1" in
+  let msgs = Memory.load_history ~db ~session_key:"s1" in
+  Alcotest.(check int) "queue cleared" 0 (List.length queue_rows);
+  Alcotest.(check int) "messages cleared" 0 (List.length msgs)
+
+let test_queue_list_pending_sessions () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let _id =
+    Memory.queue_enqueue ~db ~session_key:"s2" ~source:"cli"
+      ~payload_json:{|{"n":1}|}
+  in
+  let _id =
+    Memory.queue_enqueue ~db ~session_key:"s1" ~source:"cli"
+      ~payload_json:{|{"n":2}|}
+  in
+  let sessions = Memory.queue_list_pending_sessions ~db in
+  Alcotest.(check int) "two sessions with pending" 2 (List.length sessions);
+  Alcotest.(check bool) "s1 in list" true (List.mem "s1" sessions);
+  Alcotest.(check bool) "s2 in list" true (List.mem "s2" sessions)
+
+let test_queue_count_all () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Alcotest.(check int) "empty count_all" 0 (Memory.queue_count_all ~db);
+  let _id =
+    Memory.queue_enqueue ~db ~session_key:"s1" ~source:"cli"
+      ~payload_json:{|{"n":1}|}
+  in
+  let _id =
+    Memory.queue_enqueue ~db ~session_key:"s2" ~source:"cli"
+      ~payload_json:{|{"n":2}|}
+  in
+  Alcotest.(check int)
+    "two pending across sessions" 2
+    (Memory.queue_count_all ~db);
+  let _ = Memory.queue_claim ~db ~session_key:"s1" in
+  Alcotest.(check int) "one pending after claim" 1 (Memory.queue_count_all ~db)
+
+let test_queue_migrate_v4_to_v5 () =
+  with_temp_db (fun db_path ->
+      let db = Sqlite3.db_open db_path in
+      exec_exn db "CREATE TABLE schema_version (version INTEGER NOT NULL)";
+      exec_exn db "INSERT INTO schema_version (version) VALUES (4)";
+      exec_exn db
+        {|CREATE TABLE messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_key TEXT NOT NULL,
+  role TEXT NOT NULL,
+  content TEXT NOT NULL,
+  tool_call_id TEXT,
+  tool_name TEXT,
+  tool_calls_json TEXT,
+  provider_response_items_json TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+)|};
+      exec_exn db
+        "INSERT INTO messages (session_key, role, content) VALUES ('s1', \
+         'user', 'pre-migration msg')";
+      ignore (Sqlite3.db_close db);
+      let migrated = Memory.init ~db_path () in
+      Alcotest.(check int)
+        "schema version is 5" 5
+        (query_single_int migrated "SELECT version FROM schema_version");
+      Alcotest.(check bool)
+        "inbound_queue exists after v4->v5" true
+        (table_exists migrated "inbound_queue");
+      let msgs = Memory.load_history ~db:migrated ~session_key:"s1" in
+      Alcotest.(check int) "pre-migration data preserved" 1 (List.length msgs);
+      Alcotest.(check string)
+        "content preserved" "pre-migration msg" (List.hd msgs).content)
+
 let suite =
   [
     Alcotest.test_case "init sets busy_timeout" `Quick
@@ -566,8 +871,8 @@ let suite =
     Alcotest.test_case "init search enabled" `Quick test_init_search_enabled;
     Alcotest.test_case "init search disabled" `Quick test_init_search_disabled;
     Alcotest.test_case "init double call" `Quick test_init_double_call;
-    Alcotest.test_case "init schema version is 4" `Quick
-      test_init_schema_version_is_4;
+    Alcotest.test_case "init schema version is 5" `Quick
+      test_init_schema_version_is_5;
     Alcotest.test_case "init creates session persistence tables" `Quick
       test_init_creates_session_persistence_tables;
     Alcotest.test_case "migrates v1 db to v4 without data loss" `Quick
@@ -627,4 +932,32 @@ let suite =
       test_tool_cycle_history_shape;
     Alcotest.test_case "provider response items roundtrip" `Quick
       test_provider_response_items_roundtrip;
+    Alcotest.test_case "queue init creates table" `Quick
+      test_queue_init_creates_table;
+    Alcotest.test_case "queue enqueue and list" `Quick
+      test_queue_enqueue_and_list;
+    Alcotest.test_case "queue enqueue FIFO ordering" `Quick
+      test_queue_enqueue_fifo_ordering;
+    Alcotest.test_case "queue claim exclusive" `Quick test_queue_claim_exclusive;
+    Alcotest.test_case "queue claim empty" `Quick test_queue_claim_empty;
+    Alcotest.test_case "queue release makes reclaimable" `Quick
+      test_queue_release_makes_reclaimable;
+    Alcotest.test_case "queue delete removes row" `Quick
+      test_queue_delete_removes_row;
+    Alcotest.test_case "queue record failure tracks error" `Quick
+      test_queue_record_failure_tracks_error;
+    Alcotest.test_case "queue reclaim stale" `Quick test_queue_reclaim_stale;
+    Alcotest.test_case "queue reclaim failed" `Quick test_queue_reclaim_failed;
+    Alcotest.test_case "queue count" `Quick test_queue_count;
+    Alcotest.test_case "queue session isolation" `Quick
+      test_queue_session_isolation;
+    Alcotest.test_case "queue clear session scoped" `Quick
+      test_queue_clear_session_scoped;
+    Alcotest.test_case "queue clear via clear_session" `Quick
+      test_queue_clear_via_clear_session;
+    Alcotest.test_case "queue list pending sessions" `Quick
+      test_queue_list_pending_sessions;
+    Alcotest.test_case "queue count all" `Quick test_queue_count_all;
+    Alcotest.test_case "queue migrate v4 to v5" `Quick
+      test_queue_migrate_v4_to_v5;
   ]

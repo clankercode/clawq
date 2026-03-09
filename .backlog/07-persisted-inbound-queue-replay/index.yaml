@@ -12,7 +12,7 @@ milestones:
       locked: false
       name: Durable Queue Foundations
       path: 01-durable-queue-foundations
-      status: pending
+      status: done
     - complexity: high
       depends_on:
         - P7.M1
@@ -32,7 +32,7 @@ milestones:
       locked: false
       name: Observability, Docs, and Verification
       path: 03-observability-docs-and-verific
-      status: pending
+      status: done
     - complexity: medium
       depends_on:
         - P7.M2
@@ -43,7 +43,7 @@ milestones:
       locked: false
       name: Formal Verification Follow-through
       path: 04-formal-verification-follow-thr
-      status: pending
+      status: done
 name: Persisted Inbound Queue & Replay
 stats:
     blocked: 0

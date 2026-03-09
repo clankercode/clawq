@@ -141,6 +141,16 @@ Comments:
 4. In `src/command_bridge_min.ml`, return clear "disabled in minimal build" messages.
 5. Evaluate new dependencies for core vs integration placement before linking.
 
+## Durable Inbound Queue Semantics
+
+1. Offline `session inject` enqueues to the `inbound_queue` SQLite table (schema v5), not directly to chat history. At-least-once delivery: `attempt_count` and `last_error` track retries.
+2. Replay uses FIFO per-session ordering (`ORDER BY id ASC`).
+3. Bang messages (`!`-prefixed) are preserved through the queue/replay cycle via a `bang` JSON field.
+4. `replay_durable_inbound_queue` runs after `resume_sessions_after_channels` at daemon startup. Stale claims (>3600 s) and failed rows are reclaimed before replay begins.
+5. Empty messages are recorded as failures (`"empty message"`), not replayed.
+6. Both `Memory.clear_session` and `Session.reset` delete pending queue rows for the target session.
+7. `session pending SESSION` shows queue rows; `session list` appends `pending_inbound=N` when count > 0.
+
 ## Safety and Change Boundaries
 
 - Do not commit generated drift accidentally (especially extraction outputs) without intent.

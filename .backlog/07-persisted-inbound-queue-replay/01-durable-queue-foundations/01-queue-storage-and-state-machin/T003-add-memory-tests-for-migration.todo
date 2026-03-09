@@ -1,16 +1,18 @@
 ---
+claimed_at: "2026-03-09T19:08:07Z"
+claimed_by: cli-user
+completed_at: "2026-03-09T19:12:59Z"
 complexity: medium
 depends_on:
     - P7.M1.E1.T001
     - P7.M1.E1.T002
+duration_minutes: 4.881630048766667
 estimate_hours: 2
 id: P7.M1.E1.T003
 priority: high
-status: pending
-tags:
-    - queue
-    - tests
-    - memory
+started_at: "2026-03-09T19:08:07Z"
+status: done
+tags: []
 title: Add Memory tests for migration, claim exclusivity, stale reclaim, and session-scoped cleanup
 ---
 

@@ -11,7 +11,7 @@ stats:
     in_progress: 0
     pending: 3
     total: 3
-status: pending
+status: done
 tasks:
     - complexity: medium
       depends_on:
@@ -21,7 +21,8 @@ tasks:
       file: T001-change-no-daemon-session-injec.todo
       id: T001
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Change no-daemon session inject to enqueue durable inbound rows instead of appending chat history
     - complexity: medium
       depends_on:
@@ -30,7 +31,8 @@ tasks:
       file: T002-add-session-pending-output-and.todo
       id: T002
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: Add session pending output and pending_inbound counts in session inspection commands
     - complexity: medium
       depends_on:
@@ -40,5 +42,6 @@ tasks:
       file: T003-add-command-bridge-tests-provi.todo
       id: T003
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Add command bridge tests proving offline inject visibility and no premature chat-log insertion

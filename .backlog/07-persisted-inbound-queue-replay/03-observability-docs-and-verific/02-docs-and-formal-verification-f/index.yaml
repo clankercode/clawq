@@ -11,7 +11,7 @@ stats:
     in_progress: 0
     pending: 2
     total: 2
-status: pending
+status: done
 tasks:
     - complexity: medium
       depends_on:
@@ -21,7 +21,8 @@ tasks:
       file: T001-update-llms-full-cli-help-and.todo
       id: T001
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Update llms-full, CLI help, and runtime comments for durable queue semantics and startup ordering
     - complexity: low
       depends_on:
@@ -30,5 +31,6 @@ tasks:
       file: T002-add-regression-oriented-docume.todo
       id: T002
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: Add regression-oriented documentation for at-least-once semantics, operator debugging, and replay limitations

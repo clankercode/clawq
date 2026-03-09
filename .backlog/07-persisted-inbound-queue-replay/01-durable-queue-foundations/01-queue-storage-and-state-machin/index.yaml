@@ -10,7 +10,7 @@ stats:
     in_progress: 0
     pending: 3
     total: 3
-status: pending
+status: done
 tasks:
     - complexity: high
       depends_on: []
@@ -18,7 +18,8 @@ tasks:
       file: T001-add-inbound-queue-schema-migra.todo
       id: T001
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Add inbound_queue schema, migration, and typed queue row/result types
     - complexity: high
       depends_on:
@@ -27,7 +28,8 @@ tasks:
       file: T002-implement-enqueue-claim-releas.todo
       id: T002
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Implement enqueue, claim, release, reclaim, clear, count, and list Memory APIs with payload_json envelope
     - complexity: medium
       depends_on:
@@ -37,5 +39,6 @@ tasks:
       file: T003-add-memory-tests-for-migration.todo
       id: T003
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Add Memory tests for migration, claim exclusivity, stale reclaim, and session-scoped cleanup

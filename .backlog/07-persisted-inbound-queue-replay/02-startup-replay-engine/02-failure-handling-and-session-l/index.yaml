@@ -21,7 +21,8 @@ tasks:
       file: T001-implement-attempt-count-and-la.todo
       id: T001
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Implement attempt_count and last_error bookkeeping with structured malformed and transient failure handling
     - complexity: medium
       depends_on:
@@ -30,7 +31,8 @@ tasks:
       file: T002-ensure-session-reset-and-low-l.todo
       id: T002
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Ensure session reset and low-level clear_session paths clear pending inbound rows and log the cleanup
     - complexity: medium
       depends_on:
@@ -40,5 +42,6 @@ tasks:
       file: T003-add-tests-for-retry-metadata-c.todo
       id: T003
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Add tests for retry metadata, cleanup semantics, and history insertion only after successful processing

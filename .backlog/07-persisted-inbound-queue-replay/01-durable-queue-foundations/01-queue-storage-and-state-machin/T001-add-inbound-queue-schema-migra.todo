@@ -1,14 +1,16 @@
 ---
+claimed_at: "2026-03-09T19:08:07Z"
+claimed_by: cli-user
+completed_at: "2026-03-09T19:12:59Z"
 complexity: high
 depends_on: []
+duration_minutes: 4.880535832533333
 estimate_hours: 3
 id: P7.M1.E1.T001
 priority: high
-status: pending
-tags:
-    - queue
-    - persistence
-    - sqlite
+started_at: "2026-03-09T19:08:07Z"
+status: done
+tags: []
 title: Add inbound_queue schema, migration, and typed queue row/result types
 ---
 

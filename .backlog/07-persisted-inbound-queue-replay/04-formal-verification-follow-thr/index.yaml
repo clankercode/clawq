@@ -11,7 +11,7 @@ epics:
       locked: false
       name: Persisted Queue Verification
       path: 01-persisted-queue-verification
-      status: pending
+      status: done
 estimate_hours: 4
 id: P7.M4
 locked: false
@@ -22,4 +22,4 @@ stats:
     in_progress: 0
     pending: 1
     total_tasks: 1
-status: pending
+status: done

@@ -9,7 +9,7 @@ epics:
       locked: false
       name: Queue Storage and State Machine
       path: 01-queue-storage-and-state-machin
-      status: pending
+      status: done
     - complexity: medium
       depends_on:
         - P7.M1.E1
@@ -19,7 +19,7 @@ epics:
       locked: false
       name: Offline Session Inject Routing
       path: 02-offline-session-inject-routing
-      status: pending
+      status: done
 estimate_hours: 14
 id: P7.M1
 locked: false
@@ -30,4 +30,4 @@ stats:
     in_progress: 0
     pending: 6
     total_tasks: 6
-status: pending
+status: done

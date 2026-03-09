@@ -1230,6 +1230,147 @@ let test_rich_send_fn_fallback_unparseable_key () =
       (* Confirms the fallback would raise "cannot parse channel from key" *)
       Alcotest.(check pass) "unparseable key returns None" () ()
 
+let test_replay_durable_inbound_drains_and_deletes () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let config = Runtime_config.default in
+  let session_manager = Session.create ~config ~db () in
+  let key = "telegram:1:user" in
+  ignore
+    (Memory.queue_enqueue ~db ~session_key:key ~source:"cli"
+       ~payload_json:
+         (Yojson.Safe.to_string
+            (`Assoc [ ("message", `String "hello"); ("bang", `Bool false) ])));
+  Alcotest.(check int)
+    "1 pending before replay" 1
+    (Memory.queue_count ~db ~session_key:key);
+  let replayed = ref [] in
+  let replay_turn _mgr ~key ~message () =
+    replayed := (key, message) :: !replayed;
+    Lwt.return "ok"
+  in
+  Lwt_main.run
+    (Daemon.replay_durable_inbound_queue ~replay_turn ~session_manager ~config
+       ());
+  Alcotest.(check int)
+    "0 pending after replay" 0
+    (Memory.queue_count ~db ~session_key:key);
+  Alcotest.(check int) "1 message replayed" 1 (List.length !replayed);
+  let rkey, rmsg = List.hd !replayed in
+  Alcotest.(check string) "correct key" key rkey;
+  Alcotest.(check string) "correct message" "hello" rmsg
+
+let test_replay_durable_inbound_fifo_ordering () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let config = Runtime_config.default in
+  let session_manager = Session.create ~config ~db () in
+  let key = "telegram:2:user" in
+  let enq msg =
+    ignore
+      (Memory.queue_enqueue ~db ~session_key:key ~source:"cli"
+         ~payload_json:
+           (Yojson.Safe.to_string
+              (`Assoc [ ("message", `String msg); ("bang", `Bool false) ])))
+  in
+  enq "first";
+  enq "second";
+  enq "third";
+  let replayed = ref [] in
+  let replay_turn _mgr ~key:_ ~message () =
+    replayed := message :: !replayed;
+    Lwt.return "ok"
+  in
+  Lwt_main.run
+    (Daemon.replay_durable_inbound_queue ~replay_turn ~session_manager ~config
+       ());
+  let ordered = List.rev !replayed in
+  Alcotest.(check (list string))
+    "FIFO order"
+    [ "first"; "second"; "third" ]
+    ordered
+
+let test_replay_records_failure_on_error () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let config = Runtime_config.default in
+  let session_manager = Session.create ~config ~db () in
+  let key = "telegram:3:user" in
+  ignore
+    (Memory.queue_enqueue ~db ~session_key:key ~source:"cli"
+       ~payload_json:
+         (Yojson.Safe.to_string
+            (`Assoc [ ("message", `String "fail me"); ("bang", `Bool false) ])));
+  let replay_turn _mgr ~key:_ ~message:_ () = Lwt.fail_with "test error" in
+  Lwt_main.run
+    (Daemon.replay_durable_inbound_queue ~replay_turn ~session_manager ~config
+       ());
+  let rows = Memory.queue_list ~db ~session_key:key in
+  Alcotest.(check int) "row still present" 1 (List.length rows);
+  let row = List.hd rows in
+  Alcotest.(check int) "attempt_count incremented" 1 row.attempt_count;
+  Alcotest.(check (option string))
+    "last_error set" (Some "Failure(\"test error\")") row.last_error
+
+let test_replay_skips_empty_message () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let config = Runtime_config.default in
+  let session_manager = Session.create ~config ~db () in
+  let key = "telegram:4:user" in
+  ignore
+    (Memory.queue_enqueue ~db ~session_key:key ~source:"cli"
+       ~payload_json:
+         (Yojson.Safe.to_string
+            (`Assoc [ ("message", `String ""); ("bang", `Bool false) ])));
+  let replayed = ref 0 in
+  let replay_turn _mgr ~key:_ ~message:_ () =
+    incr replayed;
+    Lwt.return "ok"
+  in
+  Lwt_main.run
+    (Daemon.replay_durable_inbound_queue ~replay_turn ~session_manager ~config
+       ());
+  Alcotest.(check int) "turn not called for empty" 0 !replayed;
+  let rows = Memory.queue_list ~db ~session_key:key in
+  Alcotest.(check int) "row still present (failed)" 1 (List.length rows);
+  Alcotest.(check (option string))
+    "error is empty message" (Some "empty message") (List.hd rows).last_error
+
+let test_replay_preserves_bang_prefix () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let config = Runtime_config.default in
+  let session_manager = Session.create ~config ~db () in
+  let key = "telegram:5:user" in
+  ignore
+    (Memory.queue_enqueue ~db ~session_key:key ~source:"cli"
+       ~payload_json:
+         (Yojson.Safe.to_string
+            (`Assoc [ ("message", `String "urgent"); ("bang", `Bool true) ])));
+  let replayed = ref [] in
+  let replay_turn _mgr ~key:_ ~message () =
+    replayed := message :: !replayed;
+    Lwt.return "ok"
+  in
+  Lwt_main.run
+    (Daemon.replay_durable_inbound_queue ~replay_turn ~session_manager ~config
+       ());
+  Alcotest.(check (list string)) "bang prefix added" [ "!urgent" ] !replayed
+
+let test_session_reset_clears_pending_queue () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let config = Runtime_config.default in
+  let session_manager = Session.create ~config ~db () in
+  let key = "telegram:6:user" in
+  ignore
+    (Memory.queue_enqueue ~db ~session_key:key ~source:"cli"
+       ~payload_json:
+         (Yojson.Safe.to_string
+            (`Assoc [ ("message", `String "queued"); ("bang", `Bool false) ])));
+  Alcotest.(check int)
+    "1 pending before reset" 1
+    (Memory.queue_count ~db ~session_key:key);
+  Lwt_main.run (Session.reset session_manager ~key);
+  Alcotest.(check int)
+    "0 pending after reset" 0
+    (Memory.queue_count ~db ~session_key:key)
+
 let suite =
   [
     Alcotest.test_case "dispatch resumed message routes telegram" `Quick
@@ -1299,4 +1440,16 @@ let suite =
       test_rich_send_fn_direct_dispatch_fallback;
     Alcotest.test_case "rich_send_fn fallback fails for unparseable session key"
       `Quick test_rich_send_fn_fallback_unparseable_key;
+    Alcotest.test_case "replay durable inbound drains and deletes" `Quick
+      test_replay_durable_inbound_drains_and_deletes;
+    Alcotest.test_case "replay durable inbound FIFO ordering" `Quick
+      test_replay_durable_inbound_fifo_ordering;
+    Alcotest.test_case "replay records failure on error" `Quick
+      test_replay_records_failure_on_error;
+    Alcotest.test_case "replay skips empty message" `Quick
+      test_replay_skips_empty_message;
+    Alcotest.test_case "replay preserves bang prefix" `Quick
+      test_replay_preserves_bang_prefix;
+    Alcotest.test_case "session reset clears pending queue" `Quick
+      test_session_reset_clears_pending_queue;
   ]

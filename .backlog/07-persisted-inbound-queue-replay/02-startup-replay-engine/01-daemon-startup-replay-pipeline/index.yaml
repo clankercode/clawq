@@ -19,7 +19,8 @@ tasks:
       file: T001-add-daemon-startup-reclaim-and.todo
       id: T001
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Add daemon startup reclaim and ordering so pending agent resume happens before durable inbound replay
     - complexity: high
       depends_on:
@@ -28,7 +29,8 @@ tasks:
       file: T002-replay-durable-inbound-rows-th.todo
       id: T002
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Replay durable inbound rows through the real session runtime with per-session FIFO and bang semantics
     - complexity: medium
       depends_on:
@@ -38,5 +40,6 @@ tasks:
       file: T003-add-daemon-and-session-tests-f.todo
       id: T003
       priority: high
-      status: pending
+      status: in_progress
+      tags: []
       title: Add daemon and session tests for startup replay ordering and successful row deletion

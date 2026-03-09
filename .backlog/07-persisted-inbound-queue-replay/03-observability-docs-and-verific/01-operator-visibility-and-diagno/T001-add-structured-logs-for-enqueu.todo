@@ -1,16 +1,18 @@
 ---
+claimed_at: "2026-03-09T20:36:28Z"
+claimed_by: cli-user
+completed_at: "2026-03-09T20:36:41Z"
 complexity: medium
 depends_on:
     - P7.M2.E2.T001
     - P7.M2.E2.T002
+duration_minutes: 0.22752168328333333
 estimate_hours: 3
 id: P7.M3.E1.T001
 priority: high
-status: pending
-tags:
-    - queue
-    - logging
-    - debugging
+started_at: "2026-03-09T20:36:28Z"
+status: done
+tags: []
 title: Add structured logs for enqueue, claim, replay, release, delete, stale-reclaim, and reset-clear transitions
 ---
 

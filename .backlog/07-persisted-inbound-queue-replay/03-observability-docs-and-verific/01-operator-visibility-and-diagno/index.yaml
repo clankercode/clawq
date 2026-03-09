@@ -10,7 +10,7 @@ stats:
     in_progress: 0
     pending: 2
     total: 2
-status: pending
+status: done
 tasks:
     - complexity: medium
       depends_on:
@@ -20,7 +20,8 @@ tasks:
       file: T001-add-structured-logs-for-enqueu.todo
       id: T001
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Add structured logs for enqueue, claim, replay, release, delete, stale-reclaim, and reset-clear transitions
     - complexity: medium
       depends_on:
@@ -30,5 +31,6 @@ tasks:
       file: T002-surface-pending-inbound-diagno.todo
       id: T002
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: Surface pending inbound diagnostics in session inspection output and regression tests

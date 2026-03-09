@@ -50,10 +50,11 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 | `mcp` | Start the MCP server (JSON-RPC via stdio) |
 | `memory` | Show memory backend config |
 | `session` | Inspect persisted sessions and raw chat-log epochs |
-| `session list [--channel NAME] [--prefix PREFIX] [--active|--inactive] [--main|--non-main]` | List persisted sessions with optional filters |
+| `session list [--channel NAME] [--prefix PREFIX] [--active|--inactive] [--main|--non-main]` | List persisted sessions with optional filters; appends `pending_inbound=N` when durable queue rows exist |
 | `session epochs SESSION` | List the current and archived chat-log epochs for a session |
 | `session show SESSION [--epoch current|ID] [--offset N] [--limit N]` | Print raw persisted chat-log messages for the latest or a selected archived epoch; supports paging via offset/limit |
-| `session inject SESSION MESSAGE...` | Inject a live inbound message through the daemon session manager; idle sessions process immediately, busy channel sessions queue, and bang messages request interruption |
+| `session inject SESSION MESSAGE...` | Inject a live inbound message through the daemon session manager; idle sessions process immediately, busy channel sessions queue, and bang messages request interruption. When the daemon is offline, enqueues to the durable inbound queue for at-least-once replay on next startup |
+| `session pending SESSION` | Show durable inbound queue rows for a session (queue_id, state, attempt_count, last_error, preview, created_at) |
 | `migrate` | Run database migrations |
 | `models` | List configured LLM providers and models |
 | `onboard` | Create initial config if missing; runs onboarding wizard in TTY, otherwise writes a starter template |
@@ -378,6 +379,18 @@ You also support MCP (Model Context Protocol) for exposing and consuming externa
 - The runtime-context block shown to the model always includes the current session id. Session name is optional metadata; today it is only set for special internal cases such as the main session or debug prompt flows.
 - Registered channel notifiers exist only while a live channel request/stream is active; they are used for restart drain warnings and similar out-of-band messages to currently attached sessions.
 
+## Durable Inbound Queue
+
+Offline `session inject` writes to an SQLite `inbound_queue` table instead of
+chat history.  Tracked fields: queue_id, session_key, message text, state
+(pending/claimed/failed), attempt_count, last_error, created_at.  At-least-once
+delivery: rows are claimed, processed through Session.turn, and deleted on
+success; failures increment attempt_count and record last_error.  Replay is
+FIFO per session (creation order).  At daemon startup the replay step runs
+after pending agent session resume.  `session pending SESSION` shows the
+current queue state for a given session; `session list` appends
+`pending_inbound=N` when queued rows exist.
+
 ## Heartbeats
 
 - Heartbeats are controlled by `heartbeat.heartbeat_enabled`, `heartbeat.heartbeat_interval_seconds`, `heartbeat.heartbeat_quiet_start`, and `heartbeat.heartbeat_quiet_end`.
@@ -409,6 +422,7 @@ You also support MCP (Model Context Protocol) for exposing and consuming externa
 - On startup the daemon scans for pending agent sessions from the last hour whose response was not marked sent.
 - Automatic post-restart completion currently resumes only sessions that have persisted channel metadata for a supported outbound channel: Telegram, Discord, or Slack.
 - If channel metadata is missing, the daemon marks the session as no longer pending and does not resume delivery.
+- After pending agent session resume, the durable inbound queue is replayed: stale claims (>3600 s) and failed rows are reclaimed, then pending rows are processed FIFO per session through Session.turn with at-least-once delivery.
 - A separate `restart_notify.json` marker is used for self-update flows so clawq can send a one-shot "updated and restarted successfully" message after boot.
 - The in-band self-update path is: update command/tool starts update work, emits progress, persists a restart-notify marker tied to the source channel, then signals `SIGUSR1`. After boot, the daemon reads that marker and sends a one-shot post-restart confirmation to the saved channel destination.
 - This is a handoff model, not a continuous same-turn monologue. The pre-restart turn ends after the restart request is prepared; confirmation arrives from the replacement process after startup.

@@ -1,16 +1,18 @@
 ---
+claimed_at: "2026-03-09T19:13:18Z"
+claimed_by: cli-user
+completed_at: "2026-03-09T19:16:26Z"
 complexity: medium
 depends_on:
     - P7.M1.E2.T001
     - P7.M1.E2.T002
+duration_minutes: 3.1468980266333335
 estimate_hours: 2
 id: P7.M1.E2.T003
 priority: high
-status: pending
-tags:
-    - queue
-    - tests
-    - cli
+started_at: "2026-03-09T19:13:18Z"
+status: done
+tags: []
 title: Add command bridge tests proving offline inject visibility and no premature chat-log insertion
 ---
 

@@ -1344,12 +1344,23 @@ let reset mgr ~key =
   let open Lwt.Syntax in
   let* held_mutex =
     Lwt_mutex.with_lock mgr.sessions_lock (fun () ->
+        let clear_db () =
+          match mgr.db with
+          | Some db ->
+              let pending_cleared = Memory.queue_clear ~db ~session_key:key in
+              if pending_cleared > 0 then
+                Logs.info (fun m ->
+                    m
+                      "Session reset cleared %d pending inbound queue rows for \
+                       %s"
+                      pending_cleared key);
+              Memory.clear_session ~db ~session_key:key
+          | None -> ()
+        in
         match Hashtbl.find_opt mgr.sessions key with
         | Some (_, mutex, _) ->
             let* () = Lwt_mutex.lock mutex in
-            (match mgr.db with
-            | Some db -> Memory.clear_session ~db ~session_key:key
-            | None -> ());
+            clear_db ();
             Hashtbl.remove mgr.deferred_responses key;
             Hashtbl.remove mgr.queued_messages key;
             Hashtbl.remove mgr.continuation_checks key;
@@ -1358,9 +1369,7 @@ let reset mgr ~key =
             Hashtbl.remove mgr.sessions key;
             Lwt.return (Some mutex)
         | None ->
-            (match mgr.db with
-            | Some db -> Memory.clear_session ~db ~session_key:key
-            | None -> ());
+            clear_db ();
             Hashtbl.remove mgr.deferred_responses key;
             Hashtbl.remove mgr.queued_messages key;
             Hashtbl.remove mgr.continuation_checks key;

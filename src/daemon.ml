@@ -602,6 +602,137 @@ let pp_header_with_ts ppf t (level, _header) =
   Fmt.pf ppf "%s[%02d:%02d:%02d.%03d]%s %s%s%s " ansi_fg_gray tm.Unix.tm_hour
     tm.Unix.tm_min tm.Unix.tm_sec ms ansi_reset lc lt ansi_reset
 
+let replay_durable_inbound_queue
+    ?(replay_turn :
+       (Session.t -> key:string -> message:string -> unit -> string Lwt.t)
+       option) ~(session_manager : Session.t) ~(config : Runtime_config.t) () =
+  ignore config;
+  match session_manager.Session.db with
+  | None -> Lwt.return_unit
+  | Some db ->
+      let open Lwt.Syntax in
+      let turn_fn =
+        match replay_turn with
+        | Some f -> f
+        | None -> fun mgr ~key ~message () -> Session.turn mgr ~key ~message ()
+      in
+      let reclaimed = Memory.queue_reclaim_stale ~db ~older_than_seconds:3600 in
+      if reclaimed > 0 then
+        Logs.info (fun m ->
+            m "Boot: reclaimed %d stale inbound queue claims" reclaimed);
+      let reclaimed_failed = Memory.queue_reclaim_failed ~db in
+      if reclaimed_failed > 0 then
+        Logs.info (fun m ->
+            m "Boot: reclaimed %d failed inbound queue rows for retry"
+              reclaimed_failed);
+      let pending_sessions = Memory.queue_list_pending_sessions ~db in
+      if pending_sessions = [] then begin
+        Logs.info (fun m -> m "Boot: no durable inbound queue rows to replay");
+        Lwt.return_unit
+      end
+      else begin
+        let total = Memory.queue_count_all ~db in
+        Logs.info (fun m ->
+            m "Boot: replaying %d durable inbound queue rows across %d sessions"
+              total
+              (List.length pending_sessions));
+        let replay_count = ref 0 in
+        let fail_count = ref 0 in
+        let* () =
+          Lwt_list.iter_s
+            (fun session_key ->
+              let rec drain_session () =
+                match Memory.queue_claim ~db ~session_key with
+                | Memory.Claim_empty -> Lwt.return_unit
+                | Memory.Claim_ok row ->
+                    Logs.info (fun m ->
+                        m
+                          "Replay: claimed queue_id=%d session=%s source=%s \
+                           attempt=%d"
+                          row.queue_id session_key row.source row.attempt_count);
+                    let message, is_bang =
+                      try
+                        let json = Yojson.Safe.from_string row.payload_json in
+                        let open Yojson.Safe.Util in
+                        let msg =
+                          json |> member "message" |> to_string_option
+                          |> Option.value ~default:""
+                        in
+                        let bang =
+                          json |> member "bang" |> to_bool_option
+                          |> Option.value ~default:false
+                        in
+                        (msg, bang)
+                      with _ -> (row.payload_json, false)
+                    in
+                    if String.trim message = "" then begin
+                      Logs.warn (fun m ->
+                          m
+                            "Replay: skipping queue_id=%d session=%s \
+                             reason=empty-message"
+                            row.queue_id session_key);
+                      Memory.queue_record_failure ~db ~queue_id:row.queue_id
+                        ~error:"empty message";
+                      incr fail_count;
+                      drain_session ()
+                    end
+                    else
+                      let replay_message =
+                        if
+                          is_bang
+                          && String.length message > 0
+                          && message.[0] <> '!'
+                        then "!" ^ message
+                        else message
+                      in
+                      Lwt.catch
+                        (fun () ->
+                          Logs.info (fun m ->
+                              m
+                                "Replay: processing queue_id=%d session=%s \
+                                 bang=%b msg_len=%d"
+                                row.queue_id session_key is_bang
+                                (String.length message));
+                          let* _response =
+                            turn_fn session_manager ~key:session_key
+                              ~message:replay_message ()
+                          in
+                          let deleted =
+                            Memory.queue_delete ~db ~queue_id:row.queue_id
+                          in
+                          if deleted then
+                            Logs.info (fun m ->
+                                m
+                                  "Replay: success queue_id=%d session=%s \
+                                   deleted=true"
+                                  row.queue_id session_key)
+                          else
+                            Logs.warn (fun m ->
+                                m
+                                  "Replay: success queue_id=%d session=%s \
+                                   deleted=false (already removed)"
+                                  row.queue_id session_key);
+                          incr replay_count;
+                          drain_session ())
+                        (fun exn ->
+                          let error = Printexc.to_string exn in
+                          Logs.err (fun m ->
+                              m "Replay: failed queue_id=%d session=%s error=%s"
+                                row.queue_id session_key error);
+                          Memory.queue_record_failure ~db ~queue_id:row.queue_id
+                            ~error;
+                          incr fail_count;
+                          drain_session ())
+              in
+              drain_session ())
+            pending_sessions
+        in
+        Logs.info (fun m ->
+            m "Boot: durable inbound replay complete replayed=%d failed=%d"
+              !replay_count !fail_count);
+        Lwt.return_unit
+      end
+
 let run ~(config : Runtime_config.t) =
   let current_config = ref config in
   let open Lwt.Syntax in
@@ -1470,6 +1601,7 @@ let run ~(config : Runtime_config.t) =
               Lwt.return_unit))
   | Some _ | None -> ());
   let* () = resume_sessions_after_channels () in
+  let* () = replay_durable_inbound_queue ~session_manager ~config () in
   (* Config file watcher: stat every 10s, reload on mtime change *)
   let last_config_mtime = ref 0.0 in
   let config_watch_path = Config_loader.default_path () in

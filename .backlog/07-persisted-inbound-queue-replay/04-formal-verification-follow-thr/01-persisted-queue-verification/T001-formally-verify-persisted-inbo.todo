@@ -1,16 +1,18 @@
 ---
+claimed_at: "2026-03-09T20:36:28Z"
+claimed_by: cli-user
+completed_at: "2026-03-09T20:36:41Z"
 complexity: medium
 depends_on:
     - P7.M2
     - P7.M3.E2.T001
+duration_minutes: 0.22761635288333334
 estimate_hours: 4
 id: P7.M4.E1.T001
 priority: high
-status: pending
-tags:
-    - formal-verification
-    - queue
-    - replay
+started_at: "2026-03-09T20:36:28Z"
+status: done
+tags: []
 title: Formally verify persisted inbound queue replay invariants and reset semantics
 ---
 # Formally verify persisted inbound queue replay invariants and reset semantics

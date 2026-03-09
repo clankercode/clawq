@@ -274,49 +274,36 @@ let test_handle_session_inject_persists_when_daemon_missing () =
           [ "session"; "inject"; "telegram:1:user"; "hello" ]
       in
       Alcotest.(check bool)
-        "session inject warns about missing daemon" true
+        "offline inject mentions queued" true
         (try
            ignore
-             (Str.search_forward
-                (Str.regexp_string "no live daemon detected")
-                result 0);
+             (Str.search_forward (Str.regexp_string "Queued message") result 0);
+           true
+         with Not_found -> false);
+      Alcotest.(check bool)
+        "offline inject mentions startup replay" true
+        (try
+           ignore
+             (Str.search_forward (Str.regexp_string "startup replay") result 0);
            true
          with Not_found -> false);
       let show_result =
         Command_bridge.handle [ "session"; "show"; "telegram:1:user" ]
       in
       Alcotest.(check bool)
-        "session inject persists message for later" true
+        "offline inject does not appear in chat history" true
         (try
            ignore (Str.search_forward (Str.regexp_string "hello") show_result 0);
-           true
-         with Not_found -> false);
+           false
+         with Not_found -> true);
+      let pending_result =
+        Command_bridge.handle [ "session"; "pending"; "telegram:1:user" ]
+      in
       Alcotest.(check bool)
-        "session show includes archived_epoch_count 0 when no compaction" true
+        "pending shows the queued row" true
         (try
            ignore
-             (Str.search_forward
-                (Str.regexp_string "\"archived_epoch_count\": 0")
-                show_result 0);
-           true
-         with Not_found -> false);
-      Alcotest.(check bool)
-        "session show includes total_archived_messages 0 when no compaction"
-        true
-        (try
-           ignore
-             (Str.search_forward
-                (Str.regexp_string "\"total_archived_messages\": 0")
-                show_result 0);
-           true
-         with Not_found -> false);
-      Alcotest.(check bool)
-        "session show includes system_prompt field when no compaction" true
-        (try
-           ignore
-             (Str.search_forward
-                (Str.regexp_string "\"system_prompt\":")
-                show_result 0);
+             (Str.search_forward (Str.regexp_string "hello") pending_result 0);
            true
          with Not_found -> false))
 
@@ -1805,6 +1792,82 @@ let test_debug_prompt_includes_workspace_file_content () =
       (try Sys.remove agents_path with _ -> ());
       try Unix.rmdir ws_dir with _ -> ())
 
+let test_offline_inject_enqueues_bang_message () =
+  with_temp_home (fun home ->
+      ignore (session_db home);
+      let result =
+        Command_bridge.handle
+          [ "session"; "inject"; "telegram:1:user"; "!urgent"; "now" ]
+      in
+      Alcotest.(check bool)
+        "bang inject mentions bang" true
+        (try
+           ignore
+             (Str.search_forward
+                (Str.regexp_string "bang interrupt requested")
+                result 0);
+           true
+         with Not_found -> false);
+      let pending_result =
+        Command_bridge.handle [ "session"; "pending"; "telegram:1:user" ]
+      in
+      Alcotest.(check bool)
+        "pending shows bang tag" true
+        (try
+           ignore
+             (Str.search_forward (Str.regexp_string "[bang]") pending_result 0);
+           true
+         with Not_found -> false))
+
+let test_session_list_shows_pending_inbound_count () =
+  with_temp_home (fun home ->
+      let db = session_db home in
+      Memory.store_message ~db ~session_key:"telegram:1:user"
+        (Provider.make_message ~role:"user" ~content:"existing");
+      Memory.upsert_session_state ~db ~session_key:"telegram:1:user"
+        ~turn:"user" ();
+      ignore
+        (Memory.queue_enqueue ~db ~session_key:"telegram:1:user" ~source:"cli"
+           ~payload_json:{|{"message":"queued"}|});
+      let list_result = Command_bridge.handle [ "session"; "list" ] in
+      Alcotest.(check bool)
+        "session list includes pending_inbound count" true
+        (try
+           ignore
+             (Str.search_forward
+                (Str.regexp_string "pending_inbound=1")
+                list_result 0);
+           true
+         with Not_found -> false))
+
+let test_session_pending_empty () =
+  with_temp_home (fun home ->
+      ignore (session_db home);
+      let result =
+        Command_bridge.handle [ "session"; "pending"; "nonexistent" ]
+      in
+      Alcotest.(check bool)
+        "pending shows no rows message" true
+        (try
+           ignore
+             (Str.search_forward
+                (Str.regexp_string "No pending inbound rows")
+                result 0);
+           true
+         with Not_found -> false))
+
+let test_offline_inject_no_chat_history_insertion () =
+  with_temp_home (fun home ->
+      let db = session_db home in
+      ignore
+        (Command_bridge.handle
+           [ "session"; "inject"; "telegram:1:user"; "offline"; "msg" ]);
+      let msgs = Memory.load_history ~db ~session_key:"telegram:1:user" in
+      Alcotest.(check int)
+        "no chat history from offline inject" 0 (List.length msgs);
+      let queue_count = Memory.queue_count ~db ~session_key:"telegram:1:user" in
+      Alcotest.(check int) "one queued row" 1 queue_count)
+
 let suite =
   [
     Alcotest.test_case "handle phase2" `Quick test_handle_phase2;
@@ -1866,6 +1929,13 @@ let suite =
       test_handle_update_prefers_static_auth_token_over_auto_pair;
     Alcotest.test_case "handle session inject auto pairs with live gateway"
       `Quick test_handle_session_inject_auto_pairs_with_live_gateway;
+    Alcotest.test_case "offline inject enqueues bang message" `Quick
+      test_offline_inject_enqueues_bang_message;
+    Alcotest.test_case "session list shows pending inbound count" `Quick
+      test_session_list_shows_pending_inbound_count;
+    Alcotest.test_case "session pending empty" `Quick test_session_pending_empty;
+    Alcotest.test_case "offline inject no chat history insertion" `Quick
+      test_offline_inject_no_chat_history_insertion;
     Alcotest.test_case "session show includes workspace refresh event" `Quick
       test_session_show_includes_workspace_refresh_event;
     Alcotest.test_case "session show redacts shell_exec prompt file updates"

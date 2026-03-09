@@ -1041,10 +1041,18 @@ let cmd_session args =
                let state =
                  if row.turn = Some "agent" then "active" else "inactive"
                in
+               let pending =
+                 Memory.queue_count ~db ~session_key:row.session_key
+               in
+               let pending_suffix =
+                 if pending > 0 then
+                   Printf.sprintf "  pending_inbound=%d" pending
+                 else ""
+               in
                Printf.sprintf
-                 "%s  state=%s  channel=%s  messages=%d  archives=%d"
+                 "%s  state=%s  channel=%s  messages=%d  archives=%d%s"
                  row.session_key state channel row.message_count
-                 row.archived_epoch_count)
+                 row.archived_epoch_count pending_suffix)
              sessions)
   | "list" :: rest -> (
       match parse_session_list_args rest with
@@ -1073,10 +1081,18 @@ let cmd_session args =
                    let state =
                      if row.turn = Some "agent" then "active" else "inactive"
                    in
+                   let pending =
+                     Memory.queue_count ~db ~session_key:row.session_key
+                   in
+                   let pending_suffix =
+                     if pending > 0 then
+                       Printf.sprintf "  pending_inbound=%d" pending
+                     else ""
+                   in
                    Printf.sprintf
-                     "%s  state=%s  channel=%s  messages=%d  archives=%d"
+                     "%s  state=%s  channel=%s  messages=%d  archives=%d%s"
                      row.session_key state channel row.message_count
-                     row.archived_epoch_count)
+                     row.archived_epoch_count pending_suffix)
                  sessions))
   | [ "epochs"; session_key ] ->
       let epochs = Memory.list_session_epochs ~db ~session_key in
@@ -1178,6 +1194,59 @@ let cmd_session args =
                                 raw_message_json config (offset + i) row)
                               paged_rows) );
                      ]))))
+  | [ "pending"; session_key ] ->
+      let rows = Memory.queue_list ~db ~session_key in
+      if rows = [] then
+        Printf.sprintf "No pending inbound rows for session %s" session_key
+      else
+        Yojson.Safe.pretty_to_string
+          (`Assoc
+             [
+               ("session_key", `String session_key);
+               ("pending_count", `Int (List.length rows));
+               ( "rows",
+                 `List
+                   (List.map
+                      (fun (r : Memory.queue_row) ->
+                        let payload_preview =
+                          try
+                            let json = Yojson.Safe.from_string r.payload_json in
+                            let open Yojson.Safe.Util in
+                            let msg =
+                              json |> member "message" |> to_string_option
+                            in
+                            let bang =
+                              json |> member "bang" |> to_bool_option
+                            in
+                            let preview =
+                              match msg with
+                              | Some s ->
+                                  if String.length s > 80 then
+                                    String.sub s 0 80 ^ "..."
+                                  else s
+                              | None -> "(no message field)"
+                            in
+                            let bang_str =
+                              match bang with Some true -> " [bang]" | _ -> ""
+                            in
+                            preview ^ bang_str
+                          with _ -> "(malformed payload)"
+                        in
+                        `Assoc
+                          [
+                            ("queue_id", `Int r.queue_id);
+                            ( "state",
+                              `String (Memory.queue_state_to_string r.state) );
+                            ("attempt_count", `Int r.attempt_count);
+                            ( "last_error",
+                              match r.last_error with
+                              | Some e -> `String e
+                              | None -> `Null );
+                            ("preview", `String payload_preview);
+                            ("created_at", `String r.created_at);
+                          ])
+                      rows) );
+             ])
   | "inject" :: session_key :: message_parts -> (
       let message = String.concat " " message_parts in
       if String.trim message = "" then
@@ -1185,14 +1254,21 @@ let cmd_session args =
       else
         match read_live_daemon_gateway () with
         | None ->
-            Memory.store_message ~db ~session_key
-              (Provider.make_message ~role:"user" ~content:message);
-            Memory.upsert_session_state ~db ~session_key ~turn:"user" ();
+            let is_bang = String.length message > 0 && message.[0] = '!' in
+            let payload_json =
+              Yojson.Safe.to_string
+                (`Assoc
+                   [ ("message", `String message); ("bang", `Bool is_bang) ])
+            in
+            let queue_id =
+              Memory.queue_enqueue ~db ~session_key ~source:"cli" ~payload_json
+            in
             Printf.sprintf
-              "Warning: no live daemon detected, so the injected message could \
-               not use live busy/queue/bang semantics. Persisted it to session \
-               %s so it will appear in the log when the agent starts again."
-              session_key
+              "Queued message for session %s (queue_id=%d). No live daemon \
+               detected; startup replay will process it on next daemon \
+               start.%s"
+              session_key queue_id
+              (if is_bang then " (bang interrupt requested)" else "")
         | Some (host, port) -> (
             let cfg = get_config () in
             let body =
@@ -1251,6 +1327,7 @@ let cmd_session args =
        [--main|--non-main]\n\
       \  session epochs SESSION\n\
       \  session show SESSION [--epoch current|ID] [--offset N] [--limit N]\n\
+      \  session pending SESSION\n\
       \  session inject SESSION MESSAGE..."
 
 type background_add_args = {

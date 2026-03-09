@@ -10,7 +10,7 @@ epics:
       locked: false
       name: Operator Visibility and Diagnostics
       path: 01-operator-visibility-and-diagno
-      status: pending
+      status: done
     - complexity: medium
       depends_on:
         - P7.M3.E1
@@ -20,7 +20,7 @@ epics:
       locked: false
       name: Docs and Formal Verification Follow-through
       path: 02-docs-and-formal-verification-f
-      status: pending
+      status: done
 estimate_hours: 10
 id: P7.M3
 locked: false
@@ -31,4 +31,4 @@ stats:
     in_progress: 0
     pending: 4
     total_tasks: 4
-status: pending
+status: done
