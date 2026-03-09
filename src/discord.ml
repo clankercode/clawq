@@ -477,7 +477,7 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
           in
           let send_progress, _get_final =
             Update_tool.make_progress_sender ~send_first ~edit:edit_msg
-              ~mode:Update_tool.Auto
+              ~mode:Update_tool.Auto ()
           in
           let notify text =
             send_message_fn ~bot_token:discord_config.bot_token

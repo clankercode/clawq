@@ -479,7 +479,8 @@ let test_progress_sender_renders_checklist () =
     Lwt.return_unit
   in
   let send_progress, get_final =
-    Update_tool.make_progress_sender ~send_first ~edit ~mode:Update_tool.Auto
+    Update_tool.make_progress_sender ~send_first ~edit ~throttle:0.0
+      ~mode:Update_tool.Auto ()
   in
   Lwt_main.run
     (let open Lwt.Syntax in
@@ -520,7 +521,8 @@ let test_progress_sender_handles_build_failure () =
     Lwt.return_unit
   in
   let send_progress, get_final =
-    Update_tool.make_progress_sender ~send_first ~edit ~mode:Update_tool.Git
+    Update_tool.make_progress_sender ~send_first ~edit ~throttle:0.0
+      ~mode:Update_tool.Git ()
   in
   Lwt_main.run
     (let open Lwt.Syntax in
@@ -550,7 +552,8 @@ let test_progress_sender_binary_mode () =
     Lwt.return_unit
   in
   let send_progress, get_final =
-    Update_tool.make_progress_sender ~send_first ~edit ~mode:Update_tool.Binary
+    Update_tool.make_progress_sender ~send_first ~edit ~throttle:0.0
+      ~mode:Update_tool.Binary ()
   in
   Lwt_main.run
     (let open Lwt.Syntax in

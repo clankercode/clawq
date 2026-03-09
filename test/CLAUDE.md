@@ -23,6 +23,11 @@ Lwt test isolation:
 - Never call real scheduling machinery (e.g., `schedule_autonomous_continuation`, `Agent.turn`) in tests unless the test is specifically testing that path with a mock provider. These involve timers (90s default), retries with exponential backoff, and real HTTP calls that will hang or take minutes to fail.
 - When testing that state is armed/configured (e.g., continuation checks), set the state directly in the test callback rather than running the full production path.
 
+Production throttles and sleeps:
+- Production code often has `Lwt_unix.sleep` throttles (e.g., rate-limit guards between API edits). When tests use mock/instant callbacks, these sleeps still fire and silently make tests slow.
+- When adding or calling production functions that contain sleeps, expose an optional `?throttle` (or similar) parameter so tests can set it to `0.0`. Example: `Update_tool.make_progress_sender ~throttle:0.0`.
+- If you notice a test taking >0.5s without spawning processes or doing I/O, check for hidden `Lwt_unix.sleep` calls in the code under test.
+
 Process-spawning tests:
 - Tests that spawn real processes (e.g., `sleep 10`) via `Process_group.start` must ensure cleanup. Use `Process_group.terminate` or `terminate_blocking` in test teardown.
 - Prefer short-lived commands in tests. If a long-running command is needed to test timeout/interrupt, keep the timeout short (1-2s) and verify the forced_result pattern is in place.

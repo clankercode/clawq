@@ -232,7 +232,7 @@ let handle_event ~(config : Runtime_config.slack_config)
             in
             let progress_send, _get_final =
               Update_tool.make_progress_sender ~send_first ~edit:edit_msg
-                ~mode:Update_tool.Auto
+                ~mode:Update_tool.Auto ()
             in
             let run_update_command, send_progress =
               match run_update_command with

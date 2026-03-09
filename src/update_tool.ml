@@ -413,7 +413,7 @@ let render_progress ~mode steps output_tail =
 
     [send_first text] sends an initial message and returns its id.
     [edit msg_id text] edits the message in place. *)
-let make_progress_sender ~send_first ~edit ~mode =
+let make_progress_sender ~send_first ~edit ?(throttle = 0.5) ~mode () =
   let msg_id = ref None in
   let steps = ref [] in
   let output_tail = ref None in
@@ -431,7 +431,8 @@ let make_progress_sender ~send_first ~edit ~mode =
         let now = Unix.gettimeofday () in
         let elapsed = now -. !last_edit in
         let* () =
-          if elapsed < 0.5 then Lwt_unix.sleep (0.5 -. elapsed)
+          if throttle > 0.0 && elapsed < throttle then
+            Lwt_unix.sleep (throttle -. elapsed)
           else Lwt.return_unit
         in
         let* () = edit id text in

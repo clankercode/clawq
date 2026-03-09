@@ -767,7 +767,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
         in
         let send_progress, _get_final =
           Update_tool.make_progress_sender ~send_first ~edit
-            ~mode:Update_tool.Auto
+            ~mode:Update_tool.Auto ()
         in
         let run_update_command =
           match run_update_command with
