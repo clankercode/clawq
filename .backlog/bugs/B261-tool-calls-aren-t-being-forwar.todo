@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B261
+priority: high
+status: pending
+tags: []
+title: Tool calls aren't being forwarded to telegram anymore (recent regression)
+---
+
+Tool calls aren't being forwarded to telegram anymore (recent regression)
