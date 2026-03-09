@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B185
+priority: high
+status: pending
+tags: []
+title: Telegram typing indicator can be stale or inverted relative to actual agent activity
+---
+Observed in live Telegram DM after recent typing-indicator changes: the bot could appear typing while actually idle, and then fail to show typing while actively working, before later appearing typing again while active. So the current logic is not merely dropping too early; it can become stale, inverted, or phase-shifted relative to real session activity. Need to revisit the Telegram typing lifecycle and ensure it tracks actual non-idle work state reliably across LLM turns, tool calls, queued messages, and session idle transitions. Acceptance criteria: (1) typing is shown while the agent is genuinely active on the session; (2) typing stops promptly when the agent becomes idle; (3) typing does not remain stuck on while idle; (4) typing does not disappear during active work; (5) verification/tests cover the activity lifecycle as practical. This likely supersedes or sharpens earlier typing-indicator bug reports if they do not already capture the stale/inverted behavior.
