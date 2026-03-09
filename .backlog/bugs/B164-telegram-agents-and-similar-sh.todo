@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-09T12:22:46Z"
+claimed_by: cli-user
+completed_at: "2026-03-09T12:28:36Z"
 complexity: medium
 depends_on: []
+duration_minutes: 5.837887343133334
 estimate_hours: 1
 id: B164
 priority: high
-status: pending
+started_at: "2026-03-09T12:22:46Z"
+status: done
 tags: []
 title: Telegram agents and similar should get an automatic prompt like 90s after they finish (any like 'main' agent that should be long-running should get this ping) where they can use to resume work or return STAY_IDLE to do nothing. Look for this in the codebase and investigate why it does not seem to work. If it triggers for the agent in a telegram session/chat, It should be visible in the telegram session with the user. Figure out how it works if at all and redesign it to work better for its intended goal. plan this out and present to user for approval before implementing.
 ---

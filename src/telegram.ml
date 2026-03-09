@@ -740,6 +740,13 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
     end
     else
       let key = "telegram:" ^ update.chat_id ^ ":" ^ update.user_id in
+      (* Register a persistent channel notifier so autonomous continuation
+         responses can reach the Telegram chat *)
+      let send_to_chat text =
+        send_chunked ~bot_token ~chat_id:update.chat_id ~text ()
+      in
+      if Option.is_none (Session.find_registered_notifier session_mgr ~key) then
+        Session.register_channel_notifier session_mgr ~key send_to_chat;
       let* user_text =
         match update.voice_file_id with
         | Some file_id ->
@@ -1181,6 +1188,12 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                   let* () = set_reaction "\xE2\x9C\x85" in
                   if not (Session.take_response_deferred session_mgr ~key) then
                     Session.mark_response_sent session_mgr ~key;
+                  (* Schedule autonomous continuation so agent pings itself
+                     after idle period; response delivered via persistent
+                     channel notifier *)
+                  Lwt.async (fun () ->
+                      Session.process_autonomous_turn_result
+                        ~on_response:send_to_chat session_mgr ~key ~response);
                   Lwt.return_unit
             | Error err ->
                 Logs.err (fun m ->

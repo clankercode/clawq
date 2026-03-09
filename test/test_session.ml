@@ -1106,6 +1106,35 @@ let test_autonomous_continuation_resets_after_work () =
       Alcotest.(check bool)
         "disarmed after second STAY_IDLE" true state.disarmed)
 
+let test_autonomous_continuation_delivers_via_on_response () =
+  let continuation_calls = ref 0 in
+  let delivered = ref [] in
+  let response_for_user message =
+    if String.starts_with ~prefix:Session.autonomous_continuation_prompt message
+    then (
+      incr continuation_calls;
+      if !continuation_calls < 2 then "I'm still working on things"
+      else "STAY_IDLE")
+    else "reply:" ^ message
+  in
+  with_fake_chat_provider ~response_for_user (fun config ->
+      let mgr = Session.create ~config () in
+      let key = "telegram:42:7" in
+      let on_response text =
+        delivered := text :: !delivered;
+        Lwt.return_unit
+      in
+      Lwt_main.run
+        (Session.schedule_autonomous_continuation ~delay:0.02 ~on_response mgr
+           ~key);
+      Alcotest.(check int)
+        "two continuation prompts before idling" 2 !continuation_calls;
+      Alcotest.(check int)
+        "on_response called once (not for STAY_IDLE)" 1 (List.length !delivered);
+      Alcotest.(check string)
+        "delivered response content" "I'm still working on things"
+        (List.hd !delivered))
+
 let test_autonomous_continuation_is_cancellable_by_new_turn () =
   let continuation_calls = ref 0 in
   let response_for_user message =
@@ -1297,6 +1326,9 @@ let suite =
       test_autonomous_continuation_stays_idle_disarms;
     Alcotest.test_case "autonomous continuation can resume then disarm" `Quick
       test_autonomous_continuation_resets_after_work;
+    Alcotest.test_case
+      "autonomous continuation delivers response via on_response callback"
+      `Quick test_autonomous_continuation_delivers_via_on_response;
     Alcotest.test_case
       "autonomous continuation is cancellable by new turn activity" `Quick
       test_autonomous_continuation_is_cancellable_by_new_turn;

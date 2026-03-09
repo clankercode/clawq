@@ -236,6 +236,17 @@ let handle_event ~(config : Runtime_config.slack_config)
         end
         else
           let key = "slack:" ^ channel_id ^ ":" ^ user_id in
+          (* Register a persistent channel notifier so autonomous continuation
+             responses can reach the Slack channel *)
+          let send_to_channel_persistent text =
+            send_message_fn ~bot_token:config.bot_token ~channel_id ~text
+          in
+          if
+            Option.is_none
+              (Session.find_registered_notifier session_manager ~key)
+          then
+            Session.register_channel_notifier session_manager ~key
+              send_to_channel_persistent;
           if Update_tool.is_update_command text then begin
             let notify text =
               send_message_fn ~bot_token:config.bot_token ~channel_id ~text
@@ -529,6 +540,14 @@ let handle_event ~(config : Runtime_config.slack_config)
                         not
                           (Session.take_response_deferred session_manager ~key)
                       then Session.mark_response_sent session_manager ~key;
+                      let send_to_channel text =
+                        send_message_fn ~bot_token:config.bot_token ~channel_id
+                          ~text
+                      in
+                      Lwt.async (fun () ->
+                          Session.process_autonomous_turn_result
+                            ~on_response:send_to_channel session_manager ~key
+                            ~response);
                       Lwt.return "ok"
                 | Error err ->
                     Logs.err (fun m ->

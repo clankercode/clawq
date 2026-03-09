@@ -54,7 +54,7 @@ let autonomous_continuation_prompt =
   "Autonomous session check-in: continue working if more remains; otherwise \
    reply exactly " ^ autonomous_stay_idle_message
 
-let default_autonomous_continuation_delay = 90.0
+let default_autonomous_continuation_delay = 10.0
 
 let continuation_state mgr ~key =
   match Hashtbl.find_opt mgr.continuation_checks key with
@@ -1079,7 +1079,8 @@ let compact mgr ~key =
       else Lwt.return false)
 
 let rec schedule_autonomous_continuation
-    ?(delay = default_autonomous_continuation_delay) mgr ~key =
+    ?(delay = default_autonomous_continuation_delay)
+    ?(on_response = fun _response -> Lwt.return_unit) mgr ~key =
   let open Lwt.Syntax in
   let* should_schedule, cancel_waiter =
     with_continuation_state mgr ~key (fun state ->
@@ -1122,12 +1123,22 @@ let rec schedule_autonomous_continuation
               state.cancel <- None;
               Lwt.return_unit)
         else begin
+          let* () =
+            Lwt.catch
+              (fun () -> on_response trimmed)
+              (fun exn ->
+                Logs.warn (fun m ->
+                    m "Autonomous continuation on_response failed for %s: %s"
+                      key (Printexc.to_string exn));
+                Lwt.return_unit)
+          in
           let* () = cancel_autonomous_continuation mgr ~key in
-          schedule_autonomous_continuation ~delay mgr ~key
+          schedule_autonomous_continuation ~delay ~on_response mgr ~key
         end
 
 let process_autonomous_turn_result
-    ?(delay = default_autonomous_continuation_delay) mgr ~key ~response =
+    ?(delay = default_autonomous_continuation_delay)
+    ?(on_response = fun _response -> Lwt.return_unit) mgr ~key ~response =
   let trimmed = String.trim response in
   if trimmed = "" || trimmed = "HEARTBEAT_OK" then Lwt.return_unit
   else if trimmed = autonomous_stay_idle_message then
@@ -1135,4 +1146,4 @@ let process_autonomous_turn_result
         state.disarmed <- true;
         clear_pending_continuation state;
         Lwt.return_unit)
-  else schedule_autonomous_continuation ~delay mgr ~key
+  else schedule_autonomous_continuation ~delay ~on_response mgr ~key
