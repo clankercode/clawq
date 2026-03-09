@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B169
+priority: high
+status: pending
+tags: []
+title: Post-restart resumed Telegram session does not meaningfully continue autonomous work
+---
+Observed after a successful live update/restart on current commit `c70069de`. The daemon restarted correctly into the fresh build and resumed the pending Telegram session (`Resuming 1 pending agent sessions`, `Restored ... messages`, followed by an LLM dispatch), but the resumed turn did not meaningfully continue the autonomous workflow in-channel. The user had to manually point out that although restart occurred, the assistant was not effectively retriggered for useful continuation in the same Telegram session. Goal: trace the post-restart session-resume path and determine why resumed Telegram sessions can complete mechanically without actually re-arming or visibly continuing the intended autonomous work. Acceptance criteria: (1) after live restart, an in-progress Telegram session resumes usefully in the same session without requiring a manual nudge; (2) the resumed path preserves autonomous continuation semantics rather than yielding a trivial/empty completion; (3) behavior is verified with targeted tests or tightly bounded end-to-end evidence; (4) logs make it clear whether a resumed turn continued work, stayed idle, or failed.
