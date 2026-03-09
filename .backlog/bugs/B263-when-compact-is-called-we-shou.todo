@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B263
+priority: high
+status: pending
+tags: []
+title: when /compact is called, we should add a log message saying it's been called and we're about to start.
+---
+
+when /compact is called, we should add a log message saying it's been called and we're about to start.

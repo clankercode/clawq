@@ -261,3 +261,4 @@ bugs:
     - file: B260-compaction-sometimes-doesnt-se.todo
     - file: B261-tool-calls-aren-t-being-forwar.todo
     - file: B262-compact-slash-cmd-doesn-t-work.todo
+    - file: B263-when-compact-is-called-we-shou.todo
