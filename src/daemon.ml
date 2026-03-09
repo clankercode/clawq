@@ -422,8 +422,9 @@ let resume_turn_prompt =
   ^ "up the highest-priority unfinished task, and continue executing from "
   ^ "that point. Use the available tools as needed and deliver the next "
   ^ "meaningful progress update without waiting for a new user message. "
-  ^ "(If, after checking the full conversation state, you have confirmed that "
-  ^ "there is absolutely no way to continue, reply exactly STAY_IDLE.)"
+  (* Agent says STAY_IDLE too much so let's pretend it doesn't exist and see what happens *)
+  (*^ "(If, after checking the full conversation state, you have confirmed that "
+  ^ "there is absolutely no way to continue, reply exactly STAY_IDLE.)"*)
 
 let default_resume_turn ~(session_manager : Session.t) ~notify ~session_key
     agent interrupt =
