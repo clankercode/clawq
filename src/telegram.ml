@@ -821,6 +821,33 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                 (set_thinking_level ~session_mgr ~chat_id:update.chat_id
                    ~user_id:update.user_id level)
               ()
+        | ShowThinking action ->
+            let cfg = Session.get_config session_mgr in
+            let current = cfg.agent_defaults.show_thinking in
+            let text =
+              match action with
+              | Slash_commands.ShowThinkingStatus ->
+                  Printf.sprintf "Show thinking: %s"
+                    (if current then "on" else "off")
+              | Slash_commands.ToggleShowThinking -> (
+                  let new_val = not current in
+                  match Config_set.set_show_thinking new_val with
+                  | Ok () ->
+                      let agent_defaults =
+                        { cfg.agent_defaults with show_thinking = new_val }
+                      in
+                      Session.update_config session_mgr
+                        { cfg with agent_defaults };
+                      Logs.info (fun m ->
+                          m
+                            "Telegram show_thinking toggled chat_id=%s \
+                             user_id=%s from=%b to=%b"
+                            update.chat_id update.user_id current new_val);
+                      Printf.sprintf "Show thinking: %s"
+                        (if new_val then "on" else "off")
+                  | Error err -> "Failed to update show_thinking: " ^ err)
+            in
+            send_message ~bot_token ~chat_id:update.chat_id ~text ()
         | Delegate prompt ->
             let* () =
               send_message ~bot_token ~chat_id:update.chat_id

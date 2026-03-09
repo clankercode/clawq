@@ -587,6 +587,32 @@ let handler ~session_manager ~require_pairing ~auth_token
                       | Error err -> err
                     in
                     sse_reply text
+                | Slash_commands.ShowThinking action ->
+                    let cfg = Session.get_config session_manager in
+                    let current = cfg.agent_defaults.show_thinking in
+                    let text =
+                      match action with
+                      | Slash_commands.ShowThinkingStatus ->
+                          Printf.sprintf "Show thinking: %s"
+                            (if current then "on" else "off")
+                      | Slash_commands.ToggleShowThinking -> (
+                          let new_val = not current in
+                          match Config_set.set_show_thinking new_val with
+                          | Ok () ->
+                              let agent_defaults =
+                                {
+                                  cfg.agent_defaults with
+                                  show_thinking = new_val;
+                                }
+                              in
+                              Session.update_config session_manager
+                                { cfg with agent_defaults };
+                              Printf.sprintf "Show thinking: %s"
+                                (if new_val then "on" else "off")
+                          | Error err ->
+                              "Failed to update show_thinking: " ^ err)
+                    in
+                    sse_reply text
                 | Slash_commands.Delegate prompt ->
                     let stream, push = Lwt_stream.create () in
                     let push_sse text =

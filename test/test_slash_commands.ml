@@ -7,6 +7,10 @@ let result_to_string = function
   | Slash_commands.Thinking (Slash_commands.SetThinking (Some level)) ->
       "Thinking(Set " ^ level ^ ")"
   | Slash_commands.Compact -> "Compact"
+  | Slash_commands.ShowThinking Slash_commands.ShowThinkingStatus ->
+      "ShowThinking(Status)"
+  | Slash_commands.ShowThinking Slash_commands.ToggleShowThinking ->
+      "ShowThinking(Toggle)"
   | Slash_commands.Delegate s -> "Delegate(" ^ s ^ ")"
   | Slash_commands.ForkAnd s -> "ForkAnd(" ^ s ^ ")"
   | Slash_commands.NotACommand -> "NotACommand"
@@ -22,6 +26,7 @@ let result_eq a b =
       Slash_commands.Thinking (Slash_commands.SetThinking b) ) ->
       a = b
   | Slash_commands.Compact, Slash_commands.Compact -> true
+  | Slash_commands.ShowThinking a, Slash_commands.ShowThinking b -> a = b
   | Slash_commands.Delegate a, Slash_commands.Delegate b -> a = b
   | Slash_commands.ForkAnd a, Slash_commands.ForkAnd b -> a = b
   | Slash_commands.NotACommand, Slash_commands.NotACommand -> true
@@ -149,6 +154,9 @@ let test_commands_list () =
   Alcotest.(check bool) "has compact" true (List.mem "compact" names);
   Alcotest.(check bool) "has update" true (List.mem "update" names);
   Alcotest.(check bool) "has delegate" true (List.mem "delegate" names);
+  Alcotest.(check bool)
+    "has show-thinking" true
+    (List.mem "show-thinking" names);
   Alcotest.(check bool) "has config" true (List.mem "config" names);
   Alcotest.(check bool) "has fork-and" true (List.mem "fork-and" names)
 
@@ -221,6 +229,32 @@ let contains_str haystack needle =
     ignore (Str.search_forward (Str.regexp_string needle) haystack 0);
     true
   with Not_found -> false
+
+let test_show_thinking_toggle () =
+  Alcotest.check result_testable "show-thinking toggles"
+    (Slash_commands.ShowThinking Slash_commands.ToggleShowThinking)
+    (Slash_commands.handle "/show-thinking")
+
+let test_show_thinking_status () =
+  Alcotest.check result_testable "show-thinking status"
+    (Slash_commands.ShowThinking Slash_commands.ShowThinkingStatus)
+    (Slash_commands.handle "/show-thinking status")
+
+let test_show_thinking_aliases () =
+  Alcotest.check result_testable "show_thinking alias"
+    (Slash_commands.ShowThinking Slash_commands.ToggleShowThinking)
+    (Slash_commands.handle "/show_thinking");
+  Alcotest.check result_testable "toggle-show-thinking alias"
+    (Slash_commands.ShowThinking Slash_commands.ToggleShowThinking)
+    (Slash_commands.handle "/toggle-show-thinking")
+
+let test_show_thinking_bad_args () =
+  match Slash_commands.handle "/show-thinking foo" with
+  | Slash_commands.Reply s ->
+      Alcotest.(check bool) "mentions Usage" true (contains_str s "Usage")
+  | other ->
+      Alcotest.fail
+        (Printf.sprintf "expected Reply, got %s" (result_to_string other))
 
 let test_config_usage () =
   match Slash_commands.handle "/config" with
@@ -369,6 +403,12 @@ let suite =
     Alcotest.test_case "fork-and no args" `Quick test_fork_and_no_args;
     Alcotest.test_case "fork-and multi-word prompt" `Quick
       test_fork_and_multi_word;
+    Alcotest.test_case "/show-thinking toggle" `Quick test_show_thinking_toggle;
+    Alcotest.test_case "/show-thinking status" `Quick test_show_thinking_status;
+    Alcotest.test_case "/show-thinking aliases" `Quick
+      test_show_thinking_aliases;
+    Alcotest.test_case "/show-thinking bad args" `Quick
+      test_show_thinking_bad_args;
     Alcotest.test_case "/config usage" `Quick test_config_usage;
     Alcotest.test_case "/config show" `Quick test_config_show;
     Alcotest.test_case "/config get missing key" `Quick test_config_get_missing;

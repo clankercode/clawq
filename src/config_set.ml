@@ -462,6 +462,9 @@ let set_reasoning_effort value =
   in
   set_json_value "agent_defaults.reasoning_effort" json_val
 
+let set_show_thinking value =
+  set_json_value "agent_defaults.show_thinking" (`Bool value)
+
 let set_value key value =
   match set_json_value key (infer_value value) with
   | Ok () -> Printf.sprintf "Set %s = %s" key value

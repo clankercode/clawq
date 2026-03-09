@@ -1,11 +1,13 @@
 type command = { name : string; description : string }
 type thinking_action = ShowThinking | SetThinking of string option
+type show_thinking_action = ShowThinkingStatus | ToggleShowThinking
 
 type result =
   | Reply of string
   | Reset
   | Compact
   | Thinking of thinking_action
+  | ShowThinking of show_thinking_action
   | Delegate of string
   | ForkAnd of string
   | NotACommand
@@ -54,6 +56,10 @@ let commands =
       name = "delegate";
       description =
         "Delegate a prompt to a temporary subagent: /delegate <prompt>";
+    };
+    {
+      name = "show-thinking";
+      description = "Toggle display of model thinking in responses";
     };
     {
       name = "config";
@@ -108,6 +114,12 @@ let handle text =
                 | Some level -> Thinking (SetThinking level)
                 | None -> Reply (invalid_thinking_level_message value))
             | _ -> Reply (thinking_usage ()))
+        | "show-thinking" | "show_thinking" | "toggle-show-thinking" -> (
+            match args with
+            | [] -> ShowThinking ToggleShowThinking
+            | [ s ] when String.lowercase_ascii s = "status" ->
+                ShowThinking ShowThinkingStatus
+            | _ -> Reply "Usage: /show-thinking [status]")
         | "delegate" -> (
             match args with
             | [] -> Reply "Usage: /delegate <prompt>"
