@@ -258,3 +258,4 @@ bugs:
     - file: B257-compaction-tool-call-doesn-t-s.todo
     - file: B258-provide-a-current-goal-project.todo
     - file: B259-make-the-auto-check-in-period.todo
+    - file: B260-compaction-sometimes-doesnt-se.todo
