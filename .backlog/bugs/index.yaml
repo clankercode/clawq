@@ -144,3 +144,4 @@ bugs:
     - file: B143-add-cli-commands-to-print-raw.todo
     - file: B144-bang-messages-are-recieved-but.todo
     - file: B145-add-stale-dune-lock-cleanup-he.todo
+    - file: B146-b132-verify-fix-telegram-compl.todo
