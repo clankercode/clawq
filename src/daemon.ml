@@ -1181,7 +1181,7 @@ let run ~(config : Runtime_config.t) =
                Some (connector, notifier)
            | None -> None
          in
-         Tool_registry.register registry (Task_tree.tool ~db ~notify ())
+         Tool_registry.replace registry (Task_tree.tool ~db ~notify ())
      | _ -> ());
   let update_lock = Lwt_mutex.create () in
   let update_in_progress = ref false in

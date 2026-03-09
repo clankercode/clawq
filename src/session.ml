@@ -521,17 +521,21 @@ let try_session_lock mgr ~key f =
 
 let with_session_lock_unless_draining mgr ~key ~on_draining f =
   let open Lwt.Syntax in
+  (* Release sessions_lock before blocking on per-session mutex to avoid
+     deadlock: interrupt_resumable_channel_sessions and start_draining also
+     need sessions_lock; if a session is busy with an LLM call, holding
+     sessions_lock while waiting for the per-session mutex would block them. *)
   let* state =
     Lwt_mutex.with_lock mgr.sessions_lock (fun () ->
         if mgr.draining then Lwt.return_none
         else
           let agent, mutex, interrupt = get_or_create_locked mgr ~key in
-          let* () = Lwt_mutex.lock mutex in
           Lwt.return_some (agent, mutex, interrupt))
   in
   match state with
   | None -> on_draining ()
   | Some (agent, mutex, interrupt) ->
+      let* () = Lwt_mutex.lock mutex in
       Lwt.finalize
         (fun () -> f agent interrupt)
         (fun () ->

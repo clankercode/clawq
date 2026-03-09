@@ -1676,6 +1676,34 @@ let tool ~db ?notify () : Tool.t =
                                              'seed', or task definitions to \
                                              save with 'save_template'. Each \
                                              item needs 'title' and 'depth'." );
+                                        ( "items",
+                                          `Assoc
+                                            [
+                                              ("type", `String "object");
+                                              ( "properties",
+                                                `Assoc
+                                                  [
+                                                    ( "title",
+                                                      `Assoc
+                                                        [
+                                                          ( "type",
+                                                            `String "string" );
+                                                        ] );
+                                                    ( "depth",
+                                                      `Assoc
+                                                        [
+                                                          ( "type",
+                                                            `String "integer"
+                                                          );
+                                                        ] );
+                                                    ( "note",
+                                                      `Assoc
+                                                        [
+                                                          ( "type",
+                                                            `String "string" );
+                                                        ] );
+                                                  ] );
+                                            ] );
                                       ] );
                                   ( "vars",
                                     `Assoc
