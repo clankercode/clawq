@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B226
+priority: medium
+status: pending
+tags: []
+title: Task tree should support templated task-set seeding for common workflows like webhook review loops
+---
+Now that `task_tree` exists, recurring multi-step workflows (for example GitHub webhook -> review agent -> reply/comment -> follow-up verification) should be seedable from a template rather than created from scratch every time. This would let the agent quickly instantiate a known-good tree for common operational patterns. Acceptance criteria: (1) task_tree supports creating a task set from a named or inline template; (2) templates can include hierarchy, default statuses, and notes; (3) templates are ergonomic for repeated operational workflows; (4) behavior remains explicit and inspectable rather than magic.
