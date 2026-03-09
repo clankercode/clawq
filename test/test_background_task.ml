@@ -1897,7 +1897,7 @@ let test_runner_of_string_cursor_aliases () =
 
 let test_resolve_runner_cursor_wins_when_kimi_unavailable () =
   (* With check_available:false every runner is considered available.
-     The auto-select order is: kimi → cursor → opencode → codex → claude → gemini.
+     The auto-select order is: kimi → cursor → opencode → claude → codex → gemini.
      Simulate kimi being absent by preferring cursor explicitly and confirming
      the resolver honours it, then verify the auto order puts cursor before codex. *)
   (* Preferred cursor is accepted. *)

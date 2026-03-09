@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-09T21:35:55Z"
+claimed_by: cli-user
+completed_at: "2026-03-09T21:38:31Z"
 complexity: medium
 depends_on: []
+duration_minutes: 2.6060051577166665
 estimate_hours: 1
 id: B249
 priority: high
-status: pending
+started_at: "2026-03-09T21:35:55Z"
+status: done
 tags: []
 title: 'auto ordering for bg coding task runner: claude should come before codex'
 ---

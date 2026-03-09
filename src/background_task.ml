@@ -103,13 +103,13 @@ let resolve_runner ?(check_available = true) ?preferred () =
   | None when available Kimi -> Ok (Kimi, None)
   | None when available Cursor -> Ok (Cursor, None)
   | None when available Opencode -> Ok (Opencode, Some "zai-coding-plan/glm-5")
-  | None when available Codex -> Ok (Codex, None)
   | None when available Claude -> Ok (Claude, None)
+  | None when available Codex -> Ok (Codex, None)
   | None when available Gemini -> Ok (Gemini, None)
   | None ->
       Error
         "No supported background runner is available in PATH (looked for \
-         'kimi', 'cursor-agent', 'opencode', 'codex', 'claude', and 'gemini')"
+         'kimi', 'cursor-agent', 'opencode', 'claude', 'codex', and 'gemini')"
 
 let default_branch_name id = Printf.sprintf "clawq-bg-%d" id
 
@@ -1665,7 +1665,7 @@ let delegate_tool_with_notify ?(check_available = true) ~db ~default_repo_path
                         `String
                           "Optional runner choice. 'auto' prefers Kimi, then \
                            Cursor, then Opencode (with zai-coding-plan/glm-5), \
-                           then Codex, then Claude, then Gemini." );
+                           then Claude, then Codex, then Gemini." );
                     ] );
                 ( "repo_path",
                   `Assoc

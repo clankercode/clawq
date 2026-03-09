@@ -189,7 +189,7 @@ let delegate_cmd =
       & info [ "runner" ] ~docv:"RUNNER"
           ~doc:
             "Preferred runner: auto (kimi → cursor → \
-             opencode/zai-coding-plan/glm-5 → codex → claude → gemini), or \
+             opencode/zai-coding-plan/glm-5 → claude → codex → gemini), or \
              explicit: kimi, opencode, codex, claude, gemini, cursor.")
   in
   let repo =
