@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B248
+priority: high
+status: pending
+tags: []
+title: tool calls like grep and glob should accept an optional directory argument to run in that is not the main working directory. if they don't already that is.
+---
+
+tool calls like grep and glob should accept an optional directory argument to run in that is not the main working directory. if they don't already that is.

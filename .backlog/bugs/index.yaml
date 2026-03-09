@@ -246,3 +246,4 @@ bugs:
     - file: B245-runtime-context-should-have-ba.todo
     - file: B246-log-lines-injecting-1-queued-m.todo
     - file: B247-delegated-runner-selection-sho.todo
+    - file: B248-tool-calls-like-grep-and-glob.todo
