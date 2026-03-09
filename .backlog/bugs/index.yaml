@@ -239,3 +239,4 @@ bugs:
     - file: B238-when-compaction-occurs-if-ther.todo
     - file: B239-clawq-background-list-and-the.todo
     - file: B240-add-new-runner-for-bg-coding-t.todo
+    - file: B241-add-new-runner-for-bg-coding-t.todo

@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B241
+priority: high
+status: pending
+tags: []
+title: 'Add new runner for bg coding tasks: `gemini` (the cli)'
+---
+
+Add new runner for bg coding tasks: `gemini` (the cli)
