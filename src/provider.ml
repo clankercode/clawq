@@ -1,6 +1,11 @@
+type content_part =
+  | Text of string
+  | Image_base64 of { data : string; media_type : string }
+
 type message = {
   role : string;
   content : string;
+  content_parts : content_part list;
   tool_calls : tool_call list;
   tool_call_id : string option;
   name : string option;
@@ -27,6 +32,7 @@ let make_message_full ~role ~content ~provider_response_items_json =
   {
     role;
     content;
+    content_parts = [];
     tool_calls = [];
     tool_call_id = None;
     name = None;
@@ -36,10 +42,22 @@ let make_message_full ~role ~content ~provider_response_items_json =
 let make_message ~role ~content =
   make_message_full ~role ~content ~provider_response_items_json:None
 
+let make_message_with_parts ~role ~content ~content_parts =
+  {
+    role;
+    content;
+    content_parts;
+    tool_calls = [];
+    tool_call_id = None;
+    name = None;
+    provider_response_items_json = None;
+  }
+
 let make_tool_result ~tool_call_id ~name ~content =
   {
     role = "tool";
     content;
+    content_parts = [];
     tool_calls = [];
     tool_call_id = Some tool_call_id;
     name = Some name;
@@ -59,11 +77,37 @@ let make_tool_search_result ~tool_call_id ~tools_json =
   {
     role = "tool";
     content;
+    content_parts = [];
     tool_calls = [];
     tool_call_id = Some tool_call_id;
     name = Some "tool_search";
     provider_response_items_json = None;
   }
+
+let content_parts_to_openai_json (parts : content_part list) =
+  `List
+    (List.map
+       (fun (part : content_part) ->
+         match part with
+         | Text s -> `Assoc [ ("type", `String "text"); ("text", `String s) ]
+         | Image_base64 { data; media_type } ->
+             `Assoc
+               [
+                 ("type", `String "image_url");
+                 ( "image_url",
+                   `Assoc
+                     [
+                       ( "url",
+                         `String ("data:" ^ media_type ^ ";base64," ^ data) );
+                       ("detail", `String "auto");
+                     ] );
+               ])
+       parts)
+
+let content_json_of_message m =
+  match m.content_parts with
+  | [] -> `String m.content
+  | parts -> content_parts_to_openai_json parts
 
 let message_to_json m =
   let fields = [ ("role", `String m.role) ] in
@@ -98,7 +142,7 @@ let message_to_json m =
                m.tool_calls)
         in
         fields @ [ ("content", `String m.content); ("tool_calls", tc_json) ]
-    | _ -> fields @ [ ("content", `String m.content) ]
+    | _ -> fields @ [ ("content", content_json_of_message m) ]
   in
   `Assoc fields
 

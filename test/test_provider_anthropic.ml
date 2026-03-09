@@ -67,6 +67,7 @@ let test_assistant_with_tool_calls () =
     {
       Provider.role = "assistant";
       content = "";
+      content_parts = [];
       tool_calls = [ tc ];
       tool_call_id = None;
       name = None;

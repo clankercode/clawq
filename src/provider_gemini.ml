@@ -60,12 +60,28 @@ let messages_to_gemini_contents messages =
                  ("parts", `List [ `Assoc [ ("text", `String m.content) ] ]);
                ])
       | _ ->
-          Some
-            (`Assoc
-               [
-                 ("role", `String "user");
-                 ("parts", `List [ `Assoc [ ("text", `String m.content) ] ]);
-               ]))
+          let parts =
+            match m.Provider.content_parts with
+            | [] -> `List [ `Assoc [ ("text", `String m.content) ] ]
+            | cparts ->
+                `List
+                  (List.map
+                     (fun (part : Provider.content_part) ->
+                       match part with
+                       | Provider.Text s -> `Assoc [ ("text", `String s) ]
+                       | Provider.Image_base64 { data; media_type } ->
+                           `Assoc
+                             [
+                               ( "inlineData",
+                                 `Assoc
+                                   [
+                                     ("mimeType", `String media_type);
+                                     ("data", `String data);
+                                   ] );
+                             ])
+                     cparts)
+          in
+          Some (`Assoc [ ("role", `String "user"); ("parts", parts) ]))
     messages
 
 let extract_system_prompt messages =

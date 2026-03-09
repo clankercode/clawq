@@ -50,8 +50,32 @@ let messages_to_ollama_json messages =
                  ("tool_calls", tool_calls_json);
                ])
       | role ->
-          Some
-            (`Assoc [ ("role", `String role); ("content", `String m.content) ]))
+          let fields =
+            match m.Provider.content_parts with
+            | [] -> [ ("role", `String role); ("content", `String m.content) ]
+            | parts ->
+                let texts =
+                  List.filter_map
+                    (fun (p : Provider.content_part) ->
+                      match p with Provider.Text s -> Some s | _ -> None)
+                    parts
+                in
+                let images =
+                  List.filter_map
+                    (fun (p : Provider.content_part) ->
+                      match p with
+                      | Provider.Image_base64 { data; _ } -> Some (`String data)
+                      | _ -> None)
+                    parts
+                in
+                let content = String.concat "\n" texts in
+                let base =
+                  [ ("role", `String role); ("content", `String content) ]
+                in
+                if images <> [] then base @ [ ("images", `List images) ]
+                else base
+          in
+          Some (`Assoc fields))
     messages
 
 let tools_to_ollama_json tools =

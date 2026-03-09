@@ -356,6 +356,7 @@ let test_memory_tool_calls () =
     {
       Provider.role = "assistant";
       content = "";
+      content_parts = [];
       tool_calls =
         [
           {

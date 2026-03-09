@@ -42,8 +42,10 @@ type update = {
   text : string;
   voice_file_id : string option;
   photo_file_id : string option;
+  sticker_file_id : string option;
   document_file_id : string option;
   document_name : string option;
+  document_mime_type : string option;
   caption : string option;
 }
 
@@ -117,7 +119,8 @@ let text_coalesce_key ~bot_token (u : update) =
 
 let has_media_or_caption (u : update) =
   u.voice_file_id <> None || u.photo_file_id <> None
-  || u.document_file_id <> None || u.caption <> None
+  || u.sticker_file_id <> None || u.document_file_id <> None
+  || u.caption <> None
 
 let is_command_text text =
   let trimmed = String.trim text in
@@ -140,8 +143,10 @@ let merge_text_updates older newer =
     text = older.update.text ^ newer.text;
     voice_file_id = None;
     photo_file_id = None;
+    sticker_file_id = None;
     document_file_id = None;
     document_name = None;
+    document_mime_type = None;
     caption = None;
   }
 
@@ -230,6 +235,21 @@ let get_updates ~bot_token ~offset ~timeout =
                 Some (last |> member "file_id" |> to_string)
               with _ -> None
             in
+            (* Static stickers only — skip animated and video stickers *)
+            let sticker_file_id =
+              try
+                let sticker = msg |> member "sticker" in
+                let is_animated =
+                  try sticker |> member "is_animated" |> to_bool
+                  with _ -> false
+                in
+                let is_video =
+                  try sticker |> member "is_video" |> to_bool with _ -> false
+                in
+                if is_animated || is_video then None
+                else Some (sticker |> member "file_id" |> to_string)
+              with _ -> None
+            in
             let document_file_id =
               try
                 Some (msg |> member "document" |> member "file_id" |> to_string)
@@ -239,6 +259,12 @@ let get_updates ~bot_token ~offset ~timeout =
               try
                 Some
                   (msg |> member "document" |> member "file_name" |> to_string)
+              with _ -> None
+            in
+            let document_mime_type =
+              try
+                Some
+                  (msg |> member "document" |> member "mime_type" |> to_string)
               with _ -> None
             in
             let caption =
@@ -253,8 +279,10 @@ let get_updates ~bot_token ~offset ~timeout =
                 text;
                 voice_file_id;
                 photo_file_id;
+                sticker_file_id;
                 document_file_id;
                 document_name;
+                document_mime_type;
                 caption;
               }
           with _ -> (
@@ -874,6 +902,59 @@ let requires_totp_auth ~(account : Runtime_config.telegram_account) ~chat_id =
       else not (is_totp_paired ~chat_id ~now)
   | _ -> false
 
+let download_telegram_file ~bot_token ~file_id =
+  let open Lwt.Syntax in
+  let get_file_uri =
+    Printf.sprintf "%s%s/getFile?file_id=%s" api_base bot_token file_id
+  in
+  let* _status, file_body = Http_client.get ~uri:get_file_uri ~headers:[] in
+  let file_json = Yojson.Safe.from_string file_body in
+  let file_path =
+    Yojson.Safe.Util.(
+      file_json |> member "result" |> member "file_path" |> to_string)
+  in
+  let download_uri =
+    Printf.sprintf "https://api.telegram.org/file/bot%s/%s" bot_token file_path
+  in
+  let* _status, data = Http_client.get ~uri:download_uri ~headers:[] in
+  Lwt.return data
+
+let detect_mime_type data =
+  let len = String.length data in
+  if
+    len >= 3
+    && Char.code data.[0] = 0xFF
+    && Char.code data.[1] = 0xD8
+    && Char.code data.[2] = 0xFF
+  then "image/jpeg"
+  else if
+    len >= 4
+    && Char.code data.[0] = 0x89
+    && data.[1] = 'P'
+    && data.[2] = 'N'
+    && data.[3] = 'G'
+  then "image/png"
+  else if
+    len >= 4
+    && data.[0] = 'G'
+    && data.[1] = 'I'
+    && data.[2] = 'F'
+    && data.[3] = '8'
+  then "image/gif"
+  else if
+    len >= 12
+    && data.[0] = 'R'
+    && data.[1] = 'I'
+    && data.[2] = 'F'
+    && data.[3] = 'F'
+    && data.[8] = 'W'
+    && data.[9] = 'E'
+    && data.[10] = 'B'
+    && data.[11] = 'P'
+  then "image/webp"
+  else if len >= 2 && data.[0] = 'B' && data.[1] = 'M' then "image/bmp"
+  else "image/jpeg"
+
 let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
     ~(session_mgr : Session.t) ?run_update_command ?chat_limiter update =
   let open Lwt.Syntax in
@@ -994,6 +1075,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                   (key, update.chat_id, bot_token, options, Unix.gettimeofday ());
                 Lwt.return
                   Rich_message.{ message_id = msg_id; callback_ids = [] });
+      let image_content_parts = ref [] in
       let* user_text =
         match update.voice_file_id with
         | Some file_id ->
@@ -1031,12 +1113,53 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                     m "Voice transcription failed: %s" (Printexc.to_string exn));
                 Lwt.return "")
         | None -> (
-            match update.photo_file_id with
-            | Some _ ->
-                let cap =
-                  match update.caption with Some c -> " — " ^ c | None -> ""
-                in
-                Lwt.return ("[Photo received" ^ cap ^ "]")
+            (* Determine image file_id from photo, sticker, or image document *)
+            let image_file_id =
+              match update.photo_file_id with
+              | Some fid -> Some fid
+              | None -> (
+                  match update.sticker_file_id with
+                  | Some fid -> Some fid
+                  | None -> (
+                      match
+                        (update.document_file_id, update.document_mime_type)
+                      with
+                      | Some fid, Some mt
+                        when String.length mt >= 6
+                             && String.sub mt 0 6 = "image/" ->
+                          Some fid
+                      | _ -> None))
+            in
+            match image_file_id with
+            | Some file_id ->
+                Lwt.catch
+                  (fun () ->
+                    let* image_data =
+                      download_telegram_file ~bot_token ~file_id
+                    in
+                    let media_type = detect_mime_type image_data in
+                    let b64 = Base64.encode_exn image_data in
+                    let text =
+                      match update.caption with
+                      | Some c -> c
+                      | None -> "[Image]"
+                    in
+                    image_content_parts :=
+                      [ Provider.Image_base64 { data = b64; media_type } ];
+                    Lwt.return text)
+                  (fun exn ->
+                    Logs.err (fun m ->
+                        m "Image download failed: %s" (Printexc.to_string exn));
+                    let cap =
+                      match update.caption with
+                      | Some c -> " — " ^ c
+                      | None -> ""
+                    in
+                    if update.photo_file_id <> None then
+                      Lwt.return ("[Photo received" ^ cap ^ "]")
+                    else if update.sticker_file_id <> None then
+                      Lwt.return ("[Sticker received" ^ cap ^ "]")
+                    else Lwt.return ("[Image document received" ^ cap ^ "]"))
             | None -> (
                 match update.document_file_id with
                 | Some _ ->
@@ -1401,6 +1524,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                     (fun () ->
                       let turn_p =
                         Session.turn_stream session_mgr ~key ~message:msg
+                          ~content_parts:!image_content_parts
                           ~channel_name:"telegram" ~channel_type:"dm"
                           ~channel:"telegram" ~channel_id:update.chat_id
                           ~on_drain_progress ~on_chunk ()

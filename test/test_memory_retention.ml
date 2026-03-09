@@ -232,6 +232,7 @@ let make_assistant_with_tool_calls calls =
   {
     Provider.role = "assistant";
     content = "";
+    content_parts = [];
     tool_calls = calls;
     tool_call_id = None;
     name = None;

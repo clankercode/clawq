@@ -545,6 +545,7 @@ let queued_message ?channel_name ?channel_type ?sender_id ?sender_name ?channel
     ?channel_id message =
   {
     Session.message;
+    content_parts = [];
     attachments = [];
     channel_name;
     channel_type;
@@ -1094,6 +1095,7 @@ let test_mid_turn_injection_adds_to_history () =
       {
         Provider.role = "assistant";
         content = "";
+        content_parts = [];
         tool_calls = [ make_tool_call ~id:"tc1" ~name:"tool_a" ];
         tool_call_id = None;
         name = None;
@@ -1285,6 +1287,7 @@ let test_drain_queued_messages_drains_all_pending_without_relock () =
   let mkq msg =
     {
       Session.message = msg;
+      content_parts = [];
       attachments = [];
       channel_name = None;
       channel_type = None;

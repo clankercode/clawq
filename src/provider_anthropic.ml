@@ -46,8 +46,32 @@ let messages_to_anthropic_json messages =
             (`Assoc
                [ ("role", `String "assistant"); ("content", `List tool_uses) ])
       | role ->
-          Some
-            (`Assoc [ ("role", `String role); ("content", `String m.content) ]))
+          let content =
+            match m.Provider.content_parts with
+            | [] -> `String m.content
+            | parts ->
+                `List
+                  (List.map
+                     (fun (part : Provider.content_part) ->
+                       match part with
+                       | Provider.Text s ->
+                           `Assoc
+                             [ ("type", `String "text"); ("text", `String s) ]
+                       | Provider.Image_base64 { data; media_type } ->
+                           `Assoc
+                             [
+                               ("type", `String "image");
+                               ( "source",
+                                 `Assoc
+                                   [
+                                     ("type", `String "base64");
+                                     ("media_type", `String media_type);
+                                     ("data", `String data);
+                                   ] );
+                             ])
+                     parts)
+          in
+          Some (`Assoc [ ("role", `String role); ("content", content) ]))
     messages
 
 let tools_to_anthropic_json tools =

@@ -7,6 +7,7 @@ type special_command_handler =
 
 type queued_message = {
   message : string;
+  content_parts : Provider.content_part list;
   attachments : (string * string) list;
   channel_name : string option;
   channel_type : string option;
@@ -680,9 +681,9 @@ let effective_message_for_turn ~message ?channel_name ?channel_type ?sender_id
       in
       ctx ^ "\n" ^ message
 
-let run_locked_turn mgr ~key agent interrupt ~message ?(attachments = [])
-    ?channel_name ?channel_type ?sender_id ?sender_name ?channel ?channel_id ()
-    =
+let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
+    ?(attachments = []) ?channel_name ?channel_type ?sender_id ?sender_name
+    ?channel ?channel_id () =
   let open Lwt.Syntax in
   let interrupt_check () = !interrupt in
   interrupt := None;
@@ -700,8 +701,8 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(attachments = [])
   let history_before = List.length agent.history in
   let notify = find_registered_notifier mgr ~key in
   let* compacted =
-    Agent.prepare_turn_history agent ~user_message:effective_message ?db:mgr.db
-      ()
+    Agent.prepare_turn_history agent ~user_message:effective_message
+      ~content_parts ?db:mgr.db ()
   in
   let* () = notify_compaction_if_needed ?notify compacted in
   if compacted then persist_compacted_history mgr ~key agent
@@ -802,9 +803,10 @@ let rec drain_queued_messages_loop mgr ~key agent interrupt ?on_drain_progress
       in
       let* response =
         run_locked_turn mgr ~key agent interrupt ~message:injected_message
-          ?channel_name:queued.channel_name ?channel_type:queued.channel_type
-          ?sender_id:queued.sender_id ?sender_name:queued.sender_name
-          ?channel:queued.channel ?channel_id:queued.channel_id ()
+          ~content_parts:queued.content_parts ?channel_name:queued.channel_name
+          ?channel_type:queued.channel_type ?sender_id:queued.sender_id
+          ?sender_name:queued.sender_name ?channel:queued.channel
+          ?channel_id:queued.channel_id ()
       in
       let* () = notify response in
       if not (take_response_deferred mgr ~key) then mark_response_sent mgr ~key;
@@ -835,8 +837,9 @@ let drain_queued_messages mgr ~key agent interrupt ?on_drain_progress () =
   drain_queued_messages_loop mgr ~key agent interrupt ?on_drain_progress
     ~drained_any:false ()
 
-let rec turn mgr ~key ~message ?(attachments = []) ?channel_name ?channel_type
-    ?sender_id ?sender_name ?channel ?channel_id () =
+let rec turn mgr ~key ~message ?(content_parts = []) ?(attachments = [])
+    ?channel_name ?channel_type ?sender_id ?sender_name ?channel ?channel_id ()
+    =
   let open Lwt.Syntax in
   let* () = mark_autonomous_activity_started mgr ~key in
   let* message = normalize_incoming_message mgr ~key ~message in
@@ -852,6 +855,7 @@ let rec turn mgr ~key ~message ?(attachments = []) ?channel_name ?channel_type
       let queued_message =
         {
           message;
+          content_parts;
           attachments;
           channel_name;
           channel_type;
@@ -873,9 +877,9 @@ let rec turn mgr ~key ~message ?(attachments = []) ?channel_name ?channel_type
           (fun agent interrupt ->
             with_in_flight mgr (fun () ->
                 let* response =
-                  run_locked_turn mgr ~key agent interrupt ~message ~attachments
-                    ?channel_name ?channel_type ?sender_id ?sender_name ?channel
-                    ?channel_id ()
+                  run_locked_turn mgr ~key agent interrupt ~message
+                    ~content_parts ~attachments ?channel_name ?channel_type
+                    ?sender_id ?sender_name ?channel ?channel_id ()
                 in
                 let* () = drain_queued_messages mgr ~key agent interrupt () in
                 Lwt.return response))
@@ -961,8 +965,8 @@ let update_config mgr config =
     (fun _ (agent, _, _) -> agent.Agent.config <- config)
     mgr.sessions
 
-let turn_stream mgr ~key ~message ?(attachments = []) ?channel_name
-    ?channel_type ?sender_id ?sender_name ?channel ?channel_id
+let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
+    ?channel_name ?channel_type ?sender_id ?sender_name ?channel ?channel_id
     ?on_drain_progress ~on_chunk () =
   let open Lwt.Syntax in
   let* () = mark_autonomous_activity_started mgr ~key in
@@ -982,6 +986,7 @@ let turn_stream mgr ~key ~message ?(attachments = []) ?channel_name
       let queued_message =
         {
           message;
+          content_parts;
           attachments;
           channel_name;
           channel_type;
@@ -1030,7 +1035,7 @@ let turn_stream mgr ~key ~message ?(attachments = []) ?channel_name
                 let history_before = List.length agent.history in
                 let* compacted =
                   Agent.prepare_turn_history agent
-                    ~user_message:effective_message ?db:mgr.db ()
+                    ~user_message:effective_message ~content_parts ?db:mgr.db ()
                 in
                 let* () =
                   notify_compaction_if_needed

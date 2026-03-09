@@ -271,6 +271,7 @@ let test_store_message_with_tool_call_id () =
     {
       Provider.role = "tool";
       content = "result";
+      content_parts = [];
       tool_calls = [];
       tool_call_id = Some "tcid-123";
       name = Some "file_read";
@@ -292,6 +293,7 @@ let test_store_message_with_tool_calls () =
     {
       Provider.role = "assistant";
       content = "";
+      content_parts = [];
       tool_calls = [ tc ];
       tool_call_id = None;
       name = None;
@@ -504,6 +506,7 @@ let test_tool_cycle_history_shape () =
     {
       Provider.role = "assistant";
       content = "";
+      content_parts = [];
       tool_calls = [ tc1; tc2 ];
       tool_call_id = None;
       name = None;

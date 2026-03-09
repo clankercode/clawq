@@ -330,6 +330,7 @@ let load_history ~db ~session_key =
       {
         Provider.role;
         content;
+        content_parts = [];
         tool_calls;
         tool_call_id;
         name;
@@ -1045,6 +1046,7 @@ let search ~db ~query ?session_key ~limit () =
       {
         Provider.role;
         content;
+        content_parts = [];
         tool_calls;
         tool_call_id;
         name;

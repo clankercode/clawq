@@ -1092,15 +1092,21 @@ let inject_search_context agent ~db ~user_message =
       (fun _ -> Lwt.return_unit)
   else Lwt.return_unit
 
-let prepare_turn_history agent ~user_message ?db () =
+let prepare_turn_history agent ~user_message ?(content_parts = []) ?db () =
   let open Lwt.Syntax in
   let* () =
     match db with
     | Some db -> inject_search_context agent ~db ~user_message
     | None -> Lwt.return_unit
   in
-  agent.history <-
-    Provider.make_message ~role:"user" ~content:user_message :: agent.history;
+  let user_msg =
+    match content_parts with
+    | [] -> Provider.make_message ~role:"user" ~content:user_message
+    | parts ->
+        Provider.make_message_with_parts ~role:"user" ~content:user_message
+          ~content_parts:(Provider.Text user_message :: parts)
+  in
+  agent.history <- user_msg :: agent.history;
   let* compacted = compact_history_if_needed agent ?db () in
   trim_history agent;
   Lwt.return compacted
@@ -1236,6 +1242,7 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
           {
             Provider.role = "assistant";
             content = "";
+            content_parts = [];
             tool_calls = calls;
             tool_call_id = None;
             name = None;
@@ -1434,6 +1441,7 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
               {
                 Provider.role = "assistant";
                 content = "";
+                content_parts = [];
                 tool_calls = calls;
                 tool_call_id = None;
                 name = None;

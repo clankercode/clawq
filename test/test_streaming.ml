@@ -582,6 +582,7 @@ let test_codex_message_to_input_replays_raw_output_items () =
     {
       Provider.role = "assistant";
       content = "";
+      content_parts = [];
       tool_calls = [];
       tool_call_id = None;
       name = None;

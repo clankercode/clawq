@@ -422,6 +422,92 @@ let test_find_provider_ignores_empty_codex_oauth_tokens () =
   | Some _ -> Alcotest.fail "did not expect match for empty codex oauth creds"
   | None -> ()
 
+let test_message_to_json_text_only () =
+  let msg = Provider.make_message ~role:"user" ~content:"hello" in
+  let json = Provider.message_to_json msg in
+  let content = Yojson.Safe.Util.(json |> member "content") in
+  match content with
+  | `String s -> Alcotest.(check string) "text content" "hello" s
+  | _ -> Alcotest.fail "expected string content for text-only message"
+
+let test_message_to_json_with_image () =
+  let msg =
+    Provider.make_message_with_parts ~role:"user" ~content:"describe this"
+      ~content_parts:
+        [
+          Provider.Text "describe this";
+          Provider.Image_base64 { data = "abc123"; media_type = "image/jpeg" };
+        ]
+  in
+  let json = Provider.message_to_json msg in
+  let content = Yojson.Safe.Util.(json |> member "content") in
+  match content with
+  | `List parts ->
+      Alcotest.(check int) "two parts" 2 (List.length parts);
+      let first = List.nth parts 0 in
+      let typ = Yojson.Safe.Util.(first |> member "type" |> to_string) in
+      Alcotest.(check string) "first part type" "text" typ;
+      let second = List.nth parts 1 in
+      let typ2 = Yojson.Safe.Util.(second |> member "type" |> to_string) in
+      Alcotest.(check string) "second part type" "image_url" typ2;
+      let url =
+        Yojson.Safe.Util.(
+          second |> member "image_url" |> member "url" |> to_string)
+      in
+      Alcotest.(check string) "data url" "data:image/jpeg;base64,abc123" url
+  | _ -> Alcotest.fail "expected list content for multimodal message"
+
+let test_detect_mime_type_jpeg () =
+  let data = "\xFF\xD8\xFF\xE0rest" in
+  Alcotest.(check string) "jpeg" "image/jpeg" (Telegram.detect_mime_type data)
+
+let test_detect_mime_type_png () =
+  let data = "\x89PNG\r\n\x1a\n" in
+  Alcotest.(check string) "png" "image/png" (Telegram.detect_mime_type data)
+
+let test_detect_mime_type_webp () =
+  let data = "RIFF\x00\x00\x00\x00WEBP" in
+  Alcotest.(check string) "webp" "image/webp" (Telegram.detect_mime_type data)
+
+let test_detect_mime_type_gif () =
+  let data = "GIF89a" in
+  Alcotest.(check string) "gif" "image/gif" (Telegram.detect_mime_type data)
+
+let test_detect_mime_type_fallback () =
+  let data = "unknown" in
+  Alcotest.(check string)
+    "fallback" "image/jpeg"
+    (Telegram.detect_mime_type data)
+
+let test_anthropic_content_parts () =
+  let msgs =
+    [
+      Provider.make_message_with_parts ~role:"user" ~content:"look at this"
+        ~content_parts:
+          [
+            Provider.Text "look at this";
+            Provider.Image_base64 { data = "imgdata"; media_type = "image/png" };
+          ];
+    ]
+  in
+  let json_list = Provider_anthropic.messages_to_anthropic_json msgs in
+  match json_list with
+  | [ msg_json ] -> (
+      let content = Yojson.Safe.Util.(msg_json |> member "content") in
+      match content with
+      | `List parts ->
+          Alcotest.(check int) "two parts" 2 (List.length parts);
+          let img = List.nth parts 1 in
+          let typ = Yojson.Safe.Util.(img |> member "type" |> to_string) in
+          Alcotest.(check string) "image type" "image" typ;
+          let src_type =
+            Yojson.Safe.Util.(
+              img |> member "source" |> member "type" |> to_string)
+          in
+          Alcotest.(check string) "source type" "base64" src_type
+      | _ -> Alcotest.fail "expected list content")
+  | _ -> Alcotest.fail "expected single message"
+
 let suite =
   [
     Alcotest.test_case "strip date suffix + normalize" `Quick
@@ -481,4 +567,16 @@ let suite =
       test_find_provider_codex_associated_models;
     Alcotest.test_case "find provider ignores empty codex oauth tokens" `Quick
       test_find_provider_ignores_empty_codex_oauth_tokens;
+    Alcotest.test_case "message_to_json text only" `Quick
+      test_message_to_json_text_only;
+    Alcotest.test_case "message_to_json with image" `Quick
+      test_message_to_json_with_image;
+    Alcotest.test_case "detect MIME jpeg" `Quick test_detect_mime_type_jpeg;
+    Alcotest.test_case "detect MIME png" `Quick test_detect_mime_type_png;
+    Alcotest.test_case "detect MIME webp" `Quick test_detect_mime_type_webp;
+    Alcotest.test_case "detect MIME gif" `Quick test_detect_mime_type_gif;
+    Alcotest.test_case "detect MIME fallback" `Quick
+      test_detect_mime_type_fallback;
+    Alcotest.test_case "anthropic content parts" `Quick
+      test_anthropic_content_parts;
   ]
