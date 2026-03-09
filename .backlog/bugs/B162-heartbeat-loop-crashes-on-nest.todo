@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B162
+priority: high
+status: pending
+tags: []
+title: Heartbeat loop crashes on nested Lwt_main.run
+---
+Observed in daemon log during heartbeat processing on the main session. Log excerpt: `[2026-03-09 22:41:45.753] [INFO]Heartbeat: processing HEARTBEAT.md (424 chars) on main session` followed by `[ERROR]Heartbeat loop error: Failure("Nested calls to Lwt_main.run are not allowed")`. This indicates the heartbeat path is invoking code that calls `Lwt_main.run` from inside an already-running Lwt event loop. Goal: trace the heartbeat execution path, identify the exact nested `Lwt_main.run` seam, and remove it so heartbeat processing can run normally under the daemon loop. Acceptance criteria: (1) heartbeat processing no longer raises nested-`Lwt_main.run` failures; (2) the fix preserves current heartbeat behavior, including `HEARTBEAT_OK` handling and any autonomous continuation hooks; (3) targeted tests cover the failing path where practical; (4) daemon logs no longer show this error during heartbeat execution.
