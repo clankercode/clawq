@@ -6,6 +6,6 @@ id: B140
 priority: medium
 status: pending
 tags: []
-title: Audit tool descriptions/help so available capabilities are used optimally
+title: Audit the tool descriptions/help so available capabilities are used optimally
 ---
 Do a systematic audit of built-in tools, command help, and tool descriptions to ensure the agent is taking full advantage of available capabilities. If features are underused because descriptions/help are too vague or incomplete, improve those descriptions and associated help text. Goal: reduce missed capabilities and make tool selection sharper during autonomous work.
