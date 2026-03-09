@@ -647,6 +647,35 @@ let test_concurrent_tool_starts_single_message () =
   Alcotest.(check bool) "at most one edit" true (!edit_count <= 1);
   Alcotest.(check bool) "msg_id is set" true (t.msg_id <> None)
 
+let test_html_mode_render () =
+  let notifier, sent, edited, _ = mock_notifier () in
+  let t =
+    Status_message.create ~debounce_interval:0.0 ~notifier ~parse_mode:"HTML" ()
+  in
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () =
+       Status_message.tool_start t ~id:"t1" ~name:"file_read"
+         ~summary:(Some "src/main.ml")
+     in
+     Status_message.tool_result t ~id:"t1" ~name:"file_read" ~result:"ok"
+       ~is_error:false);
+  let output = Status_message.render t in
+  (* HTML mode should produce <b> and <code> tags, not markdown *)
+  Alcotest.(check bool) "contains <b> tag" true (contains output "<b>");
+  Alcotest.(check bool) "contains <code> tag" true (contains output "<code>");
+  Alcotest.(check bool)
+    "no markdown bold markers" false
+    (contains output "*file_read*");
+  (* Verify the sent/edited text also contains HTML tags (not mangled) *)
+  let all_texts = List.map snd !edited @ !sent in
+  List.iter
+    (fun text ->
+      Alcotest.(check bool)
+        "notifier text has HTML tags" true
+        (contains text "<b>" || contains text "<code>" || text = ""))
+    all_texts
+
 let suite =
   [
     Alcotest.test_case "render empty" `Quick test_render_empty;
@@ -680,4 +709,6 @@ let suite =
       test_finalize_mixed_success_failure;
     Alcotest.test_case "concurrent tool_starts single message" `Quick
       test_concurrent_tool_starts_single_message;
+    Alcotest.test_case "HTML mode render produces proper tags" `Quick
+      test_html_mode_render;
   ]

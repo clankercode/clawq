@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-09T16:27:26Z"
+claimed_by: cli-user
+completed_at: "2026-03-09T16:36:21Z"
 complexity: medium
 depends_on: []
+duration_minutes: 8.919194200383334
 estimate_hours: 1
 id: B202
 priority: high
-status: pending
+started_at: "2026-03-09T16:27:26Z"
+status: done
 tags: []
 title: Tool calls no longer visible/stremed in telegram due to some recent change.
 ---

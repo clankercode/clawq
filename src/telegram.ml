@@ -752,13 +752,19 @@ let make_status_notifier ~bot_token ~chat_id : Status_message.notifier =
     send =
       (fun ?parse_mode text ->
         let parse_mode = default_parse_mode parse_mode in
-        let text = Telegram_format.markdown_to_mdv2 text in
+        let text =
+          if parse_mode = Some "HTML" then text
+          else Telegram_format.markdown_to_mdv2 text
+        in
         send_message_with_id ~disable_notification:true ?parse_mode ~bot_token
           ~chat_id ~text ());
     edit =
       (fun message_id ?parse_mode text ->
         let parse_mode = default_parse_mode parse_mode in
-        let text = Telegram_format.markdown_to_mdv2 text in
+        let text =
+          if parse_mode = Some "HTML" then text
+          else Telegram_format.markdown_to_mdv2 text
+        in
         edit_message ?parse_mode ~bot_token ~chat_id ~message_id ~text ());
     delete =
       (fun message_id -> delete_message ~bot_token ~chat_id ~message_id ());
