@@ -2040,6 +2040,30 @@ let test_seed_missing_template () =
   | Ok _ -> Alcotest.fail "Expected error for missing template");
   cleanup_templates_dir _tdir
 
+let test_find_active_session_key_preferred () =
+  let db = fresh_db () in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"__main__"
+      [ `Assoc [ ("op", `String "add"); ("title", `String "Main task") ] ]
+  in
+  let result = Task_tree.find_active_session_key ~db ~preferred:"__main__" in
+  Alcotest.(check (option string)) "returns preferred" (Some "__main__") result
+
+let test_find_active_session_key_fallback () =
+  let db = fresh_db () in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"telegram:123:456"
+      [ `Assoc [ ("op", `String "add"); ("title", `String "Chat task") ] ]
+  in
+  let result = Task_tree.find_active_session_key ~db ~preferred:"__main__" in
+  Alcotest.(check (option string))
+    "falls back to session with tasks" (Some "telegram:123:456") result
+
+let test_find_active_session_key_empty () =
+  let db = fresh_db () in
+  let result = Task_tree.find_active_session_key ~db ~preferred:"__main__" in
+  Alcotest.(check (option string)) "returns None when empty" None result
+
 let suite =
   [
     Alcotest.test_case "init_schema idempotent" `Quick
@@ -2155,4 +2179,10 @@ let suite =
     Alcotest.test_case "list_templates" `Quick test_list_templates;
     Alcotest.test_case "delete_template" `Quick test_delete_template;
     Alcotest.test_case "seed missing template" `Quick test_seed_missing_template;
+    Alcotest.test_case "find_active_session_key prefers preferred" `Quick
+      test_find_active_session_key_preferred;
+    Alcotest.test_case "find_active_session_key falls back" `Quick
+      test_find_active_session_key_fallback;
+    Alcotest.test_case "find_active_session_key empty db" `Quick
+      test_find_active_session_key_empty;
   ]

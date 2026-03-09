@@ -336,8 +336,15 @@ let cmd_debug_prompt args =
       let task_tree_summary =
         begin
           Task_tree.init_schema db;
-          let main_key = "__main__" in
-          Some (Task_tree.render_tree_with_legend ~db ~session_key:main_key)
+          let effective_key =
+            match
+              Task_tree.find_active_session_key ~db ~preferred:"__main__"
+            with
+            | Some k -> k
+            | None -> "__main__"
+          in
+          Some
+            (Task_tree.render_tree_with_legend ~db ~session_key:effective_key)
         end
       in
       let runtime_context =

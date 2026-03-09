@@ -123,6 +123,24 @@ let count_tasks ~db ~session_key =
     (Printf.sprintf "SELECT COUNT(*) FROM task_tree WHERE session_key = '%s'"
        (String.concat "''" (String.split_on_char '\'' session_key)))
 
+let find_active_session_key ~db ~preferred =
+  if count_tasks ~db ~session_key:preferred > 0 then Some preferred
+  else
+    let sql =
+      "SELECT session_key FROM task_tree WHERE status IN ('pending', \
+       'in_progress') GROUP BY session_key ORDER BY COUNT(*) DESC LIMIT 1"
+    in
+    let stmt = Sqlite3.prepare db sql in
+    Fun.protect
+      ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+      (fun () ->
+        match Sqlite3.step stmt with
+        | Sqlite3.Rc.ROW -> (
+            match Sqlite3.column stmt 0 with
+            | Sqlite3.Data.TEXT s -> Some s
+            | _ -> None)
+        | _ -> None)
+
 let next_auto_id ~db ~session_key =
   let sql =
     "SELECT MAX(CAST(id AS INTEGER)) FROM task_tree WHERE session_key = ? AND \

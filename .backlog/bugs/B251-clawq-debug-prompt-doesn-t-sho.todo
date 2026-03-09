@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-09T21:46:02Z"
+claimed_by: cli-user
+completed_at: "2026-03-09T21:50:18Z"
 complexity: medium
 depends_on: []
+duration_minutes: 4.269452387366667
 estimate_hours: 1
 id: B251
 priority: high
-status: pending
+started_at: "2026-03-09T21:46:02Z"
+status: done
 tags: []
 title: ./clawq debug prompt doesn't show current tasks (empty task tree) but we do have tasks in the DB that it should load -- why aren't they loading
 ---
