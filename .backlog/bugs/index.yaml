@@ -129,3 +129,4 @@ bugs:
     - file: B128-implement-config-slash-command.todo
     - file: B129-add-delegate-slash-command-tha.todo
     - file: B130-post-restart-continuation-does.todo
+    - file: B131-cli-help-docs-claim-delegated.todo

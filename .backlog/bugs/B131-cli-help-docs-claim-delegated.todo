@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B131
+priority: high
+status: pending
+tags: []
+title: CLI help/docs claim delegated --model support but current clawq binary lacks the flag
+---
+Attempting `clawq delegate --runner codex --model gpt-5.4 ...` on the current installed binary fails with `unknown option --model`, despite current docs/workspace notes assuming the feature exists. Need to verify whether the source branch lacks the command-bridge wiring on this checkout or whether the running binary is stale; either way the user-facing state is inconsistent and should be tracked.
