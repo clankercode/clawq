@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B168
+priority: high
+status: pending
+tags: []
+title: update_claw tool should have progress output like `/update` slash command
+---
+
+update_claw tool should have progress output like `/update` slash command

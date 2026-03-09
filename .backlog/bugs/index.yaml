@@ -166,3 +166,4 @@ bugs:
     - file: B165-background-add-delegate-cli-sh.todo
     - file: B166-agent-should-be-able-to-search.todo
     - file: B167-when-a-background-task-complet.todo
+    - file: B168-update-claw-tool-should-have-p.todo
