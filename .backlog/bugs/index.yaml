@@ -172,3 +172,4 @@ bugs:
     - file: B171-post-restart-resumed-sessions.todo
     - file: B172-resumed-session-dispatch-may-r.todo
     - file: B173-telegram-setmycommands-update.todo
+    - file: B174-telegram-typing-indicator-shou.todo

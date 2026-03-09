@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B174
+priority: high
+status: pending
+tags: []
+title: Telegram typing indicator should track agent non-idle/working state
+---
+Observed/desired behavior gap: Telegram typing indication can stop while the agent is still actively working. The typing indicator should be synchronized to actual agent activity / non-idle state rather than dropping prematurely. Goal: ensure Telegram shows typing while the agent is actively thinking, streaming, or waiting on tools relevant to the current turn, and stops when the agent is genuinely idle or the turn is complete. Acceptance criteria: (1) typing remains active throughout real work on a Telegram turn; (2) typing stops promptly when the agent becomes idle / response is complete; (3) long-running tools and queued follow-up work do not accidentally clear typing too early; (4) tests or bounded verification cover the lifecycle as practical.
