@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B235
+priority: medium
+status: pending
+tags: []
+title: Session/event inspection should provide a clearer operator view of injected/system/automatic messages
+---
+As autonomous continuation, workspace refresh, restart-resume, and task-tree/status events accumulate, debugging requires a clearer operator-facing view of session events. We need an inspection surface that highlights injected/system/automatic/event messages and their timeline rather than burying them inside large chat-log JSON dumps. Acceptance criteria: (1) provide a clearer way to inspect session events separately or prominently; (2) distinguish user/assistant/event/injected/system-originated messages clearly; (3) make continuation/restart/task-tree/workspace-refresh events easier to follow in order; (4) keep the view practical for both users and agents during debugging.
