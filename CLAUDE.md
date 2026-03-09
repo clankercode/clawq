@@ -162,6 +162,7 @@ Comments:
 - UI source and Bun pipeline: `ui/`, `scripts/gen_chat_ui_assets.sh`
 - Dune project config: `dune-project`, `dune-workspace`, `src/dune`, `test/dune`
 - CLI entrypoints: `src/main.ml`, `src/main_min.ml`
+- Process spawning: `src/process_group.ml` (fork+setsid+execve, signal group lifecycle)
 - Command routing: `src/command_bridge.ml`, `src/command_bridge_min.ml`
 - Web UI serving/assets: `src/ui_server.ml`, `src/chat_ui_assets.ml`
 - Tests: `test/test_main.ml` and `test/test_*.ml`
