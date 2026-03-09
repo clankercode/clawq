@@ -1,19 +1,6 @@
 ---
 complexity: medium
-depends_on:
-    - Clawq should be able to inspect current usage/quota/budget state for supported model providers and runners (for example OpenAI/Codex
-    - Anthropic/Claude
-    - Cursor
-    - OpenCode-backed providers
-    - Kimi
-    - |-
-      etc.) and use that information when selecting a runner/model.
-
-      Acceptance criteria:
-      - There is a documented mechanism for retrieving current usage/quota/budget state for supported providers where available.
-      - Delegation/routing logic can prefer cheaper or effectively unmetered capable models when premium quota is constrained.
-      - The system can surface enough state to explain or justify model/routing choices.
-      - Providers without usage APIs are handled explicitly rather than silently ignored or assumed unlimited.
+depends_on: []
 estimate_hours: 1
 id: B247
 priority: high
@@ -22,4 +9,10 @@ tags: []
 title: Delegated runner selection should incorporate live usage/quota data across providers
 ---
 
-Delegated runner selection should incorporate live usage/quota data across providers
+Clawq should be able to inspect current usage/quota/budget state for supported model providers and runners (for example OpenAI/Codex, Anthropic/Claude, Cursor, OpenCode-backed providers, Kimi, etc.) and use that information when selecting a runner/model.
+
+Acceptance criteria:
+- There is a documented mechanism for retrieving current usage/quota/budget state for supported providers where available.
+- Delegation/routing logic can prefer cheaper or effectively unmetered capable models when premium quota is constrained.
+- The system can surface enough state to explain or justify model/routing choices.
+- Providers without usage APIs are handled explicitly rather than silently ignored or assumed unlimited.

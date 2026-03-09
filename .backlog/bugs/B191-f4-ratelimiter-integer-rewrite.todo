@@ -1,15 +1,15 @@
 ---
-claimed_at: null
-claimed_by: null
+claimed_at: "2026-03-09T20:52:56Z"
+claimed_by: cli-user
 completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 8
 id: B191
 priority: medium
-started_at: null
-status: pending
-tags: [formal-verification, extraction]
+started_at: "2026-03-09T20:52:56Z"
+status: in_progress
+tags: []
 title: 'F4: RateLimiter integer rewrite for extraction'
 ---
 
