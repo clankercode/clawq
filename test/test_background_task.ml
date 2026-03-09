@@ -362,6 +362,193 @@ let test_logs_tool_returns_excerpt () =
          with Not_found -> false);
       Sys.remove log_path)
 
+let test_logs_tool_offset_paging () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"test paging" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      let log_path = Filename.temp_file "clawq-bg" ".log" in
+      let oc = open_out log_path in
+      for i = 1 to 10 do
+        Printf.fprintf oc "line %d\n" i
+      done;
+      close_out oc;
+      ignore
+        (Background_task.set_running ~db ~id ~branch:"clawq-bg-1"
+           ~worktree_path:"/tmp/worktree" ~log_path ~pid:12345);
+      Background_task.finish ~db ~id ~status:Background_task.Succeeded
+        ~result_preview:"ok";
+      let tool = Background_task.logs_tool ~db in
+      let result =
+        Lwt_main.run
+          (tool.Tool.invoke
+             (`Assoc [ ("id", `Int id); ("offset", `Int 3); ("limit", `Int 3) ]))
+      in
+      Alcotest.(check bool)
+        "contains line 3" true
+        (try
+           ignore (Str.search_forward (Str.regexp_string "3: line 3") result 0);
+           true
+         with Not_found -> false);
+      Alcotest.(check bool)
+        "contains line 5" true
+        (try
+           ignore (Str.search_forward (Str.regexp_string "5: line 5") result 0);
+           true
+         with Not_found -> false);
+      Alcotest.(check bool)
+        "does not contain line 6" true
+        (try
+           ignore (Str.search_forward (Str.regexp_string "6: line 6") result 0);
+           false
+         with Not_found -> true);
+      Alcotest.(check bool)
+        "contains continuation hint" true
+        (try
+           ignore
+             (Str.search_forward (Str.regexp_string "Use offset=6") result 0);
+           true
+         with Not_found -> false);
+      Sys.remove log_path)
+
+let test_logs_tool_offset_end_of_log () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"test end" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      let log_path = Filename.temp_file "clawq-bg" ".log" in
+      let oc = open_out log_path in
+      for i = 1 to 5 do
+        Printf.fprintf oc "line %d\n" i
+      done;
+      close_out oc;
+      ignore
+        (Background_task.set_running ~db ~id ~branch:"clawq-bg-1"
+           ~worktree_path:"/tmp/worktree" ~log_path ~pid:12345);
+      Background_task.finish ~db ~id ~status:Background_task.Succeeded
+        ~result_preview:"ok";
+      let tool = Background_task.logs_tool ~db in
+      let result =
+        Lwt_main.run
+          (tool.Tool.invoke
+             (`Assoc
+                [ ("id", `Int id); ("offset", `Int 4); ("limit", `Int 100) ]))
+      in
+      Alcotest.(check bool)
+        "contains line 4" true
+        (try
+           ignore (Str.search_forward (Str.regexp_string "4: line 4") result 0);
+           true
+         with Not_found -> false);
+      Alcotest.(check bool)
+        "contains end-of-log marker" true
+        (try
+           ignore (Str.search_forward (Str.regexp_string "End of log") result 0);
+           true
+         with Not_found -> false);
+      Sys.remove log_path)
+
+let test_logs_tool_offset_past_end () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"test past" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      let log_path = Filename.temp_file "clawq-bg" ".log" in
+      let oc = open_out log_path in
+      output_string oc "only line\n";
+      close_out oc;
+      ignore
+        (Background_task.set_running ~db ~id ~branch:"clawq-bg-1"
+           ~worktree_path:"/tmp/worktree" ~log_path ~pid:12345);
+      Background_task.finish ~db ~id ~status:Background_task.Succeeded
+        ~result_preview:"ok";
+      let tool = Background_task.logs_tool ~db in
+      let result =
+        Lwt_main.run
+          (tool.Tool.invoke
+             (`Assoc
+                [ ("id", `Int id); ("offset", `Int 50); ("limit", `Int 10) ]))
+      in
+      Alcotest.(check bool)
+        "says no lines in range" true
+        (try
+           ignore
+             (Str.search_forward
+                (Str.regexp_string "No lines in requested range")
+                result 0);
+           true
+         with Not_found -> false);
+      Sys.remove log_path)
+
+let test_logs_tool_lines_backward_compat () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"test compat" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      let log_path = Filename.temp_file "clawq-bg" ".log" in
+      let oc = open_out log_path in
+      for i = 1 to 10 do
+        Printf.fprintf oc "line %d\n" i
+      done;
+      close_out oc;
+      ignore
+        (Background_task.set_running ~db ~id ~branch:"clawq-bg-1"
+           ~worktree_path:"/tmp/worktree" ~log_path ~pid:12345);
+      Background_task.finish ~db ~id ~status:Background_task.Succeeded
+        ~result_preview:"ok";
+      let tool = Background_task.logs_tool ~db in
+      let result =
+        Lwt_main.run
+          (tool.Tool.invoke (`Assoc [ ("id", `Int id); ("lines", `Int 3) ]))
+      in
+      Alcotest.(check bool)
+        "contains line 10" true
+        (try
+           ignore (Str.search_forward (Str.regexp_string "line 10") result 0);
+           true
+         with Not_found -> false);
+      Alcotest.(check bool)
+        "contains line 8" true
+        (try
+           ignore (Str.search_forward (Str.regexp_string "line 8") result 0);
+           true
+         with Not_found -> false);
+      Alcotest.(check bool)
+        "does not contain line 7" true
+        (try
+           ignore (Str.search_forward (Str.regexp_string "line 7") result 0);
+           false
+         with Not_found -> true);
+      Sys.remove log_path)
+
 let test_start_queued_spawns_queued_tasks () =
   with_temp_git_repo (fun repo_path ->
       let db = Memory.init ~db_path:":memory:" () in
@@ -1328,6 +1515,14 @@ let suite =
       test_wait_tool_returns_terminal_summary;
     Alcotest.test_case "logs tool returns excerpt" `Quick
       test_logs_tool_returns_excerpt;
+    Alcotest.test_case "logs tool offset paging" `Quick
+      test_logs_tool_offset_paging;
+    Alcotest.test_case "logs tool offset end of log" `Quick
+      test_logs_tool_offset_end_of_log;
+    Alcotest.test_case "logs tool offset past end" `Quick
+      test_logs_tool_offset_past_end;
+    Alcotest.test_case "logs tool lines backward compat" `Quick
+      test_logs_tool_lines_backward_compat;
     Alcotest.test_case "start queued spawns queued tasks" `Quick
       test_start_queued_spawns_queued_tasks;
     Alcotest.test_case "spawn task marks failed when worktree creation fails"

@@ -394,21 +394,77 @@ let read_last_lines path ~lines =
           loop [] 0)
     with Sys_error msg -> Error msg
 
-let log_excerpt ?(lines = 40) task =
+let read_lines_window path ~offset ~limit =
+  if limit <= 0 then Ok ([], 0)
+  else
+    try
+      let ic = open_in path in
+      Fun.protect
+        ~finally:(fun () -> close_in_noerr ic)
+        (fun () ->
+          let rec loop line_num acc collected =
+            match input_line ic with
+            | line ->
+                if line_num >= offset && collected < limit then
+                  loop (line_num + 1) ((line_num, line) :: acc) (collected + 1)
+                else if collected >= limit then
+                  let rec count n =
+                    match input_line ic with
+                    | _ -> count (n + 1)
+                    | exception End_of_file -> n
+                  in
+                  let total = count line_num in
+                  Ok (List.rev acc, total)
+                else loop (line_num + 1) acc collected
+            | exception End_of_file -> Ok (List.rev acc, line_num - 1)
+          in
+          loop 1 [] 0)
+    with Sys_error msg -> Error msg
+
+let log_excerpt ?(offset = 0) ?(lines = 40) task =
   match task.log_path with
   | None -> Error (Printf.sprintf "Task %d has no log file yet" task.id)
   | Some path when not (Sys.file_exists path) ->
       Error (Printf.sprintf "Log file does not exist yet: %s" path)
   | Some path ->
-      read_last_lines path ~lines
-      |> Result.map (fun chunks ->
-          let header =
-            Printf.sprintf "Log excerpt for task %d (%s)\npath: %s" task.id
-              (string_of_status task.status)
-              path
-          in
-          if chunks = [] then header ^ "\n\n(log file is empty)"
-          else header ^ "\n\n" ^ String.concat "\n" chunks)
+      if offset > 0 then
+        read_lines_window path ~offset ~limit:lines
+        |> Result.map (fun (indexed_lines, total) ->
+            let header =
+              Printf.sprintf "Log excerpt for task %d (%s)\npath: %s" task.id
+                (string_of_status task.status)
+                path
+            in
+            if indexed_lines = [] then
+              header
+              ^ Printf.sprintf
+                  "\n\n(No lines in requested range. Log has %d lines.)" total
+            else
+              let rendered =
+                indexed_lines
+                |> List.map (fun (n, line) -> Printf.sprintf "%d: %s" n line)
+                |> String.concat "\n"
+              in
+              let last_line = fst (List.hd (List.rev indexed_lines)) in
+              let suffix =
+                if last_line < total then
+                  Printf.sprintf
+                    "\n\n\
+                     (Showing lines %d-%d of %d. Use offset=%d to continue.)"
+                    offset last_line total (last_line + 1)
+                else Printf.sprintf "\n\n(End of log - total %d lines)" total
+              in
+              header ^ "\n\n" ^ rendered ^ suffix)
+      else
+        read_last_lines path ~lines
+        |> Result.map (fun chunks ->
+            let header =
+              Printf.sprintf "Log excerpt for task %d (%s)\npath: %s" task.id
+                (string_of_status task.status)
+                path
+            in
+            if chunks = [] then header ^ "\n\n(log file is empty)"
+            else header ^ "\n\n" ^ String.concat "\n" chunks)
 
 let count_lines path =
   try
@@ -1356,7 +1412,9 @@ let wait_tool ~db =
 let logs_tool ~db =
   {
     Tool.name = "background_task_logs";
-    description = "Read the latest lines from a background task log file.";
+    description =
+      "Read lines from a background task log file. Supports offset-based \
+       paging (like file_read) or tail-style retrieval.";
     parameters_schema =
       `Assoc
         [
@@ -1370,14 +1428,35 @@ let logs_tool ~db =
                       ("type", `String "integer");
                       ("description", `String "Task id whose log should be read");
                     ] );
+                ( "offset",
+                  `Assoc
+                    [
+                      ("type", `String "integer");
+                      ( "description",
+                        `String
+                          "1-indexed line number to start reading from. When \
+                           set, returns lines starting at this position (paged \
+                           mode). When omitted, returns trailing lines (tail \
+                           mode)." );
+                    ] );
+                ( "limit",
+                  `Assoc
+                    [
+                      ("type", `String "integer");
+                      ( "description",
+                        `String
+                          "Max lines to return (default 40). In paged mode, \
+                           controls window size. In tail mode, controls how \
+                           many trailing lines." );
+                    ] );
                 ( "lines",
                   `Assoc
                     [
                       ("type", `String "integer");
                       ( "description",
                         `String
-                          "How many trailing log lines to return (default 40)."
-                      );
+                          "Alias for limit (backward compatibility). If both \
+                           limit and lines are set, limit takes precedence." );
                     ] );
               ] );
           ("required", `List [ `String "id" ]);
@@ -1387,15 +1466,28 @@ let logs_tool ~db =
       (fun ?context:_ args ->
         let open Yojson.Safe.Util in
         let id = try args |> member "id" |> to_int with _ -> -1 in
-        let lines = try args |> member "lines" |> to_int with _ -> 40 in
+        let offset = try args |> member "offset" |> to_int with _ -> 0 in
+        let limit_explicit =
+          try Some (args |> member "limit" |> to_int) with _ -> None
+        in
+        let lines_explicit =
+          try Some (args |> member "lines" |> to_int) with _ -> None
+        in
+        let lines =
+          match (limit_explicit, lines_explicit) with
+          | Some l, _ -> l
+          | None, Some l -> l
+          | None, None -> 40
+        in
         if id < 0 then Lwt.return "Error: id is required"
+        else if offset < 0 then Lwt.return "Error: offset must be >= 1"
         else
           match get_task ~db ~id with
           | None ->
               Lwt.return
                 (Printf.sprintf "Error: No background task found with id %d" id)
           | Some task -> (
-              match log_excerpt ~lines task with
+              match log_excerpt ~offset ~lines task with
               | Ok text -> Lwt.return text
               | Error msg -> Lwt.return ("Error: " ^ msg)));
     invoke_stream = None;

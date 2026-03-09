@@ -997,10 +997,10 @@ let test_handle_background_logs_offset () =
           true
         with Not_found -> false
       in
-      (* --offset 1 --lines 2: read lines 1-2 *)
+      (* --offset 2 --lines 2: read lines 2-3 (1-indexed) *)
       let result =
         Command_bridge.handle
-          [ "background"; "logs"; "1"; "--offset"; "1"; "--lines"; "2" ]
+          [ "background"; "logs"; "1"; "--offset"; "2"; "--lines"; "2" ]
       in
       Alcotest.(check bool)
         "offset logs includes line1" true (contains result "line1");
@@ -1011,18 +1011,12 @@ let test_handle_background_logs_offset () =
       Alcotest.(check bool)
         "offset logs excludes line3" false (contains result "line3");
       Alcotest.(check bool)
-        "offset logs shows total_lines" true
-        (contains result "total_lines: 5");
-      Alcotest.(check bool)
-        "offset logs shows has_more true" true
-        (contains result "has_more: true");
-      Alcotest.(check bool)
-        "offset logs shows next_offset 3" true
-        (contains result "next_offset: 3");
-      (* --offset 3 --lines 10: read to end *)
+        "offset logs shows continuation" true
+        (contains result "Use offset=4");
+      (* --offset 4 --lines 10: read to end *)
       let end_result =
         Command_bridge.handle
-          [ "background"; "logs"; "1"; "--offset"; "3"; "--lines"; "10" ]
+          [ "background"; "logs"; "1"; "--offset"; "4"; "--lines"; "10" ]
       in
       Alcotest.(check bool)
         "end offset includes line3" true
@@ -1031,8 +1025,8 @@ let test_handle_background_logs_offset () =
         "end offset includes line4" true
         (contains end_result "line4");
       Alcotest.(check bool)
-        "end offset has_more false" true
-        (contains end_result "has_more: false"))
+        "end offset shows end of log" true
+        (contains end_result "End of log"))
 
 let test_handle_delegate () =
   with_temp_home (fun home ->

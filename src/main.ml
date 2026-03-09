@@ -236,9 +236,7 @@ let background_logs_cmd =
       value
       & opt (some string) None
       & info [ "offset" ] ~docv:"LINE"
-          ~doc:
-            "Start reading from line $(docv) (0-indexed). When set, reads \
-             forward from that line instead of tailing.")
+          ~doc:"1-indexed line number to start from (paged mode).")
   in
   let follow =
     Arg.(
@@ -260,7 +258,7 @@ let background_logs_cmd =
              in
              let args =
                match offset with
-               | Some line -> args @ [ "--offset"; line ]
+               | Some off -> args @ [ "--offset"; off ]
                | None -> args
              in
              let args = if follow then args @ [ "--follow" ] else args in

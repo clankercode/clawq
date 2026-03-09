@@ -1235,8 +1235,8 @@ type background_wait_args = { id : int; timeout_seconds : float }
 type background_logs_args = {
   id : int;
   lines : int;
+  offset : int;
   follow : bool;
-  log_offset : int option;
 }
 
 type delegate_args = {
@@ -1301,33 +1301,30 @@ let parse_background_wait_args args =
   loop 180.0 None args
 
 let parse_background_logs_args args =
-  let rec loop lines follow log_offset id = function
+  let usage =
+    "Usage: clawq background logs <id> [--lines <count>] [--offset <line>] \
+     [--follow]"
+  in
+  let rec loop lines offset follow id = function
     | [] -> (
         match id with
-        | Some id -> Ok { id; lines; follow; log_offset }
-        | None ->
-            Error
-              "Usage: clawq background logs <id> [--lines <count>] [--offset \
-               <line>] [--follow]")
+        | Some id -> Ok { id; lines; offset; follow }
+        | None -> Error usage)
     | "--lines" :: count :: rest -> (
-        try loop (max 1 (int_of_string count)) follow log_offset id rest
+        try loop (max 1 (int_of_string count)) offset follow id rest
         with _ -> Error "Log line count must be an integer")
-    | "--offset" :: value :: rest -> (
-        match int_of_string_opt value with
-        | Some n when n >= 0 -> loop lines follow (Some n) id rest
-        | _ -> Error "Log offset must be a non-negative integer")
-    | ("--follow" | "-f") :: rest -> loop lines true log_offset id rest
+    | "--offset" :: off :: rest -> (
+        try loop lines (max 1 (int_of_string off)) follow id rest
+        with _ -> Error "Offset must be a positive integer")
+    | ("--follow" | "-f") :: rest -> loop lines offset true id rest
     | arg :: rest -> (
         match id with
-        | Some _ ->
-            Error
-              "Usage: clawq background logs <id> [--lines <count>] [--offset \
-               <line>] [--follow]"
+        | Some _ -> Error usage
         | None -> (
-            try loop lines follow log_offset (Some (int_of_string arg)) rest
+            try loop lines offset follow (Some (int_of_string arg)) rest
             with _ -> Error "Background task id must be an integer"))
   in
-  loop 40 false None None args
+  loop 40 0 false None args
 
 let parse_delegate_args args =
   let rec loop preferred_runner model repo_path branch positionals = function
@@ -1796,8 +1793,8 @@ let cmd_background args =
          Queue a task\n\
         \  background wait <id> [--timeout <seconds>]              - Wait for \
          completion\n\
-        \  background logs <id> [--lines <count>] [--offset <line>] \
-         [--follow]       - Show task logs\n\
+        \  background logs <id> [--lines N] [--offset N] [--follow] - Show \
+         task logs\n\
         \  background cancel <id>                                  - Cancel a \
          task"
   | [ "show"; id_s ] -> (
@@ -1868,7 +1865,7 @@ let cmd_background args =
       Background_task.init_schema db;
       match parse_background_logs_args rest with
       | Error msg -> "Error: " ^ msg
-      | Ok parsed when parsed.follow && parsed.log_offset <> None ->
+      | Ok parsed when parsed.follow && parsed.offset > 0 ->
           "Error: --follow and --offset cannot be used together"
       | Ok parsed when parsed.follow -> (
           let result =
@@ -1883,19 +1880,12 @@ let cmd_background args =
               Printf.sprintf "Error: No background task found with id %d"
                 parsed.id
           | Some task -> (
-              match parsed.log_offset with
-              | Some offset -> (
-                  match
-                    Background_task.log_range ~offset ~lines:parsed.lines task
-                  with
-                  | Ok text -> text
-                  | Error msg -> "Error: " ^ msg)
-              | None -> (
-                  match
-                    Background_task.log_excerpt ~lines:parsed.lines task
-                  with
-                  | Ok text -> text
-                  | Error msg -> "Error: " ^ msg))))
+              match
+                Background_task.log_excerpt ~offset:parsed.offset
+                  ~lines:parsed.lines task
+              with
+              | Ok text -> text
+              | Error msg -> "Error: " ^ msg)))
   | [ "cancel"; id_s ] -> (
       let db = get_db () in
       Background_task.init_schema db;
@@ -1915,8 +1905,8 @@ let cmd_background args =
        Queue a worktree runner\n\
       \  background wait <id> [--timeout <seconds>]              - Wait for a \
        task to finish\n\
-      \  background logs <id> [--lines <count>] [--offset <line>] \
-       [--follow]       - Show recent task log lines\n\
+      \  background logs <id> [--lines N] [--offset N] [--follow] - Show task \
+       log lines\n\
       \  background cancel <id>                                  - Cancel a \
        queued/running task"
 
