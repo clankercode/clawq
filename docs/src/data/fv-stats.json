@@ -1,24 +1,17 @@
 {
   "generated_on": "2026-03-10",
   "coq_version": "8.19",
-  "repository_total": 174,
-  "public_phase_total": 152,
-  "verified_unique_total": 174,
+  "repository_total": 186,
+  "public_phase_total": 164,
+  "verified_unique_total": 186,
   "verified_unique_percent": 100.0,
-  "public_verified_total": 152,
+  "public_verified_total": 164,
   "public_in_progress_total": 0,
   "public_planned_total": 0,
   "in_progress_total": 0,
   "extracted_modules": 3,
-<<<<<<< HEAD
-  "coq_lines": 3988,
-  "command_count": 31,
-  "test_count": 1315,
-  "verified_domain_count": 12
-=======
   "coq_lines": 4268,
   "command_count": 32,
   "test_count": 1557,
   "verified_domain_count": 13
->>>>>>> cb25041c0 (Fix B188 review findings in ConfigMerge proof model)
 }
