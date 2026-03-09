@@ -22,10 +22,7 @@ type continuation_state = {
   mutable disarmed : bool;
 }
 
-type live_activity_snapshot = {
-  active : bool;
-  generation : int;
-}
+type live_activity_snapshot = { active : bool; generation : int }
 
 type live_activity_state = {
   mutable active_scopes : int;
@@ -964,7 +961,9 @@ let rec turn mgr ~key ~message ?(content_parts = []) ?(attachments = [])
                       | Some f -> f response
                       | None -> Lwt.return_unit
                     in
-                    let* () = drain_queued_messages mgr ~key agent interrupt () in
+                    let* () =
+                      drain_queued_messages mgr ~key agent interrupt ()
+                    in
                     Lwt.return response)))
 
 let delegate_turn mgr ~prompt ~send_reply =
@@ -1151,7 +1150,9 @@ let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
                       | None -> ()
                     in
                     let inject_messages () =
-                      let msgs = take_all_queued_messages_for_injection mgr ~key in
+                      let msgs =
+                        take_all_queued_messages_for_injection mgr ~key
+                      in
                       List.map
                         (fun (qm : queued_message) ->
                           queued_message_prompt

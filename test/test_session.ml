@@ -581,8 +581,7 @@ let test_live_activity_tracks_nested_scopes () =
            let* started = started_p in
            Alcotest.(check bool) "becomes active" true started.Session.active;
            let* outer_snapshot = Session.current_live_activity mgr ~key in
-           Alcotest.(check bool) "outer scope active" true
-             outer_snapshot.active;
+           Alcotest.(check bool) "outer scope active" true outer_snapshot.active;
            let nested_change_p =
              let* _ =
                Session.wait_for_live_activity_change mgr ~key
@@ -593,8 +592,8 @@ let test_live_activity_tracks_nested_scopes () =
            let* () =
              Session.with_live_activity mgr ~key (fun () ->
                  let* inner_snapshot = Session.current_live_activity mgr ~key in
-                 Alcotest.(check bool) "inner scope active" true
-                   inner_snapshot.active;
+                 Alcotest.(check bool)
+                   "inner scope active" true inner_snapshot.active;
                  let* changed =
                    Lwt.pick
                      [
@@ -608,8 +607,8 @@ let test_live_activity_tracks_nested_scopes () =
                  Lwt.return_unit)
            in
            let* still_active = Session.current_live_activity mgr ~key in
-           Alcotest.(check bool) "still active after inner scope" true
-             still_active.active;
+           Alcotest.(check bool)
+             "still active after inner scope" true still_active.active;
            Lwt.return started.generation)
      in
      let* stopped =
@@ -635,13 +634,13 @@ let test_turn_marks_special_command_phase_as_live_activity () =
   Alcotest.(check string)
     "special command response" "Build complete. Sending restart signal..."
     response;
-  Alcotest.(check bool) "special handler sees live activity" true
-    !active_during_handler;
+  Alcotest.(check bool)
+    "special handler sees live activity" true !active_during_handler;
   let final_snapshot =
     Lwt_main.run (Session.current_live_activity mgr ~key:"web:update")
   in
-  Alcotest.(check bool) "live activity cleared after turn" false
-    final_snapshot.Session.active
+  Alcotest.(check bool)
+    "live activity cleared after turn" false final_snapshot.Session.active
 
 let test_drain_queued_messages_marks_live_activity () =
   with_fake_chat_provider (fun config ->
@@ -682,11 +681,11 @@ let test_drain_queued_messages_marks_live_activity () =
                  ~on_drain_progress ()
              in
              let* final_snapshot = Session.current_live_activity mgr ~key in
-             Alcotest.(check bool) "live activity cleared after drain" false
-               final_snapshot.active;
+             Alcotest.(check bool)
+               "live activity cleared after drain" false final_snapshot.active;
              Lwt.return_unit));
-      Alcotest.(check bool) "drain progress sees live activity" true
-        !active_during_progress)
+      Alcotest.(check bool)
+        "drain progress sees live activity" true !active_during_progress)
 
 let queued_message ?channel_name ?channel_type ?sender_id ?sender_name ?channel
     ?channel_id message =

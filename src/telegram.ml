@@ -92,7 +92,6 @@ let pending_text_updates : (string, pending_text_update) Hashtbl.t =
 type typing_watcher = { refresh : unit -> unit }
 
 let typing_watchers : (string, typing_watcher) Hashtbl.t = Hashtbl.create 64
-
 let duplicate_update_ttl_seconds = 600.0
 let text_coalesce_window_seconds = ref 0.15
 
@@ -570,7 +569,9 @@ let rec typing_loop_live_activity ~current_activity ~wait_for_change
                wait_for_change ~after_generation:snapshot.Session.generation
              in
              Lwt.return (`Changed snapshot));
-            (let* () = Lwt.pick [ Lwt_unix.sleep interval; wait_for_refresh () ] in
+            (let* () =
+               Lwt.pick [ Lwt_unix.sleep interval; wait_for_refresh () ]
+             in
              let* snapshot = current_activity () in
              Lwt.return (`Tick snapshot));
           ]
@@ -1414,9 +1415,9 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                   (Status_message.create ~notifier:status_notifier
                      ~parse_mode:"HTML" ())
               else None
-	            in
-	            let visibility = Stream_visibility.create () in
-	            let send_expandable ~name ~result ~is_error =
+            in
+            let visibility = Stream_visibility.create () in
+            let send_expandable ~name ~result ~is_error =
               if is_error then
                 let formatted = Telegram_format.format_error_trace result in
                 send_chunked ~disable_notification:true ~parse_mode:"MarkdownV2"
@@ -1624,7 +1625,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                           in
                           let* () =
                             if status_msg <> None && !current_turn_has_tools
-                            then
+                            then (
                               let* _msg_id =
                                 send_message_with_keyboard
                                   ~disable_notification:true ~bot_token
@@ -1634,7 +1635,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                                   ()
                               in
                               refresh_typing ();
-                              Lwt.return_unit
+                              Lwt.return_unit)
                             else Lwt.return_unit
                           in
                           let thinking =
@@ -1643,7 +1644,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                             | None -> Stream_visibility.thinking_text visibility
                           in
                           let* () =
-                            if thinking <> "" then
+                            if thinking <> "" then (
                               let* () =
                                 send_chunked ~parse_mode:"MarkdownV2" ~bot_token
                                   ~chat_id:update.chat_id
@@ -1654,14 +1655,15 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                                   ()
                               in
                               refresh_typing ();
-                              Lwt.return_unit
+                              Lwt.return_unit)
                             else Lwt.return_unit
                           in
                           let* () =
                             let* () =
                               send_chunked ~parse_mode:"MarkdownV2" ~bot_token
                                 ~chat_id:update.chat_id
-                                ~text:(Telegram_format.markdown_to_mdv2 response)
+                                ~text:
+                                  (Telegram_format.markdown_to_mdv2 response)
                                 ()
                             in
                             refresh_typing ();
@@ -1703,7 +1705,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                     | None -> Lwt.return_unit
                   in
                   let* () =
-                    if status_msg <> None && !current_turn_has_tools then
+                    if status_msg <> None && !current_turn_has_tools then (
                       let* _msg_id =
                         send_message_with_keyboard ~disable_notification:true
                           ~bot_token ~chat_id:update.chat_id
@@ -1712,7 +1714,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                           ()
                       in
                       refresh_typing ();
-                      Lwt.return_unit
+                      Lwt.return_unit)
                     else Lwt.return_unit
                   in
                   let thinking =
@@ -1721,15 +1723,16 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                     | None -> Stream_visibility.thinking_text visibility
                   in
                   let* () =
-                    if thinking <> "" then
+                    if thinking <> "" then (
                       let* () =
                         send_chunked ~parse_mode:"MarkdownV2" ~bot_token
                           ~chat_id:update.chat_id
-                          ~text:("_" ^ Telegram_format.escape_mdv2 thinking ^ "_")
+                          ~text:
+                            ("_" ^ Telegram_format.escape_mdv2 thinking ^ "_")
                           ()
                       in
                       refresh_typing ();
-                      Lwt.return_unit
+                      Lwt.return_unit)
                     else Lwt.return_unit
                   in
                   let* () =

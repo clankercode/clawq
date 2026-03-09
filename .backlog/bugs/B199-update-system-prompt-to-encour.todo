@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-09T16:28:41Z"
+claimed_by: cli-user
+completed_at: "2026-03-09T16:33:53Z"
 complexity: medium
 depends_on: []
+duration_minutes: 5.214405800733333
 estimate_hours: 1
 id: B199
 priority: high
-status: pending
+started_at: "2026-03-09T16:28:41Z"
+status: done
 tags: []
 title: Update system prompt to encourage agent to talk to the user through send_message so communication can be asynchronous and the agent can work on long running tasks without needing to stop.
 ---

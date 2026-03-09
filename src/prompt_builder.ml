@@ -372,6 +372,16 @@ let build ~(config : Runtime_config.t) ~tool_registry ?(attachments = [])
         "- When approaching context limits, save progress and state rather \
          than wrapping up prematurely. Your context may be compacted \
          automatically, allowing you to continue working.";
+      add
+        "- Use `send_message` to communicate progress, results, blockers, and \
+         milestones asynchronously. This allows you to notify the user without \
+         stopping work. Prefer sending a message and continuing over stopping \
+         to wait for acknowledgment.";
+      add
+        "- When you have the tools and context to make progress, do so. \
+         Default to action over asking permission for internal, reversible \
+         work. Reserve questions for genuinely ambiguous goals or irreversible \
+         external actions.";
       add ""
     end;
     if config.prompt.include_workspace_section then begin
@@ -421,7 +431,9 @@ let build ~(config : Runtime_config.t) ~tool_registry ?(attachments = [])
     add
       "- State what you know, what you verified, and what remains uncertain — \
        never conflate the three.";
-    add "- Scope every intervention to what was actually requested.";
+    add
+      "- Scope interventions to what was requested, but do not hesitate to fix \
+       obvious adjacent issues or continue naturally related work.";
     if config.prompt.include_tools_section then begin
       add "";
       add "## Tools";
