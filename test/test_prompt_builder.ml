@@ -54,6 +54,7 @@ let test_dynamic_prompt_includes_workspace_files () =
           include_safety_section = false;
           include_runtime_section = false;
           include_datetime_section = false;
+          include_autonomy_section = false;
           workspace_files = [ "EGO.md"; "AGENTS.md" ];
         }
       in
@@ -196,6 +197,7 @@ let test_build_messages_picks_up_workspace_file_changes () =
           include_safety_section = false;
           include_runtime_section = false;
           include_datetime_section = false;
+          include_autonomy_section = false;
           workspace_files = [ "AGENTS.md" ];
         }
       in
@@ -240,6 +242,7 @@ let test_build_messages_picks_up_new_workspace_file () =
           include_safety_section = false;
           include_runtime_section = false;
           include_datetime_section = false;
+          include_autonomy_section = false;
           workspace_files = [ "AGENTS.md" ];
         }
       in
@@ -279,6 +282,7 @@ let test_build_messages_picks_up_deleted_workspace_file () =
           include_safety_section = false;
           include_runtime_section = false;
           include_datetime_section = false;
+          include_autonomy_section = false;
           workspace_files = [ "AGENTS.md" ];
         }
       in
@@ -305,6 +309,107 @@ let test_build_messages_picks_up_deleted_workspace_file () =
         "content gone after deletion" false
         (contains sys2.content "DOOMED CONTENT"))
 
+let test_dynamic_prompt_includes_autonomy_section () =
+  with_temp_workspace (fun workspace ->
+      let prompt_cfg =
+        {
+          Runtime_config.default.prompt with
+          dynamic_enabled = true;
+          include_tools_section = false;
+          include_safety_section = false;
+          include_runtime_section = false;
+          include_datetime_section = false;
+          include_autonomy_section = true;
+          include_workspace_section = false;
+        }
+      in
+      let cfg =
+        { Runtime_config.default with workspace; prompt = prompt_cfg }
+      in
+      let prompt = Prompt_builder.build ~config:cfg ~tool_registry:None () in
+      Alcotest.(check bool)
+        "has autonomy header" true
+        (contains prompt "## Autonomous Operation");
+      Alcotest.(check bool)
+        "has steering information" true
+        (contains prompt "steering information");
+      Alcotest.(check bool)
+        "has continuous execution" true
+        (contains prompt "continuous execution");
+      Alcotest.(check bool)
+        "has explicitly ask you to stop" true
+        (contains prompt "explicitly ask you to stop"))
+
+let test_dynamic_prompt_excludes_autonomy_section_when_disabled () =
+  with_temp_workspace (fun workspace ->
+      let prompt_cfg =
+        {
+          Runtime_config.default.prompt with
+          dynamic_enabled = true;
+          include_tools_section = false;
+          include_safety_section = false;
+          include_runtime_section = false;
+          include_datetime_section = false;
+          include_autonomy_section = false;
+          include_workspace_section = false;
+        }
+      in
+      let cfg =
+        { Runtime_config.default with workspace; prompt = prompt_cfg }
+      in
+      let prompt = Prompt_builder.build ~config:cfg ~tool_registry:None () in
+      Alcotest.(check bool)
+        "no autonomy header" false
+        (contains prompt "## Autonomous Operation"))
+
+let test_autonomy_section_appears_before_workspace () =
+  with_temp_workspace (fun workspace ->
+      write_file (Filename.concat workspace "EGO.md") "EGO CONTENT";
+      let prompt_cfg =
+        {
+          Runtime_config.default.prompt with
+          dynamic_enabled = true;
+          include_tools_section = false;
+          include_safety_section = false;
+          include_runtime_section = false;
+          include_datetime_section = false;
+          include_autonomy_section = true;
+          include_workspace_section = true;
+          workspace_files = [ "EGO.md" ];
+        }
+      in
+      let cfg =
+        { Runtime_config.default with workspace; prompt = prompt_cfg }
+      in
+      let prompt = Prompt_builder.build ~config:cfg ~tool_registry:None () in
+      let autonomy_pos =
+        try
+          let _ =
+            Str.search_forward
+              (Str.regexp_string "## Autonomous Operation")
+              prompt 0
+          in
+          Str.match_beginning ()
+        with Not_found -> max_int
+      in
+      let workspace_pos =
+        try
+          let _ =
+            Str.search_forward
+              (Str.regexp_string "## Workspace Context")
+              prompt 0
+          in
+          Str.match_beginning ()
+        with Not_found -> max_int
+      in
+      Alcotest.(check bool)
+        "autonomy section found" true (autonomy_pos < max_int);
+      Alcotest.(check bool)
+        "workspace section found" true (workspace_pos < max_int);
+      Alcotest.(check bool)
+        "autonomy before workspace" true
+        (autonomy_pos < workspace_pos))
+
 let suite =
   [
     Alcotest.test_case "dynamic prompt disabled uses base prompt" `Quick
@@ -325,4 +430,10 @@ let suite =
       test_build_messages_picks_up_new_workspace_file;
     Alcotest.test_case "build_messages picks up deleted workspace file" `Quick
       test_build_messages_picks_up_deleted_workspace_file;
+    Alcotest.test_case "dynamic prompt includes autonomy section" `Quick
+      test_dynamic_prompt_includes_autonomy_section;
+    Alcotest.test_case "dynamic prompt excludes autonomy section when disabled"
+      `Quick test_dynamic_prompt_excludes_autonomy_section_when_disabled;
+    Alcotest.test_case "autonomy section appears before workspace" `Quick
+      test_autonomy_section_appears_before_workspace;
   ]

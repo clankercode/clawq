@@ -198,6 +198,7 @@ type prompt_config = {
   include_workspace_section : bool;
   include_runtime_section : bool;
   include_datetime_section : bool;
+  include_autonomy_section : bool;
   workspace_files : string list;
   max_workspace_file_chars : int;
   max_workspace_total_chars : int;
@@ -381,6 +382,7 @@ let default_prompt =
     include_workspace_section = true;
     include_runtime_section = true;
     include_datetime_section = true;
+    include_autonomy_section = true;
     workspace_files = default_workspace_files;
     max_workspace_file_chars = 8000;
     max_workspace_total_chars = 20000;
@@ -844,6 +846,7 @@ let to_json (cfg : t) : Yojson.Safe.t =
                 `Bool prompt.include_workspace_section );
               ("include_runtime_section", `Bool prompt.include_runtime_section);
               ("include_datetime_section", `Bool prompt.include_datetime_section);
+              ("include_autonomy_section", `Bool prompt.include_autonomy_section);
               ( "workspace_files",
                 `List (List.map (fun f -> `String f) prompt.workspace_files) );
               ("max_workspace_file_chars", `Int prompt.max_workspace_file_chars);

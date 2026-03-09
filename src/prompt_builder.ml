@@ -353,6 +353,27 @@ let build ~(config : Runtime_config.t) ~tool_registry ?(attachments = [])
       add base_prompt;
       add ""
     end;
+    if config.prompt.include_autonomy_section then begin
+      add "## Autonomous Operation";
+      add
+        "- You are designed for autonomous, long-running operation. Prioritize \
+         continuous execution and completing tasks fully rather than stopping \
+         early or waiting for confirmation.";
+      add
+        "- Messages injected during your workflow are steering information or \
+         side-questions. Incorporate them into your ongoing work without \
+         interrupting your current task, unless they explicitly ask you to \
+         stop, pause, or wait for a response.";
+      add
+        "- Do not treat an incoming message as a signal to abandon or \
+         deprioritize your current work. Acknowledge it, address it if brief, \
+         or note it for follow-up, then continue.";
+      add
+        "- When approaching context limits, save progress and state rather \
+         than wrapping up prematurely. Your context may be compacted \
+         automatically, allowing you to continue working.";
+      add ""
+    end;
     if config.prompt.include_workspace_section then begin
       add "## Workspace Context";
       add ("Root: " ^ ws);

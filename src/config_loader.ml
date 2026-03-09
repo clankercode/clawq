@@ -195,6 +195,10 @@ let parse_config ?(resolve_secrets = true) json =
         try p |> member "include_datetime_section" |> to_bool
         with _ -> default.prompt.include_datetime_section
       in
+      let include_autonomy_section =
+        try p |> member "include_autonomy_section" |> to_bool
+        with _ -> default.prompt.include_autonomy_section
+      in
       let workspace_files =
         try p |> member "workspace_files" |> to_list |> List.map to_string
         with _ -> default.prompt.workspace_files
@@ -214,6 +218,7 @@ let parse_config ?(resolve_secrets = true) json =
          include_workspace_section;
          include_runtime_section;
          include_datetime_section;
+         include_autonomy_section;
          workspace_files;
          max_workspace_file_chars;
          max_workspace_total_chars;

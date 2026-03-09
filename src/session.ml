@@ -192,9 +192,10 @@ let take_all_queued_messages_for_injection mgr ~key =
   msgs
 
 let queued_message_prompt message =
-  "A new message arrived in this same channel while you were working on the "
-  ^ "previous task. Respond to it now. If it still makes sense afterward, "
-  ^ "continue the previous task.\n\nNew message:\n" ^ message
+  "A new message arrived while you were working. Treat it as steering "
+  ^ "information or a side-question — incorporate it without interrupting "
+  ^ "your current task unless it explicitly asks you to stop or change "
+  ^ "course.\n\nInjected message:\n" ^ message
 
 let resumable_channel = function
   | "telegram" | "slack" | "discord" -> true
