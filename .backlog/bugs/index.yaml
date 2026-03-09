@@ -133,3 +133,4 @@ bugs:
     - file: B132-background-tasks-should-record.todo
     - file: B133-avoid-redundant-manual-workspa.todo
     - file: B134-autonomous-continuation-inject.todo
+    - file: B135-keep-a-trailing-progress-messa.todo

@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B135
+priority: medium
+status: pending
+tags: []
+title: Keep a trailing progress message after asynchronous channel replies
+---
+Telegram asynchronous replies currently leave the latest async reply as the last visible message in chat. Desired UX: maintain a trailing progress/status message after each async reply, so the most recent chat item remains a live progress indicator rather than an older reply. Example flow: progress msg -> async reply -> recreate/update progress msg after the reply; repeat so the tail of the chat remains operational status. Need a channel-aware design for Telegram and likely other editable-message channels.
