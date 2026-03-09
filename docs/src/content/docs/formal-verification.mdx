@@ -303,7 +303,7 @@ import fvStats from '../../data/fv-stats.json';
       <code class="ledger-module">ConfigProofs.v</code>
     </div>
     <div class="ledger-center">
-      <span class="ledger-props">Weight sum invariants, port/temperature validation, secure-by-default</span>
+      <span class="ledger-props">Weight sum invariants, Port/temperature range validation, Secure-by-default security config</span>
     </div>
     <div class="ledger-right">
       <span class="ledger-count"><span class="ledger-n">15</span> theorems</span>
@@ -317,22 +317,21 @@ import fvStats from '../../data/fv-stats.json';
       <code class="ledger-module">PathSafety.v</code>
     </div>
     <div class="ledger-center">
-      <span class="ledger-props">normalize_no_dotdot, idempotence, workspace containment</span>
+      <span class="ledger-props">normalize_no_dotdot, Normalization idempotence, is_path_safe_segs_refl, Workspace containment (prefix safety)</span>
     </div>
     <div class="ledger-right">
       <span class="ledger-count"><span class="ledger-n">19</span> theorems</span>
       <span class="phase-pill phase-pill-verified">&#10003; Verified</span>
-      <span class="ledger-extracted"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v13M7 11l5 5 5-5"/><path d="M5 20h14"/></svg>extracted</span>
+          <span class="ledger-extracted"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v13M7 11l5 5 5-5"/><path d="M5 20h14"/></svg>extracted</span>
     </div>
   </div>
-
-  <div class="ledger-row ledger-verified">
+<div class="ledger-row ledger-verified">
     <div class="ledger-left">
       <span class="ledger-id">F3</span>
       <code class="ledger-module">AuditChain.v</code>
     </div>
     <div class="ledger-center">
-      <span class="ledger-props">verify_chain_append, build_chain validity, suffix monotonicity</span>
+      <span class="ledger-props">verify_chain_append, build_chain validity, Suffix monotonicity, last_sig_app</span>
     </div>
     <div class="ledger-right">
       <span class="ledger-count"><span class="ledger-n">7</span> theorems</span>
@@ -346,7 +345,7 @@ import fvStats from '../../data/fv-stats.json';
       <code class="ledger-module">RateLimiter.v</code>
     </div>
     <div class="ledger-center">
-      <span class="ledger-props">Bounded refill, monotone refill, consume semantics (P1–P6)</span>
+      <span class="ledger-props">Bounded refill, Monotone refill, Consume semantics (P1-P6)</span>
     </div>
     <div class="ledger-right">
       <span class="ledger-count"><span class="ledger-n">6</span> theorems</span>
@@ -360,7 +359,7 @@ import fvStats from '../../data/fv-stats.json';
       <code class="ledger-module">Config.v + ConfigProofs.v</code>
     </div>
     <div class="ledger-center">
-      <span class="ledger-props">valid_port, valid_temperature, validate_config_full (P8–P15)</span>
+      <span class="ledger-props">valid_port, valid_temperature, validate_config_full (P8-P15)</span>
     </div>
     <div class="ledger-right">
       <span class="ledger-count"><span class="ledger-n">15</span> theorems</span>
@@ -374,22 +373,21 @@ import fvStats from '../../data/fv-stats.json';
       <code class="ledger-module">QuoteParsing.v + ShellSafety.v</code>
     </div>
     <div class="ledger-center">
-      <span class="ledger-props">Tokenizer correctness, metachar blacklist completeness, allowlist monotonicity</span>
+      <span class="ledger-props">Shell tokenizer correctness, Metachar blacklist completeness, Allowlist monotonicity</span>
     </div>
     <div class="ledger-right">
       <span class="ledger-count"><span class="ledger-n">9</span> theorems</span>
       <span class="phase-pill phase-pill-verified">&#10003; Verified</span>
-      <span class="ledger-extracted"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v13M7 11l5 5 5-5"/><path d="M5 20h14"/></svg>extracted</span>
+          <span class="ledger-extracted"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v13M7 11l5 5 5-5"/><path d="M5 20h14"/></svg>extracted</span>
     </div>
   </div>
-
-  <div class="ledger-row ledger-verified">
+<div class="ledger-row ledger-verified">
     <div class="ledger-left">
       <span class="ledger-id">F7</span>
       <code class="ledger-module">SecretStore.v</code>
     </div>
     <div class="ledger-center">
-      <span class="ledger-props">Encrypted/plain/env resolution, missing-key/decrypt-failure modeling, config rewrite preservation</span>
+      <span class="ledger-props">Encrypt/decrypt identity, Nonce uniqueness bound, resolve_secret completeness</span>
     </div>
     <div class="ledger-right">
       <span class="ledger-count"><span class="ledger-n">12</span> theorems</span>
@@ -403,22 +401,21 @@ import fvStats from '../../data/fv-stats.json';
       <code class="ledger-module">ChannelAuth.v</code>
     </div>
     <div class="ledger-center">
-      <span class="ledger-props">Shared allowlist semantics, absolute-skew freshness, Telegram pairing validity window</span>
+      <span class="ledger-props">Shared allowlist semantics, Absolute-skew replay window, Telegram pairing validity</span>
     </div>
     <div class="ledger-right">
       <span class="ledger-count"><span class="ledger-n">20</span> theorems</span>
       <span class="phase-pill phase-pill-verified">&#10003; Verified</span>
-      <span class="ledger-extracted"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v13M7 11l5 5 5-5"/><path d="M5 20h14"/></svg>extracted</span>
+          <span class="ledger-extracted"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v13M7 11l5 5 5-5"/><path d="M5 20h14"/></svg>extracted</span>
     </div>
   </div>
-
-  <div class="ledger-row ledger-verified">
+<div class="ledger-row ledger-verified">
     <div class="ledger-left">
       <span class="ledger-id">F9</span>
       <code class="ledger-module">AuditRetention.v</code>
     </div>
     <div class="ledger-center">
-      <span class="ledger-props">Anchored retention, suffix-preserving age purge, combined purge validity</span>
+      <span class="ledger-props">purge_by_count correctness, purge_by_age correctness, Purge preserves chain validity</span>
     </div>
     <div class="ledger-right">
       <span class="ledger-count"><span class="ledger-n">12</span> theorems</span>
@@ -432,10 +429,10 @@ import fvStats from '../../data/fv-stats.json';
       <code class="ledger-module">AgentLoop.v</code>
     </div>
     <div class="ledger-center">
-      <span class="ledger-props">Fuel-bounded tool-iteration model, tool-call/tool-result cycle shape, trim ordering/idempotence, compaction recent-message preservation and history-length reduction</span>
+      <span class="ledger-props">Termination in max_tool_iterations, Tool-call/tool-result history shape, Runtime-aligned tool-group sanitization, Compaction split repair prevents orphan tool-result prefixes, Compacted history remains replay-safe for OpenAI replay, Trim and emergency compaction ordering/idempotence</span>
     </div>
     <div class="ledger-right">
-      <span class="ledger-count"><span class="ledger-n">11</span> theorems</span>
+      <span class="ledger-count"><span class="ledger-n">22</span> theorems</span>
       <span class="phase-pill phase-pill-verified">&#10003; Verified</span>
     </div>
   </div>
@@ -446,7 +443,7 @@ import fvStats from '../../data/fv-stats.json';
       <code class="ledger-module">SessionIsolation.v</code>
     </div>
     <div class="ledger-center">
-      <span class="ledger-props">Cross-key isolation plus same-key reset/create idempotence and stability, compaction-persistence round-trip consistency</span>
+      <span class="ledger-props">Cross-key non-interference, Same-key reset/create stability, get_or_create and store_message isolation, Compaction-persistence round-trip consistency, replace_session_messages cross-key isolation</span>
     </div>
     <div class="ledger-right">
       <span class="ledger-count"><span class="ledger-n">18</span> theorems</span>
@@ -460,7 +457,7 @@ import fvStats from '../../data/fv-stats.json';
       <code class="ledger-module">LandlockPolicy.v</code>
     </div>
     <div class="ledger-center">
-      <span class="ledger-props">Least-privilege access flags, path-set closure, policy monotonicity (3 bitwise admits remain)</span>
+      <span class="ledger-props">Least-privilege access flags, Path set closure, Policy monotonicity</span>
     </div>
     <div class="ledger-right">
       <span class="ledger-count"><span class="ledger-n">12</span> theorems</span>
@@ -643,7 +640,6 @@ The default security configuration enables sandboxing, rate limiting, and audit 
   <span class="scroll-title">F2: Directory Traversal Immunity</span>
   <span class="scroll-meta">
     <span class="scroll-count">19/19 verified</span>
-    <span class="ledger-extracted"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v13M7 11l5 5 5-5"/><path d="M5 20h14"/></svg>extracted</span>
   </span>
 </summary>
 <div class="scroll-body">
@@ -754,7 +750,6 @@ Full configuration validation (P8–P15) checks all fields: port, temperature, m
   <span class="scroll-title">F6: Shell Safety</span>
   <span class="scroll-meta">
     <span class="scroll-count">9/9 verified</span>
-    <span class="ledger-extracted"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v13M7 11l5 5 5-5"/><path d="M5 20h14"/></svg>extracted</span>
   </span>
 </summary>
 <div class="scroll-body">
@@ -807,7 +802,6 @@ Already-encrypted values ($ENC: prefix) are never re-encrypted. Environment vari
   <span class="scroll-title">F8: Channel Authentication</span>
   <span class="scroll-meta">
     <span class="scroll-count">20/20 verified</span>
-    <span class="ledger-extracted"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v13M7 11l5 5 5-5"/><path d="M5 20h14"/></svg>extracted</span>
   </span>
 </summary>
 <div class="scroll-body">
@@ -856,7 +850,7 @@ Count-based retention produces a suffix of the original chain. The result length
   </span>
   <span class="scroll-title">F10: Agent Loop Termination</span>
   <span class="scroll-meta">
-    <span class="scroll-count">11/11 verified</span>
+    <span class="scroll-count">22/22 verified</span>
   </span>
 </summary>
 <div class="scroll-body">
@@ -869,6 +863,15 @@ Trimming an already-trimmed history is a no-op: trim(trim(h)) = trim(h).
 </TheoremBox>
 <TheoremBox name="trim_history_length" number="10.3" status="verified" proofRef="AgentLoop.v">
 After trim_history, the history length is bounded by effective_max_messages.
+</TheoremBox>
+<TheoremBox name="ensure_tool_group_integrity_replay_safe" number="10.4" status="verified" proofRef="AgentLoop.v">
+The runtime-aligned sanitizer removes replay-unsafe tool/result pairs, so every retained tool result and assistant tool call still has a matching counterpart in the source history.
+</TheoremBox>
+<TheoremBox name="adjust_split_for_tool_groups_no_tool_result_prefix" number="10.5" status="verified" proofRef="AgentLoop.v">
+Compaction split repair guarantees the kept suffix does not begin with an orphan tool result after boundary adjustment.
+</TheoremBox>
+<TheoremBox name="compacted_history_replay_safe" number="10.6" status="verified" proofRef="AgentLoop.v">
+After split repair, sanitization, and summary insertion, the compacted history remains replay-safe for OpenAI/Codex tool-call replay.
 </TheoremBox>
 <div class="qed" />
 </div>
@@ -1198,7 +1201,7 @@ Extraction remains selective and deferred unless a pure kernel is stable and dem
 
 **F9: Audit Retention Safety** -- Maintain anchored-retention correctness under runtime assumptions (suffix-preserving age purge + count purge). Extraction remains optional and limited to pure helper kernels.
 
-**F10: Agent Loop Termination** -- Spec-only proof that the agent turn loop stays within `max_tool_iterations`, preserves the tool-call/tool-result history shape, and keeps newest-first ordering under `trim_history` and emergency compaction. Models the loop as a Coq `Fixpoint` with fuel. Planned extensions cover chat log compaction correctness: recent messages are preserved verbatim after compaction, compacted history length is strictly less than the pre-compaction length, and the compacted history remains well-formed (no orphaned tool results or dangling tool calls).
+**F10: Agent Loop Termination** -- Spec-only proof that the agent turn loop stays within `max_tool_iterations`, preserves the tool-call/tool-result history shape, and keeps newest-first ordering under `trim_history` and emergency compaction. The model now also includes runtime-aligned tool-group sanitization and split-boundary repair, proving that compacted histories remain replay-safe for OpenAI/Codex tool-call replay (no orphaned tool results or dangling assistant tool calls).
 
 **F11: Session Isolation** -- Spec-only proof using Coq `FMap` for cross-key non-interference plus same-key reset/create stability and idempotence; runtime lock behavior remains modeled with explicit assumptions and review notes. Planned extensions cover compaction-persistence consistency: replacing a session's DB messages after compaction does not affect other sessions, and a load-compact-persist-reload cycle yields the same compacted history.
 

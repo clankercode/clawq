@@ -342,20 +342,86 @@ yml_path, mdx_path = sys.argv[1], sys.argv[2]
 with open(yml_path) as f:
     phases = yaml.safe_load(f)
 
-# Build phase -> (theorems, status) map.  F0 uses "F0", F1 uses "F1", etc.
+# Build phase metadata map. F0 uses "F0", F1 uses "F1", etc.
 phase_data = {}
 for p in phases:
     pid = p['phase']
-    phase_data[pid] = {'theorems': p['theorems'], 'status': p['status']}
+    phase_data[pid] = {
+        'theorems': p['theorems'],
+        'status': p['status'],
+        'module': p.get('module', ''),
+        'props': ', '.join(p.get('key_properties', [])),
+        'extracted': bool(p.get('extracted', False)),
+    }
+
+status_meta = {
+    'verified': {
+        'phase_class': 'phase-verified',
+        'ledger_class': 'ledger-verified',
+        'pill_class': 'phase-pill-verified',
+        'pill_html': '&#10003; Verified',
+        'scroll_label': 'verified',
+    },
+    'in_progress': {
+        'phase_class': 'phase-progress',
+        'ledger_class': 'ledger-progress',
+        'pill_class': 'phase-pill-progress',
+        'pill_html': 'In Progress',
+        'scroll_label': 'in progress',
+    },
+    'planned': {
+        'phase_class': 'phase-planned',
+        'ledger_class': 'ledger-planned',
+        'pill_class': 'phase-pill-planned',
+        'pill_html': 'Planned',
+        'scroll_label': 'planned',
+    },
+}
+
+extracted_badge = (
+    '<span class="ledger-extracted"><svg width="11" height="11" viewBox="0 0 24 24" '
+    'fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" '
+    'stroke-linejoin="round" aria-hidden="true"><path d="M12 3v13M7 11l5 5 5-5"/>'
+    '<path d="M5 20h14"/></svg>extracted</span>'
+)
 
 with open(mdx_path) as f:
     content = f.read()
 
 changes = 0
 
+def patch_phase_card_block(block):
+    global changes
+    m = re.search(r'<span class="phase-id">(F\d+)</span>', block)
+    if not m:
+        return block
+    pid = m.group(1)
+    if pid not in phase_data:
+        return block
+    meta = phase_data[pid]
+    sm = status_meta[meta['status']]
+    old = block
+    block = re.sub(
+        r'(<div class=")phase-card phase-[^"]+(">)',
+        lambda m: f'{m.group(1)}phase-card {sm["phase_class"]}{m.group(2)}',
+        block,
+        count=1,
+    )
+    block = re.sub(
+        r'<span class="phase-pill [^"]+">.*?</span>',
+        f'<span class="phase-pill {sm["pill_class"]}">{sm["pill_html"]}</span>',
+        block,
+        count=1,
+        flags=re.S,
+    )
+    if block != old:
+        changes += 1
+        print(f"  {pid} phase-card status -> {meta['status']}")
+    return block
+
 # 1. Patch ledger rows: find pattern <span class="ledger-id">F#</span> ...
-#    then update <span class="ledger-n">N</span> on a nearby line.
-# Strategy: split into ledger-row blocks, update each.
+#    then update module, properties, count, status, and extracted badge.
+# Strategy: split into row blocks, patch each.
 def patch_ledger_block(block):
     global changes
     m = re.search(r'<span class="ledger-id">(F\d+)</span>', block)
@@ -364,19 +430,75 @@ def patch_ledger_block(block):
     pid = m.group(1)
     if pid not in phase_data:
         return block
-    n = phase_data[pid]['theorems']
+    meta = phase_data[pid]
+    sm = status_meta[meta['status']]
+    n = meta['theorems']
     old = block
+    block = re.sub(
+        r'(<div class=")ledger-row ledger-[^"]+(">)',
+        lambda m: f'{m.group(1)}ledger-row {sm["ledger_class"]}{m.group(2)}',
+        block,
+        count=1,
+    )
+    block = re.sub(
+        r'(<code class="ledger-module">).*?(</code>)',
+        lambda m: f'{m.group(1)}{meta["module"]}{m.group(2)}',
+        block,
+        count=1,
+        flags=re.S,
+    )
+    block = re.sub(
+        r'(<span class="ledger-props">).*?(</span>)',
+        lambda m: f'{m.group(1)}{meta["props"]}{m.group(2)}',
+        block,
+        count=1,
+        flags=re.S,
+    )
     block = re.sub(
         r'(<span class="ledger-n">)\d+(</span>)',
         lambda m: f'{m.group(1)}{n}{m.group(2)}',
-        block
+        block,
+        count=1,
     )
+    block = re.sub(
+        r'<span class="phase-pill [^"]+">.*?</span>',
+        f'<span class="phase-pill {sm["pill_class"]}">{sm["pill_html"]}</span>',
+        block,
+        count=1,
+        flags=re.S,
+    )
+    block = re.sub(r'\s*<span class="ledger-extracted">.*?</span>', '', block, flags=re.S)
+    if meta['extracted']:
+        block = re.sub(
+            r'(</div>\s*</div>\s*)$',
+            f'      {extracted_badge}\n    </div>\n  </div>\n',
+            block,
+            count=1,
+        )
     if block != old:
         changes += 1
-        print(f"  {pid} ledger-n -> {n}")
+        print(f"  {pid} ledger -> synced")
     return block
 
-# Split on ledger-row divs, patch each
+# 1a. Patch phase cards in the status grid.
+parts = re.split(r'(<div class="phase-card[^"]*">)', content)
+patched = []
+i = 0
+while i < len(parts):
+    if re.match(r'<div class="phase-card', parts[i]):
+        block = parts[i]
+        if i + 1 < len(parts):
+            block += parts[i + 1]
+            i += 2
+        else:
+            i += 1
+        patched.append(patch_phase_card_block(block))
+    else:
+        patched.append(parts[i])
+        i += 1
+content = ''.join(patched)
+
+# 1b. Split on ledger-row divs, patch each
 parts = re.split(r'(<div class="ledger-row[^"]*">)', content)
 patched = []
 i = 0
@@ -415,7 +537,7 @@ def patch_scroll_counts(content):
         rest = content[m.end():]
         sc = re.search(r'(<span class="scroll-count">)\d+/\d+ \w+(</span>)', rest)
         if sc:
-            label = 'verified' if status == 'verified' else 'in progress' if status == 'in_progress' else 'planned'
+            label = status_meta[status]['scroll_label']
             new_val = f'{sc.group(1)}{n}/{n} {label}{sc.group(2)}'
             old_val = sc.group(0)
             if old_val != new_val:

@@ -152,7 +152,7 @@
   module: "AgentLoop.v"
   title: "Agent Loop Termination"
   status: "verified"
-  theorems: 11
+  theorems: 22
   extracted: false
   security_roi: "medium"
   difficulty: "low"
@@ -160,10 +160,10 @@
   key_properties:
     - "Termination in max_tool_iterations"
     - "Tool-call/tool-result history shape"
-    - "Trim and emergency compaction ordering"
-    - "Compaction preserves recent messages"
-    - "Compaction reduces history length"
-    - "Compaction idempotence below threshold"
+    - "Runtime-aligned tool-group sanitization"
+    - "Compaction split repair prevents orphan tool-result prefixes"
+    - "Compacted history remains replay-safe for OpenAI replay"
+    - "Trim and emergency compaction ordering/idempotence"
 
 - phase: "F11"
   module: "SessionIsolation.v"

@@ -12,6 +12,13 @@ behavior in `src/agent.ml` and existing tests.
     `execute_tool_calls` and `execute_tool_calls_stream`.
 - `trim_history_idempotent`, `trim_history_preserves_prefix`
   - Runtime analogue: `trim_history` and force-compression ordering constraints.
+- `ensure_tool_group_integrity_replay_safe`
+  - Runtime analogue: `Message_history.ensure_tool_group_integrity` removes orphan
+    tool results and dangling assistant tool calls before OpenAI/Codex replay.
+- `adjust_split_for_tool_groups_no_tool_result_prefix`, `compacted_history_replay_safe`
+  - Runtime analogue: compaction boundary repair plus sanitized replay in
+    `compact_history_if_needed`, `force_compact_history`, and
+    `Provider_openai_codex.build_body`.
 
 ## Runtime tests/traces tied to these assumptions
 
