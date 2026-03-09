@@ -12,9 +12,11 @@ Local Open Scope nat_scope.
    are abstract parameters with axioms trusting Mirage_crypto.
 
    Key theorems:
-   - encrypt_decrypt_identity: decrypt(encrypt(m)) = Some m
-   - is_encrypted_correct: identifies $ENC: prefix precisely
-   - resolve_secret_completeness: all cases handled correctly
+   - decrypt_secret_plaintext_passthrough: plaintext inputs pass through unchanged
+   - is_encrypted_correct: encrypted inputs have the $ENC: prefix and length > 5
+   - resolve_secret_plaintext_passthrough / resolve_secret_env_var
+   - resolve_secret_runtime_*: encrypted-branch behavior for missing master key,
+     decrypt failure, and decrypt success
 
    No extraction (relies on C primitives via Mirage_crypto).
 
@@ -377,7 +379,7 @@ Proof.
   reflexivity.
 Qed.
 
-(* Theorem 3: is_encrypted correctly identifies the prefix. *)
+(* Theorem 3: encrypted inputs have the expected prefix and minimum length. *)
 Theorem is_encrypted_correct : forall value,
   is_encrypted value = true ->
   has_prefix encrypted_prefix value = true /\ 5 < string_length value.
@@ -649,5 +651,6 @@ Qed.
 
    Trusted boundaries (explicit):
    - encrypt_decrypt_identity is axiomatized over abstract framing/crypto
-   - Crypto primitives and string-prefix primitives remain abstract
+   - Remaining axioms are aes_gcm_correct, aes_gcm_authentication_failure,
+     base64_roundtrip, nonce_collision_probability, and split_concat_inverse
    ================================================================ *)
