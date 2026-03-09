@@ -151,7 +151,7 @@ let add_runtime_details lines (details : runtime_context_details) =
            usage.max_messages_per_session usage.compaction_threshold_tokens
            (yes_no usage.compacted_before_turn)));
   (match details.background_tasks with
-  | [] -> ()
+  | [] -> add "- Background tasks: none running"
   | tasks ->
       add
         ("- Background tasks:"

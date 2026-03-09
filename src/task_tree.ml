@@ -1693,8 +1693,7 @@ let tool ~db ?notify () : Tool.t =
                                                       `Assoc
                                                         [
                                                           ( "type",
-                                                            `String "integer"
-                                                          );
+                                                            `String "integer" );
                                                         ] );
                                                     ( "note",
                                                       `Assoc

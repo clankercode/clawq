@@ -182,7 +182,10 @@ let test_runtime_context_includes_session_details () =
         "includes compaction trigger" true
         (contains runtime
            "- Compaction: before a turn when history > 500 messages or est \
-            tokens > 96000; compacted before this turn: yes"))
+            tokens > 96000; compacted before this turn: yes");
+      Alcotest.(check bool)
+        "includes no background tasks line" true
+        (contains runtime "- Background tasks: none running"))
 
 let remove_file path = try Sys.remove path with _ -> ()
 
