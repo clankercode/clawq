@@ -272,6 +272,40 @@ let skills_cmd =
       `I ("init", "Create an example skill file.");
     ]
 
+let benchmark_cmd =
+  let iterations =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "iterations"; "n" ] ~docv:"N"
+          ~doc:"Number of iterations per tool (default 10).")
+  in
+  let tool =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "tool" ] ~docv:"NAME" ~doc:"Benchmark only the named tool.")
+  in
+  Cmd.v
+    (Cmd.info "benchmark"
+       ~doc:"Measure tool invocation latency to diagnose performance.")
+    Term.(
+      ret
+        (const (fun iterations tool ->
+             let args = [] in
+             let args =
+               match iterations with
+               | Some n -> args @ [ "--iterations"; n ]
+               | None -> args
+             in
+             let args =
+               match tool with
+               | Some name -> args @ [ "--tool"; name ]
+               | None -> args
+             in
+             run "benchmark" args)
+        $ iterations $ tool))
+
 let migrate_cmd = with_args "migrate" "Run database migrations." []
 
 (* Disabled-in-minimal stubs — shown in help but print a clear message at runtime *)
@@ -349,6 +383,7 @@ let () =
       otp_show_cmd;
       version_cmd;
       hardware_cmd;
+      benchmark_cmd;
     ]
   in
   exit (Cmd.eval ~argv ~env:help_env (Cmd.group main_info cmds))

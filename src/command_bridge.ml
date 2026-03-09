@@ -2693,4 +2693,5 @@ let handle args =
   | "reset-workspace" :: _ -> cmd_reset_workspace ()
   | "otp-show" :: _ -> cmd_otp_show ()
   | "debug" :: rest -> cmd_debug rest
+  | "benchmark" :: rest -> Benchmark.run rest
   | _ -> Clawq_core.dispatch args

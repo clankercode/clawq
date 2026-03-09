@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-09T18:29:59Z"
+claimed_by: cli-user
+completed_at: "2026-03-10T00:00:00Z"
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B213
 priority: high
-status: pending
+started_at: "2026-03-09T18:29:59Z"
+status: done
 tags: []
 title: Add a tool call benchmark -- sometimes it seems like tool calls never run faster than 2s, which shouldn't be the case. We should have a tool call benchmark for bash commands and some other common tool calls.
 ---

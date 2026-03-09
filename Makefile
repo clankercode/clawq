@@ -2,7 +2,7 @@ SHELL_SWITCH ?= clawq-5.1
 SHELL := opam exec --switch=$(SHELL_SWITCH) -- /usr/bin/env bash
 .SHELLFLAGS := -c
 
-.PHONY: bootstrap build restart build-restart build-minimal build-wasm build-opt build-opt-all build-opt-speed build-opt-size build-opt-minimal build-opt-stripped build-opt-stripped-all build-opt-speed-stripped build-opt-size-stripped binary-size-report binary-size-check dependency-audit native-size-report packaging-report flambda-experiment extract extract-check coq-verify coq-check run phase2 test test-all fmt fmt-check ui ui-dev ui-check clean release docker-build docker-run verify-report coverage coverage-summary coverage-switch-setup embed-ui update-fv fv-all
+.PHONY: bootstrap build restart build-restart build-minimal build-wasm build-opt build-opt-all build-opt-speed build-opt-size build-opt-minimal build-opt-stripped build-opt-stripped-all build-opt-speed-stripped build-opt-size-stripped binary-size-report binary-size-check dependency-audit native-size-report packaging-report flambda-experiment extract extract-check coq-verify coq-check run phase2 benchmark benchmark-quick test test-all fmt fmt-check ui ui-dev ui-check clean release docker-build docker-run verify-report coverage coverage-summary coverage-switch-setup embed-ui update-fv fv-all
 
 LOCAL_DUNE_BUILD_DIRS := _build _build_opt_speed _build_opt_size _build_opt_min
 
@@ -144,6 +144,14 @@ run:
 phase2:
 	$(call check_dune_lock,_build)
 	dune exec src/main.exe -- phase2
+
+benchmark:
+	$(call check_dune_lock,_build)
+	dune exec src/main.exe -- benchmark
+
+benchmark-quick:
+	$(call check_dune_lock,_build)
+	dune exec src/main.exe -- benchmark --iterations 1
 
 extract-check:
 	@echo "Checking extraction is up to date..."

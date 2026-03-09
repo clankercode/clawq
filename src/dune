@@ -60,7 +60,8 @@
   config_wizard_view
   config_wizard_tui
   restart_exec
-  restart_notify)
+  restart_notify
+  benchmark)
  (foreign_stubs
   (language c)
   (names landlock_stubs))

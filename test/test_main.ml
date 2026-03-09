@@ -79,5 +79,6 @@ let () =
        ("telegram_reactions", Test_telegram_reactions.suite);
        ("compaction_flush", Test_compaction_flush.suite);
        ("task_tree", Test_task_tree.suite);
+       ("benchmark", Test_benchmark.suite);
      ]
     @ Test_github.suites)

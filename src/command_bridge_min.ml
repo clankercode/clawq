@@ -402,5 +402,6 @@ let handle args =
   | "tunnel" :: _ -> unsupported "tunnel"
   | "service" :: _ -> unsupported "service"
   | "hardware" :: _ -> "hardware: deferred to Phase 2"
+  | "benchmark" :: rest -> Benchmark.run rest
   | "migrate" :: rest -> Migrate.cmd_migrate rest
   | _ -> Clawq_core.dispatch args
