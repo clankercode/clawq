@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B172
+priority: medium
+status: pending
+tags: []
+title: Resumed session dispatch may race channel startup during daemon boot
+---
+Observed in live restart logs after successful update on commit `74e86a1a`. Sequence showed resumed pending Telegram session processing and resumed response dispatch at `00:05:03.541`, but Telegram startup/logging only followed at `00:05:05.014` (`Starting Telegram polling for account default`) and post-update notification at `00:05:05.013`. This suggests resumed session/channel dispatch may occur before channel initialization is fully complete during daemon startup. Goal: verify whether resumed dispatch can race channel subsystem readiness and cause dropped/invisible resumed output, and if so introduce a reliable ordering or readiness gate. Acceptance criteria: (1) resumed routed-session dispatch does not run before required channel send path is ready, or logs prove that readiness is not actually required; (2) startup logs make ordering explicit; (3) if a fix is needed, it is narrow and tested or tightly verified; (4) this bug remains distinct from B171 (empty resume prompt) so the two failure modes are not conflated.
