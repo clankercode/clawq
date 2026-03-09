@@ -606,6 +606,48 @@ let test_finalize_mixed_success_failure () =
     "footer says 4 tools" true
     (contains last_edit "4 tools")
 
+let test_concurrent_tool_starts_single_message () =
+  (* Regression test for B125: rapid concurrent tool_start calls should
+     produce exactly one sent message, not multiple. *)
+  let send_count = ref 0 in
+  let edit_count = ref 0 in
+  let notifier : Status_message.notifier =
+    {
+      send =
+        (fun ?parse_mode:_ _text ->
+          incr send_count;
+          (* Simulate network delay so concurrent callers overlap *)
+          let open Lwt.Syntax in
+          let* () = Lwt_unix.sleep 0.05 in
+          Lwt.return "msg-1");
+      edit =
+        (fun _id ?parse_mode:_ _text ->
+          incr edit_count;
+          Lwt.return_unit);
+      delete = (fun _id -> Lwt.return_unit);
+    }
+  in
+  let t =
+    Status_message.create ~debounce_interval:0.0 ~notifier
+      ~parse_mode:"Markdown" ()
+  in
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     (* Fire 6 tool_start calls concurrently via Lwt.join *)
+     let* () =
+       Lwt.join
+         (List.init 6 (fun i ->
+              let id = Printf.sprintf "t%d" i in
+              let name = Printf.sprintf "tool_%d" i in
+              Status_message.tool_start t ~id ~name ~summary:None))
+     in
+     (* Allow any pending async work to settle *)
+     Lwt_unix.sleep 0.1);
+  Alcotest.(check int) "exactly one message sent" 1 !send_count;
+  (* Coalesced updates should produce at most 1 edit, not N-1 *)
+  Alcotest.(check bool) "at most one edit" true (!edit_count <= 1);
+  Alcotest.(check bool) "msg_id is set" true (t.msg_id <> None)
+
 let suite =
   [
     Alcotest.test_case "render empty" `Quick test_render_empty;
@@ -637,4 +679,6 @@ let suite =
       test_finalize_suppresses_output_tail;
     Alcotest.test_case "finalize mixed success failure" `Quick
       test_finalize_mixed_success_failure;
+    Alcotest.test_case "concurrent tool_starts single message" `Quick
+      test_concurrent_tool_starts_single_message;
   ]

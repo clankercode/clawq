@@ -42,6 +42,8 @@ type t = {
   mutable heartbeat_cancel : (unit Lwt.t * unit Lwt.u) option;
   mutable thinking_text : string;
   mutable finalized : bool;
+  edit_mutex : Lwt_mutex.t;
+  mutable pending_rerender : bool;
 }
 (** The consolidated status message state *)
 
@@ -63,6 +65,8 @@ let create ?(debounce_interval = 0.5) ~notifier ~parse_mode () =
     heartbeat_cancel = None;
     thinking_text = "";
     finalized = false;
+    edit_mutex = Lwt_mutex.create ();
+    pending_rerender = false;
   }
 
 let format_duration secs =
@@ -269,30 +273,49 @@ let render t =
     if len > 0 && result.[len - 1] = '\n' then String.sub result 0 (len - 1)
     else result
 
-(* Debounced send or edit. If within 0.5s of last edit, delay. *)
+(* Debounced send or edit, serialized with a mutex to prevent duplicate sends.
+   When callers arrive while an edit is in-flight, they mark a pending rerender
+   instead of queueing up — the mutex holder drains pending rerenders before
+   releasing, so rapid-fire updates coalesce into a single API call. *)
 let send_or_edit t =
-  let open Lwt.Syntax in
-  let now = Unix.gettimeofday () in
-  let elapsed = now -. t.last_edit in
-  let* () =
-    if elapsed < t.debounce_interval && t.msg_id <> None then
-      let delay = t.debounce_interval -. elapsed in
-      Lwt_unix.sleep delay
-    else Lwt.return_unit
-  in
-  let text = render t in
-  if text = "" then Lwt.return_unit
+  if Lwt_mutex.is_locked t.edit_mutex then begin
+    t.pending_rerender <- true;
+    Lwt.return_unit
+  end
   else
-    match t.msg_id with
-    | None ->
-        let* id = t.notifier.send ~parse_mode:t.parse_mode text in
-        t.msg_id <- Some id;
-        t.last_edit <- Unix.gettimeofday ();
-        Lwt.return_unit
-    | Some id ->
-        let* () = t.notifier.edit id ~parse_mode:t.parse_mode text in
-        t.last_edit <- Unix.gettimeofday ();
-        Lwt.return_unit
+    Lwt_mutex.with_lock t.edit_mutex (fun () ->
+        let open Lwt.Syntax in
+        let do_send_or_edit () =
+          let now = Unix.gettimeofday () in
+          let elapsed = now -. t.last_edit in
+          let* () =
+            if elapsed < t.debounce_interval && t.msg_id <> None then
+              let delay = t.debounce_interval -. elapsed in
+              Lwt_unix.sleep delay
+            else Lwt.return_unit
+          in
+          let text = render t in
+          if text = "" then Lwt.return_unit
+          else
+            match t.msg_id with
+            | None ->
+                let* id = t.notifier.send ~parse_mode:t.parse_mode text in
+                t.msg_id <- Some id;
+                t.last_edit <- Unix.gettimeofday ();
+                Lwt.return_unit
+            | Some id ->
+                let* () = t.notifier.edit id ~parse_mode:t.parse_mode text in
+                t.last_edit <- Unix.gettimeofday ();
+                Lwt.return_unit
+        in
+        let* () = do_send_or_edit () in
+        (* If updates arrived while we held the lock, do one final render
+           to pick up the latest state. No loop — just the most recent. *)
+        if t.pending_rerender then begin
+          t.pending_rerender <- false;
+          do_send_or_edit ()
+        end
+        else Lwt.return_unit)
 
 let tool_start t ~id ~name ~summary =
   let open Lwt.Syntax in
