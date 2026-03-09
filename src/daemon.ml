@@ -296,11 +296,7 @@ let refresh_runtime_bound_tools ~(config : Runtime_config.t) registry =
   Logs.info (fun m -> m "Refreshed runtime-bound tools")
 
 let background_task_wakeup_message task =
-  "[automatic background-task completion notice]\n\n"
-  ^ Background_task.status_message task
-  ^ "\n\n\
-     This message was injected automatically so the assistant wakes in the \
-     same session and may continue working without waiting for a human reply."
+  Background_task.terse_finished_message task
 
 let inject_background_task_completion
     ?(continuation_delay = Session.default_autonomous_continuation_delay)
@@ -393,6 +389,30 @@ let notify_background_task_finished ?continuation_delay
       inject_background_task_completion ?continuation_delay ~senders
         ~session_manager ~config ~session_key ?channel:task.channel
         ?channel_id:task.channel_id task
+  | None -> Lwt.return_unit
+
+let notify_background_task_started ~(session_manager : Session.t)
+    ~config:(_config : Runtime_config.t) task =
+  let message = Background_task.terse_started_message task in
+  match task.Background_task.session_key with
+  | Some key ->
+      let open Lwt.Syntax in
+      let* _queued =
+        Session.enqueue_message_if_busy session_manager ~key
+          {
+            Session.message;
+            content_parts = [];
+            attachments = [];
+            channel_name = None;
+            channel_type = None;
+            sender_id = None;
+            sender_name = None;
+            channel = task.channel;
+            channel_id = task.channel_id;
+            message_id = None;
+          }
+      in
+      Lwt.return_unit
   | None -> Lwt.return_unit
 
 let resume_turn_prompt =
@@ -1585,6 +1605,9 @@ let run ~(config : Runtime_config.t) =
                   Background_task.start_queued_with_callback ~db
                     ~on_task_finished:
                       (notify_background_task_finished ~session_manager ~config)
+                    ~on_task_started:
+                      (notify_background_task_started ~session_manager ~config)
+                    ()
                 in
                 let* () = Lwt_unix.sleep 5.0 in
                 loop ()

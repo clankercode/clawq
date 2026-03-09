@@ -520,6 +520,7 @@ let active_background_task_summaries mgr =
             repo_label = Filename.basename t.repo_path;
             branch = (if t.branch = "" then "(auto)" else t.branch);
             status = Background_task.string_of_status t.status;
+            elapsed = Background_task.elapsed_string t;
           })
 
 let runtime_context_details mgr ~agent ~key ~compacted_before_turn =

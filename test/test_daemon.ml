@@ -940,15 +940,14 @@ let test_notify_background_task_finished_dispatches_and_injects_wakeup () =
   match List.rev !injected with
   | [ message ] ->
       Alcotest.(check bool)
-        "automatic label present" true
-        (String.starts_with
-           ~prefix:"[automatic background-task completion notice]" message);
+        "terse finished message" true
+        (String.starts_with ~prefix:"[bg #" message);
       Alcotest.(check bool)
-        "mentions automatic wake-up" true
+        "mentions succeeded or failed" true
         (try
            ignore
              (Str.search_forward
-                (Str.regexp_string "wakes in the same session")
+                (Str.regexp "succeeded\\|failed\\|cancelled")
                 message 0);
            true
          with Not_found -> false)
@@ -984,9 +983,7 @@ let test_notify_background_task_finished_queues_wakeup_when_session_busy () =
     (Daemon.notify_background_task_finished ~session_manager ~config task);
   let wake_messages_before =
     List.filter
-      (fun message ->
-        String.starts_with
-          ~prefix:"[automatic background-task completion notice]" message)
+      (fun message -> String.starts_with ~prefix:"[bg #" message)
       !seen
   in
   Alcotest.(check int)
@@ -996,17 +993,14 @@ let test_notify_background_task_finished_queues_wakeup_when_session_busy () =
   Unix.sleepf 0.05;
   let wake_messages =
     List.filter
-      (fun message ->
-        String.starts_with
-          ~prefix:"[automatic background-task completion notice]" message)
+      (fun message -> String.starts_with ~prefix:"[bg #" message)
       !seen
   in
   match List.rev wake_messages with
   | [ message ] ->
       Alcotest.(check bool)
-        "queued automatic label present" true
-        (String.starts_with
-           ~prefix:"[automatic background-task completion notice]" message)
+        "queued terse label present" true
+        (String.starts_with ~prefix:"[bg #" message)
   | msgs ->
       Alcotest.failf "expected one queued wake-up message, got %d"
         (List.length msgs)

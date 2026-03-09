@@ -376,8 +376,9 @@ let test_start_queued_spawns_queued_tasks () =
       in
       let spawned = ref [] in
       Background_task.start_queued_with_callback_impl ~db
-        ~spawn_task:(fun ~on_task_finished:_ ~db:_ task ->
+        ~spawn_task:(fun ~on_task_started:_ ~on_task_finished:_ ~db:_ task ->
           spawned := task.id :: !spawned)
+        ~on_task_started:(fun _ -> Lwt.return_unit)
         ~on_task_finished:(fun _ -> Lwt.return_unit);
       Alcotest.(check (list int))
         "queued task spawned" [ id ] (List.rev !spawned))
@@ -543,6 +544,124 @@ let test_cmd_background_add_picks_up_session_env () =
           match old_val with
           | Some v -> Unix.putenv "CLAWQ_SESSION_ID" v
           | None -> ( try Unix.putenv "CLAWQ_SESSION_ID" "" with _ -> ())))
+
+let make_task ?(id = 1) ?(runner = Background_task.Claude)
+    ?(status = Background_task.Running) ?(repo_path = "/tmp/myrepo")
+    ?(branch = "B208-fix") ?(result_preview = None)
+    ?(created_at = "2026-03-10 10:00:00") ?(started_at = None)
+    ?(finished_at = None) () : Background_task.task =
+  {
+    id;
+    runner;
+    model = None;
+    repo_path;
+    prompt = "test";
+    branch;
+    worktree_path = None;
+    log_path = None;
+    status;
+    session_key = None;
+    channel = None;
+    channel_id = None;
+    pid = None;
+    result_preview;
+    created_at;
+    started_at;
+    finished_at;
+  }
+
+let test_elapsed_string_recent () =
+  let now = Unix.gettimeofday () in
+  let tm = Unix.localtime now in
+  let ts =
+    Printf.sprintf "%04d-%02d-%02d %02d:%02d:%02d" (tm.Unix.tm_year + 1900)
+      (tm.Unix.tm_mon + 1) tm.Unix.tm_mday tm.Unix.tm_hour tm.Unix.tm_min
+      tm.Unix.tm_sec
+  in
+  let task = make_task ~status:Background_task.Queued ~created_at:ts () in
+  Alcotest.(check string)
+    "very recent is <1m" "<1m"
+    (Background_task.elapsed_string task)
+
+let test_elapsed_string_minutes () =
+  let now = Unix.gettimeofday () in
+  let past = now -. 300.0 in
+  let tm = Unix.localtime past in
+  let ts =
+    Printf.sprintf "%04d-%02d-%02d %02d:%02d:%02d" (tm.Unix.tm_year + 1900)
+      (tm.Unix.tm_mon + 1) tm.Unix.tm_mday tm.Unix.tm_hour tm.Unix.tm_min
+      tm.Unix.tm_sec
+  in
+  let task =
+    make_task ~status:Background_task.Running ~started_at:(Some ts)
+      ~created_at:"2026-01-01 00:00:00" ()
+  in
+  Alcotest.(check string) "5 minutes" "5m" (Background_task.elapsed_string task)
+
+let test_elapsed_string_hours () =
+  let now = Unix.gettimeofday () in
+  let past = now -. 3900.0 in
+  let tm = Unix.localtime past in
+  let ts =
+    Printf.sprintf "%04d-%02d-%02d %02d:%02d:%02d" (tm.Unix.tm_year + 1900)
+      (tm.Unix.tm_mon + 1) tm.Unix.tm_mday tm.Unix.tm_hour tm.Unix.tm_min
+      tm.Unix.tm_sec
+  in
+  let task =
+    make_task ~status:Background_task.Running ~started_at:(Some ts) ()
+  in
+  Alcotest.(check string) "1h5m" "1h5m" (Background_task.elapsed_string task)
+
+let test_elapsed_string_two_hours_plus () =
+  let now = Unix.gettimeofday () in
+  let past = now -. 8000.0 in
+  let tm = Unix.localtime past in
+  let ts =
+    Printf.sprintf "%04d-%02d-%02d %02d:%02d:%02d" (tm.Unix.tm_year + 1900)
+      (tm.Unix.tm_mon + 1) tm.Unix.tm_mday tm.Unix.tm_hour tm.Unix.tm_min
+      tm.Unix.tm_sec
+  in
+  let task =
+    make_task ~status:Background_task.Running ~started_at:(Some ts) ()
+  in
+  Alcotest.(check string) "2h+" "2h+" (Background_task.elapsed_string task)
+
+let test_terse_started_message () =
+  let task = make_task ~id:3 ~branch:"B208-fix-layout" () in
+  let msg = Background_task.terse_started_message task in
+  Alcotest.(check string)
+    "terse started" "[bg #3 started: claude repo=myrepo branch=B208-fix-layout]"
+    msg
+
+let test_terse_finished_message_succeeded () =
+  let task =
+    make_task ~id:5 ~status:Background_task.Succeeded ~branch:"B210-add-tests"
+      ()
+  in
+  let msg = Background_task.terse_finished_message task in
+  Alcotest.(check bool)
+    "starts with [bg #5 succeeded:" true
+    (String.length msg > 0 && String.sub msg 0 20 = "[bg #5 succeeded: cl");
+  Alcotest.(check bool) "ends with ]" true (msg.[String.length msg - 1] = ']')
+
+let test_terse_finished_message_failed_with_preview () =
+  let task =
+    make_task ~id:7 ~status:Background_task.Failed
+      ~result_preview:(Some "exit 1: compilation error in main.ml") ()
+  in
+  let msg = Background_task.terse_finished_message task in
+  Alcotest.(check bool)
+    "contains failed" true
+    (try
+       ignore (Str.search_forward (Str.regexp_string "failed") msg 0);
+       true
+     with Not_found -> false);
+  Alcotest.(check bool)
+    "contains preview" true
+    (try
+       ignore (Str.search_forward (Str.regexp_string "compilation error") msg 0);
+       true
+     with Not_found -> false)
 
 let test_enqueue_rejects_non_git_repo () =
   let db = Memory.init ~db_path:":memory:" () in
@@ -727,6 +846,18 @@ let suite =
       test_delegate_tool_queues_task;
     Alcotest.test_case "enqueue rejects non-git repo" `Quick
       test_enqueue_rejects_non_git_repo;
+    Alcotest.test_case "elapsed_string recent" `Quick test_elapsed_string_recent;
+    Alcotest.test_case "elapsed_string minutes" `Quick
+      test_elapsed_string_minutes;
+    Alcotest.test_case "elapsed_string hours" `Quick test_elapsed_string_hours;
+    Alcotest.test_case "elapsed_string 2h+" `Quick
+      test_elapsed_string_two_hours_plus;
+    Alcotest.test_case "terse_started_message format" `Quick
+      test_terse_started_message;
+    Alcotest.test_case "terse_finished_message succeeded" `Quick
+      test_terse_finished_message_succeeded;
+    Alcotest.test_case "terse_finished_message failed with preview" `Quick
+      test_terse_finished_message_failed_with_preview;
     Alcotest.test_case "routing_from_context reads CLAWQ_SESSION_ID env" `Quick
       test_routing_from_context_reads_env;
     Alcotest.test_case "routing_from_context prefers context over env" `Quick

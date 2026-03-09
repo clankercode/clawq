@@ -592,6 +592,80 @@ let command_of_task task =
           [| "--dangerously-skip-permissions"; task.prompt |];
         ]
 
+let parse_sqlite_datetime s =
+  try
+    Scanf.sscanf s "%d-%d-%d %d:%d:%d" (fun y mo d h mi s ->
+        let tm =
+          {
+            Unix.tm_sec = s;
+            tm_min = mi;
+            tm_hour = h;
+            tm_mday = d;
+            tm_mon = mo - 1;
+            tm_year = y - 1900;
+            tm_wday = 0;
+            tm_yday = 0;
+            tm_isdst = false;
+          }
+        in
+        fst (Unix.mktime tm))
+  with _ -> 0.0
+
+let format_elapsed_seconds secs =
+  let secs = max 0 (int_of_float secs) in
+  if secs < 60 then "<1m"
+  else
+    let mins = secs / 60 in
+    let hours = mins / 60 in
+    if hours = 0 then Printf.sprintf "%dm" mins
+    else if hours >= 2 then "2h+"
+    else Printf.sprintf "%dh%dm" hours (mins mod 60)
+
+let elapsed_string (task : task) =
+  let now = Unix.gettimeofday () in
+  let ref_time =
+    match task.status with
+    | Running -> (
+        match task.started_at with
+        | Some s -> parse_sqlite_datetime s
+        | None -> parse_sqlite_datetime task.created_at)
+    | _ -> parse_sqlite_datetime task.created_at
+  in
+  if ref_time <= 0.0 then "<1m" else format_elapsed_seconds (now -. ref_time)
+
+let task_label (task : task) =
+  let repo = Filename.basename task.repo_path in
+  let branch = if task.branch = "" then "(auto)" else task.branch in
+  Printf.sprintf "%s repo=%s branch=%s"
+    (string_of_runner task.runner)
+    repo branch
+
+let terse_started_message (task : task) =
+  Printf.sprintf "[bg #%d started: %s]" task.id (task_label task)
+
+let terse_finished_message (task : task) =
+  let elapsed = elapsed_string task in
+  let status_word =
+    match task.status with
+    | Succeeded -> "succeeded"
+    | Failed -> "failed"
+    | Cancelled -> "cancelled"
+    | Queued -> "queued"
+    | Running -> "running"
+  in
+  let base =
+    Printf.sprintf "[bg #%d %s: %s (%s)" task.id status_word (task_label task)
+      elapsed
+  in
+  match (task.status, task.result_preview) with
+  | Failed, Some preview ->
+      let short =
+        if String.length preview > 80 then String.sub preview 0 80 ^ "..."
+        else preview
+      in
+      base ^ " -- " ^ short ^ "]"
+  | _ -> base ^ "]"
+
 let status_message (task : task) =
   let headline =
     Printf.sprintf "Background task %d finished: %s (%s)" task.id
@@ -714,7 +788,8 @@ let prepare_worktree ?(run_simple_command = run_simple_command) task =
 
 let running : (int, unit) Hashtbl.t = Hashtbl.create 16
 
-let spawn_task ?(on_task_finished = fun _ -> Lwt.return_unit)
+let spawn_task ?(on_task_started = fun _ -> Lwt.return_unit)
+    ?(on_task_finished = fun _ -> Lwt.return_unit)
     ?(run_simple_command = run_simple_command) ~db task =
   Hashtbl.replace running task.id ();
   Lwt.async (fun () ->
@@ -755,6 +830,11 @@ let spawn_task ?(on_task_finished = fun _ -> Lwt.return_unit)
                 let* () = Process_group.close proc in
                 Lwt.return_unit
               else
+                let* () =
+                  match get_task ~db ~id:task.id with
+                  | Some t -> on_task_started t
+                  | None -> Lwt.return_unit
+                in
                 let stdout_buf = Buffer.create 1024 in
                 let stderr_buf = Buffer.create 256 in
                 let* status =
@@ -799,23 +879,25 @@ let spawn_task ?(on_task_finished = fun _ -> Lwt.return_unit)
                 Lwt.return_unit)
         finalize)
 
-let default_spawn_task ~on_task_finished ~db task =
-  spawn_task ~on_task_finished ~db task
+let default_spawn_task ~on_task_started ~on_task_finished ~db task =
+  spawn_task ~on_task_started ~on_task_finished ~db task
 
-let start_queued_with_callback_impl ~spawn_task ~on_task_finished ~db =
+let start_queued_with_callback_impl ~spawn_task ~on_task_started
+    ~on_task_finished ~db =
   let queued =
     List.filter
       (fun t -> t.status = Queued && not (Hashtbl.mem running t.id))
       (list_tasks ~db)
   in
-  List.iter (spawn_task ~on_task_finished ~db) queued
+  List.iter (spawn_task ~on_task_started ~on_task_finished ~db) queued
 
-let start_queued_with_callback ~on_task_finished ~db =
+let start_queued_with_callback ~on_task_finished ~db
+    ?(on_task_started = fun _ -> Lwt.return_unit) () =
   start_queued_with_callback_impl ~spawn_task:default_spawn_task
-    ~on_task_finished ~db
+    ~on_task_started ~on_task_finished ~db
 
 let start_queued ~db =
-  start_queued_with_callback ~on_task_finished:(fun _ -> Lwt.return_unit) ~db
+  start_queued_with_callback ~on_task_finished:(fun _ -> Lwt.return_unit) ~db ()
 
 let enqueue_tool_with_notify ~notify_cfg ~db =
   {
