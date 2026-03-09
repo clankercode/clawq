@@ -97,6 +97,7 @@ type background_task_summary = {
   repo_label : string;
   branch : string;
   status : string;
+  health : string;
   elapsed : string;
 }
 
@@ -157,9 +158,13 @@ let add_runtime_details lines (details : runtime_context_details) =
         ^ String.concat ""
             (List.map
                (fun task ->
-                 Printf.sprintf "\n  - #%d %s %s %s repo=%s branch=%s" task.id
-                   task.runner task.status task.elapsed task.repo_label
-                   task.branch)
+                 let health_suffix =
+                   if task.health = "-" || task.health = "" then ""
+                   else Printf.sprintf " health=%s" task.health
+                 in
+                 Printf.sprintf "\n  - #%d %s %s %s%s repo=%s branch=%s" task.id
+                   task.runner task.status task.elapsed health_suffix
+                   task.repo_label task.branch)
                tasks)));
   match details.task_tree_summary with
   | None -> ()

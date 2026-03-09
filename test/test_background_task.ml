@@ -1923,6 +1923,194 @@ let test_resolve_runner_cursor_wins_when_kimi_unavailable () =
         (Background_task.string_of_runner runner)
   | Error msg -> Alcotest.fail msg
 
+let test_health_terminal_statuses () =
+  List.iter
+    (fun status ->
+      let task = make_task ~status () in
+      let health = Background_task.diagnose_health task in
+      Alcotest.(check string)
+        (Printf.sprintf "%s is not applicable"
+           (Background_task.string_of_status status))
+        "-"
+        (Background_task.string_of_health health))
+    [ Background_task.Queued; Succeeded; Failed; Cancelled ]
+
+let test_health_running_no_pid () =
+  let task = make_task ~status:Background_task.Running () in
+  let health =
+    Background_task.diagnose_health ~pid_alive:(fun _ -> true) task
+  in
+  Alcotest.(check string)
+    "running with no pid" "process-missing"
+    (Background_task.string_of_health health)
+
+let test_health_running_dead_pid () =
+  let task =
+    { (make_task ~status:Background_task.Running ()) with pid = Some 999999999 }
+  in
+  let health =
+    Background_task.diagnose_health ~pid_alive:(fun _ -> false) task
+  in
+  Alcotest.(check string)
+    "running with dead pid" "zombie"
+    (Background_task.string_of_health health)
+
+let test_health_running_alive_fresh () =
+  let now = Unix.gettimeofday () in
+  let log_path = Filename.temp_file "clawq-health-test" ".log" in
+  Fun.protect
+    ~finally:(fun () -> try Sys.remove log_path with _ -> ())
+    (fun () ->
+      let oc = open_out log_path in
+      output_string oc "test output\n";
+      close_out oc;
+      let tm = Unix.localtime now in
+      let started =
+        Printf.sprintf "%04d-%02d-%02d %02d:%02d:%02d" (tm.Unix.tm_year + 1900)
+          (tm.Unix.tm_mon + 1) tm.Unix.tm_mday tm.Unix.tm_hour tm.Unix.tm_min
+          tm.Unix.tm_sec
+      in
+      let task =
+        {
+          (make_task ~status:Background_task.Running ~started_at:(Some started)
+             ())
+          with
+          pid = Some 42;
+          log_path = Some log_path;
+        }
+      in
+      let health =
+        Background_task.diagnose_health ~now ~pid_alive:(fun _ -> true) task
+      in
+      Alcotest.(check string)
+        "running with alive pid and fresh log" "active"
+        (Background_task.string_of_health health))
+
+let test_health_running_stale_log () =
+  let now = Unix.gettimeofday () in
+  let log_path = Filename.temp_file "clawq-health-test" ".log" in
+  Fun.protect
+    ~finally:(fun () -> try Sys.remove log_path with _ -> ())
+    (fun () ->
+      let oc = open_out log_path in
+      output_string oc "old output\n";
+      close_out oc;
+      (* started 130s ago from fake_now, log written at real now *)
+      let started_time = now -. 10.0 in
+      let tm = Unix.localtime started_time in
+      let started =
+        Printf.sprintf "%04d-%02d-%02d %02d:%02d:%02d" (tm.Unix.tm_year + 1900)
+          (tm.Unix.tm_mon + 1) tm.Unix.tm_mday tm.Unix.tm_hour tm.Unix.tm_min
+          tm.Unix.tm_sec
+      in
+      let task =
+        {
+          (make_task ~status:Background_task.Running ~started_at:(Some started)
+             ())
+          with
+          pid = Some 42;
+          log_path = Some log_path;
+        }
+      in
+      (* elapsed = 130s (> log_stale_threshold 120s but < stalled_threshold 300s)
+         log mtime is at real now, fake_now is 120s+ ahead so log looks stale *)
+      let fake_now = now +. 130.0 in
+      let health =
+        Background_task.diagnose_health ~now:fake_now
+          ~pid_alive:(fun _ -> true)
+          task
+      in
+      Alcotest.(check string)
+        "running with alive pid but stale log" "log-stale"
+        (Background_task.string_of_health health))
+
+let test_health_running_stalled () =
+  let now = Unix.gettimeofday () in
+  let log_path = Filename.temp_file "clawq-health-test" ".log" in
+  Fun.protect
+    ~finally:(fun () -> try Sys.remove log_path with _ -> ())
+    (fun () ->
+      let oc = open_out log_path in
+      output_string oc "old output\n";
+      close_out oc;
+      let started_time = now -. 10.0 in
+      let tm = Unix.localtime started_time in
+      let started =
+        Printf.sprintf "%04d-%02d-%02d %02d:%02d:%02d" (tm.Unix.tm_year + 1900)
+          (tm.Unix.tm_mon + 1) tm.Unix.tm_mday tm.Unix.tm_hour tm.Unix.tm_min
+          tm.Unix.tm_sec
+      in
+      let task =
+        {
+          (make_task ~status:Background_task.Running ~started_at:(Some started)
+             ())
+          with
+          pid = Some 42;
+          log_path = Some log_path;
+        }
+      in
+      let fake_now = now +. 400.0 in
+      let health =
+        Background_task.diagnose_health ~now:fake_now
+          ~pid_alive:(fun _ -> true)
+          task
+      in
+      Alcotest.(check string)
+        "running with alive pid but stalled" "stalled"
+        (Background_task.string_of_health health))
+
+let test_health_string_roundtrip () =
+  List.iter
+    (fun (health, expected) ->
+      Alcotest.(check string)
+        expected expected
+        (Background_task.string_of_health health))
+    [
+      (Background_task.Active, "active");
+      (Quiet, "quiet");
+      (Stalled, "stalled");
+      (Zombie, "zombie");
+      (Process_missing, "process-missing");
+      (Log_stale, "log-stale");
+      (Not_applicable, "-");
+    ]
+
+let test_health_in_task_summary () =
+  let task = make_task ~status:Background_task.Running () in
+  let summary = Background_task.format_task_summary task in
+  Alcotest.(check bool)
+    "summary contains health:" true
+    (let len_s = String.length summary in
+     let sub = "health: " in
+     let len_sub = String.length sub in
+     let rec loop i =
+       if i + len_sub > len_s then false
+       else if String.sub summary i len_sub = sub then true
+       else loop (i + 1)
+     in
+     loop 0)
+
+let test_health_in_task_list () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      ignore
+        (Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+           ~prompt:"test" ());
+      let tasks, hidden = Background_task.list_tasks_for_display ~db in
+      let output = Background_task.format_task_list_with_hidden tasks hidden in
+      Alcotest.(check bool)
+        "list output contains HEALTH header" true
+        (let len_s = String.length output in
+         let sub = "HEALTH" in
+         let len_sub = String.length sub in
+         let rec loop i =
+           if i + len_sub > len_s then false
+           else if String.sub output i len_sub = sub then true
+           else loop (i + 1)
+         in
+         loop 0))
+
 let suite =
   [
     Alcotest.test_case "enqueue and list tasks" `Quick
@@ -2034,4 +2222,20 @@ let suite =
       test_runner_of_string_cursor_aliases;
     Alcotest.test_case "resolve_runner cursor wins when kimi unavailable" `Quick
       test_resolve_runner_cursor_wins_when_kimi_unavailable;
+    Alcotest.test_case "health terminal statuses" `Quick
+      test_health_terminal_statuses;
+    Alcotest.test_case "health running no pid" `Quick test_health_running_no_pid;
+    Alcotest.test_case "health running dead pid" `Quick
+      test_health_running_dead_pid;
+    Alcotest.test_case "health running alive fresh" `Quick
+      test_health_running_alive_fresh;
+    Alcotest.test_case "health running stale log" `Quick
+      test_health_running_stale_log;
+    Alcotest.test_case "health running stalled" `Quick
+      test_health_running_stalled;
+    Alcotest.test_case "health string roundtrip" `Quick
+      test_health_string_roundtrip;
+    Alcotest.test_case "health in task summary" `Quick
+      test_health_in_task_summary;
+    Alcotest.test_case "health in task list" `Quick test_health_in_task_list;
   ]

@@ -534,6 +534,7 @@ let test_background_tasks_appear_after_context_usage () =
                     repo_label = "myrepo";
                     branch = "feat-x";
                     status = "running";
+                    health = "active";
                     elapsed = "3m";
                   };
                 ];
@@ -554,7 +555,8 @@ let test_background_tasks_appear_after_context_usage () =
       in
       Alcotest.(check bool)
         "includes background task" true
-        (contains runtime "#7 codex running 3m repo=myrepo branch=feat-x");
+        (contains runtime
+           "#7 codex running 3m health=active repo=myrepo branch=feat-x");
       let ctx_pos =
         index_of runtime "- Context usage:" |> Option.value ~default:(-1)
       in

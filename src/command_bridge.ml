@@ -324,6 +324,9 @@ let cmd_debug_prompt args =
                 repo_label = Filename.basename t.repo_path;
                 branch = (if t.branch = "" then "(auto)" else t.branch);
                 status = Background_task.string_of_status t.status;
+                health =
+                  Background_task.string_of_health
+                    (Background_task.diagnose_health t);
                 elapsed = Background_task.elapsed_string t;
               })
         end
@@ -1655,9 +1658,11 @@ let parse_delegate_args args =
 
 let format_background_task_row (task : Background_task.task) =
   let branch = if task.branch = "" then "-" else task.branch in
-  Printf.sprintf "  %-4d %-8s %-8s %-18s %s" task.id
+  let health = Background_task.diagnose_health task in
+  Printf.sprintf "  %-4d %-8s %-8s %-16s %-18s %s" task.id
     (Background_task.string_of_runner task.runner)
     (Background_task.string_of_status task.status)
+    (Background_task.string_of_health health)
     branch task.repo_path
 
 let format_background_task_details (task : Background_task.task) =
@@ -1674,6 +1679,15 @@ let format_background_task_details (task : Background_task.task) =
       (Printf.sprintf "status: %s"
          (Background_task.string_of_status task.status))
       !lines;
+  let health = Background_task.diagnose_health task in
+  (match health with
+  | Background_task.Not_applicable -> ()
+  | _ ->
+      lines :=
+        add
+          (Printf.sprintf "health: %s"
+             (Background_task.string_of_health health))
+          !lines);
   lines := add (Printf.sprintf "repo: %s" task.repo_path) !lines;
   lines :=
     add

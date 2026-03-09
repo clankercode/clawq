@@ -615,6 +615,9 @@ let active_background_task_summaries mgr =
             repo_label = Filename.basename t.repo_path;
             branch = (if t.branch = "" then "(auto)" else t.branch);
             status = Background_task.string_of_status t.status;
+            health =
+              Background_task.string_of_health
+                (Background_task.diagnose_health t);
             elapsed = Background_task.elapsed_string t;
           })
 

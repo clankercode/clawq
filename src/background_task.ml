@@ -1,6 +1,15 @@
 type runner = Codex | Claude | Kimi | Gemini | Opencode | Cursor
 type status = Queued | Running | Succeeded | Failed | Cancelled
 
+type health =
+  | Active
+  | Quiet
+  | Stalled
+  | Zombie
+  | Process_missing
+  | Log_stale
+  | Not_applicable
+
 type task = {
   id : int;
   runner : runner;
@@ -59,6 +68,15 @@ let status_of_string s =
 let is_terminal_status = function
   | Succeeded | Failed | Cancelled -> true
   | Queued | Running -> false
+
+let string_of_health = function
+  | Active -> "active"
+  | Quiet -> "quiet"
+  | Stalled -> "stalled"
+  | Zombie -> "zombie"
+  | Process_missing -> "process-missing"
+  | Log_stale -> "log-stale"
+  | Not_applicable -> "-"
 
 let runner_binary = function
   | Codex -> "codex"
@@ -165,6 +183,45 @@ let parse_sqlite_datetime s =
         fst (Unix.mktime tm))
   with _ -> 0.0
 
+let log_mtime path =
+  try Some (Unix.stat path).Unix.st_mtime
+  with Unix.Unix_error _ | Sys_error _ -> None
+
+let stalled_threshold_seconds = 300.0
+let log_stale_threshold_seconds = 120.0
+
+let diagnose_health ?(now = Unix.gettimeofday ())
+    ?(pid_alive = fun pid -> Process_group.group_alive pid) (task : task) =
+  match task.status with
+  | Queued | Succeeded | Failed | Cancelled -> Not_applicable
+  | Running ->
+      let pid_alive =
+        match task.pid with
+        | Some pid when pid > 0 -> pid_alive pid
+        | _ -> false
+      in
+      if not pid_alive then
+        match task.pid with Some _ -> Zombie | None -> Process_missing
+      else
+        let started =
+          match task.started_at with
+          | Some s -> parse_sqlite_datetime s
+          | None -> 0.0
+        in
+        let elapsed = if started > 0.0 then now -. started else 0.0 in
+        let log_fresh =
+          match task.log_path with
+          | Some path -> (
+              match log_mtime path with
+              | Some mtime -> now -. mtime < log_stale_threshold_seconds
+              | None -> false)
+          | None -> false
+        in
+        if log_fresh then Active
+        else if elapsed < log_stale_threshold_seconds then Active
+        else if elapsed >= stalled_threshold_seconds then Stalled
+        else Log_stale
+
 let format_elapsed_seconds secs =
   let secs = max 0 (int_of_float secs) in
   if secs < 60 then "<1m"
@@ -202,6 +259,10 @@ let format_task_summary (task : task) =
       add (Printf.sprintf "model: %s" model)
   | _ -> ());
   add (Printf.sprintf "status: %s" (status_summary task.status));
+  let health = diagnose_health task in
+  (match health with
+  | Not_applicable -> ()
+  | _ -> add (Printf.sprintf "health: %s" (string_of_health health)));
   add (Printf.sprintf "runtime: %s" (runtime_string task));
   add (Printf.sprintf "repo: %s" task.repo_path);
   add (Printf.sprintf "branch: %s" branch);
@@ -233,18 +294,19 @@ and format_task_list_with_hidden tasks hidden_count =
   if tasks = [] && hidden_count = 0 then "No background tasks."
   else
     let header =
-      Printf.sprintf "  %-4s %-8s %-8s %-8s %-18s %s" "ID" "RUNNER" "STATUS"
-        "RUNTIME" "BRANCH" "REPO"
+      Printf.sprintf "  %-4s %-8s %-8s %-16s %-8s %-18s %s" "ID" "RUNNER"
+        "STATUS" "HEALTH" "RUNTIME" "BRANCH" "REPO"
     in
     let rows =
       List.map
         (fun (task : task) ->
           let branch = if task.branch = "" then "-" else task.branch in
           let runtime = runtime_string task in
-          Printf.sprintf "  %-4d %-8s %-8s %-8s %-18s %s" task.id
+          let health = diagnose_health task in
+          Printf.sprintf "  %-4d %-8s %-8s %-16s %-8s %-18s %s" task.id
             (string_of_runner task.runner)
             (string_of_status task.status)
-            runtime branch task.repo_path)
+            (string_of_health health) runtime branch task.repo_path)
         tasks
     in
     let footer =
