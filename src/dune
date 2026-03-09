@@ -109,6 +109,7 @@
   github_webhook
   github_api
   cf_tunnel
+  tunnel_manager
   mcp_client
   telemetry
   web_channel

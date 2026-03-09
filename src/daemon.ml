@@ -1,4 +1,5 @@
-let write_state ~pairing_code ~(config : Runtime_config.t) ~components =
+let write_state ~pairing_code ~(tunnel_json : Yojson.Safe.t option)
+    ~(config : Runtime_config.t) ~components =
   let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
   let state_dir = Filename.concat home ".clawq" in
   let state_path = Filename.concat state_dir "daemon_state.json" in
@@ -22,6 +23,11 @@ let write_state ~pairing_code ~(config : Runtime_config.t) ~components =
   let fields =
     match pairing_code with
     | Some code -> ("pairing_code", `String code) :: fields
+    | None -> fields
+  in
+  let fields =
+    match tunnel_json with
+    | Some tj -> ("tunnel", tj) :: fields
     | None -> fields
   in
   let json = `Assoc fields in
@@ -1072,23 +1078,52 @@ let run ~(config : Runtime_config.t) =
         Lwt.return_unit)
   in
   let tunnel_url_ref = ref None in
-  let[@warning "-26"] tunnel_supervisor =
-    if config.tunnel.enabled then begin
-      let initial_url, supervisor =
-        Cf_tunnel.start ~config:config.tunnel ~on_url:(fun url ->
-            tunnel_url_ref := Some url;
-            Logs.info (fun m -> m "Tunnel URL: %s" url);
-            match config.channels.github with
-            | Some _ ->
-                Logs.info (fun m ->
-                    m "GitHub webhooks ready at: %s/github/webhook/..." url)
-            | None -> ())
-      in
-      tunnel_url_ref := initial_url;
-      supervisor
-    end
-    else Lwt.return_unit
+  let tunnel_manager = Tunnel_manager.create () in
+  let tunnel_on_url url_opt =
+    tunnel_url_ref := url_opt;
+    match url_opt with
+    | Some url -> (
+        Logs.info (fun m -> m "Tunnel URL: %s" url);
+        let cur = !current_config in
+        match cur.channels.github with
+        | Some _ ->
+            Logs.info (fun m ->
+                m "GitHub webhooks ready at: %s/github/webhook/..." url)
+        | None -> ())
+    | None -> Logs.info (fun m -> m "Tunnel stopped")
   in
+  Lwt.async (fun () ->
+      Lwt.catch
+        (fun () ->
+          Tunnel_manager.apply_config tunnel_manager ~config:config.tunnel
+            ~port:config.gateway.port ~on_url:tunnel_on_url)
+        (fun exn ->
+          Logs.err (fun m ->
+              m "Initial tunnel apply error: %s" (Printexc.to_string exn));
+          Lwt.return_unit));
+  Tunnel_manager.set_daemon_hooks
+    ~status:(fun () ->
+      Yojson.Safe.pretty_to_string (Tunnel_manager.status_json tunnel_manager))
+    ~apply:(fun () ->
+      let open Lwt.Syntax in
+      let cur = !current_config in
+      let* () =
+        Tunnel_manager.apply_config tunnel_manager ~config:cur.tunnel
+          ~port:cur.gateway.port ~on_url:tunnel_on_url
+      in
+      Lwt.return
+        (Yojson.Safe.pretty_to_string
+           (Tunnel_manager.status_json tunnel_manager)))
+    ~restart:(fun () ->
+      let open Lwt.Syntax in
+      let cur = !current_config in
+      let* () =
+        Tunnel_manager.restart tunnel_manager ~config:cur.tunnel
+          ~port:cur.gateway.port ~on_url:tunnel_on_url
+      in
+      Lwt.return
+        (Yojson.Safe.pretty_to_string
+           (Tunnel_manager.status_json tunnel_manager)));
   if config.channels.github <> None && not config.tunnel.enabled then
     Logs.warn (fun m ->
         m
@@ -1125,7 +1160,8 @@ let run ~(config : Runtime_config.t) =
     let pairing_code =
       match pairing with Some p -> Some (Pairing.status p).code | None -> None
     in
-    write_state ~pairing_code ~config ~components
+    let tunnel_json = Some (Tunnel_manager.status_json tunnel_manager) in
+    write_state ~pairing_code ~tunnel_json ~config ~components
   in
   Logs.info (fun m ->
       m "Web UI assets ready at %s (version=%s dev_mode=%b)" ui_server.ui_dir
@@ -1218,6 +1254,17 @@ let run ~(config : Runtime_config.t) =
           | Some registry ->
               refresh_runtime_bound_tools ~config:new_config registry
           | None -> ());
+          Lwt.async (fun () ->
+              Lwt.catch
+                (fun () ->
+                  Tunnel_manager.apply_config tunnel_manager
+                    ~config:new_config.tunnel ~port:new_config.gateway.port
+                    ~on_url:tunnel_on_url)
+                (fun exn ->
+                  Logs.err (fun m ->
+                      m "Tunnel reconfiguration error: %s"
+                        (Printexc.to_string exn));
+                  Lwt.return_unit));
           Logs.info (fun m -> m "Config reloaded successfully")
         with exn ->
           Logs.err (fun m ->
@@ -1287,13 +1334,6 @@ let run ~(config : Runtime_config.t) =
         (fun exn ->
           Logs.err (fun m ->
               m "Mattermost channel error: %s" (Printexc.to_string exn));
-          Lwt.return_unit));
-  Lwt.async (fun () ->
-      Lwt.catch
-        (fun () -> tunnel_supervisor)
-        (fun exn ->
-          Logs.err (fun m ->
-              m "Tunnel supervisor error: %s" (Printexc.to_string exn));
           Lwt.return_unit));
   Lwt.async (fun () ->
       Lwt.catch
@@ -1406,6 +1446,17 @@ let run ~(config : Runtime_config.t) =
                  | Some registry ->
                      refresh_runtime_bound_tools ~config:new_config registry
                  | None -> ());
+                 Lwt.async (fun () ->
+                     Lwt.catch
+                       (fun () ->
+                         Tunnel_manager.apply_config tunnel_manager
+                           ~config:new_config.tunnel
+                           ~port:new_config.gateway.port ~on_url:tunnel_on_url)
+                       (fun exn ->
+                         Logs.err (fun m ->
+                             m "Tunnel reconfiguration error (file watch): %s"
+                               (Printexc.to_string exn));
+                         Lwt.return_unit));
                  Logs.info (fun m -> m "Config auto-reloaded (file changed)")
                end
              with exn ->
@@ -1686,6 +1737,8 @@ let run ~(config : Runtime_config.t) =
                 else "clean shutdown");
            })
   | _ -> ());
+  (* Stop tunnel manager *)
+  let* () = Tunnel_manager.stop tunnel_manager in
   (* Flush telemetry on shutdown *)
   let* () =
     match telemetry with Some t -> Telemetry.flush t | None -> Lwt.return_unit

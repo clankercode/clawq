@@ -2065,7 +2065,10 @@ let cmd_tunnel args =
                 "Tunnel provider: %s\n  Status: stopped (stale state cleaned)"
                 provider_name
             end)
-    | _ -> "Usage: clawq tunnel <start|status|stop>"
+    | [ "apply" ] -> Lwt_main.run (!Tunnel_manager.daemon_apply_fn ())
+    | [ "restart" ] -> Lwt_main.run (!Tunnel_manager.daemon_restart_fn ())
+    | [ "daemon-status" ] -> !Tunnel_manager.daemon_status_fn ()
+    | _ -> "Usage: clawq tunnel <start|stop|status|apply|restart|daemon-status>"
 
 let cmd_reset_agent () =
   let cfg = get_config () in

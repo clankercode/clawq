@@ -59,6 +59,7 @@ let () =
        ("provider_anthropic", Test_provider_anthropic.suite);
        ("wasm", Test_wasm.suite);
        ("tunnels", Test_tunnels.suite);
+       ("tunnel_manager", Test_tunnel_manager.suite);
        ("pairing", Test_pairing.suite);
        ("memory", Test_memory.suite);
        ("chat_ui", Test_chat_ui.suite);

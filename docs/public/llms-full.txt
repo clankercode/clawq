@@ -81,6 +81,9 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 | `tunnel start` | Start a tunnel to the local gateway (provider set in config: cloudflare, tailscale, ngrok, or custom) |
 | `tunnel stop` | Stop the tunnel |
 | `tunnel status` | Show tunnel status |
+| `tunnel apply` | Trigger live tunnel reconfiguration in running daemon (reads current config and reconciles tunnel state) |
+| `tunnel restart` | Alias for `tunnel apply` — stops current tunnel and starts with current config |
+| `tunnel daemon-status` | Show tunnel manager state from running daemon as JSON (state, provider, url, pid) |
 | `update [--mode auto|git|binary]` | Ask the live daemon to update itself and gracefully restart; currently warns if no live daemon is available because the offline fallback is still stubbed |
 | `version` | Print version and build info |
 | `workspace` | Print the current workspace directory |
@@ -230,7 +233,7 @@ clawq config show security
 
 **mcp** — `enabled` (default true), `exposed_tools` (optional array of tool names; omit for all).
 
-**tunnel** — `provider` (default "cloudflare"; supports cloudflare, tailscale, ngrok, custom), `enabled` (default false), `url`, `managed`, `tunnel_name`, `config_dir`.
+**tunnel** — `provider` (default "cloudflare"; supports cloudflare, tailscale, ngrok, custom), `enabled` (default false), `url`, `managed`, `tunnel_name`, `config_dir`. Live reconfiguration: the daemon detects tunnel config changes on SIGHUP and config file changes (10s poll), and will start/stop/restart the tunnel accordingly. Use `tunnel apply` to trigger reconfiguration explicitly. Managed/named Cloudflare tunnels require pre-existing `cloudflared tunnel create` and DNS setup outside clawq.
 
 **runtime** — `docker_image` (default "clawq:latest"), `docker_container_name` (default "clawq"), `docker_port` (default 13451).
 
