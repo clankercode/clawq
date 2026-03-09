@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-09T18:14:26Z"
+claimed_by: cli-user
+completed_at: "2026-03-09T18:21:25Z"
 complexity: medium
 depends_on: []
+duration_minutes: 6.9904493902
 estimate_hours: 1
 id: B222
 priority: high
-status: pending
+started_at: "2026-03-09T18:14:26Z"
+status: done
 tags: []
 title: '''clawq background logs'' should have a follow mode'
 ---

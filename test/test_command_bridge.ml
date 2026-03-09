@@ -838,6 +838,37 @@ let test_handle_background_wait_and_logs () =
            true
          with Not_found -> false))
 
+let test_handle_background_logs_follow () =
+  with_temp_home (fun home ->
+      let repo = Filename.concat home "repo" in
+      Unix.mkdir repo 0o755;
+      init_git_repo repo;
+      ignore
+        (Command_bridge.handle
+           [ "background"; "add"; "codex"; repo; "Implement"; "follow"; "test" ]);
+      let clawq_dir = Filename.concat home ".clawq" in
+      let db =
+        Memory.init ~db_path:(Filename.concat clawq_dir "memory.db") ()
+      in
+      Background_task.init_schema db;
+      let log_path = Filename.concat clawq_dir "task-1.log" in
+      let oc = open_out log_path in
+      output_string oc "first\nsecond\nthird\n";
+      close_out oc;
+      ignore
+        (Background_task.set_running ~db ~id:1 ~branch:"clawq-bg-1"
+           ~worktree_path:(Filename.concat home "wt")
+           ~log_path ~pid:12345);
+      Background_task.finish ~db ~id:1 ~status:Background_task.Succeeded
+        ~result_preview:"ok";
+      (* Follow on a completed task prints output to stdout and returns empty *)
+      let result =
+        Command_bridge.handle
+          [ "background"; "logs"; "1"; "--follow"; "--lines"; "2" ]
+      in
+      (* Follow mode prints directly; handle returns "" on success *)
+      Alcotest.(check string) "follow returns empty on success" "" result)
+
 let test_handle_delegate () =
   with_temp_home (fun home ->
       let repo = Filename.concat home "repo" in
@@ -1654,6 +1685,8 @@ let suite =
       test_handle_background_add_rejects_non_git_repo;
     Alcotest.test_case "handle background wait and logs" `Quick
       test_handle_background_wait_and_logs;
+    Alcotest.test_case "handle background logs follow" `Quick
+      test_handle_background_logs_follow;
     Alcotest.test_case "handle background wait with timeout" `Quick
       test_handle_background_wait_with_timeout;
     Alcotest.test_case "handle delegate" `Quick test_handle_delegate;

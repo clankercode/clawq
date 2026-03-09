@@ -412,6 +412,98 @@ let log_excerpt ?(lines = 40) task =
           if chunks = [] then header ^ "\n\n(log file is empty)"
           else header ^ "\n\n" ^ String.concat "\n" chunks)
 
+let file_size path =
+  try
+    let ic = open_in path in
+    Fun.protect
+      ~finally:(fun () -> close_in_noerr ic)
+      (fun () -> in_channel_length ic)
+  with Sys_error _ -> 0
+
+let read_from_offset path ~offset =
+  try
+    let ic = open_in path in
+    Fun.protect
+      ~finally:(fun () -> close_in_noerr ic)
+      (fun () ->
+        let file_len = in_channel_length ic in
+        if file_len > offset then begin
+          seek_in ic offset;
+          let len = file_len - offset in
+          let buf = Bytes.create len in
+          let actually_read = input ic buf 0 len in
+          Some (Bytes.sub_string buf 0 actually_read, offset + actually_read)
+        end
+        else None)
+  with Sys_error _ -> None
+
+let log_follow ?(poll_seconds = 0.5) ~db ~id ~initial_lines
+    ?(emit =
+      fun s ->
+        print_string s;
+        flush stdout) () =
+  let open Lwt.Syntax in
+  let rec wait_for_task () =
+    match get_task ~db ~id with
+    | None ->
+        Lwt.return_error
+          (Printf.sprintf "No background task found with id %d" id)
+    | Some task
+      when task.log_path = None && not (is_terminal_status task.status) ->
+        let* () = Lwt_unix.sleep poll_seconds in
+        wait_for_task ()
+    | Some task -> Lwt.return_ok task
+  in
+  let* task_result = wait_for_task () in
+  match task_result with
+  | Error msg -> Lwt.return_error msg
+  | Ok task -> (
+      match task.log_path with
+      | None ->
+          Lwt.return_error
+            (Printf.sprintf "Task %d finished with no log file" task.id)
+      | Some path ->
+          let header =
+            Printf.sprintf "Following log for task %d (%s)\npath: %s\n\n"
+              task.id
+              (string_of_status task.status)
+              path
+          in
+          emit header;
+          (* Print initial tail lines, then track offset from end of file *)
+          let offset = ref 0 in
+          if Sys.file_exists path then begin
+            (match read_last_lines path ~lines:initial_lines with
+            | Ok chunks when chunks <> [] ->
+                emit (String.concat "\n" chunks ^ "\n")
+            | _ -> ());
+            offset := file_size path
+          end;
+          let rec follow () =
+            (* Read any new content *)
+            (match read_from_offset path ~offset:!offset with
+            | Some (s, new_offset) when s <> "" ->
+                emit s;
+                offset := new_offset
+            | _ -> ());
+            (* Check task status *)
+            match get_task ~db ~id with
+            | None -> Lwt.return_ok ()
+            | Some task when is_terminal_status task.status ->
+                (* One final read *)
+                (match read_from_offset path ~offset:!offset with
+                | Some (s, _) when s <> "" -> emit s
+                | _ -> ());
+                emit
+                  (Printf.sprintf "\n--- Task %d %s ---\n" task.id
+                     (string_of_status task.status));
+                Lwt.return_ok ()
+            | Some _ ->
+                let* () = Lwt_unix.sleep poll_seconds in
+                follow ()
+          in
+          follow ())
+
 let set_running ~db ~id ~branch ~worktree_path ~log_path ~pid =
   let sql =
     "UPDATE background_tasks SET status = 'running', branch = ?, worktree_path \

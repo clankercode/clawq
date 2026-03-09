@@ -1171,7 +1171,7 @@ type background_add_args = {
 }
 
 type background_wait_args = { id : int; timeout_seconds : float }
-type background_logs_args = { id : int; lines : int }
+type background_logs_args = { id : int; lines : int; follow : bool }
 
 type delegate_args = {
   preferred_runner : Background_task.runner option;
@@ -1235,22 +1235,27 @@ let parse_background_wait_args args =
   loop 300.0 None args
 
 let parse_background_logs_args args =
-  let rec loop lines id = function
+  let rec loop lines follow id = function
     | [] -> (
         match id with
-        | Some id -> Ok { id; lines }
-        | None -> Error "Usage: clawq background logs <id> [--lines <count>]")
+        | Some id -> Ok { id; lines; follow }
+        | None ->
+            Error
+              "Usage: clawq background logs <id> [--lines <count>] [--follow]")
     | "--lines" :: count :: rest -> (
-        try loop (max 1 (int_of_string count)) id rest
+        try loop (max 1 (int_of_string count)) follow id rest
         with _ -> Error "Log line count must be an integer")
+    | ("--follow" | "-f") :: rest -> loop lines true id rest
     | arg :: rest -> (
         match id with
-        | Some _ -> Error "Usage: clawq background logs <id> [--lines <count>]"
+        | Some _ ->
+            Error
+              "Usage: clawq background logs <id> [--lines <count>] [--follow]"
         | None -> (
-            try loop lines (Some (int_of_string arg)) rest
+            try loop lines follow (Some (int_of_string arg)) rest
             with _ -> Error "Background task id must be an integer"))
   in
-  loop 40 None args
+  loop 40 false None args
 
 let parse_delegate_args args =
   let rec loop preferred_runner model repo_path branch positionals = function
@@ -1719,7 +1724,7 @@ let cmd_background args =
          Queue a task\n\
         \  background wait <id> [--timeout <seconds>]              - Wait for \
          completion\n\
-        \  background logs <id> [--lines <count>]                  - Show task \
+        \  background logs <id> [--lines <count>] [--follow]       - Show task \
          logs\n\
         \  background cancel <id>                                  - Cancel a \
          task"
@@ -1774,6 +1779,13 @@ let cmd_background args =
       Background_task.init_schema db;
       match parse_background_logs_args rest with
       | Error msg -> "Error: " ^ msg
+      | Ok parsed when parsed.follow -> (
+          let result =
+            Lwt_main.run
+              (Background_task.log_follow ~db ~id:parsed.id
+                 ~initial_lines:parsed.lines ())
+          in
+          match result with Ok () -> "" | Error msg -> "Error: " ^ msg)
       | Ok parsed -> (
           match Background_task.get_task ~db ~id:parsed.id with
           | None ->
@@ -1802,7 +1814,7 @@ let cmd_background args =
        Queue a worktree runner\n\
       \  background wait <id> [--timeout <seconds>]              - Wait for a \
        task to finish\n\
-      \  background logs <id> [--lines <count>]                  - Show recent \
+      \  background logs <id> [--lines <count>] [--follow]       - Show recent \
        task log lines\n\
       \  background cancel <id>                                  - Cancel a \
        queued/running task"

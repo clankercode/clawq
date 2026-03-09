@@ -230,20 +230,27 @@ let background_logs_cmd =
       & info [ "lines" ] ~docv:"COUNT"
           ~doc:"How many trailing log lines to show.")
   in
+  let follow =
+    Arg.(
+      value & flag
+      & info [ "follow"; "f" ]
+          ~doc:"Follow the log output, streaming new lines until the task ends.")
+  in
   Cmd.v
     (Cmd.info "logs"
        ~doc:"Show the task log output for a queued, running, or finished task.")
     Term.(
       ret
-        (const (fun id lines ->
+        (const (fun id lines follow ->
              let args = [ "logs"; id ] in
              let args =
                match lines with
                | Some count -> args @ [ "--lines"; count ]
                | None -> args
              in
+             let args = if follow then args @ [ "--follow" ] else args in
              run "background" args)
-        $ id $ lines))
+        $ id $ lines $ follow))
 
 let background_cancel_cmd =
   let id = Arg.(required & pos 0 (some string) None & info [] ~docv:"ID") in
@@ -310,7 +317,7 @@ let delegate_cmd =
              ( "background wait ID [--timeout SECONDS]",
                "Wait for a delegated task to finish." );
            `I
-             ( "background logs ID [--lines COUNT]",
+             ( "background logs ID [--lines COUNT] [--follow]",
                "Show the log output for a delegated task." );
            `I
              ( "background cancel ID",

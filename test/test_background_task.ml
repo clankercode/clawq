@@ -1073,6 +1073,118 @@ let test_list_tasks_for_display_filters () =
           true
         with Not_found -> false))
 
+let test_log_follow_completed_task () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"test follow" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      let log_dir = Filename.temp_dir "clawq-follow" "" in
+      let log_path = Filename.concat log_dir "task.log" in
+      let oc = open_out log_path in
+      output_string oc "line1\nline2\nline3\n";
+      close_out oc;
+      ignore
+        (Background_task.set_running ~db ~id ~branch:"bg-follow"
+           ~worktree_path:repo_path ~log_path ~pid:99999);
+      Background_task.finish ~db ~id ~status:Background_task.Succeeded
+        ~result_preview:"done";
+      let buf = Buffer.create 256 in
+      let emit s = Buffer.add_string buf s in
+      let result =
+        Lwt_main.run
+          (Background_task.log_follow ~poll_seconds:0.05 ~db ~id
+             ~initial_lines:10 ~emit ())
+      in
+      (match result with
+      | Error msg -> Alcotest.failf "log_follow failed: %s" msg
+      | Ok () -> ());
+      let output = Buffer.contents buf in
+      Alcotest.(check bool)
+        "follow output contains log lines" true
+        (try
+           ignore (Str.search_forward (Str.regexp_string "line1") output 0);
+           ignore (Str.search_forward (Str.regexp_string "line3") output 0);
+           true
+         with Not_found -> false);
+      Alcotest.(check bool)
+        "follow output contains terminal banner" true
+        (try
+           ignore (Str.search_forward (Str.regexp_string "succeeded") output 0);
+           true
+         with Not_found -> false);
+      (try Sys.remove log_path with Sys_error _ -> ());
+      try Sys.rmdir log_dir with Sys_error _ -> ())
+
+let test_log_follow_streams_new_lines () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"test follow stream" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      let log_dir = Filename.temp_dir "clawq-follow2" "" in
+      let log_path = Filename.concat log_dir "task.log" in
+      let oc = open_out log_path in
+      output_string oc "initial\n";
+      close_out oc;
+      ignore
+        (Background_task.set_running ~db ~id ~branch:"bg-follow2"
+           ~worktree_path:repo_path ~log_path ~pid:99998);
+      let buf = Buffer.create 256 in
+      let emit s = Buffer.add_string buf s in
+      (* Append a line after a short delay, then finish the task *)
+      Lwt.async (fun () ->
+          let open Lwt.Syntax in
+          let* () = Lwt_unix.sleep 0.15 in
+          let oc = open_out_gen [ Open_append; Open_wronly ] 0o644 log_path in
+          output_string oc "appended\n";
+          close_out oc;
+          let* () = Lwt_unix.sleep 0.15 in
+          Background_task.finish ~db ~id ~status:Background_task.Succeeded
+            ~result_preview:"ok";
+          Lwt.return_unit);
+      let result =
+        Lwt_main.run
+          (Background_task.log_follow ~poll_seconds:0.05 ~db ~id
+             ~initial_lines:10 ~emit ())
+      in
+      (match result with
+      | Error msg -> Alcotest.failf "log_follow failed: %s" msg
+      | Ok () -> ());
+      let output = Buffer.contents buf in
+      Alcotest.(check bool)
+        "follow output contains initial line" true
+        (try
+           ignore (Str.search_forward (Str.regexp_string "initial") output 0);
+           true
+         with Not_found -> false);
+      Alcotest.(check bool)
+        "follow output contains appended line" true
+        (try
+           ignore (Str.search_forward (Str.regexp_string "appended") output 0);
+           true
+         with Not_found -> false);
+      Alcotest.(check bool)
+        "follow output shows terminal status" true
+        (try
+           ignore (Str.search_forward (Str.regexp_string "succeeded") output 0);
+           true
+         with Not_found -> false);
+      (try Sys.remove log_path with Sys_error _ -> ());
+      try Sys.rmdir log_dir with Sys_error _ -> ())
+
 let suite =
   [
     Alcotest.test_case "enqueue and list tasks" `Quick
@@ -1136,4 +1248,8 @@ let suite =
     Alcotest.test_case "reap handles no pid" `Quick test_reap_handles_no_pid;
     Alcotest.test_case "spawn detects child exit despite open pipes" `Slow
       test_spawn_detects_child_exit_despite_open_pipes;
+    Alcotest.test_case "log_follow on completed task" `Quick
+      test_log_follow_completed_task;
+    Alcotest.test_case "log_follow streams new lines" `Quick
+      test_log_follow_streams_new_lines;
   ]
