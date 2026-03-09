@@ -180,3 +180,4 @@ bugs:
     - file: B179-sessionless-llm-dispatch-cost.todo
     - file: B180-telegram-send-message-notifica.todo
     - file: B181-telegram-connections-seem-slow.todo
+    - file: B182-add-support-for-pasting-images.todo

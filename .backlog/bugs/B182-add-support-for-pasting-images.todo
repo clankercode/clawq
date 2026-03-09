@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B182
+priority: high
+status: pending
+tags: []
+title: add support for pasting images and things in telegram and having multimodal models automatically handle them correctly.
+---
+
+add support for pasting images and things in telegram and having multimodal models automatically handle them correctly.
