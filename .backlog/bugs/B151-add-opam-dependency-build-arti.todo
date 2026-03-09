@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B151
+priority: high
+status: pending
+tags: []
+title: Add opam dependency/build artifacts to CI cache where it makes sense
+---
+
+Add opam dependency/build artifacts to CI cache where it makes sense

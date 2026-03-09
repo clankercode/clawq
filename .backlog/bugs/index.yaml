@@ -149,3 +149,4 @@ bugs:
     - file: B148-we-need-to-be-able-to-trigger.todo
     - file: B149-look-for-any-slow-tests-partic.todo
     - file: B150-implement-offline-fallback-for.todo
+    - file: B151-add-opam-dependency-build-arti.todo
