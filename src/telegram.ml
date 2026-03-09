@@ -398,6 +398,34 @@ let acknowledge_update ~bot_token ~update_id =
 
 let telegram_max_message_len = 4096
 
+let telegram_delegate_prompt ~user_prompt =
+  String.concat "\n"
+    [
+      user_prompt;
+      "";
+      "[Response format: Telegram HTML]";
+      "Your response will be sent as a single Telegram message (max 4096 \
+       chars). Use HTML formatting:";
+      "- <b>bold</b> for headings/emphasis";
+      "- <i>italic</i> for secondary emphasis";
+      "- <code>inline code</code> for identifiers";
+      "- <pre>code blocks</pre>";
+      "- <blockquote expandable>long content</blockquote> for collapsible \
+       sections";
+      "";
+      "Pattern: Lead with a concise 2-3 line summary, then put details in \
+       <blockquote expandable>...</blockquote>. Example:";
+      "";
+      "<b>Result:</b> Task completed successfully.";
+      "<blockquote expandable>";
+      "1. Read the config file";
+      "2. Applied changes to src/main.ml";
+      "3. Ran tests — all passed";
+      "</blockquote>";
+      "";
+      "Escape literal < > & as &lt; &gt; &amp; outside tags.";
+    ]
+
 (* Split text into chunks no larger than max_len, preferring newline boundaries *)
 let chunk_text ?(max_len = telegram_max_message_len) text =
   let len = String.length text in
@@ -822,6 +850,17 @@ let send_chunked ?(disable_notification = false) ?parse_mode ~bot_token ~chat_id
       send_message ~disable_notification ?parse_mode ~bot_token ~chat_id
         ~text:chunk ())
     (chunk_text text)
+
+let send_chunked_html_with_fallback ~bot_token ~chat_id ~text () =
+  let open Lwt.Syntax in
+  let chunks = chunk_text text in
+  Lwt_list.iter_s
+    (fun chunk ->
+      Lwt.catch
+        (fun () ->
+          send_message ~parse_mode:"HTML" ~bot_token ~chat_id ~text:chunk ())
+        (fun _exn -> send_message ~bot_token ~chat_id ~text:chunk ()))
+    chunks
 
 type chunk_sender =
   ?disable_notification:bool ->
@@ -1375,8 +1414,11 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
               send_message ~bot_token ~chat_id:update.chat_id
                 ~text:"Delegating to a temporary session..." ()
             in
-            Session.delegate_turn session_mgr ~prompt ~send_reply:(fun text ->
-                send_chunked ~bot_token ~chat_id:update.chat_id ~text ());
+            let tg_prompt = telegram_delegate_prompt ~user_prompt:prompt in
+            Session.delegate_turn session_mgr ~prompt:tg_prompt
+              ~send_reply:(fun text ->
+                send_chunked_html_with_fallback ~bot_token
+                  ~chat_id:update.chat_id ~text ());
             Lwt.return_unit
         | Tools ->
             let text =
@@ -1392,9 +1434,11 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
               send_message ~bot_token ~chat_id:update.chat_id
                 ~text:"Forking session..." ()
             in
-            Session.fork_and_run session_mgr ~parent_key:key ~prompt
+            let tg_prompt = telegram_delegate_prompt ~user_prompt:prompt in
+            Session.fork_and_run session_mgr ~parent_key:key ~prompt:tg_prompt
               ~send_reply:(fun text ->
-                send_chunked ~bot_token ~chat_id:update.chat_id ~text ());
+                send_chunked_html_with_fallback ~bot_token
+                  ~chat_id:update.chat_id ~text ());
             Lwt.return_unit
         | NotACommand -> (
             let msg = user_text in

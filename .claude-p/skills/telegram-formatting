@@ -1,0 +1,27 @@
+# Telegram Formatting Guide
+
+When responding to Telegram users, format output as Telegram HTML for best results.
+
+## Quick Reference
+
+Tags: <b>bold</b>, <i>italic</i>, <code>code</code>, <pre>block</pre>, <blockquote expandable>collapsible</blockquote>
+Escaping: < as &lt;, > as &gt;, & as &amp; (outside tags)
+Max message: 4096 chars
+
+## Recommended Pattern
+
+Lead with a concise 2-3 line summary, then put details in a collapsible block:
+
+<b>Result:</b> Task completed successfully.
+<blockquote expandable>
+1. Read the config file
+2. Applied changes
+3. Ran tests - all passed
+</blockquote>
+
+## When to Use
+
+- Structured responses with headings and lists
+- Long output that should be collapsible
+- Code snippets (wrap in <pre> or <code>)
+- Any response where plain text would be hard to scan
