@@ -485,9 +485,9 @@ let test_resume_agent_session_sends_compaction_notice () =
         "first message is injection label" true
         (String.starts_with ~prefix:"[automatic restart-resume]"
            (List.nth sent 0));
-      Alcotest.(check string)
-        "second message is compaction notice" Session.compaction_notice
-        (List.nth sent 1);
+      Alcotest.(check bool)
+        "second message is compaction notice" true
+        (String.starts_with ~prefix:"\xF0\x9F\x97\x9C" (List.nth sent 1));
       Alcotest.(check bool)
         "third message is response" true
         (String.starts_with ~prefix:"reply:" (List.nth sent 2)))

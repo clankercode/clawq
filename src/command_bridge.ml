@@ -299,9 +299,10 @@ let cmd_debug_prompt args =
   let messages =
     if user_message = "" then Agent.build_messages agent
     else begin
-      let compacted =
+      let compaction_info =
         Lwt_main.run (Agent.prepare_turn_history agent ~user_message ())
       in
+      let compacted = Option.is_some compaction_info in
       let sandbox = make_sandbox cfg in
       let shell_policy_summary, shell_is_sandboxed =
         shell_policy_summary cfg sandbox

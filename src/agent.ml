@@ -9,6 +9,12 @@ type t = {
 exception Interrupted of string
 exception Restart_requested
 
+type compaction_info = {
+  pre_tokens : int;
+  post_tokens : int;
+  context_window : int;
+}
+
 let string_contains_ci_small s sub =
   let sl = String.lowercase_ascii s in
   let subl = String.lowercase_ascii sub in
@@ -587,13 +593,14 @@ let compact_history_if_needed agent ?db () =
   let len = List.length agent.history in
   let compaction_threshold = compaction_threshold_for_agent agent in
   let current_tokens = estimate_history_tokens agent.history in
+  let cw = context_window_for_agent agent in
   if len > effective_max || current_tokens > compaction_threshold then begin
     let history_chrono = List.rev agent.history in
     let total = List.length history_chrono in
     (* Keep the most-recent messages verbatim; only summarise older ones. *)
     let keep = min compaction_keep_recent total in
     let compact_count = total - keep in
-    if compact_count = 0 then Lwt.return false
+    if compact_count = 0 then Lwt.return_none
     else begin
       Logs.info (fun m ->
           m "Compacting history: %d messages -> summarise %d, keep %d recent"
@@ -607,7 +614,7 @@ let compact_history_if_needed agent ?db () =
       let to_compact, to_keep =
         adjust_split_for_tool_groups to_compact_raw to_keep_raw
       in
-      if to_compact = [] then Lwt.return false
+      if to_compact = [] then Lwt.return_none
       else begin
         (* Launch background memory flush before compaction destroys detail *)
         (match db with
@@ -651,19 +658,23 @@ let compact_history_if_needed agent ?db () =
         in
         (* Rebuild history (newest-first) as: recent messages then summary. *)
         agent.history <- List.rev (summary_msg :: to_keep);
-        Lwt.return true
+        let post_tokens = estimate_history_tokens agent.history in
+        Lwt.return_some
+          { pre_tokens = current_tokens; post_tokens; context_window = cw }
       end
     end
   end
-  else Lwt.return false
+  else Lwt.return_none
 
 let force_compact_history agent =
   let open Lwt.Syntax in
+  let pre_tokens = estimate_history_tokens agent.history in
+  let cw = context_window_for_agent agent in
   let history_chrono = List.rev agent.history in
   let total = List.length history_chrono in
   let keep = min compaction_keep_recent total in
   let compact_count = total - keep in
-  if compact_count = 0 then Lwt.return false
+  if compact_count = 0 then Lwt.return_none
   else begin
     Logs.info (fun m ->
         m
@@ -679,7 +690,7 @@ let force_compact_history agent =
     let to_compact, to_keep =
       adjust_split_for_tool_groups to_compact_raw to_keep_raw
     in
-    if to_compact = [] then Lwt.return false
+    if to_compact = [] then Lwt.return_none
     else begin
       let to_keep = ensure_tool_group_integrity to_keep in
       let mid = List.length to_compact / 2 in
@@ -700,7 +711,8 @@ let force_compact_history agent =
         Provider.make_message ~role:"assistant" ~content:merged_summary
       in
       agent.history <- List.rev (summary_msg :: to_keep);
-      Lwt.return true
+      let post_tokens = estimate_history_tokens agent.history in
+      Lwt.return_some { pre_tokens; post_tokens; context_window = cw }
     end
   end
 
@@ -1312,8 +1324,8 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
     | _ -> false
   in
   let open Lwt.Syntax in
-  let* _compacted =
-    if history_prepared then Lwt.return false
+  let* _compaction_info =
+    if history_prepared then Lwt.return_none
     else prepare_turn_history agent ~user_message ?db ()
   in
   let audit_enabled = agent.config.security.audit_enabled in
@@ -1486,8 +1498,8 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
     | _ -> false
   in
   let open Lwt.Syntax in
-  let* _compacted =
-    if history_prepared then Lwt.return false
+  let* _compaction_info =
+    if history_prepared then Lwt.return_none
     else prepare_turn_history agent ~user_message ?db ()
   in
   let audit_enabled = agent.config.security.audit_enabled in

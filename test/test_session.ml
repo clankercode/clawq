@@ -1036,7 +1036,7 @@ let test_turn_stream_emits_compaction_notice () =
       let output = String.concat "" deltas in
       Alcotest.(check bool)
         "compaction notice text present" true
-        (string_contains output Session.compaction_notice))
+        (string_contains output "Compacting conversation history"))
 
 let test_bang_message_interrupts_before_lock_and_turns_normally () =
   with_fake_chat_provider (fun config ->

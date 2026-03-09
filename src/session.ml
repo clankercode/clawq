@@ -342,14 +342,20 @@ let with_registered_notifier mgr ~key ~notify f =
       | None -> unregister_channel_notifier mgr ~key);
       Lwt.return_unit)
 
-let compaction_notice =
-  "Compacting earlier chat history to stay within the model's context window."
+let compaction_notice (info : Agent.compaction_info) =
+  let pre_k = info.pre_tokens / 1000 in
+  let post_k = info.post_tokens / 1000 in
+  let cw_k = info.context_window / 1000 in
+  Printf.sprintf
+    "\xF0\x9F\x97\x9C\xEF\xB8\x8F Compacting conversation history (%dk \
+     \xe2\x86\x92 %dk tokens, context window: %dk)"
+    pre_k post_k cw_k
 
-let notify_compaction_if_needed ?notify compacted =
-  match (compacted, notify) with
-  | true, Some send ->
+let notify_compaction_if_needed ?notify compaction_info =
+  match (compaction_info, notify) with
+  | Some info, Some send ->
       Lwt.catch
-        (fun () -> send compaction_notice)
+        (fun () -> send (compaction_notice info))
         (fun exn ->
           Logs.warn (fun m ->
               m "Failed to send compaction notice: %s" (Printexc.to_string exn));
@@ -866,11 +872,12 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
     in
     notify_event_messages ?notify refresh_messages
   in
-  let* compacted =
+  let* compaction_info =
     Agent.prepare_turn_history agent ~user_message:effective_message
       ~content_parts ~workspace_refresh_checked:true ?db:mgr.db ()
   in
-  let* () = notify_compaction_if_needed ?notify compacted in
+  let compacted = Option.is_some compaction_info in
+  let* () = notify_compaction_if_needed ?notify compaction_info in
   if compacted then persist_compacted_history mgr ~key agent
   else persist_new_messages mgr ~key ~history_before agent;
   let runtime_context =
@@ -1232,16 +1239,17 @@ let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
                       in
                       notify_event_messages ?notify ~on_chunk refresh_messages
                     in
-                    let* compacted =
+                    let* compaction_info =
                       Agent.prepare_turn_history agent
                         ~user_message:effective_message ~content_parts
                         ~workspace_refresh_checked:true ?db:mgr.db ()
                     in
+                    let compacted = Option.is_some compaction_info in
                     let* () =
                       notify_compaction_if_needed
                         ~notify:(fun text ->
                           on_chunk (Provider.Delta (text ^ "\n")))
-                        compacted
+                        compaction_info
                     in
                     if compacted then persist_compacted_history mgr ~key agent
                     else persist_new_messages mgr ~key ~history_before agent;
@@ -1369,12 +1377,12 @@ let reset mgr ~key =
 let compact mgr ~key =
   let open Lwt.Syntax in
   with_session_lock mgr ~key (fun agent _interrupt ->
-      let* compacted = Agent.force_compact_history agent in
-      if compacted then begin
-        persist_compacted_history mgr ~key agent;
-        Lwt.return true
-      end
-      else Lwt.return false)
+      let* compaction_info = Agent.force_compact_history agent in
+      match compaction_info with
+      | Some _ ->
+          persist_compacted_history mgr ~key agent;
+          Lwt.return true
+      | None -> Lwt.return false)
 
 let rec schedule_autonomous_continuation
     ?(delay = default_autonomous_continuation_delay)

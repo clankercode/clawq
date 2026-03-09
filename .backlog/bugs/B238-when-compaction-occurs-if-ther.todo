@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-09T19:21:41Z"
+claimed_by: cli-user
+completed_at: "2026-03-09T20:07:14Z"
 complexity: medium
 depends_on: []
+duration_minutes: 45.55114902748333
 estimate_hours: 1
 id: B238
 priority: high
-status: pending
+started_at: "2026-03-09T19:21:41Z"
+status: done
 tags: []
 title: when compaction occurs, if there's a connector it should send a message to the user saying compacting with a nice emoji (maybe some stats about token usage too)
 ---

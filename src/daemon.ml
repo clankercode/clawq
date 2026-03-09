@@ -428,10 +428,11 @@ let resume_turn_prompt =
 let default_resume_turn ~(session_manager : Session.t) ~notify ~session_key
     agent interrupt =
   let open Lwt.Syntax in
-  let* compacted =
+  let* compaction_info =
     Agent.compact_history_if_needed agent ?db:session_manager.db ()
   in
-  let* () = Session.notify_compaction_if_needed ~notify compacted in
+  let compacted = Option.is_some compaction_info in
+  let* () = Session.notify_compaction_if_needed ~notify compaction_info in
   if compacted then
     Session.persist_compacted_history session_manager ~key:session_key agent;
   Logs.info (fun m ->
@@ -1700,9 +1701,12 @@ let run ~(config : Runtime_config.t) =
                                       "Heartbeat: processing HEARTBEAT.md (%d \
                                        chars) on main session"
                                       (String.length content));
-                                let* compacted =
+                                let* compaction_info =
                                   Agent.prepare_turn_history agent
                                     ~user_message:content ?db ()
+                                in
+                                let compacted =
+                                  Option.is_some compaction_info
                                 in
                                 let cur_cfg =
                                   Session.get_config session_manager

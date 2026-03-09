@@ -325,7 +325,8 @@ let test_flush_failure_doesnt_block_compaction () =
            let* () = Lwt.pause () in
            Lwt.return result)
       in
-      Alcotest.(check bool) "compaction happened" true compacted;
+      Alcotest.(check bool)
+        "compaction happened" true (Option.is_some compacted);
       Alcotest.(check bool)
         "history was reduced" true
         (List.length agent.history < initial_len))
