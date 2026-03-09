@@ -417,14 +417,13 @@ let notify_background_task_started ~(session_manager : Session.t)
 
 let resume_turn_prompt =
   "Automatic restart-resume: the daemon restarted while autonomous work was "
-  ^ "actively in progress in this session. This is the chance to continue "
-  ^ "that interrupted work now. Resume the highest-priority unfinished task "
-  ^ "from the existing conversation, use the available tools if they would "
-  ^ "help, and send the next useful work update in this same session without "
-  ^ "waiting for a new user message. Treat this as a restart-specific resume "
-  ^ "instruction, not a routine idle check. Reply exactly STAY_IDLE only if "
-  ^ "you have verified that no meaningful autonomous work remains to do "
-  ^ "right now."
+  ^ "actively in progress in this session. Resume the interrupted work now "
+  ^ "— review the conversation history to identify where you left off, pick "
+  ^ "up the highest-priority unfinished task, and continue executing from "
+  ^ "that point. Use the available tools as needed and deliver the next "
+  ^ "meaningful progress update without waiting for a new user message. "
+  ^ "(If, after checking the full conversation state, you have confirmed that "
+  ^ "there is absolutely no way to continue, reply exactly STAY_IDLE.)"
 
 let default_resume_turn ~(session_manager : Session.t) ~notify ~session_key
     agent interrupt =

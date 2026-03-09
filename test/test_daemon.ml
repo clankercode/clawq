@@ -300,21 +300,23 @@ let test_default_resume_turn_uses_explicit_resume_prompt () =
         "resume prompt is distinct from generic continuation prompt" true
         (Daemon.resume_turn_prompt <> Session.autonomous_continuation_prompt);
       Alcotest.(check bool)
-        "resume prompt says to continue now" true
+        "resume prompt commands immediate resumption" true
         (string_contains Daemon.resume_turn_prompt
-           "This is the chance to continue that interrupted work now.");
+           "Resume the interrupted work now");
       Alcotest.(check bool)
         "resume prompt names highest-priority unfinished task" true
         (string_contains Daemon.resume_turn_prompt
-           "Resume the highest-priority unfinished task");
+           "highest-priority unfinished task");
       Alcotest.(check bool)
         "resume prompt says not to wait for a user" true
         (string_contains Daemon.resume_turn_prompt
            "without waiting for a new user message");
       Alcotest.(check bool)
-        "resume prompt keeps stay-idle escape hatch narrow" true
-        (string_contains Daemon.resume_turn_prompt
-           "Reply exactly STAY_IDLE only if");
+        "stay-idle is subordinate, not foregrounded" true
+        (string_contains Daemon.resume_turn_prompt "(If after checking");
+      Alcotest.(check bool)
+        "stay-idle not presented as equal first-class branch" false
+        (string_contains Daemon.resume_turn_prompt "Reply exactly STAY_IDLE");
       let db = Memory.init ~db_path:":memory:" () in
       let telegram_account =
         { Runtime_config.bot_token = "tg-token"; allow_from = []; totp = None }
