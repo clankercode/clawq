@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B175
+priority: high
+status: pending
+tags: []
+title: session show incomplete or system prompt not added after compaction. see ./clawq session show telegram:58495225:58495225 for example.
+---
+
+session show incomplete or system prompt not added after compaction. see ./clawq session show telegram:58495225:58495225 for example.
