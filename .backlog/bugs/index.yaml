@@ -206,3 +206,4 @@ bugs:
     - file: B205-workspace-refresh-visibility-i.todo
     - file: B206-when-starting-an-agent-with-de.todo
     - file: B207-clawq-background-list-should-o.todo
+    - file: B208-background-task-status-should.todo

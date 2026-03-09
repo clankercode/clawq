@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B208
+priority: high
+status: pending
+tags: []
+title: background task status should be concisely shown in runtime context so the agent has an up to date idea about them -- come up with a format and then show an example as part of the plan. Also, system messages for changes should be injected/queued into the chat log so that the agent is made aware of background tasks being started, ending, etc. The injected messages should be terse.
+---
+
+background task status should be concisely shown in runtime context so the agent has an up to date idea about them -- come up with a format and then show an example as part of the plan. Also, system messages for changes should be injected/queued into the chat log so that the agent is made aware of background tasks being started, ending, etc. The injected messages should be terse.
