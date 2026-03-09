@@ -393,6 +393,7 @@ let handle args =
   | "delegate" :: rest -> cmd_delegate rest
   | "skills" :: rest -> cmd_skills rest
   | "audit" :: rest -> cmd_audit rest
+  | "session" :: _ -> unsupported "session"
   | "update" :: _ -> unsupported "update"
   | "otp-show" :: _ -> unsupported "otp-show"
   | "agent" :: _ -> unsupported "agent"

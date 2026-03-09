@@ -1868,6 +1868,93 @@ let test_offline_inject_no_chat_history_insertion () =
       let queue_count = Memory.queue_count ~db ~session_key:"telegram:1:user" in
       Alcotest.(check int) "one queued row" 1 queue_count)
 
+let test_session_events_basic () =
+  with_temp_home (fun home ->
+      let db = session_db home in
+      Memory.store_message ~db ~session_key:"web:evtest"
+        (Provider.make_message ~role:"user" ~content:"hello");
+      Memory.store_message ~db ~session_key:"web:evtest"
+        (Provider.make_message ~role:"assistant" ~content:"hi there");
+      Memory.store_message ~db ~session_key:"web:evtest"
+        (Provider.make_message ~role:"event"
+           ~content:
+             "[workspace context refreshed after active workspace file update: \
+              README.md]");
+      Memory.store_message ~db ~session_key:"web:evtest"
+        (Provider.make_message ~role:"system"
+           ~content:"Relevant context from memory:\n[core:key] val");
+      let result =
+        Command_bridge.handle [ "session"; "events"; "web:evtest" ]
+      in
+      let contains s sub =
+        try
+          ignore (Str.search_forward (Str.regexp_string sub) s 0);
+          true
+        with Not_found -> false
+      in
+      Alcotest.(check bool)
+        "session events includes workspace_refresh" true
+        (contains result "workspace_refresh");
+      Alcotest.(check bool)
+        "session events includes memory_context" true
+        (contains result "memory_context");
+      Alcotest.(check bool)
+        "session events excludes user/assistant messages" true
+        (not (contains result "\"hi there\"")))
+
+let test_session_events_epoch_flag () =
+  with_temp_home (fun home ->
+      let db = session_db home in
+      Memory.store_message ~db ~session_key:"web:epochtest"
+        (Provider.make_message ~role:"event"
+           ~content:
+             "[workspace context refreshed after active workspace file update: \
+              NOTES.md]");
+      let contains s sub =
+        try
+          ignore (Str.search_forward (Str.regexp_string sub) s 0);
+          true
+        with Not_found -> false
+      in
+      let result =
+        Command_bridge.handle
+          [ "session"; "events"; "web:epochtest"; "--epoch"; "current" ]
+      in
+      Alcotest.(check bool)
+        "--epoch current returns epoch field" true
+        (contains result "\"epoch\": \"current\"");
+      Alcotest.(check bool)
+        "--epoch current returns workspace_refresh" true
+        (contains result "workspace_refresh"))
+
+let test_session_events_type_filter () =
+  with_temp_home (fun home ->
+      let db = session_db home in
+      Memory.store_message ~db ~session_key:"web:evfilter"
+        (Provider.make_message ~role:"event"
+           ~content:
+             "[workspace context refreshed after active workspace file update: \
+              README.md]");
+      Memory.store_message ~db ~session_key:"web:evfilter"
+        (Provider.make_message ~role:"system"
+           ~content:"Relevant context from memory:\nsome memory");
+      let result =
+        Command_bridge.handle
+          [ "session"; "events"; "web:evfilter"; "--type"; "workspace_refresh" ]
+      in
+      let contains s sub =
+        try
+          ignore (Str.search_forward (Str.regexp_string sub) s 0);
+          true
+        with Not_found -> false
+      in
+      Alcotest.(check bool)
+        "type filter returns workspace_refresh" true
+        (contains result "workspace_refresh");
+      Alcotest.(check bool)
+        "type filter excludes memory_context" true
+        (not (contains result "memory_context")))
+
 let suite =
   [
     Alcotest.test_case "handle phase2" `Quick test_handle_phase2;
@@ -1943,6 +2030,11 @@ let suite =
     Alcotest.test_case "session show redacts shell_exec provider response items"
       `Quick test_session_show_redacts_shell_exec_provider_response_items;
     Alcotest.test_case "session show paging" `Quick test_session_show_paging;
+    Alcotest.test_case "session events basic" `Quick test_session_events_basic;
+    Alcotest.test_case "session events epoch flag" `Quick
+      test_session_events_epoch_flag;
+    Alcotest.test_case "session events type filter" `Quick
+      test_session_events_type_filter;
     Alcotest.test_case "handle migrate no source" `Quick
       test_handle_migrate_no_source;
     Alcotest.test_case "handle skills" `Quick test_handle_skills;

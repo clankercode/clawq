@@ -80,6 +80,11 @@ let session_cmd =
         ( "inject SESSION MESSAGE...",
           "Inject a live inbound message through the daemon session manager." );
       `I
+        ( "events SESSION [--epoch current|ID] [--type TYPE]",
+          "Show event, system, and compaction messages for a session. --type \
+           filters to a specific event type: workspace_refresh, unknown_event, \
+           memory_context, attachment, compaction." );
+      `I
         ( "compact SESSION",
           "Compact session history by summarizing older messages to free up \
            context space." );

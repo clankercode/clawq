@@ -777,6 +777,66 @@ let parse_session_show_args args =
   in
   loop None 0 None args
 
+(* B235: session events helpers *)
+let string_contains haystack needle =
+  let hlen = String.length haystack in
+  let nlen = String.length needle in
+  if nlen = 0 then true
+  else if nlen > hlen then false
+  else
+    let rec loop i =
+      if i + nlen > hlen then false
+      else if String.sub haystack i nlen = needle then true
+      else loop (i + 1)
+    in
+    loop 0
+
+type session_events_args = {
+  ev_epoch : Memory.epoch_selector option;
+  ev_type : string option;
+}
+
+let parse_session_events_args args =
+  let rec loop epoch filter_type = function
+    | [] -> Ok { ev_epoch = epoch; ev_type = filter_type }
+    | "--epoch" :: "current" :: rest ->
+        loop (Some Memory.Current) filter_type rest
+    | "--epoch" :: value :: rest -> (
+        match int_of_string_opt value with
+        | Some id when id > 0 ->
+            loop (Some (Memory.Archived id)) filter_type rest
+        | _ -> Error (Printf.sprintf "Invalid epoch value: %s" value))
+    | "--type" :: value :: rest -> loop epoch (Some value) rest
+    | flag :: _ when String.length flag > 0 && flag.[0] = '-' ->
+        Error (Printf.sprintf "Unknown session events flag: %s" flag)
+    | _ ->
+        Error
+          "Usage: clawq session events SESSION [--epoch current|ID] [--type \
+           TYPE]"
+  in
+  loop None None args
+
+let classify_event_message (row : Memory.raw_message) =
+  match row.role with
+  | "event" ->
+      if string_contains row.content "workspace context refreshed" then
+        "workspace_refresh"
+      else "unknown_event"
+  | "system" ->
+      if string_contains row.content "Relevant context from memory:" then
+        "memory_context"
+      else "attachment"
+  | "assistant" ->
+      if string_contains row.content "[Conversation history compacted]" then
+        "compaction"
+      else "other"
+  | role -> role
+
+let is_session_event_row (row : Memory.raw_message) =
+  row.role = "event" || row.role = "system"
+  || row.role = "assistant"
+     && string_contains row.content "[Conversation history compacted]"
+
 let string_or_null = function Some value -> `String value | None -> `Null
 let session_show_system_prompt _config = "[redacted in session show]"
 
@@ -1247,6 +1307,60 @@ let cmd_session args =
                           ])
                       rows) );
              ])
+  | "events" :: session_key :: rest -> (
+      match parse_session_events_args rest with
+      | Error msg -> msg
+      | Ok parsed -> (
+          let epoch =
+            match parsed.ev_epoch with Some e -> e | None -> Memory.Current
+          in
+          let epoch_label =
+            match epoch with
+            | Memory.Current -> `String "current"
+            | Memory.Archived id -> `Int id
+          in
+          match Memory.load_epoch_messages ~db ~session_key ~epoch with
+          | None -> Printf.sprintf "No epoch found for session %s" session_key
+          | Some rows ->
+              let pending_count = Memory.queue_count ~db ~session_key in
+              let event_rows = List.filter is_session_event_row rows in
+              let filtered_rows =
+                match parsed.ev_type with
+                | None -> event_rows
+                | Some wanted ->
+                    List.filter
+                      (fun row -> classify_event_message row = wanted)
+                      event_rows
+              in
+              let preview_len = 200 in
+              let content_preview s =
+                if String.length s <= preview_len then s
+                else String.sub s 0 preview_len ^ "..."
+              in
+              Yojson.Safe.pretty_to_string
+                (`Assoc
+                   [
+                     ("session_key", `String session_key);
+                     ("epoch", epoch_label);
+                     ("pending_inbound_count", `Int pending_count);
+                     ("event_count", `Int (List.length filtered_rows));
+                     ( "events",
+                       `List
+                         (List.mapi
+                            (fun i (row : Memory.raw_message) ->
+                              `Assoc
+                                [
+                                  ("index", `Int i);
+                                  ("id", `Int row.id);
+                                  ("role", `String row.role);
+                                  ( "event_type",
+                                    `String (classify_event_message row) );
+                                  ( "content_preview",
+                                    `String (content_preview row.content) );
+                                  ("created_at", `String row.created_at);
+                                ])
+                            filtered_rows) );
+                   ])))
   | "inject" :: session_key :: message_parts -> (
       let message = String.concat " " message_parts in
       if String.trim message = "" then
@@ -1396,6 +1510,7 @@ let cmd_session args =
       \  session epochs SESSION\n\
       \  session show SESSION [--epoch current|ID] [--offset N] [--limit N]\n\
       \  session pending SESSION\n\
+      \  session events SESSION [--epoch current|ID] [--type TYPE]\n\
       \  session inject SESSION MESSAGE...\n\
       \  session compact SESSION"
 
