@@ -2,6 +2,7 @@ type t = {
   mutable history : Provider.message list;
   mutable config : Runtime_config.t;
   mutable system_prompt : string;
+  mutable observed_active_workspace_files : (string * string option) list;
   tool_registry : Tool_registry.t option;
 }
 
@@ -36,9 +37,36 @@ let is_queued_message_interrupt = function
   | Some reason when reason = queued_message_interrupt_token -> true
   | _ -> false
 
+let active_workspace_files_for_config (config : Runtime_config.t) =
+  let workspace = Runtime_config.effective_workspace config in
+  let normalize_workspace_path path =
+    let resolved =
+      if Filename.is_relative path then Filename.concat workspace path else path
+    in
+    Path_util.normalize_path resolved
+  in
+  List.map
+    (fun file -> (file, normalize_workspace_path file))
+    config.prompt.workspace_files
+
+let capture_active_workspace_file_state_for_config (config : Runtime_config.t) =
+  active_workspace_files_for_config config
+  |> List.map (fun (file, path) ->
+         let digest =
+           try Some (Digest.to_hex (Digest.file path)) with _ -> None
+         in
+         (file, digest))
+
 let create ~config ?tool_registry () =
   let system_prompt = Prompt_builder.build ~config ~tool_registry () in
-  { history = []; config; system_prompt; tool_registry }
+  {
+    history = [];
+    config;
+    system_prompt;
+    observed_active_workspace_files =
+      capture_active_workspace_file_state_for_config config;
+    tool_registry;
+  }
 
 let is_session_event_message (msg : Provider.message) = msg.role = "event"
 
@@ -689,25 +717,10 @@ let risk_level_to_string = function
   | Tool.Medium -> "medium"
   | Tool.High -> "high"
 
-let active_workspace_files agent =
-  let workspace = Runtime_config.effective_workspace agent.config in
-  let normalize_workspace_path path =
-    let resolved =
-      if Filename.is_relative path then Filename.concat workspace path else path
-    in
-    Path_util.normalize_path resolved
-  in
-  List.map
-    (fun file -> (file, normalize_workspace_path file))
-    agent.config.prompt.workspace_files
+let active_workspace_files agent = active_workspace_files_for_config agent.config
 
 let capture_active_workspace_file_state agent =
-  active_workspace_files agent
-  |> List.map (fun (file, path) ->
-      let digest =
-        try Some (Digest.to_hex (Digest.file path)) with _ -> None
-      in
-      (file, digest))
+  capture_active_workspace_file_state_for_config agent.config
 
 let changed_active_workspace_files before after =
   List.filter_map
@@ -725,6 +738,18 @@ let dedup_preserve_order items =
     | item :: rest -> loop (item :: seen) (item :: acc) rest
   in
   loop [] [] items
+
+let workspace_refresh_event filenames =
+  Provider.make_message ~role:"event"
+    ~content:
+      (Printf.sprintf
+         "[workspace context refreshed after active workspace file update: %s]"
+         (String.concat ", " filenames))
+
+type workspace_refresh_observation = {
+  message : Provider.message option;
+  after_state : (string * string option) list;
+}
 
 let active_workspace_refresh_targets_from_call agent (tc : Provider.tool_call)
     result =
@@ -761,29 +786,55 @@ let active_workspace_refresh_targets_from_call agent (tc : Provider.tool_call)
       | _ -> None
     with _ -> None
 
-let workspace_refresh_message agent tc result ~before_active_workspace_files =
+let observe_workspace_refresh agent tc result ~before_active_workspace_files =
   let direct_targets =
     match active_workspace_refresh_targets_from_call agent tc result with
     | Some files -> files
     | None -> []
   in
+  let after_state = capture_active_workspace_file_state agent in
   let changed_targets =
-    changed_active_workspace_files before_active_workspace_files
-      (capture_active_workspace_file_state agent)
+    changed_active_workspace_files before_active_workspace_files after_state
   in
   let refreshed_files =
     dedup_preserve_order (direct_targets @ changed_targets)
   in
-  match refreshed_files with
+  let message =
+    if String.starts_with ~prefix:"Error:" result then None
+    else
+      match refreshed_files with
+      | [] -> None
+      | filenames -> Some (workspace_refresh_event filenames)
+  in
+  { message; after_state }
+
+let sync_observed_active_workspace_files agent =
+  agent.observed_active_workspace_files <- capture_active_workspace_file_state agent
+
+let restore_observed_active_workspace_files agent observed_active_workspace_files
+    =
+  let current_state = capture_active_workspace_file_state agent in
+  agent.observed_active_workspace_files <-
+    List.map
+      (fun (file, current_digest) ->
+        let restored_digest =
+          match List.assoc_opt file observed_active_workspace_files with
+          | Some digest -> digest
+          | None -> current_digest
+        in
+        (file, restored_digest))
+      current_state
+
+let note_external_workspace_refresh_if_needed agent =
+  let before_state = agent.observed_active_workspace_files in
+  let after_state = capture_active_workspace_file_state agent in
+  agent.observed_active_workspace_files <- after_state;
+  match changed_active_workspace_files before_state after_state with
   | [] -> None
   | filenames ->
-      Some
-        (Provider.make_message ~role:"event"
-           ~content:
-             (Printf.sprintf
-                "[workspace context refreshed after active workspace file \
-                 update: %s]"
-                (String.concat ", " filenames)))
+      let refresh_msg = workspace_refresh_event filenames in
+      agent.history <- refresh_msg :: agent.history;
+      Some refresh_msg
 
 let append_tool_history agent tool_msg refresh_msg_opt =
   agent.history <- tool_msg :: agent.history;
@@ -993,11 +1044,13 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
                    is_error = not success;
                  })
           in
-          let refresh_msg =
-            workspace_refresh_message agent tc result
+          let refresh =
+            observe_workspace_refresh agent tc result
               ~before_active_workspace_files
           in
-          Lwt.return (tc, result_msg, refresh_msg))
+          if Option.is_some refresh.message then
+            agent.observed_active_workspace_files <- refresh.after_state;
+          Lwt.return (tc, result_msg, refresh.message))
       calls
   in
   List.iter
@@ -1132,11 +1185,13 @@ let execute_tool_calls agent ~db ~audit_enabled ~session_key ?interrupt_check
           else
             Logs.warn (fun m ->
                 m "%sTool error: %s -> %s" sk_tag tc.function_name truncated);
-          let refresh_msg =
-            workspace_refresh_message agent tc result
+          let refresh =
+            observe_workspace_refresh agent tc result
               ~before_active_workspace_files
           in
-          Lwt.return (tc, result_msg, refresh_msg))
+          if Option.is_some refresh.message then
+            agent.observed_active_workspace_files <- refresh.after_state;
+          Lwt.return (tc, result_msg, refresh.message))
       calls
   in
   (* Results already reflect execution order; append deterministically. *)
@@ -1215,8 +1270,15 @@ let inject_search_context agent ~db ~user_message =
       (fun _ -> Lwt.return_unit)
   else Lwt.return_unit
 
-let prepare_turn_history agent ~user_message ?(content_parts = []) ?db () =
+let prepare_turn_history agent ~user_message ?(content_parts = [])
+    ?(workspace_refresh_checked = false) ?db () =
   let open Lwt.Syntax in
+  let* () =
+    if workspace_refresh_checked then Lwt.return_unit
+    else
+      let _ = note_external_workspace_refresh_if_needed agent in
+      Lwt.return_unit
+  in
   let* () =
     match db with
     | Some db -> inject_search_context agent ~db ~user_message
@@ -1301,7 +1363,8 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
           let new_msgs = List.filteri (fun i _ -> i >= len_before) reversed in
           cb new_msgs
         end
-    | None -> ()
+        else Lwt.return_unit
+    | None -> Lwt.return_unit
   in
   let rec loop iteration =
     let* response =
@@ -1387,7 +1450,7 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
                   :: agent.history)
               msgs
         | None -> ());
-        fire_history_update len_before_tool_loop;
+        let* () = fire_history_update len_before_tool_loop in
         match interrupt_check with
         | Some check -> (
             match check () with
@@ -1502,7 +1565,8 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
           let new_msgs = List.filteri (fun i _ -> i >= len_before) reversed in
           cb new_msgs
         end
-    | None -> ()
+        else Lwt.return_unit
+    | None -> Lwt.return_unit
   in
   let rec loop iteration =
     Lwt.catch
@@ -1586,7 +1650,7 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
                       :: agent.history)
                   msgs
             | None -> ());
-            fire_history_update len_before_tool_loop;
+            let* () = fire_history_update len_before_tool_loop in
             match interrupt_check with
             | Some check -> (
                 match check () with

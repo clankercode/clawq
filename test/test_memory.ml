@@ -99,6 +99,9 @@ let test_init_creates_session_persistence_tables () =
     "session_state exists" true
     (table_exists db "session_state");
   Alcotest.(check bool)
+    "session_workspace_state exists" true
+    (table_exists db "session_workspace_state");
+  Alcotest.(check bool)
     "discord_resume_state exists" true
     (table_exists db "discord_resume_state");
   Alcotest.(check bool)
@@ -135,6 +138,9 @@ let test_migrates_v1_db_to_v4_without_data_loss () =
       Alcotest.(check bool)
         "session_state exists after migration" true
         (table_exists migrated "session_state");
+      Alcotest.(check bool)
+        "session_workspace_state exists after migration" true
+        (table_exists migrated "session_workspace_state");
       Alcotest.(check bool)
         "discord_resume_state exists after migration" true
         (table_exists migrated "discord_resume_state");

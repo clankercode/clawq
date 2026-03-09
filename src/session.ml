@@ -356,6 +356,45 @@ let notify_compaction_if_needed ?notify compacted =
           Lwt.return_unit)
   | _ -> Lwt.return_unit
 
+let event_display_text (msg : Provider.message) =
+  if msg.role <> "event" then None
+  else
+    let text = String.trim msg.content in
+    let len = String.length text in
+    if len >= 2 && text.[0] = '[' && text.[len - 1] = ']' then
+      Some (String.sub text 1 (len - 2))
+    else Some text
+
+let notify_event_text ?notify ?on_chunk text =
+  let send =
+    match notify with
+    | Some send ->
+        let text =
+          if Option.is_some on_chunk then text ^ "\n\n" else text
+        in
+        Some (fun () -> send text)
+    | None ->
+        Option.map
+          (fun send -> fun () -> send (Provider.Delta (text ^ "\n\n")))
+          on_chunk
+  in
+  match send with
+  | None -> Lwt.return_unit
+  | Some send ->
+      Lwt.catch send (fun exn ->
+          Logs.warn (fun m ->
+              m "Failed to send workspace refresh notice: %s"
+                (Printexc.to_string exn));
+          Lwt.return_unit)
+
+let notify_event_messages ?notify ?on_chunk messages =
+  Lwt_list.iter_s
+    (fun msg ->
+      match event_display_text msg with
+      | Some text -> notify_event_text ?notify ?on_chunk text
+      | None -> Lwt.return_unit)
+    messages
+
 let handle_special_command mgr ~key ~message ?send_progress ?interrupt_check ()
     =
   match mgr.special_command_handler with
@@ -405,6 +444,14 @@ let get_or_create_locked mgr ~key =
               ~max_age_days:mgr.config.memory.max_message_age_days
       | None -> ());
       Agent.trim_history agent;
+      (match mgr.db with
+      | Some db -> (
+          match Memory.load_session_workspace_state ~db ~session_key:key with
+          | Some observed_active_workspace_files ->
+              Agent.restore_observed_active_workspace_files agent
+                observed_active_workspace_files
+          | None -> Agent.sync_observed_active_workspace_files agent)
+      | None -> ());
       let mutex = Lwt_mutex.create () in
       let interrupt = ref None in
       let triple = (agent, mutex, interrupt) in
@@ -618,6 +665,13 @@ let load_pending_agent_sessions mgr ~max_age_seconds =
   | Some db -> Memory.load_pending_agent_sessions ~db ~max_age_seconds
   | None -> []
 
+let persist_session_workspace_state mgr ~key agent =
+  match mgr.db with
+  | Some db when agent.Agent.history <> [] ->
+      Memory.store_session_workspace_state ~db ~session_key:key
+        ~observed_active_workspace_files:agent.Agent.observed_active_workspace_files
+  | _ -> ()
+
 let persist_new_messages mgr ~key ~history_before agent =
   match mgr.db with
   | Some db ->
@@ -631,14 +685,16 @@ let persist_new_messages mgr ~key ~history_before agent =
         List.iter
           (fun msg -> Memory.store_message ~db ~session_key:key msg)
           to_persist
-      end
+      end;
+      persist_session_workspace_state mgr ~key agent
   | None -> ()
 
 let persist_compacted_history mgr ~key agent =
   match mgr.db with
   | Some db ->
       let messages = List.rev agent.Agent.history in
-      Memory.replace_session_messages ~db ~session_key:key messages
+      Memory.replace_session_messages ~db ~session_key:key messages;
+      persist_session_workspace_state mgr ~key agent
   | None -> ()
 
 let respond_if_draining ?on_chunk mgr =
@@ -803,9 +859,17 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
   in
   let history_before = List.length agent.history in
   let notify = find_registered_notifier mgr ~key in
+  let* () =
+    let refresh_messages =
+      match Agent.note_external_workspace_refresh_if_needed agent with
+      | Some msg -> [ msg ]
+      | None -> []
+    in
+    notify_event_messages ?notify refresh_messages
+  in
   let* compacted =
     Agent.prepare_turn_history agent ~user_message:effective_message
-      ~content_parts ?db:mgr.db ()
+      ~content_parts ~workspace_refresh_checked:true ?db:mgr.db ()
   in
   let* () = notify_compaction_if_needed ?notify compacted in
   if compacted then persist_compacted_history mgr ~key agent
@@ -821,13 +885,14 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
   record_agent_turn mgr ~key ?channel ?channel_id ();
   let persisted_up_to = ref prepared_history_len in
   let on_history_update new_msgs =
-    match mgr.db with
+    (match mgr.db with
     | Some db ->
         List.iter
           (fun msg -> Memory.store_message ~db ~session_key:key msg)
           new_msgs;
         persisted_up_to := List.length agent.Agent.history
-    | None -> ()
+    | None -> ());
+    notify_event_messages ?notify new_msgs
   in
   let inject_messages () =
     let msgs = take_all_queued_messages_for_injection mgr ~key in
@@ -1081,7 +1146,10 @@ let get_db mgr = mgr.db
 let update_config mgr config =
   mgr.config <- config;
   Hashtbl.iter
-    (fun _ (agent, _, _) -> agent.Agent.config <- config)
+    (fun key (agent, _, _) ->
+      agent.Agent.config <- config;
+      Agent.sync_observed_active_workspace_files agent;
+      persist_session_workspace_state mgr ~key agent)
     mgr.sessions
 
 let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
@@ -1154,10 +1222,21 @@ let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
                           ctx ^ "\n" ^ message
                     in
                     let history_before = List.length agent.history in
+                    let notify = find_registered_notifier mgr ~key in
+                    let* () =
+                      let refresh_messages =
+                        match
+                          Agent.note_external_workspace_refresh_if_needed agent
+                        with
+                        | Some msg -> [ msg ]
+                        | None -> []
+                      in
+                      notify_event_messages ?notify ~on_chunk refresh_messages
+                    in
                     let* compacted =
                       Agent.prepare_turn_history agent
                         ~user_message:effective_message ~content_parts
-                        ?db:mgr.db ()
+                        ~workspace_refresh_checked:true ?db:mgr.db ()
                     in
                     let* () =
                       notify_compaction_if_needed
@@ -1178,14 +1257,15 @@ let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
                     record_agent_turn mgr ~key ?channel ?channel_id ();
                     let persisted_up_to = ref prepared_history_len in
                     let on_history_update new_msgs =
-                      match mgr.db with
+                      (match mgr.db with
                       | Some db ->
                           List.iter
                             (fun msg ->
                               Memory.store_message ~db ~session_key:key msg)
                             new_msgs;
                           persisted_up_to := List.length agent.Agent.history
-                      | None -> ()
+                      | None -> ());
+                      notify_event_messages ?notify ~on_chunk new_msgs
                     in
                     let inject_messages () =
                       let msgs =

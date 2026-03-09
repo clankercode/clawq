@@ -93,6 +93,12 @@ let init_session_schema db =
     \     seq INTEGER NOT NULL,\n\
     \     resume_gateway_url TEXT NOT NULL,\n\
     \     updated_at TEXT NOT NULL DEFAULT (datetime('now'))\n\
+    \   )";
+  exec_exn db
+    "CREATE TABLE IF NOT EXISTS session_workspace_state (\n\
+    \     session_key TEXT PRIMARY KEY,\n\
+    \     observed_files_json TEXT NOT NULL,\n\
+    \     updated_at TEXT NOT NULL DEFAULT (datetime('now'))\n\
     \   )"
 
 let init_epoch_schema db =
@@ -148,7 +154,8 @@ let migrate_schema db current_version =
       init_session_schema db;
       init_epoch_schema db;
       set_schema_version db schema_version
-  | n when n = schema_version -> ()
+  | n when n = schema_version ->
+      init_session_schema db
   | n ->
       failwith
         (Printf.sprintf "Unsupported schema version %d (current=%d)" n
@@ -511,7 +518,76 @@ let clear_session ~db ~session_key =
     epoch_ids;
   clear "DELETE FROM session_log_epochs WHERE session_key = ?";
   clear "DELETE FROM messages WHERE session_key = ?";
-  clear "DELETE FROM session_state WHERE session_key = ?"
+  clear "DELETE FROM session_state WHERE session_key = ?";
+  clear "DELETE FROM session_workspace_state WHERE session_key = ?"
+
+let store_session_workspace_state ~db ~session_key
+    ~observed_active_workspace_files =
+  let observed_files_json =
+    `List
+      (List.map
+         (fun (file, digest) ->
+           `Assoc
+             [
+               ("file", `String file);
+               ( "digest",
+                 match digest with
+                 | Some value -> `String value
+                 | None -> `Null );
+             ])
+         observed_active_workspace_files)
+    |> Yojson.Safe.to_string
+  in
+  let sql =
+    "INSERT INTO session_workspace_state (session_key, observed_files_json, \
+     updated_at) VALUES (?, ?, datetime('now')) ON CONFLICT(session_key) DO \
+     UPDATE SET observed_files_json = excluded.observed_files_json, updated_at \
+     = datetime('now')"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT session_key));
+      ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT observed_files_json));
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.DONE -> ()
+      | rc ->
+          Logs.warn (fun m ->
+              m "Failed to store session workspace state: %s"
+                (Sqlite3.Rc.to_string rc)))
+
+let load_session_workspace_state ~db ~session_key =
+  let sql =
+    "SELECT observed_files_json FROM session_workspace_state WHERE \
+     session_key = ?"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT session_key));
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.ROW -> (
+          match Sqlite3.column stmt 0 with
+          | Sqlite3.Data.TEXT json -> (
+              try
+                let open Yojson.Safe.Util in
+                Some
+                  (Yojson.Safe.from_string json |> to_list
+                  |> List.filter_map (fun entry ->
+                         try
+                           let file = entry |> member "file" |> to_string in
+                           let digest =
+                             match entry |> member "digest" with
+                             | `Null -> None
+                             | value -> Some (to_string value)
+                           in
+                           Some (file, digest)
+                         with _ -> None))
+              with _ -> None)
+          | _ -> None)
+      | _ -> None)
 
 let upsert_session_state ~db ~session_key ~turn ?channel ?channel_id
     ?response_sent_at () =

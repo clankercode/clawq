@@ -208,6 +208,171 @@ let with_fake_chat_provider ?response_for_user f =
       in
       f config)
 
+type fake_provider_reply =
+  | Fake_text of string
+  | Fake_tool_calls of (string * string * string) list
+
+let with_fake_openai_provider ~handle_request f =
+  let port = free_port () in
+  let callback _conn req body =
+    let open Lwt.Syntax in
+    let* body_text = Cohttp_lwt.Body.to_string body in
+    let json = Yojson.Safe.from_string body_text in
+    let open Yojson.Safe.Util in
+    let messages = json |> member "messages" |> to_list in
+    let stream = try json |> member "stream" |> to_bool with _ -> false in
+    match
+      ( Cohttp.Request.meth req,
+        Uri.path (Cohttp.Request.uri req),
+        handle_request ~stream ~messages ~json )
+    with
+    | `POST, "/chat/completions", Fake_text response_text when not stream ->
+        let response_body =
+          Yojson.Safe.to_string
+            (`Assoc
+               [
+                 ("id", `String "cmpl_fake");
+                 ("object", `String "chat.completion");
+                 ("model", `String "fake-model");
+                 ( "choices",
+                   `List
+                     [
+                       `Assoc
+                         [
+                           ("index", `Int 0);
+                           ( "message",
+                             `Assoc
+                               [
+                                 ("role", `String "assistant");
+                                 ("content", `String response_text);
+                               ] );
+                           ("finish_reason", `String "stop");
+                         ];
+                     ] );
+                 ( "usage",
+                   `Assoc
+                     [
+                       ("prompt_tokens", `Int 1); ("completion_tokens", `Int 1);
+                     ] );
+               ])
+        in
+        Cohttp_lwt_unix.Server.respond_string ~status:`OK ~body:response_body ()
+    | `POST, "/chat/completions", Fake_tool_calls calls when not stream ->
+        let tool_calls_json =
+          `List
+            (List.map
+               (fun (id, name, arguments) ->
+                 `Assoc
+                   [
+                     ("id", `String id);
+                     ("type", `String "function");
+                     ( "function",
+                       `Assoc
+                         [
+                           ("name", `String name);
+                           ("arguments", `String arguments);
+                         ] );
+                   ])
+               calls)
+        in
+        let response_body =
+          Yojson.Safe.to_string
+            (`Assoc
+               [
+                 ("id", `String "cmpl_fake");
+                 ("object", `String "chat.completion");
+                 ("model", `String "fake-model");
+                 ( "choices",
+                   `List
+                     [
+                       `Assoc
+                         [
+                           ("index", `Int 0);
+                           ( "message",
+                             `Assoc
+                               [
+                                 ("role", `String "assistant");
+                                 ("content", `String "");
+                                 ("tool_calls", tool_calls_json);
+                               ] );
+                           ("finish_reason", `String "tool_calls");
+                         ];
+                     ] );
+                 ( "usage",
+                   `Assoc
+                     [
+                       ("prompt_tokens", `Int 1); ("completion_tokens", `Int 1);
+                     ] );
+               ])
+        in
+        Cohttp_lwt_unix.Server.respond_string ~status:`OK ~body:response_body ()
+    | `POST, "/chat/completions", Fake_text response_text ->
+        let stream_body, push = Lwt_stream.create () in
+        let chunk =
+          Yojson.Safe.to_string
+            (`Assoc
+               [
+                 ("model", `String "fake-model");
+                 ( "choices",
+                   `List
+                     [
+                       `Assoc
+                         [
+                           ("index", `Int 0);
+                           ( "delta",
+                             `Assoc [ ("content", `String response_text) ] );
+                         ];
+                     ] );
+               ])
+        in
+        push (Some ("data: " ^ chunk ^ "\n\n"));
+        push (Some "data: [DONE]\n\n");
+        push None;
+        let headers =
+          Cohttp.Header.of_list [ ("Content-Type", "text/event-stream") ]
+        in
+        Cohttp_lwt_unix.Server.respond ~status:`OK ~headers
+          ~body:(Cohttp_lwt.Body.of_stream stream_body)
+          ()
+    | `POST, "/chat/completions", Fake_tool_calls _ ->
+        Cohttp_lwt_unix.Server.respond_string ~status:`Internal_server_error
+          ~body:"streaming tool call responses are not supported in this test"
+          ()
+    | _ -> Cohttp_lwt_unix.Server.respond_string ~status:`Not_found ~body:"" ()
+  in
+  let stop, stopper = Lwt.wait () in
+  let server =
+    Cohttp_lwt_unix.Server.create
+      ~mode:(`TCP (`Port port))
+      (Cohttp_lwt_unix.Server.make ~callback ())
+  in
+  Lwt.async (fun () -> Lwt.pick [ server; stop ]);
+  Fun.protect
+    ~finally:(fun () -> Lwt.wakeup_later stopper ())
+    (fun () ->
+      let config =
+        {
+          Runtime_config.default with
+          default_provider = Some "fake";
+          providers =
+            [
+              ( "fake",
+                make_fake_provider_config
+                  (Printf.sprintf "http://127.0.0.1:%d" port) );
+            ];
+          security =
+            { Runtime_config.default.security with tools_enabled = false };
+          agent_defaults =
+            {
+              Runtime_config.default.agent_defaults with
+              primary_model = "fake-model";
+              show_thinking = false;
+              show_tool_calls = false;
+            };
+        }
+      in
+      f config)
+
 let test_reset_clears_active_session_and_history () =
   let db = Memory.init ~db_path:":memory:" () in
   let config = Runtime_config.default in
@@ -1650,6 +1815,320 @@ let test_non_active_doc_write_does_not_persist_workspace_refresh_event () =
       Alcotest.(check string)
         "only tool result role" "tool" (List.hd persisted).Provider.role)
 
+let test_turn_notifier_surfaces_workspace_refresh_event_for_tool_update () =
+  with_temp_workspace (fun workspace ->
+      let db = Memory.init ~db_path:":memory:" () in
+      let notifications = ref [] in
+      let secret = "VERY SECRET AGENTS CONTENT" in
+      let request_count = ref 0 in
+      with_fake_openai_provider
+        ~handle_request:(fun ~stream:_ ~messages:_ ~json:_ ->
+          if !request_count = 0 then begin
+            incr request_count;
+            Fake_tool_calls
+              [
+                ( "call_doc_write",
+                  "doc_write",
+                  Yojson.Safe.to_string
+                    (`Assoc
+                       [
+                         ("filename", `String "AGENTS.md");
+                         ("content", `String secret);
+                       ]) );
+              ]
+          end
+          else Fake_text "done")
+        (fun base_config ->
+          let prompt =
+            {
+              base_config.prompt with
+              dynamic_enabled = true;
+              include_tools_section = false;
+              include_safety_section = false;
+              include_runtime_section = false;
+              include_datetime_section = false;
+              include_autonomy_section = false;
+              workspace_files = [ "AGENTS.md" ];
+            }
+          in
+          let config =
+            {
+              base_config with
+              workspace;
+              prompt;
+              security =
+                { base_config.security with tools_enabled = true };
+            }
+          in
+          let registry = Tool_registry.create () in
+          Tool_registry.register registry
+            (Tools_builtin.doc_write ~workspace ~workspace_files:[ "AGENTS.md" ]);
+          let mgr = Session.create ~config ~tool_registry:registry ~db () in
+          let response =
+            Lwt_main.run
+              (Session.with_registered_notifier mgr ~key:"telegram:1:u"
+                 ~notify:(fun text ->
+                   notifications := text :: !notifications;
+                   Lwt.return_unit)
+                 (fun () ->
+                   Session.turn mgr ~key:"telegram:1:u" ~message:"refresh" ()))
+          in
+          Alcotest.(check string) "final response" "done" response;
+          Alcotest.(check (list string))
+            "refresh notice delivered to notifier"
+            [ "workspace context refreshed after active workspace file update: \
+               AGENTS.md" ]
+            (List.rev !notifications);
+          Alcotest.(check bool)
+            "refresh notice does not leak prompt contents" false
+            (List.exists (fun text -> string_contains text secret) !notifications);
+          let persisted = Memory.load_history ~db ~session_key:"telegram:1:u" in
+          Alcotest.(check bool)
+            "event persisted in session history" true
+            (List.exists
+               (fun (msg : Provider.message) ->
+                 msg.role = "event" && string_contains msg.content "AGENTS.md")
+               persisted)))
+
+let test_turn_stream_detects_external_workspace_edit_on_next_turn () =
+  with_temp_workspace (fun workspace ->
+      let agents_path = Filename.concat workspace "AGENTS.md" in
+      let write_file path content =
+        let oc = open_out path in
+        Fun.protect
+          (fun () -> output_string oc content)
+          ~finally:(fun () -> close_out_noerr oc)
+      in
+      let original = "ORIGINAL AGENTS CONTENT" in
+      let updated = "UPDATED SECRET AGENTS CONTENT" in
+      write_file agents_path original;
+      let db = Memory.init ~db_path:":memory:" () in
+      let seen_system_prompts = ref [] in
+      with_fake_openai_provider
+        ~handle_request:(fun ~stream:_ ~messages ~json:_ ->
+          let open Yojson.Safe.Util in
+          let system_prompt =
+            List.find_map
+              (fun msg ->
+                try
+                  if msg |> member "role" |> to_string = "system" then
+                    Some (msg |> member "content" |> to_string)
+                  else None
+                with _ -> None)
+              messages
+            |> Option.value ~default:""
+          in
+          seen_system_prompts := system_prompt :: !seen_system_prompts;
+          Fake_text "ok")
+        (fun base_config ->
+          let prompt =
+            {
+              base_config.prompt with
+              dynamic_enabled = true;
+              include_tools_section = false;
+              include_safety_section = false;
+              include_runtime_section = false;
+              include_datetime_section = false;
+              include_autonomy_section = false;
+              workspace_files = [ "AGENTS.md" ];
+            }
+          in
+          let config = { base_config with workspace; prompt } in
+          let mgr = Session.create ~config ~db () in
+          let run_turn manager message =
+            let chunks = ref [] in
+            let push_chunk chunk =
+              chunks := chunk :: !chunks;
+              Lwt.return_unit
+            in
+            let push_text text =
+              chunks := Provider.Delta text :: !chunks;
+              Lwt.return_unit
+            in
+            let response =
+              Lwt_main.run
+                (Session.with_registered_notifier manager ~key:"web:s-external"
+                   ~notify:push_text
+                   (fun () ->
+                     Session.turn_stream manager ~key:"web:s-external" ~message
+                       ~on_chunk:push_chunk ()))
+            in
+            (response, List.rev !chunks)
+          in
+          let first_response, first_chunks = run_turn mgr "first" in
+          Alcotest.(check string) "first response" "ok" first_response;
+          Alcotest.(check bool)
+            "first turn streams assistant delta" true
+            (List.exists
+               (function Provider.Delta "ok" -> true | _ -> false)
+               first_chunks);
+          write_file agents_path updated;
+          let second_response, second_chunks = run_turn mgr "second" in
+          Alcotest.(check string) "second response" "ok" second_response;
+          Alcotest.(check bool)
+            "second turn streams refresh notice" true
+            (List.exists
+               (function
+                 | Provider.Delta text ->
+                     string_contains text
+                       "workspace context refreshed after active workspace \
+                        file update: AGENTS.md"
+                 | _ -> false)
+               second_chunks);
+          Alcotest.(check bool)
+            "second turn streams assistant delta" true
+            (List.exists
+               (function Provider.Delta "ok" -> true | _ -> false)
+               second_chunks);
+          let prompts = List.rev !seen_system_prompts in
+          Alcotest.(check int) "two prompts observed" 2 (List.length prompts);
+          Alcotest.(check bool)
+            "first prompt used original workspace content" true
+            (string_contains (List.nth prompts 0) original);
+          Alcotest.(check bool)
+            "second prompt used updated workspace content" true
+            (string_contains (List.nth prompts 1) updated);
+          Alcotest.(check bool)
+            "visible refresh notice does not leak updated contents" false
+            (List.exists
+               (function
+                 | Provider.Delta text -> string_contains text updated
+                 | _ -> false)
+               second_chunks);
+          let persisted =
+            Memory.load_history ~db ~session_key:"web:s-external"
+          in
+          Alcotest.(check bool)
+            "external edit refresh event persisted" true
+            (List.exists
+               (fun (msg : Provider.message) ->
+                 msg.role = "event"
+                 && string_contains msg.content
+                      "workspace context refreshed after active workspace file \
+                       update: AGENTS.md")
+               persisted)))
+
+let test_restored_session_detects_external_workspace_edit_on_next_turn () =
+  with_temp_workspace (fun workspace ->
+      let agents_path = Filename.concat workspace "AGENTS.md" in
+      let write_file path content =
+        let oc = open_out path in
+        Fun.protect
+          (fun () -> output_string oc content)
+          ~finally:(fun () -> close_out_noerr oc)
+      in
+      let original = "RESTORE ORIGINAL AGENTS CONTENT" in
+      let updated = "RESTORE UPDATED SECRET AGENTS CONTENT" in
+      write_file agents_path original;
+      let db = Memory.init ~db_path:":memory:" () in
+      let seen_system_prompts = ref [] in
+      with_fake_openai_provider
+        ~handle_request:(fun ~stream:_ ~messages ~json:_ ->
+          let open Yojson.Safe.Util in
+          let system_prompt =
+            List.find_map
+              (fun msg ->
+                try
+                  if msg |> member "role" |> to_string = "system" then
+                    Some (msg |> member "content" |> to_string)
+                  else None
+                with _ -> None)
+              messages
+            |> Option.value ~default:""
+          in
+          seen_system_prompts := system_prompt :: !seen_system_prompts;
+          Fake_text "ok")
+        (fun base_config ->
+          let prompt =
+            {
+              base_config.prompt with
+              dynamic_enabled = true;
+              include_tools_section = false;
+              include_safety_section = false;
+              include_runtime_section = false;
+              include_datetime_section = false;
+              include_autonomy_section = false;
+              workspace_files = [ "AGENTS.md" ];
+            }
+          in
+          let config = { base_config with workspace; prompt } in
+          let run_turn manager message =
+            let chunks = ref [] in
+            let push_chunk chunk =
+              chunks := chunk :: !chunks;
+              Lwt.return_unit
+            in
+            let push_text text =
+              chunks := Provider.Delta text :: !chunks;
+              Lwt.return_unit
+            in
+            let response =
+              Lwt_main.run
+                (Session.with_registered_notifier manager ~key:"web:s-restore"
+                   ~notify:push_text
+                   (fun () ->
+                     Session.turn_stream manager ~key:"web:s-restore" ~message
+                       ~on_chunk:push_chunk ()))
+            in
+            (response, List.rev !chunks)
+          in
+          let first_mgr = Session.create ~config ~db () in
+          let first_response, first_chunks = run_turn first_mgr "first" in
+          Alcotest.(check string) "first response" "ok" first_response;
+          Alcotest.(check bool)
+            "first turn streams assistant delta" true
+            (List.exists
+               (function Provider.Delta "ok" -> true | _ -> false)
+               first_chunks);
+          write_file agents_path updated;
+          let restored_mgr = Session.create ~config ~db () in
+          let second_response, second_chunks = run_turn restored_mgr "second" in
+          Alcotest.(check string) "second response" "ok" second_response;
+          Alcotest.(check bool)
+            "restored turn streams refresh notice" true
+            (List.exists
+               (function
+                 | Provider.Delta text ->
+                     string_contains text
+                       "workspace context refreshed after active workspace \
+                        file update: AGENTS.md"
+                 | _ -> false)
+               second_chunks);
+          Alcotest.(check bool)
+            "restored turn streams assistant delta" true
+            (List.exists
+               (function Provider.Delta "ok" -> true | _ -> false)
+               second_chunks);
+          let prompts = List.rev !seen_system_prompts in
+          Alcotest.(check int) "two prompts observed across restore" 2
+            (List.length prompts);
+          Alcotest.(check bool)
+            "first prompt used original workspace content" true
+            (string_contains (List.nth prompts 0) original);
+          Alcotest.(check bool)
+            "restored prompt used updated workspace content" true
+            (string_contains (List.nth prompts 1) updated);
+          Alcotest.(check bool)
+            "restored refresh notice does not leak updated contents" false
+            (List.exists
+               (function
+                 | Provider.Delta text -> string_contains text updated
+                 | _ -> false)
+               second_chunks);
+          let persisted = Memory.load_history ~db ~session_key:"web:s-restore" in
+          let refresh_events =
+            List.filter
+              (fun (msg : Provider.message) ->
+                msg.role = "event"
+                && string_contains msg.content
+                     "workspace context refreshed after active workspace file \
+                      update: AGENTS.md")
+              persisted
+          in
+          Alcotest.(check int)
+            "restored external edit refresh event persisted once" 1
+            (List.length refresh_events)))
+
 let test_autonomous_continuation_stays_idle_disarms () =
   let continuation_calls = ref 0 in
   let response_for_user message =
@@ -2214,6 +2693,15 @@ let suite =
     Alcotest.test_case
       "batched active workspace updates attribute refresh per tool call" `Quick
       test_batched_active_workspace_updates_attribute_refresh_per_tool_call;
+    Alcotest.test_case
+      "turn notifier surfaces workspace refresh event for tool update" `Quick
+      test_turn_notifier_surfaces_workspace_refresh_event_for_tool_update;
+    Alcotest.test_case
+      "turn stream detects external workspace edit on next turn" `Quick
+      test_turn_stream_detects_external_workspace_edit_on_next_turn;
+    Alcotest.test_case
+      "restored session detects external workspace edit on next turn" `Quick
+      test_restored_session_detects_external_workspace_edit_on_next_turn;
     Alcotest.test_case
       "non-active doc_write does not persist workspace refresh event" `Quick
       test_non_active_doc_write_does_not_persist_workspace_refresh_event;
