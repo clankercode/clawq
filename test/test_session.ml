@@ -2733,6 +2733,134 @@ let test_before_drain_fires_before_drain_notifier () =
             && String.starts_with ~prefix:"drain:" b
         | _ -> false))
 
+let test_session_restore_no_false_positive_workspace_refresh () =
+  with_temp_workspace (fun workspace ->
+      let db = Memory.init ~db_path:":memory:" () in
+      let ws_file = Filename.concat workspace "AGENTS.md" in
+      let oc = open_out ws_file in
+      output_string oc "original content";
+      close_out oc;
+      let prompt =
+        { Runtime_config.default.prompt with workspace_files = [ "AGENTS.md" ] }
+      in
+      let config = { Runtime_config.default with workspace; prompt } in
+      Memory.store_message ~db ~session_key:"web:s1"
+        (Provider.make_message ~role:"user" ~content:"hello");
+      Memory.store_message ~db ~session_key:"web:s1"
+        (Provider.make_message ~role:"assistant" ~content:"hi back");
+      let mgr = Session.create ~config ~db () in
+      Lwt_main.run
+        (Session.with_session_lock mgr ~key:"web:s1" (fun agent _interrupt ->
+             Alcotest.(check int)
+               "history restored" 2
+               (List.length agent.Agent.history);
+             let has_event =
+               List.exists
+                 (fun (msg : Provider.message) -> msg.role = "event")
+                 agent.Agent.history
+             in
+             Alcotest.(check bool)
+               "no false positive event after restore" false has_event;
+             Lwt.return_unit)))
+
+let test_session_restore_detects_external_edit_on_next_turn () =
+  with_temp_workspace (fun workspace ->
+      let db = Memory.init ~db_path:":memory:" () in
+      let ws_file = Filename.concat workspace "AGENTS.md" in
+      let oc = open_out ws_file in
+      output_string oc "original content";
+      close_out oc;
+      let prompt =
+        { Runtime_config.default.prompt with workspace_files = [ "AGENTS.md" ] }
+      in
+      let config = { Runtime_config.default with workspace; prompt } in
+      Memory.store_message ~db ~session_key:"web:s1"
+        (Provider.make_message ~role:"user" ~content:"hello");
+      let mgr = Session.create ~config ~db () in
+      Lwt_main.run
+        (Session.with_session_lock mgr ~key:"web:s1" (fun agent _interrupt ->
+             let oc = open_out ws_file in
+             output_string oc "externally changed";
+             close_out oc;
+             let open Lwt.Syntax in
+             let* _compacted =
+               Agent.prepare_turn_history agent ~user_message:"check" ()
+             in
+             let has_event =
+               List.exists
+                 (fun (msg : Provider.message) ->
+                   msg.role = "event" && string_contains msg.content "AGENTS.md")
+                 agent.Agent.history
+             in
+             Alcotest.(check bool)
+               "external edit detected on next turn" true has_event;
+             Lwt.return_unit)))
+
+let test_fresh_session_no_false_positive_on_first_turn () =
+  with_temp_workspace (fun workspace ->
+      let ws_file = Filename.concat workspace "AGENTS.md" in
+      let oc = open_out ws_file in
+      output_string oc "initial content";
+      close_out oc;
+      let prompt =
+        { Runtime_config.default.prompt with workspace_files = [ "AGENTS.md" ] }
+      in
+      let config = { Runtime_config.default with workspace; prompt } in
+      let agent = Agent.create ~config () in
+      Lwt_main.run
+        (let open Lwt.Syntax in
+         let* _compacted =
+           Agent.prepare_turn_history agent ~user_message:"hello" ()
+         in
+         let has_event =
+           List.exists
+             (fun (msg : Provider.message) -> msg.role = "event")
+             agent.Agent.history
+         in
+         Alcotest.(check bool) "no false positive on first turn" false has_event;
+         Lwt.return_unit))
+
+let test_workspace_change_not_re_reported_on_subsequent_turn () =
+  with_temp_workspace (fun workspace ->
+      let ws_file = Filename.concat workspace "AGENTS.md" in
+      let oc = open_out ws_file in
+      output_string oc "original content";
+      close_out oc;
+      let prompt =
+        { Runtime_config.default.prompt with workspace_files = [ "AGENTS.md" ] }
+      in
+      let config = { Runtime_config.default with workspace; prompt } in
+      let agent = Agent.create ~config () in
+      let oc = open_out ws_file in
+      output_string oc "changed content";
+      close_out oc;
+      Lwt_main.run
+        (let open Lwt.Syntax in
+         let* _compacted =
+           Agent.prepare_turn_history agent ~user_message:"first" ()
+         in
+         let event_count_after_first =
+           List.length
+             (List.filter
+                (fun (msg : Provider.message) -> msg.role = "event")
+                agent.Agent.history)
+         in
+         Alcotest.(check int)
+           "one event after first turn" 1 event_count_after_first;
+         let* _compacted =
+           Agent.prepare_turn_history agent ~user_message:"second" ()
+         in
+         let event_count_after_second =
+           List.length
+             (List.filter
+                (fun (msg : Provider.message) -> msg.role = "event")
+                agent.Agent.history)
+         in
+         Alcotest.(check int)
+           "still one event after second turn (not re-reported)" 1
+           event_count_after_second;
+         Lwt.return_unit))
+
 let suite =
   [
     Alcotest.test_case "reset clears active session and history" `Quick
@@ -2891,4 +3019,12 @@ let suite =
       `Quick test_drain_progress_not_called_when_no_queued_messages;
     Alcotest.test_case "before_drain fires before drain notifier" `Quick
       test_before_drain_fires_before_drain_notifier;
+    Alcotest.test_case "session restore no false positive workspace refresh"
+      `Quick test_session_restore_no_false_positive_workspace_refresh;
+    Alcotest.test_case "session restore detects external edit on next turn"
+      `Quick test_session_restore_detects_external_edit_on_next_turn;
+    Alcotest.test_case "fresh session no false positive on first turn" `Quick
+      test_fresh_session_no_false_positive_on_first_turn;
+    Alcotest.test_case "workspace change not re-reported on subsequent turn"
+      `Quick test_workspace_change_not_re_reported_on_subsequent_turn;
   ]

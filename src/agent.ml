@@ -841,7 +841,10 @@ let note_external_workspace_refresh_if_needed agent =
 let append_tool_history agent tool_msg refresh_msg_opt =
   agent.history <- tool_msg :: agent.history;
   match refresh_msg_opt with
-  | Some refresh_msg -> agent.history <- refresh_msg :: agent.history
+  | Some refresh_msg ->
+      agent.history <- refresh_msg :: agent.history;
+      agent.observed_active_workspace_files <-
+        capture_active_workspace_file_state agent
   | None -> ()
 
 (* Handle a tool_search call by searching the registry and returning

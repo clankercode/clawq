@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-09T18:26:38Z"
+claimed_by: cli-user
+completed_at: "2026-03-09T18:26:38Z"
 complexity: medium
 depends_on: []
+duration_minutes: 0.015773047733333333
 estimate_hours: 1
 id: B218
 priority: medium
-status: pending
+started_at: "2026-03-09T18:26:38Z"
+status: done
 tags: []
 title: Session restore should resync observed active workspace-file digests after loading history
 ---
