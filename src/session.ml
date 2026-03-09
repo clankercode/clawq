@@ -32,6 +32,7 @@ type t = {
   mutable draining : bool;
   in_flight_count : int ref;
   channel_notifiers : (string, string -> unit Lwt.t) Hashtbl.t;
+  status_message_factories : (string, unit -> Status_message.t) Hashtbl.t;
   deferred_responses : (string, unit) Hashtbl.t;
   queued_messages : (string, queued_message list) Hashtbl.t;
   continuation_checks : (string, continuation_state) Hashtbl.t;
@@ -98,6 +99,7 @@ let create ~config ?tool_registry ?sandbox ?(landlock_enabled = false) ?db () =
     draining = false;
     in_flight_count = ref 0;
     channel_notifiers = Hashtbl.create 16;
+    status_message_factories = Hashtbl.create 16;
     deferred_responses = Hashtbl.create 16;
     queued_messages = Hashtbl.create 16;
     continuation_checks = Hashtbl.create 16;
@@ -131,7 +133,11 @@ let register_channel_notifier mgr ~key notify =
   Hashtbl.replace mgr.channel_notifiers key notify
 
 let unregister_channel_notifier mgr ~key =
-  Hashtbl.remove mgr.channel_notifiers key
+  Hashtbl.remove mgr.channel_notifiers key;
+  Hashtbl.remove mgr.status_message_factories key
+
+let register_status_message_factory mgr ~key factory =
+  Hashtbl.replace mgr.status_message_factories key factory
 
 let set_response_deferred mgr ~key =
   Hashtbl.replace mgr.deferred_responses key ()
@@ -537,36 +543,94 @@ let stream_turn_with_visibility mgr ~notify agent ~key ~effective_message
     ~persisted_up_to ~interrupt_check ~inject_messages ~runtime_context
     ~on_history_update =
   let open Lwt.Syntax in
-  let visibility = Stream_visibility.create () in
-  let settings : Stream_visibility.settings =
-    {
-      show_thinking = mgr.config.agent_defaults.show_thinking;
-      show_tool_calls = mgr.config.agent_defaults.show_tool_calls;
-      notify_tool_starts = false;
-      notify_tool_successes = true;
-    }
+  let agent_defaults = mgr.config.agent_defaults in
+  let use_consolidated =
+    agent_defaults.show_tool_calls
+    && agent_defaults.tool_status_mode = "consolidated"
   in
-  let* response =
-    Agent.turn_stream agent ~user_message:effective_message ?db:mgr.db
-      ~session_key:key ~interrupt_check ~inject_messages ?runtime_context
-      ~history_prepared:true ~on_history_update
-      ~on_chunk:(Stream_visibility.on_chunk visibility ~settings ~notify)
-      ()
+  let status_factory =
+    if use_consolidated then Hashtbl.find_opt mgr.status_message_factories key
+    else None
   in
-  let thinking = Stream_visibility.thinking_text visibility in
-  let* () =
-    if settings.show_thinking && thinking <> "" then
-      notify (Stream_visibility.thinking_message thinking)
-    else Lwt.return_unit
-  in
-  persist_new_messages mgr ~key ~history_before:!persisted_up_to agent;
-  (match mgr.db with
-  | Some db when mgr.config.security.audit_enabled ->
-      Audit.log ~db
-        (ChatMessage
-           { session_key = key; role = "assistant"; content_preview = response })
-  | _ -> ());
-  Lwt.return response
+  match status_factory with
+  | Some factory ->
+      let sm = factory () in
+      let thinking_buf = Buffer.create 256 in
+      let on_chunk = function
+        | Provider.ToolStart { id; name; arguments } ->
+            let summary =
+              Stream_visibility.summarize_tool_arguments ~name arguments
+            in
+            Status_message.tool_start sm ~id ~name ~summary
+        | Provider.ToolResult { id; name; result; is_error } ->
+            Status_message.tool_result sm ~id ~name ~result ~is_error
+        | Provider.ThinkingDelta text ->
+            if agent_defaults.show_thinking then
+              Buffer.add_string thinking_buf text;
+            Status_message.update_thinking sm text
+        | Provider.Delta _ | Provider.ToolCallDelta _
+        | Provider.ToolOutputDelta _ | Provider.Done ->
+            Lwt.return_unit
+      in
+      let* response =
+        Agent.turn_stream agent ~user_message:effective_message ?db:mgr.db
+          ~session_key:key ~interrupt_check ~inject_messages ?runtime_context
+          ~history_prepared:true ~on_history_update ~on_chunk ()
+      in
+      let* () = Status_message.finalize sm in
+      let thinking = Buffer.contents thinking_buf in
+      let* () =
+        if agent_defaults.show_thinking && thinking <> "" then
+          notify (Stream_visibility.thinking_message thinking)
+        else Lwt.return_unit
+      in
+      persist_new_messages mgr ~key ~history_before:!persisted_up_to agent;
+      (match mgr.db with
+      | Some db when mgr.config.security.audit_enabled ->
+          Audit.log ~db
+            (ChatMessage
+               {
+                 session_key = key;
+                 role = "assistant";
+                 content_preview = response;
+               })
+      | _ -> ());
+      Lwt.return response
+  | None ->
+      let visibility = Stream_visibility.create () in
+      let settings : Stream_visibility.settings =
+        {
+          show_thinking = agent_defaults.show_thinking;
+          show_tool_calls = agent_defaults.show_tool_calls;
+          notify_tool_starts = false;
+          notify_tool_successes = true;
+        }
+      in
+      let* response =
+        Agent.turn_stream agent ~user_message:effective_message ?db:mgr.db
+          ~session_key:key ~interrupt_check ~inject_messages ?runtime_context
+          ~history_prepared:true ~on_history_update
+          ~on_chunk:(Stream_visibility.on_chunk visibility ~settings ~notify)
+          ()
+      in
+      let thinking = Stream_visibility.thinking_text visibility in
+      let* () =
+        if settings.show_thinking && thinking <> "" then
+          notify (Stream_visibility.thinking_message thinking)
+        else Lwt.return_unit
+      in
+      persist_new_messages mgr ~key ~history_before:!persisted_up_to agent;
+      (match mgr.db with
+      | Some db when mgr.config.security.audit_enabled ->
+          Audit.log ~db
+            (ChatMessage
+               {
+                 session_key = key;
+                 role = "assistant";
+                 content_preview = response;
+               })
+      | _ -> ());
+      Lwt.return response
 
 let normalize_incoming_message mgr ~key ~message =
   let open Lwt.Syntax in

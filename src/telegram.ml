@@ -745,8 +745,42 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
       let send_to_chat text =
         send_chunked ~bot_token ~chat_id:update.chat_id ~text ()
       in
-      if Option.is_none (Session.find_registered_notifier session_mgr ~key) then
+      if Option.is_none (Session.find_registered_notifier session_mgr ~key) then begin
         Session.register_channel_notifier session_mgr ~key send_to_chat;
+        (* Register a status message factory so autonomous turns use
+           consolidated status messages instead of individual ones *)
+        let make_status_notifier () : Status_message.notifier =
+          {
+            send =
+              (fun ?parse_mode text ->
+                let pm =
+                  match parse_mode with
+                  | Some m -> Some m
+                  | None -> Some "MarkdownV2"
+                in
+                let text = Telegram_format.markdown_to_mdv2 text in
+                send_message_with_id ~disable_notification:true ?parse_mode:pm
+                  ~bot_token ~chat_id:update.chat_id ~text ());
+            edit =
+              (fun msg_id ?parse_mode text ->
+                let pm =
+                  match parse_mode with
+                  | Some m -> Some m
+                  | None -> Some "MarkdownV2"
+                in
+                let text = Telegram_format.markdown_to_mdv2 text in
+                edit_message ?parse_mode:pm ~bot_token ~chat_id:update.chat_id
+                  ~message_id:msg_id ~text ());
+            delete =
+              (fun msg_id ->
+                delete_message ~bot_token ~chat_id:update.chat_id
+                  ~message_id:msg_id ());
+          }
+        in
+        Session.register_status_message_factory session_mgr ~key (fun () ->
+            Status_message.create ~notifier:(make_status_notifier ())
+              ~parse_mode:"MarkdownV2" ())
+      end;
       let* user_text =
         match update.voice_file_id with
         | Some file_id ->

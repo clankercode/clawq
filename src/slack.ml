@@ -244,9 +244,29 @@ let handle_event ~(config : Runtime_config.slack_config)
           if
             Option.is_none
               (Session.find_registered_notifier session_manager ~key)
-          then
+          then begin
             Session.register_channel_notifier session_manager ~key
               send_to_channel_persistent;
+            Session.register_status_message_factory session_manager ~key
+              (fun () ->
+                let notifier : Status_message.notifier =
+                  {
+                    send =
+                      (fun ?parse_mode:_ text ->
+                        send_message_with_id ~bot_token:config.bot_token
+                          ~channel_id ~text);
+                    edit =
+                      (fun ts ?parse_mode:_ text ->
+                        edit_message ~bot_token:config.bot_token ~channel_id ~ts
+                          ~text);
+                    delete =
+                      (fun ts ->
+                        delete_message ~bot_token:config.bot_token ~channel_id
+                          ~ts);
+                  }
+                in
+                Status_message.create ~notifier ~parse_mode:"Markdown" ())
+          end;
           if Update_tool.is_update_command text then begin
             let notify text =
               send_message_fn ~bot_token:config.bot_token ~channel_id ~text

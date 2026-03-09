@@ -765,9 +765,31 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                 if
                   Option.is_none
                     (Session.find_registered_notifier session_mgr ~key)
-                then
+                then begin
                   Session.register_channel_notifier session_mgr ~key
                     send_to_channel;
+                  Session.register_status_message_factory session_mgr ~key
+                    (fun () ->
+                      let notifier : Status_message.notifier =
+                        {
+                          send =
+                            (fun ?parse_mode:_ text ->
+                              send_message_with_id ~suppress_notifications:true
+                                ~bot_token:discord_config.bot_token
+                                ~channel_id:msg.channel_id ~text ());
+                          edit =
+                            (fun msg_id ?parse_mode:_ text ->
+                              edit_message ~bot_token:discord_config.bot_token
+                                ~channel_id:msg.channel_id ~message_id:msg_id
+                                ~text);
+                          delete =
+                            (fun msg_id ->
+                              delete_message ~bot_token:discord_config.bot_token
+                                ~channel_id:msg.channel_id ~message_id:msg_id);
+                        }
+                      in
+                      Status_message.create ~notifier ~parse_mode:"Markdown" ())
+                end;
                 Lwt.async (fun () ->
                     Session.process_autonomous_turn_result
                       ~on_response:send_to_channel session_mgr ~key ~response);
