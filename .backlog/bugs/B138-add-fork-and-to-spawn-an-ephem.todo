@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B138
+priority: high
+status: pending
+tags: []
+title: Add /fork-and to spawn an ephemeral forked session from the current channel thread
+---
+Add a channel command such as `/fork-and <prompt>` for Telegram/Discord/etc. Desired behavior: copy the entire current session/thread history into a new temporary ephemeral session/thread, run the supplied prompt in that forked context, and when it completes send a status/result message back to the originating channel thread. The fork should preserve enough context to act like a branch of the ongoing conversation, but remain isolated and disposable once complete. This is similar to delegation, but conversation-history-based rather than repo-worktree-based.
