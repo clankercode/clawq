@@ -242,6 +242,168 @@ let test_command_of_task_claude () =
     [| "claude"; "-p"; "--dangerously-skip-permissions"; "ship it" |]
     (Background_task.command_of_task task)
 
+let test_command_of_task_kimi () =
+  let task =
+    {
+      Background_task.id = 3;
+      runner = Background_task.Kimi;
+      model = None;
+      repo_path = "/tmp/repo";
+      prompt = "ship it";
+      branch = "clawq-bg-3";
+      worktree_path = Some "/tmp/worktree";
+      log_path = Some "/tmp/task.log";
+      status = Background_task.Queued;
+      session_key = None;
+      channel = None;
+      channel_id = None;
+      pid = None;
+      result_preview = None;
+      created_at = "";
+      started_at = None;
+      finished_at = None;
+    }
+  in
+  Alcotest.(check (array string))
+    "kimi argv"
+    [| "kimi"; "--print"; "--yolo"; "-p"; "ship it" |]
+    (Background_task.command_of_task task)
+
+let test_command_of_task_kimi_with_model () =
+  let task =
+    {
+      Background_task.id = 4;
+      runner = Background_task.Kimi;
+      model = Some "kimi-k2";
+      repo_path = "/tmp/repo";
+      prompt = "ship it";
+      branch = "clawq-bg-4";
+      worktree_path = Some "/tmp/worktree";
+      log_path = Some "/tmp/task.log";
+      status = Background_task.Queued;
+      session_key = None;
+      channel = None;
+      channel_id = None;
+      pid = None;
+      result_preview = None;
+      created_at = "";
+      started_at = None;
+      finished_at = None;
+    }
+  in
+  Alcotest.(check (array string))
+    "kimi argv with model"
+    [| "kimi"; "--print"; "--yolo"; "--model"; "kimi-k2"; "-p"; "ship it" |]
+    (Background_task.command_of_task task)
+
+let test_command_of_task_gemini () =
+  let task =
+    {
+      Background_task.id = 5;
+      runner = Background_task.Gemini;
+      model = None;
+      repo_path = "/tmp/repo";
+      prompt = "ship it";
+      branch = "clawq-bg-5";
+      worktree_path = Some "/tmp/worktree";
+      log_path = Some "/tmp/task.log";
+      status = Background_task.Queued;
+      session_key = None;
+      channel = None;
+      channel_id = None;
+      pid = None;
+      result_preview = None;
+      created_at = "";
+      started_at = None;
+      finished_at = None;
+    }
+  in
+  Alcotest.(check (array string))
+    "gemini argv"
+    [| "gemini"; "--yolo"; "--prompt"; "ship it" |]
+    (Background_task.command_of_task task)
+
+let test_command_of_task_gemini_with_model () =
+  let task =
+    {
+      Background_task.id = 6;
+      runner = Background_task.Gemini;
+      model = Some "gemini-2.5-pro";
+      repo_path = "/tmp/repo";
+      prompt = "ship it";
+      branch = "clawq-bg-6";
+      worktree_path = Some "/tmp/worktree";
+      log_path = Some "/tmp/task.log";
+      status = Background_task.Queued;
+      session_key = None;
+      channel = None;
+      channel_id = None;
+      pid = None;
+      result_preview = None;
+      created_at = "";
+      started_at = None;
+      finished_at = None;
+    }
+  in
+  Alcotest.(check (array string))
+    "gemini argv with model"
+    [| "gemini"; "--yolo"; "--model"; "gemini-2.5-pro"; "--prompt"; "ship it" |]
+    (Background_task.command_of_task task)
+
+let test_command_of_task_opencode () =
+  let task =
+    {
+      Background_task.id = 7;
+      runner = Background_task.Opencode;
+      model = None;
+      repo_path = "/tmp/repo";
+      prompt = "ship it";
+      branch = "clawq-bg-7";
+      worktree_path = Some "/tmp/worktree";
+      log_path = Some "/tmp/task.log";
+      status = Background_task.Queued;
+      session_key = None;
+      channel = None;
+      channel_id = None;
+      pid = None;
+      result_preview = None;
+      created_at = "";
+      started_at = None;
+      finished_at = None;
+    }
+  in
+  Alcotest.(check (array string))
+    "opencode argv"
+    [| "opencode"; "run"; "ship it" |]
+    (Background_task.command_of_task task)
+
+let test_command_of_task_opencode_with_model () =
+  let task =
+    {
+      Background_task.id = 8;
+      runner = Background_task.Opencode;
+      model = Some "anthropic/claude-sonnet-4";
+      repo_path = "/tmp/repo";
+      prompt = "ship it";
+      branch = "clawq-bg-8";
+      worktree_path = Some "/tmp/worktree";
+      log_path = Some "/tmp/task.log";
+      status = Background_task.Queued;
+      session_key = None;
+      channel = None;
+      channel_id = None;
+      pid = None;
+      result_preview = None;
+      created_at = "";
+      started_at = None;
+      finished_at = None;
+    }
+  in
+  Alcotest.(check (array string))
+    "opencode argv with model"
+    [| "opencode"; "run"; "--model"; "anthropic/claude-sonnet-4"; "ship it" |]
+    (Background_task.command_of_task task)
+
 let test_enqueue_tool_uses_context_session_key () =
   with_temp_git_repo (fun repo_path ->
       let db = Memory.init ~db_path:":memory:" () in
@@ -1675,6 +1837,17 @@ let suite =
       test_command_of_task_claude;
     Alcotest.test_case "command_of_task claude with model" `Quick
       test_command_of_task_claude_with_model;
+    Alcotest.test_case "command_of_task kimi" `Quick test_command_of_task_kimi;
+    Alcotest.test_case "command_of_task kimi with model" `Quick
+      test_command_of_task_kimi_with_model;
+    Alcotest.test_case "command_of_task gemini" `Quick
+      test_command_of_task_gemini;
+    Alcotest.test_case "command_of_task gemini with model" `Quick
+      test_command_of_task_gemini_with_model;
+    Alcotest.test_case "command_of_task opencode" `Quick
+      test_command_of_task_opencode;
+    Alcotest.test_case "command_of_task opencode with model" `Quick
+      test_command_of_task_opencode_with_model;
     Alcotest.test_case "enqueue tool uses context session key" `Quick
       test_enqueue_tool_uses_context_session_key;
     Alcotest.test_case "list tool returns task summary" `Quick

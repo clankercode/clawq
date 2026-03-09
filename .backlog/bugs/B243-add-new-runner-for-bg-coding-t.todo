@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-09T19:49:29Z"
+claimed_by: cli-user
+completed_at: "2026-03-09T19:51:43Z"
 complexity: medium
 depends_on: []
+duration_minutes: 2.2358241503833334
 estimate_hours: 1
 id: B243
 priority: high
-status: pending
+started_at: "2026-03-09T19:49:29Z"
+status: done
 tags: []
 title: 'Add new runner for bg coding tasks: `opencode`'
 ---

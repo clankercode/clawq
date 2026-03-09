@@ -1,4 +1,4 @@
-type runner = Codex | Claude
+type runner = Codex | Claude | Kimi | Gemini | Opencode
 type status = Queued | Running | Succeeded | Failed | Cancelled
 
 type task = {
@@ -21,12 +21,20 @@ type task = {
   finished_at : string option;
 }
 
-let string_of_runner = function Codex -> "codex" | Claude -> "claude"
+let string_of_runner = function
+  | Codex -> "codex"
+  | Claude -> "claude"
+  | Kimi -> "kimi"
+  | Gemini -> "gemini"
+  | Opencode -> "opencode"
 
 let runner_of_string s =
   match String.lowercase_ascii (String.trim s) with
   | "codex" -> Some Codex
   | "claude" | "claude-code" | "claude_code" -> Some Claude
+  | "kimi" -> Some Kimi
+  | "gemini" -> Some Gemini
+  | "opencode" -> Some Opencode
   | _ -> None
 
 let string_of_status = function
@@ -49,7 +57,12 @@ let is_terminal_status = function
   | Succeeded | Failed | Cancelled -> true
   | Queued | Running -> false
 
-let runner_binary = function Codex -> "codex" | Claude -> "claude"
+let runner_binary = function
+  | Codex -> "codex"
+  | Claude -> "claude"
+  | Kimi -> "kimi"
+  | Gemini -> "gemini"
+  | Opencode -> "opencode"
 
 let command_exists command =
   Sys.command
@@ -85,10 +98,13 @@ let resolve_runner ?(check_available = true) ?preferred () =
            (string_of_runner runner))
   | None when available Codex -> Ok Codex
   | None when available Claude -> Ok Claude
+  | None when available Kimi -> Ok Kimi
+  | None when available Gemini -> Ok Gemini
+  | None when available Opencode -> Ok Opencode
   | None ->
       Error
         "No supported background runner is available in PATH (looked for \
-         'codex' and 'claude')"
+         'codex', 'claude', 'kimi', 'gemini', and 'opencode')"
 
 let default_branch_name id = Printf.sprintf "clawq-bg-%d" id
 
@@ -814,6 +830,27 @@ let command_of_task task =
           model_args "--model";
           [| "--dangerously-skip-permissions"; task.prompt |];
         ]
+  | Kimi ->
+      Array.concat
+        [
+          [| "kimi"; "--print"; "--yolo" |];
+          model_args "--model";
+          [| "-p"; task.prompt |];
+        ]
+  | Gemini ->
+      Array.concat
+        [
+          [| "gemini"; "--yolo" |];
+          model_args "--model";
+          [| "--prompt"; task.prompt |];
+        ]
+  | Opencode ->
+      Array.concat
+        [
+          [| "opencode"; "run" |];
+          model_args "--model";
+          [| task.prompt |];
+        ]
 
 let parse_sqlite_datetime s =
   try
@@ -1240,7 +1277,7 @@ let enqueue_tool_with_notify ~notify_cfg ~db =
                   `Assoc
                     [
                       ("type", `String "string");
-                      ("enum", `List [ `String "codex"; `String "claude" ]);
+                      ("enum", `List [ `String "codex"; `String "claude"; `String "kimi"; `String "gemini"; `String "opencode" ]);
                       ( "description",
                         `String
                           "Which external coding CLI to run in the background \
@@ -1311,7 +1348,7 @@ let enqueue_tool_with_notify ~notify_cfg ~db =
           with _ -> None
         in
         match runner_of_string runner_s with
-        | None -> Lwt.return "Error: runner must be 'codex' or 'claude'"
+        | None -> Lwt.return "Error: runner must be 'codex', 'claude', 'kimi', 'gemini', or 'opencode'"
         | Some runner when String.trim repo_path = "" ->
             Lwt.return "Error: repo_path is required"
         | Some _ when String.trim prompt = "" ->
@@ -1545,10 +1582,11 @@ let delegate_tool_with_notify ?(check_available = true) ~db ~default_repo_path
   {
     Tool.name = "delegate";
     description =
-      "Delegate a coding task to a background subagent (Codex or Claude) that \
-       runs in its own git worktree. Use when asked to spawn subagents, use \
-       workers, or run tasks with a specific model (e.g. 'use haiku to ...', \
-       'delegate to sonnet'). Auto-selects runner and repo by default.";
+      "Delegate a coding task to a background subagent (Codex, Claude, Kimi, \
+       Gemini, or Opencode) that runs in its own git worktree. Use when asked \
+       to spawn subagents, use workers, or run tasks with a specific model \
+       (e.g. 'use haiku to ...', 'delegate to sonnet'). Auto-selects runner \
+       and repo by default.";
     parameters_schema =
       `Assoc
         [
@@ -1571,12 +1609,14 @@ let delegate_tool_with_notify ?(check_available = true) ~db ~default_repo_path
                       ("type", `String "string");
                       ( "enum",
                         `List
-                          [ `String "auto"; `String "codex"; `String "claude" ]
+                          [ `String "auto"; `String "codex"; `String "claude";
+                            `String "kimi"; `String "gemini"; `String "opencode" ]
                       );
                       ( "description",
                         `String
                           "Optional runner choice. 'auto' prefers Codex when \
-                           available, then Claude." );
+                           available, then Claude, then Kimi, then Gemini, then \
+                           Opencode." );
                     ] );
                 ( "repo_path",
                   `Assoc
@@ -1622,7 +1662,7 @@ let delegate_tool_with_notify ?(check_available = true) ~db ~default_repo_path
                 match runner_of_string s with
                 | Some runner -> (Some runner, None)
                 | None ->
-                    (None, Some "runner must be 'auto', 'codex', or 'claude'"))
+                    (None, Some "runner must be 'auto', 'codex', 'claude', 'kimi', 'gemini', or 'opencode'"))
           with _ -> (None, None)
         in
         let repo_path =
