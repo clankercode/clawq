@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-09T18:19:22Z"
+claimed_by: cli-user
+completed_at: "2026-03-09T18:19:22Z"
 complexity: medium
 depends_on: []
+duration_minutes: 0.014868817183333334
 estimate_hours: 1
 id: B205
 priority: medium
-status: pending
+started_at: "2026-03-09T18:19:22Z"
+status: done
 tags: []
 title: Workspace refresh visibility/invalidation should detect external active prompt-file edits, not only tool-call-observed changes
 ---
