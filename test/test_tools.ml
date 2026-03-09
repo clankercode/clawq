@@ -594,6 +594,67 @@ let test_send_message_with_buttons_text_fallback () =
     "contains numbered buttons" true (contains text "1. Yes");
   Alcotest.(check bool) "contains second button" true (contains text "2. No")
 
+let test_send_message_plain_text_via_rich_notifier () =
+  let rich_received = ref None in
+  let send_fn_called = ref false in
+  let rich_send_fn =
+    Some
+      (fun ~session_key:_ msg ->
+        rich_received := Some msg;
+        Lwt.return Rich_message.{ message_id = "0"; callback_ids = [] })
+  in
+  let tool =
+    Tools_builtin.send_message ~rich_send_fn
+      ~send_fn:
+        (Some
+           (fun ~text:_ ->
+             send_fn_called := true;
+             Lwt.return_unit))
+  in
+  let result =
+    Lwt_main.run
+      (tool.invoke
+         ~context:
+           {
+             Tool.session_key = Some "telegram:1:1";
+             send_progress = None;
+             interrupt_check = None;
+           }
+         (`Assoc [ ("text", `String "plain text update") ]))
+  in
+  Alcotest.(check string) "tool result" "Message sent" result;
+  Alcotest.(check bool) "send_fn not called" false !send_fn_called;
+  match !rich_received with
+  | Some (Rich_message.Text text) ->
+      Alcotest.(check string) "text routed via rich" "plain text update" text
+  | _ -> Alcotest.fail "expected Rich_message.Text via rich_send_fn"
+
+let test_send_message_plain_text_rich_fallback_no_session () =
+  let send_fn_called = ref [] in
+  let rich_send_fn_called = ref false in
+  let rich_send_fn =
+    Some
+      (fun ~session_key:_ _msg ->
+        rich_send_fn_called := true;
+        Lwt.return Rich_message.{ message_id = "0"; callback_ids = [] })
+  in
+  let tool =
+    Tools_builtin.send_message ~rich_send_fn
+      ~send_fn:
+        (Some
+           (fun ~text ->
+             send_fn_called := text :: !send_fn_called;
+             Lwt.return_unit))
+  in
+  (* No context = no session_key, should fall back to send_fn *)
+  let result =
+    Lwt_main.run (tool.invoke (`Assoc [ ("text", `String "no session msg") ]))
+  in
+  Alcotest.(check string) "tool result" "Message sent" result;
+  Alcotest.(check bool) "rich_send_fn not called" false !rich_send_fn_called;
+  Alcotest.(check (list string))
+    "send_fn used as fallback" [ "no session msg" ] (List.rev !send_fn_called)
+
 let test_send_poll_rich_notifier () =
   let received = ref None in
   let rich_send_fn =
@@ -1402,6 +1463,10 @@ let suite =
       test_send_message_with_buttons_rich_notifier;
     Alcotest.test_case "send_message with buttons text fallback" `Quick
       test_send_message_with_buttons_text_fallback;
+    Alcotest.test_case "send_message plain text via rich notifier" `Quick
+      test_send_message_plain_text_via_rich_notifier;
+    Alcotest.test_case "send_message plain text rich fallback no session" `Quick
+      test_send_message_plain_text_rich_fallback_no_session;
     Alcotest.test_case "send_poll with rich notifier" `Quick
       test_send_poll_rich_notifier;
     Alcotest.test_case "send_poll text fallback" `Quick

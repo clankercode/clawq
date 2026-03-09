@@ -875,7 +875,9 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
       (* Register a persistent channel notifier so autonomous continuation
          responses can reach the Telegram chat *)
       let send_to_chat text =
-        send_chunked ~bot_token ~chat_id:update.chat_id ~text ()
+        send_chunked ~parse_mode:"MarkdownV2" ~bot_token ~chat_id:update.chat_id
+          ~text:(Telegram_format.markdown_to_mdv2 text)
+          ()
       in
       if Option.is_none (Session.find_registered_notifier session_mgr ~key) then begin
         Session.register_channel_notifier session_mgr ~key send_to_chat;
@@ -892,7 +894,10 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
             match msg with
             | Rich_message.Text text ->
                 let* () =
-                  send_chunked ~bot_token ~chat_id:update.chat_id ~text ()
+                  send_chunked ~parse_mode:"MarkdownV2" ~bot_token
+                    ~chat_id:update.chat_id
+                    ~text:(Telegram_format.markdown_to_mdv2 text)
+                    ()
                 in
                 Lwt.return Rich_message.{ message_id = "0"; callback_ids = [] }
             | Rich_message.TextWithButtons { text; button_rows } ->
@@ -1345,8 +1350,10 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                     else Lwt.return_unit
                   in
                   let* () =
-                    send_chunked ~bot_token ~chat_id:update.chat_id
-                      ~text:response ()
+                    send_chunked ~parse_mode:"MarkdownV2" ~bot_token
+                      ~chat_id:update.chat_id
+                      ~text:(Telegram_format.markdown_to_mdv2 response)
+                      ()
                   in
                   let* () = set_reaction "\xE2\x9C\x85" in
                   if not (Session.take_response_deferred session_mgr ~key) then
@@ -1604,8 +1611,12 @@ let poll_account ~bot_token ~(account : Runtime_config.telegram_account) ~name
                                       (Session.is_queued_message_response
                                          response)
                                   then
-                                    send_chunked ~bot_token
-                                      ~chat_id:cb.cb_chat_id ~text:response ()
+                                    send_chunked ~parse_mode:"MarkdownV2"
+                                      ~bot_token ~chat_id:cb.cb_chat_id
+                                      ~text:
+                                        (Telegram_format.markdown_to_mdv2
+                                           response)
+                                      ()
                                   else Lwt.return_unit)
                                 (fun exn ->
                                   Logs.err (fun m ->

@@ -3035,12 +3035,10 @@ let send_message ~(send_fn : (text:string -> unit Lwt.t) option)
               |> List.map (fun b -> b |> member "label" |> to_string)
             with _ -> []
           in
+          let session_key =
+            match context with Some ctx -> ctx.Tool.session_key | None -> None
+          in
           if buttons <> [] then
-            let session_key =
-              match context with
-              | Some ctx -> ctx.Tool.session_key
-              | None -> None
-            in
             let button_objs =
               List.mapi
                 (fun i label ->
@@ -3102,20 +3100,33 @@ let send_message ~(send_fn : (text:string -> unit Lwt.t) option)
                       "Error: no active session notifier or configured \
                        notification channel.")
           else
-            match send_fn with
-            | None ->
-                Lwt.return
-                  "Error: no active session notifier or configured \
-                   notification channel."
-            | Some f ->
+            match (rich_send_fn, session_key) with
+            | Some rsf, Some sk ->
                 Lwt.catch
                   (fun () ->
                     let open Lwt.Syntax in
-                    let* () = f ~text in
+                    let* _result =
+                      rsf ~session_key:sk (Rich_message.Text text)
+                    in
                     Lwt.return "Message sent")
                   (fun exn ->
                     Lwt.return
-                      ("Error sending message: " ^ Printexc.to_string exn)));
+                      ("Error sending message: " ^ Printexc.to_string exn))
+            | _ -> (
+                match send_fn with
+                | None ->
+                    Lwt.return
+                      "Error: no active session notifier or configured \
+                       notification channel."
+                | Some f ->
+                    Lwt.catch
+                      (fun () ->
+                        let open Lwt.Syntax in
+                        let* () = f ~text in
+                        Lwt.return "Message sent")
+                      (fun exn ->
+                        Lwt.return
+                          ("Error sending message: " ^ Printexc.to_string exn))));
     invoke_stream = None;
     risk_level = Low;
     deferred = false;

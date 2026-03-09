@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-09T14:08:22Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B180
 priority: medium
-status: pending
+started_at: "2026-03-09T14:08:22Z"
+status: in_progress
 tags: []
 title: Telegram send_message notifications can appear delayed or reordered relative to busy session output
 ---
