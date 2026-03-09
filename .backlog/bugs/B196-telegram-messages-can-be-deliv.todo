@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B196
+priority: high
+status: pending
+tags: []
+title: Telegram messages can be delivered out of order, especially when queued messages are involved. Irrespective of injecting queued messages or not, we should always immediately forward messages destined for telegram to the user
+---
+
+Telegram messages can be delivered out of order, especially when queued messages are involved. Irrespective of injecting queued messages or not, we should always immediately forward messages destined for telegram to the user
