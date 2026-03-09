@@ -1,18 +1,6 @@
 ---
 complexity: medium
-depends_on:
-    - 'The current task_tree tool rejects otherwise reasonable work planning batches with errors like: "Too many concurrent in_progress tasks (max 3). Complete or cancel existing work first." This cap is too tight for real autonomous workflows'
-    - |-
-      especially when a parent task and several child tasks or parallel delegate-review items must be tracked simultaneously.
-
-      Acceptance criteria:
-      - The maximum number of concurrent in-progress tasks is increased to a more practical default and/or made configurable.
-      - The tool still prevents pathological task-state sprawl
-    - |-
-      but does not block normal multi-branch autonomous work.
-      - Error messaging
-    - if any limit remains
-    - clearly explains how to proceed.
+depends_on: []
 estimate_hours: 1
 id: B254
 priority: high
@@ -22,3 +10,10 @@ title: task_tree should allow more than three concurrent in-progress tasks or ma
 ---
 
 task_tree should allow more than three concurrent in-progress tasks or make the limit configurable
+
+The current task_tree tool rejects otherwise reasonable work planning batches with errors like: "Too many concurrent in_progress tasks (max 3). Complete or cancel existing work first." This cap is too tight for real autonomous workflows, especially when a parent task and several child tasks or parallel delegate-review items must be tracked simultaneously.
+
+Acceptance criteria:
+- The maximum number of concurrent in-progress tasks is increased to a more practical default and/or made configurable.
+- The tool still prevents pathological task-state sprawl, but does not block normal multi-branch autonomous work.
+- Error messaging, if any limit remains, clearly explains how to proceed.

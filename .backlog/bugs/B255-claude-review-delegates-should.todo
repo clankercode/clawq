@@ -1,15 +1,6 @@
 ---
 complexity: medium
-depends_on:
-    - |-
-      Delegating review/fix work to the Claude runner from within an active Claude Code session currently fails immediately with: "Claude Code cannot be launched inside another Claude Code session. Nested sessions share runtime resources and will crash all active sessions."
-
-      Acceptance criteria:
-      - Delegate/background routing detects when the current session cannot safely launch Claude Code recursively.
-      - In that situation
-    - |-
-      clawq either automatically uses a safe alternative runner/model for the requested review/fix task or launches Claude with an explicit supported bypass mechanism if that is safe and intended.
-      - The failure mode is surfaced clearly and does not waste long-lived review attempts.
+depends_on: []
 estimate_hours: 1
 id: B255
 priority: high
@@ -19,3 +10,10 @@ title: Claude review delegates should route around nested Claude session prohibi
 ---
 
 Claude review delegates should route around nested Claude session prohibition
+
+Delegating review/fix work to the Claude runner from within an active Claude Code session currently fails immediately with: "Claude Code cannot be launched inside another Claude Code session. Nested sessions share runtime resources and will crash all active sessions."
+
+Acceptance criteria:
+- Delegate/background routing detects when the current session cannot safely launch Claude Code recursively.
+- In that situation, clawq either automatically uses a safe alternative runner/model for the requested review/fix task or launches Claude with an explicit supported bypass mechanism if that is safe and intended.
+- The failure mode is surfaced clearly and does not waste long-lived review attempts.
