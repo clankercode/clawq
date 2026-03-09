@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-09T12:07:27Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B135
 priority: medium
-status: pending
+started_at: "2026-03-09T12:07:27Z"
+status: in_progress
 tags: []
 title: Keep a trailing progress message after asynchronous channel replies
 ---
