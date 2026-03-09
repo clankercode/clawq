@@ -530,19 +530,14 @@ let flush_memories_before_compaction ~config ~system_prompt ~db ~to_compact =
   Logs.info (fun m ->
       m "Pre-compaction memory flush: processing %d messages" n_msgs);
   let to_compact = ensure_tool_group_integrity to_compact in
-  (* Cap flush context to avoid sending hundreds of messages (~250K+ tokens)
-     to the LLM per iteration.  Keep only the most recent messages. *)
-  let max_flush_msgs = 60 in
-  let trimmed =
-    if List.length to_compact > max_flush_msgs then
-      let skip = List.length to_compact - max_flush_msgs in
-      List.filteri (fun i _ -> i >= skip) to_compact
-    else to_compact
-  in
+  (* Send the full history as context so memories from any part of the
+     conversation can be extracted.  The large stable prefix is automatically
+     cached by OpenAI after the first call (~50% discount on subsequent
+     iterations in the loop), keeping per-iteration cost reasonable. *)
   let messages =
     ref
       ([ Provider.make_message ~role:"system" ~content:system_prompt ]
-      @ trimmed
+      @ to_compact
       @ [ Provider.make_message ~role:"user" ~content:flush_trigger_message ])
   in
   let stored = ref 0 in
