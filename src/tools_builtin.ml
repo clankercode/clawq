@@ -436,8 +436,12 @@ let shell_exec ~workspace ~workspace_only ~allowed_commands ~extra_allowed_paths
     ~sandbox =
   let description =
     if workspace_only then
-      "Execute a shell command from the workspace directory or an optional cwd \
-       under allowed roots, and return stdout and stderr"
+      "Execute a shell command and return stdout+stderr. Workspace policy: \
+       only allowlisted commands (ls, cat, head, tail, grep, find, wc, sort, \
+       uniq, echo, pwd, date, whoami, which, file, stat, diff, patch, mkdir, \
+       touch, git, make, dune, opam, npm, yarn, jq, sed, awk, tr, cut, tee, \
+       tar, zip, unzip, gzip, gunzip). No pipes, semicolons, redirects, or \
+       subshells. Default timeout 30s, max 600s."
     else "Execute a shell command and return stdout and stderr"
   in
   let read_channel ?on_chunk ic buf =
@@ -770,7 +774,9 @@ let is_path_allowed ~workspace ~workspace_only ~extra_allowed_paths path =
 let file_read ~workspace ~workspace_only ~extra_allowed_paths =
   {
     Tool.name = "file_read";
-    description = "Read the contents of a file";
+    description =
+      "Read a file's text content. Full reads limited to 50,000 chars; for \
+       larger files use offset and limit parameters to read in parts.";
     parameters_schema =
       `Assoc
         [
@@ -874,7 +880,8 @@ let file_read ~workspace ~workspace_only ~extra_allowed_paths =
 let file_append ~workspace ~workspace_only ~extra_allowed_paths =
   {
     Tool.name = "file_append";
-    description = "Append content to the end of a file";
+    description =
+      "Append content to the end of a file, creating it if it does not exist";
     parameters_schema =
       `Assoc
         [
@@ -937,7 +944,7 @@ let file_append ~workspace ~workspace_only ~extra_allowed_paths =
 let file_write ~workspace ~workspace_only ~extra_allowed_paths =
   {
     Tool.name = "file_write";
-    description = "Write content to a file";
+    description = "Create or overwrite a file with the given content";
     parameters_schema =
       `Assoc
         [
@@ -1126,7 +1133,8 @@ let file_edit_lines ~workspace ~workspace_only ~extra_allowed_paths =
   {
     Tool.name = "file_edit_lines";
     description =
-      "Replace an inclusive line range [start_line, end_line] with new content";
+      "Replace an inclusive 1-indexed line range [start_line, end_line] with \
+       new content";
     parameters_schema =
       `Assoc
         [
@@ -1250,9 +1258,13 @@ let is_localhost_url url =
 let http_get ~workspace_only =
   let description =
     if workspace_only then
-      "Fetch a localhost URL and return the response body (workspace policy: \
-       external URLs restricted)"
-    else "Fetch a URL and return the response body"
+      "Fetch a localhost URL via GET and return the raw response body \
+       (truncated at 10KB, workspace policy: external URLs restricted). For \
+       HTML pages use web_fetch; for other methods use http_request."
+    else
+      "Fetch a URL via GET and return the raw response body (truncated at \
+       10KB). For HTML pages use web_fetch; for other methods or custom \
+       headers use http_request."
   in
   {
     Tool.name = "http_get";
@@ -1360,7 +1372,8 @@ let memory_store ~db =
   {
     Tool.name = "memory_store";
     description =
-      "Store a core memory with a key, content, and optional category";
+      "Store a persistent key-value memory that survives across sessions. \
+       Overwrites if the key already exists.";
     parameters_schema =
       `Assoc
         [
@@ -1414,7 +1427,9 @@ let memory_store ~db =
 let memory_recall ~db =
   {
     Tool.name = "memory_recall";
-    description = "Search core memories using full-text search";
+    description =
+      "Search persistent memories by full-text query and return matching \
+       key-content pairs";
     parameters_schema =
       `Assoc
         [
@@ -1463,7 +1478,7 @@ let memory_recall ~db =
 let memory_forget ~db =
   {
     Tool.name = "memory_forget";
-    description = "Remove a core memory by key";
+    description = "Delete a persistent memory by its exact key";
     parameters_schema =
       `Assoc
         [
@@ -1497,7 +1512,8 @@ let memory_forget ~db =
 let memory_list ~db =
   {
     Tool.name = "memory_list";
-    description = "List core memories, optionally filtered by category";
+    description =
+      "List all persistent memories, optionally filtered by category";
     parameters_schema =
       `Assoc
         [
@@ -1580,7 +1596,8 @@ let glob ~workspace ~workspace_only ~extra_allowed_paths =
   {
     Tool.name = "glob";
     description =
-      "Find files matching a glob pattern (supports * and ** wildcards)";
+      "Find files matching a glob pattern (supports * and ** wildcards). \
+       Returns absolute file paths.";
     parameters_schema =
       `Assoc
         [
@@ -1686,7 +1703,8 @@ let glob ~workspace ~workspace_only ~extra_allowed_paths =
 let list_dir ~workspace ~workspace_only ~extra_allowed_paths =
   {
     Tool.name = "list_dir";
-    description = "List the contents of a directory";
+    description =
+      "List directory contents with type labels (file/dir) for each entry";
     parameters_schema =
       `Assoc
         [
@@ -1783,8 +1801,9 @@ let grep ~workspace ~workspace_only ~extra_allowed_paths =
   {
     Tool.name = "grep";
     description =
-      "Search for a pattern in files and return matching lines with file and \
-       line number";
+      "Search files for a regex pattern (OCaml Str syntax) and return matching \
+       lines with file path and line number. Supports | to match multiple \
+       alternative patterns.";
     parameters_schema =
       `Assoc
         [
@@ -1796,7 +1815,10 @@ let grep ~workspace ~workspace_only ~extra_allowed_paths =
                   `Assoc
                     [
                       ("type", `String "string");
-                      ("description", `String "Text pattern to search for");
+                      ( "description",
+                        `String
+                          "Regex pattern (e.g. \"let.*=\" or \"TODO|FIXME\"). \
+                           Use | to separate alternatives." );
                     ] );
                 ( "path",
                   `Assoc
@@ -1995,9 +2017,13 @@ let http_request ~workspace_only =
     Tool.name = "http_request";
     description =
       (if workspace_only then
-         "Make an HTTP request (workspace policy: external URLs restricted to \
-          localhost)"
-       else "Make an HTTP request with configurable method, headers, and body");
+         "Make an HTTP request with configurable method, headers, and body \
+          (workspace policy: localhost only, truncated at 20KB). For reading \
+          web pages use web_fetch."
+       else
+         "Make an HTTP request with configurable method \
+          (GET/POST/PUT/PATCH/DELETE), headers, and body. Returns raw response \
+          (truncated at 20KB). For reading web pages use web_fetch.");
     parameters_schema =
       `Assoc
         [
@@ -2201,11 +2227,13 @@ let web_fetch ~workspace_only =
     Tool.name = "web_fetch";
     description =
       (if workspace_only then
-         "Fetch a URL and return the page content as readable text (workspace \
-          policy: localhost only)"
+         "Fetch a URL and return the page as readable text with HTML stripped \
+          (workspace policy: localhost only, truncated at 20KB). For raw \
+          responses use http_get or http_request."
        else
-         "Fetch a URL and return the page content as readable text with HTML \
-          stripped");
+         "Fetch a URL and return the page as readable text with \
+          HTML/scripts/styles stripped (truncated at 20KB). Best for reading \
+          web pages. For raw API responses use http_get or http_request.");
     parameters_schema =
       `Assoc
         [
@@ -2735,9 +2763,10 @@ let send_message ~(send_fn : (text:string -> unit Lwt.t) option) =
   {
     Tool.name = "send_message";
     description =
-      "Send a message immediately to the current session when available, \
-       otherwise via the configured notification channel (Telegram, Discord, \
-       etc.)";
+      "Send a message to the user immediately via the current session, or via \
+       the configured notification channel (Telegram, Discord, etc.) if no \
+       session is active. Use when asked to notify, alert, or message the \
+       user.";
     parameters_schema =
       `Assoc
         [

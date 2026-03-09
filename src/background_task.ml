@@ -785,8 +785,10 @@ let enqueue_tool_with_notify ~notify_cfg ~db =
   {
     Tool.name = "background_task_enqueue";
     description =
-      "Queue a background Codex or Claude coding task that runs in its own git \
-       worktree and completes asynchronously.";
+      "Queue a background Codex or Claude coding task in its own git worktree. \
+       Lower-level alternative to delegate — use when you need explicit \
+       control over runner, repo, branch, or model. Use delegate for simple \
+       'spawn a subagent' requests.";
     parameters_schema =
       `Assoc
         [
@@ -1045,9 +1047,10 @@ let delegate_tool_with_notify ?(check_available = true) ~db ~default_repo_path
   {
     Tool.name = "delegate";
     description =
-      "Queue a delegated background coding task with good defaults: \
-       auto-select a runner, default to the current workspace repository, and \
-       shape the prompt for an implementation-focused subagent.";
+      "Delegate a coding task to a background subagent (Codex or Claude) that \
+       runs in its own git worktree. Use when asked to spawn subagents, use \
+       workers, or run tasks with a specific model (e.g. 'use haiku to ...', \
+       'delegate to sonnet'). Auto-selects runner and repo by default.";
     parameters_schema =
       `Assoc
         [

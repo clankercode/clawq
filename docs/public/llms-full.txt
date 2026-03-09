@@ -258,32 +258,32 @@ You have up to 27 built-in tools. 14 are always registered; `web_search`, `send_
 
 | Tool | Description |
 |------|-------------|
-| `shell_exec` | Execute a shell command (37-command allowlist, unsafe-syntax rejection, optional `cwd`) |
-| `file_read` | Read a file's contents |
-| `file_write` | Write content to a file |
-| `file_append` | Append content to a file |
+| `shell_exec` | Execute a shell command (37-command allowlist when workspace_only, no pipes/semicolons/redirects/subshells; timeout 30s default, 600s max) |
+| `file_read` | Read a file's text content (50K char limit; use offset/limit for larger files) |
+| `file_write` | Create or overwrite a file with the given content |
+| `file_append` | Append content to the end of a file, creating it if it does not exist |
 | `file_edit` | Edit a file by replacing a string match |
-| `file_edit_lines` | Edit specific lines in a file |
-| `glob` | Find files matching a glob pattern (supports * and ** wildcards) |
-| `list_dir` | List the contents of a directory |
-| `grep` | Search for a pattern in files, return matching lines with file and line number |
-| `http_get` | Fetch a URL (localhost-only when workspace_only is enabled) |
-| `http_request` | Make an HTTP request with configurable method, headers, body |
-| `web_fetch` | Fetch a URL and return page content as readable text |
+| `file_edit_lines` | Replace an inclusive 1-indexed line range with new content |
+| `glob` | Find files matching a glob pattern (* and ** wildcards). Returns absolute paths |
+| `list_dir` | List directory contents with type labels (file/dir) for each entry |
+| `grep` | Search files for a regex pattern (OCaml Str syntax, supports \| alternation). Returns matching lines with path and line number |
+| `http_get` | Fetch a URL via GET, return raw body (10KB truncation; localhost-only when workspace_only). For HTML use web_fetch |
+| `http_request` | HTTP request with configurable method/headers/body (20KB truncation; localhost-only when workspace_only). For web pages use web_fetch |
+| `web_fetch` | Fetch a URL, return readable text with HTML stripped (20KB truncation; localhost-only when workspace_only). For raw API responses use http_get/http_request |
 | `web_search` | Search the web (conditional: only if web_search config is set) |
 | `git_operations` | Git operations: status, diff, log, branch, add, commit, checkout, stash, show |
-| `send_message` | Send a message via the current live session when possible, otherwise via configured notification channel (conditional: only if runtime wiring provides a send function) |
+| `send_message` | Send a message to the user via the current session or notification channel. Use when asked to notify/alert the user (conditional: runtime wiring) |
 | `doc_write` | Write or update a workspace document |
 | `transcribe` | Transcribe an audio file |
-| `memory_store` | Store a key-value pair in memory |
-| `memory_recall` | Recall a value from memory |
-| `memory_forget` | Forget a memory entry |
-| `memory_list` | List all memory keys |
-| `background_task_enqueue` | Queue a Codex or Claude background coding task in a git worktree; captures session/channel metadata when available |
+| `memory_store` | Store a persistent key-value memory that survives across sessions (overwrites on key collision) |
+| `memory_recall` | Search persistent memories by full-text query, return matching key-content pairs |
+| `memory_forget` | Delete a persistent memory by its exact key |
+| `memory_list` | List all persistent memories, optionally filtered by category |
+| `background_task_enqueue` | Queue a background Codex/Claude task in a git worktree (lower-level; use delegate for simple requests) |
 | `background_task_list` | List background tasks or inspect a single task by id, including status, branch, log path, and result preview |
 | `background_task_wait` | Wait for a background task to reach a terminal state and return its final summary |
 | `background_task_logs` | Read the latest lines from a background task log file |
-| `delegate` | Queue a delegated background coding task with auto-runner and default-repo behavior |
+| `delegate` | Delegate a coding task to a background subagent (Codex/Claude) in a git worktree. Use for 'spawn subagent'/'use haiku to ...' requests |
 | `background_task_cancel` | Cancel a queued or running background task |
 
 Background delegation notes:
