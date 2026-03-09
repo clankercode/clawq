@@ -223,6 +223,19 @@ let delete_message ~bot_token ~channel_id ~message_id =
   in
   Lwt.return_unit
 
+let make_status_notifier ~bot_token ~channel_id : Status_message.notifier =
+  {
+    send =
+      (fun ?parse_mode:_ text ->
+        send_message_with_id ~suppress_notifications:true ~bot_token ~channel_id
+          ~text ());
+    edit =
+      (fun msg_id ?parse_mode:_ text ->
+        edit_message ~bot_token ~channel_id ~message_id:msg_id ~text);
+    delete =
+      (fun msg_id -> delete_message ~bot_token ~channel_id ~message_id:msg_id);
+  }
+
 let add_reaction ~bot_token ~channel_id ~message_id ~emoji =
   let open Lwt.Syntax in
   let encoded_emoji = Uri.pct_encode emoji in
@@ -609,22 +622,9 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
           let thinking_buf = Buffer.create 256 in
           let status_msg =
             if use_consolidated then
-              let status_notifier : Status_message.notifier =
-                {
-                  send =
-                    (fun ?parse_mode:_ text ->
-                      send_message_with_id ~suppress_notifications:true
-                        ~bot_token:discord_config.bot_token
-                        ~channel_id:msg.channel_id ~text ());
-                  edit =
-                    (fun msg_id ?parse_mode:_ text ->
-                      edit_message ~bot_token:discord_config.bot_token
-                        ~channel_id:msg.channel_id ~message_id:msg_id ~text);
-                  delete =
-                    (fun msg_id ->
-                      delete_message ~bot_token:discord_config.bot_token
-                        ~channel_id:msg.channel_id ~message_id:msg_id);
-                }
+              let status_notifier =
+                make_status_notifier ~bot_token:discord_config.bot_token
+                  ~channel_id:msg.channel_id
               in
               Some
                 (Status_message.create ~notifier:status_notifier
@@ -770,23 +770,9 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                     send_to_channel;
                   Session.register_status_message_factory session_mgr ~key
                     (fun () ->
-                      let notifier : Status_message.notifier =
-                        {
-                          send =
-                            (fun ?parse_mode:_ text ->
-                              send_message_with_id ~suppress_notifications:true
-                                ~bot_token:discord_config.bot_token
-                                ~channel_id:msg.channel_id ~text ());
-                          edit =
-                            (fun msg_id ?parse_mode:_ text ->
-                              edit_message ~bot_token:discord_config.bot_token
-                                ~channel_id:msg.channel_id ~message_id:msg_id
-                                ~text);
-                          delete =
-                            (fun msg_id ->
-                              delete_message ~bot_token:discord_config.bot_token
-                                ~channel_id:msg.channel_id ~message_id:msg_id);
-                        }
+                      let notifier =
+                        make_status_notifier ~bot_token:discord_config.bot_token
+                          ~channel_id:msg.channel_id
                       in
                       Status_message.create ~notifier ~parse_mode:"Markdown" ())
                 end;

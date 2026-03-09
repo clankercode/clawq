@@ -124,6 +124,17 @@ let delete_message ~bot_token ~channel_id ~ts =
   let* _status, _body = Http_client.post_json ~uri ~headers ~body in
   Lwt.return_unit
 
+let make_status_notifier ~bot_token ~channel_id : Status_message.notifier =
+  {
+    send =
+      (fun ?parse_mode:_ text ->
+        send_message_with_id ~bot_token ~channel_id ~text);
+    edit =
+      (fun ts ?parse_mode:_ text ->
+        edit_message ~bot_token ~channel_id ~ts ~text);
+    delete = (fun ts -> delete_message ~bot_token ~channel_id ~ts);
+  }
+
 let add_reaction ~bot_token ~channel_id ~timestamp ~emoji_name =
   let open Lwt.Syntax in
   let uri = "https://slack.com/api/reactions.add" in
@@ -249,21 +260,8 @@ let handle_event ~(config : Runtime_config.slack_config)
               send_to_channel_persistent;
             Session.register_status_message_factory session_manager ~key
               (fun () ->
-                let notifier : Status_message.notifier =
-                  {
-                    send =
-                      (fun ?parse_mode:_ text ->
-                        send_message_with_id ~bot_token:config.bot_token
-                          ~channel_id ~text);
-                    edit =
-                      (fun ts ?parse_mode:_ text ->
-                        edit_message ~bot_token:config.bot_token ~channel_id ~ts
-                          ~text);
-                    delete =
-                      (fun ts ->
-                        delete_message ~bot_token:config.bot_token ~channel_id
-                          ~ts);
-                  }
+                let notifier =
+                  make_status_notifier ~bot_token:config.bot_token ~channel_id
                 in
                 Status_message.create ~notifier ~parse_mode:"Markdown" ())
           end;
@@ -447,21 +445,9 @@ let handle_event ~(config : Runtime_config.slack_config)
                 let thinking_buf = Buffer.create 256 in
                 let status_msg =
                   if use_consolidated then
-                    let status_notifier : Status_message.notifier =
-                      {
-                        send =
-                          (fun ?parse_mode:_ text ->
-                            send_message_with_id ~bot_token:config.bot_token
-                              ~channel_id ~text);
-                        edit =
-                          (fun msg_ts ?parse_mode:_ text ->
-                            edit_message ~bot_token:config.bot_token ~channel_id
-                              ~ts:msg_ts ~text);
-                        delete =
-                          (fun msg_ts ->
-                            delete_message ~bot_token:config.bot_token
-                              ~channel_id ~ts:msg_ts);
-                      }
+                    let status_notifier =
+                      make_status_notifier ~bot_token:config.bot_token
+                        ~channel_id
                     in
                     Some
                       (Status_message.create ~notifier:status_notifier

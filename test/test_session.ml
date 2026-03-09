@@ -19,6 +19,24 @@ let string_contains haystack needle =
   in
   needle_len = 0 || loop 0
 
+let mock_status_notifier () =
+  let sent = ref [] in
+  let edited = ref [] in
+  let notifier : Status_message.notifier =
+    {
+      send =
+        (fun ?parse_mode:_ text ->
+          sent := text :: !sent;
+          Lwt.return "msg-1");
+      edit =
+        (fun id ?parse_mode:_ text ->
+          edited := (id, text) :: !edited;
+          Lwt.return_unit);
+      delete = (fun _id -> Lwt.return_unit);
+    }
+  in
+  (notifier, sent, edited)
+
 let free_port () =
   let sock = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
   Fun.protect
@@ -938,6 +956,60 @@ let test_with_registered_notifier_restores_previous () =
     "notifier removed after outer scope" true
     (Session.find_registered_notifier mgr ~key:"telegram:1:u" = None)
 
+let test_consolidated_status_on_chunk_hides_thinking_when_disabled () =
+  let notifier, sent, edited = mock_status_notifier () in
+  let sm =
+    Status_message.create ~debounce_interval:0.0 ~notifier
+      ~parse_mode:"Markdown" ()
+  in
+  let thinking =
+    "this hidden chain of thought is long enough to force a send"
+  in
+  let thinking_buf = Buffer.create 64 in
+  let agent_defaults =
+    {
+      Runtime_config.default.agent_defaults with
+      show_thinking = false;
+      show_tool_calls = true;
+    }
+  in
+  Lwt_main.run
+    (Session.consolidated_status_on_chunk ~agent_defaults ~thinking_buf sm
+       (Provider.ThinkingDelta thinking));
+  Alcotest.(check string)
+    "thinking buffer remains empty" ""
+    (Buffer.contents thinking_buf);
+  Alcotest.(check string)
+    "status render stays empty" "" (Status_message.render sm);
+  Alcotest.(check int) "no status message sent" 0 (List.length !sent);
+  Alcotest.(check int) "no status message edited" 0 (List.length !edited)
+
+let test_consolidated_status_on_chunk_shows_thinking_when_enabled () =
+  let notifier, sent, _edited = mock_status_notifier () in
+  let sm =
+    Status_message.create ~debounce_interval:0.0 ~notifier
+      ~parse_mode:"Markdown" ()
+  in
+  let thinking = "visible plan for the user" in
+  let thinking_buf = Buffer.create 64 in
+  let agent_defaults =
+    {
+      Runtime_config.default.agent_defaults with
+      show_thinking = true;
+      show_tool_calls = true;
+    }
+  in
+  Lwt_main.run
+    (Session.consolidated_status_on_chunk ~agent_defaults ~thinking_buf sm
+       (Provider.ThinkingDelta thinking));
+  Alcotest.(check string)
+    "thinking buffer captures text" thinking
+    (Buffer.contents thinking_buf);
+  Alcotest.(check bool)
+    "status render includes thinking" true
+    (string_contains (Status_message.render sm) thinking);
+  Alcotest.(check bool) "status message emitted" true (List.length !sent >= 1)
+
 let test_drain_works_after_concurrent_notifier_registration () =
   with_fake_chat_provider (fun config ->
       let db = Memory.init ~db_path:":memory:" () in
@@ -1346,6 +1418,10 @@ let suite =
       test_interrupt_latch_skips_after_first_tool;
     Alcotest.test_case "notifier restores previous after nested registration"
       `Quick test_with_registered_notifier_restores_previous;
+    Alcotest.test_case "consolidated status hides thinking when disabled" `Quick
+      test_consolidated_status_on_chunk_hides_thinking_when_disabled;
+    Alcotest.test_case "consolidated status shows thinking when enabled" `Quick
+      test_consolidated_status_on_chunk_shows_thinking_when_enabled;
     Alcotest.test_case "drain works after concurrent notifier registration"
       `Quick test_drain_works_after_concurrent_notifier_registration;
     Alcotest.test_case "queued interrupt does not skip tools" `Quick

@@ -173,9 +173,9 @@ let notify_resumed_session ?(senders = default_resume_senders)
 
 let post_dispatch_resumed_session_response
     ?(continuation_delay = Session.default_autonomous_continuation_delay)
-    ?(senders = default_resume_senders)
-    ~(session_manager : Session.t) ~(config : Runtime_config.t) ~session_key
-    ~channel ~channel_id ~response () =
+    ?(senders = default_resume_senders) ~(session_manager : Session.t)
+    ~(config : Runtime_config.t) ~session_key ~channel ~channel_id ~response ()
+    =
   let trimmed = String.trim response in
   let target = resumed_dispatch_target ~session_key ~channel ~channel_id in
   Logs.info (fun m ->
@@ -209,8 +209,7 @@ let post_dispatch_resumed_session_response
           notify_resumed_session ~senders ~session_manager ~config ~session_key
             ~channel ~channel_id follow_up
       in
-      Logs.info (fun m ->
-          m "Resume continuation follow-up sent %s" target);
+      Logs.info (fun m -> m "Resume continuation follow-up sent %s" target);
       Lwt.return_unit
     in
     Lwt.async (fun () ->

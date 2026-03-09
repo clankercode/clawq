@@ -514,8 +514,8 @@ let test_post_dispatch_resumed_routed_session_arms_and_sends_follow_up () =
     (fun ~key ~message ~send_progress:_ ~interrupt_check:_ ->
       if
         key = "telegram:42:user"
-        && String.starts_with
-             ~prefix:Session.autonomous_continuation_prompt message
+        && String.starts_with ~prefix:Session.autonomous_continuation_prompt
+             message
       then begin
         incr prompts;
         if !prompts = 1 then Lwt.return_some "follow-up"
@@ -548,8 +548,8 @@ let test_post_dispatch_resumed_routed_session_arms_and_sends_follow_up () =
     "follow-up delivered to resumed telegram session"
     [ ("42", "follow-up") ]
     (List.rev !sent);
-  Alcotest.(check bool) "routed continuation disarmed after stay idle" true
-    state.disarmed
+  Alcotest.(check bool)
+    "routed continuation disarmed after stay idle" true state.disarmed
 
 let test_post_dispatch_resumed_routed_session_disarms_on_stay_idle () =
   let db = Memory.init ~db_path:":memory:" () in
@@ -585,8 +585,8 @@ let test_post_dispatch_resumed_routed_session_disarms_on_stay_idle () =
   let state =
     Hashtbl.find session_manager.Session.continuation_checks "telegram:42:user"
   in
-  Alcotest.(check bool) "stay idle disarms routed continuation" true
-    state.disarmed;
+  Alcotest.(check bool)
+    "stay idle disarms routed continuation" true state.disarmed;
   Alcotest.(check (list (pair string string))) "no follow-up sent" [] !sent
 
 let test_handle_heartbeat_response_keeps_idle_heartbeat_idle () =
@@ -799,8 +799,7 @@ let suite =
       "resume pending main session arms autonomous continuation" `Quick
       test_resume_pending_main_session_arms_autonomous_continuation;
     Alcotest.test_case
-      "post-dispatch resumed routed session sends continuation follow-up"
-      `Quick
+      "post-dispatch resumed routed session sends continuation follow-up" `Quick
       test_post_dispatch_resumed_routed_session_arms_and_sends_follow_up;
     Alcotest.test_case
       "post-dispatch resumed routed session stays idle on STAY_IDLE" `Quick

@@ -539,6 +539,26 @@ let respond_if_draining ?on_chunk mgr =
         Lwt.return_some draining_message
   else Lwt.return_none
 
+let consolidated_status_on_chunk
+    ~(agent_defaults : Runtime_config.agent_defaults) ~thinking_buf sm =
+  function
+  | Provider.ToolStart { id; name; arguments } ->
+      let summary =
+        Stream_visibility.summarize_tool_arguments ~name arguments
+      in
+      Status_message.tool_start sm ~id ~name ~summary
+  | Provider.ToolResult { id; name; result; is_error } ->
+      Status_message.tool_result sm ~id ~name ~result ~is_error
+  | Provider.ThinkingDelta text ->
+      if agent_defaults.show_thinking then begin
+        Buffer.add_string thinking_buf text;
+        Status_message.update_thinking sm text
+      end
+      else Lwt.return_unit
+  | Provider.Delta _ | Provider.ToolCallDelta _ | Provider.ToolOutputDelta _
+  | Provider.Done ->
+      Lwt.return_unit
+
 let stream_turn_with_visibility mgr ~notify agent ~key ~effective_message
     ~persisted_up_to ~interrupt_check ~inject_messages ~runtime_context
     ~on_history_update =
@@ -556,21 +576,8 @@ let stream_turn_with_visibility mgr ~notify agent ~key ~effective_message
   | Some factory ->
       let sm = factory () in
       let thinking_buf = Buffer.create 256 in
-      let on_chunk = function
-        | Provider.ToolStart { id; name; arguments } ->
-            let summary =
-              Stream_visibility.summarize_tool_arguments ~name arguments
-            in
-            Status_message.tool_start sm ~id ~name ~summary
-        | Provider.ToolResult { id; name; result; is_error } ->
-            Status_message.tool_result sm ~id ~name ~result ~is_error
-        | Provider.ThinkingDelta text ->
-            if agent_defaults.show_thinking then
-              Buffer.add_string thinking_buf text;
-            Status_message.update_thinking sm text
-        | Provider.Delta _ | Provider.ToolCallDelta _
-        | Provider.ToolOutputDelta _ | Provider.Done ->
-            Lwt.return_unit
+      let on_chunk =
+        consolidated_status_on_chunk ~agent_defaults ~thinking_buf sm
       in
       let* response =
         Agent.turn_stream agent ~user_message:effective_message ?db:mgr.db

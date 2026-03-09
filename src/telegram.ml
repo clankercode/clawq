@@ -516,6 +516,26 @@ let delete_message ~bot_token ~chat_id ~message_id () =
   let* _status, _body = Http_client.post_json ~uri ~headers:[] ~body in
   Lwt.return_unit
 
+let default_parse_mode parse_mode =
+  match parse_mode with Some mode -> Some mode | None -> Some "MarkdownV2"
+
+let make_status_notifier ~bot_token ~chat_id : Status_message.notifier =
+  {
+    send =
+      (fun ?parse_mode text ->
+        let parse_mode = default_parse_mode parse_mode in
+        let text = Telegram_format.markdown_to_mdv2 text in
+        send_message_with_id ~disable_notification:true ?parse_mode ~bot_token
+          ~chat_id ~text ());
+    edit =
+      (fun message_id ?parse_mode text ->
+        let parse_mode = default_parse_mode parse_mode in
+        let text = Telegram_format.markdown_to_mdv2 text in
+        edit_message ?parse_mode ~bot_token ~chat_id ~message_id ~text ());
+    delete =
+      (fun message_id -> delete_message ~bot_token ~chat_id ~message_id ());
+  }
+
 let set_message_reaction ~bot_token ~chat_id ~message_id ~emoji () =
   let open Lwt.Syntax in
   let uri = Printf.sprintf "%s%s/setMessageReaction" api_base bot_token in
@@ -747,38 +767,10 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
       in
       if Option.is_none (Session.find_registered_notifier session_mgr ~key) then begin
         Session.register_channel_notifier session_mgr ~key send_to_chat;
-        (* Register a status message factory so autonomous turns use
-           consolidated status messages instead of individual ones *)
-        let make_status_notifier () : Status_message.notifier =
-          {
-            send =
-              (fun ?parse_mode text ->
-                let pm =
-                  match parse_mode with
-                  | Some m -> Some m
-                  | None -> Some "MarkdownV2"
-                in
-                let text = Telegram_format.markdown_to_mdv2 text in
-                send_message_with_id ~disable_notification:true ?parse_mode:pm
-                  ~bot_token ~chat_id:update.chat_id ~text ());
-            edit =
-              (fun msg_id ?parse_mode text ->
-                let pm =
-                  match parse_mode with
-                  | Some m -> Some m
-                  | None -> Some "MarkdownV2"
-                in
-                let text = Telegram_format.markdown_to_mdv2 text in
-                edit_message ?parse_mode:pm ~bot_token ~chat_id:update.chat_id
-                  ~message_id:msg_id ~text ());
-            delete =
-              (fun msg_id ->
-                delete_message ~bot_token ~chat_id:update.chat_id
-                  ~message_id:msg_id ());
-          }
-        in
         Session.register_status_message_factory session_mgr ~key (fun () ->
-            Status_message.create ~notifier:(make_status_notifier ())
+            Status_message.create
+              ~notifier:
+                (make_status_notifier ~bot_token ~chat_id:update.chat_id)
               ~parse_mode:"MarkdownV2" ())
       end;
       let* user_text =
@@ -971,34 +963,8 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
             let thinking_buf = Buffer.create 256 in
             let status_msg =
               if use_consolidated then
-                let status_notifier : Status_message.notifier =
-                  {
-                    send =
-                      (fun ?parse_mode text ->
-                        let pm =
-                          match parse_mode with
-                          | Some m -> Some m
-                          | None -> Some "MarkdownV2"
-                        in
-                        let text = Telegram_format.markdown_to_mdv2 text in
-                        send_message_with_id ~disable_notification:true
-                          ?parse_mode:pm ~bot_token ~chat_id:update.chat_id
-                          ~text ());
-                    edit =
-                      (fun msg_id ?parse_mode text ->
-                        let pm =
-                          match parse_mode with
-                          | Some m -> Some m
-                          | None -> Some "MarkdownV2"
-                        in
-                        let text = Telegram_format.markdown_to_mdv2 text in
-                        edit_message ?parse_mode:pm ~bot_token
-                          ~chat_id:update.chat_id ~message_id:msg_id ~text ());
-                    delete =
-                      (fun msg_id ->
-                        delete_message ~bot_token ~chat_id:update.chat_id
-                          ~message_id:msg_id ());
-                  }
+                let status_notifier =
+                  make_status_notifier ~bot_token ~chat_id:update.chat_id
                 in
                 Some
                   (Status_message.create ~notifier:status_notifier
