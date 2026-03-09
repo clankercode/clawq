@@ -567,6 +567,48 @@ let test_handle_background_add_rejects_non_git_repo () =
            true
          with Not_found -> false))
 
+let test_handle_delegate_with_model () =
+  with_temp_home (fun home ->
+      let repo = Filename.concat home "repo" in
+      Unix.mkdir repo 0o755;
+      init_git_repo repo;
+      let bin_dir = Filename.concat home "bin" in
+      Unix.mkdir bin_dir 0o755;
+      let fake_codex = Filename.concat bin_dir "codex" in
+      let oc = open_out fake_codex in
+      output_string oc "#!/bin/sh\n";
+      close_out oc;
+      Unix.chmod fake_codex 0o755;
+      let old_path = try Sys.getenv "PATH" with Not_found -> "" in
+      Unix.putenv "PATH" (bin_dir ^ ":" ^ old_path);
+      Fun.protect
+        (fun () ->
+          let result =
+            Command_bridge.handle
+              [
+                "delegate";
+                "--runner";
+                "codex";
+                "--model";
+                "gpt-5.4";
+                "--repo";
+                repo;
+                "implement";
+                "the";
+                "feature";
+              ]
+          in
+          Alcotest.(check bool)
+            "delegate with --model queues task" true
+            (try
+               ignore
+                 (Str.search_forward
+                    (Str.regexp_string "Delegated task")
+                    result 0);
+               true
+             with Not_found -> false))
+        ~finally:(fun () -> Unix.putenv "PATH" old_path))
+
 let test_handle_delegate_rejects_non_git_repo () =
   with_temp_home (fun home ->
       let repo = Filename.concat home "repo" in
@@ -1020,6 +1062,8 @@ let suite =
     Alcotest.test_case "handle background wait with timeout" `Quick
       test_handle_background_wait_with_timeout;
     Alcotest.test_case "handle delegate" `Quick test_handle_delegate;
+    Alcotest.test_case "handle delegate with --model" `Quick
+      test_handle_delegate_with_model;
     Alcotest.test_case "handle delegate rejects non-git repo" `Quick
       test_handle_delegate_rejects_non_git_repo;
     Alcotest.test_case "handle service" `Quick test_handle_service;
