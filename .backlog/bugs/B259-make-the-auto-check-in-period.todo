@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B259
+priority: high
+status: pending
+tags: []
+title: Make the auto check-in period 90s not 10s and make that delay configurable with a config entry.
+---
+
+Make the auto check-in period 90s not 10s and make that delay configurable with a config entry.

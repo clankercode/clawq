@@ -257,3 +257,4 @@ bugs:
     - file: B256-task-tree-runtime-context-and.todo
     - file: B257-compaction-tool-call-doesn-t-s.todo
     - file: B258-provide-a-current-goal-project.todo
+    - file: B259-make-the-auto-check-in-period.todo
