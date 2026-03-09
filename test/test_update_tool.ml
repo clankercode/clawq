@@ -342,7 +342,8 @@ let test_run_update_sets_reexec_path_to_fresh_git_build () =
         Lwt_main.run
           (Update_tool.run_update
              ~find_repo_root:(fun ?start_path:_ ?exists:_ () -> Some repo_root)
-             ~run_command:(fun ~cwd:_ ~argv:_ ~send_progress:_ ~interrupt_check:_ ->
+             ~run_command:(fun
+                 ~cwd:_ ~argv:_ ~send_progress:_ ~interrupt_check:_ ->
                Lwt.return 0)
              ~send_signal:(fun _ _ -> signaled := true)
              ~is_draining:(fun () -> false)

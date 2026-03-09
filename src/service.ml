@@ -168,7 +168,8 @@ let handle_daemon_exit ?(execve = Unix.execve) exit_intent =
             ]
         | None -> [ (nofork_env, "1") ]
       in
-      execve executable (daemon_start_argv ~executable)
+      execve executable
+        (daemon_start_argv ~executable)
         (build_env ~set_vars ~unset_vars:[ internal_nofork_env ])
 
 let run_nofork_start ?(execve = Unix.execve)
@@ -178,7 +179,8 @@ let run_nofork_start ?(execve = Unix.execve)
   let internal_nofork = Sys.getenv_opt internal_nofork_env = Some "1" in
   if nofork_requested && not internal_nofork then begin
     let executable = Restart_exec.executable () in
-    execve executable (daemon_start_argv ~executable)
+    execve executable
+      (daemon_start_argv ~executable)
       (build_env
          ~set_vars:[ (internal_nofork_env, "1") ]
          ~unset_vars:[ nofork_env ]);

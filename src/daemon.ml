@@ -185,15 +185,13 @@ let handle_heartbeat_response
                 session_manager ~key ~response:trimmed)
             (fun exn ->
               Logs.err (fun m ->
-                  m "Heartbeat continuation error: %s"
-                    (Printexc.to_string exn));
+                  m "Heartbeat continuation error: %s" (Printexc.to_string exn));
               Lwt.return_unit));
       Lwt.return_unit
     end
   in
   if trimmed = "HEARTBEAT_OK" then
-    Logs.info (fun m ->
-        m "Heartbeat: agent replied HEARTBEAT_OK, no outbound")
+    Logs.info (fun m -> m "Heartbeat: agent replied HEARTBEAT_OK, no outbound")
   else begin
     Logs.info (fun m ->
         m "Heartbeat: agent response (%d chars)" (String.length trimmed));

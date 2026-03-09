@@ -500,9 +500,10 @@ let test_handle_heartbeat_response_keeps_idle_heartbeat_idle () =
     (Daemon.handle_heartbeat_response ~session_manager ~key
        ~response:" HEARTBEAT_OK " ());
   let state = Session.continuation_state session_manager ~key in
-  Alcotest.(check bool) "heartbeat ok leaves continuation disarmed flag alone"
-    false state.disarmed;
-  Alcotest.(check bool) "heartbeat ok does not arm continuation" false
+  Alcotest.(check bool)
+    "heartbeat ok leaves continuation disarmed flag alone" false state.disarmed;
+  Alcotest.(check bool)
+    "heartbeat ok does not arm continuation" false
     (Option.is_some state.cancel)
 
 let test_handle_heartbeat_response_disarms_stay_idle () =
@@ -516,7 +517,8 @@ let test_handle_heartbeat_response_disarms_stay_idle () =
     (Daemon.handle_heartbeat_response ~session_manager ~key
        ~response:" STAY_IDLE " ());
   Alcotest.(check bool) "stay idle disarms continuation" true state.disarmed;
-  Alcotest.(check bool) "stay idle clears pending continuation" false
+  Alcotest.(check bool)
+    "stay idle clears pending continuation" false
     (Option.is_some state.cancel)
 
 let test_handle_heartbeat_response_arms_follow_up_for_non_idle_reply () =
@@ -531,7 +533,8 @@ let test_handle_heartbeat_response_arms_follow_up_for_non_idle_reply () =
      in
      Lwt.pause ());
   let state = Session.continuation_state session_manager ~key in
-  Alcotest.(check bool) "non-idle heartbeat arms continuation" true
+  Alcotest.(check bool)
+    "non-idle heartbeat arms continuation" true
     (Option.is_some state.cancel);
   Lwt_main.run
     (let open Lwt.Syntax in

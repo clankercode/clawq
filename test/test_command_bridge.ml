@@ -1056,8 +1056,8 @@ let test_cmd_agent_reexecs_on_restart_with_fresh_path () =
           ~execv:(fun path argv -> execd := Some (path, Array.to_list argv))
           ()
       in
-      Alcotest.(check string) "restart result" "Daemon restart requested."
-        result;
+      Alcotest.(check string)
+        "restart result" "Daemon restart requested." result;
       Alcotest.(check (option (pair string (list string))))
         "re-execs agent with fresh path"
         (Some ("/tmp/clawq-fresh", [ "/tmp/clawq-fresh"; "agent" ]))
