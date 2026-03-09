@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B180
+priority: medium
+status: pending
+tags: []
+title: Telegram send_message notifications can appear delayed or reordered relative to busy session output
+---
+Observed in live Telegram DM during autonomous/restart work. `send_message` tool logged success early (`Tool result: send_message -> Message sent` at 00:55:12), but the user did not clearly receive/notice that notification until after a queued inbound message was processed for the same busy session around 00:56:32+, making delivery order appear confusing or delayed. Need to determine whether Telegram outbound notifications are actually delayed, whether client/UI ordering is misleading, or whether daemon/session batching/queue semantics are causing confusing interleaving between out-of-band `send_message` notifications and in-session queued replies. Acceptance criteria: (1) characterize the exact cause with logs/code-level analysis; (2) if there is a batching/queueing bug, fix it narrowly; (3) if behavior is expected but confusing, improve logging and/or delivery semantics to make ordering legible; (4) keep this distinct from restart-resume prompt behavior and general busy-session queue handling unless they share a root cause.

@@ -178,3 +178,4 @@ bugs:
     - file: B177-output-logs-should-be-more-col.todo
     - file: B178-log-when-automatic-restart-res.todo
     - file: B179-sessionless-llm-dispatch-cost.todo
+    - file: B180-telegram-send-message-notifica.todo
