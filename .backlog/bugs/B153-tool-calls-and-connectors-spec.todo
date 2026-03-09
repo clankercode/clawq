@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B153
+priority: high
+status: pending
+tags: []
+title: Tool calls and connectors, special case of shell_exec to optimize (cd x && cmd... in x)
+---
+eg: cd /home/xertrov/src/clawq.b132-session-routing && opam exec... in /home/xertrov/src/clawq.b132-session-routing

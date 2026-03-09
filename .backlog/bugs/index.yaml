@@ -151,3 +151,4 @@ bugs:
     - file: B150-implement-offline-fallback-for.todo
     - file: B151-add-opam-dependency-build-arti.todo
     - file: B152-build-date-string-should-inclu.todo
+    - file: B153-tool-calls-and-connectors-spec.todo
