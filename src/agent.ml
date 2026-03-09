@@ -530,15 +530,24 @@ let flush_memories_before_compaction ~config ~system_prompt ~db ~to_compact =
   Logs.info (fun m ->
       m "Pre-compaction memory flush: processing %d messages" n_msgs);
   let to_compact = ensure_tool_group_integrity to_compact in
+  (* Cap flush context to avoid sending hundreds of messages (~250K+ tokens)
+     to the LLM per iteration.  Keep only the most recent messages. *)
+  let max_flush_msgs = 60 in
+  let trimmed =
+    if List.length to_compact > max_flush_msgs then
+      let skip = List.length to_compact - max_flush_msgs in
+      List.filteri (fun i _ -> i >= skip) to_compact
+    else to_compact
+  in
   let messages =
     ref
       ([ Provider.make_message ~role:"system" ~content:system_prompt ]
-      @ to_compact
+      @ trimmed
       @ [ Provider.make_message ~role:"user" ~content:flush_trigger_message ])
   in
   let stored = ref 0 in
   let forgotten = ref 0 in
-  let max_iters = 100 in
+  let max_iters = 10 in
   let rec loop iter =
     if iter >= max_iters then Lwt.return_unit
     else
@@ -637,7 +646,16 @@ let compact_history_if_needed agent ?db () =
         | _ ->
             Logs.debug (fun m ->
                 m "Pre-compaction memory flush: skipped (disabled)"));
-        let to_keep = ensure_tool_group_integrity to_keep in
+        (* Preserve the chronologically last message from integrity stripping:
+           when called mid-turn, the newest assistant message may have
+           tool_calls whose results haven't been appended yet. *)
+        let to_keep =
+          match List.rev to_keep with
+          | last :: rest ->
+              List.rev
+                (last :: List.rev (ensure_tool_group_integrity (List.rev rest)))
+          | [] -> []
+        in
         let mid = List.length to_compact / 2 in
         let first_half = List.filteri (fun i _ -> i < mid) to_compact in
         let second_half = List.filteri (fun i _ -> i >= mid) to_compact in
@@ -713,7 +731,16 @@ let force_compact_history agent ?db () =
       | _ ->
           Logs.debug (fun m ->
               m "Pre-compaction memory flush: skipped (disabled)"));
-      let to_keep = ensure_tool_group_integrity to_keep in
+      (* Preserve the chronologically last message from integrity stripping:
+         when called mid-turn (e.g. via compact_history tool), the newest
+         assistant message has tool_calls whose results haven't been appended
+         yet.  Stripping those calls causes "No tool output found" errors. *)
+      let to_keep =
+        match List.rev to_keep with
+        | last :: rest ->
+            List.rev (last :: List.rev (ensure_tool_group_integrity (List.rev rest)))
+        | [] -> []
+      in
       let mid = List.length to_compact / 2 in
       let first_half = List.filteri (fun i _ -> i < mid) to_compact in
       let second_half = List.filteri (fun i _ -> i >= mid) to_compact in

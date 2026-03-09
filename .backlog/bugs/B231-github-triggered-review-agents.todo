@@ -9,3 +9,16 @@ tags: []
 title: GitHub-triggered review agents should have a clear comment/reply lifecycle in GitHub threads
 ---
 GitHub webhook-triggered review work should be legible from GitHub itself. Beyond webhook ingress, the system should define how an agent acknowledges `/clawq` commands, reports in-progress review state, posts final PASS/FAIL summaries, and replies back into the correct comment/review thread without spamming or losing continuity. Acceptance criteria: (1) define a GitHub-facing lifecycle for acknowledgment, progress, and final reply; (2) support posting replies/comments back into the correct GitHub thread surface; (3) long-running work has a coherent status strategy (single edited comment, threaded updates, reactions, etc.); (4) behavior is documented and testable.
+
+Update 2026-03-10 from task-23 architecture review:
+- Confirmed missing pieces for B231 are concrete and implementation-oriented, not speculative:
+  1. async webhook processing so HTTP 200 returns immediately and agent work continues in `Lwt.async`
+  2. delivery deduplication via `X-GitHub-Delivery`
+  3. GitHub-facing lifecycle: acknowledge / in-progress / final reply
+  4. bot self-loop protection (author filter and/or reply marker)
+  5. GitHub API support for reactions and comment editing
+  6. channel notifier registration for deferred/autonomous responses
+- Recommended implementation split:
+  - Phase 1: async processing + dedup + self-loop protection
+  - Phase 2: lifecycle comments/reactions + notifier registration
+  - Phase 3: progress streaming and expanded event support (`pull_request_review`, `issues`)

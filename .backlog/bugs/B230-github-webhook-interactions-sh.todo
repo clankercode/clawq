@@ -9,3 +9,8 @@ tags: []
 title: GitHub webhook interactions should map each issue/PR/comment thread to a stable clawq session
 ---
 When GitHub webhook support is added, issue comments, PR comments, and review-thread comments that invoke `/clawq` should map into stable clawq session keys rather than ephemeral one-off executions. The system needs a clear session model so follow-up comments/events continue the same thread context and replies go back to the correct GitHub thread surface. Acceptance criteria: (1) define stable session-key mapping for GitHub issues/PRs/comment threads; (2) repeated `/clawq` interactions on the same GitHub thread resume the same session context; (3) reply routing distinguishes issue thread, PR timeline, and review-thread/comment contexts correctly; (4) the mapping is documented and testable.
+
+Update 2026-03-10:
+- Architecture review in task-23 found that B230's core acceptance criteria are largely already implemented: stable session keys exist (`github:{owner}/{repo}:pr:{n}` / `github:{owner}/{repo}:issue:{n}`), follow-up `/clawq` interactions reuse the same session context, and reply routing already distinguishes PR/issue comments vs review comments.
+- Remaining work is primarily integration verification and adjacent GitHub lifecycle work rather than session-key design itself.
+- Candidate disposition: either close B230 after adding/confirming integration coverage, or narrow it to an explicit integration-test/documentation task.

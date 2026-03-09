@@ -18,6 +18,36 @@ let collect_tool_result_ids msgs =
       | _ -> acc)
     [] msgs
 
+(* Strip function_call entries from provider_response_items_json whose call_id
+   is not in [kept_ids].  This keeps the raw provider payload consistent with
+   the tool_calls list after integrity stripping. *)
+let strip_provider_items_for_removed_calls provider_json_opt ~kept_ids =
+  match provider_json_opt with
+  | None -> None
+  | Some json_str -> (
+      try
+        let arr = Yojson.Safe.from_string json_str in
+        let items =
+          match arr with `List items -> items | _ -> [ arr ]
+        in
+        let filtered =
+          List.filter
+            (fun item ->
+              match item with
+              | `Assoc fields -> (
+                  match List.assoc_opt "type" fields with
+                  | Some (`String "function_call") -> (
+                      match List.assoc_opt "call_id" fields with
+                      | Some (`String id) -> List.mem id kept_ids
+                      | _ -> true)
+                  | _ -> true)
+              | _ -> true)
+            items
+        in
+        if List.length filtered = List.length items then Some json_str
+        else Some (Yojson.Safe.to_string (`List filtered))
+      with _ -> provider_json_opt)
+
 let ensure_tool_group_integrity msgs =
   let call_ids = collect_tool_call_ids msgs in
   let result_ids = collect_tool_result_ids msgs in
@@ -35,7 +65,14 @@ let ensure_tool_group_integrity msgs =
             (fun (tc : Provider.tool_call) -> List.mem tc.id result_ids)
             m.tool_calls
         in
-        { m with tool_calls = kept }
+        let kept_ids = List.map (fun (tc : Provider.tool_call) -> tc.id) kept in
+        {
+          m with
+          tool_calls = kept;
+          provider_response_items_json =
+            strip_provider_items_for_removed_calls
+              m.provider_response_items_json ~kept_ids;
+        }
       else m)
 
 let adjust_split_for_tool_groups to_compact to_keep =
