@@ -264,3 +264,4 @@ bugs:
     - file: B263-when-compact-is-called-we-shou.todo
     - file: B264-keepalive-sessions-should-auto.todo
     - file: B265-the-compact-history-descriptio.todo
+    - file: B266-when-we-restart-it-seems-to-ha.todo

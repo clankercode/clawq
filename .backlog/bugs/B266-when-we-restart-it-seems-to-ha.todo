@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B266
+priority: high
+status: pending
+tags: []
+title: When we restart, it seems to happen twice (SIGUSR1). See ~/.clawq/daemon.log
+---
+
+When we restart, it seems to happen twice (SIGUSR1). See ~/.clawq/daemon.log
