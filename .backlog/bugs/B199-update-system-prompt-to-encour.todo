@@ -1,0 +1,15 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B199
+priority: high
+status: pending
+tags: []
+title: Update system prompt to encourage agent to talk to the user through send_message so communication can be asynchronous and the agent can work on long running tasks without needing to stop.
+---
+
+Update system prompt to encourage agent to talk to the user through send_message so communication can be asynchronous and the agent can work on long running tasks without needing to stop.
+
+Also analyze the system prompt and default workspace files for reasons that the agent might not be acting autonomously (too hesitant, asking for direction too much, etc). Also analyze the files in ~/.clawq/workspace/. Our goal is to make the agent more autonomous, rely less on the user, be more eager to help and do stuff in the bg, etc. We should apply updates to both the default workspace files (templates) as well as the ~/.clawq/workspace versions (especially where the clawq versions are still the same as default)
+
