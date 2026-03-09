@@ -150,3 +150,4 @@ bugs:
     - file: B149-look-for-any-slow-tests-partic.todo
     - file: B150-implement-offline-fallback-for.todo
     - file: B151-add-opam-dependency-build-arti.todo
+    - file: B152-build-date-string-should-inclu.todo
