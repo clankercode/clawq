@@ -179,6 +179,87 @@ let test_dispatch_resumed_message_routes_telegram () =
     (Some ("tg-token", "42", "hello"))
     !called
 
+let test_dispatch_resumed_message_routes_discord () =
+  let called = ref None in
+  let senders =
+    {
+      Daemon.default_resume_senders with
+      send_discord =
+        (fun ~bot_token ~channel_id ~text ->
+          called := Some (bot_token, channel_id, text);
+          Lwt.return_unit);
+    }
+  in
+  let config =
+    {
+      Runtime_config.default with
+      channels =
+        {
+          Runtime_config.default.channels with
+          discord =
+            Some
+              {
+                bot_token = "discord-token";
+                allow_guilds = [];
+                allow_users = [];
+                intents = 0;
+              };
+        };
+    }
+  in
+  let result =
+    Lwt_main.run
+      (Daemon.dispatch_resumed_message ~senders ~config ~channel:"discord"
+         ~channel_id:"chan-42" ~text:"hello" ())
+  in
+  Alcotest.(check (result unit string)) "dispatch ok" (Ok ()) result;
+  Alcotest.(check (option (triple string string string)))
+    "discord sender called"
+    (Some ("discord-token", "chan-42", "hello"))
+    !called
+
+let test_dispatch_resumed_message_routes_slack () =
+  let called = ref None in
+  let senders =
+    {
+      Daemon.default_resume_senders with
+      send_slack =
+        (fun ~bot_token ~channel_id ~text ->
+          called := Some (bot_token, channel_id, text);
+          Lwt.return_unit);
+    }
+  in
+  let config =
+    {
+      Runtime_config.default with
+      channels =
+        {
+          Runtime_config.default.channels with
+          slack =
+            Some
+              {
+                bot_token = "slack-token";
+                signing_secret = "secret";
+                events_path = "/slack/events";
+                allow_channels = [];
+                allow_users = [];
+                socket_mode = false;
+                app_token = "";
+              };
+        };
+    }
+  in
+  let result =
+    Lwt_main.run
+      (Daemon.dispatch_resumed_message ~senders ~config ~channel:"slack"
+         ~channel_id:"C42" ~text:"hello" ())
+  in
+  Alcotest.(check (result unit string)) "dispatch ok" (Ok ()) result;
+  Alcotest.(check (option (triple string string string)))
+    "slack sender called"
+    (Some ("slack-token", "C42", "hello"))
+    !called
+
 let test_resume_pending_agent_sessions_marks_missing_channel_info () =
   let db = Memory.init ~db_path:":memory:" () in
   let config = Runtime_config.default in
@@ -832,6 +913,10 @@ let suite =
   [
     Alcotest.test_case "dispatch resumed message routes telegram" `Quick
       test_dispatch_resumed_message_routes_telegram;
+    Alcotest.test_case "dispatch resumed message routes discord" `Quick
+      test_dispatch_resumed_message_routes_discord;
+    Alcotest.test_case "dispatch resumed message routes slack" `Quick
+      test_dispatch_resumed_message_routes_slack;
     Alcotest.test_case
       "resume pending sessions marks missing channel info as sent" `Quick
       test_resume_pending_agent_sessions_marks_missing_channel_info;

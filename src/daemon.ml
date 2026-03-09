@@ -938,6 +938,11 @@ let run ~(config : Runtime_config.t) =
           run_update ~prepare_restart ~send_progress ~interrupt_check ()
         in
         Lwt.return_some response);
+  Logs.info (fun m ->
+      m
+        "Boot: resuming pending routed sessions before channel listeners \
+         start; outbound resume delivery uses direct Telegram/Discord/Slack \
+         send APIs and does not wait for polling or gateway readiness");
   let* () = resume_pending_agent_sessions ~session_manager ~config () in
   let* () =
     Lwt.catch
