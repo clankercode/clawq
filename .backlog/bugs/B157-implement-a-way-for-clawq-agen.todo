@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B157
+priority: high
+status: pending
+tags: []
+title: 'Implement: a way for Clawq agent to trigger compaction at a moment of its choosing (probably via a tool). We could add a new ''meta'' tool for this and other things (eg we could fold update_clawq into it). Maybe there are other good meta things to add at the same time (use subagents to brainstorm some)'
+---
+
+Implement: a way for Clawq agent to trigger compaction at a moment of its choosing (probably via a tool). We could add a new 'meta' tool for this and other things (eg we could fold update_clawq into it). Maybe there are other good meta things to add at the same time (use subagents to brainstorm some)
