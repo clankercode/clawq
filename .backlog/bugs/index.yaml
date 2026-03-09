@@ -134,3 +134,4 @@ bugs:
     - file: B133-avoid-redundant-manual-workspa.todo
     - file: B134-autonomous-continuation-inject.todo
     - file: B135-keep-a-trailing-progress-messa.todo
+    - file: B136-autonomous-loop-fails-to-remai.todo

@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B136
+priority: high
+status: pending
+tags: []
+title: Autonomous loop fails to remain active while high-priority bugs are in progress
+---
+Observed in Telegram DM: the assistant was idle when the user sent an aside about new bugs, despite explicitly being told to continue autonomously on continuation-critical work and despite active in-progress backlog items (B114/B132). Need to determine whether autonomous continuation is failing to re-arm after side conversations, whether STAY_IDLE is being inferred too broadly, or whether workspace/prompt guidance is insufficiently explicit about resuming backlog work after interruptions. Fix should make ongoing high-priority work persist unless explicitly paused.
