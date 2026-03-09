@@ -1,0 +1,11 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 1
+id: B173
+priority: medium
+status: pending
+tags: []
+title: Telegram setMyCommands update fails on startup
+---
+Observed repeatedly in daemon logs after startup/restart: `Telegram: setMyCommands failed (HTTP 400) for token=...`. Need to inspect the startup command-registration path, determine the exact Telegram API request/shape causing HTTP 400, and either fix it or degrade gracefully with better diagnostics. Acceptance criteria: (1) startup command registration succeeds, or if intentionally skipped it does so cleanly; (2) logs show enough detail to diagnose future command-registration failures without exposing secrets; (3) targeted verification covers the fixed request shape where practical.
