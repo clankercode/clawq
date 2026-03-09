@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B234
+priority: medium
+status: pending
+tags: []
+title: Provide a first-class recovery workflow for replacing a failed or stuck delegated/background task from its evidence
+---
+We have now had to manually replace a stuck delegated/background task by inspecting its prompt, worktree, log, rollout transcript, and partial patch before spawning a successor. This recovery pattern should be first-class: gather evidence from the failed task, summarize lineage, and launch a replacement worker with a structured continuation package. Acceptance criteria: (1) define a recovery workflow for failed/stuck background tasks that packages prompt/log/worktree/transcript evidence; (2) support clean replacement of a failed worker without losing context; (3) preserve lineage between original and replacement tasks; (4) reduce manual orchestration required to continue work after delegated-task failure.
