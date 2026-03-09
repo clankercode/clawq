@@ -82,7 +82,7 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 | `tunnel stop` | Stop the tunnel |
 | `tunnel status` | Show tunnel status |
 | `tunnel apply` | Trigger live tunnel reconfiguration in running daemon (reads current config and reconciles tunnel state) |
-| `tunnel restart` | Alias for `tunnel apply` — stops current tunnel and starts with current config |
+| `tunnel restart` | Force stop and restart tunnel with current config (unconditional, unlike apply which is idempotent) |
 | `tunnel daemon-status` | Show tunnel manager state from running daemon as JSON (state, provider, url, pid) |
 | `update [--mode auto|git|binary]` | Ask the live daemon to update itself and gracefully restart; currently warns if no live daemon is available because the offline fallback is still stubbed |
 | `version` | Print version and build info |

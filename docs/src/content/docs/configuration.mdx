@@ -292,6 +292,38 @@ The gateway root `/` serves the embedded web UI. Supporting endpoints include `/
 | `enabled` | `false` | Enable the MCP server (JSON-RPC via stdio) |
 | `exposed_tools` | all | Array of tool names to expose (omit for all) |
 
+### tunnel
+
+```json
+{
+  "tunnel": {
+    "provider": "cloudflare",
+    "enabled": true,
+    "url": "",
+    "managed": false,
+    "tunnel_name": "",
+    "config_dir": ""
+  }
+}
+```
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `provider` | `"cloudflare"` | Tunnel provider: `cloudflare`, `tailscale`, `ngrok`, or `custom` |
+| `enabled` | `false` | Enable the tunnel |
+| `url` | `""` | Static URL override (skips dynamic URL extraction) |
+| `managed` | `false` | Use a named/managed Cloudflare tunnel (requires `tunnel_name`) |
+| `tunnel_name` | `""` | Name of the Cloudflare named tunnel (used when `managed` is true) |
+| `config_dir` | `""` | Path to cloudflared config directory (contains `config.yml`) |
+
+**Quick tunnel (ad-hoc):** Set `enabled: true` with default settings. clawq spawns `cloudflared tunnel --url http://localhost:PORT` and extracts the assigned trycloudflare.com URL automatically.
+
+**Named/managed tunnel:** Set `managed: true` and `tunnel_name` to a pre-existing Cloudflare named tunnel. You must first create the tunnel and DNS routes externally via `cloudflared tunnel create` and `cloudflared tunnel route dns`. Set `url` to the public hostname so clawq knows the URL. Optionally set `config_dir` if `config.yml` is not in the default location.
+
+**Other providers:** Set `provider` to `tailscale`, `ngrok`, or `custom`. For custom tunnels, set `CLAWQ_TUNNEL_COMMAND` and optionally `CLAWQ_TUNNEL_URL_REGEX` environment variables.
+
+**Live reconfiguration:** The daemon watches for tunnel config changes on SIGHUP and via file-change polling (every 10 seconds). When tunnel settings change, the daemon automatically stops the old tunnel and starts a new one — no daemon restart required. Use `clawq tunnel apply` to trigger reconciliation explicitly, or `clawq tunnel restart` to force a stop-and-restart even without config changes.
+
 ## Full Example
 
 ```json
@@ -332,6 +364,10 @@ The gateway root `/` serves the embedded web UI. Supporting endpoints include `/
   "resilience": {
     "timeout_s": 120.0,
     "max_retries": 2
+  },
+  "tunnel": {
+    "provider": "cloudflare",
+    "enabled": false
   }
 }
 ```

@@ -158,7 +158,7 @@ clawq skills           Manage agent skills (shell-script tool extensions)
 clawq status           Show runtime configuration and daemon status
 clawq delegate         Queue a high-level background Codex/Claude coding handoff
 clawq transcribe       Transcribe an audio file using the configured STT provider
-clawq tunnel           Manage a public tunnel to the local gateway
+clawq tunnel           Manage a public tunnel to the local gateway (start/stop/status/apply/restart)
 clawq workspace        Print the current workspace directory
 ```
 

@@ -475,6 +475,9 @@ let tunnel_cmd =
       `I ("start", "Start the tunnel.");
       `I ("stop", "Stop the tunnel.");
       `I ("status", "Show tunnel status (default).");
+      `I ("apply", "Trigger live tunnel reconfiguration in running daemon.");
+      `I ("restart", "Stop and restart tunnel with current config.");
+      `I ("daemon-status", "Show tunnel manager state from running daemon.");
     ]
 
 let migrate_cmd = with_args "migrate" "Run database migrations." []

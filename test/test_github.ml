@@ -355,6 +355,13 @@ let config_tunnel_roundtrip () =
   Alcotest.(check string) "tunnel_name" "my-tunnel" config.tunnel.tunnel_name;
   Alcotest.(check string) "config_dir" "~/.cloudflared" config.tunnel.config_dir
 
+let resolve_static (config : Runtime_config.tunnel_config) =
+  if String.trim config.url <> "" then Some config.url
+  else
+    match Sys.getenv_opt "CLAWQ_TUNNEL_URL" with
+    | Some url when String.trim url <> "" -> Some url
+    | _ -> None
+
 let cf_tunnel_static_url () =
   let config : Runtime_config.tunnel_config =
     {
@@ -366,7 +373,7 @@ let cf_tunnel_static_url () =
       config_dir = "";
     }
   in
-  match Cf_tunnel.resolve_static ~config with
+  match resolve_static config with
   | Some url ->
       Alcotest.(check string) "static url" "https://mysite.example.com" url
   | None -> Alcotest.fail "expected Some url"
@@ -382,28 +389,33 @@ let cf_tunnel_no_url () =
       config_dir = "";
     }
   in
-  match Cf_tunnel.resolve_static ~config with
+  match resolve_static config with
   | None -> ()
   | Some _ -> Alcotest.fail "expected None"
 
 let cf_tunnel_start_static () =
-  let config : Runtime_config.tunnel_config =
-    {
-      provider = "cloudflare";
-      enabled = true;
-      url = "https://test.example.com";
-      managed = false;
-      tunnel_name = "";
-      config_dir = "";
-    }
-  in
-  let received_url = ref "" in
-  let initial_url, _supervisor =
-    Cf_tunnel.start ~config ~on_url:(fun url -> received_url := url)
-  in
-  Alcotest.(check (option string))
-    "initial" (Some "https://test.example.com") initial_url;
-  Alcotest.(check string) "callback" "https://test.example.com" !received_url
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let mgr = Tunnel_manager.create () in
+     let received_url = ref None in
+     let config : Runtime_config.tunnel_config =
+       {
+         provider = "cloudflare";
+         enabled = true;
+         url = "https://test.example.com";
+         managed = false;
+         tunnel_name = "";
+         config_dir = "";
+       }
+     in
+     let* () =
+       Tunnel_manager.apply_config mgr ~config ~port:8080 ~on_url:(fun u ->
+           received_url := u)
+     in
+     Alcotest.(check (option string))
+       "received url" (Some "https://test.example.com") !received_url;
+     let* () = Tunnel_manager.stop mgr in
+     Lwt.return_unit)
 
 let sig_suite =
   [

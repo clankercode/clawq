@@ -123,7 +123,14 @@ let start_cf_managed ~(config : Runtime_config.tunnel_config)
                   m "cloudflared connection %d/4 registered" !conn_count);
               if !conn_count >= 4 then begin
                 url_notified := true;
-                match Cf_tunnel.resolve_static ~config with
+                let static =
+                  if String.trim config.url <> "" then Some config.url
+                  else
+                    match Sys.getenv_opt "CLAWQ_TUNNEL_URL" with
+                    | Some url when String.trim url <> "" -> Some url
+                    | _ -> None
+                in
+                match static with
                 | Some url -> on_url (Some url)
                 | None ->
                     Logs.warn (fun m ->

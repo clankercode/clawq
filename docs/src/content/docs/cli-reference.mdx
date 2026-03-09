@@ -178,8 +178,20 @@ Config is also auto-reloaded every 10 seconds when the file changes on disk.
 ### Tunnel management
 
 ```bash
-clawq tunnel start     # start Cloudflare tunnel
+# Standalone tunnel control (when daemon is not running)
+clawq tunnel start          # Start tunnel with configured provider
+clawq tunnel stop           # Stop the running tunnel
+clawq tunnel status         # Show tunnel status (default)
+
+# Live tunnel control (when daemon is running)
+clawq tunnel apply          # Reconcile tunnel state with current config
+clawq tunnel restart        # Force stop + restart with current config
+clawq tunnel daemon-status  # Show tunnel manager state as JSON
 ```
+
+The daemon automatically reconciles tunnel state when config changes are detected (via SIGHUP or file polling). Use `tunnel apply` to trigger reconciliation explicitly without editing config. Use `tunnel restart` to force a restart even when config hasn't changed.
+
+Supported providers: `cloudflare` (default), `tailscale`, `ngrok`, `custom`. Set `tunnel.provider` in config.
 
 ## Make Targets
 

@@ -73,7 +73,14 @@ ideas:
       status: done
       tags: []
       title: list
-    - file: I010-tunnel-runtime-control-phase-l.todo
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 10
+      file: I010-tunnel-runtime-control-phase-l.todo
       id: I010
+      priority: medium
+      status: done
+      tags: []
+      title: 'Tunnel runtime control phase: live Cloudflare tunnel management and provisioning'
     - file: I011-a-current-tasks-tool-that-supp.todo
       id: I011

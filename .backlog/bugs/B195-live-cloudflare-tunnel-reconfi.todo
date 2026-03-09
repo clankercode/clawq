@@ -1,14 +1,14 @@
 ---
 claimed_at: "2026-03-09T15:31:04Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-10T00:00:00Z"
 complexity: high
 depends_on: []
 estimate_hours: 1
 id: B195
 priority: high
 started_at: "2026-03-09T15:31:04Z"
-status: in_progress
+status: done
 tags: []
 title: Live Cloudflare tunnel reconfiguration and control in running daemon
 ---

@@ -85,6 +85,7 @@ The extracted OCaml is tracked in git so the project builds without Coq installe
 | `resilience.ml` | Reliability policies: timeout, retry (exponential backoff), fallback |
 | `runtime_native.ml` | Native runtime adapter: wraps daemon/service for start/stop/status/health |
 | `runtime_docker.ml` | Docker runtime adapter: manages clawq in containers via docker CLI |
+| `tunnel_manager.ml` | Unified tunnel lifecycle manager: apply/stop/restart, live reconfiguration, daemon hooks |
 | `tunnel_cloudflare.ml` | Cloudflare tunnel: manages cloudflared process, extracts assigned URL |
 | `rate_limiter.ml` | Token bucket rate limiter (IP, session, chat) |
 | `landlock.ml` | Landlock OS sandboxing (C FFI) |
