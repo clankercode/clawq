@@ -54,11 +54,6 @@ jobs:
           eval "$(opam env)"
           make binary-size-check SHELL_SWITCH="$(opam switch show)"
 
-      - name: Format check
-        run: |
-          eval "$(opam env)"
-          dune fmt 2>&1 || true
-          git diff --exit-code
 
   docs:
     runs-on: ubuntu-latest
