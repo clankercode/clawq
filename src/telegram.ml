@@ -757,9 +757,17 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
       in
       if user_text = "" then Lwt.return_unit
       else if Update_tool.is_update_command user_text then
-        let send_progress text =
-          send_silent_chunked send_chunked ~bot_token ~chat_id:update.chat_id
-            ~text
+        let send_first text =
+          send_message_with_id ~disable_notification:true ~bot_token
+            ~chat_id:update.chat_id ~text ()
+        in
+        let edit msg_id text =
+          edit_message ~bot_token ~chat_id:update.chat_id ~message_id:msg_id
+            ~text ()
+        in
+        let send_progress, _get_final =
+          Update_tool.make_progress_sender ~send_first ~edit
+            ~mode:Update_tool.Auto
         in
         let run_update_command =
           match run_update_command with
@@ -774,7 +782,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                   ~is_draining:(fun () -> Session.is_draining session_mgr)
                   ~send_progress ()
         in
-        let* response =
+        let* _response =
           run_update_command
             ~prepare_restart:(fun () ->
               Restart_notify.write ~channel:"telegram"
@@ -782,8 +790,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
               acknowledge_update ~bot_token ~update_id:update.update_id)
             ~send_progress ()
         in
-        send_silent_chunked send_chunked ~bot_token ~chat_id:update.chat_id
-          ~text:response
+        Lwt.return_unit
       else
         match Slash_commands.handle user_text with
         | Reply text -> send_message ~bot_token ~chat_id:update.chat_id ~text ()

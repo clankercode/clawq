@@ -224,19 +224,30 @@ let handle_event ~(config : Runtime_config.slack_config)
             let notify text =
               send_message_fn ~bot_token:config.bot_token ~channel_id ~text
             in
-            let run_update_command =
+            let send_first text =
+              send_message_with_id ~bot_token:config.bot_token ~channel_id ~text
+            in
+            let edit_msg ts text =
+              edit_message ~bot_token:config.bot_token ~channel_id ~ts ~text
+            in
+            let progress_send, _get_final =
+              Update_tool.make_progress_sender ~send_first ~edit:edit_msg
+                ~mode:Update_tool.Auto
+            in
+            let run_update_command, send_progress =
               match run_update_command with
-              | Some run_update_command -> run_update_command
+              | Some run_update_command -> (run_update_command, notify)
               | None ->
-                  fun ?(mode = Update_tool.Auto)
-                    ?prepare_restart:_
-                    ~send_progress
-                    ()
-                  ->
-                    Update_tool.run_update ~mode
-                      ~is_draining:(fun () ->
-                        Session.is_draining session_manager)
-                      ~send_progress ()
+                  ( (fun ?(mode = Update_tool.Auto)
+                      ?prepare_restart:_
+                      ~send_progress
+                      ()
+                    ->
+                      Update_tool.run_update ~mode
+                        ~is_draining:(fun () ->
+                          Session.is_draining session_manager)
+                        ~send_progress ()),
+                    progress_send )
             in
             Session.register_channel_notifier session_manager ~key notify;
             Lwt.async (fun () ->
@@ -244,14 +255,14 @@ let handle_event ~(config : Runtime_config.slack_config)
                   (fun () ->
                     Lwt.catch
                       (fun () ->
-                        let* response =
+                        let* _response =
                           run_update_command
                             ~prepare_restart:(fun () ->
                               Restart_notify.write ~channel:"slack" ~channel_id;
                               Lwt.return (Ok ()))
-                            ~send_progress:notify ()
+                            ~send_progress ()
                         in
-                        notify response)
+                        Lwt.return_unit)
                       (fun exn ->
                         notify
                           (Printf.sprintf

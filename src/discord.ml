@@ -465,6 +465,49 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
             ~text:
               (set_thinking_level ~session_mgr ~channel_id:msg.channel_id
                  ~author_id:msg.author_id level)
+      | NotACommand when Update_tool.is_update_command msg.content -> (
+          let send_first text =
+            send_message_with_id ~suppress_notifications:true
+              ~bot_token:discord_config.bot_token ~channel_id:msg.channel_id
+              ~text ()
+          in
+          let edit_msg msg_id text =
+            edit_message ~bot_token:discord_config.bot_token
+              ~channel_id:msg.channel_id ~message_id:msg_id ~text
+          in
+          let send_progress, _get_final =
+            Update_tool.make_progress_sender ~send_first ~edit:edit_msg
+              ~mode:Update_tool.Auto
+          in
+          let notify text =
+            send_message_fn ~bot_token:discord_config.bot_token
+              ~channel_id:msg.channel_id ~text
+          in
+          let* result =
+            Session.with_registered_notifier session_mgr ~key ~notify (fun () ->
+                Lwt.catch
+                  (fun () ->
+                    let* _response =
+                      Update_tool.run_update
+                        ~prepare_restart:(fun () ->
+                          Restart_notify.write ~channel:"discord"
+                            ~channel_id:msg.channel_id;
+                          Lwt.return (Ok ()))
+                        ~is_draining:(fun () -> Session.is_draining session_mgr)
+                        ~send_progress ()
+                    in
+                    Lwt.return (Ok ()))
+                  (fun exn -> Lwt.return (Error (Printexc.to_string exn))))
+          in
+          match result with
+          | Ok () -> Lwt.return_unit
+          | Error err ->
+              send_message_fn ~bot_token:discord_config.bot_token
+                ~channel_id:msg.channel_id
+                ~text:
+                  (Printf.sprintf
+                     "Sorry, an error occurred processing your message: %s" err)
+          )
       | NotACommand -> (
           let discord_channel_type =
             match msg.guild_id with Some _ -> "group" | None -> "dm"

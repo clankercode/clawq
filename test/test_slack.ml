@@ -160,9 +160,7 @@ let test_handle_event_update_returns_before_restart_finishes () =
   Lwt_main.run (Lwt_unix.sleep 0.01);
   Alcotest.(check bool) "background update started" true !started;
   Alcotest.(check (list string))
-    "progress and final message sent"
-    [ "Starting update..."; "Build complete. Sending restart signal..." ]
-    (List.rev !sent)
+    "progress and final message sent" [ "Starting update..." ] (List.rev !sent)
 
 let suite =
   [

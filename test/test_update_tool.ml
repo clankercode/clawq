@@ -467,6 +467,120 @@ let test_stream_process_interrupt_kills_descendants () =
     "child process terminated" false (process_exists child_pid);
   Sys.remove pid_file
 
+let test_progress_sender_renders_checklist () =
+  let messages = ref [] in
+  let edits = ref [] in
+  let send_first text =
+    messages := text :: !messages;
+    Lwt.return "msg-1"
+  in
+  let edit msg_id text =
+    edits := (msg_id, text) :: !edits;
+    Lwt.return_unit
+  in
+  let send_progress, get_final =
+    Update_tool.make_progress_sender ~send_first ~edit ~mode:Update_tool.Auto
+  in
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () = send_progress "Starting update..." in
+     let* () = send_progress "Mode: git" in
+     let* () = send_progress "Running: git pull" in
+     let* () = send_progress "Already up to date." in
+     let* () = send_progress "Running: make build" in
+     let* () = send_progress "Build complete. Sending restart signal..." in
+     Lwt.return_unit);
+  (* Only one initial send *)
+  Alcotest.(check int) "one send" 1 (List.length !messages);
+  (* Multiple edits *)
+  Alcotest.(check bool) "has edits" true (List.length !edits > 0);
+  (* All edits to same msg id *)
+  List.iter (fun (id, _) -> Alcotest.(check string) "edit id" "msg-1" id) !edits;
+  (* Final text has checklist structure *)
+  let final = get_final () in
+  Alcotest.(check bool)
+    "contains git pull" true
+    (Update_tool.contains_sub final "git pull");
+  Alcotest.(check bool)
+    "contains make build" true
+    (Update_tool.contains_sub final "make build");
+  Alcotest.(check bool)
+    "contains restart" true
+    (Update_tool.contains_sub final "restart")
+
+let test_progress_sender_handles_build_failure () =
+  let messages = ref [] in
+  let edits = ref [] in
+  let send_first text =
+    messages := text :: !messages;
+    Lwt.return "msg-1"
+  in
+  let edit msg_id text =
+    edits := (msg_id, text) :: !edits;
+    Lwt.return_unit
+  in
+  let send_progress, get_final =
+    Update_tool.make_progress_sender ~send_first ~edit ~mode:Update_tool.Git
+  in
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () = send_progress "Starting update..." in
+     let* () = send_progress "Mode: git" in
+     let* () = send_progress "Running: git pull" in
+     let* () = send_progress "Running: make build" in
+     let* () =
+       send_progress "Build failed (exit 2). Restart aborted. Detail: error"
+     in
+     Lwt.return_unit);
+  Alcotest.(check int) "one send" 1 (List.length !messages);
+  let final = get_final () in
+  Alcotest.(check bool)
+    "contains failure marker" true
+    (Update_tool.contains_sub final "Build failed")
+
+let test_progress_sender_binary_mode () =
+  let messages = ref [] in
+  let edits = ref [] in
+  let send_first text =
+    messages := text :: !messages;
+    Lwt.return "msg-1"
+  in
+  let edit msg_id text =
+    edits := (msg_id, text) :: !edits;
+    Lwt.return_unit
+  in
+  let send_progress, get_final =
+    Update_tool.make_progress_sender ~send_first ~edit ~mode:Update_tool.Binary
+  in
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () = send_progress "Starting update..." in
+     let* () = send_progress "Mode: binary" in
+     let* () = send_progress "Running: curl -fL -o /tmp/clawq.download url" in
+     let* () = send_progress "Running: chmod 755 /tmp/clawq.download" in
+     let* () = send_progress "Running: mv /tmp/clawq.download /tmp/clawq" in
+     let* () =
+       send_progress "Binary update complete. Sending restart signal..."
+     in
+     Lwt.return_unit);
+  Alcotest.(check int) "one send" 1 (List.length !messages);
+  let final = get_final () in
+  Alcotest.(check bool)
+    "contains download" true
+    (Update_tool.contains_sub final "download binary");
+  Alcotest.(check bool)
+    "contains permissions" true
+    (Update_tool.contains_sub final "set permissions");
+  Alcotest.(check bool)
+    "contains replace" true
+    (Update_tool.contains_sub final "replace executable");
+  Alcotest.(check bool)
+    "contains restart" true
+    (Update_tool.contains_sub final "restart");
+  Alcotest.(check bool)
+    "mode is binary" true
+    (Update_tool.contains_sub final "binary")
+
 let suite =
   [
     Alcotest.test_case "find repo root returns none when missing" `Quick
@@ -495,4 +609,10 @@ let suite =
       test_run_update_interrupts_running_command;
     Alcotest.test_case "stream_process interrupt kills descendants" `Quick
       test_stream_process_interrupt_kills_descendants;
+    Alcotest.test_case "progress sender renders checklist" `Quick
+      test_progress_sender_renders_checklist;
+    Alcotest.test_case "progress sender handles build failure" `Quick
+      test_progress_sender_handles_build_failure;
+    Alcotest.test_case "progress sender binary mode" `Quick
+      test_progress_sender_binary_mode;
   ]

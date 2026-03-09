@@ -344,6 +344,189 @@ let run_update ?(find_repo_root = find_repo_root)
             | exn -> Lwt.fail exn))
       finish_update
 
+(** A step in the update progress checklist. *)
+type step_state = Pending | Running | Done | Failed of string
+
+type step = { label : string; mutable state : step_state }
+
+(** Render the progress checklist as a tree-like ASCII display. *)
+let render_progress ~mode steps output_tail =
+  let buf = Buffer.create 256 in
+  let mode_str =
+    match mode with Auto -> "auto" | Git -> "git" | Binary -> "binary"
+  in
+  Buffer.add_string buf
+    (Printf.sprintf "Updating clawq (mode: %s)...\n" mode_str);
+  let n = List.length steps in
+  List.iteri
+    (fun i step ->
+      let is_last = i = n - 1 in
+      let connector = if is_last then "└─ " else "├─ " in
+      let icon =
+        match step.state with
+        | Done -> "✅"
+        | Running -> "⏳"
+        | Pending -> "⬜"
+        | Failed _ -> "❌"
+      in
+      Buffer.add_string buf
+        (Printf.sprintf "%s%s %s\n" connector icon step.label);
+      match step.state with
+      | Failed detail ->
+          let indent = if is_last then "   " else "│  " in
+          Buffer.add_string buf (Printf.sprintf "%s └─ %s\n" indent detail)
+      | Running -> (
+          match output_tail with
+          | Some tail when tail <> "" ->
+              let indent = if is_last then "   " else "│  " in
+              let lines = String.split_on_char '\n' tail in
+              let lines =
+                let len = List.length lines in
+                if len > 4 then
+                  let rec drop k = function
+                    | [] -> []
+                    | _ :: rest when k > 0 -> drop (k - 1) rest
+                    | l -> l
+                  in
+                  drop (len - 4) lines
+                else lines
+              in
+              List.iter
+                (fun line ->
+                  let truncated =
+                    if String.length line > 72 then String.sub line 0 72 ^ "..."
+                    else line
+                  in
+                  Buffer.add_string buf
+                    (Printf.sprintf "%s   %s\n" indent truncated))
+                lines
+          | _ -> ())
+      | _ -> ())
+    steps;
+  let result = Buffer.contents buf in
+  let len = String.length result in
+  if len > 0 && result.[len - 1] = '\n' then String.sub result 0 (len - 1)
+  else result
+
+(** Create a [send_progress] callback that maintains a single editable message
+    with an ASCII checklist. Returns [(send_progress, get_final_text)].
+
+    [send_first text] sends an initial message and returns its id.
+    [edit msg_id text] edits the message in place. *)
+let make_progress_sender ~send_first ~edit ~mode =
+  let msg_id = ref None in
+  let steps = ref [] in
+  let output_tail = ref None in
+  let last_edit = ref 0.0 in
+  let flush () =
+    let text = render_progress ~mode (List.rev !steps) !output_tail in
+    let open Lwt.Syntax in
+    match !msg_id with
+    | None ->
+        let* id = send_first text in
+        msg_id := Some id;
+        last_edit := Unix.gettimeofday ();
+        Lwt.return_unit
+    | Some id ->
+        let now = Unix.gettimeofday () in
+        let elapsed = now -. !last_edit in
+        let* () =
+          if elapsed < 0.5 then Lwt_unix.sleep (0.5 -. elapsed)
+          else Lwt.return_unit
+        in
+        let* () = edit id text in
+        last_edit := Unix.gettimeofday ();
+        Lwt.return_unit
+  in
+  let add_step label state =
+    steps := { label; state } :: !steps;
+    flush ()
+  in
+  let update_current state =
+    match !steps with
+    | step :: _ ->
+        step.state <- state;
+        flush ()
+    | [] -> Lwt.return_unit
+  in
+  let append_output text =
+    output_tail := Some text;
+    let now = Unix.gettimeofday () in
+    if now -. !last_edit >= 1.0 then flush () else Lwt.return_unit
+  in
+  let send_progress text =
+    let open Lwt.Syntax in
+    let trimmed = String.trim text in
+    if trimmed = "" then Lwt.return_unit
+    else
+      let starts_with prefix s =
+        String.length s >= String.length prefix
+        && String.sub s 0 (String.length prefix) = prefix
+      in
+      if starts_with "Starting update" trimmed then
+        let* () = add_step "Starting" Running in
+        Lwt.return_unit
+      else if starts_with "Mode:" trimmed then
+        let* () = update_current Done in
+        Lwt.return_unit
+      else if starts_with "Running: git pull" trimmed then
+        let* () = add_step "git pull" Running in
+        Lwt.return_unit
+      else if starts_with "git pull failed" trimmed then
+        let* () = update_current (Failed trimmed) in
+        Lwt.return_unit
+      else if starts_with "Running: make build" trimmed then
+        let* () = update_current Done in
+        let* () = add_step "make build" Running in
+        Lwt.return_unit
+      else if starts_with "Running: curl" trimmed then
+        let* () = add_step "download binary" Running in
+        Lwt.return_unit
+      else if starts_with "Running: chmod" trimmed then
+        let* () = update_current Done in
+        let* () = add_step "set permissions" Running in
+        Lwt.return_unit
+      else if starts_with "Running: mv" trimmed then
+        let* () = update_current Done in
+        let* () = add_step "replace executable" Running in
+        Lwt.return_unit
+      else if
+        starts_with "Build complete" trimmed
+        || starts_with "Binary update complete" trimmed
+      then
+        let* () = update_current Done in
+        let* () = add_step "restart" Running in
+        Lwt.return_unit
+      else if starts_with "Build failed" trimmed then
+        let* () = update_current (Failed trimmed) in
+        Lwt.return_unit
+      else if
+        starts_with "Binary download failed" trimmed
+        || starts_with "Downloaded binary setup failed" trimmed
+        || starts_with "Replacing executable failed" trimmed
+      then
+        let* () = update_current (Failed trimmed) in
+        Lwt.return_unit
+      else if starts_with "Restart requested" trimmed then
+        let* () = update_current Done in
+        let* () = add_step "finishing turn" Running in
+        Lwt.return_unit
+      else if
+        starts_with "Restart already" trimmed
+        || starts_with "Cannot find" trimmed
+        || starts_with "Binary update mode requires" trimmed
+      then
+        let* () = add_step trimmed (Failed "") in
+        Lwt.return_unit
+      else
+        (* Stream output from subprocess — append to tail *)
+        append_output trimmed
+  in
+  let get_final_text () =
+    render_progress ~mode (List.rev !steps) !output_tail
+  in
+  (send_progress, get_final_text)
+
 let tool ~is_draining ?claim_update ?finish_update ?find_repo_root ?run_command
     ?send_signal () =
   let invoke_common ?context ?on_output_chunk args =

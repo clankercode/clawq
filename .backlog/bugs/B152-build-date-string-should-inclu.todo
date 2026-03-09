@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-09T09:18:50Z"
+claimed_by: cli-user
+completed_at: "2026-03-09T09:31:15Z"
 complexity: medium
 depends_on: []
+duration_minutes: 12.421069553716666
 estimate_hours: 1
 id: B152
 priority: high
-status: pending
+started_at: "2026-03-09T09:18:50Z"
+status: done
 tags: []
 title: build date string should include the build time. Also, the /update command on telegram (at least) returns multiple (8) messages before restarting. It would be nice if it could maintain a single message with a checklist (and output via `tree` like ascii) and just update that as it goes. After it's restarted it can send a new message.
 ---
