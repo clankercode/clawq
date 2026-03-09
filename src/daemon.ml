@@ -765,10 +765,38 @@ let run ~(config : Runtime_config.t) =
   Logs.info (fun m ->
       m "Sandbox backend: %s"
         (Sandbox.backend_to_string sandbox.Sandbox.backend));
+  let db =
+    let db_path =
+      if config.memory.db_path <> "" then config.memory.db_path
+      else
+        let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
+        Filename.concat (Filename.concat home ".clawq") "memory.db"
+    in
+    try
+      let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
+      let clawq_dir = Filename.concat home ".clawq" in
+      (try if not (Sys.file_exists clawq_dir) then Sys.mkdir clawq_dir 0o755
+       with _ -> ());
+      let db =
+        Memory.init ~db_path ~search_enabled:config.memory.search_enabled ()
+      in
+      Vector.init_schema db;
+      if config.security.audit_enabled then begin
+        Audit.init_schema db;
+        Logs.info (fun m -> m "Audit trail enabled")
+      end;
+      Logs.info (fun m ->
+          m "SQLite memory initialized at %s (vector index enabled)" db_path);
+      Some db
+    with exn ->
+      Logs.warn (fun m ->
+          m "Failed to initialize SQLite memory: %s" (Printexc.to_string exn));
+      None
+  in
   let tool_registry =
     if config.security.tools_enabled then begin
       let registry = Tool_registry.create () in
-      Tools_builtin.register_all ~config:!current_config ~sandbox registry;
+      Tools_builtin.register_all ~config:!current_config ~sandbox ~db registry;
       let skills =
         Skills.load_all ~workspace_only:config.security.workspace_only
           ~allowed_commands:Tools_builtin.default_shell_allowlist ()
@@ -855,42 +883,6 @@ let run ~(config : Runtime_config.t) =
           Logs.warn (fun m ->
               m "Failed to load MCP servers config: %s" (Printexc.to_string exn))
       )
-  | _ -> ());
-  let db =
-    let db_path =
-      if config.memory.db_path <> "" then config.memory.db_path
-      else
-        let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
-        Filename.concat (Filename.concat home ".clawq") "memory.db"
-    in
-    try
-      let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
-      let clawq_dir = Filename.concat home ".clawq" in
-      (try if not (Sys.file_exists clawq_dir) then Sys.mkdir clawq_dir 0o755
-       with _ -> ());
-      let db =
-        Memory.init ~db_path ~search_enabled:config.memory.search_enabled ()
-      in
-      Vector.init_schema db;
-      if config.security.audit_enabled then begin
-        Audit.init_schema db;
-        Logs.info (fun m -> m "Audit trail enabled")
-      end;
-      Logs.info (fun m ->
-          m "SQLite memory initialized at %s (vector index enabled)" db_path);
-      Some db
-    with exn ->
-      Logs.warn (fun m ->
-          m "Failed to initialize SQLite memory: %s" (Printexc.to_string exn));
-      None
-  in
-  (* Register memory tools into existing registry now that db is available *)
-  (match (tool_registry, db) with
-  | Some registry, Some db ->
-      Tool_registry.register registry (Tools_builtin.memory_store ~db);
-      Tool_registry.register registry (Tools_builtin.memory_recall ~db);
-      Tool_registry.register registry (Tools_builtin.memory_forget ~db);
-      Tool_registry.register registry (Tools_builtin.memory_list ~db)
   | _ -> ());
   (* Auto-hydrate core memories from snapshot if db is empty *)
   (match db with

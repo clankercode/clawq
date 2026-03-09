@@ -455,6 +455,38 @@ let test_workspace_injection_note_absent_when_no_files () =
         "no note when no files found" false
         (contains prompt "already injected into this prompt"))
 
+let test_tools_block_sorted_alphabetically () =
+  let registry = Tool_registry.create () in
+  let mk name =
+    {
+      Tool.name;
+      description = name ^ " desc";
+      parameters_schema = `Null;
+      invoke = (fun ?context:_ _ -> Lwt.return "ok");
+      invoke_stream = None;
+      risk_level = Tool.Low;
+      deferred = false;
+    }
+  in
+  List.iter
+    (fun n -> Tool_registry.register registry (mk n))
+    [ "zebra"; "alpha"; "middle" ];
+  let lines = Prompt_builder.tools_block (Some registry) in
+  let names =
+    List.map
+      (fun line ->
+        match
+          String.split_on_char ' ' (String.sub line 2 (String.length line - 2))
+        with
+        | name :: _ -> name
+        | [] -> "")
+      lines
+  in
+  Alcotest.(check (list string))
+    "tools sorted alphabetically"
+    [ "alpha"; "middle"; "zebra" ]
+    names
+
 let suite =
   [
     Alcotest.test_case "dynamic prompt disabled uses base prompt" `Quick
@@ -485,4 +517,6 @@ let suite =
       `Quick test_workspace_injection_note_present;
     Alcotest.test_case "workspace injection note absent when no files" `Quick
       test_workspace_injection_note_absent_when_no_files;
+    Alcotest.test_case "tools block sorted alphabetically" `Quick
+      test_tools_block_sorted_alphabetically;
   ]

@@ -243,12 +243,26 @@ let shell_policy_summary (cfg : Runtime_config.t) sandbox =
             (Sandbox.backend_to_string sandbox.Sandbox.backend),
           true )
 
-let build_tool_registry (cfg : Runtime_config.t) =
+let get_db () =
+  let cfg = get_config () in
+  let db_path =
+    if cfg.memory.db_path <> "" then cfg.memory.db_path
+    else
+      let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
+      Filename.concat (Filename.concat home ".clawq") "memory.db"
+  in
+  let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
+  let clawq_dir = Filename.concat home ".clawq" in
+  (try if not (Sys.file_exists clawq_dir) then Sys.mkdir clawq_dir 0o755
+   with _ -> ());
+  Memory.init ~db_path ~search_enabled:cfg.memory.search_enabled ()
+
+let build_tool_registry ?db (cfg : Runtime_config.t) =
   if not cfg.security.tools_enabled then None
   else begin
     let registry = Tool_registry.create () in
     let sandbox = make_sandbox cfg in
-    Tools_builtin.register_all ~config:cfg ~sandbox registry;
+    Tools_builtin.register_all ~config:cfg ~sandbox ?db registry;
     let skills =
       Skills.load_all ~workspace_only:cfg.security.workspace_only
         ~allowed_commands:Tools_builtin.default_shell_allowlist ()
@@ -274,7 +288,7 @@ let format_debug_messages messages =
 
 let cmd_debug_prompt args =
   let cfg : Runtime_config.t = get_config () in
-  let tool_registry = build_tool_registry cfg in
+  let tool_registry = build_tool_registry ~db:(Some (get_db ())) cfg in
   let provider_name, _provider, model = Provider.select_provider ~config:cfg in
   let agent = Agent.create ~config:cfg ?tool_registry () in
   let user_message =
@@ -578,20 +592,6 @@ let cmd_channel () =
            (String.concat ", " s.allow_channels)
            (String.concat ", " s.allow_users)));
   List.rev !lines |> String.concat "\n"
-
-let get_db () =
-  let cfg = get_config () in
-  let db_path =
-    if cfg.memory.db_path <> "" then cfg.memory.db_path
-    else
-      let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
-      Filename.concat (Filename.concat home ".clawq") "memory.db"
-  in
-  let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
-  let clawq_dir = Filename.concat home ".clawq" in
-  (try if not (Sys.file_exists clawq_dir) then Sys.mkdir clawq_dir 0o755
-   with _ -> ());
-  Memory.init ~db_path ~search_enabled:cfg.memory.search_enabled ()
 
 let cmd_memory args =
   let cfg = get_config () in
@@ -1363,7 +1363,7 @@ let cmd_capabilities () =
   (* Tools *)
   if cfg.security.tools_enabled then begin
     let registry =
-      match build_tool_registry cfg with
+      match build_tool_registry ~db:(Some (get_db ())) cfg with
       | Some registry -> registry
       | None -> assert false
     in
@@ -1565,7 +1565,7 @@ let cmd_mcp () =
     "MCP server requires security.tools_enabled=true to expose tools."
   else begin
     let registry =
-      match build_tool_registry cfg with
+      match build_tool_registry ~db:(Some (get_db ())) cfg with
       | Some registry -> registry
       | None -> assert false
     in

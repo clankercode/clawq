@@ -905,6 +905,41 @@ let test_register_all_shell_path_policy_tracks_security_config () =
       (try Unix.rmdir extra_dir with _ -> ());
       try Unix.rmdir workspace with _ -> ())
 
+let test_register_all_with_db_registers_memory_and_bg_tools () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let registry = Tool_registry.create () in
+  let cfg = Runtime_config.default in
+  let sandbox = mk_none_sandbox ~workspace:"/tmp" () in
+  Tools_builtin.register_all ~config:cfg ~sandbox ~db:(Some db) registry;
+  List.iter
+    (fun name ->
+      Alcotest.(check bool)
+        (name ^ " registered with db")
+        true
+        (Tool_registry.find registry name <> None))
+    [
+      "memory_store";
+      "memory_recall";
+      "memory_forget";
+      "memory_list";
+      "history_search";
+      "background_task_enqueue";
+      "background_task_list";
+      "background_task_wait";
+      "background_task_logs";
+      "delegate";
+      "background_task_cancel";
+    ];
+  let registry2 = Tool_registry.create () in
+  Tools_builtin.register_all ~config:cfg ~sandbox registry2;
+  List.iter
+    (fun name ->
+      Alcotest.(check bool)
+        (name ^ " absent without db")
+        true
+        (Tool_registry.find registry2 name = None))
+    [ "memory_store"; "delegate"; "background_task_enqueue"; "history_search" ]
+
 let suite =
   [
     Alcotest.test_case "path traversal rejected" `Quick
@@ -974,4 +1009,6 @@ let suite =
       test_is_localhost_url_accepts_loopback_hosts;
     Alcotest.test_case "localhost url rejects spoofing" `Quick
       test_is_localhost_url_rejects_host_spoofing;
+    Alcotest.test_case "register_all with db registers memory and bg tools"
+      `Quick test_register_all_with_db_registers_memory_and_bg_tools;
   ]

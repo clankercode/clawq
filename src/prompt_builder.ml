@@ -250,6 +250,8 @@ let tools_block tool_registry =
   | None -> []
   | Some registry ->
       Tool_registry.list registry
+      |> List.sort (fun (a : Tool.t) (b : Tool.t) ->
+          String.compare a.name b.name)
       |> List.map (fun (t : Tool.t) ->
           let risk =
             match t.risk_level with
