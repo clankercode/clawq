@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B236
+priority: high
+status: pending
+tags: []
+title: task tree and background tasks are not shown in the runtime context via `clawq debug prompt`. They should be added to the actual runtime context (its a bug if theyre not) and they should be shown in the debug prompt output too (becaus ethat should use the real runtime context)
+---
+
+task tree and background tasks are not shown in the runtime context via `clawq debug prompt`. They should be added to the actual runtime context (its a bug if theyre not) and they should be shown in the debug prompt output too (becaus ethat should use the real runtime context)
