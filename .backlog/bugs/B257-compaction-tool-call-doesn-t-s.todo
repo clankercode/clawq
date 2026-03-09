@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B257
+priority: high
+status: pending
+tags: []
+title: compaction tool call doesn't show up in agents list of tools
+---
+
+compaction tool call doesn't show up in agents list of tools

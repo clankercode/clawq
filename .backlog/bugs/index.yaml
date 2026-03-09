@@ -255,3 +255,4 @@ bugs:
     - file: B254-task-tree-should-allow-more-th.todo
     - file: B255-claude-review-delegates-should.todo
     - file: B256-task-tree-runtime-context-and.todo
+    - file: B257-compaction-tool-call-doesn-t-s.todo
