@@ -411,12 +411,11 @@ let test_handle_session_epochs_and_show_archived_epoch () =
            true
          with Not_found -> false);
       Alcotest.(check bool)
-        "session show redacts system prompt contents" true
+        "session show includes actual system prompt" true
         (try
            ignore
              (Str.search_forward
-                (Str.regexp_string
-                   "\"system_prompt\": \"[redacted in session show]\"")
+                (Str.regexp_string "autonomous AI assistant")
                 current_result 0);
            true
          with Not_found -> false);
@@ -536,19 +535,24 @@ let test_session_show_includes_workspace_refresh_event () =
                     shown 0);
                true
              with Not_found -> false);
+          let json = Yojson.Safe.from_string shown in
+          let messages_str =
+            Yojson.Safe.Util.(json |> member "messages")
+            |> Yojson.Safe.to_string
+          in
           Alcotest.(check bool)
-            "session show redacts prompt file contents" false
+            "session show redacts prompt file contents in messages" false
             (try
-               ignore (Str.search_forward (Str.regexp_string secret) shown 0);
+               ignore
+                 (Str.search_forward (Str.regexp_string secret) messages_str 0);
                true
              with Not_found -> false);
           Alcotest.(check bool)
-            "session show redacts system prompt" true
+            "session show includes actual system prompt" true
             (try
                ignore
                  (Str.search_forward
-                    (Str.regexp_string
-                       "\"system_prompt\": \"[redacted in session show]\"")
+                    (Str.regexp_string "autonomous AI assistant")
                     shown 0);
                true
              with Not_found -> false))
@@ -619,10 +623,16 @@ let test_session_show_redacts_shell_exec_prompt_file_updates () =
                     shown 0);
                true
              with Not_found -> false);
+          let json = Yojson.Safe.from_string shown in
+          let messages_str =
+            Yojson.Safe.Util.(json |> member "messages")
+            |> Yojson.Safe.to_string
+          in
           Alcotest.(check bool)
-            "session show redacts shell command secret" false
+            "session show redacts shell command secret in messages" false
             (try
-               ignore (Str.search_forward (Str.regexp_string secret) shown 0);
+               ignore
+                 (Str.search_forward (Str.regexp_string secret) messages_str 0);
                true
              with Not_found -> false))
         ~finally:(fun () ->

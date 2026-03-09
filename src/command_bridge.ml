@@ -900,7 +900,9 @@ let is_session_event_row (row : Memory.raw_message) =
      && string_contains row.content "[Conversation history compacted]"
 
 let string_or_null = function Some value -> `String value | None -> `Null
-let session_show_system_prompt _config = "[redacted in session show]"
+
+let session_show_system_prompt config =
+  Prompt_builder.build ~config ~tool_registry:None ()
 
 let session_show_active_workspace_file config filename =
   List.mem filename config.Runtime_config.prompt.workspace_files
