@@ -1,0 +1,22 @@
+---
+complexity: medium
+depends_on:
+    - |-
+      task_tree state is currently expensive enough that routine task updates can add roughly kilotokens of context and chat-log overhead for basic operations. The system should preserve useful task awareness without spending so much prompt/channel budget on repetitive tree dumps.
+
+      Acceptance criteria:
+      - task_tree/runtime-context integration uses a more compact representation by default
+    - |-
+      especially for routine unchanged sections.
+      - Connector/chat rendering avoids dumping large repeated task trees for minor updates when a smaller delta or summary would suffice.
+      - Operators can still access the full tree when needed
+    - but normal autonomous operation does not pay a 2k-token tax for basic task bookkeeping.
+estimate_hours: 1
+id: B256
+priority: high
+status: pending
+tags: []
+title: task_tree runtime context and channel rendering should be more token-efficient
+---
+
+task_tree runtime context and channel rendering should be more token-efficient
