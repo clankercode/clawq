@@ -201,3 +201,4 @@ bugs:
     - file: B200-background-tasks-delegate-and.todo
     - file: B201-post-restart-send-message-can.todo
     - file: B202-tool-calls-no-longer-visible-s.todo
+    - file: B203-the-automatic-continuation-che.todo

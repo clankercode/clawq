@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B203
+priority: high
+status: pending
+tags: []
+title: the [automatic continuation check-in] message is currently sent to telegram and other connectors. We should gate this behind a config entry (one entry for all connectors). default should be false (do not send it as a user-visible message)
+---
+
+the [automatic continuation check-in] message is currently sent to telegram and other connectors. We should gate this behind a config entry (one entry for all connectors). default should be false (do not send it as a user-visible message)
