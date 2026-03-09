@@ -1738,6 +1738,155 @@ let test_debug_usage_mentions_prompt_and_html_preview () =
        true
      with Not_found -> false)
 
+let test_debug_context_shows_runtime_context () =
+  with_temp_home (fun home ->
+      let clawq_dir = Filename.concat home ".clawq" in
+      Unix.mkdir clawq_dir 0o755;
+      let config_path = Filename.concat clawq_dir "config.json" in
+      let oc = open_out config_path in
+      output_string oc
+        {|{
+  "default_provider": "testprov",
+  "providers": {
+    "testprov": {
+      "api_key": "sk-test",
+      "default_model": "test-model"
+    }
+  },
+  "prompt": {
+    "dynamic_enabled": true
+  },
+  "security": {
+    "tools_enabled": false
+  }
+}|};
+      close_out oc;
+      let result = Command_bridge.handle [ "debug"; "context" ] in
+      Alcotest.(check bool)
+        "debug context includes runtime context header" true
+        (try
+           ignore
+             (Str.search_forward
+                (Str.regexp_string "[Runtime context for this turn only]")
+                result 0);
+           true
+         with Not_found -> false);
+      Alcotest.(check bool)
+        "debug context includes session id" true
+        (try
+           ignore
+             (Str.search_forward
+                (Str.regexp_string "Session id: __main__")
+                result 0);
+           true
+         with Not_found -> false);
+      Alcotest.(check bool)
+        "debug context includes main session" true
+        (try
+           ignore
+             (Str.search_forward
+                (Str.regexp_string "Main session: yes")
+                result 0);
+           true
+         with Not_found -> false);
+      Alcotest.(check bool)
+        "debug context includes background tasks" true
+        (try
+           ignore
+             (Str.search_forward
+                (Str.regexp_string "Background tasks:")
+                result 0);
+           true
+         with Not_found -> false))
+
+let test_debug_context_uses_given_session_key () =
+  with_temp_home (fun home ->
+      let clawq_dir = Filename.concat home ".clawq" in
+      Unix.mkdir clawq_dir 0o755;
+      let config_path = Filename.concat clawq_dir "config.json" in
+      let oc = open_out config_path in
+      output_string oc
+        {|{
+  "default_provider": "testprov",
+  "providers": {
+    "testprov": {
+      "api_key": "sk-test",
+      "default_model": "test-model"
+    }
+  },
+  "prompt": {
+    "dynamic_enabled": true
+  },
+  "security": {
+    "tools_enabled": false
+  }
+}|};
+      close_out oc;
+      let result =
+        Command_bridge.handle [ "debug"; "context"; "telegram:123:456" ]
+      in
+      Alcotest.(check bool)
+        "debug context includes given session key" true
+        (try
+           ignore
+             (Str.search_forward
+                (Str.regexp_string "Session id: telegram:123:456")
+                result 0);
+           true
+         with Not_found -> false);
+      Alcotest.(check bool)
+        "non-main session shows no" true
+        (try
+           ignore
+             (Str.search_forward
+                (Str.regexp_string "Main session: no")
+                result 0);
+           true
+         with Not_found -> false))
+
+let test_debug_context_disabled_when_dynamic_off () =
+  with_temp_home (fun home ->
+      let clawq_dir = Filename.concat home ".clawq" in
+      Unix.mkdir clawq_dir 0o755;
+      let config_path = Filename.concat clawq_dir "config.json" in
+      let oc = open_out config_path in
+      output_string oc
+        {|{
+  "default_provider": "testprov",
+  "providers": {
+    "testprov": {
+      "api_key": "sk-test",
+      "default_model": "test-model"
+    }
+  },
+  "prompt": {
+    "dynamic_enabled": false
+  },
+  "security": {
+    "tools_enabled": false
+  }
+}|};
+      close_out oc;
+      let result = Command_bridge.handle [ "debug"; "context" ] in
+      Alcotest.(check bool)
+        "debug context shows disabled message" true
+        (try
+           ignore
+             (Str.search_forward
+                (Str.regexp_string "dynamic prompt disabled")
+                result 0);
+           true
+         with Not_found -> false))
+
+let test_debug_usage_mentions_context () =
+  let result = Command_bridge.handle [ "debug" ] in
+  Alcotest.(check bool)
+    "debug usage mentions context" true
+    (try
+       ignore (Str.search_forward (Str.regexp_string "debug context") result 0);
+       true
+     with Not_found -> false)
+
 let test_debug_prompt_includes_workspace_file_content () =
   with_temp_home (fun home ->
       let clawq_dir = Filename.concat home ".clawq" in
@@ -2061,6 +2210,14 @@ let suite =
       test_debug_prompt_defaults_message_when_missing;
     Alcotest.test_case "debug usage mentions prompt and html-preview" `Quick
       test_debug_usage_mentions_prompt_and_html_preview;
+    Alcotest.test_case "debug context shows runtime context" `Quick
+      test_debug_context_shows_runtime_context;
+    Alcotest.test_case "debug context uses given session key" `Quick
+      test_debug_context_uses_given_session_key;
+    Alcotest.test_case "debug context disabled when dynamic off" `Quick
+      test_debug_context_disabled_when_dynamic_off;
+    Alcotest.test_case "debug usage mentions context" `Quick
+      test_debug_usage_mentions_context;
     Alcotest.test_case "debug prompt includes workspace file content" `Quick
       test_debug_prompt_includes_workspace_file_content;
   ]

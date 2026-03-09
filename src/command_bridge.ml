@@ -2907,9 +2907,64 @@ let debug_html_preview_pages =
     );
   ]
 
+let cmd_debug_context args =
+  let cfg : Runtime_config.t = get_config () in
+  let db = get_db () in
+  let session_key = match args with [] -> "__main__" | key :: _ -> key in
+  let sandbox = make_sandbox cfg in
+  let shell_policy, shell_is_sandboxed = shell_policy_summary cfg sandbox in
+  Background_task.init_schema db;
+  let background_tasks =
+    Background_task.list_tasks ~db
+    |> List.filter (fun t ->
+        match t.Background_task.status with
+        | Background_task.Queued | Background_task.Running -> true
+        | _ -> false)
+    |> List.sort (fun a b -> compare a.Background_task.id b.Background_task.id)
+    |> List.map (fun t ->
+        {
+          Prompt_builder.id = t.Background_task.id;
+          runner = Background_task.string_of_runner t.runner;
+          repo_label = Filename.basename t.repo_path;
+          branch = (if t.branch = "" then "(auto)" else t.branch);
+          status = Background_task.string_of_status t.status;
+          health =
+            Background_task.string_of_health (Background_task.diagnose_health t);
+          elapsed = Background_task.elapsed_string t;
+        })
+  in
+  Task_tree.init_schema db;
+  let task_tree_summary =
+    Some (Task_tree.render_tree_with_legend ~db ~session_key)
+  in
+  let is_main = session_key = "__main__" in
+  let details =
+    {
+      Prompt_builder.session_id = session_key;
+      session_name = (if is_main then Some "main" else None);
+      is_main_session = is_main;
+      heartbeat_routing_applies = is_main && cfg.heartbeat.heartbeat_enabled;
+      effective_workspace = Runtime_config.effective_workspace cfg;
+      workspace_only = cfg.security.workspace_only;
+      sandbox_backend_requested = cfg.security.sandbox_backend;
+      sandbox_backend_effective =
+        Sandbox.backend_to_string sandbox.Sandbox.backend;
+      shell_is_sandboxed;
+      shell_policy_summary = shell_policy;
+      shell_visible_roots_summary = shell_visible_roots_summary cfg;
+      background_tasks;
+      context_usage = None;
+      task_tree_summary;
+    }
+  in
+  match Prompt_builder.build_runtime_context ~config:cfg ~details () with
+  | Some ctx -> ctx
+  | None -> "(dynamic prompt disabled — no runtime context generated)"
+
 let cmd_debug args =
   match args with
   | "prompt" :: rest -> cmd_debug_prompt rest
+  | "context" :: rest -> cmd_debug_context rest
   | [ "html-preview" ] | [ "html-preview"; _ ] ->
       let port =
         match args with
@@ -2968,7 +3023,9 @@ let cmd_debug args =
       in
       "debug html-preview: stopped"
   | _ ->
-      "Usage: clawq debug html-preview [PORT]\n\
+      "Usage: clawq debug context [SESSION_KEY]\n\
+       Prints the runtime context block for a session (default: __main__).\n\n\
+       Usage: clawq debug html-preview [PORT]\n\
        Serves Html_page test pages on localhost (default port 8099).\n\n\
        Usage: clawq debug prompt [MESSAGE]\n\
        Prints the normalized logical messages for a single agent turn."
