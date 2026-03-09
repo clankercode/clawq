@@ -1,0 +1,11 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 1
+id: B133
+priority: medium
+status: pending
+tags: []
+title: Avoid redundant manual workspace rereads when files are already injected
+---
+The assistant manually reread workspace identity/protocol files multiple times during one live chat even though those files are already injected into the system prompt. We should clarify and/or enforce the contract: injected workspace files should satisfy baseline availability, updates should refresh subsequent turns automatically, and the agent should avoid redundant manual rereads except when it needs to inspect a file explicitly for a concrete reason. This is partly prompt/protocol hygiene and partly an implementation/behavior issue.
