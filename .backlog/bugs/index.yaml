@@ -141,3 +141,4 @@ bugs:
     - file: B140-audit-tool-descriptions-help-s.todo
     - file: B141-add-cli-commands-to-list-sessi.todo
     - file: B142-show-per-tool-concise-status-t.todo
+    - file: B143-add-cli-commands-to-print-raw.todo

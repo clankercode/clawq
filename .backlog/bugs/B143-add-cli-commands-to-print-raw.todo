@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B143
+priority: medium
+status: pending
+tags: []
+title: Add CLI commands to print raw session chat logs and list session epochs
+---
+Add CLI support for inspecting the raw chat log history for a given session. Required behavior: (1) print the raw chat log in full for a specified session; (2) when a session has multiple chat-log epochs because earlier history was compacted/rotated, default to showing only the latest epoch; (3) provide CLI args to select a different epoch explicitly; (4) add a companion CLI command to list all epochs available for a session, with enough metadata to choose among them (for example epoch id/index, time bounds, message counts, compacted/current marker). Acceptance criteria: commands work against real persisted session history, handle sessions with and without multiple epochs, and are tested/verified.
