@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B251
+priority: high
+status: pending
+tags: []
+title: ./clawq debug prompt doesn't show current tasks (empty task tree) but we do have tasks in the DB that it should load -- why aren't they loading
+---
+
+./clawq debug prompt doesn't show current tasks (empty task tree) but we do have tasks in the DB that it should load -- why aren't they loading
