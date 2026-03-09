@@ -73,6 +73,21 @@ let read_gateway_token () =
   | Some token when String.trim token <> "" -> Some (String.trim token)
   | _ -> None
 
+let save_gateway_token token =
+  let token = String.trim token in
+  let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
+  let clawq_dir = Filename.concat home ".clawq" in
+  (try if not (Sys.file_exists clawq_dir) then Sys.mkdir clawq_dir 0o700
+   with _ -> ());
+  let token_path = gateway_token_path () in
+  let fd =
+    Unix.openfile token_path [ Unix.O_WRONLY; Unix.O_CREAT; Unix.O_TRUNC ] 0o600
+  in
+  let oc = Unix.out_channel_of_descr fd in
+  Fun.protect
+    (fun () -> output_string oc token)
+    ~finally:(fun () -> close_out oc)
+
 let read_live_daemon_gateway () =
   match read_daemon_state () with
   | None -> None
@@ -105,6 +120,20 @@ let parse_json_error_body body =
     | _ -> None
   with _ -> None
 
+let is_loopback_host host =
+  match String.lowercase_ascii (String.trim host) with
+  | "localhost" | "127.0.0.1" | "::1" -> true
+  | _ -> false
+
+let post_json_sync ~uri ~headers ~body =
+  Lwt_main.run
+    (Lwt.catch
+       (fun () ->
+         let open Lwt.Syntax in
+         let* status, resp_body = Http_client.post_json ~uri ~headers ~body in
+         Lwt.return (Ok (status, resp_body)))
+       (fun exn -> Lwt.return (Error (Printexc.to_string exn))))
+
 let read_live_gateway_pairing_code () =
   match read_daemon_state () with
   | None -> None
@@ -121,6 +150,54 @@ let read_live_gateway_pairing_code () =
           None
         end
       with _ -> None)
+
+type auto_pair_result = No_attempt | Paired of string | Pair_failed of string
+
+let try_auto_pair_live_gateway ~host ~port =
+  if not (is_loopback_host host) then No_attempt
+  else
+    match read_live_gateway_pairing_code () with
+    | None -> No_attempt
+    | Some code -> (
+        let url = Printf.sprintf "http://%s:%d/pair" host port in
+        let body = `Assoc [ ("code", `String code) ] |> Yojson.Safe.to_string in
+        match post_json_sync ~uri:url ~headers:[] ~body with
+        | Error msg -> Pair_failed ("pairing request failed: " ^ msg)
+        | Ok (status, resp_body) -> (
+            match status with
+            | 200 -> (
+                try
+                  let json = Yojson.Safe.from_string resp_body in
+                  let open Yojson.Safe.Util in
+                  match json |> member "token" with
+                  | `String token when String.trim token <> "" ->
+                      save_gateway_token token;
+                      Paired (String.trim token)
+                  | _ ->
+                      Pair_failed
+                        "pairing response did not contain a usable token"
+                with exn ->
+                  Pair_failed
+                    (Printf.sprintf "failed to parse pairing response: %s"
+                       (Printexc.to_string exn)))
+            | _ ->
+                Pair_failed
+                  (match parse_json_error_body resp_body with
+                  | Some msg -> msg
+                  | None -> resp_body)))
+
+let post_live_gateway_json ~cfg ~host ~port ~path ~body =
+  let url = Printf.sprintf "http://%s:%d%s" host port path in
+  let headers = gateway_auth_headers cfg in
+  match post_json_sync ~uri:url ~headers ~body with
+  | Ok ((401 | 403), _) as rejected when headers = [] -> (
+      match try_auto_pair_live_gateway ~host ~port with
+      | Paired token ->
+          let retry_headers = [ ("Authorization", "Bearer " ^ token) ] in
+          post_json_sync ~uri:url ~headers:retry_headers ~body
+      | No_attempt -> rejected
+      | Pair_failed msg -> Error ("Auto-pair failed: " ^ msg))
+  | other -> other
 
 let redact_key s =
   let len = String.length s in
@@ -799,7 +876,6 @@ let cmd_session args =
               session_key
         | Some (host, port) -> (
             let cfg = get_config () in
-            let url = Printf.sprintf "http://%s:%d/session/inject" host port in
             let body =
               Yojson.Safe.to_string
                 (`Assoc
@@ -809,16 +885,8 @@ let cmd_session args =
                    ])
             in
             let result =
-              Lwt_main.run
-                (Lwt.catch
-                   (fun () ->
-                     let open Lwt.Syntax in
-                     let* status, resp_body =
-                       Http_client.post_json ~uri:url
-                         ~headers:(gateway_auth_headers cfg) ~body
-                     in
-                     Lwt.return (Ok (status, resp_body)))
-                   (fun exn -> Lwt.return (Error (Printexc.to_string exn))))
+              post_live_gateway_json ~cfg ~host ~port ~path:"/session/inject"
+                ~body
             in
             match result with
             | Error msg -> Printf.sprintf "Session inject failed: %s" msg
@@ -1208,22 +1276,8 @@ let cmd_auth args =
             let open Yojson.Safe.Util in
             match json |> member "token" with
             | `String token ->
-                let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
-                let clawq_dir = Filename.concat home ".clawq" in
-                (try
-                   if not (Sys.file_exists clawq_dir) then
-                     Sys.mkdir clawq_dir 0o700
-                 with _ -> ());
-                let token_path = Filename.concat clawq_dir "gateway_token" in
-                (try
-                   let fd =
-                     Unix.openfile token_path
-                       [ Unix.O_WRONLY; Unix.O_CREAT; Unix.O_TRUNC ]
-                       0o600
-                   in
-                   let oc = Unix.out_channel_of_descr fd in
-                   output_string oc token;
-                   close_out oc
+                let token_path = gateway_token_path () in
+                (try save_gateway_token token
                  with exn ->
                    raise
                      (Failure
@@ -1708,23 +1762,13 @@ let cmd_update args =
       | None -> offline_update_stub mode
       | Some (host, port) -> (
           let cfg = get_config () in
-          let url = Printf.sprintf "http://%s:%d/daemon/update" host port in
           let body =
             Yojson.Safe.to_string
               (`Assoc
                  [ ("mode", `String (Update_tool.string_of_update_mode mode)) ])
           in
           let result =
-            Lwt_main.run
-              (Lwt.catch
-                 (fun () ->
-                   let open Lwt.Syntax in
-                   let* status, resp_body =
-                     Http_client.post_json ~uri:url
-                       ~headers:(gateway_auth_headers cfg) ~body
-                   in
-                   Lwt.return (Ok (status, resp_body)))
-                 (fun exn -> Lwt.return (Error (Printexc.to_string exn))))
+            post_live_gateway_json ~cfg ~host ~port ~path:"/daemon/update" ~body
           in
           match result with
           | Error msg -> Printf.sprintf "Update request failed: %s" msg

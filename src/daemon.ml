@@ -183,10 +183,12 @@ let refresh_runtime_bound_tools ~(config : Runtime_config.t) registry =
 let background_task_wakeup_message task =
   "[automatic background-task completion notice]\n\n"
   ^ Background_task.status_message task
-  ^ "\n\nThis message was injected automatically so the assistant wakes in the same session and may continue working without waiting for a human reply."
+  ^ "\n\n\
+     This message was injected automatically so the assistant wakes in the \
+     same session and may continue working without waiting for a human reply."
 
-let inject_background_task_completion ~(session_manager : Session.t) ~session_key
-    ?channel ?channel_id task =
+let inject_background_task_completion ~(session_manager : Session.t)
+    ~session_key ?channel ?channel_id task =
   let message = background_task_wakeup_message task in
   Lwt.catch
     (fun () ->
@@ -239,7 +241,8 @@ let notify_background_task_finished ?(senders = default_resume_senders)
             match (task.channel, task.channel_id) with
             | Some channel, Some channel_id -> (
                 let* result =
-                  dispatch_resumed_message ~senders ~config ~channel ~channel_id ~text ()
+                  dispatch_resumed_message ~senders ~config ~channel ~channel_id
+                    ~text ()
                 in
                 match result with
                 | Ok () -> Lwt.return_unit

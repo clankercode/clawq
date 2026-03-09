@@ -112,17 +112,21 @@ let with_fake_gateway_server ~port ~callback f =
   Lwt.async (fun () -> Lwt.pick [ server; stop ]);
   Fun.protect ~finally:(fun () -> Lwt.wakeup_later stopper ()) f
 
-let write_daemon_state home ~pid ~host ~port =
+let write_daemon_state ?pairing_code home ~pid ~host ~port =
   let clawq_dir = Filename.concat home ".clawq" in
   if not (Sys.file_exists clawq_dir) then Unix.mkdir clawq_dir 0o755;
   write_json_file
     (Filename.concat clawq_dir "daemon_state.json")
     (`Assoc
-       [
-         ("pid", `Int pid);
-         ("gateway_host", `String host);
-         ("gateway_port", `Int port);
-       ])
+       ([
+          ("pid", `Int pid);
+          ("gateway_host", `String host);
+          ("gateway_port", `Int port);
+        ]
+       @
+       match pairing_code with
+       | Some code -> [ ("pairing_code", `String code) ]
+       | None -> []))
 
 let write_config home body =
   let clawq_dir = Filename.concat home ".clawq" in
@@ -665,6 +669,189 @@ let test_handle_update_without_live_daemon_reports_stub () =
            true
          with Not_found -> false))
 
+let test_handle_update_auto_pairs_with_live_gateway () =
+  with_temp_home (fun home ->
+      let port = 21080 + Random.int 1000 in
+      write_config home
+        (Printf.sprintf
+           {|{
+  "gateway": { "host": "127.0.0.1", "port": %d, "require_pairing": true, "pair_lockout_seconds": 300, "max_pair_attempts": 5 },
+  "prompt": { "dynamic_enabled": false },
+  "security": { "tools_enabled": false }
+}|}
+           port);
+      write_daemon_state ~pairing_code:"123456" home ~pid:(Unix.getpid ())
+        ~host:"127.0.0.1" ~port;
+      let seen_pair = ref 0 in
+      let seen_update = ref [] in
+      let callback _conn req body =
+        let open Lwt.Syntax in
+        let path = Uri.path (Cohttp.Request.uri req) in
+        let headers = Cohttp.Request.headers req in
+        let auth = Cohttp.Header.get headers "authorization" in
+        let* body = Cohttp_lwt.Body.to_string body in
+        match path with
+        | "/pair" ->
+            incr seen_pair;
+            Alcotest.(check string)
+              "pair request body" {|{"code":"123456"}|} body;
+            Cohttp_lwt_unix.Server.respond_string ~status:`OK
+              ~body:{|{"token":"paired-token"}|} ()
+        | "/daemon/update" ->
+            seen_update := auth :: !seen_update;
+            if auth = None then
+              Cohttp_lwt_unix.Server.respond_string ~status:`Forbidden
+                ~body:
+                  {|{"error":"pairing required; use a valid paired token to access this endpoint"}|}
+                ()
+            else begin
+              Alcotest.(check (option string))
+                "retry uses paired token" (Some "Bearer paired-token") auth;
+              Cohttp_lwt_unix.Server.respond_string ~status:`OK
+                ~body:
+                  {|{"progress":["Starting update..."],"result":"Build complete. Sending restart signal..."}|}
+                ()
+            end
+        | other -> Alcotest.failf "unexpected path %s" other
+      in
+      with_fake_gateway_server ~port ~callback (fun () ->
+          let result = Command_bridge.handle [ "update" ] in
+          Alcotest.(check int) "pair called once" 1 !seen_pair;
+          Alcotest.(check (list (option string)))
+            "update retried after pairing"
+            [ Some "Bearer paired-token"; None ]
+            !seen_update;
+          Alcotest.(check bool)
+            "update progress returned" true
+            (try
+               ignore
+                 (Str.search_forward
+                    (Str.regexp_string "Starting update...")
+                    result 0);
+               true
+             with Not_found -> false);
+          Alcotest.(check bool)
+            "update result returned" true
+            (try
+               ignore
+                 (Str.search_forward
+                    (Str.regexp_string
+                       "Build complete. Sending restart signal...")
+                    result 0);
+               true
+             with Not_found -> false);
+          Alcotest.(check (option string))
+            "token persisted" (Some "paired-token")
+            (try
+               let ic =
+                 open_in
+                   (Filename.concat
+                      (Filename.concat home ".clawq")
+                      "gateway_token")
+               in
+               Fun.protect
+                 (fun () ->
+                   Some
+                     (String.trim
+                        (really_input_string ic (in_channel_length ic))))
+                 ~finally:(fun () -> close_in ic)
+             with _ -> None)))
+
+let test_handle_update_prefers_static_auth_token_over_auto_pair () =
+  with_temp_home (fun home ->
+      let port = 22080 + Random.int 1000 in
+      write_config home
+        (Printf.sprintf
+           {|{
+  "gateway": { "host": "127.0.0.1", "port": %d, "auth_token": "secret", "require_pairing": true, "pair_lockout_seconds": 300, "max_pair_attempts": 5 },
+  "prompt": { "dynamic_enabled": false },
+  "security": { "tools_enabled": false }
+}|}
+           port);
+      write_daemon_state ~pairing_code:"123456" home ~pid:(Unix.getpid ())
+        ~host:"127.0.0.1" ~port;
+      let seen_pair = ref 0 in
+      let callback _conn req _body =
+        let path = Uri.path (Cohttp.Request.uri req) in
+        let auth =
+          Cohttp.Header.get (Cohttp.Request.headers req) "authorization"
+        in
+        match path with
+        | "/pair" ->
+            incr seen_pair;
+            Cohttp_lwt_unix.Server.respond_string ~status:`OK
+              ~body:{|{"token":"unexpected"}|} ()
+        | "/daemon/update" ->
+            Alcotest.(check (option string))
+              "static auth header forwarded" (Some "Bearer secret") auth;
+            Cohttp_lwt_unix.Server.respond_string ~status:`OK
+              ~body:{|{"progress":[],"result":"ok"}|} ()
+        | other -> Alcotest.failf "unexpected path %s" other
+      in
+      with_fake_gateway_server ~port ~callback (fun () ->
+          let result = Command_bridge.handle [ "update" ] in
+          Alcotest.(check string) "update succeeds" "ok" result;
+          Alcotest.(check int) "pair endpoint unused" 0 !seen_pair))
+
+let test_handle_session_inject_auto_pairs_with_live_gateway () =
+  with_temp_home (fun home ->
+      let port = 23080 + Random.int 1000 in
+      write_config home
+        (Printf.sprintf
+           {|{
+  "gateway": { "host": "127.0.0.1", "port": %d, "require_pairing": true, "pair_lockout_seconds": 300, "max_pair_attempts": 5 },
+  "prompt": { "dynamic_enabled": false },
+  "security": { "tools_enabled": false }
+}|}
+           port);
+      write_daemon_state ~pairing_code:"654321" home ~pid:(Unix.getpid ())
+        ~host:"127.0.0.1" ~port;
+      let seen_pair = ref 0 in
+      let callback _conn req body =
+        let open Lwt.Syntax in
+        let path = Uri.path (Cohttp.Request.uri req) in
+        let auth =
+          Cohttp.Header.get (Cohttp.Request.headers req) "authorization"
+        in
+        let* body = Cohttp_lwt.Body.to_string body in
+        match path with
+        | "/pair" ->
+            incr seen_pair;
+            Alcotest.(check string)
+              "pair request body" {|{"code":"654321"}|} body;
+            Cohttp_lwt_unix.Server.respond_string ~status:`OK
+              ~body:{|{"token":"inject-token"}|} ()
+        | "/session/inject" ->
+            if auth = None then
+              Cohttp_lwt_unix.Server.respond_string ~status:`Forbidden
+                ~body:{|{"error":"pairing required"}|} ()
+            else begin
+              Alcotest.(check (option string))
+                "retry uses paired token" (Some "Bearer inject-token") auth;
+              Alcotest.(check string)
+                "inject body forwarded"
+                {|{"session_key":"telegram:1:user","message":"hello"}|} body;
+              Cohttp_lwt_unix.Server.respond_string ~status:`OK
+                ~body:{|{"queued":false,"response":"processed live"}|} ()
+            end
+        | other -> Alcotest.failf "unexpected path %s" other
+      in
+      with_fake_gateway_server ~port ~callback (fun () ->
+          let result =
+            Command_bridge.handle
+              [ "session"; "inject"; "telegram:1:user"; "hello" ]
+          in
+          Alcotest.(check int) "pair called once" 1 !seen_pair;
+          Alcotest.(check bool)
+            "session inject succeeded" true
+            (try
+               ignore
+                 (Str.search_forward
+                    (Str.regexp_string "Processed injected message")
+                    result 0);
+               true
+             with Not_found -> false)))
+
 let test_handle_migrate_no_source () =
   let result = Command_bridge.handle [ "migrate" ] in
   Alcotest.(check bool) "migrate returns output" true (String.length result > 0)
@@ -1071,6 +1258,12 @@ let suite =
       test_handle_service_signal_restart;
     Alcotest.test_case "handle update without live daemon reports stub" `Quick
       test_handle_update_without_live_daemon_reports_stub;
+    Alcotest.test_case "handle update auto pairs with live gateway" `Quick
+      test_handle_update_auto_pairs_with_live_gateway;
+    Alcotest.test_case "handle update prefers static auth token" `Quick
+      test_handle_update_prefers_static_auth_token_over_auto_pair;
+    Alcotest.test_case "handle session inject auto pairs with live gateway"
+      `Quick test_handle_session_inject_auto_pairs_with_live_gateway;
     Alcotest.test_case "handle migrate no source" `Quick
       test_handle_migrate_no_source;
     Alcotest.test_case "handle skills" `Quick test_handle_skills;

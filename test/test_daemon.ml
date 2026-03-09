@@ -555,17 +555,14 @@ let test_notify_background_task_finished_dispatches_and_injects_wakeup () =
        task);
   Alcotest.(check (option (triple string string string)))
     "telegram sender called"
-    (Some
-       ( "tg-token",
-         "42",
-         Background_task.status_message task ))
+    (Some ("tg-token", "42", Background_task.status_message task))
     !dispatched;
   match List.rev !injected with
   | [ message ] ->
       Alcotest.(check bool)
         "automatic label present" true
-        (String.starts_with ~prefix:"[automatic background-task completion notice]"
-           message);
+        (String.starts_with
+           ~prefix:"[automatic background-task completion notice]" message);
       Alcotest.(check bool)
         "mentions automatic wake-up" true
         (try
@@ -599,7 +596,9 @@ let test_notify_background_task_finished_queues_wakeup_when_session_busy () =
       else Lwt.return_none);
   Lwt.async (fun () ->
       let open Lwt.Syntax in
-      let* _ = Session.turn session_manager ~key:"telegram:42:user" ~message:"hold" () in
+      let* _ =
+        Session.turn session_manager ~key:"telegram:42:user" ~message:"hold" ()
+      in
       Lwt.return_unit);
   Unix.sleepf 0.05;
   let task = make_test_task ~id:12 () in
@@ -628,10 +627,11 @@ let test_notify_background_task_finished_queues_wakeup_when_session_busy () =
   | [ message ] ->
       Alcotest.(check bool)
         "queued automatic label present" true
-        (String.starts_with ~prefix:"[automatic background-task completion notice]"
-           message)
+        (String.starts_with
+           ~prefix:"[automatic background-task completion notice]" message)
   | msgs ->
-      Alcotest.failf "expected one queued wake-up message, got %d" (List.length msgs)
+      Alcotest.failf "expected one queued wake-up message, got %d"
+        (List.length msgs)
 
 let suite =
   [
@@ -642,11 +642,10 @@ let suite =
       test_resume_pending_agent_sessions_marks_missing_channel_info;
     Alcotest.test_case "resume agent session persists response and marks sent"
       `Quick test_resume_agent_session_persists_response_and_marks_sent;
-    Alcotest.test_case
-      "background completion dispatches and injects wake-up" `Quick
-      test_notify_background_task_finished_dispatches_and_injects_wakeup;
-    Alcotest.test_case
-      "background completion queues wake-up when session busy" `Quick
+    Alcotest.test_case "background completion dispatches and injects wake-up"
+      `Quick test_notify_background_task_finished_dispatches_and_injects_wakeup;
+    Alcotest.test_case "background completion queues wake-up when session busy"
+      `Quick
       test_notify_background_task_finished_queues_wakeup_when_session_busy;
     Alcotest.test_case "resume agent session sends compaction notice" `Quick
       test_resume_agent_session_sends_compaction_notice;
@@ -674,4 +673,3 @@ let suite =
     Alcotest.test_case "date banner logs on day rollover" `Quick
       test_maybe_emit_date_banner_logs_when_day_advances;
   ]
-
