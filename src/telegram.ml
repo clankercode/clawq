@@ -84,6 +84,42 @@ let should_process_update (u : update) =
     true
   end
 
+type poll_error =
+  | Conflict_webhook
+  | Conflict_duplicate_poller
+  | Other_error of int
+
+type poll_result = Updates of int * update list | Poll_error of poll_error
+
+let delete_webhook ~bot_token =
+  let open Lwt.Syntax in
+  let uri = Printf.sprintf "%s%s/deleteWebhook" api_base bot_token in
+  let body = "{}" in
+  let* status, _body = Http_client.post_json ~uri ~headers:[] ~body in
+  if status >= 200 && status < 300 then
+    Logs.info (fun m ->
+        m "Telegram: deleteWebhook succeeded for token=%s"
+          (redact_token bot_token))
+  else
+    Logs.warn (fun m ->
+        m "Telegram: deleteWebhook failed (HTTP %d) for token=%s" status
+          (redact_token bot_token));
+  Lwt.return_unit
+
+let parse_conflict_description body =
+  try
+    let json = Yojson.Safe.from_string body in
+    let desc = Yojson.Safe.Util.(json |> member "description" |> to_string) in
+    let desc_lower = String.lowercase_ascii desc in
+    if
+      try
+        ignore (Str.search_forward (Str.regexp_string "webhook") desc_lower 0);
+        true
+      with Not_found -> false
+    then Conflict_webhook
+    else Conflict_duplicate_poller
+  with _ -> Conflict_duplicate_poller
+
 let get_updates ~bot_token ~offset ~timeout =
   let open Lwt.Syntax in
   let uri =
@@ -190,12 +226,29 @@ let get_updates ~bot_token ~offset ~timeout =
               None))
         results
     in
-    Lwt.return (!max_update_id, updates)
+    Lwt.return (Updates (!max_update_id, updates))
+  else if status = 409 then (
+    let conflict = parse_conflict_description body in
+    (match conflict with
+    | Conflict_webhook ->
+        Logs.warn (fun m ->
+            m
+              "Telegram: 409 Conflict — webhook is active, will attempt \
+               deleteWebhook for token=%s"
+              (redact_token bot_token))
+    | Conflict_duplicate_poller ->
+        Logs.warn (fun m ->
+            m
+              "Telegram: 409 Conflict — another getUpdates instance is running \
+               for token=%s"
+              (redact_token bot_token))
+    | Other_error _ -> ());
+    Lwt.return (Poll_error conflict))
   else (
     Logs.warn (fun m ->
         m "Telegram getUpdates error (HTTP %d) for token=%s" status
           (redact_token bot_token));
-    Lwt.return (0, []))
+    Lwt.return (Poll_error (Other_error status)))
 
 let acknowledge_update ~bot_token ~update_id =
   let open Lwt.Syntax in
@@ -1016,6 +1069,7 @@ let poll_account ~bot_token ~(account : Runtime_config.telegram_account) ~name
   in
   let offset = ref 0 in
   let poll_count = ref 0 in
+  let conflict_backoff = ref 5.0 in
   let rec poll () =
     incr poll_count;
     if !poll_count <= 3 then
@@ -1025,14 +1079,39 @@ let poll_account ~bot_token ~(account : Runtime_config.telegram_account) ~name
       Logs.info (fun m ->
           m "Telegram polling stable, suppressing routine poll logs for '%s'"
             name);
-    let* max_uid, updates =
+    let* poll_result =
       Lwt.catch
         (fun () -> get_updates ~bot_token ~offset:!offset ~timeout:30)
         (fun exn ->
           Logs.err (fun m ->
               m "Telegram poll error for '%s': %s" name (Printexc.to_string exn));
           let* () = Lwt_unix.sleep 5.0 in
-          Lwt.return (0, []))
+          Lwt.return (Updates (0, [])))
+    in
+    let* max_uid, updates =
+      match poll_result with
+      | Updates (max_uid, updates) ->
+          conflict_backoff := 5.0;
+          Lwt.return (max_uid, updates)
+      | Poll_error Conflict_webhook ->
+          Logs.warn (fun m ->
+              m
+                "Telegram: clearing webhook for '%s' before resuming \
+                 long-polling"
+                name);
+          let* () = delete_webhook ~bot_token in
+          let* () = Lwt_unix.sleep 2.0 in
+          Lwt.return (0, [])
+      | Poll_error Conflict_duplicate_poller ->
+          Logs.warn (fun m ->
+              m "Telegram: another poller is active for '%s', backing off %.0fs"
+                name !conflict_backoff);
+          let* () = Lwt_unix.sleep !conflict_backoff in
+          conflict_backoff := Float.min (!conflict_backoff *. 2.0) 60.0;
+          Lwt.return (0, [])
+      | Poll_error (Other_error _) ->
+          let* () = Lwt_unix.sleep 5.0 in
+          Lwt.return (0, [])
     in
     if max_uid + 1 > !offset then offset := max_uid + 1;
     List.iter
