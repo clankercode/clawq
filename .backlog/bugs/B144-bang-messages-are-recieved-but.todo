@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B144
+priority: high
+status: pending
+tags: []
+title: Bang messages are recieved, but if the agent is currently running a command it will wait for that command to finish which is not the intended behavior of bang msgs.
+---
+# LOGS:\n\n

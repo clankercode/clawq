@@ -142,3 +142,4 @@ bugs:
     - file: B141-add-cli-commands-to-list-sessi.todo
     - file: B142-show-per-tool-concise-status-t.todo
     - file: B143-add-cli-commands-to-print-raw.todo
+    - file: B144-bang-messages-are-recieved-but.todo
