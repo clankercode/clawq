@@ -1022,7 +1022,12 @@ let test_background_task_wakeup_arms_autonomous_continuation () =
       channels =
         {
           Runtime_config.default.channels with
-          telegram = Some { accounts = [ ("main", telegram_account) ] };
+          telegram =
+            Some
+              {
+                accounts = [ ("main", telegram_account) ];
+                text_coalesce_ms = 150;
+              };
         };
     }
   in
@@ -1066,7 +1071,12 @@ let test_background_task_wakeup_stay_idle_disarms () =
       channels =
         {
           Runtime_config.default.channels with
-          telegram = Some { accounts = [ ("main", telegram_account) ] };
+          telegram =
+            Some
+              {
+                accounts = [ ("main", telegram_account) ];
+                text_coalesce_ms = 150;
+              };
         };
     }
   in
@@ -1103,7 +1113,12 @@ let test_resume_agent_session_sends_visible_injection_prompt () =
       channels =
         {
           Runtime_config.default.channels with
-          telegram = Some { accounts = [ ("main", telegram_account) ] };
+          telegram =
+            Some
+              {
+                accounts = [ ("main", telegram_account) ];
+                text_coalesce_ms = 150;
+              };
         };
     }
   in
@@ -1140,7 +1155,7 @@ let test_resume_agent_session_sends_visible_injection_prompt () =
     (try
        ignore
          (Str.search_forward
-            (Str.regexp_string "Automatic resume after daemon restart")
+            (Str.regexp_string "Automatic restart-resume")
             first 0);
        true
      with Not_found -> false);

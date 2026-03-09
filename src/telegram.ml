@@ -438,11 +438,72 @@ let typing_loop ~send_action ~interval p =
   in
   Lwt.return result
 
+(* Typing-indicator loop with refresh support.
+   Like [typing_loop] but accepts a [Lwt_condition.t] trigger: signalling
+   the condition causes an immediate typing re-send, which prevents gaps
+   after outbound messages (Telegram clears typing when a message is sent).
+   Returns [(result Lwt.t * refresh_fn)]. *)
+let typing_loop_refreshable ~send_action ~interval p =
+  let open Lwt.Syntax in
+  let trigger = Lwt_condition.create () in
+  let rec loop () =
+    let* () =
+      Lwt.catch (fun () -> send_action ()) (fun _exn -> Lwt.return_unit)
+    in
+    let* () =
+      Lwt.pick [ Lwt_unix.sleep interval; Lwt_condition.wait trigger ]
+    in
+    loop ()
+  in
+  let result_p =
+    Lwt.pick
+      [
+        (let* v = p in
+         Lwt.return v);
+        (let* () = loop () in
+         Lwt.fail_with "typing_loop: unreachable");
+      ]
+  in
+  let refresh () = Lwt_condition.signal trigger () in
+  (result_p, refresh)
+
 let with_typing ~bot_token ~chat_id p =
   typing_loop
     ~send_action:(fun () ->
       send_chat_action ~bot_token ~chat_id ~action:"typing")
     ~interval:4.0 p
+
+(* Typing wrapper that returns a refresh function.
+   Call [refresh ()] after any outbound message to immediately re-assert
+   the typing indicator (Telegram clears it whenever a message is sent). *)
+let with_typing_refreshable ~bot_token ~chat_id p =
+  typing_loop_refreshable
+    ~send_action:(fun () ->
+      send_chat_action ~bot_token ~chat_id ~action:"typing")
+    ~interval:4.0 p
+
+(* Typing loop with a grace period before the indicator appears.
+   If [p] resolves within [grace] seconds, no typing is shown at all.
+   Parameterised like [typing_loop] so it can be tested without HTTP. *)
+let typing_loop_deferred ~send_action ~interval ~grace p =
+  let open Lwt.Syntax in
+  let grace_timer = Lwt_unix.sleep grace in
+  let p_resolved =
+    let* _ = p in
+    Lwt.return_unit
+  in
+  let* () = Lwt.choose [ grace_timer; p_resolved ] in
+  if not (Lwt.is_sleeping p) then p else typing_loop ~send_action ~interval p
+
+(* Typing wrapper with a grace period before the indicator appears.
+   If [p] resolves within [grace] seconds, no typing is shown at all.
+   Useful for autonomous continuation turns that often resolve instantly
+   with STAY_IDLE — avoids a stale 5-second typing flash on Telegram. *)
+let with_typing_deferred ~bot_token ~chat_id ~grace p =
+  typing_loop_deferred
+    ~send_action:(fun () ->
+      send_chat_action ~bot_token ~chat_id ~action:"typing")
+    ~interval:4.0 ~grace p
 
 let send_message_with_id ?(disable_notification = false) ?parse_mode ~bot_token
     ~chat_id ~text () =
@@ -1141,6 +1202,10 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
               else None
             in
             let visibility = Stream_visibility.create () in
+            (* Refresh callback set when the typing loop starts;
+               called after outbound messages to re-assert the typing
+               indicator (Telegram clears it on every bot message). *)
+            let refresh_typing = ref (fun () -> ()) in
             let send_expandable ~name ~result ~is_error =
               if is_error then
                 let formatted = Telegram_format.format_error_trace result in
@@ -1182,17 +1247,22 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                         Status_message.tool_start sm ~id ~name ~summary
                       in
                       let action = chat_action_for_tool name in
-                      Lwt.catch
-                        (fun () ->
-                          send_chat_action ~bot_token ~chat_id:update.chat_id
-                            ~action)
-                        (fun _exn -> Lwt.return_unit)
+                      let* () =
+                        Lwt.catch
+                          (fun () ->
+                            send_chat_action ~bot_token ~chat_id:update.chat_id
+                              ~action)
+                          (fun _exn -> Lwt.return_unit)
+                      in
+                      !refresh_typing ();
+                      Lwt.return_unit
                   | Provider.ToolResult { id; name; result; is_error } ->
                       let open Lwt.Syntax in
                       let* () =
                         Status_message.tool_result sm ~id ~name ~result
                           ~is_error
                       in
+                      !refresh_typing ();
                       (* Cap cache size to prevent unbounded growth *)
                       if Hashtbl.length tool_result_cache > 200 then
                         Hashtbl.clear tool_result_cache;
@@ -1202,7 +1272,10 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                       current_turn_has_tools := true;
                       (* Only send inline messages for errors; non-error
                          output is available via "Show Details" button *)
-                      if is_error then send_expandable ~name ~result ~is_error
+                      if is_error then (
+                        let* () = send_expandable ~name ~result ~is_error in
+                        !refresh_typing ();
+                        Lwt.return_unit)
                       else Lwt.return_unit
                   | Provider.ThinkingDelta text ->
                       if agent_defaults.show_thinking then
@@ -1226,11 +1299,15 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                     match chunk with
                     | Provider.ToolStart { name; _ } ->
                         let action = chat_action_for_tool name in
-                        Lwt.catch
-                          (fun () ->
-                            send_chat_action ~bot_token ~chat_id:update.chat_id
-                              ~action)
-                          (fun _exn -> Lwt.return_unit)
+                        let* () =
+                          Lwt.catch
+                            (fun () ->
+                              send_chat_action ~bot_token
+                                ~chat_id:update.chat_id ~action)
+                            (fun _exn -> Lwt.return_unit)
+                        in
+                        !refresh_typing ();
+                        Lwt.return_unit
                     | _ -> Lwt.return_unit
                   in
                   let settings : Stream_visibility.settings =
@@ -1245,14 +1322,21 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                     Stream_visibility.on_chunk visibility ~settings
                       ~notify:(fun text ->
                         let text = Telegram_format.markdown_to_mdv2 text in
-                        send_chunked ~disable_notification:true
-                          ~parse_mode:"MarkdownV2" ~bot_token
-                          ~chat_id:update.chat_id ~text ())
+                        let open Lwt.Syntax in
+                        let* () =
+                          send_chunked ~disable_notification:true
+                            ~parse_mode:"MarkdownV2" ~bot_token
+                            ~chat_id:update.chat_id ~text ()
+                        in
+                        !refresh_typing ();
+                        Lwt.return_unit)
                       chunk
                   in
                   match chunk with
                   | Provider.ToolResult { name; result; is_error; _ } ->
-                      send_expandable ~name ~result ~is_error
+                      let* () = send_expandable ~name ~result ~is_error in
+                      !refresh_typing ();
+                      Lwt.return_unit
                   | _ -> Lwt.return_unit)
             in
             let* () = set_reaction "\xe2\x8f\xb3" in
@@ -1279,27 +1363,39 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                         ()
                     in
                     drain_progress_msg_id := Some mid;
+                    !refresh_typing ();
                     Lwt.return_unit);
                 after_all =
                   (fun () ->
                     match !drain_progress_msg_id with
                     | Some mid ->
                         drain_progress_msg_id := None;
-                        Lwt.catch
-                          (fun () ->
-                            delete_message ~bot_token ~chat_id:update.chat_id
-                              ~message_id:mid ())
-                          (fun _exn -> Lwt.return_unit)
+                        let open Lwt.Syntax in
+                        let* () =
+                          Lwt.catch
+                            (fun () ->
+                              delete_message ~bot_token ~chat_id:update.chat_id
+                                ~message_id:mid ())
+                            (fun _exn -> Lwt.return_unit)
+                        in
+                        !refresh_typing ();
+                        Lwt.return_unit
                     | None -> Lwt.return_unit);
               }
             in
             let* result =
               Session.with_registered_notifier session_mgr ~key
                 ~notify:(fun text ->
-                  send_chunked ~disable_notification:true
-                    ~parse_mode:"MarkdownV2" ~bot_token ~chat_id:update.chat_id
-                    ~text:(Telegram_format.markdown_to_mdv2 text)
-                    ())
+                  let open Lwt.Syntax in
+                  let* () =
+                    send_chunked ~disable_notification:true
+                      ~parse_mode:"MarkdownV2" ~bot_token
+                      ~chat_id:update.chat_id
+                      ~text:(Telegram_format.markdown_to_mdv2 text)
+                      ()
+                  in
+                  !refresh_typing ();
+                  Lwt.return_unit)
                 (fun () ->
                   Lwt.catch
                     (fun () ->
@@ -1309,9 +1405,13 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                           ~channel:"telegram" ~channel_id:update.chat_id
                           ~on_drain_progress ~on_chunk ()
                       in
-                      let* response =
-                        with_typing ~bot_token ~chat_id:update.chat_id turn_p
+                      let result_p, refresh =
+                        with_typing_refreshable ~bot_token
+                          ~chat_id:update.chat_id turn_p
                       in
+                      refresh_typing := refresh;
+                      let* response = result_p in
+                      (refresh_typing := fun () -> ());
                       Lwt.return (Ok response))
                     (fun exn -> Lwt.return (Error (Printexc.to_string exn))))
             in
@@ -1362,11 +1462,14 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                   (* Schedule autonomous continuation so agent pings itself
                      after idle period; response delivered via persistent
                      channel notifier.  Wrap each continuation turn with
-                     the typing indicator so the user sees activity. *)
+                     a deferred typing indicator: a 1.5 s grace period
+                     avoids a stale typing flash for quick STAY_IDLE
+                     responses that resolve almost instantly. *)
                   Lwt.async (fun () ->
                       Session.process_autonomous_turn_result
                         ~around_turn:(fun f ->
-                          with_typing ~bot_token ~chat_id:update.chat_id (f ()))
+                          with_typing_deferred ~bot_token
+                            ~chat_id:update.chat_id ~grace:1.5 (f ()))
                         ~on_response:send_to_chat session_mgr ~key ~response);
                   Lwt.return_unit
             | Error err ->
