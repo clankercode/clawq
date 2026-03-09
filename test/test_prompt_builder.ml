@@ -488,6 +488,90 @@ let test_tools_block_sorted_alphabetically () =
     [ "alpha"; "middle"; "zebra" ]
     names
 
+let index_of hay needle =
+  let hlen = String.length hay in
+  let nlen = String.length needle in
+  let rec loop i =
+    if i + nlen > hlen then None
+    else if String.sub hay i nlen = needle then Some i
+    else loop (i + 1)
+  in
+  if nlen = 0 then Some 0 else loop 0
+
+let test_background_tasks_appear_after_context_usage () =
+  with_temp_workspace (fun workspace ->
+      let prompt_cfg =
+        {
+          Runtime_config.default.prompt with
+          dynamic_enabled = true;
+          include_runtime_section = true;
+          include_datetime_section = false;
+        }
+      in
+      let cfg =
+        { Runtime_config.default with workspace; prompt = prompt_cfg }
+      in
+      let runtime =
+        Prompt_builder.build_runtime_context ~config:cfg
+          ~details:
+            {
+              Prompt_builder.session_id = "test:bg:order";
+              session_name = None;
+              is_main_session = false;
+              heartbeat_routing_applies = false;
+              effective_workspace = workspace;
+              workspace_only = false;
+              sandbox_backend_requested = "none";
+              sandbox_backend_effective = "none";
+              shell_is_sandboxed = false;
+              shell_policy_summary = "none";
+              shell_visible_roots_summary = workspace;
+              background_tasks =
+                [
+                  {
+                    Prompt_builder.id = 7;
+                    runner = "codex";
+                    repo_label = "myrepo";
+                    branch = "feat-x";
+                    status = "running";
+                    elapsed = "3m";
+                  };
+                ];
+              context_usage =
+                Some
+                  {
+                    Prompt_builder.history_messages = 5;
+                    estimated_history_tokens = 1000;
+                    context_window_tokens = 128000;
+                    compaction_threshold_tokens = 96000;
+                    max_messages_per_session = 500;
+                    compacted_before_turn = false;
+                  };
+              task_tree_summary = Some "- [ ] do stuff";
+            }
+          ()
+        |> Option.value ~default:""
+      in
+      Alcotest.(check bool)
+        "includes background task" true
+        (contains runtime "#7 codex running 3m repo=myrepo branch=feat-x");
+      let ctx_pos =
+        index_of runtime "- Context usage:" |> Option.value ~default:(-1)
+      in
+      let bg_pos =
+        index_of runtime "- Background tasks:" |> Option.value ~default:(-1)
+      in
+      let tree_pos =
+        index_of runtime "## Current Tasks" |> Option.value ~default:(-1)
+      in
+      Alcotest.(check bool) "context_usage position found" true (ctx_pos >= 0);
+      Alcotest.(check bool) "background_tasks position found" true (bg_pos >= 0);
+      Alcotest.(check bool) "task_tree position found" true (tree_pos >= 0);
+      Alcotest.(check bool)
+        "background tasks after context usage" true (bg_pos > ctx_pos);
+      Alcotest.(check bool)
+        "background tasks before task tree" true (bg_pos < tree_pos))
+
 let suite =
   [
     Alcotest.test_case "dynamic prompt disabled uses base prompt" `Quick
@@ -520,4 +604,6 @@ let suite =
       test_workspace_injection_note_absent_when_no_files;
     Alcotest.test_case "tools block sorted alphabetically" `Quick
       test_tools_block_sorted_alphabetically;
+    Alcotest.test_case "background tasks appear after context usage" `Quick
+      test_background_tasks_appear_after_context_usage;
   ]

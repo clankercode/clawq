@@ -136,18 +136,6 @@ let add_runtime_details lines (details : runtime_context_details) =
        details.sandbox_backend_requested details.sandbox_backend_effective);
   add ("- Shell policy: " ^ details.shell_policy_summary);
   add ("- Shell visible roots: " ^ details.shell_visible_roots_summary);
-  (match details.background_tasks with
-  | [] -> ()
-  | tasks ->
-      add
-        ("- Background tasks:"
-        ^ String.concat ""
-            (List.map
-               (fun task ->
-                 Printf.sprintf "\n  - #%d %s %s %s repo=%s branch=%s" task.id
-                   task.runner task.status task.elapsed task.repo_label
-                   task.branch)
-               tasks)));
   (match details.context_usage with
   | None -> ()
   | Some usage ->
@@ -161,6 +149,18 @@ let add_runtime_details lines (details : runtime_context_details) =
             tokens > %d; compacted before this turn: %s"
            usage.max_messages_per_session usage.compaction_threshold_tokens
            (yes_no usage.compacted_before_turn)));
+  (match details.background_tasks with
+  | [] -> ()
+  | tasks ->
+      add
+        ("- Background tasks:"
+        ^ String.concat ""
+            (List.map
+               (fun task ->
+                 Printf.sprintf "\n  - #%d %s %s %s repo=%s branch=%s" task.id
+                   task.runner task.status task.elapsed task.repo_label
+                   task.branch)
+               tasks)));
   match details.task_tree_summary with
   | None -> ()
   | Some summary ->
