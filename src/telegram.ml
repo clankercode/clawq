@@ -617,15 +617,18 @@ let set_my_commands ~bot_token =
   in
   let uri = Printf.sprintf "%s%s/setMyCommands" api_base bot_token in
   let body = `Assoc [ ("commands", cmds) ] |> Yojson.Safe.to_string in
-  let* status, _body = Http_client.post_json ~uri ~headers:[] ~body in
+  let* status, resp_body = Http_client.post_json ~uri ~headers:[] ~body in
   if status >= 200 && status < 300 then
     Logs.info (fun m ->
         m "Telegram: registered %d slash commands"
           (List.length Slash_commands.commands))
   else
     Logs.warn (fun m ->
-        m "Telegram: setMyCommands failed (HTTP %d) for token=%s" status
-          (redact_token bot_token));
+        m "Telegram: setMyCommands failed (HTTP %d) for token=%s: %s" status
+          (redact_token bot_token)
+          (if String.length resp_body > 500 then
+             String.sub resp_body 0 500 ^ "..."
+           else resp_body));
   Lwt.return_unit
 
 let is_allowed ~(account : Runtime_config.telegram_account) ~chat_id =

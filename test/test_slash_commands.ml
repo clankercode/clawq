@@ -155,10 +155,10 @@ let test_commands_list () =
   Alcotest.(check bool) "has update" true (List.mem "update" names);
   Alcotest.(check bool) "has delegate" true (List.mem "delegate" names);
   Alcotest.(check bool)
-    "has show-thinking" true
-    (List.mem "show-thinking" names);
+    "has show_thinking" true
+    (List.mem "show_thinking" names);
   Alcotest.(check bool) "has config" true (List.mem "config" names);
-  Alcotest.(check bool) "has fork-and" true (List.mem "fork-and" names)
+  Alcotest.(check bool) "has fork_and" true (List.mem "fork_and" names)
 
 let test_case_insensitive () =
   (match Slash_commands.handle "/HELP" with
@@ -208,13 +208,18 @@ let test_fork_and_with_prompt () =
 
 let test_fork_and_no_args () =
   Alcotest.check result_testable "fork-and no args"
-    (Slash_commands.Reply "Usage: /fork-and <prompt>")
+    (Slash_commands.Reply "Usage: /fork_and <prompt>")
     (Slash_commands.handle "/fork-and")
 
 let test_fork_and_multi_word () =
   Alcotest.check result_testable "fork-and multi-word"
     (Slash_commands.ForkAnd "a b c d")
     (Slash_commands.handle "/fork-and a b c d")
+
+let test_fork_and_underscore_alias () =
+  Alcotest.check result_testable "fork_and underscore alias"
+    (Slash_commands.ForkAnd "do something")
+    (Slash_commands.handle "/fork_and do something")
 
 let test_leading_whitespace () =
   match Slash_commands.handle "  /status  " with
@@ -403,6 +408,8 @@ let suite =
     Alcotest.test_case "fork-and no args" `Quick test_fork_and_no_args;
     Alcotest.test_case "fork-and multi-word prompt" `Quick
       test_fork_and_multi_word;
+    Alcotest.test_case "/fork_and underscore alias" `Quick
+      test_fork_and_underscore_alias;
     Alcotest.test_case "/show-thinking toggle" `Quick test_show_thinking_toggle;
     Alcotest.test_case "/show-thinking status" `Quick test_show_thinking_status;
     Alcotest.test_case "/show-thinking aliases" `Quick

@@ -58,7 +58,7 @@ let commands =
         "Delegate a prompt to a temporary subagent: /delegate <prompt>";
     };
     {
-      name = "show-thinking";
+      name = "show_thinking";
       description = "Toggle display of model thinking in responses";
     };
     {
@@ -66,9 +66,9 @@ let commands =
       description = "View or modify config: /config <show|get|set|keys>";
     };
     {
-      name = "fork-and";
+      name = "fork_and";
       description =
-        "Fork the current session and run a prompt: /fork-and <prompt>";
+        "Fork the current session and run a prompt: /fork_and <prompt>";
     };
   ]
 
@@ -119,7 +119,7 @@ let handle text =
             | [] -> ShowThinking ToggleShowThinking
             | [ s ] when String.lowercase_ascii s = "status" ->
                 ShowThinking ShowThinkingStatus
-            | _ -> Reply "Usage: /show-thinking [status]")
+            | _ -> Reply "Usage: /show_thinking [status]")
         | "delegate" -> (
             match args with
             | [] -> Reply "Usage: /delegate <prompt>"
@@ -208,9 +208,9 @@ let handle text =
                      "Unknown config subcommand '%s'.\n\
                       Use /config for usage help."
                      sub))
-        | "fork-and" -> (
+        | "fork-and" | "fork_and" -> (
             match args with
-            | [] -> Reply "Usage: /fork-and <prompt>"
+            | [] -> Reply "Usage: /fork_and <prompt>"
             | _ -> ForkAnd (String.concat " " args))
         | "" -> NotACommand
         | _ -> NotACommand)

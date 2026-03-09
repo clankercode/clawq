@@ -95,7 +95,7 @@ Available in chat-integrated channels that support slash commands.
 - `/status` — report bot status
 - `/thinking [low|medium|high|off|xhigh|max]` — show or set the current thinking level; `off` clears `agent_defaults.reasoning_effort`
 - `/delegate <prompt>` — delegate a prompt to a temporary subagent session; the subagent runs the prompt, returns the result, and is discarded; the caller's main session history is not affected
-- `/fork-and <prompt>` — fork the current session's history into an ephemeral subagent and run the prompt there; the result is sent back to the channel but the parent session is not modified; useful for exploring side-tasks without polluting the main conversation
+- `/fork_and <prompt>` — fork the current session's history into an ephemeral subagent and run the prompt there; the result is sent back to the channel but the parent session is not modified; useful for exploring side-tasks without polluting the main conversation
 
 ## `!` Messages
 
