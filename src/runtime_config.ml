@@ -17,7 +17,27 @@ type provider_config = {
   thinking_budget_tokens : int option;
   oai_thinking_style : string;
   codex_oauth : codex_oauth_config option;
+  quota_credentials_file : string option;
+  quota_threshold : float option;
+  quota_check_enabled : bool;
 }
+
+let default_provider_config : provider_config =
+  {
+    api_key = "";
+    kind = None;
+    base_url = None;
+    default_model = None;
+    project_id = None;
+    location = None;
+    service_account_json = None;
+    thinking_budget_tokens = None;
+    oai_thinking_style = "none";
+    codex_oauth = None;
+    quota_credentials_file = None;
+    quota_threshold = None;
+    quota_check_enabled = true;
+  }
 
 type agent_defaults = {
   primary_model : string;
@@ -362,6 +382,7 @@ type t = {
   heartbeat : heartbeat_config;
   notify : notify_config option;
   web_search : web_search_config option;
+  quota_cache_ttl_s : int;
 }
 
 let default_workspace_files =
@@ -525,6 +546,7 @@ let default =
       };
     notify = None;
     web_search = None;
+    quota_cache_ttl_s = 300;
   }
 
 let is_key_set key =
@@ -732,6 +754,21 @@ let to_json (cfg : t) : Yojson.Safe.t =
             | None -> []
           in
           fields @ [ ("codex_oauth", `Assoc oauth_fields) ]
+    in
+    let fields =
+      match p.quota_credentials_file with
+      | Some f -> fields @ [ ("quota_credentials_file", `String f) ]
+      | None -> fields
+    in
+    let fields =
+      match p.quota_threshold with
+      | Some t -> fields @ [ ("quota_threshold", `Float t) ]
+      | None -> fields
+    in
+    let fields =
+      if not p.quota_check_enabled then
+        fields @ [ ("quota_check_enabled", `Bool false) ]
+      else fields
     in
     `Assoc fields
   in
@@ -1309,6 +1346,11 @@ let to_json (cfg : t) : Yojson.Safe.t =
         in
         fields @ [ ("web_search", `Assoc ws_fields) ]
     | None -> fields
+  in
+  let fields =
+    if cfg.quota_cache_ttl_s <> default.quota_cache_ttl_s then
+      fields @ [ ("quota_cache_ttl_s", `Int cfg.quota_cache_ttl_s) ]
+    else fields
   in
   `Assoc fields
 

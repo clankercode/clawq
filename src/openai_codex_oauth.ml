@@ -218,16 +218,10 @@ let update_provider_in_json ~provider_name f json =
 
 let default_provider_config () =
   {
-    Runtime_config.api_key = "";
+    Runtime_config.default_provider_config with
     kind = Some "openai-codex";
     base_url = Some codex_base_url;
     default_model = Some default_model;
-    project_id = None;
-    location = None;
-    service_account_json = None;
-    thinking_budget_tokens = None;
-    oai_thinking_style = "none";
-    codex_oauth = None;
   }
 
 let is_codex_provider_name name =

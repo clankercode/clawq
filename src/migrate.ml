@@ -37,18 +37,7 @@ let convert (json : Yojson.Safe.t) =
           in
           Some
             ( name,
-              ({
-                 api_key;
-                 kind = None;
-                 base_url;
-                 default_model = None;
-                 project_id = None;
-                 location = None;
-                 service_account_json = None;
-                 thinking_budget_tokens = None;
-                 oai_thinking_style = "none";
-                 codex_oauth = None;
-               }
+              ({ Runtime_config.default_provider_config with api_key; base_url }
                 : Runtime_config.provider_config) ))
         models
     with _ -> []
@@ -192,6 +181,7 @@ let convert (json : Yojson.Safe.t) =
       heartbeat = default.heartbeat;
       notify = None;
       web_search = None;
+      quota_cache_ttl_s = default.quota_cache_ttl_s;
     }
   in
   (config, List.rev !warnings)

@@ -43,6 +43,7 @@
   secret_store
   html_page
   openai_codex_oauth
+  provider_quota
   resilience
   landlock
   rich_message

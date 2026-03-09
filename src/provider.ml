@@ -453,7 +453,8 @@ let find_provider_for_model ~providers ~model_name =
   in
   List.find_map match_provider providers
 
-let select_provider ~(config : Runtime_config.t) =
+let select_provider ~(config : Runtime_config.t)
+    ?(quota_states : (string * Provider_quota.provider_quota) list = []) () =
   let find_named name =
     List.find_opt (fun (n, _) -> n = name) config.providers
   in
@@ -504,20 +505,8 @@ let select_provider ~(config : Runtime_config.t) =
                 | [] -> (
                     match config.providers with
                     | (name, p) :: _ -> (name, p)
-                    | [] ->
-                        ( "default",
-                          {
-                            Runtime_config.api_key = "";
-                            kind = None;
-                            base_url = None;
-                            default_model = None;
-                            project_id = None;
-                            location = None;
-                            service_account_json = None;
-                            thinking_budget_tokens = None;
-                            oai_thinking_style = "none";
-                            codex_oauth = None;
-                          } )))))
+                    | [] -> ("default", Runtime_config.default_provider_config))
+                )))
   in
   let provider_name, provider = chosen in
   let model =
@@ -527,11 +516,58 @@ let select_provider ~(config : Runtime_config.t) =
     | _ -> (
         match provider.default_model with Some m -> m | None -> raw_model)
   in
-  (provider_name, provider, model)
+  (* Quota-aware deprioritisation: if the selected provider is constrained and
+     an unconstrained alternative exists, prefer the alternative. *)
+  match quota_states with
+  | [] -> (provider_name, provider, model)
+  | qs -> (
+      let threshold =
+        Option.value ~default:0.85 provider.Runtime_config.quota_threshold
+      in
+      let is_cur_constrained =
+        match List.assoc_opt provider_name qs with
+        | Some pq ->
+            Provider_quota.is_constrained ~threshold pq.Provider_quota.state
+        | None -> false
+      in
+      if not is_cur_constrained then (provider_name, provider, model)
+      else
+        let unconstrained_alt =
+          List.find_opt
+            (fun (n, p) ->
+              n <> provider_name
+              && Runtime_config.provider_has_auth p
+              &&
+              let t =
+                Option.value ~default:0.85 p.Runtime_config.quota_threshold
+              in
+              match List.assoc_opt n qs with
+              | Some pq ->
+                  not
+                    (Provider_quota.is_constrained ~threshold:t
+                       pq.Provider_quota.state)
+              | None -> true)
+            config.providers
+        in
+        match unconstrained_alt with
+        | None -> (provider_name, provider, model)
+        | Some (alt_name, alt_p) ->
+            Logs.info (fun m ->
+                m "[quota] deprioritized %s (constrained), routing to %s"
+                  provider_name alt_name);
+            let alt_model =
+              match alt_p.Runtime_config.default_model with
+              | Some m -> m
+              | None -> raw_model
+            in
+            (alt_name, alt_p, alt_model))
 
-let complete ~(config : Runtime_config.t) ~messages ?tools ?session_key () =
+let complete ~(config : Runtime_config.t) ~messages ?tools ?session_key
+    ?quota_states () =
   let open Lwt.Syntax in
-  let provider_name, provider, model = select_provider ~config in
+  let provider_name, provider, model =
+    select_provider ~config ?quota_states ()
+  in
   let kind = detect_kind ~name:provider_name provider in
   let sk_tag = match session_key with Some s -> "[" ^ s ^ "] " | None -> "" in
   (* Dispatch to native handler if registered *)
@@ -892,9 +928,11 @@ let process_sse_stream ?(thinking_style = NoThinking) stream ~on_chunk =
          })
 
 let complete_stream ~(config : Runtime_config.t) ~messages ?tools ?session_key
-    ~on_chunk () =
+    ?quota_states ~on_chunk () =
   let open Lwt.Syntax in
-  let provider_name, provider, model = select_provider ~config in
+  let provider_name, provider, model =
+    select_provider ~config ?quota_states ()
+  in
   let kind = detect_kind ~name:provider_name provider in
   let sk_tag = match session_key with Some s -> "[" ^ s ^ "] " | None -> "" in
   (* Dispatch to native stream handler if registered *)

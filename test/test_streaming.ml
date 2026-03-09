@@ -255,16 +255,10 @@ let test_provider_config_default_model () =
         [
           ( "test",
             {
+              Runtime_config.default_provider_config with
               api_key = "sk-test";
-              kind = None;
               base_url = Some "http://localhost";
               default_model = Some "custom-model";
-              project_id = None;
-              location = None;
-              service_account_json = None;
-              thinking_budget_tokens = None;
-              oai_thinking_style = "none";
-              codex_oauth = None;
             } );
         ];
       default_provider = Some "test";
@@ -287,29 +281,17 @@ let test_select_provider_prefers_colon_model_provider () =
         [
           ( "groq",
             {
+              Runtime_config.default_provider_config with
               api_key = "sk-groq";
-              kind = None;
               base_url = Some "https://api.groq.com/openai/v1";
               default_model = Some "llama-3.3-70b-versatile";
-              project_id = None;
-              location = None;
-              service_account_json = None;
-              thinking_budget_tokens = None;
-              oai_thinking_style = "none";
-              codex_oauth = None;
             } );
           ( "zai_coding",
             {
+              Runtime_config.default_provider_config with
               api_key = "sk-zai";
-              kind = None;
               base_url = Some "https://api.z.ai/api/coding/paas/v4";
               default_model = Some "glm-5";
-              project_id = None;
-              location = None;
-              service_account_json = None;
-              thinking_budget_tokens = None;
-              oai_thinking_style = "none";
-              codex_oauth = None;
             } );
         ];
       default_provider = Some "groq";
@@ -320,7 +302,7 @@ let test_select_provider_prefers_colon_model_provider () =
         };
     }
   in
-  let provider_name, _, model = Provider.select_provider ~config in
+  let provider_name, _, model = Provider.select_provider ~config () in
   Alcotest.(check string)
     "provider chosen from model target" "zai_coding" provider_name;
   Alcotest.(check string) "model parsed from colon target" "glm-5" model
@@ -333,16 +315,9 @@ let test_select_provider_keeps_raw_model_when_target_provider_missing () =
         [
           ( "groq",
             {
+              Runtime_config.default_provider_config with
               api_key = "sk-groq";
-              kind = None;
               base_url = Some "https://api.groq.com/openai/v1";
-              default_model = None;
-              project_id = None;
-              location = None;
-              service_account_json = None;
-              thinking_budget_tokens = None;
-              oai_thinking_style = "none";
-              codex_oauth = None;
             } );
         ];
       default_provider = Some "groq";
@@ -353,7 +328,7 @@ let test_select_provider_keeps_raw_model_when_target_provider_missing () =
         };
     }
   in
-  let provider_name, _, model = Provider.select_provider ~config in
+  let provider_name, _, model = Provider.select_provider ~config () in
   Alcotest.(check string) "fallback provider selected" "groq" provider_name;
   Alcotest.(check string) "raw model preserved" "zai_coding:glm-5" model
 

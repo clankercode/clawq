@@ -1350,19 +1350,49 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
   let audit_enabled = agent.config.security.audit_enabled in
   let max_iters = agent.config.agent_defaults.max_tool_iterations in
   let tools = tools_json agent in
+  (* Quota state: fetch from cache once per turn (non-blocking). *)
+  let quota_states_opt =
+    let qs = Provider_quota.get_all_cached () in
+    if qs = [] then None else Some qs
+  in
+  (* Inject a quota notice into system prompt context when provider is >= 70%
+     used.  runtime_context is shadowed here so the notice is visible to the
+     LLM without altering the caller-provided context string. *)
+  let runtime_context =
+    match quota_states_opt with
+    | None -> runtime_context
+    | Some qs -> (
+        let pn, _, _ =
+          Provider.select_provider ~config:agent.config
+            ?quota_states:quota_states_opt ()
+        in
+        let notice =
+          match List.assoc_opt pn qs with
+          | Some pq -> Provider_quota.quota_notice pq
+          | None -> None
+        in
+        match notice with
+        | None -> runtime_context
+        | Some n ->
+            Some
+              (match runtime_context with
+              | None -> n
+              | Some rc -> rc ^ "\n\n" ^ n))
+  in
   let resilient_complete config messages tools =
     let res = config.Runtime_config.resilience in
     let open Lwt.Syntax in
     let primary () =
-      Provider.complete ~config ~messages ?tools ?session_key ()
+      Provider.complete ~config ~messages ?tools ?session_key
+        ?quota_states:quota_states_opt ()
     in
     let with_optional_fallback () =
       match res.fallback_provider with
       | Some fb_name ->
           let fb_config = { config with default_provider = Some fb_name } in
-          let primary_name, _, _ = Provider.select_provider ~config in
+          let primary_name, _, _ = Provider.select_provider ~config () in
           let fallback_name, _, _ =
-            Provider.select_provider ~config:fb_config
+            Provider.select_provider ~config:fb_config ()
           in
           if fallback_name = primary_name then primary ()
           else
@@ -1524,6 +1554,33 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
   let audit_enabled = agent.config.security.audit_enabled in
   let max_iters = agent.config.agent_defaults.max_tool_iterations in
   let tools = tools_json agent in
+  (* Quota state: fetch from cache once per turn (non-blocking). *)
+  let quota_states_opt =
+    let qs = Provider_quota.get_all_cached () in
+    if qs = [] then None else Some qs
+  in
+  (* Inject quota notice into system prompt context when provider >= 70% used. *)
+  let runtime_context =
+    match quota_states_opt with
+    | None -> runtime_context
+    | Some qs -> (
+        let pn, _, _ =
+          Provider.select_provider ~config:agent.config
+            ?quota_states:quota_states_opt ()
+        in
+        let notice =
+          match List.assoc_opt pn qs with
+          | Some pq -> Provider_quota.quota_notice pq
+          | None -> None
+        in
+        match notice with
+        | None -> runtime_context
+        | Some n ->
+            Some
+              (match runtime_context with
+              | None -> n
+              | Some rc -> rc ^ "\n\n" ^ n))
+  in
   (* Buffer to accumulate streamed content for interrupt annotation. *)
   let partial_buf = Buffer.create 256 in
   let wrapped_on_chunk chunk =
@@ -1555,16 +1612,16 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
     let open Lwt.Syntax in
     Buffer.clear partial_buf;
     let primary () =
-      Provider.complete_stream ~config ~messages ?tools ?session_key ~on_chunk
-        ()
+      Provider.complete_stream ~config ~messages ?tools ?session_key
+        ?quota_states:quota_states_opt ~on_chunk ()
     in
     let with_optional_fallback () =
       match res.fallback_provider with
       | Some fb_name ->
           let fb_config = { config with default_provider = Some fb_name } in
-          let primary_name, _, _ = Provider.select_provider ~config in
+          let primary_name, _, _ = Provider.select_provider ~config () in
           let fallback_name, _, _ =
-            Provider.select_provider ~config:fb_config
+            Provider.select_provider ~config:fb_config ()
           in
           if fallback_name = primary_name then primary ()
           else

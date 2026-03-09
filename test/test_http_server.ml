@@ -196,16 +196,10 @@ let fast_fail_config =
       [
         ( "test",
           {
-            Runtime_config.api_key = "fake";
-            kind = None;
+            Runtime_config.default_provider_config with
+            api_key = "fake";
             base_url = Some "http://127.0.0.1:1";
             default_model = Some "test-model";
-            project_id = None;
-            location = None;
-            service_account_json = None;
-            thinking_budget_tokens = None;
-            oai_thinking_style = "none";
-            codex_oauth = None;
           } );
       ];
     default_provider = Some "test";

@@ -290,7 +290,9 @@ let cmd_debug_prompt args =
   let cfg : Runtime_config.t = get_config () in
   let db = get_db () in
   let tool_registry = build_tool_registry ~db:(Some db) cfg in
-  let provider_name, _provider, model = Provider.select_provider ~config:cfg in
+  let provider_name, _provider, model =
+    Provider.select_provider ~config:cfg ()
+  in
   let agent = Agent.create ~config:cfg ?tool_registry () in
   let session_key = "__debug_prompt__" in
   let user_message =
@@ -587,6 +589,56 @@ let cmd_models () =
       ^ Printf.sprintf "\nDefault model: %s" cfg.agent_defaults.primary_model
       ^ Printf.sprintf "\nDefault provider: %s"
           (match cfg.default_provider with Some p -> p | None -> "(auto)")
+
+let cmd_provider args =
+  match args with
+  | "quota" :: rest -> (
+      let cfg = get_config () in
+      let target = match rest with [ name ] -> Some name | _ -> None in
+      match target with
+      | Some name when not (List.mem_assoc name cfg.providers) ->
+          Printf.sprintf "Provider '%s' not configured" name
+      | _ ->
+          let providers_to_check =
+            match target with
+            | Some name -> (
+                match List.assoc_opt name cfg.providers with
+                | Some pc -> [ (name, pc) ]
+                | None -> [])
+            | None -> cfg.providers
+          in
+          Provider_quota.set_cache_ttl cfg.quota_cache_ttl_s;
+          let results =
+            Lwt_main.run
+              (Lwt_list.map_s
+                 (fun (name, pc) ->
+                   Provider_quota.fetch_for_provider ~config:pc ~name ())
+                 providers_to_check)
+          in
+          let threshold_for name =
+            match List.assoc_opt name cfg.providers with
+            | Some pc -> Option.value ~default:0.85 pc.quota_threshold
+            | None -> 0.85
+          in
+          if results = [] then "No providers configured."
+          else
+            let lines =
+              List.map
+                (fun pq ->
+                  let summary = Provider_quota.to_summary_string pq in
+                  let label =
+                    Provider_quota.status_label
+                      ~threshold:(threshold_for pq.Provider_quota.provider_name)
+                      pq
+                  in
+                  summary ^ "  " ^ label)
+                results
+            in
+            String.concat "\n" lines)
+  | "list" :: _ | [] -> cmd_models ()
+  | unknown :: _ ->
+      Printf.sprintf
+        "Unknown provider subcommand: %s\nUsage: provider quota [NAME]" unknown
 
 let cmd_channel () =
   let cfg = get_config () in
@@ -3039,6 +3091,7 @@ let handle args =
   | "doctor" :: _ -> cmd_doctor ()
   | "onboard" :: _ -> cmd_onboard ()
   | "models" :: _ -> cmd_models ()
+  | "provider" :: rest -> cmd_provider rest
   | "channel" :: _ -> cmd_channel ()
   | "memory" :: rest -> cmd_memory rest
   | "session" :: rest -> cmd_session rest

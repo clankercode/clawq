@@ -858,7 +858,7 @@ let run ~(config : Runtime_config.t) =
         (Unix.getpid ()) Build_info.version_string);
   let workspace = Runtime_config.effective_workspace config in
   Workspace_scaffold.ensure_dir workspace;
-  let active_provider, _, active_model = Provider.select_provider ~config in
+  let active_provider, _, active_model = Provider.select_provider ~config () in
   Logs.info (fun m ->
       m "Provider: %s | Model: %s | Temp: %.2f" active_provider active_model
         config.default_temperature);
@@ -1678,6 +1678,38 @@ let run ~(config : Runtime_config.t) =
           Logs.err (fun m ->
               m "Config watch loop error: %s" (Printexc.to_string exn));
           Lwt.return_unit));
+  (* Background quota refresh: runs once at startup and every quota_cache_ttl_s
+     seconds thereafter.  Only starts if at least one provider has
+     quota_check_enabled = true. *)
+  let any_quota_enabled =
+    List.exists
+      (fun (_, (pc : Runtime_config.provider_config)) -> pc.quota_check_enabled)
+      config.providers
+  in
+  if any_quota_enabled then
+    Lwt.async (fun () ->
+        Lwt.catch
+          (fun () ->
+            let rec quota_refresh_loop () =
+              let open Lwt.Syntax in
+              let current = !current_config in
+              Provider_quota.set_cache_ttl current.quota_cache_ttl_s;
+              let* results = Provider_quota.refresh_all ~config:current () in
+              let summaries =
+                List.map Provider_quota.to_summary_string results
+              in
+              Logs.info (fun m ->
+                  m "Quota refresh: %s" (String.concat " | " summaries));
+              let* () =
+                Lwt_unix.sleep (float_of_int current.quota_cache_ttl_s)
+              in
+              quota_refresh_loop ()
+            in
+            quota_refresh_loop ())
+          (fun exn ->
+            Logs.err (fun m ->
+                m "Quota refresh loop error: %s" (Printexc.to_string exn));
+            Lwt.return_unit));
   (match db with
   | Some db ->
       Scheduler.init_schema db;

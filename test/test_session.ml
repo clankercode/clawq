@@ -73,16 +73,10 @@ let with_temp_workspace f =
 
 let make_fake_provider_config base_url : Runtime_config.provider_config =
   {
+    Runtime_config.default_provider_config with
     api_key = "test-key";
-    kind = None;
     base_url = Some base_url;
     default_model = Some "fake-model";
-    project_id = None;
-    location = None;
-    service_account_json = None;
-    thinking_budget_tokens = None;
-    oai_thinking_style = "none";
-    codex_oauth = None;
   }
 
 let with_fake_chat_provider ?response_for_user f =

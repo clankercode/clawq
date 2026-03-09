@@ -11,16 +11,9 @@ let free_port () =
 
 let make_provider_config base_url : Runtime_config.provider_config =
   {
-    api_key = "";
-    kind = None;
+    Runtime_config.default_provider_config with
     base_url = Some base_url;
     default_model = Some "fake-model";
-    project_id = None;
-    location = None;
-    service_account_json = None;
-    thinking_budget_tokens = None;
-    oai_thinking_style = "none";
-    codex_oauth = None;
   }
 
 let make_runtime_config base_url =

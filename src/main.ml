@@ -57,6 +57,18 @@ let onboard_cmd =
 let models_cmd =
   simple "models" "List configured LLM providers and their default models."
 
+let provider_cmd =
+  with_args "provider"
+    "Inspect LLM provider configuration and live quota state."
+    [
+      `S "SUBCOMMANDS";
+      `I
+        ( "quota [NAME]",
+          "Fetch and display live quota/usage for all providers, or a single \
+           named provider." );
+      `I ("list", "List configured providers (same as 'models').");
+    ]
+
 let channel_cmd =
   simple "channel" "List configured channels (CLI, Telegram, Discord, Slack)."
 
@@ -617,6 +629,7 @@ let () =
       doctor_cmd;
       onboard_cmd;
       models_cmd;
+      provider_cmd;
       channel_cmd;
       memory_cmd;
       session_cmd;

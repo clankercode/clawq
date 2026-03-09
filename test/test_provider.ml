@@ -14,30 +14,12 @@ let test_find_provider_for_model () =
     [
       ( "anthropic",
         {
-          Runtime_config.api_key = "sk-abc";
-          kind = None;
+          Runtime_config.default_provider_config with
+          api_key = "sk-abc";
           base_url = Some "https://api.anthropic.com/v1";
-          default_model = None;
-          project_id = None;
-          location = None;
-          service_account_json = None;
-          thinking_budget_tokens = None;
-          oai_thinking_style = "none";
-          codex_oauth = None;
         } );
       ( "openai",
-        {
-          Runtime_config.api_key = "sk-xyz";
-          kind = None;
-          base_url = None;
-          default_model = None;
-          project_id = None;
-          location = None;
-          service_account_json = None;
-          thinking_budget_tokens = None;
-          oai_thinking_style = "none";
-          codex_oauth = None;
-        } );
+        { Runtime_config.default_provider_config with api_key = "sk-xyz" } );
     ]
   in
   let result =
@@ -62,19 +44,7 @@ let test_find_provider_for_model () =
 let test_find_provider_no_key () =
   let providers =
     [
-      ( "anthropic",
-        {
-          Runtime_config.api_key = "";
-          kind = None;
-          base_url = None;
-          default_model = None;
-          project_id = None;
-          location = None;
-          service_account_json = None;
-          thinking_budget_tokens = None;
-          oai_thinking_style = "none";
-          codex_oauth = None;
-        } );
+      ("anthropic", { Runtime_config.default_provider_config with api_key = "" });
     ]
   in
   let result =
@@ -87,18 +57,7 @@ let test_find_provider_date_suffix () =
   let providers =
     [
       ( "anthropic",
-        {
-          Runtime_config.api_key = "sk-abc";
-          kind = None;
-          base_url = None;
-          default_model = None;
-          project_id = None;
-          location = None;
-          service_account_json = None;
-          thinking_budget_tokens = None;
-          oai_thinking_style = "none";
-          codex_oauth = None;
-        } );
+        { Runtime_config.default_provider_config with api_key = "sk-abc" } );
     ]
   in
   let result =
@@ -151,18 +110,7 @@ let test_context_window_unknown () =
     (Runtime_config.context_window_for_model "some-custom-model")
 
 let make_provider ?(base_url = None) api_key =
-  {
-    Runtime_config.api_key;
-    kind = None;
-    base_url;
-    default_model = None;
-    project_id = None;
-    location = None;
-    service_account_json = None;
-    thinking_budget_tokens = None;
-    oai_thinking_style = "none";
-    codex_oauth = None;
-  }
+  { Runtime_config.default_provider_config with api_key; base_url }
 
 let test_detect_kind_anthropic () =
   let cfg = make_provider "sk-ant-abc123" in
@@ -276,31 +224,9 @@ let test_find_provider_first_wins () =
   let providers =
     [
       ( "anthropic",
-        {
-          Runtime_config.api_key = "sk-abc";
-          kind = None;
-          base_url = None;
-          default_model = None;
-          project_id = None;
-          location = None;
-          service_account_json = None;
-          thinking_budget_tokens = None;
-          oai_thinking_style = "none";
-          codex_oauth = None;
-        } );
+        { Runtime_config.default_provider_config with api_key = "sk-abc" } );
       ( "anthropic2",
-        {
-          Runtime_config.api_key = "sk-xyz";
-          kind = None;
-          base_url = None;
-          default_model = None;
-          project_id = None;
-          location = None;
-          service_account_json = None;
-          thinking_budget_tokens = None;
-          oai_thinking_style = "none";
-          codex_oauth = None;
-        } );
+        { Runtime_config.default_provider_config with api_key = "sk-xyz" } );
     ]
   in
   let result =
@@ -317,15 +243,10 @@ let test_find_provider_with_codex_oauth_auth () =
     [
       ( "openai-codex",
         {
-          Runtime_config.api_key = "";
+          Runtime_config.default_provider_config with
           kind = Some "openai-codex";
           base_url = Some "https://chatgpt.com/backend-api/codex";
           default_model = Some "openai-codex/gpt-5-codex";
-          project_id = None;
-          location = None;
-          service_account_json = None;
-          thinking_budget_tokens = None;
-          oai_thinking_style = "none";
           codex_oauth =
             Some
               {
@@ -351,15 +272,10 @@ let test_find_provider_codex_associated_models () =
     [
       ( "openai-codex",
         {
-          Runtime_config.api_key = "";
+          Runtime_config.default_provider_config with
           kind = Some "openai-codex";
           base_url = Some "https://chatgpt.com/backend-api/codex";
           default_model = Some "openai-codex/gpt-5.3-codex";
-          project_id = None;
-          location = None;
-          service_account_json = None;
-          thinking_budget_tokens = None;
-          oai_thinking_style = "none";
           codex_oauth =
             Some
               {
@@ -394,15 +310,10 @@ let test_find_provider_ignores_empty_codex_oauth_tokens () =
     [
       ( "openai-codex",
         {
-          Runtime_config.api_key = "";
+          Runtime_config.default_provider_config with
           kind = Some "openai-codex";
           base_url = Some "https://chatgpt.com/backend-api/codex";
           default_model = Some "openai-codex/gpt-5-codex";
-          project_id = None;
-          location = None;
-          service_account_json = None;
-          thinking_budget_tokens = None;
-          oai_thinking_style = "none";
           codex_oauth =
             Some
               {

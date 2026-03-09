@@ -413,15 +413,10 @@ let test_parse_codex_oauth_provider () =
 let test_to_json_preserves_codex_oauth_provider () =
   let provider : Runtime_config.provider_config =
     {
-      api_key = "";
+      Runtime_config.default_provider_config with
       kind = Some "openai-codex";
       base_url = Some "https://chatgpt.com/backend-api/codex";
       default_model = Some "openai-codex/gpt-5-codex";
-      project_id = None;
-      location = None;
-      service_account_json = None;
-      thinking_budget_tokens = None;
-      oai_thinking_style = "none";
       codex_oauth =
         Some
           {

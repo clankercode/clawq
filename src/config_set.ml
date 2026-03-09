@@ -17,6 +17,9 @@ let provider_schema =
       ("service_account_json", L);
       ("thinking_budget_tokens", L);
       ("oai_thinking_style", L);
+      ("quota_credentials_file", L);
+      ("quota_threshold", L);
+      ("quota_check_enabled", L);
       ( "codex_oauth",
         O
           [

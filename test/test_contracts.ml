@@ -15,18 +15,7 @@ let test_discord_has_name () =
 let test_provider_config_has_required_fields () =
   (* Every provider_config must have api_key and optional base_url *)
   let cfg : Runtime_config.provider_config =
-    {
-      api_key = "sk-test";
-      kind = None;
-      base_url = None;
-      default_model = None;
-      project_id = None;
-      location = None;
-      service_account_json = None;
-      thinking_budget_tokens = None;
-      oai_thinking_style = "none";
-      codex_oauth = None;
-    }
+    { Runtime_config.default_provider_config with api_key = "sk-test" }
   in
   Alcotest.(check bool)
     "api_key field exists" true
@@ -36,16 +25,9 @@ let test_provider_config_has_required_fields () =
 let test_provider_config_base_url_some () =
   let cfg : Runtime_config.provider_config =
     {
+      Runtime_config.default_provider_config with
       api_key = "sk-test";
-      kind = None;
       base_url = Some "https://api.example.com/v1";
-      default_model = None;
-      project_id = None;
-      location = None;
-      service_account_json = None;
-      thinking_budget_tokens = None;
-      oai_thinking_style = "none";
-      codex_oauth = None;
     }
   in
   Alcotest.(check (option string))

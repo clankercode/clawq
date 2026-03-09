@@ -89,6 +89,17 @@ let parse_config ?(resolve_secrets = true) json =
                   : Runtime_config.codex_oauth_config)
             with _ -> None
           in
+          let quota_credentials_file =
+            try Some (v |> member "quota_credentials_file" |> to_string)
+            with _ -> None
+          in
+          let quota_threshold =
+            try Some (v |> member "quota_threshold" |> to_float)
+            with _ -> None
+          in
+          let quota_check_enabled =
+            try v |> member "quota_check_enabled" |> to_bool with _ -> true
+          in
           ( name,
             ({
                api_key;
@@ -101,6 +112,9 @@ let parse_config ?(resolve_secrets = true) json =
                thinking_budget_tokens;
                oai_thinking_style;
                codex_oauth;
+               quota_credentials_file;
+               quota_threshold;
+               quota_check_enabled;
              }
               : Runtime_config.provider_config) ))
     with _ -> []
@@ -1300,6 +1314,9 @@ let parse_config ?(resolve_secrets = true) json =
                : Runtime_config.web_search_config)
          else None
        with _ -> None);
+    quota_cache_ttl_s =
+      (try json |> member "quota_cache_ttl_s" |> to_int
+       with _ -> Runtime_config.default.quota_cache_ttl_s);
   }
 
 let rec merge_json (original : Yojson.Safe.t) (complete : Yojson.Safe.t) :
