@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-09T11:09:52Z"
+claimed_by: cli-user
+completed_at: "2026-03-09T11:18:56Z"
 complexity: medium
 depends_on: []
+duration_minutes: 9.0757880911
 estimate_hours: 1
 id: B122
 priority: high
-status: pending
+started_at: "2026-03-09T11:09:52Z"
+status: done
 tags: []
 title: on telegram and similar, the agent should use reaction emojis to indicate status (responding, executing, error, done, waiting, etc)
 ---

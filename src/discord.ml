@@ -239,6 +239,25 @@ let add_reaction ~bot_token ~channel_id ~message_id ~emoji =
   in
   Lwt.return_unit
 
+let delete_own_reaction ~bot_token ~channel_id ~message_id ~emoji =
+  let open Lwt.Syntax in
+  let encoded_emoji = Uri.pct_encode emoji in
+  let route =
+    "DELETE /channels/" ^ channel_id ^ "/messages/" ^ message_id ^ "/reactions"
+  in
+  let uri =
+    Printf.sprintf "%s/channels/%s/messages/%s/reactions/%s/@me" api_base
+      channel_id message_id encoded_emoji
+  in
+  let headers = [ ("Authorization", "Bot " ^ bot_token) ] in
+  let* _status, _body =
+    discord_rest_call ~route ~f:(fun () ->
+        let* status, body = Http_client.delete ~uri ~headers ~body:"" in
+        let empty_headers = Cohttp.Header.init () in
+        Lwt.return (status, empty_headers, body))
+  in
+  Lwt.return_unit
+
 let send_message ~bot_token ~channel_id ~text =
   let open Lwt.Syntax in
   let route = "POST /channels/" ^ channel_id ^ "/messages" in
@@ -539,6 +558,26 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
             agent_defaults.show_tool_calls
             && agent_defaults.tool_status_mode = "consolidated"
           in
+          let tool_reaction_set = ref false in
+          let current_reaction = ref "" in
+          let set_reaction emoji =
+            Lwt.catch
+              (fun () ->
+                let* () =
+                  if !current_reaction <> "" then
+                    Lwt.catch
+                      (fun () ->
+                        delete_own_reaction ~bot_token:discord_config.bot_token
+                          ~channel_id:msg.channel_id ~message_id:msg.id
+                          ~emoji:!current_reaction)
+                      (fun _exn -> Lwt.return_unit)
+                  else Lwt.return_unit
+                in
+                current_reaction := emoji;
+                add_reaction ~bot_token:discord_config.bot_token
+                  ~channel_id:msg.channel_id ~message_id:msg.id ~emoji)
+              (fun _exn -> Lwt.return_unit)
+          in
           let thinking_buf = Buffer.create 256 in
           let status_msg =
             if use_consolidated then
@@ -566,6 +605,13 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
           in
           let visibility = Stream_visibility.create () in
           let on_chunk chunk =
+            (match chunk with
+            | Provider.ToolStart _ ->
+                if not !tool_reaction_set then begin
+                  tool_reaction_set := true;
+                  Lwt.async (fun () -> set_reaction "\xe2\x9a\x99\xef\xb8\x8f")
+                end
+            | _ -> ());
             match status_msg with
             | Some sm -> (
                 match chunk with
@@ -598,6 +644,7 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                       ~channel_id:msg.channel_id ~text)
                   chunk
           in
+          let* () = set_reaction "\xe2\x8f\xb3" in
           let* result =
             Session.with_registered_notifier session_mgr ~key
               ~notify:(fun text ->
@@ -642,14 +689,7 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                   send_message_fn ~bot_token:discord_config.bot_token
                     ~channel_id:msg.channel_id ~text:response
                 in
-                let* () =
-                  Lwt.catch
-                    (fun () ->
-                      add_reaction ~bot_token:discord_config.bot_token
-                        ~channel_id:msg.channel_id ~message_id:msg.id
-                        ~emoji:"\xE2\x9C\x85")
-                    (fun _exn -> Lwt.return_unit)
-                in
+                let* () = set_reaction "\xE2\x9C\x85" in
                 if not (Session.take_response_deferred session_mgr ~key) then
                   Session.mark_response_sent session_mgr ~key;
                 Lwt.return_unit
@@ -670,14 +710,7 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                        "Sorry, an error occurred processing your message: %s"
                        err)
               in
-              let* () =
-                Lwt.catch
-                  (fun () ->
-                    add_reaction ~bot_token:discord_config.bot_token
-                      ~channel_id:msg.channel_id ~message_id:msg.id
-                      ~emoji:"\xE2\x9A\xA0\xEF\xB8\x8F")
-                  (fun _exn -> Lwt.return_unit)
-              in
+              let* () = set_reaction "\xE2\x9A\xA0\xEF\xB8\x8F" in
               if not (Session.take_response_deferred session_mgr ~key) then
                 Session.mark_response_sent session_mgr ~key;
               Lwt.return_unit)

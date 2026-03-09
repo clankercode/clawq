@@ -848,6 +848,14 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
               && agent_defaults.tool_status_mode = "consolidated"
             in
             let current_turn_has_tools = ref false in
+            let tool_reaction_set = ref false in
+            let set_reaction emoji =
+              Lwt.catch
+                (fun () ->
+                  set_message_reaction ~bot_token ~chat_id:update.chat_id
+                    ~message_id:update.message_id ~emoji ())
+                (fun _exn -> Lwt.return_unit)
+            in
             let thinking_buf = Buffer.create 256 in
             let status_msg =
               if use_consolidated then
@@ -912,6 +920,13 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
               | Some sm -> (
                   match chunk with
                   | Provider.ToolStart { id; name; arguments } ->
+                      let* () =
+                        if not !tool_reaction_set then begin
+                          tool_reaction_set := true;
+                          set_reaction "\xe2\x9a\x99\xef\xb8\x8f"
+                        end
+                        else Lwt.return_unit
+                      in
                       let summary =
                         Stream_visibility.summarize_tool_arguments ~name
                           arguments
@@ -952,6 +967,15 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
               | None -> (
                   let open Lwt.Syntax in
                   let* () =
+                    if not !tool_reaction_set then
+                      match chunk with
+                      | Provider.ToolStart _ ->
+                          tool_reaction_set := true;
+                          set_reaction "\xe2\x9a\x99\xef\xb8\x8f"
+                      | _ -> Lwt.return_unit
+                    else Lwt.return_unit
+                  in
+                  let* () =
                     match chunk with
                     | Provider.ToolStart { name; _ } ->
                         let action = chat_action_for_tool name in
@@ -984,6 +1008,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                       send_expandable ~name ~result ~is_error
                   | _ -> Lwt.return_unit)
             in
+            let* () = set_reaction "\xe2\x8f\xb3" in
             let* result =
               Session.with_registered_notifier session_mgr ~key
                 ~notify:(fun text ->
@@ -1045,13 +1070,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                     send_chunked ~bot_token ~chat_id:update.chat_id
                       ~text:response ()
                   in
-                  let* () =
-                    Lwt.catch
-                      (fun () ->
-                        set_message_reaction ~bot_token ~chat_id:update.chat_id
-                          ~message_id:update.message_id ~emoji:"\xE2\x9C\x85" ())
-                      (fun _exn -> Lwt.return_unit)
-                  in
+                  let* () = set_reaction "\xE2\x9C\x85" in
                   if not (Session.take_response_deferred session_mgr ~key) then
                     Session.mark_response_sent session_mgr ~key;
                   Lwt.return_unit
@@ -1071,13 +1090,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                          err)
                     ()
                 in
-                let* () =
-                  Lwt.catch
-                    (fun () ->
-                      set_message_reaction ~bot_token ~chat_id:update.chat_id
-                        ~message_id:update.message_id ~emoji:"\xE2\x9A\xA0" ())
-                    (fun _exn -> Lwt.return_unit)
-                in
+                let* () = set_reaction "\xE2\x9A\xA0" in
                 if not (Session.take_response_deferred session_mgr ~key) then
                   Session.mark_response_sent session_mgr ~key;
                 Lwt.return_unit)

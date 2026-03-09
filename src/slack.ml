@@ -140,6 +140,22 @@ let add_reaction ~bot_token ~channel_id ~timestamp ~emoji_name =
   let* _status, _body = Http_client.post_json ~uri ~headers ~body in
   Lwt.return_unit
 
+let remove_reaction ~bot_token ~channel_id ~timestamp ~emoji_name =
+  let open Lwt.Syntax in
+  let uri = "https://slack.com/api/reactions.remove" in
+  let headers = [ ("Authorization", "Bearer " ^ bot_token) ] in
+  let body =
+    `Assoc
+      [
+        ("channel", `String channel_id);
+        ("timestamp", `String timestamp);
+        ("name", `String emoji_name);
+      ]
+    |> Yojson.Safe.to_string
+  in
+  let* _status, _body = Http_client.post_json ~uri ~headers ~body in
+  Lwt.return_unit
+
 let _rate_limit_warnings : (string, float) Hashtbl.t = Hashtbl.create 16
 
 let parse_event body =
@@ -347,6 +363,26 @@ let handle_event ~(config : Runtime_config.slack_config)
                   agent_defaults.show_tool_calls
                   && agent_defaults.tool_status_mode = "consolidated"
                 in
+                let tool_reaction_set = ref false in
+                let current_reaction = ref "" in
+                let set_reaction emoji_name =
+                  Lwt.catch
+                    (fun () ->
+                      let* () =
+                        if !current_reaction <> "" then
+                          Lwt.catch
+                            (fun () ->
+                              remove_reaction ~bot_token:config.bot_token
+                                ~channel_id ~timestamp:ts
+                                ~emoji_name:!current_reaction)
+                            (fun _exn -> Lwt.return_unit)
+                        else Lwt.return_unit
+                      in
+                      current_reaction := emoji_name;
+                      add_reaction ~bot_token:config.bot_token ~channel_id
+                        ~timestamp:ts ~emoji_name)
+                    (fun _exn -> Lwt.return_unit)
+                in
                 let thinking_buf = Buffer.create 256 in
                 let status_msg =
                   if use_consolidated then
@@ -373,6 +409,13 @@ let handle_event ~(config : Runtime_config.slack_config)
                 in
                 let visibility = Stream_visibility.create () in
                 let on_chunk chunk =
+                  (match chunk with
+                  | Provider.ToolStart _ ->
+                      if not !tool_reaction_set then begin
+                        tool_reaction_set := true;
+                        Lwt.async (fun () -> set_reaction "gear")
+                      end
+                  | _ -> ());
                   match status_msg with
                   | Some sm -> (
                       match chunk with
@@ -407,6 +450,7 @@ let handle_event ~(config : Runtime_config.slack_config)
                             ~channel_id ~text)
                         chunk
                 in
+                let* () = set_reaction "hourglass_flowing_sand" in
                 let* result =
                   Session.with_registered_notifier session_manager ~key
                     ~notify:(fun text ->
@@ -450,13 +494,7 @@ let handle_event ~(config : Runtime_config.slack_config)
                         send_message_fn ~bot_token:config.bot_token ~channel_id
                           ~text:response
                       in
-                      let* () =
-                        Lwt.catch
-                          (fun () ->
-                            add_reaction ~bot_token:config.bot_token ~channel_id
-                              ~timestamp:ts ~emoji_name:"white_check_mark")
-                          (fun _exn -> Lwt.return_unit)
-                      in
+                      let* () = set_reaction "white_check_mark" in
                       if
                         not
                           (Session.take_response_deferred session_manager ~key)
@@ -479,13 +517,7 @@ let handle_event ~(config : Runtime_config.slack_config)
                               message: %s"
                              err)
                     in
-                    let* () =
-                      Lwt.catch
-                        (fun () ->
-                          add_reaction ~bot_token:config.bot_token ~channel_id
-                            ~timestamp:ts ~emoji_name:"warning")
-                        (fun _exn -> Lwt.return_unit)
-                    in
+                    let* () = set_reaction "warning" in
                     if not (Session.take_response_deferred session_manager ~key)
                     then Session.mark_response_sent session_manager ~key;
                     Lwt.return "ok")
