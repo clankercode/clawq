@@ -67,7 +67,7 @@ jobs:
       - name: Binary size check
         run: |
           eval "$(opam env)"
-          make binary-size-check
+          make binary-size-check SHELL_SWITCH="$(opam switch show)"
 
       - name: Format check
         run: |
