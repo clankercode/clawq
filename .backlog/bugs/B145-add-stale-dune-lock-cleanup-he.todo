@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B145
+priority: high
+status: pending
+tags: []
+title: Add stale Dune lock cleanup helper for build/update paths
+---
+Repeated long-running verification/build commands are vulnerable to hanging or failing due to stale `_build*/.lock` files. We should add a small helper script, intended to run before relevant make/build/update commands, that inspects known local Dune build dirs (for example `_build`, `_build_opt_speed`, `_build_opt_size`, `_build_opt_min`), determines whether each `.lock` is stale (for example no matching live dune/build process still owns or plausibly needs it), and removes only stale locks. Acceptance criteria: (1) no lock is removed while a relevant build is genuinely active; (2) stale locks are removed automatically in the pre-build path; (3) update/build flows use the helper; (4) behavior is tested as far as practical and verified manually in the live repo; (5) verification avoids the new long 10-minute hang pattern.
