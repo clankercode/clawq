@@ -182,3 +182,4 @@ bugs:
     - file: B181-telegram-connections-seem-slow.todo
     - file: B182-add-support-for-pasting-images.todo
     - file: B183-restart-resume-prompt-too-read.todo
+    - file: B184-config-show-should-preserve-sc.todo

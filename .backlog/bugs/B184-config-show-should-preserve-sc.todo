@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B184
+priority: medium
+status: pending
+tags: []
+title: Config show should preserve scalar fields when section output is too large
+---
+Observed UX issue for `/config show`: when the output for a config object/level is too large, the current truncation/formatting can make scalar fields at that same level effectively impossible to inspect because large nested sections crowd them out. Desired behavior: when rendering a config level that would otherwise be too large, preserve and show the non-object/scalar fields at that level, and summarize nested objects/sections as named sections rather than dumping them in full. Acceptance criteria: (1) `/config show` keeps scalar fields visible even when sibling nested sections are large; (2) nested objects/sections are listed/summarized clearly when omitted for size; (3) behavior remains readable over Telegram and other constrained channels; (4) tests or bounded verification cover the large-output case.
