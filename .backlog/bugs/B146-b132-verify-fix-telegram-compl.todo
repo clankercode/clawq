@@ -8,4 +8,27 @@ status: pending
 tags: []
 title: 'B132: verify/fix Telegram completion delivery after routed background task success'
 ---
+B132/B146: verify and fix Telegram completion delivery after routed background task success, including autonomous wake-up of the assistant session.
+
+Current state:
+- Routed background task metadata capture is proven to work (`session_key`, `channel`, `channel_id`).
+- User-visible Telegram completion delivery has now been observed to work at least once in the live DM.
+- The remaining gap is that the completion event should also wake the assistant session itself, not merely send a message to the human user.
+
+Goals:
+1. Verify/fix the completion path from background task success through `notify_background_task_finished`.
+2. Ensure completion notices remain visible in-channel for the user.
+3. Ensure the same completion event is injected back into the originating chat-log session so the assistant receives a new turn and can continue autonomously.
+4. Make the injected message clearly labeled as automatic/system-generated rather than impersonating the user.
+5. If the session is busy, queue the completion event through the normal same-session message queue/injection path.
+6. Add tests/logging/observability as needed so future failures are diagnosable.
+
+Acceptance criteria:
+- A delegated/background task launched from this Telegram session with routing metadata produces a visible completion message back into this same DM.
+- The same event is injected into the originating session and wakes the assistant without manual user input.
+- Busy-session behavior queues correctly rather than dropping the event.
+- The injected text is prefixed/labeled to indicate it was automatic/system-injected.
+- Tests cover the queue/injection path and completion routing path where practical.
+- End-to-end behavior is verified on master after merge/update.
+
 We have now proven that CLI-launched delegates can persist correct originating-session routing metadata when `CLAWQ_SESSION_ID` is set (`session_key`, `channel`, `channel_id` all stored correctly for Telegram). However, successful tasks still did not yield an observed completion notice in the live Telegram DM. Need a focused investigation of the remaining gap between stored routing metadata and actual user-visible completion delivery. Goals: (1) identify whether the daemon completion callback fires; (2) confirm whether `notify_background_task_finished` is invoked in the live process; (3) verify whether Telegram dispatch succeeds or silently fails; (4) add targeted tests/logging/fixes as needed; (5) verify end-to-end in the live Telegram session after merging/updating. Acceptance criteria: a delegated/background task launched from this Telegram session with routing metadata produces a visible completion message back into this same session, and the path is covered by tests where practical.
