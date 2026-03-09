@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-09T17:28:17Z"
+claimed_by: cli-user
+completed_at: "2026-03-09T17:44:38Z"
 complexity: medium
 depends_on: []
+duration_minutes: 16.3573978815
 estimate_hours: 1
 id: B212
 priority: high
-status: pending
+started_at: "2026-03-09T17:28:17Z"
+status: done
 tags: []
 title: STAY_IDLE should be hidden when the automated check-in message is hidden. Also, the automated check in message should not be removed from chat logs if it is (I suspect it might be?)
 ---

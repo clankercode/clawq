@@ -224,6 +224,24 @@ let register_rich_notifier mgr ~key notify =
 let unregister_rich_notifier mgr ~key = Hashtbl.remove mgr.rich_notifiers key
 let find_rich_notifier mgr ~key = Hashtbl.find_opt mgr.rich_notifiers key
 
+(* Temporarily suppress all channel-visible output (notifier, status messages)
+   for the duration of [f]. Used during autonomous continuation turns when the
+   check-in message is hidden from the user, so thinking/tool-call status/
+   compaction notices don't leak to the channel either. *)
+let with_suppressed_channel_output mgr ~key f =
+  let prev_notify = Hashtbl.find_opt mgr.channel_notifiers key in
+  let prev_factory = Hashtbl.find_opt mgr.status_message_factories key in
+  Hashtbl.remove mgr.channel_notifiers key;
+  Hashtbl.remove mgr.status_message_factories key;
+  Lwt.finalize f (fun () ->
+      (match prev_notify with
+      | Some n -> Hashtbl.replace mgr.channel_notifiers key n
+      | None -> ());
+      (match prev_factory with
+      | Some fac -> Hashtbl.replace mgr.status_message_factories key fac
+      | None -> ());
+      Lwt.return_unit)
+
 let set_response_deferred mgr ~key =
   Hashtbl.replace mgr.deferred_responses key ()
 
@@ -1325,7 +1343,7 @@ let rec schedule_autonomous_continuation
               | None -> Lwt.return_unit
             else Lwt.return_unit
           in
-          let* response =
+          let run_continuation_turn () =
             Lwt.catch
               (fun () ->
                 around_turn (fun () ->
@@ -1335,6 +1353,11 @@ let rec schedule_autonomous_continuation
                     m "Autonomous continuation prompt failed for %s: %s" key
                       (Printexc.to_string exn));
                 Lwt.return "")
+          in
+          let* response =
+            if mgr.config.agent_defaults.send_continuation_checkin then
+              run_continuation_turn ()
+            else with_suppressed_channel_output mgr ~key run_continuation_turn
           in
           let trimmed = String.trim response in
           if trimmed = queued_message_response then Lwt.return_unit

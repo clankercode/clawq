@@ -1818,6 +1818,76 @@ let test_autonomous_continuation_suppresses_checkin_by_default () =
         "no labeled injection when send_continuation_checkin=false" true
         (Option.is_none labeled))
 
+let test_autonomous_continuation_suppresses_all_output_when_checkin_disabled ()
+    =
+  let continuation_calls = ref 0 in
+  let notified = ref [] in
+  let response_for_user message =
+    if String.starts_with ~prefix:Session.autonomous_continuation_prompt message
+    then (
+      incr continuation_calls;
+      "STAY_IDLE")
+    else "reply:" ^ message
+  in
+  with_fake_chat_provider ~response_for_user (fun config ->
+      (* send_continuation_checkin = false (default) *)
+      let mgr = Session.create ~config () in
+      let key = "telegram:42:9" in
+      Session.register_channel_notifier mgr ~key (fun text ->
+          notified := text :: !notified;
+          Lwt.return_unit);
+      Lwt_main.run
+        (Session.schedule_autonomous_continuation ~delay:0.02 mgr ~key);
+      Alcotest.(check int) "continuation prompt sent once" 1 !continuation_calls;
+      Alcotest.(check (list string))
+        "no notifications at all when checkin disabled" [] !notified;
+      (* Verify notifier was restored after the turn *)
+      Alcotest.(check bool)
+        "notifier restored after suppressed turn" true
+        (Option.is_some (Session.find_registered_notifier mgr ~key)))
+
+let test_autonomous_continuation_preserves_history_when_checkin_disabled () =
+  let continuation_calls = ref 0 in
+  let response_for_user message =
+    if String.starts_with ~prefix:Session.autonomous_continuation_prompt message
+    then (
+      incr continuation_calls;
+      "STAY_IDLE")
+    else "reply:" ^ message
+  in
+  with_fake_chat_provider ~response_for_user (fun config ->
+      let db = Memory.init ~db_path:":memory:" () in
+      let mgr = Session.create ~config ~db () in
+      let key = "telegram:42:10" in
+      Session.register_channel_notifier mgr ~key (fun _text -> Lwt.return_unit);
+      Lwt_main.run
+        (Session.schedule_autonomous_continuation ~delay:0.02 mgr ~key);
+      Alcotest.(check int) "continuation prompt sent once" 1 !continuation_calls;
+      (* Verify the continuation prompt and STAY_IDLE response are in the
+         persisted message history *)
+      let messages = Memory.load_raw_history ~db ~session_key:key in
+      let user_msgs =
+        List.filter (fun (m : Memory.raw_message) -> m.role = "user") messages
+      in
+      let assistant_msgs =
+        List.filter
+          (fun (m : Memory.raw_message) -> m.role = "assistant")
+          messages
+      in
+      Alcotest.(check bool)
+        "continuation prompt persisted as user message" true
+        (List.exists
+           (fun (m : Memory.raw_message) ->
+             String.starts_with ~prefix:Session.autonomous_continuation_prompt
+               m.content)
+           user_msgs);
+      Alcotest.(check bool)
+        "STAY_IDLE response persisted as assistant message" true
+        (List.exists
+           (fun (m : Memory.raw_message) ->
+             String.trim m.content = Session.autonomous_stay_idle_message)
+           assistant_msgs))
+
 let test_autonomous_continuation_disabled_by_config () =
   let continuation_calls = ref 0 in
   let response_for_user message =
@@ -2090,6 +2160,13 @@ let suite =
       test_autonomous_continuation_sends_visible_injection;
     Alcotest.test_case "autonomous continuation suppresses check-in by default"
       `Quick test_autonomous_continuation_suppresses_checkin_by_default;
+    Alcotest.test_case
+      "autonomous continuation suppresses all output when checkin disabled"
+      `Quick
+      test_autonomous_continuation_suppresses_all_output_when_checkin_disabled;
+    Alcotest.test_case
+      "autonomous continuation preserves history when checkin disabled" `Quick
+      test_autonomous_continuation_preserves_history_when_checkin_disabled;
     Alcotest.test_case
       "autonomous continuation disabled by config returns immediately" `Quick
       test_autonomous_continuation_disabled_by_config;
