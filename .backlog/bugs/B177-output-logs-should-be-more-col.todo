@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B177
+priority: high
+status: pending
+tags: []
+title: Output logs should be more colorful (when viewed via tail -f). goal is to make it easier to view, search, navigate, etc
+---
+
+Output logs should be more colorful (when viewed via tail -f). goal is to make it easier to view, search, navigate, etc

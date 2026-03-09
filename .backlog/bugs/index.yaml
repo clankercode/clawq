@@ -175,3 +175,4 @@ bugs:
     - file: B174-telegram-typing-indicator-shou.todo
     - file: B175-session-show-incomplete-or-sys.todo
     - file: B176-before-compaction-we-should-fo.todo
+    - file: B177-output-logs-should-be-more-col.todo
