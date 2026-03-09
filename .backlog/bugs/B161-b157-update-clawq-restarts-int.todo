@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B161
+priority: high
+status: pending
+tags: []
+title: 'B157: update_clawq restarts into stale build instead of current master HEAD'
+---
+Observed during live restart test after B146. `update_clawq` successfully rebuilt and signalled restart, and the daemon resumed the pending Telegram session, but the restarted process reported build `ca6ce3f0` even though repository `master` was at `150968c9` (including `9fa45083` and `150968c9`). This indicates the update/restart path is not actually promoting the running daemon to the newly built/current master code. Goal: trace the exact build/install/reexec path used by `update_clawq`, determine why it can restart into a stale artifact, and implement a focused fix. Acceptance criteria: (1) after update, startup log commit/build matches repo HEAD or the intended built revision; (2) restart path does not silently exec an older install artifact when a new build succeeded; (3) tests or targeted verification cover the chosen seam where practical; (4) diagnosis notes any remaining caveats such as symlinked binaries, install roots, stale build products, or mismatched exec target selection.
