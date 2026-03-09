@@ -54,8 +54,8 @@ let exec_command ~env = function
           | None -> failwith (Printf.sprintf "command not found: %s" prog)))
 
 let start ?cwd ~env command =
-  let stdout_r, stdout_w = Unix.pipe () in
-  let stderr_r, stderr_w = Unix.pipe () in
+  let stdout_r, stdout_w = Unix.pipe ~cloexec:true () in
+  let stderr_r, stderr_w = Unix.pipe ~cloexec:true () in
   match Unix.fork () with
   | 0 -> (
       let setup_child () =
@@ -87,6 +87,34 @@ let start ?cwd ~env command =
         stderr =
           Lwt_io.of_fd ~mode:Lwt_io.Input (Lwt_unix.of_unix_file_descr stderr_r);
       }
+
+type t_file = { file_pid : int }
+
+let start_to_file ?cwd ~env ~log_path command =
+  let log_fd =
+    Unix.openfile log_path [ Unix.O_WRONLY; Unix.O_CREAT; Unix.O_APPEND ] 0o644
+  in
+  match Unix.fork () with
+  | 0 -> (
+      let setup_child () =
+        ignore (Unix.setsid ());
+        (match cwd with Some dir -> Unix.chdir dir | None -> ());
+        let stdin_fd = Unix.openfile "/dev/null" [ Unix.O_RDONLY ] 0 in
+        Unix.dup2 stdin_fd Unix.stdin;
+        Unix.dup2 log_fd Unix.stdout;
+        Unix.dup2 log_fd Unix.stderr;
+        close_noerr stdin_fd;
+        close_noerr log_fd;
+        exec_command ~env command
+      in
+      try setup_child ()
+      with exn ->
+        let msg = Printexc.to_string exn ^ "\n" in
+        ignore (Unix.write_substring Unix.stderr msg 0 (String.length msg));
+        exit 127)
+  | pid ->
+      close_noerr log_fd;
+      { file_pid = pid }
 
 let signal_group pid signal = try Unix.kill (-pid) signal with _ -> ()
 

@@ -386,6 +386,7 @@ let test_logs_tool_offset_paging () =
       Background_task.finish ~db ~id ~status:Background_task.Succeeded
         ~result_preview:"ok";
       let tool = Background_task.logs_tool ~db in
+      (* Read lines 3-5 using offset *)
       let result =
         Lwt_main.run
           (tool.Tool.invoke
@@ -442,6 +443,7 @@ let test_logs_tool_offset_end_of_log () =
       Background_task.finish ~db ~id ~status:Background_task.Succeeded
         ~result_preview:"ok";
       let tool = Background_task.logs_tool ~db in
+      (* Read from offset 4 with limit 100 — should hit end *)
       let result =
         Lwt_main.run
           (tool.Tool.invoke
@@ -525,6 +527,7 @@ let test_logs_tool_lines_backward_compat () =
       Background_task.finish ~db ~id ~status:Background_task.Succeeded
         ~result_preview:"ok";
       let tool = Background_task.logs_tool ~db in
+      (* Use lines param (backward compat, tail mode) *)
       let result =
         Lwt_main.run
           (tool.Tool.invoke (`Assoc [ ("id", `Int id); ("lines", `Int 3) ]))
@@ -1489,6 +1492,171 @@ let test_max_wait_seconds_is_180 () =
   Alcotest.(check (float 0.0))
     "max_wait_seconds is 180" 180.0 Background_task.max_wait_seconds
 
+let test_start_to_file () =
+  let log_path = Filename.temp_file "clawq-bg-file" ".log" in
+  Fun.protect
+    ~finally:(fun () -> try Sys.remove log_path with Sys_error _ -> ())
+    (fun () ->
+      (* Remove the temp file so start_to_file creates it fresh *)
+      Sys.remove log_path;
+      let proc =
+        Process_group.start_to_file ~env:(Unix.environment ()) ~log_path
+          (Process_group.Exec [| "echo"; "hello" |])
+      in
+      let status =
+        Lwt_main.run (Process_group.wait proc.Process_group.file_pid)
+      in
+      let exit_code = Background_task.exit_code_of_status status in
+      Alcotest.(check int) "exit code 0" 0 exit_code;
+      let content = Background_task.read_log_tail log_path 1024 in
+      Alcotest.(check string) "log contains hello" "hello" content)
+
+let test_readopt_running_alive_pid () =
+  Background_task.clear_all_tracked ();
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let log_path = Filename.temp_file "clawq-bg-readopt" ".log" in
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"test readopt" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      (* Spawn a short-lived child via start_to_file *)
+      let proc =
+        Process_group.start_to_file ~env:(Unix.environment ()) ~log_path
+          (Process_group.Exec [| "sh"; "-c"; "echo readopt-output; sleep 1" |])
+      in
+      let pid = proc.Process_group.file_pid in
+      ignore
+        (Background_task.set_running ~db ~id ~branch:"clawq-bg-1"
+           ~worktree_path:"/tmp/worktree" ~log_path ~pid);
+      let callback_fired = ref false in
+      let readopted =
+        Background_task.readopt_running_tasks ~db ~on_task_finished:(fun _ ->
+            callback_fired := true;
+            Lwt.return_unit)
+      in
+      Alcotest.(check int) "one task readopted" 1 readopted;
+      Alcotest.(check bool)
+        "task is tracked locally" true
+        (Background_task.is_tracked_locally id);
+      (* Wait for child to exit and callback to fire *)
+      Lwt_main.run
+        (let open Lwt.Syntax in
+         let deadline = Unix.gettimeofday () +. 5.0 in
+         let rec wait () =
+           match Background_task.get_task ~db ~id with
+           | Some t when Background_task.is_terminal_status t.status ->
+               Lwt.return_unit
+           | _ when Unix.gettimeofday () > deadline ->
+               Alcotest.fail "task did not reach terminal status"
+           | _ ->
+               let* () = Lwt_unix.sleep 0.1 in
+               wait ()
+         in
+         wait ());
+      (match Background_task.get_task ~db ~id with
+      | None -> Alcotest.fail "expected task"
+      | Some task ->
+          Alcotest.(check string)
+            "status succeeded" "succeeded"
+            (Background_task.string_of_status task.status);
+          Alcotest.(check bool)
+            "result contains output" true
+            (match task.result_preview with
+            | Some s -> (
+                try
+                  ignore
+                    (Str.search_forward
+                       (Str.regexp_string "readopt-output")
+                       s 0);
+                  true
+                with Not_found -> false)
+            | None -> false));
+      Alcotest.(check bool) "on_task_finished fired" true !callback_fired;
+      try Sys.remove log_path with Sys_error _ -> ())
+
+let test_readopt_idempotent () =
+  Background_task.clear_all_tracked ();
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let log_path = Filename.temp_file "clawq-bg-readopt-idem" ".log" in
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"test readopt idempotent" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      let proc =
+        Process_group.start_to_file ~env:(Unix.environment ()) ~log_path
+          (Process_group.Exec [| "sleep"; "5" |])
+      in
+      let pid = proc.Process_group.file_pid in
+      ignore
+        (Background_task.set_running ~db ~id ~branch:"clawq-bg-1"
+           ~worktree_path:"/tmp/worktree" ~log_path ~pid);
+      let first =
+        Background_task.readopt_running_tasks ~db ~on_task_finished:(fun _ ->
+            Lwt.return_unit)
+      in
+      Alcotest.(check int) "first call readopts one" 1 first;
+      let second =
+        Background_task.readopt_running_tasks ~db ~on_task_finished:(fun _ ->
+            Lwt.return_unit)
+      in
+      Alcotest.(check int) "second call readopts zero" 0 second;
+      (* Cleanup: kill the sleep and wait *)
+      Process_group.terminate_blocking pid;
+      Lwt_main.run
+        (let open Lwt.Syntax in
+         let deadline = Unix.gettimeofday () +. 5.0 in
+         let rec wait () =
+           if not (Background_task.is_tracked_locally id) then Lwt.return_unit
+           else if Unix.gettimeofday () > deadline then Lwt.return_unit
+           else
+             let* () = Lwt_unix.sleep 0.1 in
+             wait ()
+         in
+         wait ());
+      try Sys.remove log_path with Sys_error _ -> ())
+
+let test_readopt_skips_dead_pid () =
+  Background_task.clear_all_tracked ();
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"test readopt dead" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      (* Use a PID that doesn't exist *)
+      ignore
+        (Background_task.set_running ~db ~id ~branch:"clawq-bg-1"
+           ~worktree_path:"/tmp/worktree" ~log_path:"/tmp/task.log" ~pid:999999);
+      let readopted =
+        Background_task.readopt_running_tasks ~db ~on_task_finished:(fun _ ->
+            Lwt.return_unit)
+      in
+      Alcotest.(check int) "dead pid not readopted" 0 readopted;
+      (* Verify task is still Running (reap handles dead PIDs, not readopt) *)
+      match Background_task.get_task ~db ~id with
+      | None -> Alcotest.fail "expected task"
+      | Some task ->
+          Alcotest.(check string)
+            "status still running" "running"
+            (Background_task.string_of_status task.status))
+
 let suite =
   [
     Alcotest.test_case "enqueue and list tasks" `Quick
@@ -1574,4 +1742,11 @@ let suite =
       test_wait_until_terminal_timeout;
     Alcotest.test_case "max_wait_seconds is 180" `Quick
       test_max_wait_seconds_is_180;
+    Alcotest.test_case "start_to_file writes output to log" `Quick
+      test_start_to_file;
+    Alcotest.test_case "readopt re-adopts alive running task" `Quick
+      test_readopt_running_alive_pid;
+    Alcotest.test_case "readopt is idempotent" `Quick test_readopt_idempotent;
+    Alcotest.test_case "readopt skips dead pid" `Quick
+      test_readopt_skips_dead_pid;
   ]

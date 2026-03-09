@@ -408,6 +408,7 @@ let read_lines_window path ~offset ~limit =
                 if line_num >= offset && collected < limit then
                   loop (line_num + 1) ((line_num, line) :: acc) (collected + 1)
                 else if collected >= limit then
+                  (* count remaining lines *)
                   let rec count n =
                     match input_line ic with
                     | _ -> count (n + 1)
@@ -930,6 +931,18 @@ let exit_code_of_status = function
   | Unix.WSIGNALED n -> 128 + n
   | Unix.WSTOPPED n -> 128 + n
 
+let read_log_tail path max_chars =
+  try
+    let ic = open_in path in
+    Fun.protect
+      ~finally:(fun () -> close_in_noerr ic)
+      (fun () ->
+        let len = in_channel_length ic in
+        let start = max 0 (len - max_chars) in
+        seek_in ic start;
+        String.trim (really_input_string ic (len - start)))
+  with _ -> ""
+
 let run_command_capture ~cwd ~argv ~log_path =
   let proc =
     Process_group.start ~cwd ~env:(Unix.environment ())
@@ -1042,10 +1055,10 @@ let spawn_task ?(on_task_started = fun _ -> Lwt.return_unit)
                          })
               in
               let proc =
-                Process_group.start ~cwd:worktree_path
-                  ~env:(Unix.environment ()) command
+                Process_group.start_to_file ~cwd:worktree_path
+                  ~env:(Unix.environment ()) ~log_path command
               in
-              let pid = proc.pid in
+              let pid = proc.file_pid in
               if
                 not
                   (set_running ~db ~id:task.id ~branch ~worktree_path ~log_path
@@ -1053,7 +1066,6 @@ let spawn_task ?(on_task_started = fun _ -> Lwt.return_unit)
               then
                 let* () = Process_group.terminate_immediately pid in
                 let* _ = Process_group.wait pid in
-                let* () = Process_group.close proc in
                 Lwt.return_unit
               else
                 let* () =
@@ -1061,45 +1073,20 @@ let spawn_task ?(on_task_started = fun _ -> Lwt.return_unit)
                   | Some t -> on_task_started t
                   | None -> Lwt.return_unit
                 in
-                let stdout_buf = Buffer.create 1024 in
-                let stderr_buf = Buffer.create 256 in
-                let wait_promise = Process_group.wait proc.pid in
-                (* B210 watchdog: after child exits, give IO 2s to drain,
-                   then kill remaining process group members that may be
-                   holding pipe fds open (e.g. grandchildren) *)
+                let* status = Process_group.wait pid in
+                (* B210 watchdog: after child exits, give process group
+                   2s then kill remaining members (e.g. grandchildren) *)
                 Lwt.async (fun () ->
                     let open Lwt.Syntax in
-                    let* _status = wait_promise in
                     let* () = Lwt_unix.sleep 2.0 in
                     Logs.info (fun m ->
                         m
                           "Background task %d: child exited, killing remaining \
                            process group members"
                           task.id);
-                    Process_group.signal_group proc.pid Sys.sigkill;
+                    Process_group.signal_group pid Sys.sigkill;
                     Lwt.return_unit);
-                let* status =
-                  Lwt.finalize
-                    (fun () ->
-                      let* () =
-                        Lwt_io.with_file ~mode:Lwt_io.Output log_path
-                          (fun log_oc ->
-                            Lwt.join
-                              [
-                                read_into_buffer_and_log
-                                  proc.Process_group.stdout log_oc stdout_buf;
-                                read_into_buffer_and_log
-                                  proc.Process_group.stderr log_oc stderr_buf;
-                              ])
-                      in
-                      wait_promise)
-                    (fun () -> Process_group.close proc)
-                in
-                let output =
-                  String.trim
-                    (Buffer.contents stdout_buf ^ "\n"
-                   ^ Buffer.contents stderr_buf)
-                in
+                let output = read_log_tail log_path preview_limit in
                 let exit_code = exit_code_of_status status in
                 let final_status =
                   match get_task ~db ~id:task.id with
@@ -1141,6 +1128,7 @@ let start_queued ~db =
   start_queued_with_callback ~on_task_finished:(fun _ -> Lwt.return_unit) ~db ()
 
 let is_tracked_locally id = Hashtbl.mem running id
+let clear_all_tracked () = Hashtbl.clear running
 
 let reap_dead_running_tasks ~db ~on_task_finished =
   let running_in_db =
@@ -1174,6 +1162,63 @@ let reap_dead_running_tasks ~db ~on_task_finished =
             | None -> Lwt.return_unit)
       end)
     running_in_db;
+  !count
+
+let readopt_running_tasks ~db ~on_task_finished =
+  let orphaned =
+    List.filter
+      (fun t ->
+        t.status = Running
+        && (not (Hashtbl.mem running t.id))
+        &&
+        match t.pid with
+        | Some pid when pid > 0 -> Process_group.group_alive pid
+        | _ -> false)
+      (list_tasks ~db)
+  in
+  let count = ref 0 in
+  List.iter
+    (fun task ->
+      match task.pid with
+      | Some pid ->
+          Hashtbl.replace running task.id ();
+          incr count;
+          Lwt.async (fun () ->
+              Lwt.finalize
+                (fun () ->
+                  let open Lwt.Syntax in
+                  let* status = Lwt_unix.waitpid [] pid in
+                  (* B210 watchdog: kill remaining process group members *)
+                  Lwt.async (fun () ->
+                      let open Lwt.Syntax in
+                      let* () = Lwt_unix.sleep 2.0 in
+                      Process_group.signal_group pid Sys.sigkill;
+                      Lwt.return_unit);
+                  let exit_code = exit_code_of_status (snd status) in
+                  let final_status =
+                    match get_task ~db ~id:task.id with
+                    | Some { status = Cancelled; _ } -> Cancelled
+                    | _ -> if exit_code = 0 then Succeeded else Failed
+                  in
+                  let output =
+                    match task.log_path with
+                    | Some path -> read_log_tail path preview_limit
+                    | None -> ""
+                  in
+                  let result_preview =
+                    if output = "" then
+                      Printf.sprintf "Process exited with code %d" exit_code
+                    else Printf.sprintf "exit %d: %s" exit_code output
+                  in
+                  finish ~db ~id:task.id ~status:final_status ~result_preview;
+                  match get_task ~db ~id:task.id with
+                  | Some t -> on_task_finished t
+                  | None -> Lwt.return_unit)
+                (fun () ->
+                  Hashtbl.remove running task.id;
+                  Lwt.return_unit))
+      | None -> ())
+    orphaned;
   !count
 
 let enqueue_tool_with_notify ~notify_cfg ~db =

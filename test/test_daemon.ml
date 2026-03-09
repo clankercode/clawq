@@ -313,7 +313,7 @@ let test_default_resume_turn_uses_explicit_resume_prompt () =
            "without waiting for a new user message");
       Alcotest.(check bool)
         "stay-idle is subordinate, not foregrounded" true
-        (string_contains Daemon.resume_turn_prompt "(If after checking");
+        (string_contains Daemon.resume_turn_prompt "(If, after checking");
       Alcotest.(check bool)
         "stay-idle not presented as equal first-class branch" false
         (string_contains Daemon.resume_turn_prompt "Reply exactly STAY_IDLE");
