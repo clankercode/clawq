@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B166
+priority: high
+status: pending
+tags: []
+title: Agent should be able to search it's own session/chat log history (even for archived epochs)
+---
+
+Agent should be able to search it's own session/chat log history (even for archived epochs)
