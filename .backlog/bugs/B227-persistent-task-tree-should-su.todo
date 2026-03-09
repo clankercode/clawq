@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B227
+priority: medium
+status: pending
+tags: []
+title: Persistent task_tree should support current-focus / next-action projection in runtime context and connector updates
+---
+The task_tree tool now exists, but to become operationally central it should expose a concise current-focus / next-action projection rather than only a raw tree dump. Runtime context and outward notifications should emphasize the active branch, blockers, and immediate next step so the agent and user are aligned. Distinct from B225 (rich connector-native updates): this is about deriving a high-signal current-focus view from the tree itself. Acceptance criteria: (1) task_tree can render a concise current-focus/next-action summary; (2) runtime context prefers that high-signal projection over a bulky full tree where appropriate; (3) blocked/error states and active path are obvious; (4) connector updates can reuse this projection cleanly.

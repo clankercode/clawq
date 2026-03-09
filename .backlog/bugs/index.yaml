@@ -225,3 +225,4 @@ bugs:
     - file: B224-task-tree-tool-should-support.todo
     - file: B225-task-tree-updates-should-produ.todo
     - file: B226-task-tree-should-support-templ.todo
+    - file: B227-persistent-task-tree-should-su.todo
