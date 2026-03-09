@@ -265,3 +265,4 @@ bugs:
     - file: B264-keepalive-sessions-should-auto.todo
     - file: B265-the-compact-history-descriptio.todo
     - file: B266-when-we-restart-it-seems-to-ha.todo
+    - file: B267-reported-bg-task-runtime-can-b.todo

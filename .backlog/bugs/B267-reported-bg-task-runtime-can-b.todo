@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B267
+priority: high
+status: pending
+tags: []
+title: reported bg task runtime can be way off. eg this is 2 h+ but It was started at like 10:52 and now it's 10:56
+---
+example line from ./clawq background:   43   codex    running  active           2h+      clawq-bg-b266
