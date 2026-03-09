@@ -36,6 +36,61 @@ let rec redact_json = function
   | `List items -> `List (List.map redact_json items)
   | other -> other
 
+let max_pretty_chars = 2000
+
+let is_section_value = function
+  | `Assoc (_ :: _) -> true
+  | `List (`Assoc _ :: _ as items) -> List.length items > 1
+  | _ -> false
+
+let section_summary full_key = function
+  | `Assoc fields ->
+      Printf.sprintf "  %s: {%d fields}" full_key (List.length fields)
+  | `List items ->
+      Printf.sprintf "  %s: [%d items]" full_key (List.length items)
+  | _ -> Printf.sprintf "  %s: ..." full_key
+
+let smart_render ?(prefix = "") json =
+  let full = Yojson.Safe.pretty_to_string ~std:true json in
+  if String.length full <= max_pretty_chars then full
+  else
+    match json with
+    | `Assoc fields ->
+        let scalars, sections =
+          List.partition (fun (_, v) -> not (is_section_value v)) fields
+        in
+        let buf = Buffer.create 512 in
+        if scalars <> [] then
+          Buffer.add_string buf
+            (Yojson.Safe.pretty_to_string ~std:true (`Assoc scalars));
+        if sections <> [] then begin
+          if scalars <> [] then Buffer.add_string buf "\n\n";
+          Buffer.add_string buf
+            "Sections (use 'config show <name>' for details):\n";
+          List.iter
+            (fun (k, v) ->
+              let full_key = if prefix = "" then k else prefix ^ "." ^ k in
+              Buffer.add_string buf (section_summary full_key v);
+              Buffer.add_char buf '\n')
+            sections
+        end;
+        Buffer.contents buf
+    | _ -> full
+
+let resolve_dot_path json path =
+  let keys = String.split_on_char '.' path in
+  let rec walk j = function
+    | [] -> Some j
+    | k :: rest -> (
+        match j with
+        | `Assoc fields -> (
+            match List.assoc_opt k fields with
+            | Some v -> walk v rest
+            | None -> None)
+        | _ -> None)
+  in
+  walk json keys
+
 let show section =
   let path =
     let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
@@ -48,16 +103,13 @@ let show section =
     | None -> "Error: failed to parse " ^ path
     | Some json ->
         let redacted = redact_json json in
-        let target =
+        let target, prefix =
           match section with
           | Some key -> (
-              match redacted with
-              | `Assoc fields -> (
-                  match List.assoc_opt key fields with
-                  | Some v -> v
-                  | None ->
-                      `String (Printf.sprintf "Section '%s' not found" key))
-              | _ -> redacted)
-          | None -> redacted
+              match resolve_dot_path redacted key with
+              | Some v -> (v, key)
+              | None ->
+                  (`String (Printf.sprintf "Section '%s' not found" key), ""))
+          | None -> (redacted, "")
         in
-        Yojson.Safe.pretty_to_string ~std:true target
+        smart_render ~prefix target

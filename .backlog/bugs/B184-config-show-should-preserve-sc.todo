@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-09T14:42:54Z"
+claimed_by: cli-user
+completed_at: "2026-03-09T14:49:55Z"
 complexity: medium
 depends_on: []
+duration_minutes: 7.027399033816667
 estimate_hours: 1
 id: B184
 priority: medium
-status: pending
+started_at: "2026-03-09T14:42:54Z"
+status: done
 tags: []
 title: Config show should preserve scalar fields when section output is too large
 ---

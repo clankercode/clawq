@@ -184,8 +184,8 @@ let post_dispatch_resumed_session_response
   if trimmed = "" || trimmed = "HEARTBEAT_OK" then begin
     Logs.info (fun m ->
         m
-          "Resume continuation stayed idle %s \
-           reason=no-follow-up-response after_restart_resume=true"
+          "Resume continuation stayed idle %s reason=no-follow-up-response \
+           after_restart_resume=true"
           target);
     Lwt.return_unit
   end
@@ -197,8 +197,8 @@ let post_dispatch_resumed_session_response
     in
     Logs.info (fun m ->
         m
-          "Resume continuation disarmed %s \
-           reason=agent-requested-idle after_restart_resume=true"
+          "Resume continuation disarmed %s reason=agent-requested-idle \
+           after_restart_resume=true"
           target);
     Lwt.return_unit
   end
