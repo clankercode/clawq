@@ -27,9 +27,7 @@ let strip_provider_items_for_removed_calls provider_json_opt ~kept_ids =
   | Some json_str -> (
       try
         let arr = Yojson.Safe.from_string json_str in
-        let items =
-          match arr with `List items -> items | _ -> [ arr ]
-        in
+        let items = match arr with `List items -> items | _ -> [ arr ] in
         let filtered =
           List.filter
             (fun item ->

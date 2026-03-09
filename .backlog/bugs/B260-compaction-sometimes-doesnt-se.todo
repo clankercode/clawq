@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-09T23:37:20Z"
+claimed_by: cli-user
+completed_at: "2026-03-09T23:40:16Z"
 complexity: medium
 depends_on: []
+duration_minutes: 2.9434660862
 estimate_hours: 1
 id: B260
 priority: high
-status: pending
+started_at: "2026-03-09T23:37:20Z"
+status: done
 tags: []
 title: compaction sometimes doesnt seem to kick in
 ---

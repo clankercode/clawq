@@ -108,9 +108,21 @@ let build_messages ?runtime_context agent =
 
 let estimate_tokens content = (String.length content + 3) / 4
 
+let estimate_message_tokens (m : Provider.message) =
+  let content_tokens = estimate_tokens m.content in
+  (* Tool-call arguments live in m.tool_calls when content = "" — must count
+     them or the threshold check grossly underestimates context usage. *)
+  let tool_call_tokens =
+    List.fold_left
+      (fun acc (tc : Provider.tool_call) ->
+        acc + estimate_tokens tc.function_name + estimate_tokens tc.arguments)
+      0 m.tool_calls
+  in
+  content_tokens + tool_call_tokens
+
 let estimate_history_tokens history =
   List.fold_left
-    (fun acc (m : Provider.message) -> acc + estimate_tokens m.content)
+    (fun acc m -> acc + estimate_message_tokens m)
     0
     (runtime_history_messages history)
 
@@ -733,7 +745,8 @@ let force_compact_history agent ?db () =
       let to_keep =
         match List.rev to_keep with
         | last :: rest ->
-            List.rev (last :: List.rev (ensure_tool_group_integrity (List.rev rest)))
+            List.rev
+              (last :: List.rev (ensure_tool_group_integrity (List.rev rest)))
         | [] -> []
       in
       let mid = List.length to_compact / 2 in
