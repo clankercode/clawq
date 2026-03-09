@@ -28,8 +28,8 @@ Agent instructions for this repository. Keep changes minimal, verifiable, and al
 ## Build, Test, Lint Commands
 
 - Do not run `dune` commands in parallel in this repo. Dune locks `_build`, and concurrent `dune`/`opam exec -- dune ...` commands can hang or fail on `_build/.lock`.
-- If a command fails with a Dune lock error, first check for active processes with `ps -ef | rg 'dune|ocamlformat|test_main.exe|runtest'`.
-- If no relevant process is running, treat `_build/.lock` as stale and remove it with `rm _build/.lock`, then rerun the command.
+- Stale locks are cleaned automatically by `scripts/clean_stale_dune_locks.sh` (called from the `check_dune_lock` macro before each build/test target). The script uses `flock --nonblock` to detect whether a lock is genuinely held; only unheld locks are removed.
+- If a command fails with a Dune lock error, the lock is actively held by another process. Wait for it to finish or find and stop the owning process.
 
 - Primary build: `make build`
 - Direct dune build: `dune build`

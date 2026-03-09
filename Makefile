@@ -7,14 +7,7 @@ SHELL := opam exec --switch=$(SHELL_SWITCH) -- /usr/bin/env bash
 LOCAL_DUNE_BUILD_DIRS := _build _build_opt_speed _build_opt_size _build_opt_min
 
 define check_dune_lock
-	@for dir in $(LOCAL_DUNE_BUILD_DIRS); do \
-		if [ -e "$$dir/.lock" ]; then \
-			echo "ERROR: Dune build lock present at $$dir/.lock" >&2; \
-			echo "Another dune command may already be running in this repo build dir." >&2; \
-			echo "Wait for it to finish or remove a stale lock if you are sure no dune process is active." >&2; \
-			exit 1; \
-		fi; \
-	done
+	@./scripts/clean_stale_dune_locks.sh $(LOCAL_DUNE_BUILD_DIRS)
 endef
 
 OPT ?= speed
