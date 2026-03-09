@@ -1,0 +1,11 @@
+---
+complexity: high
+depends_on: []
+estimate_hours: 1
+id: B195
+priority: high
+status: pending
+tags: []
+title: Live Cloudflare tunnel reconfiguration and control in running daemon
+---
+Current tunnel support is only partial for live operations. The daemon can supervise a tunnel at startup when `config.tunnel.enabled=true`, and there is a separate `clawq tunnel` CLI path, but the running daemon does not reconcile tunnel state on config reload and cannot cleanly start/stop/restart tunnel supervision live when tunnel settings change. Verified gaps from code review / observed behavior: (1) config reload on SIGHUP updates in-memory config but does not reconcile tunnel lifecycle; (2) daemon startup tunnel handling is one-shot, not a persistent runtime-managed tunnel controller; (3) daemon-side `cf_tunnel.ml` and CLI-side `tunnel_cloudflare.ml` behavior are split and inconsistent, especially for quick tunnels; (4) managed/named Cloudflare tunnels assume pre-existing external provisioning and do not create tunnel credentials/config/DNS routes; (5) some Cloudflare-specific config surface appears ahead of implementation. Goal: make Cloudflare tunnel state controllable live from the running system and plan toward full named-tunnel management. Acceptance criteria for first practical tranche: (a) daemon can detect tunnel config changes and start/stop/restart tunnel accordingly without full daemon restart; (b) tunnel state/control is unified enough that CLI/tool/daemon all operate on the same lifecycle manager or equivalent abstraction; (c) clear commands/tools exist to apply tunnel config now and inspect status; (d) implementation/docs clearly distinguish what is supported live now versus what still requires external Cloudflare provisioning. Full provisioning/DNS automation may be split into follow-up tasks if too large.
