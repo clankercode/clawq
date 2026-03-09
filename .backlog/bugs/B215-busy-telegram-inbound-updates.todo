@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-09T17:45:51Z"
+claimed_by: cli-user
+completed_at: "2026-03-09T17:58:16Z"
 complexity: medium
 depends_on: []
+duration_minutes: 12.429138537
 estimate_hours: 1
 id: B215
 priority: medium
-status: pending
+started_at: "2026-03-09T17:45:51Z"
+status: done
 tags: []
 title: Busy Telegram inbound updates can spend noticeable time between poll receipt and queue insertion
 ---
