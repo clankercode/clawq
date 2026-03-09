@@ -74,5 +74,6 @@ let () =
        ("status_message", Test_status_message.suite);
        ("format_adapter", Test_format_adapter.suite);
        ("telegram_format", Test_telegram_format.suite);
+       ("telegram_typing", Test_telegram_typing.suite);
      ]
     @ Test_github.suites)

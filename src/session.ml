@@ -1162,6 +1162,7 @@ let compact mgr ~key =
 
 let rec schedule_autonomous_continuation
     ?(delay = default_autonomous_continuation_delay)
+    ?(around_turn = fun f -> f ())
     ?(on_response = fun _response -> Lwt.return_unit) mgr ~key =
   let open Lwt.Syntax in
   let* should_schedule, cancel_waiter =
@@ -1190,7 +1191,9 @@ let rec schedule_autonomous_continuation
       else
         let* response =
           Lwt.catch
-            (fun () -> turn mgr ~key ~message:autonomous_continuation_prompt ())
+            (fun () ->
+              around_turn (fun () ->
+                  turn mgr ~key ~message:autonomous_continuation_prompt ()))
             (fun exn ->
               Logs.warn (fun m ->
                   m "Autonomous continuation prompt failed for %s: %s" key
@@ -1215,11 +1218,13 @@ let rec schedule_autonomous_continuation
                 Lwt.return_unit)
           in
           let* () = cancel_autonomous_continuation mgr ~key in
-          schedule_autonomous_continuation ~delay ~on_response mgr ~key
+          schedule_autonomous_continuation ~delay ~around_turn ~on_response mgr
+            ~key
         end
 
 let process_autonomous_turn_result
     ?(delay = default_autonomous_continuation_delay)
+    ?(around_turn = fun f -> f ())
     ?(on_response = fun _response -> Lwt.return_unit) mgr ~key ~response =
   let trimmed = String.trim response in
   if trimmed = "" || trimmed = "HEARTBEAT_OK" then Lwt.return_unit
@@ -1228,4 +1233,5 @@ let process_autonomous_turn_result
         state.disarmed <- true;
         clear_pending_continuation state;
         Lwt.return_unit)
-  else schedule_autonomous_continuation ~delay ~on_response mgr ~key
+  else
+    schedule_autonomous_continuation ~delay ~around_turn ~on_response mgr ~key

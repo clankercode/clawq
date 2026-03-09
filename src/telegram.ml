@@ -409,25 +409,39 @@ let chat_action_for_tool name =
   | "transcribe" -> "record_voice"
   | _ -> "typing"
 
-(* Send typing action repeatedly every ~4s until [p] resolves. *)
-let with_typing ~bot_token ~chat_id p =
+(* Core typing-indicator loop, parameterised for testability.
+   [send_action] is called every [interval] seconds until the wrapped
+   promise resolves.  Individual [send_action] failures are caught so
+   the loop survives transient network/rate-limit errors.
+   Uses [Lwt.pick] so the typing loop is properly cancelled when [p]
+   resolves, preventing stale background sleeps. *)
+let typing_loop ~send_action ~interval p =
   let open Lwt.Syntax in
-  let cancelled = ref false in
   let rec loop () =
-    if !cancelled then Lwt.return_unit
-    else
-      let* () = send_chat_action ~bot_token ~chat_id ~action:"typing" in
-      if !cancelled then Lwt.return_unit
-      else
-        let* () = Lwt_unix.sleep 4.0 in
-        loop ()
+    let* () =
+      Lwt.catch (fun () -> send_action ()) (fun _exn -> Lwt.return_unit)
+    in
+    let* () = Lwt_unix.sleep interval in
+    loop ()
   in
-  Lwt.async (fun () -> loop ());
-  Lwt.finalize
-    (fun () -> p)
-    (fun () ->
-      cancelled := true;
-      Lwt.return_unit)
+  let* result =
+    Lwt.pick
+      [
+        (let* v = p in
+         Lwt.return v);
+        (let* () = loop () in
+         (* loop never resolves on its own; this branch is unreachable
+            but typed to match *)
+         Lwt.fail_with "typing_loop: unreachable");
+      ]
+  in
+  Lwt.return result
+
+let with_typing ~bot_token ~chat_id p =
+  typing_loop
+    ~send_action:(fun () ->
+      send_chat_action ~bot_token ~chat_id ~action:"typing")
+    ~interval:4.0 p
 
 let send_message_with_id ?(disable_notification = false) ?parse_mode ~bot_token
     ~chat_id ~text () =
@@ -1330,9 +1344,12 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                     Session.mark_response_sent session_mgr ~key;
                   (* Schedule autonomous continuation so agent pings itself
                      after idle period; response delivered via persistent
-                     channel notifier *)
+                     channel notifier.  Wrap each continuation turn with
+                     the typing indicator so the user sees activity. *)
                   Lwt.async (fun () ->
                       Session.process_autonomous_turn_result
+                        ~around_turn:(fun f ->
+                          with_typing ~bot_token ~chat_id:update.chat_id (f ()))
                         ~on_response:send_to_chat session_mgr ~key ~response);
                   Lwt.return_unit
             | Error err ->
