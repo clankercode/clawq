@@ -70,6 +70,28 @@ let autonomous_continuation_prompt =
   "Autonomous session check-in: continue working if more remains; otherwise \
    reply exactly " ^ autonomous_stay_idle_message
 
+let get_context_usage_percent mgr ~key =
+  match Hashtbl.find_opt mgr.sessions key with
+  | Some (agent, _, _) ->
+      let estimated_tokens = Agent.estimate_history_tokens agent.history in
+      let context_window = Agent.context_window_for_agent agent in
+      if context_window > 0 then
+        let percent = min 100 (estimated_tokens * 100 / context_window) in
+        Some (percent, estimated_tokens, context_window)
+      else None
+  | None -> None
+
+let compaction_suggestion_for_prompt mgr ~key =
+  match get_context_usage_percent mgr ~key with
+  | Some (percent, estimated_tokens, context_window) when percent > 40 ->
+      Printf.sprintf
+        "\n\n\
+         [Context usage: %d%% (%d/%d tokens). Consider running compaction \
+         using the `/compact` command or `clawq session compact %s` to free up \
+         context space and avoid inefficient token usage.]"
+        percent estimated_tokens context_window key
+  | _ -> ""
+
 let default_autonomous_continuation_delay = 10.0
 
 let create_live_activity_state () =
@@ -1385,13 +1407,19 @@ let reset mgr ~key =
 
 let compact mgr ~key =
   let open Lwt.Syntax in
-  with_session_lock mgr ~key (fun agent _interrupt ->
-      let* compaction_info = Agent.force_compact_history agent in
-      match compaction_info with
-      | Some _ ->
-          persist_compacted_history mgr ~key agent;
-          Lwt.return true
-      | None -> Lwt.return false)
+  (* Check if session exists before attempting compaction *)
+  match Hashtbl.find_opt mgr.sessions key with
+  | None -> Lwt.return (Error "Session not found")
+  | Some _ ->
+      with_session_lock mgr ~key (fun agent _interrupt ->
+          let* compaction_info =
+            Agent.force_compact_history agent ?db:mgr.db ()
+          in
+          match compaction_info with
+          | Some _ ->
+              persist_compacted_history mgr ~key agent;
+              Lwt.return (Ok true)
+          | None -> Lwt.return (Ok false))
 
 let rec schedule_autonomous_continuation
     ?(delay = default_autonomous_continuation_delay)
@@ -1425,13 +1453,19 @@ let rec schedule_autonomous_continuation
         in
         if cancelled then Lwt.return_unit
         else
+          let compaction_suggestion =
+            compaction_suggestion_for_prompt mgr ~key
+          in
+          let prompt_with_suggestion =
+            autonomous_continuation_prompt ^ compaction_suggestion
+          in
           let* () =
             if mgr.config.agent_defaults.send_continuation_checkin then
               match find_registered_notifier mgr ~key with
               | Some notify ->
                   let labeled =
                     "[automatic continuation check-in]\n"
-                    ^ autonomous_continuation_prompt
+                    ^ prompt_with_suggestion
                   in
                   Lwt.catch
                     (fun () -> notify labeled)
@@ -1443,7 +1477,7 @@ let rec schedule_autonomous_continuation
             Lwt.catch
               (fun () ->
                 around_turn (fun () ->
-                    turn mgr ~key ~message:autonomous_continuation_prompt ()))
+                    turn mgr ~key ~message:prompt_with_suggestion ()))
               (fun exn ->
                 Logs.warn (fun m ->
                     m "Autonomous continuation prompt failed for %s: %s" key

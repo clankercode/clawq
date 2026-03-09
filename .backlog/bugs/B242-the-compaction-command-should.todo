@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-09T20:17:37Z"
+claimed_by: cli-user
+completed_at: "2026-03-09T20:24:08Z"
 complexity: medium
 depends_on: []
+duration_minutes: 6.526633971283333
 estimate_hours: 1
 id: B242
 priority: high
-status: pending
+started_at: "2026-03-09T20:17:37Z"
+status: done
 tags: []
 title: The compaction command should encourage the agent to run compaction whenever it is convenient to avoid inefficient token usage. Additionally, it should be suggested by the auto check-in feature if we are over 40% usage.
 ---

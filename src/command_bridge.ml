@@ -1321,6 +1321,74 @@ let cmd_session args =
                       (match parse_json_error_body resp_body with
                       | Some msg -> msg
                       | None -> resp_body))))
+  | [ "compact"; session_key ] -> (
+      match read_live_daemon_gateway () with
+      | None -> "Error: no live daemon detected. Start `clawq agent` first."
+      | Some (host, port) -> (
+          let cfg = get_config () in
+          let body =
+            Yojson.Safe.to_string
+              (`Assoc [ ("session_key", `String session_key) ])
+          in
+          let result =
+            post_live_gateway_json ~cfg ~host ~port ~path:"/session/compact"
+              ~body
+          in
+          match result with
+          | Error msg -> Printf.sprintf "Session compact failed: %s" msg
+          | Ok (status, resp_body) -> (
+              match status with
+              | 200 -> (
+                  try
+                    let json = Yojson.Safe.from_string resp_body in
+                    let open Yojson.Safe.Util in
+                    let compacted = json |> member "compacted" |> to_bool in
+                    let message = json |> member "message" |> to_string in
+                    let stats_str =
+                      try
+                        let stats = json |> member "stats" in
+                        let percent =
+                          stats |> member "context_usage_percent" |> to_int
+                        in
+                        let tokens =
+                          stats |> member "estimated_tokens" |> to_int
+                        in
+                        let window =
+                          stats |> member "context_window" |> to_int
+                        in
+                        Printf.sprintf " (Context usage: %d%% = %d/%d tokens)"
+                          percent tokens window
+                      with _ -> ""
+                    in
+                    if compacted then
+                      Printf.sprintf "Session %s compacted successfully.\n%s%s"
+                        session_key message stats_str
+                    else
+                      Printf.sprintf "Session %s: %s%s" session_key message
+                        stats_str
+                  with _ ->
+                    Printf.sprintf
+                      "Session compact succeeded for %s but returned an \
+                       unexpected response: %s"
+                      session_key resp_body)
+              | 400 ->
+                  Printf.sprintf "Session compact request invalid (400): %s"
+                    (match parse_json_error_body resp_body with
+                    | Some msg -> msg
+                    | None -> resp_body)
+              | 404 -> Printf.sprintf "Session '%s' not found (404)" session_key
+              | 401 | 403 ->
+                  Printf.sprintf
+                    "Session compact was rejected by the live gateway (%d): %s"
+                    status
+                    (match parse_json_error_body resp_body with
+                    | Some msg -> msg
+                    | None -> resp_body)
+              | _ ->
+                  Printf.sprintf "Session compact failed (%d): %s" status
+                    (match parse_json_error_body resp_body with
+                    | Some msg -> msg
+                    | None -> resp_body))))
   | _ ->
       "Usage: clawq session <subcommand>\n\
       \  session list [--channel NAME] [--prefix PREFIX] [--active|--inactive] \
@@ -1328,7 +1396,8 @@ let cmd_session args =
       \  session epochs SESSION\n\
       \  session show SESSION [--epoch current|ID] [--offset N] [--limit N]\n\
       \  session pending SESSION\n\
-      \  session inject SESSION MESSAGE..."
+      \  session inject SESSION MESSAGE...\n\
+      \  session compact SESSION"
 
 type background_add_args = {
   runner : Background_task.runner;

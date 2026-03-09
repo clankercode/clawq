@@ -479,11 +479,15 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
           send_message_fn ~bot_token:discord_config.bot_token
             ~channel_id:msg.channel_id ~text:Slash_commands.reset_message
       | Compact ->
-          let* compacted = Session.compact session_mgr ~key in
+          let* compact_result = Session.compact session_mgr ~key in
           let text =
-            if compacted then
-              "Session history compacted. Older messages have been summarized."
-            else "Nothing to compact — session history is already short enough."
+            match compact_result with
+            | Ok true ->
+                "Session history compacted. Older messages have been \
+                 summarized."
+            | Ok false ->
+                "Nothing to compact — session history is already short enough."
+            | Error err -> Printf.sprintf "Compaction failed: %s" err
           in
           send_message ~bot_token:discord_config.bot_token
             ~channel_id:msg.channel_id ~text

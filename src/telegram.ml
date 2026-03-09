@@ -1447,13 +1447,16 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
             send_message ~bot_token ~chat_id:update.chat_id
               ~text:Slash_commands.reset_message ()
         | Compact ->
-            let* compacted = Session.compact session_mgr ~key in
+            let* compact_result = Session.compact session_mgr ~key in
             let text =
-              if compacted then
-                "Session history compacted. Older messages have been \
-                 summarized."
-              else
-                "Nothing to compact — session history is already short enough."
+              match compact_result with
+              | Ok true ->
+                  "Session history compacted. Older messages have been \
+                   summarized."
+              | Ok false ->
+                  "Nothing to compact — session history is already short \
+                   enough."
+              | Error err -> Printf.sprintf "Compaction failed: %s" err
             in
             send_message ~bot_token ~chat_id:update.chat_id ~text ()
         | Thinking Slash_commands.ShowThinking ->

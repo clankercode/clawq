@@ -666,7 +666,7 @@ let compact_history_if_needed agent ?db () =
   end
   else Lwt.return_none
 
-let force_compact_history agent =
+let force_compact_history agent ?db () =
   let open Lwt.Syntax in
   let pre_tokens = estimate_history_tokens agent.history in
   let cw = context_window_for_agent agent in
@@ -692,6 +692,25 @@ let force_compact_history agent =
     in
     if to_compact = [] then Lwt.return_none
     else begin
+      (* Launch background memory flush before compaction destroys detail *)
+      (match db with
+      | Some db when agent.config.memory.pre_compaction_flush ->
+          let snapshot = List.map Fun.id to_compact in
+          let flush_config = agent.config in
+          let system_prompt = agent.system_prompt in
+          Lwt.async (fun () ->
+              Lwt.catch
+                (fun () ->
+                  flush_memories_before_compaction ~config:flush_config
+                    ~system_prompt ~db ~to_compact:snapshot)
+                (fun exn ->
+                  Logs.warn (fun m ->
+                      m "Pre-compaction memory flush failed: %s"
+                        (Printexc.to_string exn));
+                  Lwt.return_unit))
+      | _ ->
+          Logs.debug (fun m ->
+              m "Pre-compaction memory flush: skipped (disabled)"));
       let to_keep = ensure_tool_group_integrity to_keep in
       let mid = List.length to_compact / 2 in
       let first_half = List.filteri (fun i _ -> i < mid) to_compact in

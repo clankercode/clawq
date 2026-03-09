@@ -79,6 +79,10 @@ let session_cmd =
       `I
         ( "inject SESSION MESSAGE...",
           "Inject a live inbound message through the daemon session manager." );
+      `I
+        ( "compact SESSION",
+          "Compact session history by summarizing older messages to free up \
+           context space." );
     ]
 
 let workspace_cmd = simple "workspace" "Print the current workspace directory."

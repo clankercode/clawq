@@ -339,14 +339,16 @@ let handle_event ~(config : Runtime_config.slack_config)
                 in
                 Lwt.return "ok"
             | Compact ->
-                let* compacted = Session.compact session_manager ~key in
+                let* compact_result = Session.compact session_manager ~key in
                 let text =
-                  if compacted then
-                    "Session history compacted. Older messages have been \
-                     summarized."
-                  else
-                    "Nothing to compact — session history is already short \
-                     enough."
+                  match compact_result with
+                  | Ok true ->
+                      "Session history compacted. Older messages have been \
+                       summarized."
+                  | Ok false ->
+                      "Nothing to compact — session history is already short \
+                       enough."
+                  | Error err -> Printf.sprintf "Compaction failed: %s" err
                 in
                 let* () =
                   send_message_fn ~bot_token:config.bot_token ~channel_id ~text

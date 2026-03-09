@@ -405,6 +405,145 @@ let handler ~session_manager ~require_pairing ~auth_token
                       (Yojson.Safe.to_string
                          (`Assoc [ ("error", `String err) ]))
                     ()))
+  | `POST, "/session/compact" -> (
+      (* Apply rate limiting like other endpoints *)
+      let* ip_ok =
+        match ip_limiter with
+        | Some lim -> Rate_limiter.check_and_consume lim ~key:(client_ip req)
+        | None -> Lwt.return true
+      in
+      if not ip_ok then
+        let* _ = Cohttp_lwt.Body.drain_body body in
+        rate_limit_response ()
+      else if require_pairing && not (pairing_auth_ok ~auth_token ?pairing req)
+      then
+        let* _ = Cohttp_lwt.Body.drain_body body in
+        Cohttp_lwt_unix.Server.respond_string ~status:`Forbidden
+          ~headers:json_headers
+          ~body:
+            {|{"error":"pairing required; use a valid paired token to access this endpoint"}|}
+          ()
+      else if not (auth_ok ~auth_token ?pairing req) then
+        let* _ = Cohttp_lwt.Body.drain_body body in
+        Cohttp_lwt_unix.Server.respond_string ~status:`Unauthorized
+          ~headers:json_headers ~body:{|{"error":"unauthorized"}|} ()
+      else
+        let* body_str = Cohttp_lwt.Body.to_string body in
+        let json =
+          try Ok (Yojson.Safe.from_string body_str)
+          with exn -> Error (Printexc.to_string exn)
+        in
+        match json with
+        | Error msg -> bad_request ("invalid JSON: " ^ msg)
+        | Ok json -> (
+            let open Yojson.Safe.Util in
+            let session_key =
+              try json |> member "session_key" |> to_string with _ -> ""
+            in
+            if session_key = "" then bad_request "session_key is required"
+            else
+              (* Check context usage before allowing compaction *)
+              let min_compaction_percent = 20 in
+              match
+                Session.get_context_usage_percent session_manager
+                  ~key:session_key
+              with
+              | None ->
+                  Cohttp_lwt_unix.Server.respond_string ~status:`Not_found
+                    ~headers:json_headers
+                    ~body:
+                      (Yojson.Safe.to_string
+                         (`Assoc [ ("error", `String "Session not found") ]))
+                    ()
+              | Some (percent, estimated_tokens, context_window)
+                when percent < min_compaction_percent ->
+                  let message =
+                    Printf.sprintf
+                      "Context usage is only %d%% (%d/%d tokens). Compaction \
+                       is only recommended when usage exceeds %d%%."
+                      percent estimated_tokens context_window
+                      min_compaction_percent
+                  in
+                  json_string_response
+                    (Yojson.Safe.to_string
+                       (`Assoc
+                          [
+                            ("compacted", `Bool false);
+                            ("message", `String message);
+                            ( "stats",
+                              `Assoc
+                                [
+                                  ("context_usage_percent", `Int percent);
+                                  ("estimated_tokens", `Int estimated_tokens);
+                                  ("context_window", `Int context_window);
+                                ] );
+                          ]))
+              | Some (percent, estimated_tokens, context_window) -> (
+                  let* result =
+                    Lwt.catch
+                      (fun () ->
+                        let* compaction_result =
+                          Session.compact session_manager ~key:session_key
+                        in
+                        Lwt.return
+                          (Ok
+                             ( compaction_result,
+                               percent,
+                               estimated_tokens,
+                               context_window )))
+                      (fun exn -> Lwt.return (Error (Printexc.to_string exn)))
+                  in
+                  match result with
+                  | Ok (Ok true, percent, estimated_tokens, context_window) ->
+                      json_string_response
+                        (Yojson.Safe.to_string
+                           (`Assoc
+                              [
+                                ("compacted", `Bool true);
+                                ( "message",
+                                  `String
+                                    "Session history compacted. Older messages \
+                                     have been summarized." );
+                                ( "stats",
+                                  `Assoc
+                                    [
+                                      ("context_usage_percent", `Int percent);
+                                      ("estimated_tokens", `Int estimated_tokens);
+                                      ("context_window", `Int context_window);
+                                    ] );
+                              ]))
+                  | Ok (Ok false, percent, estimated_tokens, context_window) ->
+                      json_string_response
+                        (Yojson.Safe.to_string
+                           (`Assoc
+                              [
+                                ("compacted", `Bool false);
+                                ( "message",
+                                  `String
+                                    "Nothing to compact — session history is \
+                                     already short enough." );
+                                ( "stats",
+                                  `Assoc
+                                    [
+                                      ("context_usage_percent", `Int percent);
+                                      ("estimated_tokens", `Int estimated_tokens);
+                                      ("context_window", `Int context_window);
+                                    ] );
+                              ]))
+                  | Ok (Error err, _, _, _) ->
+                      Cohttp_lwt_unix.Server.respond_string ~status:`Not_found
+                        ~headers:json_headers
+                        ~body:
+                          (Yojson.Safe.to_string
+                             (`Assoc [ ("error", `String err) ]))
+                        ()
+                  | Error err ->
+                      Cohttp_lwt_unix.Server.respond_string
+                        ~status:`Internal_server_error ~headers:json_headers
+                        ~body:
+                          (Yojson.Safe.to_string
+                             (`Assoc [ ("error", `String err) ]))
+                        ())))
   | `POST, "/daemon/update" -> (
       if require_pairing && not (pairing_auth_ok ~auth_token ?pairing req) then
         let* _ = Cohttp_lwt.Body.drain_body body in
@@ -550,14 +689,18 @@ let handler ~session_manager ~require_pairing ~auth_token
                     sse_reply Slash_commands.reset_message
                 | Slash_commands.Compact ->
                     let key = "web:" ^ session_id in
-                    let* compacted = Session.compact session_manager ~key in
+                    let* compact_result =
+                      Session.compact session_manager ~key
+                    in
                     let text =
-                      if compacted then
-                        "Session history compacted. Older messages have been \
-                         summarized."
-                      else
-                        "Nothing to compact — session history is already short \
-                         enough."
+                      match compact_result with
+                      | Ok true ->
+                          "Session history compacted. Older messages have been \
+                           summarized."
+                      | Ok false ->
+                          "Nothing to compact — session history is already \
+                           short enough."
+                      | Error err -> Printf.sprintf "Compaction failed: %s" err
                     in
                     sse_reply text
                 | Slash_commands.Thinking Slash_commands.ShowThinking ->
