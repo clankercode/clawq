@@ -1664,6 +1664,382 @@ let test_tool_no_notify_when_none () =
   Alcotest.(check bool)
     "tool works without notify" true (contains result "Added")
 
+let fresh_templates_dir () =
+  let dir =
+    Filename.concat
+      (Filename.get_temp_dir_name ())
+      (Printf.sprintf "clawq_test_templates_%d_%f" (Unix.getpid ())
+         (Unix.gettimeofday ()))
+  in
+  (try Unix.mkdir dir 0o755 with Unix.Unix_error _ -> ());
+  Task_tree.set_templates_dir dir;
+  dir
+
+let cleanup_templates_dir dir =
+  (try
+     Array.iter (fun f -> Sys.remove (Filename.concat dir f)) (Sys.readdir dir)
+   with _ -> ());
+  (try Unix.rmdir dir with _ -> ());
+  Task_tree.set_templates_dir dir
+
+let test_seed_inline_basic () =
+  let db = fresh_db () in
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "seed");
+            ( "tasks",
+              `List
+                [
+                  `Assoc [ ("title", `String "Root"); ("depth", `Int 0) ];
+                  `Assoc [ ("title", `String "Child A"); ("depth", `Int 1) ];
+                  `Assoc [ ("title", `String "Child B"); ("depth", `Int 1) ];
+                ] );
+          ];
+      ]
+  in
+  (match result with Ok _ -> () | Error e -> Alcotest.fail e);
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
+  Alcotest.(check int) "three tasks" 3 (List.length tasks);
+  let root = List.find (fun t -> t.Task_tree.title = "Root") tasks in
+  let child_a = List.find (fun t -> t.Task_tree.title = "Child A") tasks in
+  let child_b = List.find (fun t -> t.Task_tree.title = "Child B") tasks in
+  Alcotest.(check (option string)) "root is root" None root.parent_id;
+  Alcotest.(check (option string))
+    "child_a under root" (Some root.id) child_a.parent_id;
+  Alcotest.(check (option string))
+    "child_b under root" (Some root.id) child_b.parent_id
+
+let test_seed_with_vars () =
+  let db = fresh_db () in
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "seed");
+            ( "vars",
+              `Assoc [ ("pr", `String "PR #42"); ("repo", `String "clawq") ] );
+            ( "tasks",
+              `List
+                [
+                  `Assoc
+                    [
+                      ("title", `String "Review {{pr}} in {{repo}}");
+                      ("depth", `Int 0);
+                      ("note", `String "Check {{repo}} CI");
+                    ];
+                  `Assoc
+                    [ ("title", `String "Read {{pr}} diff"); ("depth", `Int 1) ];
+                ] );
+          ];
+      ]
+  in
+  (match result with Ok _ -> () | Error e -> Alcotest.fail e);
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
+  let root = List.find (fun t -> t.Task_tree.id = "1") tasks in
+  Alcotest.(check string)
+    "title substituted" "Review PR #42 in clawq" root.title;
+  Alcotest.(check (option string))
+    "note substituted" (Some "Check clawq CI") root.note;
+  let child = List.find (fun t -> t.Task_tree.id = "2") tasks in
+  Alcotest.(check string)
+    "child title substituted" "Read PR #42 diff" child.title
+
+let test_seed_unresolved_vars () =
+  let db = fresh_db () in
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "seed");
+            ("vars", `Assoc [ ("known", `String "yes") ]);
+            ( "tasks",
+              `List
+                [
+                  `Assoc
+                    [
+                      ("title", `String "{{known}} and {{unknown}}");
+                      ("depth", `Int 0);
+                    ];
+                ] );
+          ];
+      ]
+  in
+  (match result with Ok _ -> () | Error e -> Alcotest.fail e);
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
+  Alcotest.(check string)
+    "unresolved left as-is" "yes and {{unknown}}" (List.hd tasks).title
+
+let test_seed_exceeds_batch_limit () =
+  let db = fresh_db () in
+  let many_tasks =
+    List.init 21 (fun i ->
+        `Assoc
+          [ ("title", `String (Printf.sprintf "Task %d" i)); ("depth", `Int 0) ])
+  in
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [ `Assoc [ ("op", `String "seed"); ("tasks", `List many_tasks) ] ]
+  in
+  match result with
+  | Error msg ->
+      Alcotest.(check bool)
+        "mentions max" true
+        (contains msg "Too many operations")
+  | Ok _ -> Alcotest.fail "Expected error for exceeding batch limit"
+
+let test_seed_mixed_with_other_ops () =
+  let db = fresh_db () in
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "seed");
+            ( "tasks",
+              `List
+                [
+                  `Assoc [ ("title", `String "Seeded task"); ("depth", `Int 0) ];
+                ] );
+          ];
+        `Assoc
+          [
+            ("op", `String "update");
+            ("id", `String "1");
+            ("status", `String "in_progress");
+          ];
+      ]
+  in
+  (match result with Ok _ -> () | Error e -> Alcotest.fail e);
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
+  Alcotest.(check int) "one task" 1 (List.length tasks);
+  Alcotest.(check string)
+    "task is in_progress" "in_progress"
+    (Task_tree.string_of_status (List.hd tasks).status)
+
+let test_seed_empty_tasks () =
+  let db = fresh_db () in
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [ `Assoc [ ("op", `String "seed"); ("tasks", `List []) ] ]
+  in
+  match result with
+  | Error msg ->
+      Alcotest.(check bool)
+        "mentions at least one" true
+        (contains msg "at least one")
+  | Ok _ -> Alcotest.fail "Expected error for empty tasks"
+
+let test_seed_neither_template_nor_tasks () =
+  let db = fresh_db () in
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [ `Assoc [ ("op", `String "seed") ] ]
+  in
+  match result with
+  | Error msg ->
+      Alcotest.(check bool)
+        "mentions provide" true
+        (contains msg "Provide exactly one")
+  | Ok _ -> Alcotest.fail "Expected error for missing template/tasks"
+
+let test_seed_both_template_and_tasks () =
+  let db = fresh_db () in
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "seed");
+            ("template", `String "foo");
+            ( "tasks",
+              `List [ `Assoc [ ("title", `String "T"); ("depth", `Int 0) ] ] );
+          ];
+      ]
+  in
+  match result with
+  | Error msg ->
+      Alcotest.(check bool) "mentions not both" true (contains msg "not both")
+  | Ok _ -> Alcotest.fail "Expected error for both template and tasks"
+
+let test_save_template_and_seed_round_trip () =
+  let db = fresh_db () in
+  let tdir = fresh_templates_dir () in
+  let save_result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "save_template");
+            ("name", `String "review-loop");
+            ("description", `String "PR review workflow");
+            ( "tasks",
+              `List
+                [
+                  `Assoc
+                    [ ("title", `String "Review {{pr}}"); ("depth", `Int 0) ];
+                  `Assoc [ ("title", `String "Read diff"); ("depth", `Int 1) ];
+                  `Assoc
+                    [
+                      ("title", `String "Post review");
+                      ("depth", `Int 1);
+                      ("note", `String "for {{pr}}");
+                    ];
+                ] );
+          ];
+      ]
+  in
+  (match save_result with
+  | Ok output ->
+      Alcotest.(check bool)
+        "contains Saved" true
+        (contains output "Saved template")
+  | Error e -> Alcotest.fail ("save_template failed: " ^ e));
+  let seed_result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "seed");
+            ("template", `String "review-loop");
+            ("vars", `Assoc [ ("pr", `String "PR #99") ]);
+          ];
+      ]
+  in
+  (match seed_result with
+  | Ok _ -> ()
+  | Error e -> Alcotest.fail ("seed failed: " ^ e));
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
+  Alcotest.(check int) "three tasks seeded" 3 (List.length tasks);
+  let root = List.find (fun t -> t.Task_tree.title = "Review PR #99") tasks in
+  Alcotest.(check (option string)) "root is root" None root.parent_id;
+  let post = List.find (fun t -> t.Task_tree.title = "Post review") tasks in
+  Alcotest.(check (option string))
+    "note substituted" (Some "for PR #99") post.note;
+  cleanup_templates_dir tdir
+
+let test_save_template_invalid_name () =
+  let db = fresh_db () in
+  let _tdir = fresh_templates_dir () in
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "save_template");
+            ("name", `String "bad name!");
+            ( "tasks",
+              `List [ `Assoc [ ("title", `String "T"); ("depth", `Int 0) ] ] );
+          ];
+      ]
+  in
+  (match result with
+  | Error msg ->
+      Alcotest.(check bool)
+        "mentions alphanumeric" true
+        (contains msg "alphanumeric")
+  | Ok _ -> Alcotest.fail "Expected error for invalid template name");
+  cleanup_templates_dir _tdir
+
+let test_list_templates () =
+  let db = fresh_db () in
+  let tdir = fresh_templates_dir () in
+  ignore
+    (Task_tree.process_operations ~db ~session_key:"s1"
+       [
+         `Assoc
+           [
+             ("op", `String "save_template");
+             ("name", `String "alpha");
+             ("description", `String "Alpha template");
+             ( "tasks",
+               `List [ `Assoc [ ("title", `String "T"); ("depth", `Int 0) ] ] );
+           ];
+       ]);
+  ignore
+    (Task_tree.process_operations ~db ~session_key:"s1"
+       [
+         `Assoc
+           [
+             ("op", `String "save_template");
+             ("name", `String "beta");
+             ( "tasks",
+               `List [ `Assoc [ ("title", `String "T"); ("depth", `Int 0) ] ] );
+           ];
+       ]);
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [ `Assoc [ ("op", `String "list_templates") ] ]
+  in
+  (match result with
+  | Ok output ->
+      Alcotest.(check bool) "contains alpha" true (contains output "alpha");
+      Alcotest.(check bool) "contains beta" true (contains output "beta");
+      Alcotest.(check bool)
+        "contains description" true
+        (contains output "Alpha template")
+  | Error e -> Alcotest.fail ("list_templates failed: " ^ e));
+  cleanup_templates_dir tdir
+
+let test_delete_template () =
+  let db = fresh_db () in
+  let tdir = fresh_templates_dir () in
+  ignore
+    (Task_tree.process_operations ~db ~session_key:"s1"
+       [
+         `Assoc
+           [
+             ("op", `String "save_template");
+             ("name", `String "to-delete");
+             ( "tasks",
+               `List [ `Assoc [ ("title", `String "T"); ("depth", `Int 0) ] ] );
+           ];
+       ]);
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [ ("op", `String "delete_template"); ("name", `String "to-delete") ];
+      ]
+  in
+  (match result with
+  | Ok output ->
+      Alcotest.(check bool)
+        "contains Deleted" true
+        (contains output "Deleted template")
+  | Error e -> Alcotest.fail ("delete_template failed: " ^ e));
+  let list_result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [ `Assoc [ ("op", `String "list_templates") ] ]
+  in
+  (match list_result with
+  | Ok output ->
+      Alcotest.(check bool)
+        "template gone" true
+        (contains output "No saved templates")
+  | Error e -> Alcotest.fail ("list_templates after delete failed: " ^ e));
+  cleanup_templates_dir tdir
+
+let test_seed_missing_template () =
+  let db = fresh_db () in
+  let _tdir = fresh_templates_dir () in
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [ `Assoc [ ("op", `String "seed"); ("template", `String "nonexistent") ] ]
+  in
+  (match result with
+  | Error msg ->
+      Alcotest.(check bool) "mentions not found" true (contains msg "not found");
+      Alcotest.(check bool)
+        "mentions list_templates" true
+        (contains msg "list_templates")
+  | Ok _ -> Alcotest.fail "Expected error for missing template");
+  cleanup_templates_dir _tdir
+
 let suite =
   [
     Alcotest.test_case "init_schema idempotent" `Quick
@@ -1760,4 +2136,23 @@ let suite =
       test_tool_notify_not_called_on_error;
     Alcotest.test_case "tool no notify when None" `Quick
       test_tool_no_notify_when_none;
+    Alcotest.test_case "seed inline basic" `Quick test_seed_inline_basic;
+    Alcotest.test_case "seed with vars" `Quick test_seed_with_vars;
+    Alcotest.test_case "seed unresolved vars" `Quick test_seed_unresolved_vars;
+    Alcotest.test_case "seed exceeds batch limit" `Quick
+      test_seed_exceeds_batch_limit;
+    Alcotest.test_case "seed mixed with other ops" `Quick
+      test_seed_mixed_with_other_ops;
+    Alcotest.test_case "seed empty tasks" `Quick test_seed_empty_tasks;
+    Alcotest.test_case "seed neither template nor tasks" `Quick
+      test_seed_neither_template_nor_tasks;
+    Alcotest.test_case "seed both template and tasks" `Quick
+      test_seed_both_template_and_tasks;
+    Alcotest.test_case "save_template + seed round-trip" `Quick
+      test_save_template_and_seed_round_trip;
+    Alcotest.test_case "save_template invalid name" `Quick
+      test_save_template_invalid_name;
+    Alcotest.test_case "list_templates" `Quick test_list_templates;
+    Alcotest.test_case "delete_template" `Quick test_delete_template;
+    Alcotest.test_case "seed missing template" `Quick test_seed_missing_template;
   ]
