@@ -153,3 +153,4 @@ bugs:
     - file: B152-build-date-string-should-inclu.todo
     - file: B153-tool-calls-and-connectors-spec.todo
     - file: B154-update-system-prompt-before-wo.todo
+    - file: B155-ci-fails-cant-find-dune-when-c.todo
