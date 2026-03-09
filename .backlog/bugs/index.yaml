@@ -263,3 +263,4 @@ bugs:
     - file: B262-compact-slash-cmd-doesn-t-work.todo
     - file: B263-when-compact-is-called-we-shou.todo
     - file: B264-keepalive-sessions-should-auto.todo
+    - file: B265-the-compact-history-descriptio.todo

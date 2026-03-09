@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B265
+priority: high
+status: pending
+tags: []
+title: the compact_history description should mention that it's useful for clearing out old patterns or lots of junk data, and should be done proactively. The description should also mention that the agent will be forked and the clone asked to save everything necessary to memory so compaction can safely be run at any time without fear of losing unremembered things.
+---
+
+the compact_history description should mention that it's useful for clearing out old patterns or lots of junk data, and should be done proactively. The description should also mention that the agent will be forked and the clone asked to save everything necessary to memory so compaction can safely be run at any time without fear of losing unremembered things.
