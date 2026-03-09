@@ -146,7 +146,8 @@ let test_commands_list () =
   Alcotest.(check bool) "has thinking" true (List.mem "thinking" names);
   Alcotest.(check bool) "has compact" true (List.mem "compact" names);
   Alcotest.(check bool) "has update" true (List.mem "update" names);
-  Alcotest.(check bool) "has delegate" true (List.mem "delegate" names)
+  Alcotest.(check bool) "has delegate" true (List.mem "delegate" names);
+  Alcotest.(check bool) "has config" true (List.mem "config" names)
 
 let test_case_insensitive () =
   (match Slash_commands.handle "/HELP" with
@@ -197,6 +198,127 @@ let test_leading_whitespace () =
         (Printf.sprintf "expected Reply for padded /status, got %s"
            (result_to_string other))
 
+let contains_str haystack needle =
+  try
+    ignore (Str.search_forward (Str.regexp_string needle) haystack 0);
+    true
+  with Not_found -> false
+
+let test_config_usage () =
+  match Slash_commands.handle "/config" with
+  | Slash_commands.Reply s ->
+      Alcotest.(check bool) "mentions show" true (contains_str s "show")
+  | other ->
+      Alcotest.fail
+        (Printf.sprintf "expected Reply, got %s" (result_to_string other))
+
+let test_config_show () =
+  match Slash_commands.handle "/config show" with
+  | Slash_commands.Reply s ->
+      Alcotest.(check bool) "non-empty" true (String.length s > 0)
+  | other ->
+      Alcotest.fail
+        (Printf.sprintf "expected Reply, got %s" (result_to_string other))
+
+let test_config_get_missing () =
+  match Slash_commands.handle "/config get nonexistent.key" with
+  | Slash_commands.Reply s ->
+      Alcotest.(check bool)
+        "contains not found" true
+        (contains_str s "not found" || contains_str s "unknown")
+  | other ->
+      Alcotest.fail
+        (Printf.sprintf "expected Reply, got %s" (result_to_string other))
+
+let test_config_keys () =
+  match Slash_commands.handle "/config keys" with
+  | Slash_commands.Reply s ->
+      Alcotest.(check bool)
+        "contains workspace" true
+        (contains_str s "workspace")
+  | other ->
+      Alcotest.fail
+        (Printf.sprintf "expected Reply, got %s" (result_to_string other))
+
+let test_config_keys_prefix () =
+  match Slash_commands.handle "/config keys gateway" with
+  | Slash_commands.Reply s ->
+      Alcotest.(check bool)
+        "contains gateway.host" true
+        (contains_str s "gateway.host")
+  | other ->
+      Alcotest.fail
+        (Printf.sprintf "expected Reply, got %s" (result_to_string other))
+
+let test_config_set_secret_blocked () =
+  match Slash_commands.handle "/config set channels.discord.bot_token foo" with
+  | Slash_commands.Reply s ->
+      Alcotest.(check bool)
+        "contains cannot" true
+        (contains_str s "Cannot" || contains_str s "cannot")
+  | other ->
+      Alcotest.fail
+        (Printf.sprintf "expected Reply, got %s" (result_to_string other))
+
+let test_config_wizard () =
+  match Slash_commands.handle "/config wizard" with
+  | Slash_commands.Reply s ->
+      Alcotest.(check bool) "mentions terminal" true (contains_str s "terminal")
+  | other ->
+      Alcotest.fail
+        (Printf.sprintf "expected Reply, got %s" (result_to_string other))
+
+let test_config_unknown_sub () =
+  match Slash_commands.handle "/config unknown" with
+  | Slash_commands.Reply s ->
+      Alcotest.(check bool) "mentions Unknown" true (contains_str s "Unknown")
+  | other ->
+      Alcotest.fail
+        (Printf.sprintf "expected Reply, got %s" (result_to_string other))
+
+let test_config_leaf_paths () =
+  let paths = Config_set.config_leaf_paths () in
+  Alcotest.(check bool) "non-empty" true (List.length paths > 0);
+  Alcotest.(check bool) "has workspace" true (List.mem "workspace" paths);
+  Alcotest.(check bool) "has gateway.host" true (List.mem "gateway.host" paths);
+  Alcotest.(check bool)
+    "has dynamic placeholder" true
+    (List.exists (fun p -> contains_str p "<NAME>") paths)
+
+let test_config_get_no_key () =
+  match Slash_commands.handle "/config get" with
+  | Slash_commands.Reply s ->
+      Alcotest.(check bool)
+        "contains usage" true
+        (contains_str s "Usage" || contains_str s "KEY")
+  | other ->
+      Alcotest.fail
+        (Printf.sprintf "expected Reply, got %s" (result_to_string other))
+
+let test_config_set_invalid_path () =
+  match Slash_commands.handle "/config set totally.bogus.path value" with
+  | Slash_commands.Reply s ->
+      Alcotest.(check bool)
+        "mentions unknown key" true
+        (contains_str s "unknown" || contains_str s "Error")
+  | other ->
+      Alcotest.fail
+        (Printf.sprintf "expected Reply, got %s" (result_to_string other))
+
+let test_is_secret_path () =
+  Alcotest.(check bool)
+    "api_key is secret" true
+    (Config_set.is_secret_path "providers.openai.api_key");
+  Alcotest.(check bool)
+    "bot_token is secret" true
+    (Config_set.is_secret_path "channels.discord.bot_token");
+  Alcotest.(check bool)
+    "host is not secret" false
+    (Config_set.is_secret_path "gateway.host");
+  Alcotest.(check bool)
+    "workspace is not secret" false
+    (Config_set.is_secret_path "workspace")
+
 let suite =
   [
     Alcotest.test_case "handle /start" `Quick test_start;
@@ -225,4 +347,18 @@ let suite =
     Alcotest.test_case "delegate no args" `Quick test_delegate_no_args;
     Alcotest.test_case "delegate multi-word prompt" `Quick
       test_delegate_multi_word;
+    Alcotest.test_case "/config usage" `Quick test_config_usage;
+    Alcotest.test_case "/config show" `Quick test_config_show;
+    Alcotest.test_case "/config get missing key" `Quick test_config_get_missing;
+    Alcotest.test_case "/config keys" `Quick test_config_keys;
+    Alcotest.test_case "/config keys prefix" `Quick test_config_keys_prefix;
+    Alcotest.test_case "/config set secret blocked" `Quick
+      test_config_set_secret_blocked;
+    Alcotest.test_case "/config wizard" `Quick test_config_wizard;
+    Alcotest.test_case "/config unknown sub" `Quick test_config_unknown_sub;
+    Alcotest.test_case "config_leaf_paths" `Quick test_config_leaf_paths;
+    Alcotest.test_case "is_secret_path" `Quick test_is_secret_path;
+    Alcotest.test_case "/config get no key" `Quick test_config_get_no_key;
+    Alcotest.test_case "/config set invalid path" `Quick
+      test_config_set_invalid_path;
   ]

@@ -7,6 +7,7 @@ type Options = {
   input: HTMLTextAreaElement;
   popover: HTMLElement;
   fetchCommands: () => Promise<SlashCommand[]>;
+  fetchConfigKeys?: (prefix: string) => Promise<string[]>;
 };
 
 function currentQuery(value: string, caret: number): { start: number; query: string } | null {
@@ -18,11 +19,21 @@ function currentQuery(value: string, caret: number): { start: number; query: str
   return { start: caret - match[1].length - 1, query: match[1].toLowerCase() };
 }
 
+function currentConfigArgQuery(value: string, caret: number): { start: number; prefix: string } | null {
+  const before = value.slice(0, caret);
+  const match = before.match(/^\/config\s+(?:get|set)\s+(\S*)$/i);
+  if (!match) {
+    return null;
+  }
+  return { start: caret - match[1].length, prefix: match[1].toLowerCase() };
+}
+
 export function installSlashPopover(options: Options) {
-  const { input, popover, fetchCommands } = options;
+  const { input, popover, fetchCommands, fetchConfigKeys } = options;
   let commands: SlashCommand[] | null = null;
   let selectedIndex = 0;
   let activeQuery: { start: number; query: string } | null = null;
+  let activeConfigQuery: { start: number; prefix: string } | null = null;
 
   async function ensureCommands() {
     if (!commands) {
@@ -35,7 +46,20 @@ export function installSlashPopover(options: Options) {
     popover.hidden = true;
     popover.innerHTML = "";
     activeQuery = null;
+    activeConfigQuery = null;
     selectedIndex = 0;
+  }
+
+  function applyConfigKey(key: string) {
+    if (!activeConfigQuery) {
+      return;
+    }
+    const caret = input.selectionStart ?? input.value.length;
+    input.value = `${input.value.slice(0, activeConfigQuery.start)}${key} ${input.value.slice(caret)}`;
+    const nextCaret = activeConfigQuery.start + key.length + 1;
+    input.setSelectionRange(nextCaret, nextCaret);
+    input.focus();
+    close();
   }
 
   function applyCommand(command: SlashCommand) {
@@ -52,6 +76,35 @@ export function installSlashPopover(options: Options) {
 
   async function render() {
     const caret = input.selectionStart ?? input.value.length;
+
+    if (fetchConfigKeys) {
+      activeConfigQuery = currentConfigArgQuery(input.value, caret);
+      if (activeConfigQuery) {
+        activeQuery = null;
+        const keys = await fetchConfigKeys(activeConfigQuery.prefix);
+        if (keys.length === 0) {
+          close();
+          return;
+        }
+        const shown = keys.slice(0, 8);
+        selectedIndex = Math.min(selectedIndex, shown.length - 1);
+        popover.innerHTML = "";
+        shown.forEach((key, index) => {
+          const item = document.createElement("button");
+          item.type = "button";
+          item.className = `slash-popover__item ${index === selectedIndex ? "slash-popover__item--selected" : ""}`;
+          item.innerHTML = `<strong>${key}</strong>`;
+          item.addEventListener("mousedown", (event) => {
+            event.preventDefault();
+            applyConfigKey(key);
+          });
+          popover.append(item);
+        });
+        popover.hidden = false;
+        return;
+      }
+    }
+
     activeQuery = currentQuery(input.value, caret);
     if (!activeQuery) {
       close();

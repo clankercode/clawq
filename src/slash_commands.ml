@@ -54,6 +54,10 @@ let commands =
       description =
         "Delegate a prompt to a temporary subagent: /delegate <prompt>";
     };
+    {
+      name = "config";
+      description = "View or modify config: /config <show|get|set|keys>";
+    };
   ]
 
 let help_text =
@@ -102,6 +106,90 @@ let handle text =
             match args with
             | [] -> Reply "Usage: /delegate <prompt>"
             | _ -> Delegate (String.concat " " args))
+        | "config" -> (
+            match args with
+            | [] | [ "help" ] ->
+                Reply
+                  "Usage: /config <subcommand>\n\n\
+                   Subcommands:\n\
+                  \  show [SECTION]  — Show config (or a specific section)\n\
+                  \  get KEY         — Get a config value by dot-path\n\
+                  \  set KEY VALUE   — Set a config value\n\
+                  \  keys [PREFIX]   — List valid config key paths\n\
+                  \  wizard          — Run the interactive setup wizard"
+            | [ "show" ] ->
+                let output = Config_show.show None in
+                if String.length output > 1500 then
+                  let sections =
+                    match
+                      try Some (Yojson.Safe.from_string output) with _ -> None
+                    with
+                    | Some (`Assoc fields) ->
+                        List.map fst fields |> String.concat ", "
+                    | _ -> "(unable to list sections)"
+                  in
+                  Reply
+                    (Printf.sprintf
+                       "Config is too large to display in chat. Available \
+                        sections:\n\
+                        %s\n\n\
+                        Use: /config show <section>\n\
+                        Example: /config show gateway"
+                       sections)
+                else Reply output
+            | [ "show"; section ] -> Reply (Config_show.show (Some section))
+            | [ "get" ] -> Reply "Usage: /config get KEY"
+            | [ "get"; key ] -> Reply (Config_set.get_value_redacted key)
+            | "set" :: key :: value_parts when value_parts <> [] ->
+                let segments = Config_set.split_path key in
+                if
+                  segments <> [ "" ]
+                  && not
+                       (Config_set.validate_path segments
+                          Config_set.config_schema)
+                then Reply (Config_set.suggest_key key segments)
+                else if Config_set.is_secret_path key then
+                  Reply
+                    (Printf.sprintf
+                       "Cannot set secret key '%s' via chat. Use the terminal: \
+                        clawq config set %s <value>"
+                       key key)
+                else
+                  let value = String.concat " " value_parts in
+                  Reply
+                    (Config_set.set_value key value
+                    ^ "\nNote: restart the daemon for changes to take effect.")
+            | [ "set" ] | [ "set"; _ ] -> Reply "Usage: /config set KEY VALUE"
+            | [ "keys" ] ->
+                let paths = Config_set.config_leaf_paths () in
+                Reply (String.concat "\n" paths)
+            | [ "keys"; prefix ] ->
+                let paths = Config_set.config_leaf_paths () in
+                let prefix_lower = String.lowercase_ascii prefix in
+                let matches =
+                  List.filter
+                    (fun p ->
+                      let p_lower = String.lowercase_ascii p in
+                      String.length p_lower >= String.length prefix_lower
+                      && String.sub p_lower 0 (String.length prefix_lower)
+                         = prefix_lower)
+                    paths
+                in
+                if matches = [] then
+                  Reply
+                    (Printf.sprintf "No config keys matching prefix '%s'."
+                       prefix)
+                else Reply (String.concat "\n" matches)
+            | [ "wizard" ] ->
+                Reply
+                  "The config wizard requires an interactive terminal.\n\
+                   Run: clawq config wizard"
+            | sub :: _ ->
+                Reply
+                  (Printf.sprintf
+                     "Unknown config subcommand '%s'.\n\
+                      Use /config for usage help."
+                     sub))
         | "" -> NotACommand
         | _ -> NotACommand)
 

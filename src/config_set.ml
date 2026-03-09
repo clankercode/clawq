@@ -477,3 +477,34 @@ let get_value key =
       | Some (`String s) -> s
       | Some v -> Yojson.Safe.to_string v
       | None -> Printf.sprintf "Key '%s' not found" key)
+
+let config_leaf_paths () =
+  let rec collect acc prefix = function
+    | L -> String.concat "." (List.rev prefix) :: acc
+    | O fields ->
+        List.fold_left
+          (fun acc (name, child) -> collect acc (name :: prefix) child)
+          acc fields
+    | D _child -> (String.concat "." (List.rev prefix) ^ ".<NAME>") :: acc
+  in
+  List.rev (collect [] [] config_schema)
+
+let is_secret_path key =
+  let segments = split_path key in
+  match segments with
+  | [] -> false
+  | _ ->
+      let last = List.nth segments (List.length segments - 1) in
+      Config_show.is_secret_key last
+
+let get_value_redacted key =
+  if is_secret_path key then
+    let path = config_path () in
+    match load_json path with
+    | Error e -> Printf.sprintf "Error loading config: %s" e
+    | Ok json -> (
+        let segments = split_path key in
+        match json_get segments json with
+        | Some _ -> "***"
+        | None -> Printf.sprintf "Key '%s' not found" key)
+  else get_value key

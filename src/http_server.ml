@@ -171,6 +171,25 @@ let lookup_github_repo path (gc : Runtime_config.github_config) =
     (fun (r : Runtime_config.github_repo_config) -> r.webhook_path = path)
     gc.repos
 
+let sse_headers =
+  Cohttp.Header.of_list
+    [
+      ("Content-Type", "text/event-stream");
+      ("Cache-Control", "no-cache");
+      ("Connection", "keep-alive");
+    ]
+
+let sse_reply text =
+  let data =
+    Yojson.Safe.to_string (json_of_stream_event (Provider.Delta text))
+  in
+  let done_data = Yojson.Safe.to_string (json_of_stream_event Provider.Done) in
+  let body =
+    Printf.sprintf "data: %s\n\ndata: %s\n\ndata: [DONE]\n\n" data done_data
+  in
+  Cohttp_lwt_unix.Server.respond_string ~status:`OK ~headers:sse_headers ~body
+    ()
+
 let handler ~session_manager ~require_pairing ~auth_token
     ?daemon_run_update_command ?slack_config ?github_config ?github_api_limiter
     ?ip_limiter ?session_limiter ?slack_event_limiter ?slack_run_update_command
@@ -208,6 +227,26 @@ let handler ~session_manager ~require_pairing ~auth_token
   | `GET, "/commands" ->
       let* _ = Cohttp_lwt.Body.drain_body body in
       json_string_response (Yojson.Safe.to_string (slash_commands_json ()))
+  | `GET, "/config-keys" ->
+      let* _ = Cohttp_lwt.Body.drain_body body in
+      let paths = Config_set.config_leaf_paths () in
+      let prefix =
+        match Uri.get_query_param uri "prefix" with
+        | Some p -> String.lowercase_ascii p
+        | None -> ""
+      in
+      let filtered =
+        if prefix = "" then paths
+        else
+          List.filter
+            (fun p ->
+              let p_lower = String.lowercase_ascii p in
+              String.length p_lower >= String.length prefix
+              && String.sub p_lower 0 (String.length prefix) = prefix)
+            paths
+      in
+      json_string_response
+        (Yojson.Safe.to_string (`List (List.map (fun p -> `String p) filtered)))
   | `GET, "/health" ->
       let* _ = Cohttp_lwt.Body.drain_body body in
       Cohttp_lwt_unix.Server.respond_string ~status:`OK ~headers:json_headers
@@ -479,7 +518,7 @@ let handler ~session_manager ~require_pairing ~auth_token
                 (Yojson.Safe.to_string
                    (`Assoc [ ("error", `String ("invalid JSON: " ^ msg)) ]))
               ()
-        | Ok json ->
+        | Ok json -> (
             let open Yojson.Safe.Util in
             let session_id =
               try json |> member "session_id" |> to_string with _ -> ""
@@ -503,66 +542,127 @@ let handler ~session_manager ~require_pairing ~auth_token
               in
               if not sess_ok then rate_limit_response ()
               else
-                let key = "web:" ^ session_id in
-                let stream, push = Lwt_stream.create () in
-                Lwt.async (fun () ->
-                    Session.with_registered_notifier session_manager ~key
-                      ~notify:(fun text ->
-                        let data =
-                          Yojson.Safe.to_string
-                            (json_of_stream_event (Provider.Delta text))
-                        in
-                        push (Some (Printf.sprintf "data: %s\n\n" data));
-                        Lwt.return_unit)
-                      (fun () ->
-                        Lwt.catch
-                          (fun () ->
-                            let* _response =
-                              Session.turn_stream session_manager ~key ~message
-                                ~on_chunk:(fun chunk ->
-                                  let data =
-                                    Yojson.Safe.to_string
-                                      (json_of_stream_event chunk)
-                                  in
-                                  push
-                                    (Some (Printf.sprintf "data: %s\n\n" data));
-                                  Lwt.return_unit)
-                                ()
+                match Slash_commands.handle message with
+                | Slash_commands.Reply text -> sse_reply text
+                | Slash_commands.Reset ->
+                    let key = "web:" ^ session_id in
+                    let* () = Session.reset session_manager ~key in
+                    sse_reply Slash_commands.reset_message
+                | Slash_commands.Compact ->
+                    let key = "web:" ^ session_id in
+                    let* compacted = Session.compact session_manager ~key in
+                    let text =
+                      if compacted then
+                        "Session history compacted. Older messages have been \
+                         summarized."
+                      else
+                        "Nothing to compact — session history is already short \
+                         enough."
+                    in
+                    sse_reply text
+                | Slash_commands.Thinking Slash_commands.ShowThinking ->
+                    let current =
+                      (Session.get_config session_manager).agent_defaults
+                        .reasoning_effort
+                    in
+                    let text =
+                      Printf.sprintf "Current thinking level: %s"
+                        (Slash_commands.thinking_level_to_string current)
+                    in
+                    sse_reply text
+                | Slash_commands.Thinking (Slash_commands.SetThinking level) ->
+                    let cfg = Session.get_config session_manager in
+                    let previous = cfg.agent_defaults.reasoning_effort in
+                    let text =
+                      match Config_set.set_reasoning_effort level with
+                      | Ok () ->
+                          let agent_defaults =
+                            { cfg.agent_defaults with reasoning_effort = level }
+                          in
+                          Session.update_config session_manager
+                            { cfg with agent_defaults };
+                          Printf.sprintf "Thinking level changed from %s to %s."
+                            (Slash_commands.thinking_level_to_string previous)
+                            (Slash_commands.thinking_level_to_string level)
+                      | Error err -> err
+                    in
+                    sse_reply text
+                | Slash_commands.Delegate prompt ->
+                    let* result = Session.delegate_turn session_manager ~prompt in
+                    let text =
+                      match result with
+                      | Ok response -> response
+                      | Error msg -> msg
+                    in
+                    sse_reply text
+                | Slash_commands.NotACommand ->
+                    let key = "web:" ^ session_id in
+                    let stream, push = Lwt_stream.create () in
+                    Lwt.async (fun () ->
+                        Session.with_registered_notifier session_manager ~key
+                          ~notify:(fun text ->
+                            let data =
+                              Yojson.Safe.to_string
+                                (json_of_stream_event (Provider.Delta text))
                             in
-                            if
-                              not
-                                (Session.take_response_deferred session_manager
-                                   ~key)
-                            then Session.mark_response_sent session_manager ~key;
-                            push (Some "data: [DONE]\n\n");
-                            push None;
+                            push (Some (Printf.sprintf "data: %s\n\n" data));
                             Lwt.return_unit)
-                          (fun exn ->
-                            let err = Printexc.to_string exn in
-                            if
-                              not
-                                (Session.take_response_deferred session_manager
-                                   ~key)
-                            then Session.mark_response_sent session_manager ~key;
-                            push
-                              (Some
-                                 (Printf.sprintf
-                                    "data: {\"type\":\"error\",\"message\":%s}\n\n"
-                                    (Yojson.Safe.to_string (`String err))));
-                            push (Some "data: [DONE]\n\n");
-                            push None;
-                            Lwt.return_unit)));
-                let headers =
-                  Cohttp.Header.of_list
-                    [
-                      ("Content-Type", "text/event-stream");
-                      ("Cache-Control", "no-cache");
-                      ("Connection", "keep-alive");
-                    ]
-                in
-                Cohttp_lwt_unix.Server.respond ~status:`OK ~headers
-                  ~body:(Cohttp_lwt.Body.of_stream stream)
-                  ())
+                          (fun () ->
+                            Lwt.catch
+                              (fun () ->
+                                let* _response =
+                                  Session.turn_stream session_manager ~key
+                                    ~message
+                                    ~on_chunk:(fun chunk ->
+                                      let data =
+                                        Yojson.Safe.to_string
+                                          (json_of_stream_event chunk)
+                                      in
+                                      push
+                                        (Some
+                                           (Printf.sprintf "data: %s\n\n" data));
+                                      Lwt.return_unit)
+                                    ()
+                                in
+                                if
+                                  not
+                                    (Session.take_response_deferred
+                                       session_manager ~key)
+                                then
+                                  Session.mark_response_sent session_manager
+                                    ~key;
+                                push (Some "data: [DONE]\n\n");
+                                push None;
+                                Lwt.return_unit)
+                              (fun exn ->
+                                let err = Printexc.to_string exn in
+                                if
+                                  not
+                                    (Session.take_response_deferred
+                                       session_manager ~key)
+                                then
+                                  Session.mark_response_sent session_manager
+                                    ~key;
+                                push
+                                  (Some
+                                     (Printf.sprintf
+                                        "data: \
+                                         {\"type\":\"error\",\"message\":%s}\n\n"
+                                        (Yojson.Safe.to_string (`String err))));
+                                push (Some "data: [DONE]\n\n");
+                                push None;
+                                Lwt.return_unit)));
+                    let headers =
+                      Cohttp.Header.of_list
+                        [
+                          ("Content-Type", "text/event-stream");
+                          ("Cache-Control", "no-cache");
+                          ("Connection", "keep-alive");
+                        ]
+                    in
+                    Cohttp_lwt_unix.Server.respond ~status:`OK ~headers
+                      ~body:(Cohttp_lwt.Body.of_stream stream)
+                      ()))
   | `POST, path
     when match slack_config with
          | Some sc -> path = sc.Runtime_config.events_path

@@ -100,6 +100,23 @@ async function fetchCommands(): Promise<SlashCommand[]> {
   return (await response.json()) as SlashCommand[];
 }
 
+let cachedConfigKeys: string[] | null = null;
+
+async function fetchConfigKeys(prefix: string): Promise<string[]> {
+  if (!cachedConfigKeys) {
+    const response = await fetch("/config-keys");
+    if (!response.ok) {
+      return [];
+    }
+    cachedConfigKeys = (await response.json()) as string[];
+  }
+  if (!prefix) {
+    return cachedConfigKeys;
+  }
+  const lower = prefix.toLowerCase();
+  return cachedConfigKeys.filter((k) => k.toLowerCase().startsWith(lower));
+}
+
 function showPairModal(onSuccess: () => void) {
   retryAfterPair = onSuccess;
   pairingModal.hidden = false;
@@ -220,6 +237,7 @@ installSlashPopover({
   input: composerInput,
   popover: slashPopover,
   fetchCommands,
+  fetchConfigKeys,
 });
 
 installVersionBanner({
