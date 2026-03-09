@@ -40,7 +40,7 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 | `background show ID` | Show detailed status for a background task |
 | `background add RUNNER [--model MODEL] REPO [--branch NAME] PROMPT` | Queue a Codex or Claude task in a git worktree |
 | `background wait ID [--timeout SECONDS]` | Wait for a background task to finish, then print its final status/result summary |
-| `background logs ID [--lines COUNT]` | Print the captured log for a background task |
+| `background logs ID [--lines COUNT] [--offset LINE] [--follow/-f]` | Print the captured log for a background task; `--offset` reads forward from a line number, `--follow` tails live output (mutually exclusive) |
 | `background cancel ID` | Cancel a queued or running background task |
 | `delegate [--runner auto|codex|claude] [--model MODEL] [--repo PATH] [--branch NAME] GOAL` | High-level shortcut for handing off repository work as a background task with sensible defaults |
 | `debug` | Internal debugging utilities |
@@ -52,7 +52,7 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 | `session` | Inspect persisted sessions and raw chat-log epochs |
 | `session list [--channel NAME] [--prefix PREFIX] [--active|--inactive] [--main|--non-main]` | List persisted sessions with optional filters |
 | `session epochs SESSION` | List the current and archived chat-log epochs for a session |
-| `session show SESSION [--epoch current|ID]` | Print raw persisted chat-log messages for the latest or a selected archived epoch |
+| `session show SESSION [--epoch current|ID] [--offset N] [--limit N]` | Print raw persisted chat-log messages for the latest or a selected archived epoch; supports paging via offset/limit |
 | `session inject SESSION MESSAGE...` | Inject a live inbound message through the daemon session manager; idle sessions process immediately, busy channel sessions queue, and bang messages request interruption |
 | `migrate` | Run database migrations |
 | `models` | List configured LLM providers and models |
@@ -301,6 +301,11 @@ Background delegation notes:
 - Background task worktrees live under `~/.clawq/background-worktrees/`.
 - Background task logs live under `~/.clawq/background-logs/`.
 - Session routing preservation: when `shell_exec` runs inside an active session (Telegram, Discord, etc.), it injects the `CLAWQ_SESSION_ID` env var into the child process. CLI subprocesses (e.g. `clawq background add`) read this variable to capture the originating session's routing metadata (session_key, channel, channel_id) on the task row, enabling completion notices to return to the originating channel. Standalone CLI launches without this env var fall back to static `notify` config or no routing.
+
+Inspection paging pattern:
+- `session show` supports `--offset N` and `--limit N` for paging through messages. The JSON response includes `total_messages`, `has_more` (bool), and `next_offset` (int, present when `has_more` is true). Default behavior (no paging flags) returns all messages for backward compatibility.
+- `background logs` supports `--offset LINE` and `--lines COUNT` for forward reading from a specific line number. The text output includes metadata lines: `total_lines`, `has_more`, and `next_offset`. Default behavior (no `--offset`) tails the last N lines. `--follow` streams live output and is mutually exclusive with `--offset`.
+- Continuation workflow: issue a read with `--offset 0 --limit N` (or `--offset 0 --lines N`), check `has_more` and `next_offset` in the response, then issue a follow-up with `--offset <next_offset>` to continue. Repeat until `has_more` is false.
 
 Security features:
 - Dual path safety: Coq-extracted pure check (PathSafety.v) AND OCaml realpath check — both must pass

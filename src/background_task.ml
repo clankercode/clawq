@@ -410,6 +410,82 @@ let log_excerpt ?(lines = 40) task =
           if chunks = [] then header ^ "\n\n(log file is empty)"
           else header ^ "\n\n" ^ String.concat "\n" chunks)
 
+let count_lines path =
+  try
+    let ic = open_in path in
+    Fun.protect
+      ~finally:(fun () -> close_in_noerr ic)
+      (fun () ->
+        let count = ref 0 in
+        (try
+           while true do
+             ignore (input_line ic);
+             incr count
+           done
+         with End_of_file -> ());
+        !count)
+  with Sys_error _ -> 0
+
+let read_lines_range path ~offset ~lines =
+  if lines <= 0 then Ok ([], 0)
+  else
+    try
+      let ic = open_in path in
+      Fun.protect
+        ~finally:(fun () -> close_in_noerr ic)
+        (fun () ->
+          let line_num = ref 0 in
+          (* Skip to offset *)
+          (try
+             while !line_num < offset do
+               ignore (input_line ic);
+               incr line_num
+             done
+           with End_of_file -> ());
+          (* Read up to lines *)
+          let acc = ref [] in
+          let count = ref 0 in
+          (try
+             while !count < lines do
+               let line = input_line ic in
+               acc := line :: !acc;
+               incr count;
+               incr line_num
+             done
+           with End_of_file -> ());
+          Ok (List.rev !acc, !line_num))
+    with Sys_error msg -> Error msg
+
+let log_range ~offset ~lines task =
+  match task.log_path with
+  | None -> Error (Printf.sprintf "Task %d has no log file yet" task.id)
+  | Some path when not (Sys.file_exists path) ->
+      Error (Printf.sprintf "Log file does not exist yet: %s" path)
+  | Some path ->
+      let total_lines = count_lines path in
+      read_lines_range path ~offset ~lines
+      |> Result.map (fun (chunks, next_line) ->
+          let has_more = next_line < total_lines in
+          let header =
+            Printf.sprintf
+              "Log for task %d (%s)\n\
+               path: %s\n\
+               total_lines: %d\n\
+               offset: %d\n\
+               showing: %d"
+              task.id
+              (string_of_status task.status)
+              path total_lines offset (List.length chunks)
+          in
+          let continuation =
+            if has_more then
+              Printf.sprintf "\nhas_more: true\nnext_offset: %d" next_line
+            else "\nhas_more: false"
+          in
+          if chunks = [] then
+            header ^ continuation ^ "\n\n(no lines in requested range)"
+          else header ^ continuation ^ "\n\n" ^ String.concat "\n" chunks)
+
 let file_size path =
   try
     let ic = open_in path in

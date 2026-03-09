@@ -72,9 +72,10 @@ let session_cmd =
           "List persisted sessions with optional filters." );
       `I ("epochs SESSION", "List the current and archived chat-log epochs.");
       `I
-        ( "show SESSION [--epoch current|ID]",
-          "Print the raw chat log for the current or a specific archived epoch."
-        );
+        ( "show SESSION [--epoch current|ID] [--offset N] [--limit N]",
+          "Print the raw chat log for the current or a specific archived \
+           epoch. Use --offset and --limit to page through long message \
+           histories." );
       `I
         ( "inject SESSION MESSAGE...",
           "Inject a live inbound message through the daemon session manager." );
@@ -230,6 +231,15 @@ let background_logs_cmd =
       & info [ "lines" ] ~docv:"COUNT"
           ~doc:"How many trailing log lines to show.")
   in
+  let offset =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "offset" ] ~docv:"LINE"
+          ~doc:
+            "Start reading from line $(docv) (0-indexed). When set, reads \
+             forward from that line instead of tailing.")
+  in
   let follow =
     Arg.(
       value & flag
@@ -241,16 +251,21 @@ let background_logs_cmd =
        ~doc:"Show the task log output for a queued, running, or finished task.")
     Term.(
       ret
-        (const (fun id lines follow ->
+        (const (fun id lines offset follow ->
              let args = [ "logs"; id ] in
              let args =
                match lines with
                | Some count -> args @ [ "--lines"; count ]
                | None -> args
              in
+             let args =
+               match offset with
+               | Some line -> args @ [ "--offset"; line ]
+               | None -> args
+             in
              let args = if follow then args @ [ "--follow" ] else args in
              run "background" args)
-        $ id $ lines $ follow))
+        $ id $ lines $ offset $ follow))
 
 let background_cancel_cmd =
   let id = Arg.(required & pos 0 (some string) None & info [] ~docv:"ID") in
@@ -317,7 +332,7 @@ let delegate_cmd =
              ( "background wait ID [--timeout SECONDS]",
                "Wait for a delegated task to finish." );
            `I
-             ( "background logs ID [--lines COUNT] [--follow]",
+             ( "background logs ID [--lines COUNT] [--offset LINE] [--follow]",
                "Show the log output for a delegated task." );
            `I
              ( "background cancel ID",

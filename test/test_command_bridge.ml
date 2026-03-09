@@ -701,6 +701,105 @@ let test_session_show_redacts_shell_exec_provider_response_items () =
              with Not_found -> false))
         ~finally:(fun () -> Unix.rmdir workspace))
 
+let test_session_show_paging () =
+  with_temp_home (fun home ->
+      let db = session_db home in
+      let session_key = "cli:paging_test" in
+      for i = 0 to 9 do
+        Memory.store_message ~db ~session_key
+          (Provider.make_message ~role:"user"
+             ~content:(Printf.sprintf "message_%d" i))
+      done;
+      let contains s sub =
+        try
+          ignore (Str.search_forward (Str.regexp_string sub) s 0);
+          true
+        with Not_found -> false
+      in
+      (* Default: all 10 messages, total_messages present *)
+      let all_result =
+        Command_bridge.handle [ "session"; "show"; session_key ]
+      in
+      Alcotest.(check bool)
+        "default shows total_messages" true
+        (contains all_result "\"total_messages\": 10");
+      Alcotest.(check bool)
+        "default shows has_more false" true
+        (contains all_result "\"has_more\": false");
+      Alcotest.(check bool)
+        "default has no offset field" false
+        (contains all_result "\"offset\":");
+      Alcotest.(check bool)
+        "default includes first message" true
+        (contains all_result "message_0");
+      Alcotest.(check bool)
+        "default includes last message" true
+        (contains all_result "message_9");
+      (* --limit 3: first 3 messages *)
+      let limited =
+        Command_bridge.handle [ "session"; "show"; session_key; "--limit"; "3" ]
+      in
+      Alcotest.(check bool)
+        "limit 3 shows total_messages 10" true
+        (contains limited "\"total_messages\": 10");
+      Alcotest.(check bool)
+        "limit 3 has_more true" true
+        (contains limited "\"has_more\": true");
+      Alcotest.(check bool)
+        "limit 3 shows next_offset 3" true
+        (contains limited "\"next_offset\": 3");
+      Alcotest.(check bool)
+        "limit 3 includes message_0" true
+        (contains limited "message_0");
+      Alcotest.(check bool)
+        "limit 3 includes message_2" true
+        (contains limited "message_2");
+      Alcotest.(check bool)
+        "limit 3 excludes message_3" false
+        (contains limited "message_3");
+      (* --offset 7 --limit 5: last 3 messages *)
+      let paged =
+        Command_bridge.handle
+          [ "session"; "show"; session_key; "--offset"; "7"; "--limit"; "5" ]
+      in
+      Alcotest.(check bool)
+        "offset 7 limit 5 shows total_messages 10" true
+        (contains paged "\"total_messages\": 10");
+      Alcotest.(check bool)
+        "offset 7 limit 5 has_more false" true
+        (contains paged "\"has_more\": false");
+      Alcotest.(check bool)
+        "offset 7 limit 5 shows offset 7" true
+        (contains paged "\"offset\": 7");
+      Alcotest.(check bool)
+        "offset 7 limit 5 includes message_7" true
+        (contains paged "message_7");
+      Alcotest.(check bool)
+        "offset 7 limit 5 includes message_9" true
+        (contains paged "message_9");
+      Alcotest.(check bool)
+        "offset 7 limit 5 excludes message_6" false
+        (contains paged "message_6");
+      (* --offset 3 --limit 2: middle slice with continuation *)
+      let mid =
+        Command_bridge.handle
+          [ "session"; "show"; session_key; "--offset"; "3"; "--limit"; "2" ]
+      in
+      Alcotest.(check bool)
+        "mid slice has_more true" true
+        (contains mid "\"has_more\": true");
+      Alcotest.(check bool)
+        "mid slice next_offset 5" true
+        (contains mid "\"next_offset\": 5");
+      Alcotest.(check bool)
+        "mid slice includes message_3" true (contains mid "message_3");
+      Alcotest.(check bool)
+        "mid slice includes message_4" true (contains mid "message_4");
+      Alcotest.(check bool)
+        "mid slice excludes message_2" false (contains mid "message_2");
+      Alcotest.(check bool)
+        "mid slice excludes message_5" false (contains mid "message_5"))
+
 let test_handle_capabilities () =
   let result = Command_bridge.handle [ "capabilities" ] in
   Alcotest.(check bool)
@@ -868,6 +967,72 @@ let test_handle_background_logs_follow () =
       in
       (* Follow mode prints directly; handle returns "" on success *)
       Alcotest.(check string) "follow returns empty on success" "" result)
+
+let test_handle_background_logs_offset () =
+  with_temp_home (fun home ->
+      let repo = Filename.concat home "repo" in
+      Unix.mkdir repo 0o755;
+      init_git_repo repo;
+      ignore
+        (Command_bridge.handle
+           [ "background"; "add"; "codex"; repo; "Test"; "offset"; "logs" ]);
+      let clawq_dir = Filename.concat home ".clawq" in
+      let db =
+        Memory.init ~db_path:(Filename.concat clawq_dir "memory.db") ()
+      in
+      Background_task.init_schema db;
+      let log_path = Filename.concat clawq_dir "task-1.log" in
+      let oc = open_out log_path in
+      output_string oc "line0\nline1\nline2\nline3\nline4\n";
+      close_out oc;
+      ignore
+        (Background_task.set_running ~db ~id:1 ~branch:"clawq-bg-1"
+           ~worktree_path:(Filename.concat home "wt")
+           ~log_path ~pid:12345);
+      Background_task.finish ~db ~id:1 ~status:Background_task.Succeeded
+        ~result_preview:"ok";
+      let contains s sub =
+        try
+          ignore (Str.search_forward (Str.regexp_string sub) s 0);
+          true
+        with Not_found -> false
+      in
+      (* --offset 1 --lines 2: read lines 1-2 *)
+      let result =
+        Command_bridge.handle
+          [ "background"; "logs"; "1"; "--offset"; "1"; "--lines"; "2" ]
+      in
+      Alcotest.(check bool)
+        "offset logs includes line1" true (contains result "line1");
+      Alcotest.(check bool)
+        "offset logs includes line2" true (contains result "line2");
+      Alcotest.(check bool)
+        "offset logs excludes line0" false (contains result "line0");
+      Alcotest.(check bool)
+        "offset logs excludes line3" false (contains result "line3");
+      Alcotest.(check bool)
+        "offset logs shows total_lines" true
+        (contains result "total_lines: 5");
+      Alcotest.(check bool)
+        "offset logs shows has_more true" true
+        (contains result "has_more: true");
+      Alcotest.(check bool)
+        "offset logs shows next_offset 3" true
+        (contains result "next_offset: 3");
+      (* --offset 3 --lines 10: read to end *)
+      let end_result =
+        Command_bridge.handle
+          [ "background"; "logs"; "1"; "--offset"; "3"; "--lines"; "10" ]
+      in
+      Alcotest.(check bool)
+        "end offset includes line3" true
+        (contains end_result "line3");
+      Alcotest.(check bool)
+        "end offset includes line4" true
+        (contains end_result "line4");
+      Alcotest.(check bool)
+        "end offset has_more false" true
+        (contains end_result "has_more: false"))
 
 let test_handle_delegate () =
   with_temp_home (fun home ->
@@ -1687,6 +1852,8 @@ let suite =
       test_handle_background_wait_and_logs;
     Alcotest.test_case "handle background logs follow" `Quick
       test_handle_background_logs_follow;
+    Alcotest.test_case "handle background logs offset" `Quick
+      test_handle_background_logs_offset;
     Alcotest.test_case "handle background wait with timeout" `Quick
       test_handle_background_wait_with_timeout;
     Alcotest.test_case "handle delegate" `Quick test_handle_delegate;
@@ -1711,6 +1878,7 @@ let suite =
       `Quick test_session_show_redacts_shell_exec_prompt_file_updates;
     Alcotest.test_case "session show redacts shell_exec provider response items"
       `Quick test_session_show_redacts_shell_exec_provider_response_items;
+    Alcotest.test_case "session show paging" `Quick test_session_show_paging;
     Alcotest.test_case "handle migrate no source" `Quick
       test_handle_migrate_no_source;
     Alcotest.test_case "handle skills" `Quick test_handle_skills;

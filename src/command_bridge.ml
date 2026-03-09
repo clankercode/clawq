@@ -713,19 +713,38 @@ let parse_session_list_args args =
     { channel = None; prefix = None; activity = Memory.Any; only_main = None }
     args
 
-let parse_epoch_selector args =
-  let rec loop epoch = function
-    | [] -> Ok epoch
-    | "--epoch" :: "current" :: rest -> loop (Some Memory.Current) rest
+type session_show_args = {
+  epoch : Memory.epoch_selector option;
+  offset : int;
+  limit : int option;
+}
+
+let parse_session_show_args args =
+  let rec loop epoch offset limit = function
+    | [] -> Ok { epoch; offset; limit }
+    | "--epoch" :: "current" :: rest ->
+        loop (Some Memory.Current) offset limit rest
     | "--epoch" :: value :: rest -> (
         match int_of_string_opt value with
-        | Some id when id > 0 -> loop (Some (Memory.Archived id)) rest
+        | Some id when id > 0 ->
+            loop (Some (Memory.Archived id)) offset limit rest
         | _ -> Error (Printf.sprintf "Invalid epoch value: %s" value))
+    | "--offset" :: value :: rest -> (
+        match int_of_string_opt value with
+        | Some n when n >= 0 -> loop epoch n limit rest
+        | _ -> Error (Printf.sprintf "Invalid offset value: %s" value))
+    | "--limit" :: value :: rest -> (
+        match int_of_string_opt value with
+        | Some n when n > 0 -> loop epoch offset (Some n) rest
+        | _ -> Error (Printf.sprintf "Invalid limit value: %s" value))
     | flag :: _ when String.length flag > 0 && flag.[0] = '-' ->
         Error (Printf.sprintf "Unknown session show flag: %s" flag)
-    | _ -> Error "Usage: clawq session show SESSION [--epoch current|ID]"
+    | _ ->
+        Error
+          "Usage: clawq session show SESSION [--epoch current|ID] [--offset N] \
+           [--limit N]"
   in
-  loop None args
+  loop None 0 None args
 
 let string_or_null = function Some value -> `String value | None -> `Null
 let session_show_system_prompt _config = "[redacted in session show]"
@@ -1043,11 +1062,11 @@ let cmd_session args =
                ("epochs", `List (List.map session_epoch_json epochs));
              ])
   | "show" :: session_key :: rest -> (
-      match parse_epoch_selector rest with
+      match parse_session_show_args rest with
       | Error msg -> msg
-      | Ok epoch_selector -> (
+      | Ok parsed -> (
           let epoch =
-            match epoch_selector with
+            match parsed.epoch with
             | Some value -> value
             | None -> Memory.Current
           in
@@ -1072,21 +1091,62 @@ let cmd_session args =
                   (fun acc (e : Memory.session_epoch) -> acc + e.message_count)
                   0 archived
               in
+              let total_messages = List.length rows in
+              let offset = parsed.offset in
+              let paged_rows =
+                let after_offset =
+                  if offset > 0 then
+                    let rec drop n lst =
+                      if n <= 0 then lst
+                      else
+                        match lst with _ :: tl -> drop (n - 1) tl | [] -> []
+                    in
+                    drop offset rows
+                  else rows
+                in
+                match parsed.limit with
+                | Some limit ->
+                    let rec take n acc = function
+                      | _ when n <= 0 -> List.rev acc
+                      | [] -> List.rev acc
+                      | hd :: tl -> take (n - 1) (hd :: acc) tl
+                    in
+                    take limit [] after_offset
+                | None -> after_offset
+              in
+              let shown_count = List.length paged_rows in
+              let has_more = offset + shown_count < total_messages in
+              let paging_fields =
+                [ ("total_messages", `Int total_messages) ]
+                @ (if offset > 0 then [ ("offset", `Int offset) ] else [])
+                @ (match parsed.limit with
+                  | Some n -> [ ("limit", `Int n) ]
+                  | None -> [])
+                @ [ ("has_more", `Bool has_more) ]
+                @
+                if has_more then
+                  [ ("next_offset", `Int (offset + shown_count)) ]
+                else []
+              in
               Yojson.Safe.pretty_to_string
                 (`Assoc
-                   [
-                     ("session_key", `String session_key);
-                     ("epoch", epoch_label);
-                     ( "system_prompt",
-                       `String (session_show_system_prompt config) );
-                     ("archived_epoch_count", `Int archived_epoch_count);
-                     ("total_archived_messages", `Int total_archived_messages);
-                     ( "messages",
-                       `List
-                         (List.mapi
-                            (fun i row -> raw_message_json config i row)
-                            rows) );
-                   ])))
+                   ([
+                      ("session_key", `String session_key);
+                      ("epoch", epoch_label);
+                      ( "system_prompt",
+                        `String (session_show_system_prompt config) );
+                      ("archived_epoch_count", `Int archived_epoch_count);
+                      ("total_archived_messages", `Int total_archived_messages);
+                    ]
+                   @ paging_fields
+                   @ [
+                       ( "messages",
+                         `List
+                           (List.mapi
+                              (fun i row ->
+                                raw_message_json config (offset + i) row)
+                              paged_rows) );
+                     ]))))
   | "inject" :: session_key :: message_parts -> (
       let message = String.concat " " message_parts in
       if String.trim message = "" then
@@ -1159,7 +1219,7 @@ let cmd_session args =
       \  session list [--channel NAME] [--prefix PREFIX] [--active|--inactive] \
        [--main|--non-main]\n\
       \  session epochs SESSION\n\
-      \  session show SESSION [--epoch current|ID]\n\
+      \  session show SESSION [--epoch current|ID] [--offset N] [--limit N]\n\
       \  session inject SESSION MESSAGE..."
 
 type background_add_args = {
@@ -1171,7 +1231,13 @@ type background_add_args = {
 }
 
 type background_wait_args = { id : int; timeout_seconds : float }
-type background_logs_args = { id : int; lines : int; follow : bool }
+
+type background_logs_args = {
+  id : int;
+  lines : int;
+  follow : bool;
+  log_offset : int option;
+}
 
 type delegate_args = {
   preferred_runner : Background_task.runner option;
@@ -1235,27 +1301,33 @@ let parse_background_wait_args args =
   loop 180.0 None args
 
 let parse_background_logs_args args =
-  let rec loop lines follow id = function
+  let rec loop lines follow log_offset id = function
     | [] -> (
         match id with
-        | Some id -> Ok { id; lines; follow }
+        | Some id -> Ok { id; lines; follow; log_offset }
         | None ->
             Error
-              "Usage: clawq background logs <id> [--lines <count>] [--follow]")
+              "Usage: clawq background logs <id> [--lines <count>] [--offset \
+               <line>] [--follow]")
     | "--lines" :: count :: rest -> (
-        try loop (max 1 (int_of_string count)) follow id rest
+        try loop (max 1 (int_of_string count)) follow log_offset id rest
         with _ -> Error "Log line count must be an integer")
-    | ("--follow" | "-f") :: rest -> loop lines true id rest
+    | "--offset" :: value :: rest -> (
+        match int_of_string_opt value with
+        | Some n when n >= 0 -> loop lines follow (Some n) id rest
+        | _ -> Error "Log offset must be a non-negative integer")
+    | ("--follow" | "-f") :: rest -> loop lines true log_offset id rest
     | arg :: rest -> (
         match id with
         | Some _ ->
             Error
-              "Usage: clawq background logs <id> [--lines <count>] [--follow]"
+              "Usage: clawq background logs <id> [--lines <count>] [--offset \
+               <line>] [--follow]"
         | None -> (
-            try loop lines follow (Some (int_of_string arg)) rest
+            try loop lines follow log_offset (Some (int_of_string arg)) rest
             with _ -> Error "Background task id must be an integer"))
   in
-  loop 40 false None args
+  loop 40 false None None args
 
 let parse_delegate_args args =
   let rec loop preferred_runner model repo_path branch positionals = function
@@ -1724,8 +1796,8 @@ let cmd_background args =
          Queue a task\n\
         \  background wait <id> [--timeout <seconds>]              - Wait for \
          completion\n\
-        \  background logs <id> [--lines <count>] [--follow]       - Show task \
-         logs\n\
+        \  background logs <id> [--lines <count>] [--offset <line>] \
+         [--follow]       - Show task logs\n\
         \  background cancel <id>                                  - Cancel a \
          task"
   | [ "show"; id_s ] -> (
@@ -1796,6 +1868,8 @@ let cmd_background args =
       Background_task.init_schema db;
       match parse_background_logs_args rest with
       | Error msg -> "Error: " ^ msg
+      | Ok parsed when parsed.follow && parsed.log_offset <> None ->
+          "Error: --follow and --offset cannot be used together"
       | Ok parsed when parsed.follow -> (
           let result =
             Lwt_main.run
@@ -1809,9 +1883,19 @@ let cmd_background args =
               Printf.sprintf "Error: No background task found with id %d"
                 parsed.id
           | Some task -> (
-              match Background_task.log_excerpt ~lines:parsed.lines task with
-              | Ok text -> text
-              | Error msg -> "Error: " ^ msg)))
+              match parsed.log_offset with
+              | Some offset -> (
+                  match
+                    Background_task.log_range ~offset ~lines:parsed.lines task
+                  with
+                  | Ok text -> text
+                  | Error msg -> "Error: " ^ msg)
+              | None -> (
+                  match
+                    Background_task.log_excerpt ~lines:parsed.lines task
+                  with
+                  | Ok text -> text
+                  | Error msg -> "Error: " ^ msg))))
   | [ "cancel"; id_s ] -> (
       let db = get_db () in
       Background_task.init_schema db;
@@ -1831,8 +1915,8 @@ let cmd_background args =
        Queue a worktree runner\n\
       \  background wait <id> [--timeout <seconds>]              - Wait for a \
        task to finish\n\
-      \  background logs <id> [--lines <count>] [--follow]       - Show recent \
-       task log lines\n\
+      \  background logs <id> [--lines <count>] [--offset <line>] \
+       [--follow]       - Show recent task log lines\n\
       \  background cancel <id>                                  - Cancel a \
        queued/running task"
 

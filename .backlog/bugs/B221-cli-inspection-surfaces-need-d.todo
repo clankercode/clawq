@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-09T18:26:42Z"
+claimed_by: cli-user
+completed_at: "2026-03-09T18:35:25Z"
 complexity: medium
 depends_on: []
+duration_minutes: 8.720270303366666
 estimate_hours: 1
 id: B221
 priority: medium
-status: pending
+started_at: "2026-03-09T18:26:42Z"
+status: done
 tags: []
 title: CLI inspection surfaces need deterministic paging/truncation control and better continuation affordances
 ---
