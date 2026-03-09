@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B219
+priority: high
+status: pending
+tags: []
+title: Investigate why background tasks are unable to survive upgrade_clawq and devise a strategy so that we can safely update and have the bg tasks running and not lose any info about them and maintain up to date state about their progress and status etc.
+---
+
+Investigate why background tasks are unable to survive upgrade_clawq and devise a strategy so that we can safely update and have the bg tasks running and not lose any info about them and maintain up to date state about their progress and status etc.

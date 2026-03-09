@@ -217,3 +217,4 @@ bugs:
     - file: B216-automatic-restart-resume-promp.todo
     - file: B217-telegram-reaction-emojis-can-a.todo
     - file: B218-session-restore-should-resync.todo
+    - file: B219-investigate-why-background-tas.todo
