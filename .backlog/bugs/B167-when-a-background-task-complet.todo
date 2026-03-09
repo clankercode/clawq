@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B167
+priority: high
+status: pending
+tags: []
+title: When a background task completes, the main user facing agent should get notified and triggered (starts its turn if idle). Also notified if a bg task fails. Plan this out thoroughly before writing any code.
+---
+
+When a background task completes, the main user facing agent should get notified and triggered (starts its turn if idle). Also notified if a bg task fails. Plan this out thoroughly before writing any code.

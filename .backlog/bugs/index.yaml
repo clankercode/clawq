@@ -165,3 +165,4 @@ bugs:
     - file: B164-telegram-agents-and-similar-sh.todo
     - file: B165-background-add-delegate-cli-sh.todo
     - file: B166-agent-should-be-able-to-search.todo
+    - file: B167-when-a-background-task-complet.todo
