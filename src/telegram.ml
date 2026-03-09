@@ -1028,7 +1028,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
             Status_message.create
               ~notifier:
                 (make_status_notifier ~bot_token ~chat_id:update.chat_id)
-              ~parse_mode:"MarkdownV2" ())
+              ~parse_mode:"HTML" ())
       end;
       (* Register rich notifier for inline keyboards and polls *)
       if Option.is_none (Session.find_rich_notifier session_mgr ~key) then
@@ -1321,7 +1321,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                 in
                 Some
                   (Status_message.create ~notifier:status_notifier
-                     ~parse_mode:"MarkdownV2" ())
+                     ~parse_mode:"HTML" ())
               else None
             in
             let visibility = Stream_visibility.create () in

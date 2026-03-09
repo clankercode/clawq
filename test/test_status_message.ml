@@ -528,7 +528,7 @@ let test_finalize_no_collapsing () =
   (* Aggregate footer *)
   Alcotest.(check bool) "footer present" true (contains last_edit "10 tools")
 
-let test_finalize_suppresses_output_tail () =
+let test_no_output_tail_in_render () =
   let notifier, _, _, _ = mock_notifier () in
   let t =
     Status_message.create ~debounce_interval:0.0 ~notifier
@@ -545,15 +545,14 @@ let test_finalize_suppresses_output_tail () =
          ~result:"line1\nline2\nline3\nline4\nline5" ~is_error:false
      in
      Lwt.return_unit);
-  (* Before finalize: output_tail code block should be present *)
+  (* No raw stdout code block should appear *)
   let before = Status_message.render t in
   Alcotest.(check bool)
-    "output tail present before finalize" true (contains before "```");
-  (* Finalize *)
+    "no output tail before finalize" false (contains before "```");
   t.finalized <- true;
   let after = Status_message.render t in
   Alcotest.(check bool)
-    "output tail suppressed after finalize" false (contains after "```")
+    "no output tail after finalize" false (contains after "```")
 
 let test_finalize_mixed_success_failure () =
   let notifier, _, edited, _ = mock_notifier () in
@@ -676,7 +675,7 @@ let suite =
     Alcotest.test_case "finalize no collapsing" `Quick
       test_finalize_no_collapsing;
     Alcotest.test_case "finalize suppresses output tail" `Quick
-      test_finalize_suppresses_output_tail;
+      test_no_output_tail_in_render;
     Alcotest.test_case "finalize mixed success failure" `Quick
       test_finalize_mixed_success_failure;
     Alcotest.test_case "concurrent tool_starts single message" `Quick

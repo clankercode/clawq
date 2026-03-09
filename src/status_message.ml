@@ -73,13 +73,42 @@ let format_duration secs =
   if secs < 10.0 then Printf.sprintf "%.1fs" secs
   else Printf.sprintf "%ds" (int_of_float secs)
 
+let escape_html text =
+  let buf = Buffer.create (String.length text + 16) in
+  String.iter
+    (fun c ->
+      match c with
+      | '&' -> Buffer.add_string buf "&amp;"
+      | '<' -> Buffer.add_string buf "&lt;"
+      | '>' -> Buffer.add_string buf "&gt;"
+      | _ -> Buffer.add_char buf c)
+    text;
+  Buffer.contents buf
+
+let is_html_mode t = t.parse_mode = "HTML"
+
+let fmt_bold t text =
+  if is_html_mode t then Printf.sprintf "<b>%s</b>" (escape_html text)
+  else Printf.sprintf "*%s*" text
+
+let fmt_italic t text =
+  if is_html_mode t then Printf.sprintf "<i>%s</i>" (escape_html text)
+  else Printf.sprintf "_%s_" text
+
+let fmt_code t text =
+  if is_html_mode t then Printf.sprintf "<code>%s</code>" (escape_html text)
+  else Printf.sprintf "`%s`" text
+
+let fmt_plain t text = if is_html_mode t then escape_html text else text
+
 let render t =
   let buf = Buffer.create 256 in
   let total = Hashtbl.length t.tools in
   if total = 0 then
     if t.thinking_text <> "" then
-      Printf.sprintf "\xF0\x9F\x92\xAD _%s_"
-        (Stream_visibility.truncate_text ~max_chars:200 t.thinking_text)
+      Printf.sprintf "\xF0\x9F\x92\xAD %s"
+        (fmt_italic t
+           (Stream_visibility.truncate_text ~max_chars:200 t.thinking_text))
     else ""
   else
     let entries_in_order =
@@ -124,18 +153,8 @@ let render t =
       Buffer.add_string buf
         (Printf.sprintf "\xE2\x9C\x93 %d tools completed\n" collapsed_count);
     (* Render visible completed *)
-    let n_visible = List.length visible_completed in
-    let is_last_overall entry =
-      List.length running = 0
-      && List.length pending = 0
-      && entry.id
-         =
-         let last_id = ref "" in
-         List.iter (fun (e : tool_entry) -> last_id := e.id) visible_completed;
-         !last_id
-    in
-    List.iteri
-      (fun i (entry : tool_entry) ->
+    List.iter
+      (fun (entry : tool_entry) ->
         let timing =
           match entry.finished_at with
           | Some fin ->
@@ -145,41 +164,35 @@ let render t =
         in
         let summary_part =
           match entry.summary with
-          | Some s -> Printf.sprintf " \xE2\x80\x94 `%s`" s
+          | Some s -> Printf.sprintf " \xE2\x80\x94 %s" (fmt_code t s)
           | None -> ""
         in
         let preview_part =
           match entry.result_preview with
-          | Some p -> Printf.sprintf " \xE2\x86\x92 _%s_" p
+          | Some p -> Printf.sprintf " \xE2\x86\x92 %s" (fmt_italic t p)
           | None -> ""
         in
         Buffer.add_string buf
-          (Printf.sprintf "\xE2\x9C\x93 %s *%s*%s%s%s\n" entry.emoji entry.name
-             summary_part preview_part timing);
-        (* Show output tail for the last completed shell_exec when no tools
-           are still running, so the user sees recent stdout briefly *)
-        if i = n_visible - 1 && is_last_overall entry && not t.finalized then
-          match entry.output_tail with
-          | Some tail ->
-              Buffer.add_string buf (Printf.sprintf "```\n%s\n```\n" tail)
-          | None -> ())
+          (Printf.sprintf "\xE2\x9C\x93 %s %s%s%s%s\n" entry.emoji
+             (fmt_bold t entry.name) summary_part preview_part
+             (fmt_plain t timing)))
       visible_completed;
     (* Render failed (always expanded) *)
     List.iter
       (fun (entry : tool_entry) ->
         let summary_part =
           match entry.summary with
-          | Some s -> Printf.sprintf " \xE2\x80\x94 `%s`" s
+          | Some s -> Printf.sprintf " \xE2\x80\x94 %s" (fmt_code t s)
           | None -> ""
         in
         let error_part =
           match entry.error_detail with
-          | Some err -> Printf.sprintf "\n  \xE2\x94\x94 _%s_" err
+          | Some err -> Printf.sprintf "\n  \xE2\x94\x94 %s" (fmt_italic t err)
           | None -> ""
         in
         Buffer.add_string buf
-          (Printf.sprintf "\xE2\x9C\x97 %s *%s*%s%s\n" entry.emoji entry.name
-             summary_part error_part))
+          (Printf.sprintf "\xE2\x9C\x97 %s %s%s%s\n" entry.emoji
+             (fmt_bold t entry.name) summary_part error_part))
       failed;
     (* Render running with box drawing *)
     let active_items = running @ pending in
@@ -194,7 +207,7 @@ let render t =
         in
         let summary_part =
           match entry.summary with
-          | Some s -> Printf.sprintf " \xE2\x80\x94 `%s`" s
+          | Some s -> Printf.sprintf " \xE2\x80\x94 %s" (fmt_code t s)
           | None -> ""
         in
         let elapsed = Unix.gettimeofday () -. entry.started_at in
@@ -202,8 +215,8 @@ let render t =
           if elapsed > 5.0 then " " ^ format_duration elapsed ^ "..." else ""
         in
         Buffer.add_string buf
-          (Printf.sprintf "%s\xE2\x97\x89 %s *%s*%s%s\n" connector entry.emoji
-             entry.name summary_part timing))
+          (Printf.sprintf "%s\xE2\x97\x89 %s %s%s%s\n" connector entry.emoji
+             (fmt_bold t entry.name) summary_part (fmt_plain t timing)))
       running;
     List.iter
       (fun (entry : tool_entry) ->

@@ -330,7 +330,40 @@ let summarize_tool_result ~name result =
   | "shell_exec" ->
       let trimmed = String.trim result in
       if trimmed = "" then Some "empty output"
-      else Some (truncate_text ~max_chars:50 (first_line trimmed))
+      else
+        (* Parse structured output: "exit_code: N\nstdout:\n...\nstderr:\n..." *)
+        let exit_code =
+          match String.split_on_char '\n' trimmed with
+          | first :: _ -> (
+              match String.split_on_char ':' first with
+              | [ _; code ] -> (
+                  try Some (int_of_string (String.trim code)) with _ -> None)
+              | _ -> None)
+          | [] -> None
+        in
+        let stdout_lines =
+          (* Count lines between "stdout:" and "stderr:" *)
+          let lines = String.split_on_char '\n' trimmed in
+          let in_stdout = ref false in
+          let count = ref 0 in
+          List.iter
+            (fun l ->
+              let l = String.trim l in
+              if l = "stdout:" then in_stdout := true
+              else if l = "stderr:" then in_stdout := false
+              else if !in_stdout && l <> "" then incr count)
+            lines;
+          !count
+        in
+        let code_str =
+          match exit_code with
+          | Some 0 -> "exitcode: 0"
+          | Some n -> Printf.sprintf "exitcode: %d" n
+          | None -> first_line trimmed
+        in
+        if stdout_lines > 0 then
+          Some (Printf.sprintf "%s, %d lines" code_str stdout_lines)
+        else Some code_str
   | "grep" | "search_in_files" ->
       let lines = line_count result in
       if String.trim result = "" || lines = 0 then Some "no matches"
