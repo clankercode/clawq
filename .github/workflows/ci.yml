@@ -18,7 +18,15 @@ jobs:
       - name: Install system package for sqlite bindings
         run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
 
+      - name: Cache opam deps
+        id: opam-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.opam
+          key: opam-${{ runner.os }}-${{ hashFiles('clawq.opam', 'dune-project') }}
+
       - name: Install opam deps
+        if: steps.opam-cache.outputs.cache-hit != 'true'
         run: |
           opam update
           opam install -y . --deps-only --with-test
