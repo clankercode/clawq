@@ -241,3 +241,4 @@ bugs:
     - file: B240-add-new-runner-for-bg-coding-t.todo
     - file: B241-add-new-runner-for-bg-coding-t.todo
     - file: B242-the-compaction-command-should.todo
+    - file: B243-add-new-runner-for-bg-coding-t.todo

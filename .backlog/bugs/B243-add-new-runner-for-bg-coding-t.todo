@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B243
+priority: high
+status: pending
+tags: []
+title: 'Add new runner for bg coding tasks: `opencode`'
+---
+
+Add new runner for bg coding tasks: `opencode`
