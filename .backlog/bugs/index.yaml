@@ -250,3 +250,4 @@ bugs:
     - file: B249-auto-ordering-for-bg-coding-ta.todo
     - file: B250-runtime-context-should-say-no.todo
     - file: B251-clawq-debug-prompt-doesn-t-sho.todo
+    - file: B252-clawq-session-show-telegram-58.todo

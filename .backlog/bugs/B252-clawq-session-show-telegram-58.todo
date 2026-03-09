@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B252
+priority: high
+status: pending
+tags: []
+title: ./clawq session show telegram:58495225:58495225 should show the system prompt but it does not.
+---
+
+./clawq session show telegram:58495225:58495225 should show the system prompt but it does not.
