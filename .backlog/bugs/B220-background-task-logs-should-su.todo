@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B220
+priority: medium
+status: pending
+tags: []
+title: background_task_logs should support offset/start-line style paging like file reads, and similar log/output inspection tools should too
+---
+The current `background_task_logs` tool only supports tail-style retrieval by line count. In long-running tasks this makes it awkward to inspect mid-log regions or resume from a previously seen point. Desired behavior: support offset/start-line style paging similar to file reads, so callers can request logs from a given line onward (and ideally a limit/count). Audit similar inspection tools (for example other log/output readers) and extend them where the same limitation meaningfully hurts operability. Acceptance criteria: (1) `background_task_logs` can read from a specified starting line/offset, not only the tail; (2) callers can page through long logs deterministically; (3) any clearly analogous inspection tools with the same limitation are reviewed and improved if appropriate; (4) interfaces remain simple and backward compatible.

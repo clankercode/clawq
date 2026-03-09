@@ -218,3 +218,4 @@ bugs:
     - file: B217-telegram-reaction-emojis-can-a.todo
     - file: B218-session-restore-should-resync.todo
     - file: B219-investigate-why-background-tas.todo
+    - file: B220-background-task-logs-should-su.todo
