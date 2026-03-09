@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B224
+priority: medium
+status: pending
+tags: []
+title: task_tree tool should support reordering tasks/subtasks
+---
+The new task_tree tool is useful for persistent hierarchical planning, but tasks/subtasks should be reorderable so the active priority order can be refined without delete/recreate churn. Acceptance criteria: (1) reorder operations can move a task among siblings; (2) child order is preserved deterministically; (3) reordering respects lifecycle constraints; (4) tool schema/API remains ergonomic for incremental edits.

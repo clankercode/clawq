@@ -222,3 +222,4 @@ bugs:
     - file: B221-cli-inspection-surfaces-need-d.todo
     - file: B222-clawq-background-logs-should-h.todo
     - file: B223-background-task-wait-should-ha.todo
+    - file: B224-task-tree-tool-should-support.todo
