@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B242
+priority: high
+status: pending
+tags: []
+title: The compaction command should encourage the agent to run compaction whenever it is convenient to avoid inefficient token usage. Additionally, it should be suggested by the auto check-in feature if we are over 40% usage.
+---
+
+The compaction command should encourage the agent to run compaction whenever it is convenient to avoid inefficient token usage. Additionally, it should be suggested by the auto check-in feature if we are over 40% usage.
