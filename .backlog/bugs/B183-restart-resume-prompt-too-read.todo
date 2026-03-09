@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B183
+priority: high
+status: pending
+tags: []
+title: Restart-resume prompt too readily chooses STAY_IDLE in active Telegram autonomous sessions
+---
+Live restart on 2026-03-10 after B171/B172/B178 proved the mechanical restart-resume path is functioning: daemon restarted into the new build, restored session `telegram:58495225:58495225`, logged `Firing automatic restart-resume prompt ... prompt_len=276`, ran a resumed LLM turn, dispatched a resumed response with `response_len=9`, and then logged `Resume continuation disarmed ... reason=agent-requested-idle`. This means the restarted session did autoresume, but the resumed turn effectively chose `STAY_IDLE` despite active remaining work (the live restart verification itself, plus pending follow-up review). Need to strengthen and/or redesign the restart-resume stimulus so active autonomous Telegram sessions do not prematurely self-idle after restart. Acceptance criteria: (1) restart-resume prompt wording or policy makes continuation materially more likely when real work remains; (2) the prompt clearly frames the turn as a chance to resume the highest-priority interrupted task now; (3) `STAY_IDLE` remains available but is not too eagerly selected; (4) logs/tests cover the resumed decision path without leaking sensitive prompt content; (5) keep this distinct from transport/routing bugs, which are now ruled out for this case.
