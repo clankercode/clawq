@@ -202,3 +202,4 @@ bugs:
     - file: B201-post-restart-send-message-can.todo
     - file: B202-tool-calls-no-longer-visible-s.todo
     - file: B203-the-automatic-continuation-che.todo
+    - file: B204-workspace-refresh-event-exists.todo

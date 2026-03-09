@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B204
+priority: medium
+status: pending
+tags: []
+title: Workspace refresh event exists but is not visibly surfaced to the user in normal sessions
+---
+B186 added persisted event messages when active workspace prompt files are updated (for example `[workspace context refreshed after active workspace file update: EGO.md, AGENTS.md]`). Inspection of current live behavior suggests the event may exist in session history/runtime state but is not clearly visible to the user in the normal chat surface, leaving prompt-refresh observability weak in practice. Need to verify the exact rendering path and then fix one of: (a) event messages should appear in-session when relevant, (b) session inspection/UI should surface them clearly, or (c) a more explicit refresh notification should be emitted. Acceptance criteria: 1) after editing an active workspace file, there is an observable and user-verifiable indication of prompt refresh, not merely a tool-result hint; 2) the indication survives session inspection/history; 3) sensitive details remain redacted appropriately; 4) behavior is covered by tests or a precise rendering-path verification. Distinct from B186 itself, which addressed persistence/redaction of the refresh event.
