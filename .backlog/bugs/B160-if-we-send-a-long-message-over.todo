@@ -1,14 +1,15 @@
 ---
-claimed_at: "2026-03-09T11:41:10Z"
+claimed_at: "2026-03-09T11:53:31Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-09T11:53:31Z"
 complexity: medium
 depends_on: []
+duration_minutes: 0.015579041233333334
 estimate_hours: 1
 id: B160
 priority: high
-started_at: "2026-03-09T11:41:10Z"
-status: in_progress
+started_at: "2026-03-09T11:53:31Z"
+status: done
 tags: []
 title: If we send a long message over telegram then it gets split into multiple messages. The telegram handler should be smart enough to treat these as one message, not multiple. We should assume messages recieved in a very short space of time are contiguous like this.
 ---

@@ -57,10 +57,21 @@ type callback_query = {
 
 let pending_callbacks : callback_query Queue.t = Queue.create ()
 
+type pending_text_update = {
+  mutable update : update;
+  mutable last_seen_at : float;
+  mutable generation : int;
+}
+
 (* Keyed by "chat_id:tool_id" to prevent cross-chat data leakage *)
 let tool_result_cache : (string, string) Hashtbl.t = Hashtbl.create 32
 let recently_seen_updates : (string, float) Hashtbl.t = Hashtbl.create 256
+
+let pending_text_updates : (string, pending_text_update) Hashtbl.t =
+  Hashtbl.create 64
+
 let duplicate_update_ttl_seconds = 600.0
+let text_coalesce_window_seconds = 0.35
 
 let update_dedupe_key (u : update) =
   Printf.sprintf "%s:%d" u.chat_id u.update_id
@@ -83,6 +94,39 @@ let should_process_update (u : update) =
     Hashtbl.replace recently_seen_updates key now;
     true
   end
+
+let text_coalesce_key ~bot_token (u : update) =
+  String.concat ":" [ bot_token; u.chat_id; u.user_id ]
+
+let has_media_or_caption (u : update) =
+  u.voice_file_id <> None || u.photo_file_id <> None
+  || u.document_file_id <> None || u.caption <> None
+
+let is_command_text text =
+  let trimmed = String.trim text in
+  String.length trimmed > 0 && trimmed.[0] = '/'
+
+let is_text_coalescing_candidate (u : update) =
+  u.text <> "" && (not (has_media_or_caption u)) && not (is_command_text u.text)
+
+let can_coalesce_text_updates ~now older newer =
+  is_text_coalescing_candidate older.update
+  && is_text_coalescing_candidate newer
+  && older.update.chat_id = newer.chat_id
+  && older.update.user_id = newer.user_id
+  && newer.message_id = older.update.message_id + 1
+  && now -. older.last_seen_at <= text_coalesce_window_seconds
+
+let merge_text_updates older newer =
+  {
+    newer with
+    text = older.update.text ^ newer.text;
+    voice_file_id = None;
+    photo_file_id = None;
+    document_file_id = None;
+    document_name = None;
+    caption = None;
+  }
 
 type poll_error =
   | Conflict_webhook
@@ -1122,6 +1166,84 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                   Session.mark_response_sent session_mgr ~key;
                 Lwt.return_unit)
 
+let dispatch_update ~bot_token ~(account : Runtime_config.telegram_account)
+    ~(session_mgr : Session.t) ?run_update_command ?chat_limiter update =
+  Lwt.async (fun () ->
+      Lwt.catch
+        (fun () ->
+          handle_update ~bot_token ~account ~session_mgr ?run_update_command
+            ?chat_limiter update)
+        (fun exn ->
+          Logs.err (fun m ->
+              m "Telegram: handle_update error for update_id=%d: %s"
+                update.update_id (Printexc.to_string exn));
+          Lwt.return_unit))
+
+let flush_pending_text_update ~key ~bot_token
+    ~(account : Runtime_config.telegram_account) ~(session_mgr : Session.t)
+    ?run_update_command ?chat_limiter () =
+  match Hashtbl.find_opt pending_text_updates key with
+  | None -> ()
+  | Some pending ->
+      Hashtbl.remove pending_text_updates key;
+      dispatch_update ~bot_token ~account ~session_mgr ?run_update_command
+        ?chat_limiter pending.update
+
+let schedule_pending_text_flush ~key ~bot_token
+    ~(account : Runtime_config.telegram_account) ~(session_mgr : Session.t)
+    ?run_update_command ?chat_limiter generation =
+  Lwt.async (fun () ->
+      let open Lwt.Syntax in
+      let* () = Lwt_unix.sleep text_coalesce_window_seconds in
+      match Hashtbl.find_opt pending_text_updates key with
+      | Some pending
+        when pending.generation = generation
+             && Unix.gettimeofday () -. pending.last_seen_at
+                >= text_coalesce_window_seconds ->
+          Hashtbl.remove pending_text_updates key;
+          Lwt.catch
+            (fun () ->
+              handle_update ~bot_token ~account ~session_mgr ?run_update_command
+                ?chat_limiter pending.update)
+            (fun exn ->
+              Logs.err (fun m ->
+                  m "Telegram: handle_update error for update_id=%d: %s"
+                    pending.update.update_id (Printexc.to_string exn));
+              Lwt.return_unit)
+      | _ -> Lwt.return_unit)
+
+let buffer_or_dispatch_update ~bot_token
+    ~(account : Runtime_config.telegram_account) ~(session_mgr : Session.t)
+    ?run_update_command ?chat_limiter update =
+  let now = Unix.gettimeofday () in
+  let key = text_coalesce_key ~bot_token update in
+  if not (is_text_coalescing_candidate update) then begin
+    flush_pending_text_update ~key ~bot_token ~account ~session_mgr
+      ?run_update_command ?chat_limiter ();
+    dispatch_update ~bot_token ~account ~session_mgr ?run_update_command
+      ?chat_limiter update
+  end
+  else
+    match Hashtbl.find_opt pending_text_updates key with
+    | Some pending when can_coalesce_text_updates ~now pending update ->
+        pending.update <- merge_text_updates pending update;
+        pending.last_seen_at <- now;
+        pending.generation <- pending.generation + 1;
+        schedule_pending_text_flush ~key ~bot_token ~account ~session_mgr
+          ?run_update_command ?chat_limiter pending.generation
+    | Some _ ->
+        flush_pending_text_update ~key ~bot_token ~account ~session_mgr
+          ?run_update_command ?chat_limiter ();
+        let pending = { update; last_seen_at = now; generation = 0 } in
+        Hashtbl.replace pending_text_updates key pending;
+        schedule_pending_text_flush ~key ~bot_token ~account ~session_mgr
+          ?run_update_command ?chat_limiter pending.generation
+    | None ->
+        let pending = { update; last_seen_at = now; generation = 0 } in
+        Hashtbl.replace pending_text_updates key pending;
+        schedule_pending_text_flush ~key ~bot_token ~account ~session_mgr
+          ?run_update_command ?chat_limiter pending.generation
+
 let poll_account ~bot_token ~(account : Runtime_config.telegram_account) ~name
     ~(session_mgr : Session.t) ?run_update_command ?chat_limiter () =
   let open Lwt.Syntax in
@@ -1186,16 +1308,8 @@ let poll_account ~bot_token ~(account : Runtime_config.telegram_account) ~name
       (fun update ->
         offset := update.update_id + 1;
         if should_process_update update then
-          Lwt.async (fun () ->
-              Lwt.catch
-                (fun () ->
-                  handle_update ~bot_token ~account ~session_mgr
-                    ?run_update_command ?chat_limiter update)
-                (fun exn ->
-                  Logs.err (fun m ->
-                      m "Telegram: handle_update error for update_id=%d: %s"
-                        update.update_id (Printexc.to_string exn));
-                  Lwt.return_unit))
+          buffer_or_dispatch_update ~bot_token ~account ~session_mgr
+            ?run_update_command ?chat_limiter update
         else
           Logs.info (fun m ->
               m "Telegram: ignoring duplicate update update_id=%d chat_id=%s"
