@@ -296,7 +296,7 @@ let enqueue_message_if_busy mgr ~key queued_message =
           in
           Hashtbl.replace mgr.queued_messages key (existing @ [ queued_message ]);
           Logs.info (fun m ->
-              m "Queued inbound message for busy session %s (queue depth: %d)"
+              m "[%s] Queued inbound message for busy session (queue depth: %d)"
                 key
                 (List.length existing + 1));
           if !interrupt = None then
@@ -324,7 +324,7 @@ let take_all_queued_messages_for_injection mgr ~key =
   let count = List.length msgs in
   if count > 0 then
     Logs.info (fun m ->
-        m "Injecting %d queued message(s) into session %s" count key);
+        m "[%s] Injecting %d queued message(s) into session" key count);
   msgs
 
 let queued_message_prompt message =

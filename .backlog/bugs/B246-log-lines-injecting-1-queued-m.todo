@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-09T20:53:45Z"
+claimed_by: cli-user
+completed_at: "2026-03-09T20:55:10Z"
 complexity: medium
 depends_on: []
+duration_minutes: 1.4319474182
 estimate_hours: 1
 id: B246
 priority: high
-status: pending
+started_at: "2026-03-09T20:53:45Z"
+status: done
 tags: []
 title: "log lines 'Injecting 1 queued message' and 'Queued inbound message for busy session' should have the session at the start like other log lines, eg: \n[07:52:33.472] INFO  [telegram:58495225:58495225] LLM native stream dispatch provider=openai-codex model=gpt-5.4 msgs=82\n[07:52:47.291] INFO  [telegram:58495225:58495225] Cost: model=gpt-5.4 prompt=61696 completion=535 cost=.000000 session_total=.0000"
 ---
