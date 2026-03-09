@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-09T17:13:51Z"
+claimed_by: cli-user
+completed_at: "2026-03-10T00:00:00Z"
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B211
 priority: high
-status: pending
+started_at: "2026-03-09T17:13:51Z"
+status: done
 tags: []
 title: running the automatic continuation check-in should be controllable by a config variable (and this should be documented so I can ask clawq to disable it)
 ---

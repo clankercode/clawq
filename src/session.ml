@@ -1274,74 +1274,79 @@ let rec schedule_autonomous_continuation
     ?(around_turn = fun f -> f ())
     ?(on_response = fun _response -> Lwt.return_unit) mgr ~key =
   let open Lwt.Syntax in
-  let* should_schedule, cancel_waiter =
-    with_continuation_state mgr ~key (fun state ->
-        if state.disarmed then Lwt.return (false, None)
-        else begin
-          clear_pending_continuation state;
-          let cancel_waiter, cancel = Lwt.wait () in
-          state.cancel <- Some cancel;
-          Lwt.return (true, Some cancel_waiter)
-        end)
-  in
-  match (should_schedule, cancel_waiter) with
-  | false, _ | _, None -> Lwt.return_unit
-  | true, Some cancel_waiter ->
-      let* cancelled =
-        Lwt.pick
-          [
-            (let* () = Lwt_unix.sleep delay in
-             Lwt.return_false);
-            (let* () = cancel_waiter in
-             Lwt.return_true);
-          ]
-      in
-      if cancelled then Lwt.return_unit
-      else
-        let* () =
-          if mgr.config.agent_defaults.send_continuation_checkin then
-            match find_registered_notifier mgr ~key with
-            | Some notify ->
-                let labeled =
-                  "[automatic continuation check-in]\n"
-                  ^ autonomous_continuation_prompt
-                in
-                Lwt.catch (fun () -> notify labeled) (fun _ -> Lwt.return_unit)
-            | None -> Lwt.return_unit
-          else Lwt.return_unit
+  if not mgr.config.agent_defaults.autonomous_continuation_enabled then
+    Lwt.return_unit
+  else
+    let* should_schedule, cancel_waiter =
+      with_continuation_state mgr ~key (fun state ->
+          if state.disarmed then Lwt.return (false, None)
+          else begin
+            clear_pending_continuation state;
+            let cancel_waiter, cancel = Lwt.wait () in
+            state.cancel <- Some cancel;
+            Lwt.return (true, Some cancel_waiter)
+          end)
+    in
+    match (should_schedule, cancel_waiter) with
+    | false, _ | _, None -> Lwt.return_unit
+    | true, Some cancel_waiter ->
+        let* cancelled =
+          Lwt.pick
+            [
+              (let* () = Lwt_unix.sleep delay in
+               Lwt.return_false);
+              (let* () = cancel_waiter in
+               Lwt.return_true);
+            ]
         in
-        let* response =
-          Lwt.catch
-            (fun () ->
-              around_turn (fun () ->
-                  turn mgr ~key ~message:autonomous_continuation_prompt ()))
-            (fun exn ->
-              Logs.warn (fun m ->
-                  m "Autonomous continuation prompt failed for %s: %s" key
-                    (Printexc.to_string exn));
-              Lwt.return "")
-        in
-        let trimmed = String.trim response in
-        if trimmed = queued_message_response then Lwt.return_unit
-        else if trimmed = autonomous_stay_idle_message then
-          with_continuation_state mgr ~key (fun state ->
-              state.disarmed <- true;
-              state.cancel <- None;
-              Lwt.return_unit)
-        else begin
+        if cancelled then Lwt.return_unit
+        else
           let* () =
+            if mgr.config.agent_defaults.send_continuation_checkin then
+              match find_registered_notifier mgr ~key with
+              | Some notify ->
+                  let labeled =
+                    "[automatic continuation check-in]\n"
+                    ^ autonomous_continuation_prompt
+                  in
+                  Lwt.catch
+                    (fun () -> notify labeled)
+                    (fun _ -> Lwt.return_unit)
+              | None -> Lwt.return_unit
+            else Lwt.return_unit
+          in
+          let* response =
             Lwt.catch
-              (fun () -> on_response trimmed)
+              (fun () ->
+                around_turn (fun () ->
+                    turn mgr ~key ~message:autonomous_continuation_prompt ()))
               (fun exn ->
                 Logs.warn (fun m ->
-                    m "Autonomous continuation on_response failed for %s: %s"
-                      key (Printexc.to_string exn));
-                Lwt.return_unit)
+                    m "Autonomous continuation prompt failed for %s: %s" key
+                      (Printexc.to_string exn));
+                Lwt.return "")
           in
-          let* () = cancel_autonomous_continuation mgr ~key in
-          schedule_autonomous_continuation ~delay ~around_turn ~on_response mgr
-            ~key
-        end
+          let trimmed = String.trim response in
+          if trimmed = queued_message_response then Lwt.return_unit
+          else if trimmed = autonomous_stay_idle_message then
+            with_continuation_state mgr ~key (fun state ->
+                state.disarmed <- true;
+                state.cancel <- None;
+                Lwt.return_unit)
+          else begin
+            let* () =
+              Lwt.catch
+                (fun () -> on_response trimmed)
+                (fun exn ->
+                  Logs.warn (fun m ->
+                      m "Autonomous continuation on_response failed for %s: %s"
+                        key (Printexc.to_string exn));
+                  Lwt.return_unit)
+            in
+            let* () = cancel_autonomous_continuation mgr ~key in
+            schedule_autonomous_continuation ~delay ~around_turn ~on_response
+              mgr ~key
+          end
 
 let process_autonomous_turn_result
     ?(delay = default_autonomous_continuation_delay)

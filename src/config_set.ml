@@ -187,6 +187,9 @@ let config_schema =
             ("reasoning_effort", L);
             ("show_thinking", L);
             ("show_tool_calls", L);
+            ("tool_status_mode", L);
+            ("send_continuation_checkin", L);
+            ("autonomous_continuation_enabled", L);
           ] );
       ( "prompt",
         O

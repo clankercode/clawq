@@ -156,6 +156,10 @@ let parse_config ?(resolve_secrets = true) json =
         try ad |> member "send_continuation_checkin" |> to_bool
         with _ -> default.agent_defaults.send_continuation_checkin
       in
+      let autonomous_continuation_enabled =
+        try ad |> member "autonomous_continuation_enabled" |> to_bool
+        with _ -> default.agent_defaults.autonomous_continuation_enabled
+      in
       ({
          primary_model;
          system_prompt;
@@ -166,6 +170,7 @@ let parse_config ?(resolve_secrets = true) json =
          show_tool_calls;
          tool_status_mode;
          send_continuation_checkin;
+         autonomous_continuation_enabled;
        }
         : Runtime_config.agent_defaults)
     with _ -> default.agent_defaults

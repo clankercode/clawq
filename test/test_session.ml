@@ -1818,6 +1818,37 @@ let test_autonomous_continuation_suppresses_checkin_by_default () =
         "no labeled injection when send_continuation_checkin=false" true
         (Option.is_none labeled))
 
+let test_autonomous_continuation_disabled_by_config () =
+  let continuation_calls = ref 0 in
+  let response_for_user message =
+    if String.starts_with ~prefix:Session.autonomous_continuation_prompt message
+    then (
+      incr continuation_calls;
+      "STAY_IDLE")
+    else "reply:" ^ message
+  in
+  with_fake_chat_provider ~response_for_user (fun config ->
+      let config =
+        {
+          config with
+          agent_defaults =
+            {
+              config.agent_defaults with
+              autonomous_continuation_enabled = false;
+            };
+        }
+      in
+      let mgr = Session.create ~config () in
+      let key = "__main__" in
+      Lwt_main.run
+        (Session.schedule_autonomous_continuation ~delay:0.02 mgr ~key);
+      Alcotest.(check int)
+        "no continuation prompt when disabled" 0 !continuation_calls;
+      Alcotest.(check bool)
+        "no continuation state created"
+        (not (Hashtbl.mem mgr.Session.continuation_checks key))
+        true)
+
 let test_drain_queued_messages_drains_all_pending_without_relock () =
   let db = Memory.init ~db_path:":memory:" () in
   let config = Runtime_config.default in
@@ -2059,6 +2090,9 @@ let suite =
       test_autonomous_continuation_sends_visible_injection;
     Alcotest.test_case "autonomous continuation suppresses check-in by default"
       `Quick test_autonomous_continuation_suppresses_checkin_by_default;
+    Alcotest.test_case
+      "autonomous continuation disabled by config returns immediately" `Quick
+      test_autonomous_continuation_disabled_by_config;
     Alcotest.test_case "bang message interrupts before lock and turns normally"
       `Quick test_bang_message_interrupts_before_lock_and_turns_normally;
     Alcotest.test_case "bang message turn stream processes normally" `Quick
