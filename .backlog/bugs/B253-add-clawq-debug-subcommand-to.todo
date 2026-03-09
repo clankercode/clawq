@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B253
+priority: high
+status: pending
+tags: []
+title: add './clawq debug' subcommand to show the runtime context for a given session/thread/agent
+---
+
+add './clawq debug' subcommand to show the runtime context for a given session/thread/agent

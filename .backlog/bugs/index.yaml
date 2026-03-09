@@ -251,3 +251,4 @@ bugs:
     - file: B250-runtime-context-should-say-no.todo
     - file: B251-clawq-debug-prompt-doesn-t-sho.todo
     - file: B252-clawq-session-show-telegram-58.todo
+    - file: B253-add-clawq-debug-subcommand-to.todo
