@@ -630,6 +630,99 @@ let test_progress_sender_binary_mode () =
     "mode is binary" true
     (Update_tool.contains_sub final "binary")
 
+let test_offline_git_update_succeeds () =
+  let progress = ref [] in
+  let send_progress text =
+    progress := text :: !progress;
+    Lwt.return_unit
+  in
+  let result =
+    Lwt_main.run
+      (Update_tool.run_offline_update
+         ~find_repo_root:(fun ?start_path:_ ?exists:_ () -> Some "/repo")
+         ~run_command:(fun ~cwd:_ ~argv:_ ~send_progress:_ ~interrupt_check:_ ->
+           Lwt.return 0)
+         ~mode:Update_tool.Git ~send_progress ())
+  in
+  Alcotest.(check string)
+    "adjusted git result"
+    "Build complete. Next `clawq` invocation will use the updated version."
+    result;
+  Alcotest.(check bool)
+    "offline warning present" true
+    (List.mem "Note: no live daemon detected. Running update offline." !progress);
+  Alcotest.(check bool) "mode progress" true (List.mem "Mode: git" !progress)
+
+let test_offline_binary_update_succeeds () =
+  let progress = ref [] in
+  let send_progress text =
+    progress := text :: !progress;
+    Lwt.return_unit
+  in
+  let result =
+    Lwt_main.run
+      (Update_tool.run_offline_update
+         ~find_repo_root:(fun ?start_path:_ ?exists:_ () -> None)
+         ~run_command:(fun ~cwd:_ ~argv:_ ~send_progress:_ ~interrupt_check:_ ->
+           Lwt.return 0)
+         ~binary_url:(Some "https://example.invalid/clawq-linux")
+         ~start_path:"/opt/clawq/bin/clawq" ~mode:Update_tool.Auto
+         ~send_progress ())
+  in
+  Alcotest.(check string)
+    "adjusted binary result"
+    "Binary replaced. Next `clawq` invocation will use the updated version."
+    result;
+  Alcotest.(check bool)
+    "offline warning present" true
+    (List.mem "Note: no live daemon detected. Running update offline." !progress);
+  Alcotest.(check bool) "mode progress" true (List.mem "Mode: binary" !progress)
+
+let test_offline_update_build_failure () =
+  let progress = ref [] in
+  let send_progress text =
+    progress := text :: !progress;
+    Lwt.return_unit
+  in
+  let result =
+    Lwt_main.run
+      (Update_tool.run_offline_update
+         ~find_repo_root:(fun ?start_path:_ ?exists:_ () -> Some "/repo")
+         ~run_command:(fun ~cwd:_ ~argv ~send_progress:_ ~interrupt_check:_ ->
+           match Array.to_list argv with
+           | [ "git"; "pull" ] -> Lwt.return 0
+           | [ "make"; "build" ] -> Lwt.return 2
+           | _ -> Lwt.return 0)
+         ~mode:Update_tool.Git ~send_progress ())
+  in
+  Alcotest.(check bool)
+    "build failed in result" true
+    (Update_tool.contains_sub result "Build failed");
+  Alcotest.(check bool)
+    "offline warning present" true
+    (List.mem "Note: no live daemon detected. Running update offline." !progress)
+
+let test_offline_update_no_repo_no_binary () =
+  let progress = ref [] in
+  let send_progress text =
+    progress := text :: !progress;
+    Lwt.return_unit
+  in
+  let result =
+    Lwt_main.run
+      (Update_tool.run_offline_update
+         ~find_repo_root:(fun ?start_path:_ ?exists:_ () -> None)
+         ~run_command:(fun ~cwd:_ ~argv:_ ~send_progress:_ ~interrupt_check:_ ->
+           Lwt.return 0)
+         ~binary_url:None ~mode:Update_tool.Auto ~send_progress ())
+  in
+  Alcotest.(check bool)
+    "cannot find repo" true
+    (Update_tool.contains_sub result "Cannot find repository root");
+  Alcotest.(check bool)
+    "offline warning present" true
+    (List.mem "Note: no live daemon detected. Running update offline." !progress)
+
 let suite =
   [
     Alcotest.test_case "find repo root returns none when missing" `Quick
@@ -666,4 +759,12 @@ let suite =
       test_progress_sender_handles_build_failure;
     Alcotest.test_case "progress sender binary mode" `Quick
       test_progress_sender_binary_mode;
+    Alcotest.test_case "offline git update succeeds" `Quick
+      test_offline_git_update_succeeds;
+    Alcotest.test_case "offline binary update succeeds" `Quick
+      test_offline_binary_update_succeeds;
+    Alcotest.test_case "offline update build failure" `Quick
+      test_offline_update_build_failure;
+    Alcotest.test_case "offline update no repo no binary" `Quick
+      test_offline_update_no_repo_no_binary;
   ]

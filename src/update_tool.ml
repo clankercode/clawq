@@ -350,6 +350,28 @@ let run_update ?(find_repo_root = find_repo_root)
             | exn -> Lwt.fail exn))
       finish_update
 
+let adjust_offline_result result =
+  if result = "Build complete. Sending restart signal..." then
+    "Build complete. Next `clawq` invocation will use the updated version."
+  else if result = "Binary update complete. Sending restart signal..." then
+    "Binary replaced. Next `clawq` invocation will use the updated version."
+  else result
+
+let run_offline_update ?(find_repo_root = find_repo_root)
+    ?(run_command = stream_process) ?(binary_url = binary_url_of_env ())
+    ?start_path ?(mode = Auto) ~send_progress () =
+  let open Lwt.Syntax in
+  let* () =
+    send_progress "Note: no live daemon detected. Running update offline."
+  in
+  let* result =
+    run_update ~find_repo_root ~run_command
+      ~send_signal:(fun _ _ -> ())
+      ~is_draining:(fun () -> false)
+      ~binary_url ?start_path ~mode ~send_progress ()
+  in
+  Lwt.return (adjust_offline_result result)
+
 (** A step in the update progress checklist. *)
 type step_state = Pending | Running | Done | Failed of string
 

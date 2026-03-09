@@ -675,20 +675,20 @@ let test_handle_update_without_live_daemon_reports_stub () =
   with_temp_home (fun _home ->
       let result = Command_bridge.handle [ "update" ] in
       Alcotest.(check bool)
-        "warns about missing live daemon" true
+        "warns about no live daemon" true
         (try
            ignore
              (Str.search_forward
-                (Str.regexp_string "Warning: no live daemon detected")
+                (Str.regexp_string "no live daemon detected")
                 result 0);
            true
          with Not_found -> false);
       Alcotest.(check bool)
-        "mentions offline fallback stub" true
+        "runs offline update (not stub)" true
         (try
            ignore
              (Str.search_forward
-                (Str.regexp_string "Offline fallback stub")
+                (Str.regexp_string "Running update offline")
                 result 0);
            true
          with Not_found -> false))
@@ -1362,7 +1362,7 @@ let suite =
     Alcotest.test_case "handle service" `Quick test_handle_service;
     Alcotest.test_case "handle service signal restart" `Quick
       test_handle_service_signal_restart;
-    Alcotest.test_case "handle update without live daemon reports stub" `Quick
+    Alcotest.test_case "handle update without live daemon reports stub" `Slow
       test_handle_update_without_live_daemon_reports_stub;
     Alcotest.test_case "handle update auto pairs with live gateway" `Quick
       test_handle_update_auto_pairs_with_live_gateway;

@@ -1765,13 +1765,18 @@ let render_update_output ~progress ~result =
   | _ -> String.concat "\n" (progress @ [ result ])
 
 let offline_update_stub mode =
-  Printf.sprintf
-    "Warning: no live daemon detected, so clawq cannot run the daemon-owned \
-     update flow right now.\n\
-     Requested mode: %s\n\
-     Offline fallback stub: not implemented yet. Start the daemon and retry \
-     `clawq update`, or use `/update` from a connected channel."
-    (Update_tool.string_of_update_mode mode)
+  let progress = ref [] in
+  let send_progress text =
+    progress := text :: !progress;
+    Lwt.return_unit
+  in
+  let result =
+    Lwt_main.run (Update_tool.run_offline_update ~mode ~send_progress ())
+  in
+  let progress_lines =
+    List.rev !progress |> List.filter (fun s -> String.trim s <> "")
+  in
+  render_update_output ~progress:progress_lines ~result
 
 let cmd_update args =
   match parse_update_args args with
