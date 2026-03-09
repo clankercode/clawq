@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B137
+priority: medium
+status: pending
+tags: []
+title: Need a verifiable way to confirm updated workspace docs are injected on subsequent turns
+---
+The assistant can write active workspace files like AGENTS.md and reasonably expect them to be injected into subsequent turns, but from inside a running session it cannot directly verify the exact hidden system prompt contents. We need either a trustworthy runtime guarantee or an introspection/debug path that confirms which workspace docs and revisions were injected for a given turn. This matters for prompt-operating-system edits such as AGENTS.md autonomy rules.
