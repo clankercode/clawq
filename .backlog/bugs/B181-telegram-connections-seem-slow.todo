@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B181
+priority: high
+status: pending
+tags: []
+title: telegram connections seem slow -- are we doing longpolling and can we? can we update more quickly? needlessly ratelimiting ourselves?
+---
+
+telegram connections seem slow -- are we doing longpolling and can we? can we update more quickly? needlessly ratelimiting ourselves?
