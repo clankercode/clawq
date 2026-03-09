@@ -439,6 +439,64 @@ let shell_exec ~workspace ~workspace_only ~allowed_commands ~extra_allowed_paths
   in
   let max_timeout = 600.0 in
   let default_timeout = 30.0 in
+  let shell_output_dir () =
+    let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
+    Filename.concat (Filename.concat home ".clawq") "tool-output"
+  in
+  let ensure_dir path = if Sys.file_exists path then () else Unix.mkdir path 0o755 in
+  let ensure_parent_dirs path =
+    let rec loop p =
+      let parent = Filename.dirname p in
+      if parent <> p && not (Sys.file_exists parent) then begin
+        loop parent;
+        ensure_dir parent
+      end
+    in
+    loop path
+  in
+  let write_tool_output_if_truncated text =
+    let max_chars = 20000 in
+    if String.length text <= max_chars then None
+    else
+      let dir = shell_output_dir () in
+      (try ensure_dir (Filename.concat (try Sys.getenv "HOME" with Not_found -> "/tmp") ".clawq") with _ -> ());
+      (try ensure_dir dir with _ -> ());
+      let path =
+        Filename.concat dir
+          (Printf.sprintf "shell-exec-%Ld.txt" (Int64.of_float (Unix.gettimeofday () *. 1000000.)))
+      in
+      (try
+         ensure_parent_dirs path;
+         let oc = open_out_bin path in
+         output_string oc text;
+         close_out oc;
+         Some path
+       with _ -> None)
+  in
+  let render_command_result ~exit_code ~stdout ~stderr =
+    let stdout_note, stdout_rendered =
+      match write_tool_output_if_truncated stdout with
+      | Some path ->
+          let head = String.sub stdout 0 20000 in
+          ( Printf.sprintf
+              "\n[stdout truncated; full stdout saved to %s for later inspection]"
+              path,
+            head ^ "\n... (truncated)" )
+      | None -> ("", stdout)
+    in
+    let stderr_note, stderr_rendered =
+      match write_tool_output_if_truncated stderr with
+      | Some path ->
+          let head = String.sub stderr 0 20000 in
+          ( Printf.sprintf
+              "\n[stderr truncated; full stderr saved to %s for later inspection]"
+              path,
+            head ^ "\n... (truncated)" )
+      | None -> ("", stderr)
+    in
+    Printf.sprintf "exit_code: %d\nstdout:\n%s%s\nstderr:\n%s%s" exit_code
+      stdout_rendered stdout_note stderr_rendered stderr_note
+  in
   let run_command ?context:_ ?on_output_chunk args =
     let open Yojson.Safe.Util in
     let command = try args |> member "command" |> to_string with _ -> "" in
@@ -509,10 +567,9 @@ let shell_exec ~workspace ~workspace_only ~allowed_commands ~extra_allowed_paths
                 | Unix.WSTOPPED n -> 128 + n
               in
               Lwt.return
-                (Printf.sprintf "exit_code: %d\nstdout:\n%s\nstderr:\n%s"
-                   exit_code
-                   (Buffer.contents stdout_buf)
-                   (Buffer.contents stderr_buf))
+                (render_command_result ~exit_code
+                   ~stdout:(Buffer.contents stdout_buf)
+                   ~stderr:(Buffer.contents stderr_buf))
             in
             let* result =
               Lwt.pick

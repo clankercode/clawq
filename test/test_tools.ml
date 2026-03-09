@@ -624,6 +624,41 @@ let test_refresh_replaces_config_bound_tools () =
           (fun (t : Tool.t) -> t.name = "transcribe")
           (Tool_registry.list registry)))
 
+
+let test_shell_exec_saves_full_output_when_truncated () =
+  with_temp_workspace (fun workspace ->
+      let sandbox =
+        Sandbox.create ~backend:Sandbox.None ~workspace
+          ~extra_allowed_paths:[] ~workspace_only:false ()
+      in
+      let tool =
+        Tools_builtin.shell_exec ~workspace ~workspace_only:false
+          ~allowed_commands:[] ~extra_allowed_paths:[] ~sandbox
+      in
+      let long_text = String.make 25050 'x' in
+      let py =
+        Printf.sprintf
+          "python - <<'PY'\nprint(%S)\nPY"
+          long_text
+      in
+      let result = Lwt_main.run (tool.Tool.invoke (`Assoc [ ("command", `String py) ])) in
+      Alcotest.(check bool)
+        "mentions saved stdout path" true
+        (try
+           ignore
+             (Str.search_forward
+                (Str.regexp "full stdout saved to \\([^ ]+\\)") result 0);
+           true
+         with Not_found -> false);
+      let path = Str.matched_group 1 result in
+      let ic = open_in path in
+      let saved = really_input_string ic (in_channel_length ic) in
+      close_in ic;
+      Alcotest.(check int) "saved output preserves full size"
+        (String.length long_text + 1) (String.length saved);
+      Sys.remove path)
+
+
 let suite =
   [
     Alcotest.test_case "normalize absolute" `Quick test_normalize_absolute;
@@ -705,4 +740,7 @@ let suite =
       test_doc_write_rejects_traversal;
     Alcotest.test_case "doc_write known file note" `Quick
       test_doc_write_known_file;
+    Alcotest.test_case "shell_exec saves full output when truncated" `Quick
+      test_shell_exec_saves_full_output_when_truncated;
   ]
+
