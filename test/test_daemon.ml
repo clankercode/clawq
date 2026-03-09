@@ -10,6 +10,15 @@ let query_single_text_option db sql =
           | _ -> None)
       | _ -> None)
 
+let string_contains haystack needle =
+  let hay_len = String.length haystack and needle_len = String.length needle in
+  let rec loop i =
+    if i + needle_len > hay_len then false
+    else if String.sub haystack i needle_len = needle then true
+    else loop (i + 1)
+  in
+  needle_len = 0 || loop 0
+
 let free_port () =
   let sock = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
   Fun.protect
@@ -282,6 +291,25 @@ let test_resume_pending_agent_sessions_marks_missing_channel_info () =
 
 let test_default_resume_turn_uses_explicit_resume_prompt () =
   with_fake_chat_provider (fun base_config ->
+      Alcotest.(check bool)
+        "resume prompt is distinct from generic continuation prompt" true
+        (Daemon.resume_turn_prompt <> Session.autonomous_continuation_prompt);
+      Alcotest.(check bool)
+        "resume prompt says to continue now" true
+        (string_contains Daemon.resume_turn_prompt
+           "This is the chance to continue that interrupted work now.");
+      Alcotest.(check bool)
+        "resume prompt names highest-priority unfinished task" true
+        (string_contains Daemon.resume_turn_prompt
+           "Resume the highest-priority unfinished task");
+      Alcotest.(check bool)
+        "resume prompt says not to wait for a user" true
+        (string_contains Daemon.resume_turn_prompt
+           "without waiting for a new user message");
+      Alcotest.(check bool)
+        "resume prompt keeps stay-idle escape hatch narrow" true
+        (string_contains Daemon.resume_turn_prompt
+           "Reply exactly STAY_IDLE only if");
       let db = Memory.init ~db_path:":memory:" () in
       let telegram_account =
         { Runtime_config.bot_token = "tg-token"; allow_from = []; totp = None }

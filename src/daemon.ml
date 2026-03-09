@@ -183,7 +183,9 @@ let post_dispatch_resumed_session_response
         (String.length trimmed));
   if trimmed = "" || trimmed = "HEARTBEAT_OK" then begin
     Logs.info (fun m ->
-        m "Resume continuation stayed idle %s reason=no-follow-up-response"
+        m
+          "Resume continuation stayed idle %s \
+           reason=no-follow-up-response after_restart_resume=true"
           target);
     Lwt.return_unit
   end
@@ -194,7 +196,10 @@ let post_dispatch_resumed_session_response
         session_manager ~key:session_key ~response:trimmed
     in
     Logs.info (fun m ->
-        m "Resume continuation disarmed %s reason=agent-requested-idle" target);
+        m
+          "Resume continuation disarmed %s \
+           reason=agent-requested-idle after_restart_resume=true"
+          target);
     Lwt.return_unit
   end
   else begin
@@ -376,10 +381,15 @@ let notify_background_task_finished ?(senders = default_resume_senders)
   | None -> Lwt.return_unit
 
 let resume_turn_prompt =
-  "Automatic resume after daemon restart: autonomous work was in progress in "
-  ^ "this session when the daemon restarted. Continue the interrupted work in "
-  ^ "this same session without waiting for a new user message. If nothing "
-  ^ "meaningful remains to do right now, reply exactly STAY_IDLE."
+  "Automatic restart-resume: the daemon restarted while autonomous work was "
+  ^ "actively in progress in this session. This is the chance to continue "
+  ^ "that interrupted work now. Resume the highest-priority unfinished task "
+  ^ "from the existing conversation, use the available tools if they would "
+  ^ "help, and send the next useful work update in this same session without "
+  ^ "waiting for a new user message. Treat this as a restart-specific resume "
+  ^ "instruction, not a routine idle check. Reply exactly STAY_IDLE only if "
+  ^ "you have verified that no meaningful autonomous work remains to do "
+  ^ "right now."
 
 let default_resume_turn ~(session_manager : Session.t) ~notify ~session_key
     agent interrupt =
