@@ -96,7 +96,7 @@ let duplicate_update_ttl_seconds = 600.0
 let text_coalesce_window_seconds = ref 0.15
 
 (* Tracks message IDs whose reactions should be kept in sync per session key *)
-let reaction_peers : (string, int list ref) Hashtbl.t = Hashtbl.create 16
+let reactions : int Reaction_tracker.t = Reaction_tracker.create ()
 
 (* Telegram Bot API allows only a preset set of emoji for setMessageReaction.
    Source: https://core.telegram.org/bots/api#reactiontypeemoji
@@ -173,12 +173,11 @@ let valid_reaction_emojis =
     "\xF0\x9F\x98\xA1" (* 😡 *);
   ]
 
-(* Reaction emojis used by clawq for session state:
-   👀 = received/waiting, ⚡ = tools in progress, 👍 = done, 💔 = error *)
-let reaction_emoji_received = "\xF0\x9F\x91\x80" (* 👀 *)
-let reaction_emoji_tools = "\xE2\x9A\xA1" (* ⚡ *)
-let reaction_emoji_done = "\xF0\x9F\x91\x8D" (* 👍 *)
-let reaction_emoji_error = "\xF0\x9F\x92\x94" (* 💔 *)
+(* Reaction emojis used by clawq for session state — aliases for backward compat *)
+let reaction_emoji_received = Connector_status.Telegram.phase_emoji Received
+let reaction_emoji_tools = Connector_status.Telegram.phase_emoji Processing
+let reaction_emoji_done = Connector_status.Telegram.phase_emoji Completed
+let reaction_emoji_error = Connector_status.Telegram.phase_emoji Failed
 
 let update_dedupe_key (u : update) =
   Printf.sprintf "%s:%d" u.chat_id u.update_id
@@ -1582,24 +1581,20 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
               let current_turn_has_tools = ref false in
               let tool_reaction_set = ref false in
               let peers =
-                match Hashtbl.find_opt reaction_peers key with
-                | Some p -> p
-                | None ->
-                    let p = ref [ update.message_id ] in
-                    Hashtbl.replace reaction_peers key p;
-                    p
+                Reaction_tracker.get_or_create_peers reactions ~key
+                  ~initial:update.message_id
               in
-              if not (List.mem update.message_id !peers) then
-                peers := !peers @ [ update.message_id ];
+              Reaction_tracker.add_peer reactions ~key
+                ~message_id:update.message_id;
               let set_reaction emoji =
-                Lwt_list.iter_p
-                  (fun mid ->
+                Reaction_tracker.set_reaction_all reactions ~peers_ref:peers
+                  ~set_one:(fun mid e ->
                     Lwt.catch
                       (fun () ->
                         set_message_reaction ~bot_token ~chat_id:update.chat_id
-                          ~message_id:mid ~emoji ())
+                          ~message_id:mid ~emoji:e ())
                       (fun _exn -> Lwt.return_unit))
-                  !peers
+                  ~emoji
               in
               let set_reaction_on mid emoji =
                 Lwt.catch
@@ -1924,7 +1919,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                   if Session.is_queued_message_response response then
                     Lwt.return_unit
                   else if !response_sent then begin
-                    Hashtbl.remove reaction_peers key;
+                    ignore (Reaction_tracker.cleanup reactions ~key);
                     Lwt.async (fun () ->
                         Session.process_autonomous_turn_result
                           ~on_response:send_to_chat session_mgr ~key ~response);
@@ -1974,7 +1969,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                         ()
                     in
                     let* () = set_reaction reaction_emoji_done in
-                    Hashtbl.remove reaction_peers key;
+                    ignore (Reaction_tracker.cleanup reactions ~key);
                     if not (Session.take_response_deferred session_mgr ~key)
                     then Session.mark_response_sent session_mgr ~key;
                     Lwt.async (fun () ->
@@ -1999,7 +1994,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                       ()
                   in
                   let* () = set_reaction reaction_emoji_error in
-                  Hashtbl.remove reaction_peers key;
+                  ignore (Reaction_tracker.cleanup reactions ~key);
                   if not (Session.take_response_deferred session_mgr ~key) then
                     Session.mark_response_sent session_mgr ~key;
                   Lwt.return_unit)

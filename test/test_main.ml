@@ -74,6 +74,7 @@ let () =
        ("config_wizard", Test_config_wizard.suite);
        ("status_message", Test_status_message.suite);
        ("format_adapter", Test_format_adapter.suite);
+       ("reaction_tracker", Test_reaction_tracker.suite);
        ("telegram_format", Test_telegram_format.suite);
        ("telegram_typing", Test_telegram_typing.suite);
        ("telegram_reactions", Test_telegram_reactions.suite);

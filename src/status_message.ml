@@ -27,7 +27,7 @@ type tool_entry = {
 
 type t = {
   notifier : notifier;
-  parse_mode : string;
+  connector : Format_adapter.connector;
   mutable msg_id : string option;
   tools : (string, tool_entry) Hashtbl.t;
   tool_order : string Queue.t;
@@ -50,7 +50,7 @@ type t = {
 let create ?(debounce_interval = 0.5) ~notifier ~parse_mode () =
   {
     notifier;
-    parse_mode;
+    connector = Format_adapter.of_parse_mode parse_mode;
     msg_id = None;
     tools = Hashtbl.create 16;
     tool_order = Queue.create ();
@@ -73,33 +73,16 @@ let format_duration secs =
   if secs < 10.0 then Printf.sprintf "%.1fs" secs
   else Printf.sprintf "%ds" (int_of_float secs)
 
-let escape_html text =
-  let buf = Buffer.create (String.length text + 16) in
-  String.iter
-    (fun c ->
-      match c with
-      | '&' -> Buffer.add_string buf "&amp;"
-      | '<' -> Buffer.add_string buf "&lt;"
-      | '>' -> Buffer.add_string buf "&gt;"
-      | _ -> Buffer.add_char buf c)
-    text;
-  Buffer.contents buf
-
-let is_html_mode t = t.parse_mode = "HTML"
-
 let fmt_bold t text =
-  if is_html_mode t then Printf.sprintf "<b>%s</b>" (escape_html text)
-  else Printf.sprintf "*%s*" text
+  Format_adapter.bold t.connector (Format_adapter.escape t.connector text)
 
 let fmt_italic t text =
-  if is_html_mode t then Printf.sprintf "<i>%s</i>" (escape_html text)
-  else Printf.sprintf "_%s_" text
+  Format_adapter.italic t.connector (Format_adapter.escape t.connector text)
 
 let fmt_code t text =
-  if is_html_mode t then Printf.sprintf "<code>%s</code>" (escape_html text)
-  else Printf.sprintf "`%s`" text
+  Format_adapter.code t.connector (Format_adapter.escape t.connector text)
 
-let fmt_plain t text = if is_html_mode t then escape_html text else text
+let fmt_plain t text = Format_adapter.escape t.connector text
 
 let render t =
   let buf = Buffer.create 256 in
@@ -312,12 +295,20 @@ let send_or_edit t =
           else
             match t.msg_id with
             | None ->
-                let* id = t.notifier.send ~parse_mode:t.parse_mode text in
+                let* id =
+                  t.notifier.send
+                    ~parse_mode:(Format_adapter.parse_mode_string t.connector)
+                    text
+                in
                 t.msg_id <- Some id;
                 t.last_edit <- Unix.gettimeofday ();
                 Lwt.return_unit
             | Some id ->
-                let* () = t.notifier.edit id ~parse_mode:t.parse_mode text in
+                let* () =
+                  t.notifier.edit id
+                    ~parse_mode:(Format_adapter.parse_mode_string t.connector)
+                    text
+                in
                 t.last_edit <- Unix.gettimeofday ();
                 Lwt.return_unit
         in
@@ -477,7 +468,11 @@ let finalize t =
     let text = render t in
     match t.msg_id with
     | Some id ->
-        let* () = t.notifier.edit id ~parse_mode:t.parse_mode text in
+        let* () =
+          t.notifier.edit id
+            ~parse_mode:(Format_adapter.parse_mode_string t.connector)
+            text
+        in
         Lwt.return_unit
     | None -> Lwt.return_unit)
   else (

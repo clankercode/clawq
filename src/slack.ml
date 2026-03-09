@@ -170,10 +170,7 @@ let remove_reaction ~bot_token ~channel_id ~timestamp ~emoji_name =
 let _rate_limit_warnings : (string, float) Hashtbl.t = Hashtbl.create 16
 
 (* Tracks message timestamps whose reactions should be kept in sync per session key *)
-let reaction_peers : (string, string list ref) Hashtbl.t = Hashtbl.create 16
-
-(* Per-message current reaction emoji name *)
-let reaction_state : (string, string) Hashtbl.t = Hashtbl.create 16
+let reactions : string Reaction_tracker.t = Reaction_tracker.create ()
 
 let parse_event body =
   try
@@ -269,7 +266,8 @@ let handle_event ~(config : Runtime_config.slack_config)
                 let notifier =
                   make_status_notifier ~bot_token:config.bot_token ~channel_id
                 in
-                Status_message.create ~notifier ~parse_mode:"Markdown" ())
+                Status_message.create ~notifier
+                  ~parse_mode:Connector_status.Slack.status_parse_mode ())
           end;
           if Update_tool.is_update_command text then begin
             let notify text =
@@ -453,41 +451,26 @@ let handle_event ~(config : Runtime_config.slack_config)
                 in
                 let tool_reaction_set = ref false in
                 let peers =
-                  match Hashtbl.find_opt reaction_peers key with
-                  | Some p -> p
-                  | None ->
-                      let p = ref [ ts ] in
-                      Hashtbl.replace reaction_peers key p;
-                      p
+                  Reaction_tracker.get_or_create_peers reactions ~key
+                    ~initial:ts
                 in
-                if not (List.mem ts !peers) then peers := !peers @ [ ts ];
+                Reaction_tracker.add_peer reactions ~key ~message_id:ts;
                 let set_reaction_on_single timestamp emoji_name =
-                  Lwt.catch
-                    (fun () ->
-                      let prev =
-                        match Hashtbl.find_opt reaction_state timestamp with
-                        | Some e -> e
-                        | None -> ""
-                      in
-                      let* () =
-                        if prev <> "" then
-                          Lwt.catch
-                            (fun () ->
-                              remove_reaction ~bot_token:config.bot_token
-                                ~channel_id ~timestamp ~emoji_name:prev)
-                            (fun _exn -> Lwt.return_unit)
-                        else Lwt.return_unit
-                      in
-                      Hashtbl.replace reaction_state timestamp emoji_name;
+                  Reaction_tracker.set_reaction_on_single reactions
+                    ~message_id:timestamp
+                    ~remove_previous:(fun timestamp prev ->
+                      remove_reaction ~bot_token:config.bot_token ~channel_id
+                        ~timestamp ~emoji_name:prev)
+                    ~add:(fun timestamp emoji_name ->
                       add_reaction ~bot_token:config.bot_token ~channel_id
                         ~timestamp ~emoji_name)
-                    (fun _exn -> Lwt.return_unit)
+                    ~emoji:emoji_name
                 in
                 let set_reaction emoji_name =
-                  Lwt_list.iter_p
-                    (fun timestamp ->
-                      set_reaction_on_single timestamp emoji_name)
-                    !peers
+                  Reaction_tracker.set_reaction_all reactions ~peers_ref:peers
+                    ~set_one:(fun timestamp emoji ->
+                      set_reaction_on_single timestamp emoji)
+                    ~emoji:emoji_name
                 in
                 let thinking_buf = Buffer.create 256 in
                 let status_msg =
@@ -498,7 +481,7 @@ let handle_event ~(config : Runtime_config.slack_config)
                     in
                     Some
                       (Status_message.create ~notifier:status_notifier
-                         ~parse_mode:"mrkdwn" ())
+                         ~parse_mode:Connector_status.Slack.status_parse_mode ())
                   else None
                 in
                 let visibility = Stream_visibility.create () in
@@ -507,7 +490,9 @@ let handle_event ~(config : Runtime_config.slack_config)
                   | Provider.ToolStart _ ->
                       if not !tool_reaction_set then begin
                         tool_reaction_set := true;
-                        Lwt.async (fun () -> set_reaction "gear")
+                        Lwt.async (fun () ->
+                            set_reaction
+                              (Connector_status.Slack.phase_emoji Processing))
                       end
                   | _ -> ());
                   match status_msg with
@@ -544,7 +529,9 @@ let handle_event ~(config : Runtime_config.slack_config)
                             ~channel_id ~text)
                         chunk
                 in
-                let* () = set_reaction "hourglass_flowing_sand" in
+                let* () =
+                  set_reaction (Connector_status.Slack.phase_emoji Received)
+                in
                 let drain_progress_msg_ts = ref None in
                 let on_drain_progress : Session.drain_progress =
                   {
@@ -554,7 +541,7 @@ let handle_event ~(config : Runtime_config.slack_config)
                           match queued_msg_id with
                           | Some msg_ts ->
                               set_reaction_on_single msg_ts
-                                "hourglass_flowing_sand"
+                                (Connector_status.Slack.phase_emoji Received)
                           | None -> Lwt.return_unit
                         in
                         let* () =
@@ -580,7 +567,8 @@ let handle_event ~(config : Runtime_config.slack_config)
                       (fun queued_msg_id ->
                         match queued_msg_id with
                         | Some msg_ts ->
-                            set_reaction_on_single msg_ts "white_check_mark"
+                            set_reaction_on_single msg_ts
+                              (Connector_status.Slack.phase_emoji Completed)
                         | None -> Lwt.return_unit);
                     after_all =
                       (fun () ->
@@ -621,7 +609,10 @@ let handle_event ~(config : Runtime_config.slack_config)
                       send_message_fn ~bot_token:config.bot_token ~channel_id
                         ~text:response
                     in
-                    let* () = set_reaction "white_check_mark" in
+                    let* () =
+                      set_reaction
+                        (Connector_status.Slack.phase_emoji Completed)
+                    in
                     if not (Session.take_response_deferred session_manager ~key)
                     then Session.mark_response_sent session_manager ~key;
                     response_sent := true;
@@ -650,11 +641,7 @@ let handle_event ~(config : Runtime_config.slack_config)
                     if Session.is_queued_message_response response then
                       Lwt.return "ok"
                     else if !response_sent then begin
-                      let peer_tss = !peers in
-                      Hashtbl.remove reaction_peers key;
-                      List.iter
-                        (fun t -> Hashtbl.remove reaction_state t)
-                        peer_tss;
+                      ignore (Reaction_tracker.cleanup reactions ~key);
                       let send_to_channel text =
                         send_message_fn ~bot_token:config.bot_token ~channel_id
                           ~text
@@ -687,12 +674,11 @@ let handle_event ~(config : Runtime_config.slack_config)
                         send_message_fn ~bot_token:config.bot_token ~channel_id
                           ~text:response
                       in
-                      let* () = set_reaction "white_check_mark" in
-                      let peer_tss = !peers in
-                      Hashtbl.remove reaction_peers key;
-                      List.iter
-                        (fun t -> Hashtbl.remove reaction_state t)
-                        peer_tss;
+                      let* () =
+                        set_reaction
+                          (Connector_status.Slack.phase_emoji Completed)
+                      in
+                      ignore (Reaction_tracker.cleanup reactions ~key);
                       if
                         not
                           (Session.take_response_deferred session_manager ~key)
@@ -723,12 +709,10 @@ let handle_event ~(config : Runtime_config.slack_config)
                               message: %s"
                              err)
                     in
-                    let* () = set_reaction "warning" in
-                    let peer_tss = !peers in
-                    Hashtbl.remove reaction_peers key;
-                    List.iter
-                      (fun t -> Hashtbl.remove reaction_state t)
-                      peer_tss;
+                    let* () =
+                      set_reaction (Connector_status.Slack.phase_emoji Failed)
+                    in
+                    ignore (Reaction_tracker.cleanup reactions ~key);
                     if not (Session.take_response_deferred session_manager ~key)
                     then Session.mark_response_sent session_manager ~key;
                     Lwt.return "ok")

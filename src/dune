@@ -19,6 +19,9 @@
   prompt_builder
   stream_visibility
   format_adapter
+  status_phase
+  connector_status
+  reaction_tracker
   status_message
   workspace_scaffold
   path_util

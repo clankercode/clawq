@@ -29,10 +29,75 @@ let test_link () =
     "discord link" "[click](https://example.com)"
     (Format_adapter.link Discord ~text:"click" ~url:"https://example.com")
 
+let test_telegram_html_bold () =
+  Alcotest.(check string)
+    "html bold" "<b>hello</b>"
+    (Format_adapter.bold Telegram_html "hello")
+
+let test_telegram_html_italic () =
+  Alcotest.(check string)
+    "html italic" "<i>hello</i>"
+    (Format_adapter.italic Telegram_html "hello")
+
+let test_telegram_html_code () =
+  Alcotest.(check string)
+    "html code" "<code>hello</code>"
+    (Format_adapter.code Telegram_html "hello")
+
+let test_escape_telegram_html () =
+  Alcotest.(check string)
+    "escapes html entities" "&lt;script&gt;"
+    (Format_adapter.escape Telegram_html "<script>");
+  Alcotest.(check string)
+    "escapes ampersand" "&amp;"
+    (Format_adapter.escape Telegram_html "&")
+
+let test_escape_identity () =
+  Alcotest.(check string)
+    "discord no-op" "<script>"
+    (Format_adapter.escape Discord "<script>");
+  Alcotest.(check string)
+    "plain no-op" "<script>"
+    (Format_adapter.escape Plain "<script>")
+
+let test_of_parse_mode () =
+  Alcotest.(check bool)
+    "HTML -> Telegram_html" true
+    (Format_adapter.of_parse_mode "HTML" = Telegram_html);
+  Alcotest.(check bool)
+    "Markdown -> Discord" true
+    (Format_adapter.of_parse_mode "Markdown" = Discord);
+  Alcotest.(check bool)
+    "mrkdwn -> Slack" true
+    (Format_adapter.of_parse_mode "mrkdwn" = Slack);
+  Alcotest.(check bool)
+    "unknown -> Plain" true
+    (Format_adapter.of_parse_mode "unknown" = Plain)
+
+let test_parse_mode_string_round_trip () =
+  Alcotest.(check string)
+    "Telegram_html" "HTML"
+    (Format_adapter.parse_mode_string Telegram_html);
+  Alcotest.(check string)
+    "Discord" "Markdown"
+    (Format_adapter.parse_mode_string Discord);
+  Alcotest.(check string)
+    "Slack" "mrkdwn"
+    (Format_adapter.parse_mode_string Slack)
+
 let suite =
   [
     Alcotest.test_case "bold formatting" `Quick test_bold;
     Alcotest.test_case "italic formatting" `Quick test_italic;
     Alcotest.test_case "code formatting" `Quick test_code;
     Alcotest.test_case "link formatting" `Quick test_link;
+    Alcotest.test_case "telegram html bold" `Quick test_telegram_html_bold;
+    Alcotest.test_case "telegram html italic" `Quick test_telegram_html_italic;
+    Alcotest.test_case "telegram html code" `Quick test_telegram_html_code;
+    Alcotest.test_case "escape telegram html" `Quick test_escape_telegram_html;
+    Alcotest.test_case "escape identity for non-html" `Quick
+      test_escape_identity;
+    Alcotest.test_case "of_parse_mode mappings" `Quick test_of_parse_mode;
+    Alcotest.test_case "parse_mode_string round trip" `Quick
+      test_parse_mode_string_round_trip;
   ]
