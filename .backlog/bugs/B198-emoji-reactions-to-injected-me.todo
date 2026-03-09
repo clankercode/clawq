@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B198
+priority: high
+status: pending
+tags: []
+title: emoji reactions to injected messages get eyes but then never updated after that. should be grouped with whatever other messages are being reacted to and should be updated with them.
+---
+
+emoji reactions to injected messages get eyes but then never updated after that. should be grouped with whatever other messages are being reacted to and should be updated with them.
