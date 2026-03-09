@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-09T17:54:26Z"
+claimed_by: cli-user
+completed_at: "2026-03-09T18:09:16Z"
 complexity: medium
 depends_on: []
+duration_minutes: 14.841158723366666
 estimate_hours: 1
 id: B217
 priority: medium
-status: pending
+started_at: "2026-03-09T17:54:26Z"
+status: done
 tags: []
 title: Telegram reaction emojis can advance from eyes to in-progress but then stop updating afterward
 ---

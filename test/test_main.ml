@@ -76,6 +76,7 @@ let () =
        ("format_adapter", Test_format_adapter.suite);
        ("telegram_format", Test_telegram_format.suite);
        ("telegram_typing", Test_telegram_typing.suite);
+       ("telegram_reactions", Test_telegram_reactions.suite);
        ("compaction_flush", Test_compaction_flush.suite);
        ("task_tree", Test_task_tree.suite);
      ]

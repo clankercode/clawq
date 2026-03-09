@@ -98,6 +98,88 @@ let text_coalesce_window_seconds = ref 0.15
 (* Tracks message IDs whose reactions should be kept in sync per session key *)
 let reaction_peers : (string, int list ref) Hashtbl.t = Hashtbl.create 16
 
+(* Telegram Bot API allows only a preset set of emoji for setMessageReaction.
+   Source: https://core.telegram.org/bots/api#reactiontypeemoji
+   This list must be kept in sync with the Telegram API documentation. *)
+let valid_reaction_emojis =
+  [
+    "\xF0\x9F\x91\x8D" (* 👍 *);
+    "\xF0\x9F\x91\x8E" (* 👎 *);
+    "\xE2\x9D\xA4" (* ❤ *);
+    "\xF0\x9F\x94\xA5" (* 🔥 *);
+    "\xF0\x9F\xA5\xB0" (* 🥰 *);
+    "\xF0\x9F\x91\x8F" (* 👏 *);
+    "\xF0\x9F\x98\x81" (* 😁 *);
+    "\xF0\x9F\xA4\x94" (* 🤔 *);
+    "\xF0\x9F\xA4\xAF" (* 🤯 *);
+    "\xF0\x9F\x98\xB1" (* 😱 *);
+    "\xF0\x9F\xA4\xAC" (* 🤬 *);
+    "\xF0\x9F\x98\xA2" (* 😢 *);
+    "\xF0\x9F\x8E\x89" (* 🎉 *);
+    "\xF0\x9F\xA4\xA9" (* 🤩 *);
+    "\xF0\x9F\xA4\xAE" (* 🤮 *);
+    "\xF0\x9F\x92\xA9" (* 💩 *);
+    "\xF0\x9F\x99\x8F" (* 🙏 *);
+    "\xF0\x9F\x91\x8C" (* 👌 *);
+    "\xF0\x9F\x95\x8A" (* 🕊 *);
+    "\xF0\x9F\xA4\xA1" (* 🤡 *);
+    "\xF0\x9F\xA5\xB1" (* 🥱 *);
+    "\xF0\x9F\xA5\xB4" (* 🥴 *);
+    "\xF0\x9F\x98\x8D" (* 😍 *);
+    "\xF0\x9F\x90\xB3" (* 🐳 *);
+    "\xF0\x9F\x8C\x9A" (* 🌚 *);
+    "\xF0\x9F\x8C\xAD" (* 🌭 *);
+    "\xF0\x9F\x92\xAF" (* 💯 *);
+    "\xF0\x9F\xA4\xA3" (* 🤣 *);
+    "\xE2\x9A\xA1" (* ⚡ *);
+    "\xF0\x9F\x8D\x8C" (* 🍌 *);
+    "\xF0\x9F\x8F\x86" (* 🏆 *);
+    "\xF0\x9F\x92\x94" (* 💔 *);
+    "\xF0\x9F\xA4\xA8" (* 🤨 *);
+    "\xF0\x9F\x98\x90" (* 😐 *);
+    "\xF0\x9F\x8D\x93" (* 🍓 *);
+    "\xF0\x9F\x8D\xBE" (* 🍾 *);
+    "\xF0\x9F\x92\x8B" (* 💋 *);
+    "\xF0\x9F\x96\x95" (* 🖕 *);
+    "\xF0\x9F\x98\x88" (* 😈 *);
+    "\xF0\x9F\x98\xB4" (* 😴 *);
+    "\xF0\x9F\x98\xAD" (* 😭 *);
+    "\xF0\x9F\xA4\x93" (* 🤓 *);
+    "\xF0\x9F\x91\xBB" (* 👻 *);
+    "\xF0\x9F\x91\x80" (* 👀 *);
+    "\xF0\x9F\x8E\x83" (* 🎃 *);
+    "\xF0\x9F\x99\x88" (* 🙈 *);
+    "\xF0\x9F\x98\x87" (* 😇 *);
+    "\xF0\x9F\x98\xA8" (* 😨 *);
+    "\xF0\x9F\xA4\x9D" (* 🤝 *);
+    "\xE2\x9C\x8D" (* ✍ *);
+    "\xF0\x9F\xA4\x97" (* 🤗 *);
+    "\xF0\x9F\xAB\xA1" (* 🫡 *);
+    "\xF0\x9F\x8E\x85" (* 🎅 *);
+    "\xF0\x9F\x8E\x84" (* 🎄 *);
+    "\xE2\x98\x83" (* ☃ *);
+    "\xF0\x9F\x92\x85" (* 💅 *);
+    "\xF0\x9F\xA4\xAA" (* 🤪 *);
+    "\xF0\x9F\x97\xBF" (* 🗿 *);
+    "\xF0\x9F\x86\x92" (* 🆒 *);
+    "\xF0\x9F\x92\x98" (* 💘 *);
+    "\xF0\x9F\x99\x89" (* 🙉 *);
+    "\xF0\x9F\xA6\x84" (* 🦄 *);
+    "\xF0\x9F\x98\x98" (* 😘 *);
+    "\xF0\x9F\x92\x8A" (* 💊 *);
+    "\xF0\x9F\x99\x8A" (* 🙊 *);
+    "\xF0\x9F\x98\x8E" (* 😎 *);
+    "\xF0\x9F\x91\xBE" (* 👾 *);
+    "\xF0\x9F\x98\xA1" (* 😡 *);
+  ]
+
+(* Reaction emojis used by clawq for session state:
+   👀 = received/waiting, ⚡ = tools in progress, 👍 = done, 💔 = error *)
+let reaction_emoji_received = "\xF0\x9F\x91\x80" (* 👀 *)
+let reaction_emoji_tools = "\xE2\x9A\xA1" (* ⚡ *)
+let reaction_emoji_done = "\xF0\x9F\x91\x8D" (* 👍 *)
+let reaction_emoji_error = "\xF0\x9F\x92\x94" (* 💔 *)
+
 let update_dedupe_key (u : update) =
   Printf.sprintf "%s:%d" u.chat_id u.update_id
 
@@ -813,7 +895,13 @@ let set_message_reaction ~bot_token ~chat_id ~message_id ~emoji () =
       ]
     |> Yojson.Safe.to_string
   in
-  let* _status, _body = Http_client.post_json ~uri ~headers:[] ~body in
+  let* status, _body = Http_client.post_json ~uri ~headers:[] ~body in
+  if status < 200 || status >= 300 then
+    Logs.warn (fun m ->
+        m
+          "Telegram setMessageReaction failed: status=%d chat_id=%s \
+           message_id=%d"
+          status chat_id message_id);
   Lwt.return_unit
 
 let send_message ?(disable_notification = false) ?parse_mode ~bot_token ~chat_id
@@ -1564,7 +1652,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                         let* () =
                           if not !tool_reaction_set then begin
                             tool_reaction_set := true;
-                            set_reaction "\xE2\x9A\xA1"
+                            set_reaction reaction_emoji_tools
                           end
                           else Lwt.return_unit
                         in
@@ -1621,7 +1709,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                         match chunk with
                         | Provider.ToolStart _ ->
                             tool_reaction_set := true;
-                            set_reaction "\xE2\x9A\xA1"
+                            set_reaction reaction_emoji_tools
                         | _ -> Lwt.return_unit
                       else Lwt.return_unit
                     in
@@ -1669,11 +1757,10 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                         Lwt.return_unit
                     | _ -> Lwt.return_unit)
               in
-              (* Telegram reactions only support a preset emoji list;
-               use allowed alternatives: 👀=received, ⚡=tools, 👍=done, 💔=error *)
+              (* See reaction_emoji_* constants and valid_reaction_emojis *)
               Lwt.async (fun () ->
                   Lwt.catch
-                    (fun () -> set_reaction "\xF0\x9F\x91\x80")
+                    (fun () -> set_reaction reaction_emoji_received)
                     (fun _exn -> Lwt.return_unit));
               let drain_progress_msg_id = ref None in
               let on_drain_progress : Session.drain_progress =
@@ -1685,7 +1772,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                         | Some mid -> (
                             match int_of_string_opt mid with
                             | Some mid_int ->
-                                set_reaction_on mid_int "\xF0\x9F\x91\x80"
+                                set_reaction_on mid_int reaction_emoji_received
                             | None -> Lwt.return_unit)
                         | None -> Lwt.return_unit
                       in
@@ -1715,7 +1802,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                       | Some mid -> (
                           match int_of_string_opt mid with
                           | Some mid_int ->
-                              set_reaction_on mid_int "\xE2\x9C\x85"
+                              set_reaction_on mid_int reaction_emoji_done
                           | None -> Lwt.return_unit)
                       | None -> Lwt.return_unit);
                   after_all =
@@ -1812,7 +1899,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                               refresh_typing ();
                               Lwt.return_unit
                             in
-                            let* () = set_reaction "\xE2\x9C\x85" in
+                            let* () = set_reaction reaction_emoji_done in
                             if
                               not
                                 (Session.take_response_deferred session_mgr ~key)
@@ -1886,7 +1973,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                         ~text:(Telegram_format.markdown_to_mdv2 response)
                         ()
                     in
-                    let* () = set_reaction "\xF0\x9F\x91\x8D" in
+                    let* () = set_reaction reaction_emoji_done in
                     Hashtbl.remove reaction_peers key;
                     if not (Session.take_response_deferred session_mgr ~key)
                     then Session.mark_response_sent session_mgr ~key;
@@ -1911,7 +1998,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                            err)
                       ()
                   in
-                  let* () = set_reaction "\xF0\x9F\x92\x94" in
+                  let* () = set_reaction reaction_emoji_error in
                   Hashtbl.remove reaction_peers key;
                   if not (Session.take_response_deferred session_mgr ~key) then
                     Session.mark_response_sent session_mgr ~key;
