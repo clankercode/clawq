@@ -1316,14 +1316,30 @@ let readopt_running_tasks ~db ~on_task_finished =
               Lwt.finalize
                 (fun () ->
                   let open Lwt.Syntax in
-                  let* status = Lwt_unix.waitpid [] pid in
+                  (* The readopted process may not be our child (reparented to
+                     init after daemon restart), so waitpid can fail with
+                     ECHILD. Fall back to polling group_alive in that case. *)
+                  let* exit_code =
+                    Lwt.catch
+                      (fun () ->
+                        let* status = Lwt_unix.waitpid [] pid in
+                        Lwt.return (exit_code_of_status (snd status)))
+                      (function
+                        | Unix.Unix_error (Unix.ECHILD, _, _) ->
+                            let rec poll () =
+                              let* () = Lwt_unix.sleep 5.0 in
+                              if Process_group.group_alive pid then poll ()
+                              else Lwt.return 1
+                            in
+                            poll ()
+                        | exn -> Lwt.fail exn)
+                  in
                   (* B210 watchdog: kill remaining process group members *)
                   Lwt.async (fun () ->
                       let open Lwt.Syntax in
                       let* () = Lwt_unix.sleep 2.0 in
                       Process_group.signal_group pid Sys.sigkill;
                       Lwt.return_unit);
-                  let exit_code = exit_code_of_status (snd status) in
                   let final_status =
                     match get_task ~db ~id:task.id with
                     | Some { status = Cancelled; _ } -> Cancelled

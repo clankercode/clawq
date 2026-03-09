@@ -487,12 +487,16 @@ let get_or_create_locked mgr ~key =
 
 let with_session_lock mgr ~key f =
   let open Lwt.Syntax in
+  (* Release sessions_lock before blocking on per-session mutex to avoid
+     deadlock: other operations (message dispatch, draining, etc.) also need
+     sessions_lock; holding it while waiting for a busy session's mutex would
+     block everything. *)
   let* agent, mutex, interrupt =
     Lwt_mutex.with_lock mgr.sessions_lock (fun () ->
         let agent, mutex, interrupt = get_or_create_locked mgr ~key in
-        let* () = Lwt_mutex.lock mutex in
         Lwt.return (agent, mutex, interrupt))
   in
+  let* () = Lwt_mutex.lock mutex in
   Lwt.finalize
     (fun () -> f agent interrupt)
     (fun () ->
@@ -501,24 +505,25 @@ let with_session_lock mgr ~key f =
 
 let try_session_lock mgr ~key f =
   let open Lwt.Syntax in
-  let* state =
+  (* Release sessions_lock before checking per-session mutex to avoid holding
+     sessions_lock while blocking.  try_session_lock is non-blocking on the
+     per-session mutex, but we still release sessions_lock first to stay
+     consistent with the deadlock-avoidance pattern. *)
+  let* agent, mutex, interrupt =
     Lwt_mutex.with_lock mgr.sessions_lock (fun () ->
         let agent, mutex, interrupt = get_or_create_locked mgr ~key in
-        if Lwt_mutex.is_locked mutex then Lwt.return_none
-        else
-          let* () = Lwt_mutex.lock mutex in
-          Lwt.return_some (agent, mutex, interrupt))
+        Lwt.return (agent, mutex, interrupt))
   in
-  match state with
-  | None -> Lwt.return_none
-  | Some (agent, mutex, interrupt) ->
-      Lwt.finalize
-        (fun () ->
-          let* result = f agent interrupt in
-          Lwt.return_some result)
-        (fun () ->
-          Lwt_mutex.unlock mutex;
-          Lwt.return_unit)
+  if Lwt_mutex.is_locked mutex then Lwt.return_none
+  else
+    let* () = Lwt_mutex.lock mutex in
+    Lwt.finalize
+      (fun () ->
+        let* result = f agent interrupt in
+        Lwt.return_some result)
+      (fun () ->
+        Lwt_mutex.unlock mutex;
+        Lwt.return_unit)
 
 let with_session_lock_unless_draining mgr ~key ~on_draining f =
   let open Lwt.Syntax in
