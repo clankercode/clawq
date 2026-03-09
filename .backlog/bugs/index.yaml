@@ -137,3 +137,4 @@ bugs:
     - file: B136-autonomous-loop-fails-to-remai.todo
     - file: B137-need-a-verifiable-way-to-confi.todo
     - file: B138-add-fork-and-to-spawn-an-ephem.todo
+    - file: B139-test-and-verify-prompt-injecti.todo
