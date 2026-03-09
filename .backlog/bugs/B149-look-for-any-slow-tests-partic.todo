@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B149
+priority: high
+status: pending
+tags: []
+title: Look for any slow tests (particularly any `sleep` type things) and see how we can optimize the tests so they all run *fast*. If we have necessarily slow tests, let's tag them so they don't run as part of main tests and require running integration tests. If we do that, make sure CI runs the integration tests. We should also update CLAUDE.md with like 1 or 2 lines about it.
+---
+
+Look for any slow tests (particularly any `sleep` type things) and see how we can optimize the tests so they all run *fast*. If we have necessarily slow tests, let's tag them so they don't run as part of main tests and require running integration tests. If we do that, make sure CI runs the integration tests. We should also update CLAUDE.md with like 1 or 2 lines about it.
