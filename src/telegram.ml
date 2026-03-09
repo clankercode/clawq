@@ -1358,7 +1358,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                       let* () =
                         if not !tool_reaction_set then begin
                           tool_reaction_set := true;
-                          set_reaction "\xe2\x9a\x99\xef\xb8\x8f"
+                          set_reaction "\xE2\x9A\xA1"
                         end
                         else Lwt.return_unit
                       in
@@ -1414,7 +1414,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                       match chunk with
                       | Provider.ToolStart _ ->
                           tool_reaction_set := true;
-                          set_reaction "\xe2\x9a\x99\xef\xb8\x8f"
+                          set_reaction "\xE2\x9A\xA1"
                       | _ -> Lwt.return_unit
                     else Lwt.return_unit
                   in
@@ -1462,7 +1462,9 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                       Lwt.return_unit
                   | _ -> Lwt.return_unit)
             in
-            let* () = set_reaction "\xe2\x8f\xb3" in
+            (* Telegram reactions only support a preset emoji list;
+               use allowed alternatives: 👀=received, ⚡=tools, 👍=done, 💔=error *)
+            let* () = set_reaction "\xF0\x9F\x91\x80" in
             let drain_progress_msg_id = ref None in
             let on_drain_progress : Session.drain_progress =
               {
@@ -1580,7 +1582,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                       ~text:(Telegram_format.markdown_to_mdv2 response)
                       ()
                   in
-                  let* () = set_reaction "\xE2\x9C\x85" in
+                  let* () = set_reaction "\xF0\x9F\x91\x8D" in
                   if not (Session.take_response_deferred session_mgr ~key) then
                     Session.mark_response_sent session_mgr ~key;
                   (* Schedule autonomous continuation so agent pings itself
@@ -1612,7 +1614,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                          err)
                     ()
                 in
-                let* () = set_reaction "\xE2\x9A\xA0" in
+                let* () = set_reaction "\xF0\x9F\x92\x94" in
                 if not (Session.take_response_deferred session_mgr ~key) then
                   Session.mark_response_sent session_mgr ~key;
                 Lwt.return_unit)
