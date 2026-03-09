@@ -165,6 +165,51 @@ let notify_resumed_session ?(senders = default_resume_senders)
                 (Printexc.to_string exn));
           Lwt.return_unit)
 
+let handle_heartbeat_response
+    ?(continuation_delay = Session.default_autonomous_continuation_delay)
+    ~(session_manager : Session.t) ~key ~response () =
+  let open Lwt.Syntax in
+  let trimmed = String.trim response in
+  let* () =
+    if
+      trimmed = "" || trimmed = "HEARTBEAT_OK"
+      || trimmed = Session.autonomous_stay_idle_message
+    then
+      Session.process_autonomous_turn_result ~delay:continuation_delay
+        session_manager ~key ~response:trimmed
+    else begin
+      Lwt.async (fun () ->
+          Lwt.catch
+            (fun () ->
+              Session.process_autonomous_turn_result ~delay:continuation_delay
+                session_manager ~key ~response:trimmed)
+            (fun exn ->
+              Logs.err (fun m ->
+                  m "Heartbeat continuation error: %s"
+                    (Printexc.to_string exn));
+              Lwt.return_unit));
+      Lwt.return_unit
+    end
+  in
+  if trimmed = "HEARTBEAT_OK" then
+    Logs.info (fun m ->
+        m "Heartbeat: agent replied HEARTBEAT_OK, no outbound")
+  else begin
+    Logs.info (fun m ->
+        m "Heartbeat: agent response (%d chars)" (String.length trimmed));
+    match (Session.get_config session_manager).notify with
+    | Some nc ->
+        Logs.info (fun m ->
+            m "Heartbeat: would notify via %s -> %s" nc.notify_channel
+              nc.notify_target)
+    | None ->
+        Logs.warn (fun m ->
+            m
+              "Heartbeat: agent wants to send a message but no notify target \
+               configured")
+  end;
+  Lwt.return_unit
+
 let refresh_runtime_bound_tools ~(config : Runtime_config.t) registry =
   let refresh_optional name ~configured make_tool =
     if configured then Tool_registry.replace registry (make_tool ())
@@ -1379,39 +1424,18 @@ let run ~(config : Runtime_config.t) =
                                 m "Heartbeat error: %s" (Printexc.to_string exn));
                             Lwt.return_none)
                       in
-                      (match result with
-                      | None ->
-                          Logs.info (fun m ->
-                              m
-                                "Heartbeat: main session busy, skipping this \
-                                 tick")
-                      | Some response ->
-                          let trimmed = String.trim response in
-                          Lwt_main.run
-                            (Session.process_autonomous_turn_result
-                               session_manager ~key ~response:trimmed);
-                          if trimmed = "HEARTBEAT_OK" then
+                      let* () =
+                        match result with
+                        | None ->
                             Logs.info (fun m ->
                                 m
-                                  "Heartbeat: agent replied HEARTBEAT_OK, no \
-                                   outbound")
-                          else begin
-                            Logs.info (fun m ->
-                                m "Heartbeat: agent response (%d chars)"
-                                  (String.length trimmed));
-                            match
-                              (Session.get_config session_manager).notify
-                            with
-                            | Some nc ->
-                                Logs.info (fun m ->
-                                    m "Heartbeat: would notify via %s -> %s"
-                                      nc.notify_channel nc.notify_target)
-                            | None ->
-                                Logs.warn (fun m ->
-                                    m
-                                      "Heartbeat: agent wants to send a \
-                                       message but no notify target configured")
-                          end);
+                                  "Heartbeat: main session busy, skipping this \
+                                   tick");
+                            Lwt.return_unit
+                        | Some response ->
+                            handle_heartbeat_response ~session_manager ~key
+                              ~response ()
+                      in
                       hb_loop ()
                     end
                   end

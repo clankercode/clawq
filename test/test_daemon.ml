@@ -492,6 +492,52 @@ let test_resume_pending_main_session_arms_autonomous_continuation () =
   Alcotest.(check bool) "main session not disarmed" false state.disarmed;
   Alcotest.(check bool) "continuation armed" true (Option.is_some state.cancel)
 
+let test_handle_heartbeat_response_keeps_idle_heartbeat_idle () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let session_manager = Session.create ~config:Runtime_config.default ~db () in
+  let key = "__main__" in
+  Lwt_main.run
+    (Daemon.handle_heartbeat_response ~session_manager ~key
+       ~response:" HEARTBEAT_OK " ());
+  let state = Session.continuation_state session_manager ~key in
+  Alcotest.(check bool) "heartbeat ok leaves continuation disarmed flag alone"
+    false state.disarmed;
+  Alcotest.(check bool) "heartbeat ok does not arm continuation" false
+    (Option.is_some state.cancel)
+
+let test_handle_heartbeat_response_disarms_stay_idle () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let session_manager = Session.create ~config:Runtime_config.default ~db () in
+  let key = "__main__" in
+  let state = Session.continuation_state session_manager ~key in
+  let _waiter, wakener = Lwt.wait () in
+  state.Session.cancel <- Some wakener;
+  Lwt_main.run
+    (Daemon.handle_heartbeat_response ~session_manager ~key
+       ~response:" STAY_IDLE " ());
+  Alcotest.(check bool) "stay idle disarms continuation" true state.disarmed;
+  Alcotest.(check bool) "stay idle clears pending continuation" false
+    (Option.is_some state.cancel)
+
+let test_handle_heartbeat_response_arms_follow_up_for_non_idle_reply () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let session_manager = Session.create ~config:Runtime_config.default ~db () in
+  let key = "__main__" in
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () =
+       Daemon.handle_heartbeat_response ~session_manager ~key
+         ~response:"continue_work" ()
+     in
+     Lwt.pause ());
+  let state = Session.continuation_state session_manager ~key in
+  Alcotest.(check bool) "non-idle heartbeat arms continuation" true
+    (Option.is_some state.cancel);
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () = Session.cancel_autonomous_continuation session_manager ~key in
+     Lwt.pause ())
+
 let make_test_task ?(id = 9) ?(session_key = Some "telegram:42:user")
     ?(channel = Some "telegram") ?(channel_id = Some "42") () :
     Background_task.task =
@@ -652,6 +698,12 @@ let suite =
     Alcotest.test_case
       "resume pending main session arms autonomous continuation" `Quick
       test_resume_pending_main_session_arms_autonomous_continuation;
+    Alcotest.test_case "heartbeat ok stays idle without continuation" `Quick
+      test_handle_heartbeat_response_keeps_idle_heartbeat_idle;
+    Alcotest.test_case "heartbeat STAY_IDLE disarms continuation" `Quick
+      test_handle_heartbeat_response_disarms_stay_idle;
+    Alcotest.test_case "heartbeat work reply arms continuation" `Quick
+      test_handle_heartbeat_response_arms_follow_up_for_non_idle_reply;
     Alcotest.test_case "wait for drain returns when in-flight reaches zero"
       `Quick test_wait_for_drain_returns_when_in_flight_reaches_zero;
     Alcotest.test_case "wait for drain reports timeout" `Quick
