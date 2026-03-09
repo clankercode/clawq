@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-09T22:08:29Z"
+claimed_by: cli-user
+completed_at: "2026-03-09T22:12:43Z"
 complexity: medium
 depends_on: []
+duration_minutes: 4.2385337234
 estimate_hours: 1
 id: B254
 priority: high
-status: pending
+started_at: "2026-03-09T22:08:29Z"
+status: done
 tags: []
 title: task_tree should allow more than three concurrent in-progress tasks or make the limit configurable
 ---

@@ -30,7 +30,7 @@ type task = {
 
 let max_active_tasks = 50
 let max_depth = 5
-let max_concurrent_in_progress = 3
+let warn_concurrent_in_progress = 5
 let max_batch_size = 20
 let max_title_length = 200
 
@@ -391,9 +391,20 @@ let render_tree_with_legend ~db ~session_key =
   let tree = render_tree ~db ~session_key in
   if count_tasks ~db ~session_key = 0 then tree
   else
+    let ip_count = count_in_progress ~db ~session_key in
+    let warning =
+      if ip_count >= warn_concurrent_in_progress then
+        Printf.sprintf
+          "\n\n\
+           \xe2\x9a\xa0\xef\xb8\x8f WARNING: %d tasks are in_progress. \
+           Consider completing or updating some before starting more work."
+          ip_count
+      else ""
+    in
     tree
     ^ "\n\n\
        Legend: [ ] pending  [>] in_progress  [x] done  [!] error  [-] cancelled"
+    ^ warning
 
 let format_notification ~connector ~db ~session_key (ops : Yojson.Safe.t list) =
   let open Yojson.Safe.Util in
@@ -535,29 +546,12 @@ let do_add ~db ~session_key ~id ~parent_id ~title ~status ~note =
           let actual_status =
             match status with Some s -> s | None -> Pending
           in
-          if actual_status = In_progress then begin
-            let current_ip = count_in_progress ~db ~session_key in
-            if current_ip >= max_concurrent_in_progress then
-              Error
-                (Printf.sprintf
-                   "Too many concurrent in_progress tasks (max %d). Complete \
-                    or cancel existing work first."
-                   max_concurrent_in_progress)
-            else
-              match
-                insert_task ~db ~session_key ~id:actual_id ~parent_id ~title
-                  ~status:actual_status ~note
-              with
-              | Ok () -> Ok actual_id
-              | Error e -> Error e
-          end
-          else
-            match
-              insert_task ~db ~session_key ~id:actual_id ~parent_id ~title
-                ~status:actual_status ~note
-            with
-            | Ok () -> Ok actual_id
-            | Error e -> Error e
+          match
+            insert_task ~db ~session_key ~id:actual_id ~parent_id ~title
+              ~status:actual_status ~note
+          with
+          | Ok () -> Ok actual_id
+          | Error e -> Error e
         end
   end
 
@@ -597,18 +591,7 @@ let do_update ~db ~session_key ~id ~status ~note =
                             %s"
                            id child_ids)
                   end
-              | In_progress ->
-                  let current_ip = count_in_progress ~db ~session_key in
-                  let already_ip = task.status = In_progress in
-                  if
-                    (not already_ip) && current_ip >= max_concurrent_in_progress
-                  then
-                    result :=
-                      Error
-                        (Printf.sprintf
-                           "Too many concurrent in_progress tasks (max %d). \
-                            Complete or cancel existing work first."
-                           max_concurrent_in_progress)
+              | In_progress -> ()
               | _ -> ());
               match !result with
               | Error _ -> ()
@@ -1539,11 +1522,22 @@ let process_operations ~db ~session_key (ops : Yojson.Safe.t list) =
             Memory.exec_exn db "COMMIT";
             let tree = render_tree ~db ~session_key in
             let output = Buffer.contents results in
+            let ip_count = count_in_progress ~db ~session_key in
+            let warning =
+              if ip_count >= warn_concurrent_in_progress then
+                Printf.sprintf
+                  "\n\n\
+                   \xe2\x9a\xa0\xef\xb8\x8f WARNING: %d tasks are in_progress. \
+                   Consider completing or updating some before starting more \
+                   work."
+                  ip_count
+              else ""
+            in
             Ok
               (output ^ "\n## Task Tree\n" ^ tree
              ^ "\n\n\
                 Legend: [ ] pending  [>] in_progress  [x] done  [!] error  [-] \
-                cancelled")
+                cancelled" ^ warning)
       end
 
 let tool ~db ?notify () : Tool.t =

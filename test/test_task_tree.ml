@@ -737,7 +737,8 @@ let test_max_depth_guardrail () =
 
 let test_max_concurrent_in_progress () =
   let db = fresh_db () in
-  let _ =
+  (* Add 4 in_progress tasks — should succeed without error *)
+  let result =
     Task_tree.process_operations ~db ~session_key:"s1"
       [
         `Assoc
@@ -758,11 +759,6 @@ let test_max_concurrent_in_progress () =
             ("title", `String "T3");
             ("status", `String "in_progress");
           ];
-      ]
-  in
-  let result =
-    Task_tree.process_operations ~db ~session_key:"s1"
-      [
         `Assoc
           [
             ("op", `String "add");
@@ -771,18 +767,37 @@ let test_max_concurrent_in_progress () =
           ];
       ]
   in
-  match result with
-  | Error msg ->
+  (match result with
+  | Ok output ->
       Alcotest.(check bool)
-        "mentions max" true
+        "no warning below threshold" true
+        (not
+           (try
+              ignore (Str.search_forward (Str.regexp_string "WARNING") output 0);
+              true
+            with Not_found -> false))
+  | Error e -> Alcotest.fail ("Expected success for 4 in_progress: " ^ e));
+  (* Add a 5th — should succeed with a warning *)
+  let result2 =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "add");
+            ("title", `String "T5");
+            ("status", `String "in_progress");
+          ];
+      ]
+  in
+  match result2 with
+  | Ok output ->
+      Alcotest.(check bool)
+        "warns at threshold" true
         (try
-           ignore
-             (Str.search_forward
-                (Str.regexp_string "Too many concurrent")
-                msg 0);
+           ignore (Str.search_forward (Str.regexp_string "WARNING") output 0);
            true
          with Not_found -> false)
-  | Ok _ -> Alcotest.fail "Expected error for 4th in_progress"
+  | Error e -> Alcotest.fail ("Expected success with warning for 5th: " ^ e)
 
 let test_batch_transaction_rollback () =
   let db = fresh_db () in
