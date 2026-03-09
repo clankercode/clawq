@@ -328,9 +328,54 @@ let with_fake_openai_provider ~handle_request f =
         Cohttp_lwt_unix.Server.respond ~status:`OK ~headers
           ~body:(Cohttp_lwt.Body.of_stream stream_body)
           ()
-    | `POST, "/chat/completions", Fake_tool_calls _ ->
-        Cohttp_lwt_unix.Server.respond_string ~status:`Internal_server_error
-          ~body:"streaming tool call responses are not supported in this test"
+    | `POST, "/chat/completions", Fake_tool_calls calls ->
+        let stream_body, push = Lwt_stream.create () in
+        (* Emit tool_calls in SSE format *)
+        List.iteri
+          (fun idx (id, name, arguments) ->
+            let start_chunk =
+              Yojson.Safe.to_string
+                (`Assoc
+                   [
+                     ("model", `String "fake-model");
+                     ( "choices",
+                       `List
+                         [
+                           `Assoc
+                             [
+                               ( "delta",
+                                 `Assoc
+                                   [
+                                     ( "tool_calls",
+                                       `List
+                                         [
+                                           `Assoc
+                                             [
+                                               ("index", `Int idx);
+                                               ("id", `String id);
+                                               ( "function",
+                                                 `Assoc
+                                                   [
+                                                     ("name", `String name);
+                                                     ( "arguments",
+                                                       `String arguments );
+                                                   ] );
+                                             ];
+                                         ] );
+                                   ] );
+                             ];
+                         ] );
+                   ])
+            in
+            push (Some ("data: " ^ start_chunk ^ "\n\n")))
+          calls;
+        push (Some "data: [DONE]\n\n");
+        push None;
+        let headers =
+          Cohttp.Header.of_list [ ("Content-Type", "text/event-stream") ]
+        in
+        Cohttp_lwt_unix.Server.respond ~status:`OK ~headers
+          ~body:(Cohttp_lwt.Body.of_stream stream_body)
           ()
     | _ -> Cohttp_lwt_unix.Server.respond_string ~status:`Not_found ~body:"" ()
   in
@@ -2908,6 +2953,84 @@ let test_compact_loads_session_from_db_when_not_in_memory () =
   | Error msg ->
       Alcotest.fail (Printf.sprintf "compact should not fail: %s" msg)
 
+let test_turn_stream_forwards_tool_events_to_on_chunk () =
+  let call_count = ref 0 in
+  let handle_request ~stream ~messages:_ ~json:_ =
+    incr call_count;
+    if !call_count = 1 then
+      (* First call: return tool call *)
+      if stream then
+        Fake_tool_calls [ ("tc_1", "test_tool", {|{"arg":"val"}|}) ]
+      else Fake_tool_calls [ ("tc_1", "test_tool", {|{"arg":"val"}|}) ]
+    else Fake_text "done"
+  in
+  with_fake_openai_provider ~handle_request (fun config ->
+      let config =
+        {
+          config with
+          security = { config.security with tools_enabled = true };
+          agent_defaults =
+            {
+              config.agent_defaults with
+              show_tool_calls = true;
+              max_tool_iterations = 5;
+            };
+        }
+      in
+      let registry = Tool_registry.create () in
+      let tool : Tool.t =
+        {
+          name = "test_tool";
+          description = "A test tool";
+          parameters_schema = `Assoc [];
+          invoke = (fun ?context:_ _ -> Lwt.return "tool result ok");
+          invoke_stream = None;
+          risk_level = Tool.Low;
+          deferred = false;
+        }
+      in
+      Tool_registry.register registry tool;
+      let mgr = Session.create ~config () in
+      (* Pre-create agent with tool registry *)
+      let agent = Agent.create ~config ~tool_registry:registry () in
+      Hashtbl.replace mgr.sessions "web:test-tc"
+        (agent, Lwt_mutex.create (), ref None);
+      let chunks = ref [] in
+      let _response =
+        Lwt_main.run
+          (Session.turn_stream mgr ~key:"web:test-tc" ~message:"use the tool"
+             ~on_chunk:(fun chunk ->
+               chunks := chunk :: !chunks;
+               Lwt.return_unit)
+             ())
+      in
+      let tool_starts =
+        List.filter
+          (function Provider.ToolStart _ -> true | _ -> false)
+          (List.rev !chunks)
+      in
+      let tool_results =
+        List.filter
+          (function Provider.ToolResult _ -> true | _ -> false)
+          (List.rev !chunks)
+      in
+      Alcotest.(check int)
+        "at least one ToolStart event" 1 (List.length tool_starts);
+      Alcotest.(check int)
+        "at least one ToolResult event" 1 (List.length tool_results);
+      (* Verify ToolStart has correct name *)
+      (match tool_starts with
+      | Provider.ToolStart { name; _ } :: _ ->
+          Alcotest.(check string) "ToolStart name" "test_tool" name
+      | _ -> Alcotest.fail "expected ToolStart event");
+      (* Verify ToolResult has result content *)
+      match tool_results with
+      | Provider.ToolResult { result; _ } :: _ ->
+          Alcotest.(check bool)
+            "ToolResult has content" true
+            (String.length result > 0)
+      | _ -> Alcotest.fail "expected ToolResult event")
+
 let suite =
   [
     Alcotest.test_case "reset clears active session and history" `Quick
@@ -3078,4 +3201,6 @@ let suite =
       `Quick test_workspace_change_not_re_reported_on_subsequent_turn;
     Alcotest.test_case "compact loads session from db when not in memory" `Quick
       test_compact_loads_session_from_db_when_not_in_memory;
+    Alcotest.test_case "turn_stream forwards tool events to on_chunk" `Quick
+      test_turn_stream_forwards_tool_events_to_on_chunk;
   ]

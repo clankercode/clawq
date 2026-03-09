@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-09T22:31:32Z"
+claimed_by: cli-user
+completed_at: "2026-03-09T23:29:12Z"
 complexity: medium
 depends_on: []
+duration_minutes: 57.67923624955
 estimate_hours: 1
 id: B261
 priority: high
-status: pending
+started_at: "2026-03-09T22:31:32Z"
+status: done
 tags: []
 title: Tool calls aren't being forwarded to telegram anymore (recent regression)
 ---

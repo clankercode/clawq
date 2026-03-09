@@ -742,12 +742,18 @@ let send_message_with_id ?(disable_notification = false) ?parse_mode ~bot_token
   let body = `Assoc fields |> Yojson.Safe.to_string in
   let* status, resp_body = Http_client.post_json ~uri ~headers:[] ~body in
   let* resp_body =
-    if parse_mode = Some "MarkdownV2" && status >= 400 then
+    if parse_mode <> None && status >= 400 then (
+      Logs.warn (fun m ->
+          m
+            "Telegram sendMessage failed (HTTP %d, parse_mode=%s), retrying \
+             without parse_mode"
+            status
+            (Option.value parse_mode ~default:"none"));
       let plain_body = `Assoc base_fields |> Yojson.Safe.to_string in
       let* _status, resp_body =
         Http_client.post_json ~uri ~headers:[] ~body:plain_body
       in
-      Lwt.return resp_body
+      Lwt.return resp_body)
     else Lwt.return resp_body
   in
   let msg_id =
@@ -815,29 +821,33 @@ let answer_callback_query ~bot_token ~callback_query_id ?(text = "") () =
   Lwt.return_unit
 
 let edit_message ?parse_mode ~bot_token ~chat_id ~message_id ~text () =
-  let open Lwt.Syntax in
-  let uri = Printf.sprintf "%s%s/editMessageText" api_base bot_token in
-  let base_fields =
-    [
-      ("chat_id", `String chat_id);
-      ("message_id", `Int (try int_of_string message_id with _ -> 0));
-      ("text", `String text);
-    ]
-  in
-  let fields =
-    match parse_mode with
-    | Some mode -> ("parse_mode", `String mode) :: base_fields
-    | None -> base_fields
-  in
-  let body = `Assoc fields |> Yojson.Safe.to_string in
-  let* status, _body = Http_client.post_json ~uri ~headers:[] ~body in
-  if parse_mode = Some "MarkdownV2" && status >= 400 then
-    let plain_body = `Assoc base_fields |> Yojson.Safe.to_string in
-    let* _status, _body =
-      Http_client.post_json ~uri ~headers:[] ~body:plain_body
+  (* Guard: message_id "0" means a prior send failed; skip to avoid
+     a permanent silent-failure loop with the Telegram API. *)
+  if message_id = "0" then Lwt.return_unit
+  else
+    let open Lwt.Syntax in
+    let uri = Printf.sprintf "%s%s/editMessageText" api_base bot_token in
+    let base_fields =
+      [
+        ("chat_id", `String chat_id);
+        ("message_id", `Int (try int_of_string message_id with _ -> 0));
+        ("text", `String text);
+      ]
     in
-    Lwt.return_unit
-  else Lwt.return_unit
+    let fields =
+      match parse_mode with
+      | Some mode -> ("parse_mode", `String mode) :: base_fields
+      | None -> base_fields
+    in
+    let body = `Assoc fields |> Yojson.Safe.to_string in
+    let* status, _body = Http_client.post_json ~uri ~headers:[] ~body in
+    if parse_mode <> None && status >= 400 then
+      let plain_body = `Assoc base_fields |> Yojson.Safe.to_string in
+      let* _status, _body =
+        Http_client.post_json ~uri ~headers:[] ~body:plain_body
+      in
+      Lwt.return_unit
+    else Lwt.return_unit
 
 let delete_message ~bot_token ~chat_id ~message_id () =
   let open Lwt.Syntax in
@@ -1731,7 +1741,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                         show_thinking = agent_defaults.show_thinking;
                         show_tool_calls = agent_defaults.show_tool_calls;
                         notify_tool_starts = true;
-                        notify_tool_successes = false;
+                        notify_tool_successes = true;
                       }
                     in
                     let* () =
