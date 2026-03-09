@@ -281,7 +281,10 @@ let parse_config ?(resolve_secrets = true) json =
                   ({ bot_token; allow_from; totp }
                     : Runtime_config.telegram_account) ))
           in
-          Some ({ accounts } : Runtime_config.telegram_config)
+          let text_coalesce_ms =
+            try tg |> member "text_coalesce_ms" |> to_int with _ -> 150
+          in
+          Some ({ accounts; text_coalesce_ms } : Runtime_config.telegram_config)
         with _ -> None
       in
       let discord =

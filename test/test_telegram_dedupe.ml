@@ -122,7 +122,7 @@ let test_can_coalesce_text_updates_for_adjacent_fragments () =
   in
   Alcotest.(check bool)
     "adjacent fragments merge" true
-    (Telegram.can_coalesce_text_updates ~now:100.2 pending incoming)
+    (Telegram.can_coalesce_text_updates ~now:100.1 pending incoming)
 
 let test_can_coalesce_text_updates_rejects_gap_and_expiry () =
   let pending =
@@ -144,11 +144,11 @@ let test_can_coalesce_text_updates_rejects_gap_and_expiry () =
   in
   Alcotest.(check bool)
     "non-consecutive ids do not merge" false
-    (Telegram.can_coalesce_text_updates ~now:100.2 pending wrong_message);
+    (Telegram.can_coalesce_text_updates ~now:100.1 pending wrong_message);
   Alcotest.(check bool)
     "expired fragments do not merge" false
     (Telegram.can_coalesce_text_updates
-       ~now:(100.0 +. Telegram.text_coalesce_window_seconds +. 0.01)
+       ~now:(100.0 +. !Telegram.text_coalesce_window_seconds +. 0.01)
        pending expired)
 
 let test_merge_text_updates_keeps_latest_metadata () =

@@ -82,7 +82,9 @@ let convert (json : Yojson.Safe.t) =
                   ({ bot_token; allow_from; totp = None }
                     : Runtime_config.telegram_account) ))
           in
-          Some ({ accounts } : Runtime_config.telegram_config)
+          Some
+            ({ accounts; text_coalesce_ms = 150 }
+              : Runtime_config.telegram_config)
         with _ -> None
       in
       (* Warn about unsupported channels *)

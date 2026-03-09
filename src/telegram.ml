@@ -88,7 +88,7 @@ let pending_text_updates : (string, pending_text_update) Hashtbl.t =
   Hashtbl.create 64
 
 let duplicate_update_ttl_seconds = 600.0
-let text_coalesce_window_seconds = 0.35
+let text_coalesce_window_seconds = ref 0.15
 
 let update_dedupe_key (u : update) =
   Printf.sprintf "%s:%d" u.chat_id u.update_id
@@ -132,7 +132,7 @@ let can_coalesce_text_updates ~now older newer =
   && older.update.chat_id = newer.chat_id
   && older.update.user_id = newer.user_id
   && newer.message_id = older.update.message_id + 1
-  && now -. older.last_seen_at <= text_coalesce_window_seconds
+  && now -. older.last_seen_at <= !text_coalesce_window_seconds
 
 let merge_text_updates older newer =
   {
@@ -184,8 +184,9 @@ let parse_conflict_description body =
 let get_updates ~bot_token ~offset ~timeout =
   let open Lwt.Syntax in
   let uri =
-    Printf.sprintf "%s%s/getUpdates?offset=%d&timeout=%d" api_base bot_token
-      offset timeout
+    Printf.sprintf "%s%s/getUpdates?offset=%d&timeout=%d&allowed_updates=%s"
+      api_base bot_token offset timeout
+      "%5B%22message%22%2C%22callback_query%22%2C%22poll_answer%22%5D"
   in
   let* status, body = Http_client.get ~uri ~headers:[] in
   if status >= 200 && status < 300 then
@@ -1417,12 +1418,12 @@ let schedule_pending_text_flush ~key ~bot_token
     ?run_update_command ?chat_limiter generation =
   Lwt.async (fun () ->
       let open Lwt.Syntax in
-      let* () = Lwt_unix.sleep text_coalesce_window_seconds in
+      let* () = Lwt_unix.sleep !text_coalesce_window_seconds in
       match Hashtbl.find_opt pending_text_updates key with
       | Some pending
         when pending.generation = generation
              && Unix.gettimeofday () -. pending.last_seen_at
-                >= text_coalesce_window_seconds ->
+                >= !text_coalesce_window_seconds ->
           Hashtbl.remove pending_text_updates key;
           Lwt.catch
             (fun () ->
@@ -1440,7 +1441,10 @@ let buffer_or_dispatch_update ~bot_token
     ?run_update_command ?chat_limiter update =
   let now = Unix.gettimeofday () in
   let key = text_coalesce_key ~bot_token update in
-  if not (is_text_coalescing_candidate update) then begin
+  if
+    (not (is_text_coalescing_candidate update))
+    || !text_coalesce_window_seconds <= 0.0
+  then begin
     flush_pending_text_update ~key ~bot_token ~account ~session_mgr
       ?run_update_command ?chat_limiter ();
     dispatch_update ~bot_token ~account ~session_mgr ?run_update_command
@@ -1492,6 +1496,7 @@ let poll_account ~bot_token ~(account : Runtime_config.telegram_account) ~name
       Logs.info (fun m ->
           m "Telegram polling stable, suppressing routine poll logs for '%s'"
             name);
+    let poll_start = Unix.gettimeofday () in
     let* poll_result =
       Lwt.catch
         (fun () -> get_updates ~bot_token ~offset:!offset ~timeout:30)
@@ -1527,6 +1532,7 @@ let poll_account ~bot_token ~(account : Runtime_config.telegram_account) ~name
           Lwt.return (0, [])
     in
     if max_uid + 1 > !offset then offset := max_uid + 1;
+    let update_count = List.length updates in
     List.iter
       (fun update ->
         offset := update.update_id + 1;
@@ -1538,6 +1544,11 @@ let poll_account ~bot_token ~(account : Runtime_config.telegram_account) ~name
               m "Telegram: ignoring duplicate update update_id=%d chat_id=%s"
                 update.update_id update.chat_id))
       updates;
+    (if !poll_count <= 3 || !poll_count mod 100 = 0 then
+       let poll_elapsed_ms = (Unix.gettimeofday () -. poll_start) *. 1000.0 in
+       Logs.info (fun m ->
+           m "Telegram poll #%d for '%s': %.0fms elapsed, %d update(s) received"
+             !poll_count name poll_elapsed_ms update_count));
     let* () =
       let rec drain_callbacks () =
         if Queue.is_empty pending_callbacks then Lwt.return_unit
@@ -1706,6 +1717,8 @@ let start_polling ~(config : Runtime_config.t) ~(session_manager : Session.t)
       Logs.info (fun m -> m "No Telegram config found, skipping polling");
       Lwt.return_unit
   | Some tg_config -> (
+      text_coalesce_window_seconds :=
+        float_of_int tg_config.text_coalesce_ms /. 1000.0;
       match tg_config.accounts with
       | [] ->
           Logs.info (fun m -> m "No Telegram accounts configured");

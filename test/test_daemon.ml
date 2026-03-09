@@ -175,7 +175,12 @@ let test_dispatch_resumed_message_routes_telegram () =
       channels =
         {
           Runtime_config.default.channels with
-          telegram = Some { accounts = [ ("main", telegram_account) ] };
+          telegram =
+            Some
+              {
+                accounts = [ ("main", telegram_account) ];
+                text_coalesce_ms = 150;
+              };
         };
     }
   in
@@ -320,7 +325,12 @@ let test_default_resume_turn_uses_explicit_resume_prompt () =
           channels =
             {
               base_config.channels with
-              telegram = Some { accounts = [ ("main", telegram_account) ] };
+              telegram =
+                Some
+                  {
+                    accounts = [ ("main", telegram_account) ];
+                    text_coalesce_ms = 150;
+                  };
             };
         }
       in
@@ -684,7 +694,12 @@ let test_post_dispatch_resumed_routed_session_arms_and_sends_follow_up () =
       channels =
         {
           Runtime_config.default.channels with
-          telegram = Some { accounts = [ ("main", telegram_account) ] };
+          telegram =
+            Some
+              {
+                accounts = [ ("main", telegram_account) ];
+                text_coalesce_ms = 150;
+              };
         };
     }
   in
@@ -743,7 +758,12 @@ let test_post_dispatch_resumed_routed_session_disarms_on_stay_idle () =
       channels =
         {
           Runtime_config.default.channels with
-          telegram = Some { accounts = [ ("main", telegram_account) ] };
+          telegram =
+            Some
+              {
+                accounts = [ ("main", telegram_account) ];
+                text_coalesce_ms = 150;
+              };
         };
     }
   in
@@ -853,7 +873,12 @@ let test_notify_background_task_finished_dispatches_and_injects_wakeup () =
       channels =
         {
           Runtime_config.default.channels with
-          telegram = Some { accounts = [ ("main", telegram_account) ] };
+          telegram =
+            Some
+              {
+                accounts = [ ("main", telegram_account) ];
+                text_coalesce_ms = 150;
+              };
         };
     }
   in

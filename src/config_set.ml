@@ -40,7 +40,9 @@ let channels_schema =
   O
     [
       ("cli", L);
-      ("telegram", O [ ("accounts", D telegram_account_schema) ]);
+      ( "telegram",
+        O [ ("accounts", D telegram_account_schema); ("text_coalesce_ms", L) ]
+      );
       ( "discord",
         O
           [

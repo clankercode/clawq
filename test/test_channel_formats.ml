@@ -596,6 +596,7 @@ let test_telegram_multiple_accounts_config () =
           ( "secondary",
             { bot_token = "tok2"; allow_from = [ "123" ]; totp = None } );
         ];
+      text_coalesce_ms = 150;
     }
   in
   Alcotest.(check int) "2 accounts" 2 (List.length cfg.accounts)

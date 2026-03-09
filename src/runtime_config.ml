@@ -42,7 +42,10 @@ type telegram_account = {
   totp : totp_config option;
 }
 
-type telegram_config = { accounts : (string * telegram_account) list }
+type telegram_config = {
+  accounts : (string * telegram_account) list;
+  text_coalesce_ms : int;
+}
 
 type discord_config = {
   bot_token : string;
@@ -762,6 +765,7 @@ let to_json (cfg : t) : Yojson.Safe.t =
                                    ] );
                              ]) ))
                    tg.accounts) );
+            ("text_coalesce_ms", `Int tg.text_coalesce_ms);
           ]
   in
   let stt_json =
