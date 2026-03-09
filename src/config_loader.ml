@@ -902,6 +902,10 @@ let parse_config ?(resolve_secrets = true) json =
         try m |> member "max_message_age_days" |> to_int
         with _ -> default.memory.max_message_age_days
       in
+      let pre_compaction_flush =
+        try m |> member "pre_compaction_flush" |> to_bool
+        with _ -> default.memory.pre_compaction_flush
+      in
       ({
          backend;
          search_enabled;
@@ -913,6 +917,7 @@ let parse_config ?(resolve_secrets = true) json =
          compaction_threshold_percent;
          max_messages_per_session;
          max_message_age_days;
+         pre_compaction_flush;
        }
         : Runtime_config.memory_config)
     with _ -> default.memory

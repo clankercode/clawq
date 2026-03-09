@@ -238,6 +238,7 @@ let config_schema =
             ("compaction_threshold_percent", L);
             ("max_messages_per_session", L);
             ("max_message_age_days", L);
+            ("pre_compaction_flush", L);
           ] );
       ( "security",
         O

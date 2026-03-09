@@ -75,5 +75,6 @@ let () =
        ("format_adapter", Test_format_adapter.suite);
        ("telegram_format", Test_telegram_format.suite);
        ("telegram_typing", Test_telegram_typing.suite);
+       ("compaction_flush", Test_compaction_flush.suite);
      ]
     @ Test_github.suites)

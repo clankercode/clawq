@@ -256,7 +256,296 @@ let summarize_messages agent messages =
         (Printf.sprintf "[Summary of %d messages - summarization failed]"
            (List.length messages)))
 
-let compact_history_if_needed agent =
+(* --- Pre-compaction memory flush ---------------------------------------- *)
+
+(* Tool schemas and dispatch for the pre-compaction flush agent.
+   Intentionally self-contained — duplicates a subset of tools_builtin.ml to
+   avoid depending on tool_registry/tools_builtin, keeping the flush loop
+   lightweight and free of side-effects from the full tool infrastructure. *)
+let flush_memory_tool_schemas =
+  `List
+    [
+      `Assoc
+        [
+          ("type", `String "function");
+          ( "function",
+            `Assoc
+              [
+                ("name", `String "memory_store");
+                ( "description",
+                  `String
+                    "Store a persistent key-value memory that survives across \
+                     sessions. Overwrites if the key already exists." );
+                ( "parameters",
+                  `Assoc
+                    [
+                      ("type", `String "object");
+                      ( "properties",
+                        `Assoc
+                          [
+                            ( "key",
+                              `Assoc
+                                [
+                                  ("type", `String "string");
+                                  ( "description",
+                                    `String "Unique key for the memory" );
+                                ] );
+                            ( "content",
+                              `Assoc
+                                [
+                                  ("type", `String "string");
+                                  ("description", `String "Content to store");
+                                ] );
+                            ( "category",
+                              `Assoc
+                                [
+                                  ("type", `String "string");
+                                  ( "description",
+                                    `String
+                                      "Category for the memory (default: \
+                                       general)" );
+                                ] );
+                          ] );
+                      ("required", `List [ `String "key"; `String "content" ]);
+                    ] );
+              ] );
+        ];
+      `Assoc
+        [
+          ("type", `String "function");
+          ( "function",
+            `Assoc
+              [
+                ("name", `String "memory_recall");
+                ( "description",
+                  `String
+                    "Search persistent memories by full-text query and return \
+                     matching key-content pairs" );
+                ( "parameters",
+                  `Assoc
+                    [
+                      ("type", `String "object");
+                      ( "properties",
+                        `Assoc
+                          [
+                            ( "query",
+                              `Assoc
+                                [
+                                  ("type", `String "string");
+                                  ("description", `String "Search query");
+                                ] );
+                            ( "limit",
+                              `Assoc
+                                [
+                                  ("type", `String "integer");
+                                  ( "description",
+                                    `String
+                                      "Maximum number of results (default: 5)"
+                                  );
+                                ] );
+                          ] );
+                      ("required", `List [ `String "query" ]);
+                    ] );
+              ] );
+        ];
+      `Assoc
+        [
+          ("type", `String "function");
+          ( "function",
+            `Assoc
+              [
+                ("name", `String "memory_forget");
+                ( "description",
+                  `String "Delete a persistent memory by its exact key" );
+                ( "parameters",
+                  `Assoc
+                    [
+                      ("type", `String "object");
+                      ( "properties",
+                        `Assoc
+                          [
+                            ( "key",
+                              `Assoc
+                                [
+                                  ("type", `String "string");
+                                  ( "description",
+                                    `String "Key of the memory to remove" );
+                                ] );
+                          ] );
+                      ("required", `List [ `String "key" ]);
+                    ] );
+              ] );
+        ];
+      `Assoc
+        [
+          ("type", `String "function");
+          ( "function",
+            `Assoc
+              [
+                ("name", `String "memory_list");
+                ( "description",
+                  `String
+                    "List all persistent memories, optionally filtered by \
+                     category" );
+                ( "parameters",
+                  `Assoc
+                    [
+                      ("type", `String "object");
+                      ( "properties",
+                        `Assoc
+                          [
+                            ( "category",
+                              `Assoc
+                                [
+                                  ("type", `String "string");
+                                  ( "description",
+                                    `String
+                                      "Optional category filter (omit for all)"
+                                  );
+                                ] );
+                          ] );
+                      ("required", `List []);
+                    ] );
+              ] );
+        ];
+    ]
+
+let dispatch_flush_tool_call ~db (tc : Provider.tool_call) =
+  let open Yojson.Safe.Util in
+  let args = try Yojson.Safe.from_string tc.arguments with _ -> `Assoc [] in
+  let content =
+    match tc.function_name with
+    | "memory_store" ->
+        let key = try args |> member "key" |> to_string with _ -> "" in
+        let content =
+          try args |> member "content" |> to_string with _ -> ""
+        in
+        let category =
+          try args |> member "category" |> to_string with _ -> "general"
+        in
+        if key = "" then "Error: key is required"
+        else if content = "" then "Error: content is required"
+        else begin
+          Memory.store_core ~db ~key ~content ~category ();
+          Printf.sprintf "Stored memory: %s" key
+        end
+    | "memory_recall" ->
+        let query = try args |> member "query" |> to_string with _ -> "" in
+        let limit = try args |> member "limit" |> to_int with _ -> 5 in
+        if query = "" then "Error: query is required"
+        else
+          let results = Memory.recall_core ~db ~query ~limit in
+          if results = [] then "No matching memories found"
+          else
+            List.map
+              (fun (key, content, category) ->
+                Printf.sprintf "[%s] (%s): %s" key category content)
+              results
+            |> String.concat "\n"
+    | "memory_forget" ->
+        let key = try args |> member "key" |> to_string with _ -> "" in
+        if key = "" then "Error: key is required"
+        else if Memory.forget_core ~db ~key then
+          Printf.sprintf "Deleted memory: %s" key
+        else Printf.sprintf "No memory found with key: %s" key
+    | "memory_list" ->
+        let category =
+          try args |> member "category" |> to_string with _ -> ""
+        in
+        let results = Memory.list_core ~db ~category () in
+        if results = [] then "No memories found"
+        else
+          List.map
+            (fun (key, content, cat) ->
+              Printf.sprintf "[%s] (%s): %s" key cat content)
+            results
+          |> String.concat "\n"
+    | other -> Printf.sprintf "Error: unknown tool '%s'" other
+  in
+  Provider.make_tool_result ~tool_call_id:tc.id ~name:tc.function_name ~content
+
+let flush_trigger_message =
+  "URGENT: The conversation above is about to be compacted — older messages \
+   will be summarized and details permanently lost. You MUST save important \
+   durable information to memory NOW or it will be gone forever.\n\n\
+   Use the memory tools to:\n\
+   1. First, list existing memories to avoid duplicates.\n\
+   2. Store key facts, decisions, user preferences, commitments, and action \
+   items.\n\
+   3. Update outdated memories based on what you learned in this conversation.\n\
+   4. Forget memories contradicted by new information.\n\n\
+   Focus on cross-session value: preferences, decisions, project knowledge, \
+   patterns.\n\
+   Do NOT store ephemeral debugging details unless they reveal a reusable \
+   insight.\n\n\
+   Act now — this context will not be available after compaction."
+
+let flush_memories_before_compaction ~config ~system_prompt ~db ~to_compact =
+  let open Lwt.Syntax in
+  let n_msgs = List.length to_compact in
+  Logs.info (fun m ->
+      m "Pre-compaction memory flush: processing %d messages" n_msgs);
+  let to_compact = ensure_tool_group_integrity to_compact in
+  let messages =
+    ref
+      ([ Provider.make_message ~role:"system" ~content:system_prompt ]
+      @ to_compact
+      @ [ Provider.make_message ~role:"user" ~content:flush_trigger_message ])
+  in
+  let stored = ref 0 in
+  let forgotten = ref 0 in
+  let max_iters = 100 in
+  let rec loop iter =
+    if iter >= max_iters then Lwt.return_unit
+    else
+      let* response =
+        Provider.complete ~config ~messages:!messages
+          ~tools:flush_memory_tool_schemas ()
+      in
+      match response with
+      | Provider.Text { content; _ } ->
+          (* Text response = done — log if non-empty *)
+          if String.trim content <> "" then
+            Logs.debug (fun m ->
+                m "Pre-compaction flush final text: %s"
+                  (if String.length content > 200 then
+                     String.sub content 0 200 ^ "..."
+                   else content));
+          Lwt.return_unit
+      | Provider.ToolCalls { calls; _ } ->
+          let assistant_msg =
+            {
+              (Provider.make_message ~role:"assistant" ~content:"") with
+              tool_calls = calls;
+            }
+          in
+          let results =
+            List.map
+              (fun (tc : Provider.tool_call) ->
+                let result = dispatch_flush_tool_call ~db tc in
+                (match tc.function_name with
+                | "memory_store" ->
+                    if not (String.starts_with ~prefix:"Error:" result.content)
+                    then incr stored
+                | "memory_forget" ->
+                    if
+                      (not (String.starts_with ~prefix:"Error:" result.content))
+                      && not (String.starts_with ~prefix:"No " result.content)
+                    then incr forgotten
+                | _ -> ());
+                result)
+              calls
+          in
+          messages := !messages @ [ assistant_msg ] @ results;
+          loop (iter + 1)
+  in
+  let* () = loop 0 in
+  Logs.info (fun m ->
+      m "Pre-compaction memory flush: stored %d, forgotten %d memories" !stored
+        !forgotten);
+  Lwt.return_unit
+
+let compact_history_if_needed agent ?db () =
   let open Lwt.Syntax in
   let effective_max = effective_max_messages agent in
   let len = List.length agent.history in
@@ -284,6 +573,25 @@ let compact_history_if_needed agent =
       in
       if to_compact = [] then Lwt.return false
       else begin
+        (* Launch background memory flush before compaction destroys detail *)
+        (match db with
+        | Some db when agent.config.memory.pre_compaction_flush ->
+            let snapshot = List.map Fun.id to_compact in
+            let flush_config = agent.config in
+            let system_prompt = agent.system_prompt in
+            Lwt.async (fun () ->
+                Lwt.catch
+                  (fun () ->
+                    flush_memories_before_compaction ~config:flush_config
+                      ~system_prompt ~db ~to_compact:snapshot)
+                  (fun exn ->
+                    Logs.warn (fun m ->
+                        m "Pre-compaction memory flush failed: %s"
+                          (Printexc.to_string exn));
+                    Lwt.return_unit))
+        | _ ->
+            Logs.debug (fun m ->
+                m "Pre-compaction memory flush: skipped (disabled)"));
         let to_keep = ensure_tool_group_integrity to_keep in
         let mid = List.length to_compact / 2 in
         let first_half = List.filteri (fun i _ -> i < mid) to_compact in
@@ -543,9 +851,7 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
           in
           let result = result_msg.Provider.content in
           let success =
-            not
-              (String.length result_for_event >= 6
-              && String.sub result_for_event 0 6 = "Error:")
+            not (String.starts_with ~prefix:"Error:" result_for_event)
           in
           (match (db, audit_enabled, session_key) with
           | Some db, true, Some sk ->
@@ -688,9 +994,7 @@ let execute_tool_calls agent ~db ~audit_enabled ~session_key ?interrupt_check
                    ~name:tc.function_name ~content:result_for_history)
           in
           let result = result_msg.Provider.content in
-          let success =
-            not (String.length result >= 6 && String.sub result 0 6 = "Error:")
-          in
+          let success = not (String.starts_with ~prefix:"Error:" result) in
           (match (db, audit_enabled, session_key) with
           | Some db, true, Some sk ->
               Audit.log ~db
@@ -797,7 +1101,7 @@ let prepare_turn_history agent ~user_message ?db () =
   in
   agent.history <-
     Provider.make_message ~role:"user" ~content:user_message :: agent.history;
-  let* compacted = compact_history_if_needed agent in
+  let* compacted = compact_history_if_needed agent ?db () in
   trim_history agent;
   Lwt.return compacted
 

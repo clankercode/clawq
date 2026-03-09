@@ -394,7 +394,9 @@ let resume_turn_prompt =
 let default_resume_turn ~(session_manager : Session.t) ~notify ~session_key
     agent interrupt =
   let open Lwt.Syntax in
-  let* compacted = Agent.compact_history_if_needed agent in
+  let* compacted =
+    Agent.compact_history_if_needed agent ?db:session_manager.db ()
+  in
   let* () = Session.notify_compaction_if_needed ~notify compacted in
   if compacted then
     Session.persist_compacted_history session_manager ~key:session_key agent;

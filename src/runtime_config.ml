@@ -239,6 +239,7 @@ type memory_config = {
   compaction_threshold_percent : int;
   max_messages_per_session : int;
   max_message_age_days : int;
+  pre_compaction_flush : bool;
 }
 
 type rate_limit_config = {
@@ -463,6 +464,7 @@ let default =
         compaction_threshold_percent = 75;
         max_messages_per_session = 500;
         max_message_age_days = 30;
+        pre_compaction_flush = true;
       };
     security =
       {
@@ -1166,6 +1168,7 @@ let to_json (cfg : t) : Yojson.Safe.t =
                ( "max_messages_per_session",
                  `Int cfg.memory.max_messages_per_session );
                ("max_message_age_days", `Int cfg.memory.max_message_age_days);
+               ("pre_compaction_flush", `Bool cfg.memory.pre_compaction_flush);
              ]
             @ (if cfg.memory.db_path <> "" then
                  [ ("db_path", `String cfg.memory.db_path) ]
