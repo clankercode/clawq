@@ -1,0 +1,14 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B223
+priority: high
+status: pending
+tags: []
+title: background_task_wait should have a timeout param and it should have a max length of 3 minutes, thus the agent will need to re-wait after 3 min
+---
+
+background_task_wait should have a timeout param and it should have a max length of 3 minutes, thus the agent will need to re-wait after 3 min
+the message that is returned when the timeout is reached should instruct the agent on how to next act (repeat the wait command to keep waiting)
+
