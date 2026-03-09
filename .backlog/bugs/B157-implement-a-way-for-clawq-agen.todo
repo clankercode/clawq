@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-09T11:58:51Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B157
 priority: high
-status: pending
+started_at: "2026-03-09T11:58:51Z"
+status: in_progress
 tags: []
 title: 'Implement: a way for Clawq agent to trigger compaction at a moment of its choosing (probably via a tool). We could add a new ''meta'' tool for this and other things (eg we could fold update_clawq into it). Maybe there are other good meta things to add at the same time (use subagents to brainstorm some)'
 ---

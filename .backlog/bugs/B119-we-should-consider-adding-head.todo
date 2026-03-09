@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-09T11:45:47Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B119
 priority: high
-status: pending
+started_at: "2026-03-09T11:45:47Z"
+status: in_progress
 tags: []
 title: we should consider adding `head` and `tail` arguments to shell_exec so that it agent doesn't need to append `| tail` all the time (also ergonomics are better this way, and we can show the agent just the head and tail but also save the full output and tell the agent about that so that they can inspect it if they want)
 ---
