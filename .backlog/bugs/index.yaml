@@ -236,3 +236,4 @@ bugs:
     - file: B235-session-event-inspection-shoul.todo
     - file: B236-task-tree-and-background-tasks.todo
     - file: B237-agent-cannot-insert-into-task.todo
+    - file: B238-when-compaction-occurs-if-ther.todo

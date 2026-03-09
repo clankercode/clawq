@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B238
+priority: high
+status: pending
+tags: []
+title: when compaction occurs, if there's a connector it should send a message to the user saying compacting with a nice emoji (maybe some stats about token usage too)
+---
+
+when compaction occurs, if there's a connector it should send a message to the user saying compacting with a nice emoji (maybe some stats about token usage too)
