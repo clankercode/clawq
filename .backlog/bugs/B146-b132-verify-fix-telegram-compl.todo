@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-09T11:05:06Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-09T11:21:34Z"
 complexity: medium
 depends_on: []
+duration_minutes: 16.476611545683333
 estimate_hours: 1
 id: B146
 priority: high
 started_at: "2026-03-09T11:05:06Z"
-status: in_progress
+status: done
 tags: []
 title: 'B132: verify/fix Telegram completion delivery after routed background task success'
 ---
