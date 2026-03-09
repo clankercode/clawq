@@ -568,34 +568,79 @@ let cmd_config args =
       \  get KEY          Get a config value by dot-path\n\
       \  show [SECTION]   Display current config (secrets redacted)"
 
-let cmd_models () =
+let cmd_models args =
+  match args with
+  | [] | [ "list" ] ->
+      let provider_filter = None in
+      Models_catalog.to_plain_list ~provider_filter ()
+  | [ "list"; "--json" ] -> Yojson.Safe.to_string (Models_catalog.to_json ())
+  | [ "list"; "--provider"; p ] ->
+      Models_catalog.to_plain_list ~provider_filter:(Some p) ()
+  | [ "list"; "--provider"; p; "--json" ] ->
+      Yojson.Safe.to_string
+        (Models_catalog.to_json ~provider_filter:(Some p) ())
+  | [ "list"; "--json"; "--provider"; p ] ->
+      Yojson.Safe.to_string
+        (Models_catalog.to_json ~provider_filter:(Some p) ())
+  | [ "set-default"; model ] -> (
+      match Models_catalog.find_by_full_name model with
+      | Some _ -> Config_set.set_value "agent_defaults.primary_model" model
+      | None ->
+          Printf.sprintf "Warning: model '%s' not found in catalog.\n%s" model
+            (Config_set.set_value "agent_defaults.primary_model" model))
+  | _ ->
+      "Usage: clawq models <subcommand>\n\n\
+       Subcommands:\n\
+      \  list [--provider P] [--json]  List known models (optionally filter by \
+       provider)\n\
+      \  set-default MODEL            Set default model (e.g. \
+       anthropic/claude-sonnet-4-5)"
+
+let cmd_usage refresh =
   let cfg = get_config () in
-  match cfg.providers with
-  | [] -> "No providers configured. Run 'clawq onboard' to set up."
-  | providers ->
-      let lines =
-        List.map
-          (fun (name, (p : Runtime_config.provider_config)) ->
-            let url =
-              match p.base_url with Some u -> u | None -> "(default)"
-            in
-            let model_info =
-              match p.default_model with
-              | Some m -> Printf.sprintf " model: %s" m
-              | None -> ""
-            in
-            Printf.sprintf "  %s: %s (key: %s)%s" name url
-              (if Runtime_config.is_key_set p.api_key then "configured"
-               else if Runtime_config.provider_has_codex_oauth p then
-                 "codex-oauth"
-               else "not set")
-              model_info)
-          providers
+  Provider_quota.set_cache_ttl cfg.quota_cache_ttl_s;
+  let results =
+    if refresh then
+      let refreshed =
+        Lwt_main.run (Provider_quota.refresh_all ~config:cfg ())
       in
-      "Configured providers:\n" ^ String.concat "\n" lines
-      ^ Printf.sprintf "\nDefault model: %s" cfg.agent_defaults.primary_model
-      ^ Printf.sprintf "\nDefault provider: %s"
-          (match cfg.default_provider with Some p -> p | None -> "(auto)")
+      List.map (fun pq -> (pq.Provider_quota.provider_name, pq)) refreshed
+    else Provider_quota.get_all_cached ()
+  in
+  if results = [] then
+    if refresh then "No providers configured."
+    else
+      "No cached quota data. Run 'clawq usage --refresh' to fetch current data."
+  else
+    let threshold_for name =
+      match List.assoc_opt name cfg.providers with
+      | Some pc -> Option.value ~default:0.85 pc.quota_threshold
+      | None -> 0.85
+    in
+    let header = "Provider\tSession\tWeekly\tMonthly\tStatus" in
+    let lines =
+      List.map
+        (fun (_name, pq) ->
+          let sess, week, mon =
+            match pq.Provider_quota.state with
+            | Provider_quota.Unknown _ -> ("-", "-", "-")
+            | Provider_quota.Known { session; weekly; monthly } ->
+                let fmt_pct = function
+                  | None -> "-"
+                  | Some w -> Printf.sprintf "%.0f%%" w.Provider_quota.used_pct
+                in
+                (fmt_pct session, fmt_pct weekly, fmt_pct monthly)
+          in
+          let status =
+            Provider_quota.status_label
+              ~threshold:(threshold_for pq.Provider_quota.provider_name)
+              pq
+          in
+          Printf.sprintf "%s\t%s\t%s\t%s\t%s" pq.Provider_quota.provider_name
+            sess week mon status)
+        results
+    in
+    header ^ "\n" ^ String.concat "\n" lines
 
 let cmd_provider args =
   match args with
@@ -642,7 +687,7 @@ let cmd_provider args =
                 results
             in
             String.concat "\n" lines)
-  | "list" :: _ | [] -> cmd_models ()
+  | "list" :: _ | [] -> cmd_models []
   | unknown :: _ ->
       Printf.sprintf
         "Unknown provider subcommand: %s\nUsage: provider quota [NAME]" unknown
@@ -3099,7 +3144,10 @@ let handle args =
   | "config" :: rest -> cmd_config rest
   | "doctor" :: _ -> cmd_doctor ()
   | "onboard" :: _ -> cmd_onboard ()
-  | "models" :: _ -> cmd_models ()
+  | "models" :: rest -> cmd_models rest
+  | "usage" :: rest ->
+      let refresh = List.mem "--refresh" rest || List.mem "-r" rest in
+      cmd_usage refresh
   | "provider" :: rest -> cmd_provider rest
   | "channel" :: _ -> cmd_channel ()
   | "memory" :: rest -> cmd_memory rest

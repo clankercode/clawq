@@ -1550,6 +1550,103 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
               | None -> "Tasks are not available (no database)."
             in
             send_message ~bot_token ~chat_id:update.chat_id ~text ()
+        | Model action -> (
+            let open Slash_commands in
+            match action with
+            | ModelShow ->
+                let current =
+                  (Session.get_config session_mgr).agent_defaults.primary_model
+                in
+                let prefs = Model_preferences.load () in
+                let usage_ranked =
+                  List.filter_map
+                    (fun (m, c) ->
+                      if List.mem m prefs.favorites then None else Some (m, c))
+                    prefs.usage_counts
+                in
+                let text =
+                  format_model_show_telegram ~current ~favorites:prefs.favorites
+                    ~usage_ranked
+                in
+                send_message ~bot_token ~chat_id:update.chat_id ~text
+                  ~parse_mode:"HTML" ()
+            | ModelSet name -> (
+                let model_info = Models_catalog.find_by_full_name name in
+                match model_info with
+                | None ->
+                    let text =
+                      Printf.sprintf
+                        "Warning: '%s' not found in model catalog. Setting \
+                         anyway."
+                        name
+                    in
+                    let cfg = Session.get_config session_mgr in
+                    let agent_defaults =
+                      { cfg.agent_defaults with primary_model = name }
+                    in
+                    Session.update_config session_mgr
+                      { cfg with agent_defaults };
+                    let _ = Model_preferences.increment_usage name in
+                    send_message ~bot_token ~chat_id:update.chat_id ~text ()
+                | Some _ ->
+                    let cfg = Session.get_config session_mgr in
+                    let agent_defaults =
+                      { cfg.agent_defaults with primary_model = name }
+                    in
+                    Session.update_config session_mgr
+                      { cfg with agent_defaults };
+                    let _ = Model_preferences.increment_usage name in
+                    send_message ~bot_token ~chat_id:update.chat_id
+                      ~text:(Printf.sprintf "Model set to: %s" name)
+                      ())
+            | ModelFav name ->
+                let prefs = Model_preferences.toggle_favorite name in
+                let status =
+                  if List.mem name prefs.favorites then "added to"
+                  else "removed from"
+                in
+                send_message ~bot_token ~chat_id:update.chat_id
+                  ~text:(Printf.sprintf "%s %s favorites" name status)
+                  ()
+            | ModelUnfav name ->
+                let _ = Model_preferences.remove_favorite name in
+                send_message ~bot_token ~chat_id:update.chat_id
+                  ~text:(Printf.sprintf "Removed from favorites: %s" name)
+                  ()
+            | ModelList provider ->
+                let models =
+                  Models_catalog.to_plain_list ~provider_filter:provider ()
+                  |> String.split_on_char '\n'
+                  |> List.filter (fun s -> s <> "")
+                in
+                let text = format_model_list_telegram ~models ~provider in
+                send_message ~bot_token ~chat_id:update.chat_id ~text
+                  ~parse_mode:"HTML" ()
+            | ModelUsage ->
+                let cfg = Session.get_config session_mgr in
+                Provider_quota.set_cache_ttl cfg.quota_cache_ttl_s;
+                let results = Provider_quota.get_all_cached () in
+                let lines =
+                  List.map
+                    (fun (name, pq) ->
+                      let summary = Provider_quota.to_summary_string pq in
+                      let threshold =
+                        match List.assoc_opt name cfg.providers with
+                        | Some pc ->
+                            Option.value ~default:0.85 pc.quota_threshold
+                        | None -> 0.85
+                      in
+                      let label = Provider_quota.status_label ~threshold pq in
+                      summary ^ "  " ^ label)
+                    results
+                in
+                let text =
+                  if lines = [] then "No providers configured."
+                  else
+                    "<b>Provider Quota/Usage</b>\n\n" ^ String.concat "\n" lines
+                in
+                send_message ~bot_token ~chat_id:update.chat_id ~text
+                  ~parse_mode:"HTML" ())
         | ForkAnd prompt ->
             let* () =
               send_message ~bot_token ~chat_id:update.chat_id

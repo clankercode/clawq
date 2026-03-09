@@ -1,0 +1,73 @@
+let test_find_by_id () =
+  let m = Models_catalog.find_by_id "claude-3-5-sonnet" in
+  Alcotest.(check bool) "found claude-3-5-sonnet" true (Option.is_some m);
+  let m = Models_catalog.find_by_id "nonexistent-model" in
+  Alcotest.(check bool) "not found nonexistent" false (Option.is_some m)
+
+let test_find_by_full_name () =
+  let m = Models_catalog.find_by_full_name "anthropic/claude-3-5-sonnet" in
+  Alcotest.(check bool) "full name found" true (Option.is_some m);
+  let m = Models_catalog.find_by_full_name "claude-3-5-sonnet" in
+  Alcotest.(check bool) "short name found" true (Option.is_some m);
+  let m =
+    Models_catalog.find_by_full_name "anthropic/claude-3-5-sonnet/extra"
+  in
+  Alcotest.(check bool) "invalid format None" true (Option.is_none m)
+
+let test_by_provider () =
+  let anthropic = Models_catalog.by_provider "anthropic" in
+  Alcotest.(check bool) "anthropic non-empty" true (anthropic <> []);
+  let openai = Models_catalog.by_provider "openai" in
+  Alcotest.(check bool) "openai non-empty" true (openai <> []);
+  List.iter
+    (fun m ->
+      Alcotest.(check string) "provider" "anthropic" m.Models_catalog.provider)
+    anthropic
+
+let test_providers_list () =
+  let provs = Models_catalog.providers in
+  Alcotest.(check bool) "providers non-empty" true (provs <> []);
+  Alcotest.(check bool) "has anthropic" true (List.mem "anthropic" provs);
+  Alcotest.(check bool) "has openai" true (List.mem "openai" provs)
+
+let test_deprecated_models () =
+  let all = Models_catalog.known_models in
+  let deprecated = List.filter (fun m -> m.Models_catalog.deprecated) all in
+  Alcotest.(check bool) "has some deprecated" true (deprecated <> []);
+  let m = Models_catalog.find_by_id "gpt-3.5-turbo" in
+  match m with
+  | None -> Alcotest.fail "gpt-3.5-turbo not found"
+  | Some model ->
+      Alcotest.(check bool)
+        "gpt-3.5-turbo deprecated" true model.Models_catalog.deprecated
+
+let test_format_context_window () =
+  let ctx1 = Models_catalog.format_context_window (Some 128000) in
+  Alcotest.(check string) "128k" "128K" ctx1;
+  let ctx2 = Models_catalog.format_context_window (Some 2000000) in
+  Alcotest.(check string) "2M" "2.0M" ctx2;
+  let ctx3 = Models_catalog.format_context_window None in
+  Alcotest.(check string) "none" "" ctx3
+
+let test_to_plain_list () =
+  let list = Models_catalog.to_plain_list () in
+  Alcotest.(check bool) "non-empty" true (String.length list > 0);
+  Alcotest.(check bool) "contains anthropic" true (String.contains list 'a')
+
+let test_to_json () =
+  let json = Models_catalog.to_json () in
+  let open Yojson.Safe.Util in
+  let list = json |> to_list in
+  Alcotest.(check bool) "json list non-empty" true (list <> [])
+
+let suite =
+  [
+    ("find_by_id", `Quick, test_find_by_id);
+    ("find_by_full_name", `Quick, test_find_by_full_name);
+    ("by_provider", `Quick, test_by_provider);
+    ("providers", `Quick, test_providers_list);
+    ("deprecated", `Quick, test_deprecated_models);
+    ("format_context_window", `Quick, test_format_context_window);
+    ("to_plain_list", `Quick, test_to_plain_list);
+    ("to_json", `Quick, test_to_json);
+  ]

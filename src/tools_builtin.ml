@@ -3380,8 +3380,250 @@ let compact_history ~compact_fn =
     deferred = false;
   }
 
+let models_tool ~(config : Runtime_config.t) ?session_mgr () =
+  let current_model () =
+    Runtime_config.effective_primary_model config.agent_defaults
+  in
+  let set_model model =
+    match Models_catalog.find_by_full_name model with
+    | Some _ -> (
+        let result =
+          Config_set.set_value "agent_defaults.primary_model" model
+        in
+        match session_mgr with
+        | Some mgr ->
+            let cfg = Session.get_config mgr in
+            let new_agent_defaults =
+              { cfg.agent_defaults with primary_model = model }
+            in
+            Session.update_config mgr
+              { cfg with agent_defaults = new_agent_defaults };
+            Model_preferences.increment_usage model |> ignore;
+            result
+        | None -> result)
+    | None ->
+        Printf.sprintf
+          "Error: model '%s' not found in catalog. Use 'models list' to see \
+           available models. Format: provider/model-name (e.g., openai/gpt-4o)"
+          model
+  in
+  {
+    Tool.name = "models";
+    description =
+      "List available LLM models, get the current model, or set the model for \
+       this session. Models are specified in provider/model format (e.g., \
+       anthropic/claude-sonnet-4-5, openai/gpt-4o). Use 'list' to discover \
+       available models.";
+    parameters_schema =
+      `Assoc
+        [
+          ("type", `String "object");
+          ( "properties",
+            `Assoc
+              [
+                ( "action",
+                  `Assoc
+                    [
+                      ("type", `String "string");
+                      ( "description",
+                        `String
+                          "Action to perform: 'list' (show available models), \
+                           'get' (show current model), or 'set' (change model)"
+                      );
+                      ( "enum",
+                        `List [ `String "list"; `String "get"; `String "set" ]
+                      );
+                    ] );
+                ( "model",
+                  `Assoc
+                    [
+                      ("type", `String "string");
+                      ( "description",
+                        `String
+                          "Model name for 'set' action (provider/model format, \
+                           e.g., openai/gpt-4o)" );
+                    ] );
+                ( "provider",
+                  `Assoc
+                    [
+                      ("type", `String "string");
+                      ( "description",
+                        `String
+                          "Filter by provider for 'list' action (e.g., \
+                           'openai', 'anthropic')" );
+                    ] );
+              ] );
+          ("required", `List [ `String "action" ]);
+        ];
+    invoke =
+      (fun ?context:_ args ->
+        let open Yojson.Safe.Util in
+        let action = try args |> member "action" |> to_string with _ -> "" in
+        match action with
+        | "list" ->
+            let provider_filter =
+              try Some (args |> member "provider" |> to_string) with _ -> None
+            in
+            Lwt.return (Models_catalog.to_plain_list ~provider_filter ())
+        | "get" ->
+            Lwt.return (Printf.sprintf "Current model: %s" (current_model ()))
+        | "set" ->
+            let model =
+              try args |> member "model" |> to_string with _ -> ""
+            in
+            if model = "" then
+              Lwt.return
+                "Error: model parameter is required for 'set' action. Specify \
+                 a model in provider/model format (e.g., openai/gpt-4o). Use \
+                 'models list' to see available models."
+            else Lwt.return (set_model model)
+        | _ ->
+            Lwt.return
+              "Error: action must be 'list', 'get', or 'set'. Use 'list' to \
+               see available models, 'get' to see the current model, or 'set' \
+               to change the model.");
+    invoke_stream = None;
+    risk_level = Low;
+    deferred = false;
+  }
+
+let provider_usage_tool ~(config : Runtime_config.t) =
+  Provider_quota.set_cache_ttl config.quota_cache_ttl_s;
+  {
+    Tool.name = "provider_usage";
+    description =
+      "Check quota and usage information for configured LLM providers. Shows \
+       session, weekly, and monthly usage limits when available. Use 'list' to \
+       see all providers, or 'get' with a provider name for details.";
+    parameters_schema =
+      `Assoc
+        [
+          ("type", `String "object");
+          ( "properties",
+            `Assoc
+              [
+                ( "action",
+                  `Assoc
+                    [
+                      ("type", `String "string");
+                      ( "description",
+                        `String
+                          "Action: 'list' (all providers) or 'get' (specific \
+                           provider details)" );
+                      ("enum", `List [ `String "list"; `String "get" ]);
+                    ] );
+                ( "provider",
+                  `Assoc
+                    [
+                      ("type", `String "string");
+                      ( "description",
+                        `String
+                          "Provider name for 'get' action (e.g., 'openai', \
+                           'anthropic')" );
+                    ] );
+                ( "refresh",
+                  `Assoc
+                    [
+                      ("type", `String "boolean");
+                      ( "description",
+                        `String
+                          "Force refresh quota data from provider APIs \
+                           (default: use cache if < 60s old)" );
+                    ] );
+              ] );
+          ("required", `List [ `String "action" ]);
+        ];
+    invoke =
+      (fun ?context:_ args ->
+        let open Lwt.Syntax in
+        let open Yojson.Safe.Util in
+        let action = try args |> member "action" |> to_string with _ -> "" in
+        let refresh =
+          try args |> member "refresh" |> to_bool with _ -> false
+        in
+        let format_quota (name, pq) =
+          let sess, week, mon =
+            match pq.Provider_quota.state with
+            | Provider_quota.Unknown msg -> (msg, "-", "-")
+            | Provider_quota.Known { session; weekly; monthly } ->
+                let fmt_pct = function
+                  | None -> "-"
+                  | Some w -> Printf.sprintf "%.0f%%" w.Provider_quota.used_pct
+                in
+                (fmt_pct session, fmt_pct weekly, fmt_pct monthly)
+          in
+          Printf.sprintf "%s\t%s\t%s\t%s" name sess week mon
+        in
+        match action with
+        | "list" ->
+            let* results =
+              if refresh then
+                let* refreshed = Provider_quota.refresh_all ~config () in
+                Lwt.return
+                  (List.map
+                     (fun pq -> (pq.Provider_quota.provider_name, pq))
+                     refreshed)
+              else Lwt.return (Provider_quota.get_all_cached ())
+            in
+            if results = [] then
+              if refresh then Lwt.return "No providers configured."
+              else
+                Lwt.return
+                  "No cached quota data. Set refresh=true to fetch current \
+                   data from provider APIs."
+            else
+              let header = "Provider\tSession\tWeekly\tMonthly" in
+              let lines = List.map format_quota results in
+              Lwt.return (String.concat "\n" (header :: lines))
+        | "get" -> (
+            let provider =
+              try args |> member "provider" |> to_string with _ -> ""
+            in
+            if provider = "" then
+              Lwt.return
+                "Error: provider parameter is required for 'get' action. \
+                 Specify a provider name (e.g., 'openai', 'anthropic'). Use \
+                 'provider_usage list' to see available providers."
+            else
+              match Provider_quota.get_cached provider with
+              | Some pq -> Lwt.return (Provider_quota.to_summary_string pq)
+              | None ->
+                  if refresh then
+                    let* refreshed = Provider_quota.refresh_all ~config () in
+                    let results =
+                      List.map
+                        (fun pq -> (pq.Provider_quota.provider_name, pq))
+                        refreshed
+                    in
+                    match
+                      List.find_opt (fun (n, _) -> n = provider) results
+                    with
+                    | Some (_, pq) ->
+                        Lwt.return (Provider_quota.to_summary_string pq)
+                    | None ->
+                        Lwt.return
+                          (Printf.sprintf
+                             "Provider '%s' not found. Use 'provider_usage \
+                              list' to see available providers."
+                             provider)
+                  else
+                    Lwt.return
+                      (Printf.sprintf
+                         "No cached data for provider '%s'. Set refresh=true \
+                          to fetch current data, or use 'provider_usage list' \
+                          to see available providers."
+                         provider))
+        | _ ->
+            Lwt.return
+              "Error: action must be 'list' or 'get'. Use 'list' to see all \
+               providers, or 'get' with a provider name for details.");
+    invoke_stream = None;
+    risk_level = Low;
+    deferred = false;
+  }
+
 let register_all ~(config : Runtime_config.t) ~sandbox ?(db = None)
-    ?(send_fn = None) ?(rich_send_fn = None) registry =
+    ?(send_fn = None) ?(rich_send_fn = None) ?(session_mgr = None) registry =
   let workspace_only = config.security.workspace_only in
   let workspace = Runtime_config.effective_workspace config in
   let extra_allowed_paths = config.security.extra_allowed_paths in
@@ -3410,6 +3652,8 @@ let register_all ~(config : Runtime_config.t) ~sandbox ?(db = None)
   Tool_registry.register registry (git_operations ~workspace);
   if config.web_search <> None then
     Tool_registry.register registry (web_search ~config);
+  Tool_registry.register registry (models_tool ~config ?session_mgr ());
+  Tool_registry.register registry (provider_usage_tool ~config);
   (match send_fn with
   | Some _ ->
       Tool_registry.register registry (send_message ~send_fn ~rich_send_fn);

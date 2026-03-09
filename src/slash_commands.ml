@@ -2,6 +2,14 @@ type command = { name : string; description : string }
 type thinking_action = ShowThinking | SetThinking of string option
 type show_thinking_action = ShowThinkingStatus | ToggleShowThinking
 
+type model_action =
+  | ModelShow
+  | ModelSet of string
+  | ModelFav of string
+  | ModelUnfav of string
+  | ModelList of string option
+  | ModelUsage
+
 type result =
   | Reply of string
   | Reset
@@ -12,6 +20,7 @@ type result =
   | ForkAnd of string
   | Tools
   | Tasks
+  | Model of model_action
   | NotACommand
 
 let allowed_thinking_levels = [ "low"; "medium"; "high"; "off"; "xhigh"; "max" ]
@@ -74,6 +83,10 @@ let commands =
     };
     { name = "tools"; description = "List all available tools" };
     { name = "tasks"; description = "Show the agent's current task tree" };
+    {
+      name = "model";
+      description = "Manage model: /model [set|fav|unfav|list|usage] [args]";
+    };
   ]
 
 let help_text =
@@ -218,6 +231,25 @@ let handle text =
             | _ -> ForkAnd (String.concat " " args))
         | "tools" -> Tools
         | "tasks" -> Tasks
+        | "model" -> (
+            match args with
+            | [] -> Model ModelShow
+            | [ "set"; name ] -> Model (ModelSet name)
+            | [ "fav"; name ] -> Model (ModelFav name)
+            | [ "unfav"; name ] -> Model (ModelUnfav name)
+            | "list" :: rest ->
+                let provider = match rest with [ p ] -> Some p | _ -> None in
+                Model (ModelList provider)
+            | [ "usage" ] -> Model ModelUsage
+            | _ ->
+                Reply
+                  "Usage: /model [set|fav|unfav|list|usage] [args]\n\
+                  \  /model             — Show current model and favorites\n\
+                  \  /model set <name>  — Set model for this session\n\
+                  \  /model fav <name>  — Toggle favorite status\n\
+                  \  /model unfav <name> — Remove from favorites\n\
+                  \  /model list [provider] — List available models\n\
+                  \  /model usage       — Show provider quota/usage")
         | "" -> NotACommand
         | _ -> NotACommand)
 
@@ -296,4 +328,69 @@ let format_tools_telegram (tools : Tool.t list) : string =
       Buffer.add_string buf (truncate_description t.description 60 ^ "\n\n"))
     sorted;
   Buffer.add_string buf "</blockquote>";
+  Buffer.contents buf
+
+let format_model_show_telegram ~current ~favorites ~usage_ranked =
+  let buf = Buffer.create 1024 in
+  Buffer.add_string buf "<b>Current Model</b>\n";
+  Buffer.add_string buf (Printf.sprintf "<code>%s</code>\n\n" current);
+  if favorites <> [] then begin
+    Buffer.add_string buf "<b>Favorites</b>\n";
+    List.iter
+      (fun m ->
+        Buffer.add_string buf
+          (Printf.sprintf "\xe2\xad\x90 <code>%s</code>\n" m))
+      favorites;
+    Buffer.add_string buf "\n"
+  end;
+  if usage_ranked <> [] then begin
+    Buffer.add_string buf "<b>Recent Usage</b>\n";
+    Buffer.add_string buf "<blockquote expandable>\n";
+    List.iter
+      (fun (m, count) ->
+        Buffer.add_string buf (Printf.sprintf "<code>%s</code> (%d)\n" m count))
+      usage_ranked;
+    Buffer.add_string buf "</blockquote>\n"
+  end;
+  Buffer.contents buf
+
+let format_model_list_telegram ~models ~provider =
+  let buf = Buffer.create 2048 in
+  let title =
+    match provider with
+    | Some p -> Printf.sprintf "<b>Models: %s</b>\n" p
+    | None -> "<b>Available Models</b>\n"
+  in
+  Buffer.add_string buf title;
+  Buffer.add_string buf "<blockquote expandable>\n";
+  List.iter
+    (fun m -> Buffer.add_string buf (Printf.sprintf "<code>%s</code>\n" m))
+    models;
+  Buffer.add_string buf "</blockquote>";
+  Buffer.contents buf
+
+let format_model_list_plain ~models ~provider =
+  let title =
+    match provider with
+    | Some p -> Printf.sprintf "Models: %s\n" p
+    | None -> "Available Models\n"
+  in
+  title ^ String.concat "\n" models
+
+let format_model_show_plain ~current ~favorites ~usage_ranked =
+  let buf = Buffer.create 512 in
+  Buffer.add_string buf (Printf.sprintf "Current: %s\n" current);
+  if favorites <> [] then begin
+    Buffer.add_string buf "Favorites:\n";
+    List.iter
+      (fun m -> Buffer.add_string buf (Printf.sprintf "  * %s\n" m))
+      favorites
+  end;
+  if usage_ranked <> [] then begin
+    Buffer.add_string buf "Recent:\n";
+    List.iter
+      (fun (m, count) ->
+        Buffer.add_string buf (Printf.sprintf "  %s (%d)\n" m count))
+      usage_ranked
+  end;
   Buffer.contents buf

@@ -561,6 +561,78 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
           in
           send_message_fn ~bot_token:discord_config.bot_token
             ~channel_id:msg.channel_id ~text
+      | Model action -> (
+          let open Slash_commands in
+          match action with
+          | ModelShow ->
+              let current =
+                (Session.get_config session_mgr).agent_defaults.primary_model
+              in
+              send_message_fn ~bot_token:discord_config.bot_token
+                ~channel_id:msg.channel_id
+                ~text:(Printf.sprintf "Current model: %s" current)
+          | ModelSet name -> (
+              let model_info = Models_catalog.find_by_full_name name in
+              match model_info with
+              | None ->
+                  let text =
+                    Printf.sprintf
+                      "Warning: '%s' not found in model catalog. Setting \
+                       anyway."
+                      name
+                  in
+                  let cfg = Session.get_config session_mgr in
+                  let agent_defaults =
+                    { cfg.agent_defaults with primary_model = name }
+                  in
+                  Session.update_config session_mgr { cfg with agent_defaults };
+                  let _ = Model_preferences.increment_usage name in
+                  send_message_fn ~bot_token:discord_config.bot_token
+                    ~channel_id:msg.channel_id ~text
+              | Some _ ->
+                  let cfg = Session.get_config session_mgr in
+                  let agent_defaults =
+                    { cfg.agent_defaults with primary_model = name }
+                  in
+                  Session.update_config session_mgr { cfg with agent_defaults };
+                  let _ = Model_preferences.increment_usage name in
+                  send_message_fn ~bot_token:discord_config.bot_token
+                    ~channel_id:msg.channel_id
+                    ~text:(Printf.sprintf "Model set to: %s" name))
+          | ModelFav name ->
+              let prefs = Model_preferences.toggle_favorite name in
+              let status =
+                if List.mem name prefs.favorites then "added to"
+                else "removed from"
+              in
+              send_message_fn ~bot_token:discord_config.bot_token
+                ~channel_id:msg.channel_id
+                ~text:(Printf.sprintf "%s %s favorites" name status)
+          | ModelUnfav name ->
+              let _ = Model_preferences.remove_favorite name in
+              send_message_fn ~bot_token:discord_config.bot_token
+                ~channel_id:msg.channel_id
+                ~text:(Printf.sprintf "Removed from favorites: %s" name)
+          | ModelList provider ->
+              let text =
+                Models_catalog.to_plain_list ~provider_filter:provider ()
+              in
+              send_message_fn ~bot_token:discord_config.bot_token
+                ~channel_id:msg.channel_id ~text
+          | ModelUsage ->
+              let cfg = Session.get_config session_mgr in
+              Provider_quota.set_cache_ttl cfg.quota_cache_ttl_s;
+              let results = Provider_quota.get_all_cached () in
+              let lines =
+                List.map
+                  (fun (name, pq) ->
+                    Printf.sprintf "%s: %s" name
+                      (Provider_quota.to_summary_string pq))
+                  results
+              in
+              let text = String.concat "\n" lines in
+              send_message_fn ~bot_token:discord_config.bot_token
+                ~channel_id:msg.channel_id ~text)
       | ForkAnd prompt ->
           let* () =
             send_message_fn ~bot_token:discord_config.bot_token

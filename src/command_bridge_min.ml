@@ -122,32 +122,28 @@ let cmd_config args =
       \  get KEY          Get a config value by dot-path\n\
       \  show [SECTION]   Display current config (secrets redacted)"
 
-let cmd_models () =
-  let cfg = get_config () in
-  match cfg.providers with
-  | [] -> "No providers configured. Run 'clawq-min onboard' to set up."
-  | providers ->
-      let lines =
-        List.map
-          (fun (name, (p : Runtime_config.provider_config)) ->
-            let url =
-              match p.base_url with Some u -> u | None -> "(default)"
-            in
-            let model_info =
-              match p.default_model with
-              | Some m -> Printf.sprintf " model: %s" m
-              | None -> ""
-            in
-            Printf.sprintf "  %s: %s (key: %s)%s" name url
-              (if Runtime_config.provider_has_auth p then "configured"
-               else "not set")
-              model_info)
-          providers
-      in
-      "Configured providers:\n" ^ String.concat "\n" lines
-      ^ Printf.sprintf "\nDefault model: %s" cfg.agent_defaults.primary_model
-      ^ Printf.sprintf "\nDefault provider: %s"
-          (match cfg.default_provider with Some p -> p | None -> "(auto)")
+let cmd_models args =
+  match args with
+  | [] | [ "list" ] ->
+      let provider_filter = None in
+      Models_catalog.to_plain_list ~provider_filter ()
+  | [ "list"; "--provider"; p ] ->
+      Models_catalog.to_plain_list ~provider_filter:(Some p) ()
+  | [ "set-default"; model ] -> (
+      match Models_catalog.find_by_full_name model with
+      | Some _ -> Config_set.set_value "agent_defaults.primary_model" model
+      | None ->
+          Printf.sprintf "Warning: model '%s' not found in catalog.\n%s" model
+            (Config_set.set_value "agent_defaults.primary_model" model))
+  | _ ->
+      "Usage: clawq-min models <subcommand>\n\n\
+       Subcommands:\n\
+      \  list [--provider P]     List known models (optionally filter by \
+       provider)\n\
+      \  set-default MODEL       Set default model"
+
+let cmd_usage _ =
+  "Usage command requires full runtime. Use 'clawq' binary for quota fetching."
 
 let cmd_channel () =
   let cfg = get_config () in
@@ -382,7 +378,8 @@ let handle args =
   | "config" :: rest -> cmd_config rest
   | "doctor" :: _ -> cmd_doctor ()
   | "onboard" :: _ -> cmd_onboard ()
-  | "models" :: _ -> cmd_models ()
+  | "models" :: rest -> cmd_models rest
+  | "usage" :: _ -> cmd_usage ()
   | "channel" :: _ -> cmd_channel ()
   | "memory" :: _ -> cmd_memory ()
   | "workspace" :: _ -> cmd_workspace ()

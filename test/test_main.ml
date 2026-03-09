@@ -83,5 +83,7 @@ let () =
        ("compaction_flush", Test_compaction_flush.suite);
        ("task_tree", Test_task_tree.suite);
        ("benchmark", Test_benchmark.suite);
+       ("models_catalog", Test_models_catalog.suite);
+       ("model_preferences", Test_model_preferences.suite);
      ]
     @ Test_github.suites)

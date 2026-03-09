@@ -43,7 +43,19 @@ let onboard_cmd =
     "Create a starter config file at ~/.clawq/config.json if none exists."
 
 let models_cmd =
-  simple "models" "List configured LLM providers and their default models."
+  with_args "models" "List known models and set default model."
+    [
+      `S "SUBCOMMANDS";
+      `I
+        ( "list [--provider P]",
+          "List known models from the catalog (optionally filter by provider)."
+        );
+      `I ("set-default MODEL", "Set default model.");
+    ]
+
+let usage_cmd =
+  simple "usage"
+    "Show provider quota/usage status (requires full clawq binary)."
 
 let channel_cmd = simple "channel" "List configured channels."
 let memory_cmd = simple "memory" "Show memory backend configuration."
@@ -364,6 +376,7 @@ let () =
       doctor_cmd;
       onboard_cmd;
       models_cmd;
+      usage_cmd;
       channel_cmd;
       memory_cmd;
       workspace_cmd;

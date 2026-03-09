@@ -434,6 +434,127 @@ let handle_event ~(config : Runtime_config.slack_config)
                   send_message_fn ~bot_token:config.bot_token ~channel_id ~text
                 in
                 Lwt.return "ok"
+            | Model action -> (
+                let open Slash_commands in
+                match action with
+                | ModelShow ->
+                    let current =
+                      (Session.get_config session_manager).agent_defaults
+                        .primary_model
+                    in
+                    let prefs = Model_preferences.load () in
+                    let usage_ranked =
+                      List.filter_map
+                        (fun (m, c) ->
+                          if List.mem m prefs.favorites then None
+                          else Some (m, c))
+                        prefs.usage_counts
+                    in
+                    let text =
+                      format_model_show_plain ~current
+                        ~favorites:prefs.favorites ~usage_ranked
+                    in
+                    let* () =
+                      send_message_fn ~bot_token:config.bot_token ~channel_id
+                        ~text
+                    in
+                    Lwt.return "ok"
+                | ModelSet name -> (
+                    let model_info = Models_catalog.find_by_full_name name in
+                    match model_info with
+                    | None ->
+                        let text =
+                          Printf.sprintf
+                            "Warning: '%s' not found in model catalog. Setting \
+                             anyway."
+                            name
+                        in
+                        let cfg = Session.get_config session_manager in
+                        let agent_defaults =
+                          { cfg.agent_defaults with primary_model = name }
+                        in
+                        Session.update_config session_manager
+                          { cfg with agent_defaults };
+                        let _ = Model_preferences.increment_usage name in
+                        let* () =
+                          send_message_fn ~bot_token:config.bot_token
+                            ~channel_id ~text
+                        in
+                        Lwt.return "ok"
+                    | Some _ ->
+                        let cfg = Session.get_config session_manager in
+                        let agent_defaults =
+                          { cfg.agent_defaults with primary_model = name }
+                        in
+                        Session.update_config session_manager
+                          { cfg with agent_defaults };
+                        let _ = Model_preferences.increment_usage name in
+                        let* () =
+                          send_message_fn ~bot_token:config.bot_token
+                            ~channel_id
+                            ~text:(Printf.sprintf "Model set to: %s" name)
+                        in
+                        Lwt.return "ok")
+                | ModelFav name ->
+                    let prefs = Model_preferences.toggle_favorite name in
+                    let status =
+                      if List.mem name prefs.favorites then "added to"
+                      else "removed from"
+                    in
+                    let* () =
+                      send_message_fn ~bot_token:config.bot_token ~channel_id
+                        ~text:(Printf.sprintf "%s %s favorites" name status)
+                    in
+                    Lwt.return "ok"
+                | ModelUnfav name ->
+                    let _ = Model_preferences.remove_favorite name in
+                    let* () =
+                      send_message_fn ~bot_token:config.bot_token ~channel_id
+                        ~text:(Printf.sprintf "Removed from favorites: %s" name)
+                    in
+                    Lwt.return "ok"
+                | ModelList provider ->
+                    let models =
+                      Models_catalog.to_plain_list ~provider_filter:provider ()
+                      |> String.split_on_char '\n'
+                      |> List.filter (fun s -> s <> "")
+                    in
+                    let text = format_model_list_plain ~models ~provider in
+                    let* () =
+                      send_message_fn ~bot_token:config.bot_token ~channel_id
+                        ~text
+                    in
+                    Lwt.return "ok"
+                | ModelUsage ->
+                    let cfg = Session.get_config session_manager in
+                    Provider_quota.set_cache_ttl cfg.quota_cache_ttl_s;
+                    let results = Provider_quota.get_all_cached () in
+                    let lines =
+                      List.map
+                        (fun (name, pq) ->
+                          let summary = Provider_quota.to_summary_string pq in
+                          let threshold =
+                            match List.assoc_opt name cfg.providers with
+                            | Some pc ->
+                                Option.value ~default:0.85 pc.quota_threshold
+                            | None -> 0.85
+                          in
+                          let label =
+                            Provider_quota.status_label ~threshold pq
+                          in
+                          summary ^ "  " ^ label)
+                        results
+                    in
+                    let text =
+                      if lines = [] then "No providers configured."
+                      else
+                        "*Provider Quota/Usage*\n\n" ^ String.concat "\n" lines
+                    in
+                    let* () =
+                      send_message_fn ~bot_token:config.bot_token ~channel_id
+                        ~text
+                    in
+                    Lwt.return "ok")
             | ForkAnd prompt ->
                 Lwt.async (fun () ->
                     send_message_fn ~bot_token:config.bot_token ~channel_id

@@ -251,6 +251,30 @@ let handler ~session_manager ~require_pairing ~auth_token
       let* _ = Cohttp_lwt.Body.drain_body body in
       Cohttp_lwt_unix.Server.respond_string ~status:`OK ~headers:json_headers
         ~body:{|{"status":"ok"}|} ()
+  | `GET, "/models" ->
+      let* _ = Cohttp_lwt.Body.drain_body body in
+      let provider_filter =
+        match Uri.get_query_param uri "provider" with
+        | Some p -> Some p
+        | None -> None
+      in
+      let json = Models_catalog.to_json ~provider_filter () in
+      json_string_response (Yojson.Safe.to_string json)
+  | `GET, "/usage" ->
+      let* _ = Cohttp_lwt.Body.drain_body body in
+      let results = Provider_quota.get_all_cached () in
+      let json =
+        `List
+          (List.map
+             (fun (name, pq) ->
+               `Assoc
+                 [
+                   ("provider", `String name);
+                   ("summary", `String (Provider_quota.to_summary_string pq));
+                 ])
+             results)
+      in
+      json_string_response (Yojson.Safe.to_string json)
   | `POST, "/chat" -> (
       let* ip_ok =
         match ip_limiter with
@@ -829,6 +853,119 @@ let handler ~session_manager ~require_pairing ~auth_token
                     Cohttp_lwt_unix.Server.respond ~status:`OK ~headers
                       ~body:(Cohttp_lwt.Body.of_stream stream)
                       ()
+                | Slash_commands.Model action -> (
+                    let open Slash_commands in
+                    match action with
+                    | ModelShow ->
+                        let current =
+                          (Session.get_config session_manager).agent_defaults
+                            .primary_model
+                        in
+                        let prefs = Model_preferences.load () in
+                        let usage_ranked =
+                          List.filter_map
+                            (fun (m, c) ->
+                              if List.mem m prefs.favorites then None
+                              else Some (m, c))
+                            prefs.usage_counts
+                        in
+                        let text =
+                          Slash_commands.format_model_show_plain ~current
+                            ~favorites:prefs.favorites ~usage_ranked
+                        in
+                        sse_reply text
+                    | ModelSet name -> (
+                        let model_info =
+                          Models_catalog.find_by_full_name name
+                        in
+                        match model_info with
+                        | None ->
+                            let text =
+                              Printf.sprintf
+                                "Warning: '%s' not found in model catalog. \
+                                 Setting anyway."
+                                name
+                            in
+                            let cfg = Session.get_config session_manager in
+                            let agent_defaults =
+                              { cfg.agent_defaults with primary_model = name }
+                            in
+                            Session.update_config session_manager
+                              { cfg with agent_defaults };
+                            let _ = Model_preferences.increment_usage name in
+                            sse_reply text
+                        | Some _ ->
+                            let cfg = Session.get_config session_manager in
+                            let agent_defaults =
+                              { cfg.agent_defaults with primary_model = name }
+                            in
+                            Session.update_config session_manager
+                              { cfg with agent_defaults };
+                            let _ = Model_preferences.increment_usage name in
+                            sse_reply (Printf.sprintf "Model set to: %s" name))
+                    | ModelFav name ->
+                        let prefs = Model_preferences.toggle_favorite name in
+                        let status =
+                          if List.mem name prefs.favorites then "added to"
+                          else "removed from"
+                        in
+                        sse_reply (Printf.sprintf "%s %s favorites" name status)
+                    | ModelUnfav name ->
+                        let _ = Model_preferences.remove_favorite name in
+                        sse_reply
+                          (Printf.sprintf "Removed from favorites: %s" name)
+                    | ModelList provider ->
+                        let models =
+                          Models_catalog.to_plain_list ~provider_filter:provider
+                            ()
+                          |> String.split_on_char '\n'
+                          |> List.filter (fun s -> s <> "")
+                        in
+                        let text =
+                          Slash_commands.format_model_list_plain ~models
+                            ~provider
+                        in
+                        sse_reply text
+                    | ModelUsage ->
+                        let cfg = Session.get_config session_manager in
+                        Provider_quota.set_cache_ttl cfg.quota_cache_ttl_s;
+                        let results =
+                          Lwt_main.run
+                            (Lwt_list.map_s
+                               (fun (name, pc) ->
+                                 Provider_quota.fetch_for_provider ~config:pc
+                                   ~name ())
+                               cfg.providers)
+                        in
+                        let lines =
+                          List.map
+                            (fun pq ->
+                              let summary =
+                                Provider_quota.to_summary_string pq
+                              in
+                              let threshold =
+                                match
+                                  List.assoc_opt pq.Provider_quota.provider_name
+                                    cfg.providers
+                                with
+                                | Some pc ->
+                                    Option.value ~default:0.85
+                                      pc.quota_threshold
+                                | None -> 0.85
+                              in
+                              let label =
+                                Provider_quota.status_label ~threshold pq
+                              in
+                              summary ^ "  " ^ label)
+                            results
+                        in
+                        let text =
+                          if lines = [] then "No providers configured."
+                          else
+                            "*Provider Quota/Usage*\n\n"
+                            ^ String.concat "\n" lines
+                        in
+                        sse_reply text)
                 | Slash_commands.NotACommand ->
                     let key = "web:" ^ session_id in
                     let stream, push = Lwt_stream.create () in

@@ -55,7 +55,27 @@ let onboard_cmd =
     "Create a starter config file at ~/.clawq/config.json if none exists."
 
 let models_cmd =
-  simple "models" "List configured LLM providers and their default models."
+  with_args "models" "List known models and set default model."
+    [
+      `S "SUBCOMMANDS";
+      `I
+        ( "list [--provider P]",
+          "List known models from the catalog (optionally filter by provider)."
+        );
+      `I
+        ( "set-default MODEL",
+          "Set default model (e.g. anthropic/claude-sonnet-4-5)." );
+    ]
+
+let usage_cmd =
+  with_args "usage" "Show provider quota/usage status."
+    [
+      `S "OPTIONS";
+      `I
+        ( "--refresh, -r",
+          "Force refresh quota data from all configured providers (uses cache \
+           if < TTL)." );
+    ]
 
 let provider_cmd =
   with_args "provider"
@@ -629,6 +649,7 @@ let () =
       doctor_cmd;
       onboard_cmd;
       models_cmd;
+      usage_cmd;
       provider_cmd;
       channel_cmd;
       memory_cmd;

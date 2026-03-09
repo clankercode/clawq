@@ -15,6 +15,7 @@ let result_to_string = function
   | Slash_commands.ForkAnd s -> "ForkAnd(" ^ s ^ ")"
   | Slash_commands.Tools -> "Tools"
   | Slash_commands.Tasks -> "Tasks"
+  | Slash_commands.Model _ -> "Model"
   | Slash_commands.NotACommand -> "NotACommand"
 
 let result_eq a b =
@@ -33,6 +34,7 @@ let result_eq a b =
   | Slash_commands.ForkAnd a, Slash_commands.ForkAnd b -> a = b
   | Slash_commands.Tools, Slash_commands.Tools -> true
   | Slash_commands.Tasks, Slash_commands.Tasks -> true
+  | Slash_commands.Model _, Slash_commands.Model _ -> true
   | Slash_commands.NotACommand, Slash_commands.NotACommand -> true
   | _ -> false
 
