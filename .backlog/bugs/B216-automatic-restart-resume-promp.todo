@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B216
+priority: high
+status: pending
+tags: []
+title: Automatic restart-resume prompt should command continuation of in-progress work, not present idling as a peer branch
+---
+The restart-resume instruction is still too hedged. Desired behavior: when the daemon restarts during active autonomous work, the automatic restart-resume message should tell the agent to resume the work it was doing, without framing restart as an idle-check decision point. The agent may still conclude that there is nothing to do, but that conclusion should come from evaluating the resumed state, not from a prompt that foregrounds STAY_IDLE or presents continuation as optional. Acceptance criteria: (1) restart-resume prompt wording explicitly instructs the agent to resume the interrupted work now; (2) wording does not foreground STAY_IDLE or equivalent as an equal first-class branch; (3) if nothing meaningful remains, the agent can still say so plainly after checking; (4) tests/logs verify the prompt content/path without leaking sensitive prompt text; (5) keep this distinct from earlier empty-turn and transport/routing bugs, which are already addressed.

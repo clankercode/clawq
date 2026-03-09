@@ -214,3 +214,4 @@ bugs:
     - file: B213-add-a-tool-call-benchmark-some.todo
     - file: B214-telegram-reports-tool-loading.todo
     - file: B215-busy-telegram-inbound-updates.todo
+    - file: B216-automatic-restart-resume-promp.todo
