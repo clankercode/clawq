@@ -492,14 +492,47 @@ let resume_pending_agent_sessions ?(senders = default_resume_senders)
           Lwt.return_unit)
     pending
 
+(* ANSI color codes for log output — respects NO_COLOR convention *)
+let no_color =
+  match Sys.getenv_opt "NO_COLOR" with Some _ -> true | None -> false
+
+let c s = if no_color then "" else s
+let ansi_reset = c "\027[0m"
+let ansi_bold = c "\027[1m"
+let ansi_dim = c "\027[2m"
+let ansi_fg_red = c "\027[91m"
+let ansi_fg_yellow = c "\027[93m"
+let ansi_fg_green = c "\027[32m"
+let ansi_fg_cyan = c "\027[36m"
+let ansi_fg_gray = c "\027[90m"
+
+let level_tag = function
+  | Logs.App -> "APP  "
+  | Logs.Error -> "ERROR"
+  | Logs.Warning -> "WARN "
+  | Logs.Info -> "INFO "
+  | Logs.Debug -> "DEBUG"
+
+let level_color = function
+  | Logs.App -> ansi_bold ^ ansi_fg_cyan
+  | Logs.Error -> ansi_bold ^ ansi_fg_red
+  | Logs.Warning -> ansi_fg_yellow
+  | Logs.Info -> ansi_fg_green
+  | Logs.Debug -> ansi_dim
+
+let msg_color = function
+  | Logs.Error -> ansi_fg_red
+  | Logs.Warning -> ansi_fg_yellow
+  | _ -> ""
+
 let local_date_key t =
   let tm = Unix.localtime t in
   (tm.Unix.tm_year, tm.Unix.tm_yday)
 
 let pp_date_banner ppf t =
   let tm = Unix.localtime t in
-  Fmt.pf ppf "=== %04d-%02d-%02d ===" (tm.Unix.tm_year + 1900)
-    (tm.Unix.tm_mon + 1) tm.Unix.tm_mday
+  Fmt.pf ppf "%s%s=== %04d-%02d-%02d ===%s" ansi_bold ansi_fg_cyan
+    (tm.Unix.tm_year + 1900) (tm.Unix.tm_mon + 1) tm.Unix.tm_mday ansi_reset
 
 let maybe_emit_date_banner ppf last_date_ref t =
   let date_key = local_date_key t in
@@ -509,12 +542,13 @@ let maybe_emit_date_banner ppf last_date_ref t =
     last_date_ref := Some date_key
   end
 
-let pp_header_with_ts ppf t h =
+let pp_header_with_ts ppf t (level, _header) =
   let tm = Unix.localtime t in
   let ms = int_of_float ((t -. floor t) *. 1000.0) in
-  Fmt.pf ppf "[%04d-%02d-%02d %02d:%02d:%02d.%03d] %a" (tm.Unix.tm_year + 1900)
-    (tm.Unix.tm_mon + 1) tm.Unix.tm_mday tm.Unix.tm_hour tm.Unix.tm_min
-    tm.Unix.tm_sec ms Logs_fmt.pp_header h
+  let lc = level_color level in
+  let lt = level_tag level in
+  Fmt.pf ppf "%s[%02d:%02d:%02d.%03d]%s %s%s%s " ansi_fg_gray tm.Unix.tm_hour
+    tm.Unix.tm_min tm.Unix.tm_sec ms ansi_reset lc lt ansi_reset
 
 let run ~(config : Runtime_config.t) =
   let current_config = ref config in
@@ -614,7 +648,13 @@ let run ~(config : Runtime_config.t) =
               let t = Unix.gettimeofday () in
               maybe_emit_date_banner dst last_log_date t;
               pp_header_with_ts dst t (level, header);
-              Format.pp_print_string dst s;
+              let mc = msg_color level in
+              if mc <> "" then begin
+                Format.pp_print_string dst mc;
+                Format.pp_print_string dst s;
+                Format.pp_print_string dst ansi_reset
+              end
+              else Format.pp_print_string dst s;
               Format.pp_print_newline dst ();
               over ();
               k ()

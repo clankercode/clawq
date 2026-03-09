@@ -129,6 +129,8 @@ let local_time ~year ~month ~day ~hour ~minute ~second =
          tm_isdst = false;
        })
 
+let strip_ansi s = Str.global_replace (Str.regexp "\027\\[[0-9;]*m") "" s
+
 let render_header_at t =
   let buf = Buffer.create 64 in
   let ppf = Format.formatter_of_buffer buf in
@@ -529,37 +531,58 @@ let test_parse_channel_from_key () =
     "main key" None
     (Restart_notify.parse_channel_from_key "__main__")
 
-let test_pp_header_with_ts_includes_full_date () =
+let test_pp_header_with_ts_includes_time () =
+  let output =
+    strip_ansi
+      (render_header_at
+         (local_time ~year:2026 ~month:3 ~day:8 ~hour:10 ~minute:11 ~second:12))
+  in
+  let has_time =
+    try
+      ignore (Str.search_forward (Str.regexp_string "[10:11:12.") output 0);
+      true
+    with Not_found -> false
+  in
+  Alcotest.(check bool) "header includes time" true has_time
+
+let test_pp_header_colorized () =
   let output =
     render_header_at
       (local_time ~year:2026 ~month:3 ~day:8 ~hour:10 ~minute:11 ~second:12)
   in
-  let has_prefix =
+  let has_ansi =
     try
-      ignore
-        (Str.search_forward
-           (Str.regexp_string "[2026-03-08 10:11:12.")
-           output 0);
+      ignore (Str.search_forward (Str.regexp "\027\\[") output 0);
       true
     with Not_found -> false
   in
-  Alcotest.(check bool) "header includes full date" true has_prefix
+  Alcotest.(check bool) "header contains ANSI codes" true has_ansi;
+  let stripped = strip_ansi output in
+  let has_level =
+    try
+      ignore (Str.search_forward (Str.regexp_string "INFO") stripped 0);
+      true
+    with Not_found -> false
+  in
+  Alcotest.(check bool) "header contains level tag" true has_level
 
 let test_maybe_emit_date_banner_logs_first_entry_date () =
   let output =
-    render_date_banners
-      [ local_time ~year:2026 ~month:3 ~day:8 ~hour:10 ~minute:0 ~second:0 ]
+    strip_ansi
+      (render_date_banners
+         [ local_time ~year:2026 ~month:3 ~day:8 ~hour:10 ~minute:0 ~second:0 ])
   in
   Alcotest.(check string) "first date banner" "=== 2026-03-08 ===\n" output
 
 let test_maybe_emit_date_banner_logs_when_day_advances () =
   let output =
-    render_date_banners
-      [
-        local_time ~year:2026 ~month:3 ~day:8 ~hour:10 ~minute:0 ~second:0;
-        local_time ~year:2026 ~month:3 ~day:8 ~hour:23 ~minute:59 ~second:59;
-        local_time ~year:2026 ~month:3 ~day:9 ~hour:0 ~minute:0 ~second:0;
-      ]
+    strip_ansi
+      (render_date_banners
+         [
+           local_time ~year:2026 ~month:3 ~day:8 ~hour:10 ~minute:0 ~second:0;
+           local_time ~year:2026 ~month:3 ~day:8 ~hour:23 ~minute:59 ~second:59;
+           local_time ~year:2026 ~month:3 ~day:9 ~hour:0 ~minute:0 ~second:0;
+         ])
   in
   Alcotest.(check string)
     "date rollover banners" "=== 2026-03-08 ===\n=== 2026-03-09 ===\n" output
@@ -960,8 +983,9 @@ let suite =
       test_restart_notify_missing_marker;
     Alcotest.test_case "parse channel from key" `Quick
       test_parse_channel_from_key;
-    Alcotest.test_case "pp_header_with_ts includes full date" `Quick
-      test_pp_header_with_ts_includes_full_date;
+    Alcotest.test_case "pp_header_with_ts includes time" `Quick
+      test_pp_header_with_ts_includes_time;
+    Alcotest.test_case "pp_header colorized" `Quick test_pp_header_colorized;
     Alcotest.test_case "date banner logs first entry date" `Quick
       test_maybe_emit_date_banner_logs_first_entry_date;
     Alcotest.test_case "date banner logs on day rollover" `Quick
