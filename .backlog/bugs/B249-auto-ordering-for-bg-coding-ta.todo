@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B249
+priority: high
+status: pending
+tags: []
+title: 'auto ordering for bg coding task runner: claude should come before codex'
+---
+
+auto ordering for bg coding task runner: claude should come before codex

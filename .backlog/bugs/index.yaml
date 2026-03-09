@@ -247,3 +247,4 @@ bugs:
     - file: B246-log-lines-injecting-1-queued-m.todo
     - file: B247-delegated-runner-selection-sho.todo
     - file: B248-tool-calls-like-grep-and-glob.todo
+    - file: B249-auto-ordering-for-bg-coding-ta.todo
