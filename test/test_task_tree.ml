@@ -546,7 +546,7 @@ let test_batch_operations () =
 
 let test_tool_invoke_round_trip () =
   let db = fresh_db () in
-  let tool_t = Task_tree.tool ~db in
+  let tool_t = Task_tree.tool ~db () in
   let args =
     `Assoc
       [
@@ -1410,6 +1410,260 @@ let test_error_msg_unknown_op_lists_valid () =
            true
          with Not_found -> false)
 
+let contains s sub =
+  try
+    ignore (Str.search_forward (Str.regexp_string sub) s 0);
+    true
+  with Not_found -> false
+
+let test_format_notification_add () =
+  let db = fresh_db () in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [ `Assoc [ ("op", `String "add"); ("title", `String "Setup DB") ] ]
+  in
+  let ops =
+    [ `Assoc [ ("op", `String "add"); ("title", `String "Setup DB") ] ]
+  in
+  let result =
+    Task_tree.format_notification ~connector:Format_adapter.Plain ~db
+      ~session_key:"s1" ops
+  in
+  match result with
+  | None -> Alcotest.fail "Expected Some notification"
+  | Some text ->
+      Alcotest.(check bool) "contains title" true (contains text "Setup DB");
+      Alcotest.(check bool) "contains pending" true (contains text "[pending]");
+      Alcotest.(check bool)
+        "contains header" true
+        (contains text "Task tree updated")
+
+let test_format_notification_update () =
+  let db = fresh_db () in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [ `Assoc [ ("op", `String "add"); ("title", `String "Work item") ] ]
+  in
+  let ops =
+    [
+      `Assoc
+        [
+          ("op", `String "update");
+          ("id", `String "1");
+          ("status", `String "done");
+        ];
+    ]
+  in
+  let result =
+    Task_tree.format_notification ~connector:Format_adapter.Discord ~db
+      ~session_key:"s1" ops
+  in
+  match result with
+  | None -> Alcotest.fail "Expected Some notification"
+  | Some text ->
+      Alcotest.(check bool) "contains #1" true (contains text "`#1`");
+      Alcotest.(check bool) "contains done" true (contains text "`done`")
+
+let test_format_notification_focus () =
+  let db = fresh_db () in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc [ ("op", `String "add"); ("title", `String "Single task") ];
+        `Assoc
+          [
+            ("op", `String "update");
+            ("id", `String "1");
+            ("status", `String "in_progress");
+          ];
+      ]
+  in
+  let ops =
+    [
+      `Assoc
+        [
+          ("op", `String "update");
+          ("id", `String "1");
+          ("status", `String "in_progress");
+        ];
+    ]
+  in
+  let result =
+    Task_tree.format_notification ~connector:Format_adapter.Plain ~db
+      ~session_key:"s1" ops
+  in
+  match result with
+  | None -> Alcotest.fail "Expected Some notification"
+  | Some text ->
+      Alcotest.(check bool) "contains Focus" true (contains text "Focus:");
+      Alcotest.(check bool)
+        "contains task title" true
+        (contains text "Single task")
+
+let test_format_notification_multiple_active () =
+  let db = fresh_db () in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "add");
+            ("id", `String "a");
+            ("title", `String "Task A");
+            ("status", `String "in_progress");
+          ];
+        `Assoc
+          [
+            ("op", `String "add");
+            ("id", `String "b");
+            ("title", `String "Task B");
+            ("status", `String "in_progress");
+          ];
+      ]
+  in
+  let ops =
+    [
+      `Assoc
+        [
+          ("op", `String "update");
+          ("id", `String "a");
+          ("status", `String "in_progress");
+        ];
+    ]
+  in
+  let result =
+    Task_tree.format_notification ~connector:Format_adapter.Plain ~db
+      ~session_key:"s1" ops
+  in
+  match result with
+  | None -> Alcotest.fail "Expected Some notification"
+  | Some text ->
+      Alcotest.(check bool) "contains Active" true (contains text "Active:");
+      Alcotest.(check bool) "contains #a" true (contains text "#a");
+      Alcotest.(check bool) "contains #b" true (contains text "#b")
+
+let test_format_notification_reorder_only () =
+  let db = fresh_db () in
+  let ops = [ `Assoc [ ("op", `String "reorder") ] ] in
+  let result =
+    Task_tree.format_notification ~connector:Format_adapter.Plain ~db
+      ~session_key:"s1" ops
+  in
+  Alcotest.(check bool) "reorder-only returns None" true (result = None)
+
+let test_format_notification_discord_formatting () =
+  let db = fresh_db () in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [ `Assoc [ ("op", `String "add"); ("title", `String "My task") ] ]
+  in
+  let ops =
+    [ `Assoc [ ("op", `String "add"); ("title", `String "My task") ] ]
+  in
+  let result =
+    Task_tree.format_notification ~connector:Format_adapter.Discord ~db
+      ~session_key:"s1" ops
+  in
+  match result with
+  | None -> Alcotest.fail "Expected Some notification"
+  | Some text ->
+      Alcotest.(check bool)
+        "Discord bold header" true
+        (contains text "**Task tree updated**");
+      Alcotest.(check bool)
+        "Discord bold title" true
+        (contains text "**My task**")
+
+let test_tool_notify_called_on_success () =
+  let db = fresh_db () in
+  let notified = ref None in
+  let notify session_key =
+    let send text =
+      notified := Some (session_key, text);
+      Lwt.return_unit
+    in
+    Some (Format_adapter.Plain, send)
+  in
+  let tool_t = Task_tree.tool ~db ~notify () in
+  let args =
+    `Assoc
+      [
+        ( "operations",
+          `List
+            [ `Assoc [ ("op", `String "add"); ("title", `String "Notify me") ] ]
+        );
+      ]
+  in
+  let ctx =
+    {
+      Tool.session_key = Some "test:1";
+      send_progress = None;
+      interrupt_check = None;
+    }
+  in
+  let result = Lwt_main.run (tool_t.invoke ~context:ctx args) in
+  Alcotest.(check bool) "tool succeeded" true (contains result "Added");
+  match !notified with
+  | None -> Alcotest.fail "Expected notification to be sent"
+  | Some (sk, text) ->
+      Alcotest.(check string) "session key" "test:1" sk;
+      Alcotest.(check bool)
+        "notification contains title" true
+        (contains text "Notify me")
+
+let test_tool_notify_not_called_on_error () =
+  let db = fresh_db () in
+  let notified = ref false in
+  let notify _session_key =
+    let send _text =
+      notified := true;
+      Lwt.return_unit
+    in
+    Some (Format_adapter.Plain, send)
+  in
+  let tool_t = Task_tree.tool ~db ~notify () in
+  let args =
+    `Assoc
+      [
+        ( "operations",
+          `List [ `Assoc [ ("op", `String "update"); ("id", `String "nope") ] ]
+        );
+      ]
+  in
+  let ctx =
+    {
+      Tool.session_key = Some "test:1";
+      send_progress = None;
+      interrupt_check = None;
+    }
+  in
+  let result = Lwt_main.run (tool_t.invoke ~context:ctx args) in
+  Alcotest.(check bool) "tool errored" true (contains result "Error");
+  Alcotest.(check bool) "notify not called" false !notified
+
+let test_tool_no_notify_when_none () =
+  let db = fresh_db () in
+  let tool_t = Task_tree.tool ~db () in
+  let args =
+    `Assoc
+      [
+        ( "operations",
+          `List
+            [ `Assoc [ ("op", `String "add"); ("title", `String "No notify") ] ]
+        );
+      ]
+  in
+  let ctx =
+    {
+      Tool.session_key = Some "test:1";
+      send_progress = None;
+      interrupt_check = None;
+    }
+  in
+  let result = Lwt_main.run (tool_t.invoke ~context:ctx args) in
+  Alcotest.(check bool)
+    "tool works without notify" true (contains result "Added")
+
 let suite =
   [
     Alcotest.test_case "init_schema idempotent" `Quick
@@ -1488,4 +1742,22 @@ let suite =
       test_error_msg_parent_not_found_has_suggestion;
     Alcotest.test_case "error msg unknown op lists valid" `Quick
       test_error_msg_unknown_op_lists_valid;
+    Alcotest.test_case "format notification add" `Quick
+      test_format_notification_add;
+    Alcotest.test_case "format notification update" `Quick
+      test_format_notification_update;
+    Alcotest.test_case "format notification focus" `Quick
+      test_format_notification_focus;
+    Alcotest.test_case "format notification multiple active" `Quick
+      test_format_notification_multiple_active;
+    Alcotest.test_case "format notification reorder only" `Quick
+      test_format_notification_reorder_only;
+    Alcotest.test_case "format notification Discord formatting" `Quick
+      test_format_notification_discord_formatting;
+    Alcotest.test_case "tool notify called on success" `Quick
+      test_tool_notify_called_on_success;
+    Alcotest.test_case "tool notify not called on error" `Quick
+      test_tool_notify_not_called_on_error;
+    Alcotest.test_case "tool no notify when None" `Quick
+      test_tool_no_notify_when_none;
   ]

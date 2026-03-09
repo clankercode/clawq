@@ -160,6 +160,10 @@ let parse_config ?(resolve_secrets = true) json =
         try ad |> member "autonomous_continuation_enabled" |> to_bool
         with _ -> default.agent_defaults.autonomous_continuation_enabled
       in
+      let task_tree_notifications =
+        try ad |> member "task_tree_notifications" |> to_bool
+        with _ -> default.agent_defaults.task_tree_notifications
+      in
       ({
          primary_model;
          system_prompt;
@@ -171,6 +175,7 @@ let parse_config ?(resolve_secrets = true) json =
          tool_status_mode;
          send_continuation_checkin;
          autonomous_continuation_enabled;
+         task_tree_notifications;
        }
         : Runtime_config.agent_defaults)
     with _ -> default.agent_defaults

@@ -173,7 +173,7 @@ let format_elapsed_seconds secs =
 let runtime_string (task : task) =
   match task.started_at with
   | None -> "-"
-  | Some started -> (
+  | Some started ->
       let start_time = parse_sqlite_datetime started in
       if start_time <= 0.0 then "-"
       else
@@ -184,7 +184,7 @@ let runtime_string (task : task) =
               if t > 0.0 then t else Unix.gettimeofday ()
           | None -> Unix.gettimeofday ()
         in
-        format_elapsed_seconds (end_time -. start_time))
+        format_elapsed_seconds (end_time -. start_time)
 
 let format_task_summary (task : task) =
   let branch = if task.branch = "" then "(auto)" else task.branch in
@@ -893,11 +893,7 @@ let command_of_task task =
         ]
   | Opencode ->
       Array.concat
-        [
-          [| "opencode"; "run" |];
-          model_args "--model";
-          [| task.prompt |];
-        ]
+        [ [| "opencode"; "run" |]; model_args "--model"; [| task.prompt |] ]
 
 let elapsed_string (task : task) =
   let now = Unix.gettimeofday () in
@@ -1295,7 +1291,15 @@ let enqueue_tool_with_notify ~notify_cfg ~db =
                   `Assoc
                     [
                       ("type", `String "string");
-                      ("enum", `List [ `String "codex"; `String "claude"; `String "kimi"; `String "gemini"; `String "opencode" ]);
+                      ( "enum",
+                        `List
+                          [
+                            `String "codex";
+                            `String "claude";
+                            `String "kimi";
+                            `String "gemini";
+                            `String "opencode";
+                          ] );
                       ( "description",
                         `String
                           "Which external coding CLI to run in the background \
@@ -1366,7 +1370,10 @@ let enqueue_tool_with_notify ~notify_cfg ~db =
           with _ -> None
         in
         match runner_of_string runner_s with
-        | None -> Lwt.return "Error: runner must be 'codex', 'claude', 'kimi', 'gemini', or 'opencode'"
+        | None ->
+            Lwt.return
+              "Error: runner must be 'codex', 'claude', 'kimi', 'gemini', or \
+               'opencode'"
         | Some runner when String.trim repo_path = "" ->
             Lwt.return "Error: repo_path is required"
         | Some _ when String.trim prompt = "" ->
@@ -1627,14 +1634,19 @@ let delegate_tool_with_notify ?(check_available = true) ~db ~default_repo_path
                       ("type", `String "string");
                       ( "enum",
                         `List
-                          [ `String "auto"; `String "codex"; `String "claude";
-                            `String "kimi"; `String "gemini"; `String "opencode" ]
-                      );
+                          [
+                            `String "auto";
+                            `String "codex";
+                            `String "claude";
+                            `String "kimi";
+                            `String "gemini";
+                            `String "opencode";
+                          ] );
                       ( "description",
                         `String
                           "Optional runner choice. 'auto' prefers Codex when \
-                           available, then Claude, then Kimi, then Gemini, then \
-                           Opencode." );
+                           available, then Claude, then Kimi, then Gemini, \
+                           then Opencode." );
                     ] );
                 ( "repo_path",
                   `Assoc
@@ -1680,7 +1692,10 @@ let delegate_tool_with_notify ?(check_available = true) ~db ~default_repo_path
                 match runner_of_string s with
                 | Some runner -> (Some runner, None)
                 | None ->
-                    (None, Some "runner must be 'auto', 'codex', 'claude', 'kimi', 'gemini', or 'opencode'"))
+                    ( None,
+                      Some
+                        "runner must be 'auto', 'codex', 'claude', 'kimi', \
+                         'gemini', or 'opencode'" ))
           with _ -> (None, None)
         in
         let repo_path =

@@ -30,6 +30,7 @@ type agent_defaults = {
   tool_status_mode : string;
   send_continuation_checkin : bool;
   autonomous_continuation_enabled : bool;
+  task_tree_notifications : bool;
 }
 
 type totp_config = {
@@ -413,6 +414,7 @@ let default =
         tool_status_mode = "consolidated";
         send_continuation_checkin = false;
         autonomous_continuation_enabled = true;
+        task_tree_notifications = true;
       };
     prompt = default_prompt;
     channels =

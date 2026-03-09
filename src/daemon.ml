@@ -1154,6 +1154,35 @@ let run ~(config : Runtime_config.t) =
                 (fun ~text ->
                   Session.notify_channel_sessions session_manager text)))
   | None -> ());
+  (* Re-register task_tree with channel notification support *)
+  (if !current_config.agent_defaults.task_tree_notifications then
+     match (tool_registry, db) with
+     | Some registry, Some db ->
+         let notify session_key =
+           match
+             Session.find_registered_notifier session_manager ~key:session_key
+           with
+           | Some notifier ->
+               let connector =
+                 if
+                   String.length session_key >= 9
+                   && String.sub session_key 0 9 = "telegram:"
+                 then Format_adapter.Telegram_markdown
+                 else if
+                   String.length session_key >= 8
+                   && String.sub session_key 0 8 = "discord:"
+                 then Format_adapter.Discord
+                 else if
+                   String.length session_key >= 6
+                   && String.sub session_key 0 6 = "slack:"
+                 then Format_adapter.Slack
+                 else Format_adapter.Plain
+               in
+               Some (connector, notifier)
+           | None -> None
+         in
+         Tool_registry.register registry (Task_tree.tool ~db ~notify ())
+     | _ -> ());
   let update_lock = Lwt_mutex.create () in
   let update_in_progress = ref false in
   let claim_update () =

@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-09T19:00:39Z"
+claimed_by: cli-user
+completed_at: "2026-03-09T20:32:11Z"
 complexity: medium
 depends_on: []
+duration_minutes: 91.5439477915
 estimate_hours: 1
 id: B225
 priority: medium
-status: pending
+started_at: "2026-03-09T19:00:39Z"
+status: done
 tags: []
 title: Task tree updates should produce rich connector-native status updates in Telegram, Discord, and other channels
 ---

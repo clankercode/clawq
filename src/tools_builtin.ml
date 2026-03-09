@@ -3364,7 +3364,7 @@ let register_all ~(config : Runtime_config.t) ~sandbox ?(db = None)
       Tool_registry.register registry (history_search ~db);
       Background_task.init_schema db;
       Task_tree.init_schema db;
-      Tool_registry.register registry (Task_tree.tool ~db);
+      Tool_registry.register registry (Task_tree.tool ~db ());
       Tool_registry.register registry
         (Background_task.enqueue_tool_with_notify ~notify_cfg:config.notify ~db);
       Tool_registry.register registry (Background_task.list_tool ~db);

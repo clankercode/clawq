@@ -377,6 +377,94 @@ let render_tree_with_legend ~db ~session_key =
     ^ "\n\n\
        Legend: [ ] pending  [>] in_progress  [x] done  [!] error  [-] cancelled"
 
+let format_notification ~connector ~db ~session_key (ops : Yojson.Safe.t list) =
+  let open Yojson.Safe.Util in
+  let lines = Buffer.create 128 in
+  let meaningful = ref false in
+  List.iter
+    (fun op_json ->
+      let op = try op_json |> member "op" |> to_string with _ -> "" in
+      match op with
+      | "add" ->
+          meaningful := true;
+          let title =
+            try op_json |> member "title" |> to_string with _ -> "?"
+          in
+          let status =
+            try op_json |> member "status" |> to_string with _ -> "pending"
+          in
+          Buffer.add_string lines
+            (Printf.sprintf "+ %s [%s]\n"
+               (Format_adapter.bold connector title)
+               status)
+      | "update" ->
+          meaningful := true;
+          let id = try op_json |> member "id" |> to_string with _ -> "?" in
+          let status =
+            try Some (op_json |> member "status" |> to_string) with _ -> None
+          in
+          let note =
+            try Some (op_json |> member "note" |> to_string) with _ -> None
+          in
+          let detail =
+            match (status, note) with
+            | Some s, Some n ->
+                Printf.sprintf " -> %s (%s)" (Format_adapter.code connector s) n
+            | Some s, None ->
+                Printf.sprintf " -> %s" (Format_adapter.code connector s)
+            | None, Some n -> Printf.sprintf " note: %s" n
+            | None, None -> ""
+          in
+          Buffer.add_string lines
+            (Printf.sprintf "~ %s%s\n"
+               (Format_adapter.code connector ("#" ^ id))
+               detail)
+      | "remove" ->
+          meaningful := true;
+          let id = try op_json |> member "id" |> to_string with _ -> "?" in
+          Buffer.add_string lines
+            (Printf.sprintf "- Removed %s\n"
+               (Format_adapter.code connector ("#" ^ id)))
+      | "clear" ->
+          meaningful := true;
+          Buffer.add_string lines "Cleared completed tasks\n"
+      | "archive" -> (
+          meaningful := true;
+          let id =
+            try Some (op_json |> member "id" |> to_string) with _ -> None
+          in
+          match id with
+          | Some id ->
+              Buffer.add_string lines
+                (Printf.sprintf "Archived %s\n"
+                   (Format_adapter.code connector ("#" ^ id)))
+          | None -> Buffer.add_string lines "Archived completed trees\n")
+      | "reorder" | _ -> ())
+    ops;
+  if not !meaningful then None
+  else begin
+    let tasks = load_tasks ~db ~session_key in
+    let in_progress = List.filter (fun t -> t.status = In_progress) tasks in
+    (match in_progress with
+    | [ t ] ->
+        Buffer.add_string lines
+          (Printf.sprintf "Focus: %s %s\n"
+             (Format_adapter.code connector ("#" ^ t.id))
+             t.title)
+    | _ :: _ ->
+        let ids =
+          String.concat ", "
+            (List.map
+               (fun t -> Format_adapter.code connector ("#" ^ t.id))
+               in_progress)
+        in
+        Buffer.add_string lines (Printf.sprintf "Active: %s\n" ids)
+    | [] -> ());
+    let content = Buffer.contents lines in
+    let header = Format_adapter.bold connector "Task tree updated" ^ "\n" in
+    Some (header ^ content)
+  end
+
 (* Validate and execute add operation *)
 let do_add ~db ~session_key ~id ~parent_id ~title ~status ~note =
   if String.length title > max_title_length then
@@ -1052,7 +1140,7 @@ let process_operations ~db ~session_key (ops : Yojson.Safe.t list) =
             cancelled")
   end
 
-let tool ~db : Tool.t =
+let tool ~db ?notify () : Tool.t =
   {
     name = "task_tree";
     description =
@@ -1188,7 +1276,29 @@ let tool ~db : Tool.t =
         let open Yojson.Safe.Util in
         let ops = try args |> member "operations" |> to_list with _ -> [] in
         match process_operations ~db ~session_key ops with
-        | Ok result -> Lwt.return result
+        | Ok result ->
+            (match notify with
+            | Some lookup -> (
+                match lookup session_key with
+                | Some (connector, send) -> (
+                    match
+                      format_notification ~connector ~db ~session_key ops
+                    with
+                    | Some text ->
+                        Lwt.async (fun () ->
+                            Lwt.catch
+                              (fun () -> send text)
+                              (fun exn ->
+                                Logs.warn (fun m ->
+                                    m
+                                      "Failed to send task tree notification: \
+                                       %s"
+                                      (Printexc.to_string exn));
+                                Lwt.return_unit))
+                    | None -> ())
+                | None -> ())
+            | None -> ());
+            Lwt.return result
         | Error msg -> Lwt.return ("Error: " ^ msg));
     invoke_stream = None;
     risk_level = Low;
