@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-09T00:50:10Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B118
 priority: high
-status: pending
+started_at: "2026-03-09T00:50:10Z"
+status: in_progress
 tags: []
 title: when we truncate stdout of a tool call, we should also save that stdout to a tmp file somewhere that the agent can read if it needs to.
 ---
