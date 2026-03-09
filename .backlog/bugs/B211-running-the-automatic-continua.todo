@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B211
+priority: high
+status: pending
+tags: []
+title: running the automatic continuation check-in should be controllable by a config variable (and this should be documented so I can ask clawq to disable it)
+---
+
+running the automatic continuation check-in should be controllable by a config variable (and this should be documented so I can ask clawq to disable it)
