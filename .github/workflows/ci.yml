@@ -18,26 +18,10 @@ jobs:
       - name: Install system package for sqlite bindings
         run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
 
-      - name: Restore opam cache
-        id: opam-cache
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/.opam
-          key: opam-${{ runner.os }}-${{ hashFiles('clawq.opam', 'dune-project') }}
-
       - name: Install opam deps
-        if: steps.opam-cache.outputs.cache-hit != 'true'
         run: |
-          opam update
           opam install -y . --deps-only --with-test
           opam install -y ocamlformat.0.28.1
-
-      - name: Save opam cache
-        if: steps.opam-cache.outputs.cache-hit != 'true' && always()
-        uses: actions/cache/save@v4
-        with:
-          path: ~/.opam
-          key: opam-${{ runner.os }}-${{ hashFiles('clawq.opam', 'dune-project') }}
 
       - name: Cache dune build artifacts
         uses: actions/cache@v4

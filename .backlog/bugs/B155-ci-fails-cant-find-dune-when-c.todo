@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-09T10:33:55Z"
+claimed_by: cli-user
+completed_at: "2026-03-09T10:37:54Z"
 complexity: medium
 depends_on: []
+duration_minutes: 3.9907495953
 estimate_hours: 1
 id: B155
 priority: high
-status: pending
+started_at: "2026-03-09T10:33:55Z"
+status: done
 tags: []
 title: ci fails cant find dune when cached
 ---
