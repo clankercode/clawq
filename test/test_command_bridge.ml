@@ -1259,6 +1259,60 @@ let test_debug_usage_mentions_prompt_and_html_preview () =
        true
      with Not_found -> false)
 
+let test_debug_prompt_includes_workspace_file_content () =
+  with_temp_home (fun home ->
+      let clawq_dir = Filename.concat home ".clawq" in
+      Unix.mkdir clawq_dir 0o755;
+      let ws_dir = Filename.concat clawq_dir "workspace" in
+      Unix.mkdir ws_dir 0o755;
+      let agents_path = Filename.concat ws_dir "AGENTS.md" in
+      let oc = open_out agents_path in
+      output_string oc "SENTINEL_B139_WORKSPACE_INJECTION";
+      close_out oc;
+      let config_path = Filename.concat clawq_dir "config.json" in
+      let oc = open_out config_path in
+      Printf.fprintf oc
+        {|{
+  "default_provider": "testprov",
+  "workspace": "%s",
+  "providers": {
+    "testprov": {
+      "api_key": "sk-test",
+      "default_model": "test-model"
+    }
+  },
+  "prompt": {
+    "dynamic_enabled": true,
+    "workspace_files": ["AGENTS.md"]
+  },
+  "security": {
+    "tools_enabled": false
+  }
+}|}
+        ws_dir;
+      close_out oc;
+      let result = Command_bridge.handle [ "debug"; "prompt"; "test" ] in
+      Alcotest.(check bool)
+        "debug prompt includes workspace file content" true
+        (try
+           ignore
+             (Str.search_forward
+                (Str.regexp_string "SENTINEL_B139_WORKSPACE_INJECTION")
+                result 0);
+           true
+         with Not_found -> false);
+      Alcotest.(check bool)
+        "debug prompt includes workspace context header" true
+        (try
+           ignore
+             (Str.search_forward
+                (Str.regexp_string "Workspace Context")
+                result 0);
+           true
+         with Not_found -> false);
+      (try Sys.remove agents_path with _ -> ());
+      try Unix.rmdir ws_dir with _ -> ())
+
 let suite =
   [
     Alcotest.test_case "handle phase2" `Quick test_handle_phase2;
@@ -1342,4 +1396,6 @@ let suite =
       test_debug_prompt_defaults_message_when_missing;
     Alcotest.test_case "debug usage mentions prompt and html-preview" `Quick
       test_debug_usage_mentions_prompt_and_html_preview;
+    Alcotest.test_case "debug prompt includes workspace file content" `Quick
+      test_debug_prompt_includes_workspace_file_content;
   ]
