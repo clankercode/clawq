@@ -154,8 +154,7 @@ let migrate_schema db current_version =
       init_session_schema db;
       init_epoch_schema db;
       set_schema_version db schema_version
-  | n when n = schema_version ->
-      init_session_schema db
+  | n when n = schema_version -> init_session_schema db
   | n ->
       failwith
         (Printf.sprintf "Unsupported schema version %d (current=%d)" n
@@ -531,9 +530,8 @@ let store_session_workspace_state ~db ~session_key
              [
                ("file", `String file);
                ( "digest",
-                 match digest with
-                 | Some value -> `String value
-                 | None -> `Null );
+                 match digest with Some value -> `String value | None -> `Null
+               );
              ])
          observed_active_workspace_files)
     |> Yojson.Safe.to_string
@@ -559,8 +557,8 @@ let store_session_workspace_state ~db ~session_key
 
 let load_session_workspace_state ~db ~session_key =
   let sql =
-    "SELECT observed_files_json FROM session_workspace_state WHERE \
-     session_key = ?"
+    "SELECT observed_files_json FROM session_workspace_state WHERE session_key \
+     = ?"
   in
   let stmt = Sqlite3.prepare db sql in
   Fun.protect
@@ -574,17 +572,18 @@ let load_session_workspace_state ~db ~session_key =
               try
                 let open Yojson.Safe.Util in
                 Some
-                  (Yojson.Safe.from_string json |> to_list
+                  (Yojson.Safe.from_string json
+                  |> to_list
                   |> List.filter_map (fun entry ->
-                         try
-                           let file = entry |> member "file" |> to_string in
-                           let digest =
-                             match entry |> member "digest" with
-                             | `Null -> None
-                             | value -> Some (to_string value)
-                           in
-                           Some (file, digest)
-                         with _ -> None))
+                      try
+                        let file = entry |> member "file" |> to_string in
+                        let digest =
+                          match entry |> member "digest" with
+                          | `Null -> None
+                          | value -> Some (to_string value)
+                        in
+                        Some (file, digest)
+                      with _ -> None))
               with _ -> None)
           | _ -> None)
       | _ -> None)

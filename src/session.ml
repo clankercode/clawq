@@ -369,9 +369,7 @@ let notify_event_text ?notify ?on_chunk text =
   let send =
     match notify with
     | Some send ->
-        let text =
-          if Option.is_some on_chunk then text ^ "\n\n" else text
-        in
+        let text = if Option.is_some on_chunk then text ^ "\n\n" else text in
         Some (fun () -> send text)
     | None ->
         Option.map
@@ -669,7 +667,8 @@ let persist_session_workspace_state mgr ~key agent =
   match mgr.db with
   | Some db when agent.Agent.history <> [] ->
       Memory.store_session_workspace_state ~db ~session_key:key
-        ~observed_active_workspace_files:agent.Agent.observed_active_workspace_files
+        ~observed_active_workspace_files:
+          agent.Agent.observed_active_workspace_files
   | _ -> ()
 
 let persist_new_messages mgr ~key ~history_before agent =

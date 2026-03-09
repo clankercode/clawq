@@ -1232,7 +1232,7 @@ let parse_background_wait_args args =
             try loop timeout (Some (int_of_string arg)) rest
             with _ -> Error "Background task id must be an integer"))
   in
-  loop 300.0 None args
+  loop 180.0 None args
 
 let parse_background_logs_args args =
   let rec loop lines follow id = function
@@ -1767,13 +1767,30 @@ let cmd_background args =
       match parse_background_wait_args rest with
       | Error msg -> "Error: " ^ msg
       | Ok parsed -> (
-          match
+          let timeout_seconds =
+            Float.min parsed.timeout_seconds Background_task.max_wait_seconds
+          in
+          let result =
             Lwt_main.run
-              (Background_task.wait_until_terminal
-                 ~timeout_seconds:parsed.timeout_seconds ~db ~id:parsed.id ())
-          with
-          | Ok task -> Background_task.format_task_summary task
-          | Error msg -> "Error: " ^ msg))
+              (Background_task.wait_until_terminal ~timeout_seconds ~db
+                 ~id:parsed.id ())
+          in
+          match result with
+          | Background_task.Finished task ->
+              Background_task.format_task_summary task
+          | Background_task.Timeout task ->
+              Printf.sprintf
+                "Task %d is still %s after waiting. Run `clawq background wait \
+                 %d` to continue waiting, or `clawq background logs %d` to \
+                 check progress.\n\n\
+                 %s"
+                parsed.id
+                (Background_task.string_of_status task.status)
+                parsed.id parsed.id
+                (Background_task.format_task_summary task)
+          | Background_task.Not_found ->
+              Printf.sprintf "Error: No background task found with id %d"
+                parsed.id))
   | "logs" :: rest -> (
       let db = get_db () in
       Background_task.init_schema db;

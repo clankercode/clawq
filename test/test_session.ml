@@ -1856,8 +1856,7 @@ let test_turn_notifier_surfaces_workspace_refresh_event_for_tool_update () =
               base_config with
               workspace;
               prompt;
-              security =
-                { base_config.security with tools_enabled = true };
+              security = { base_config.security with tools_enabled = true };
             }
           in
           let registry = Tool_registry.create () in
@@ -1876,12 +1875,16 @@ let test_turn_notifier_surfaces_workspace_refresh_event_for_tool_update () =
           Alcotest.(check string) "final response" "done" response;
           Alcotest.(check (list string))
             "refresh notice delivered to notifier"
-            [ "workspace context refreshed after active workspace file update: \
-               AGENTS.md" ]
+            [
+              "workspace context refreshed after active workspace file update: \
+               AGENTS.md";
+            ]
             (List.rev !notifications);
           Alcotest.(check bool)
             "refresh notice does not leak prompt contents" false
-            (List.exists (fun text -> string_contains text secret) !notifications);
+            (List.exists
+               (fun text -> string_contains text secret)
+               !notifications);
           let persisted = Memory.load_history ~db ~session_key:"telegram:1:u" in
           Alcotest.(check bool)
             "event persisted in session history" true
@@ -1948,8 +1951,7 @@ let test_turn_stream_detects_external_workspace_edit_on_next_turn () =
             let response =
               Lwt_main.run
                 (Session.with_registered_notifier manager ~key:"web:s-external"
-                   ~notify:push_text
-                   (fun () ->
+                   ~notify:push_text (fun () ->
                      Session.turn_stream manager ~key:"web:s-external" ~message
                        ~on_chunk:push_chunk ()))
             in
@@ -2065,8 +2067,7 @@ let test_restored_session_detects_external_workspace_edit_on_next_turn () =
             let response =
               Lwt_main.run
                 (Session.with_registered_notifier manager ~key:"web:s-restore"
-                   ~notify:push_text
-                   (fun () ->
+                   ~notify:push_text (fun () ->
                      Session.turn_stream manager ~key:"web:s-restore" ~message
                        ~on_chunk:push_chunk ()))
             in
@@ -2100,8 +2101,8 @@ let test_restored_session_detects_external_workspace_edit_on_next_turn () =
                (function Provider.Delta "ok" -> true | _ -> false)
                second_chunks);
           let prompts = List.rev !seen_system_prompts in
-          Alcotest.(check int) "two prompts observed across restore" 2
-            (List.length prompts);
+          Alcotest.(check int)
+            "two prompts observed across restore" 2 (List.length prompts);
           Alcotest.(check bool)
             "first prompt used original workspace content" true
             (string_contains (List.nth prompts 0) original);
@@ -2115,7 +2116,9 @@ let test_restored_session_detects_external_workspace_edit_on_next_turn () =
                  | Provider.Delta text -> string_contains text updated
                  | _ -> false)
                second_chunks);
-          let persisted = Memory.load_history ~db ~session_key:"web:s-restore" in
+          let persisted =
+            Memory.load_history ~db ~session_key:"web:s-restore"
+          in
           let refresh_events =
             List.filter
               (fun (msg : Provider.message) ->

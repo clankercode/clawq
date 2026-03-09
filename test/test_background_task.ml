@@ -1185,6 +1185,123 @@ let test_log_follow_streams_new_lines () =
       (try Sys.remove log_path with Sys_error _ -> ());
       try Sys.rmdir log_dir with Sys_error _ -> ())
 
+let test_wait_tool_timeout_returns_instruction () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"implement feature" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      (* Task is queued (non-terminal), so a 0-second timeout triggers immediately *)
+      let tool = Background_task.wait_tool ~db in
+      let result =
+        Lwt_main.run
+          (tool.Tool.invoke
+             (`Assoc [ ("id", `Int id); ("timeout_seconds", `Float 0.0) ]))
+      in
+      Alcotest.(check bool)
+        "timeout mentions still running" true
+        (try
+           ignore (Str.search_forward (Str.regexp_string "is still") result 0);
+           true
+         with Not_found -> false);
+      Alcotest.(check bool)
+        "timeout instructs re-wait" true
+        (try
+           ignore
+             (Str.search_forward
+                (Str.regexp_string "call background_task_wait again")
+                result 0);
+           true
+         with Not_found -> false);
+      Alcotest.(check bool)
+        "timeout is not an error" true
+        (not
+           (try
+              ignore (Str.search_forward (Str.regexp_string "Error:") result 0);
+              true
+            with Not_found -> false)))
+
+let test_wait_tool_clamps_timeout_above_max () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"implement feature" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      ignore
+        (Background_task.mark_cancelled ~db ~id
+           ~result_preview:"Cancelled before execution started");
+      (* Even with a huge timeout, it should succeed because task is terminal *)
+      let tool = Background_task.wait_tool ~db in
+      let result =
+        Lwt_main.run
+          (tool.Tool.invoke
+             (`Assoc [ ("id", `Int id); ("timeout_seconds", `Float 9999.0) ]))
+      in
+      Alcotest.(check bool)
+        "clamped timeout still returns terminal result" true
+        (try
+           ignore
+             (Str.search_forward
+                (Str.regexp_string "status: cancelled")
+                result 0);
+           true
+         with Not_found -> false))
+
+let test_wait_until_terminal_not_found () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Background_task.init_schema db;
+  let result =
+    Lwt_main.run
+      (Background_task.wait_until_terminal ~timeout_seconds:0.1 ~db ~id:999 ())
+  in
+  match result with
+  | Background_task.Not_found -> ()
+  | Background_task.Finished _ ->
+      Alcotest.fail "expected Not_found, got Finished"
+  | Background_task.Timeout _ -> Alcotest.fail "expected Not_found, got Timeout"
+
+let test_wait_until_terminal_timeout () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"implement feature" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      let result =
+        Lwt_main.run
+          (Background_task.wait_until_terminal ~timeout_seconds:0.0 ~db ~id ())
+      in
+      match result with
+      | Background_task.Timeout task ->
+          Alcotest.(check string)
+            "task status" "queued"
+            (Background_task.string_of_status task.status)
+      | Background_task.Finished _ ->
+          Alcotest.fail "expected Timeout, got Finished"
+      | Background_task.Not_found ->
+          Alcotest.fail "expected Timeout, got Not_found")
+
+let test_max_wait_seconds_is_180 () =
+  Alcotest.(check (float 0.0))
+    "max_wait_seconds is 180" 180.0 Background_task.max_wait_seconds
+
 let suite =
   [
     Alcotest.test_case "enqueue and list tasks" `Quick
@@ -1252,4 +1369,14 @@ let suite =
       test_log_follow_completed_task;
     Alcotest.test_case "log_follow streams new lines" `Quick
       test_log_follow_streams_new_lines;
+    Alcotest.test_case "wait tool timeout returns re-wait instruction" `Quick
+      test_wait_tool_timeout_returns_instruction;
+    Alcotest.test_case "wait tool clamps timeout above max" `Quick
+      test_wait_tool_clamps_timeout_above_max;
+    Alcotest.test_case "wait_until_terminal not found" `Quick
+      test_wait_until_terminal_not_found;
+    Alcotest.test_case "wait_until_terminal timeout" `Quick
+      test_wait_until_terminal_timeout;
+    Alcotest.test_case "max_wait_seconds is 180" `Quick
+      test_max_wait_seconds_is_180;
   ]

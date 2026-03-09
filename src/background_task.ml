@@ -354,19 +354,17 @@ let get_task ~db ~id =
       | Sqlite3.Rc.ROW -> Some (task_of_stmt stmt)
       | _ -> None)
 
-let rec wait_until_terminal ?(timeout_seconds = 300.0) ?(poll_seconds = 1.0) ~db
+type wait_result = Finished of task | Timeout of task | Not_found
+
+let max_wait_seconds = 180.0
+
+let rec wait_until_terminal ?(timeout_seconds = 180.0) ?(poll_seconds = 1.0) ~db
     ~id () =
   let open Lwt.Syntax in
   match get_task ~db ~id with
-  | None ->
-      Lwt.return
-        (Error (Printf.sprintf "No background task found with id %d" id))
-  | Some task when is_terminal_status task.status -> Lwt.return (Ok task)
-  | Some _ when timeout_seconds <= 0.0 ->
-      Lwt.return
-        (Error
-           (Printf.sprintf "Timed out waiting for background task %d to finish"
-              id))
+  | None -> Lwt.return Not_found
+  | Some task when is_terminal_status task.status -> Lwt.return (Finished task)
+  | Some task when timeout_seconds <= 0.0 -> Lwt.return (Timeout task)
   | Some _ ->
       let sleep_for = Float.min poll_seconds timeout_seconds in
       let* () = Lwt_unix.sleep sleep_for in
@@ -1213,8 +1211,9 @@ let wait_tool ~db =
   {
     Tool.name = "background_task_wait";
     description =
-      "Wait for a background coding task to finish, then return its final \
-       status summary.";
+      "Wait for a background coding task to finish (max 3 minutes). If the \
+       task is still running when the timeout is reached, call this tool again \
+       to continue waiting.";
     parameters_schema =
       `Assoc
         [
@@ -1234,7 +1233,10 @@ let wait_tool ~db =
                       ("type", `String "number");
                       ( "description",
                         `String
-                          "Maximum time to wait before returning an error." );
+                          (Printf.sprintf
+                             "Seconds to wait (default and max: %.0f). Values \
+                              above the max are clamped."
+                             max_wait_seconds) );
                     ] );
               ] );
           ("required", `List [ `String "id" ]);
@@ -1244,16 +1246,32 @@ let wait_tool ~db =
       (fun ?context:_ args ->
         let open Yojson.Safe.Util in
         let id = try args |> member "id" |> to_int with _ -> -1 in
+        let raw_timeout =
+          try args |> member "timeout_seconds" |> to_number
+          with _ -> max_wait_seconds
+        in
         let timeout_seconds =
-          try args |> member "timeout_seconds" |> to_number with _ -> 300.0
+          Float.min (Float.max raw_timeout 0.0) max_wait_seconds
         in
         if id < 0 then Lwt.return "Error: id is required"
         else
           let open Lwt.Syntax in
           let* result = wait_until_terminal ~timeout_seconds ~db ~id () in
           match result with
-          | Ok task -> Lwt.return (format_task_summary task)
-          | Error msg -> Lwt.return ("Error: " ^ msg));
+          | Finished task -> Lwt.return (format_task_summary task)
+          | Timeout task ->
+              Lwt.return
+                (Printf.sprintf
+                   "Task %d is still %s after waiting. To continue waiting, \
+                    call background_task_wait again with {\"id\": %d}. You can \
+                    also check progress with background_task_logs.\n\n\
+                    %s"
+                   id
+                   (string_of_status task.status)
+                   id (format_task_summary task))
+          | Not_found ->
+              Lwt.return
+                (Printf.sprintf "Error: No background task found with id %d" id));
     invoke_stream = None;
     risk_level = Low;
     deferred = false;

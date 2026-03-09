@@ -289,7 +289,7 @@ You have up to 29 built-in tools. 14 are always registered; `web_search`, `send_
 | `history_search` | Search your own session's chat history across current and archived epochs |
 | `background_task_enqueue` | Queue a background Codex/Claude task in a git worktree (lower-level; use delegate for simple requests) |
 | `background_task_list` | List background tasks or inspect a single task by id, including status, branch, log path, and result preview |
-| `background_task_wait` | Wait for a background task to reach a terminal state and return its final summary |
+| `background_task_wait` | Wait for a background task to finish (max 3 minutes). Returns status and re-wait instructions if the task is still running |
 | `background_task_logs` | Read the latest lines from a background task log file |
 | `delegate` | Delegate a coding task to a background subagent (Codex/Claude) in a git worktree. Use for 'spawn subagent'/'use haiku to ...' requests |
 | `background_task_cancel` | Cancel a queued or running background task |

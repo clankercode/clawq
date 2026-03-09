@@ -52,10 +52,10 @@ let active_workspace_files_for_config (config : Runtime_config.t) =
 let capture_active_workspace_file_state_for_config (config : Runtime_config.t) =
   active_workspace_files_for_config config
   |> List.map (fun (file, path) ->
-         let digest =
-           try Some (Digest.to_hex (Digest.file path)) with _ -> None
-         in
-         (file, digest))
+      let digest =
+        try Some (Digest.to_hex (Digest.file path)) with _ -> None
+      in
+      (file, digest))
 
 let create ~config ?tool_registry () =
   let system_prompt = Prompt_builder.build ~config ~tool_registry () in
@@ -717,7 +717,8 @@ let risk_level_to_string = function
   | Tool.Medium -> "medium"
   | Tool.High -> "high"
 
-let active_workspace_files agent = active_workspace_files_for_config agent.config
+let active_workspace_files agent =
+  active_workspace_files_for_config agent.config
 
 let capture_active_workspace_file_state agent =
   capture_active_workspace_file_state_for_config agent.config
@@ -809,10 +810,11 @@ let observe_workspace_refresh agent tc result ~before_active_workspace_files =
   { message; after_state }
 
 let sync_observed_active_workspace_files agent =
-  agent.observed_active_workspace_files <- capture_active_workspace_file_state agent
+  agent.observed_active_workspace_files <-
+    capture_active_workspace_file_state agent
 
-let restore_observed_active_workspace_files agent observed_active_workspace_files
-    =
+let restore_observed_active_workspace_files agent
+    observed_active_workspace_files =
   let current_state = capture_active_workspace_file_state agent in
   agent.observed_active_workspace_files <-
     List.map
