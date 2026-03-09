@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B176
+priority: high
+status: pending
+tags: []
+title: Before compaction we should fork the agent and get it to update any memories or things that it needs to. use super-plan skill and ask the user lots of questions about design etc and how we should implement this and how it should work.
+---
+
+Before compaction we should fork the agent and get it to update any memories or things that it needs to. use super-plan skill and ask the user lots of questions about design etc and how we should implement this and how it should work.
