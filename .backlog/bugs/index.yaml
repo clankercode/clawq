@@ -154,3 +154,4 @@ bugs:
     - file: B153-tool-calls-and-connectors-spec.todo
     - file: B154-update-system-prompt-before-wo.todo
     - file: B155-ci-fails-cant-find-dune-when-c.todo
+    - file: B156-b146-wake-assistant-session-on.todo

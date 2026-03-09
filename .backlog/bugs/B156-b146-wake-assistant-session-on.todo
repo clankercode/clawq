@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B156
+priority: high
+status: pending
+tags: []
+title: 'B146: wake assistant session on background-task completion via injected automatic message'
+---
+Extend the now-working Telegram background-task completion delivery so that the completion notice does not only reach the human user in-channel, but also wakes the assistant session itself. Desired behavior: when a routed background/delegated task finishes, clawq should inject an automatic message back into the same chat-log session so the assistant receives a new turn and can continue autonomously. The message may be represented as a system/injected user message, but it must be clearly labeled as automatic rather than impersonating the user. Acceptance criteria: (1) completion notice is still visible in the Telegram/Discord/etc channel; (2) the same event is injected into the originating session queue/turn pipeline; (3) if the session is busy, it queues like other same-session arrivals; (4) the injected message wakes the assistant without manual user input; (5) the visible text is prefixed to indicate it was automatic/system-injected; (6) tests cover the queue/injection path where practical.
