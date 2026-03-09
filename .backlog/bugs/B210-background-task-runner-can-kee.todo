@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B210
+priority: high
+status: pending
+tags: []
+title: Background task runner can keep stale running status after child process exits unexpectedly
+---
+During live recovery of task 18, Codex/Node child PIDs 2702478 and 2702495 were confirmed running but quiet. Sending SIGUSR1 caused the node wrapper to become a zombie/defunct process, yet `clawq background show 18` continued to report `status: running` and the daemon did not transition the task to failed/completed. This indicates the background-task bookkeeping can retain stale running state when the child exits unexpectedly or is signal-terminated. Acceptance criteria: (1) child exit/termination is detected reliably; (2) task status transitions away from running when the subprocess dies unexpectedly; (3) restart/signal-adjacent cases are covered; (4) logs make the transition reason clear. Distinct from B209 which is broader liveness/completion tracking; this one is the concrete stale-running-on-child-exit defect observed live.
