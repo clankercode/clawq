@@ -231,3 +231,4 @@ bugs:
     - file: B230-github-webhook-interactions-sh.todo
     - file: B231-github-triggered-review-agents.todo
     - file: B232-connector-native-status-update.todo
+    - file: B233-background-tasks-should-expose.todo

@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B233
+priority: medium
+status: pending
+tags: []
+title: Background tasks should expose a richer health model than queued/running/succeeded/failed
+---
+Operational debugging has shown that background task status alone is too coarse. A task can be marked running while actually stalled, zombie, log-stale, or otherwise inconsistent. Clawq should expose a richer health model for background tasks so humans and agents can distinguish healthy quiet tasks from broken ones. Acceptance criteria: (1) define additional health/liveness states or derived indicators (for example active, quiet, stalled, zombie/inconsistent, process-missing, log-stale); (2) surface them in task inspection/runtime context where appropriate; (3) use observable signals such as PID state, last log update, and completion tracking; (4) avoid misleadingly equating all non-terminal tasks with healthy progress.
