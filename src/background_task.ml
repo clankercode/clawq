@@ -459,7 +459,17 @@ let ensure_roots () =
   ensure_dir (log_root ())
 
 let routing_from_context ?context ?notify_cfg () =
-  let session_key = Option.bind context (fun c -> c.Tool.session_key) in
+  let session_key =
+    match context with
+    | Some c -> c.Tool.session_key
+    | None ->
+        let value =
+          try Some (Sys.getenv "CLAWQ_SESSION_ID") with Not_found -> None
+        in
+        Option.bind value (fun raw ->
+            let trimmed = String.trim raw in
+            if trimmed = "" then None else Some trimmed)
+  in
   match session_key with
   | Some key -> (
       match Restart_notify.parse_channel_from_key key with
