@@ -2132,6 +2132,171 @@ let test_restored_session_detects_external_workspace_edit_on_next_turn () =
             "restored external edit refresh event persisted once" 1
             (List.length refresh_events)))
 
+let test_external_edit_detected_via_note_function () =
+  with_temp_workspace (fun workspace ->
+      let agents_path = Filename.concat workspace "AGENTS.md" in
+      let write_file path content =
+        let oc = open_out path in
+        Fun.protect
+          (fun () -> output_string oc content)
+          ~finally:(fun () -> close_out_noerr oc)
+      in
+      write_file agents_path "original content";
+      let prompt =
+        { Runtime_config.default.prompt with workspace_files = [ "AGENTS.md" ] }
+      in
+      let config = { Runtime_config.default with workspace; prompt } in
+      let agent = Agent.create ~config () in
+      let first = Agent.note_external_workspace_refresh_if_needed agent in
+      Alcotest.(check bool)
+        "no change on first call (baseline already captured at create)" true
+        (Option.is_none first);
+      write_file agents_path "externally modified content";
+      let second = Agent.note_external_workspace_refresh_if_needed agent in
+      Alcotest.(check bool)
+        "external edit detected" true (Option.is_some second);
+      let event_msg = Option.get second in
+      Alcotest.(check string) "event role" "event" event_msg.Provider.role;
+      Alcotest.(check bool)
+        "event mentions AGENTS.md" true
+        (string_contains event_msg.content "AGENTS.md");
+      Alcotest.(check bool)
+        "event in agent history" true
+        (List.exists
+           (fun (msg : Provider.message) ->
+             msg.role = "event" && string_contains msg.content "AGENTS.md")
+           agent.history))
+
+let test_external_edit_event_filtered_from_build_messages () =
+  with_temp_workspace (fun workspace ->
+      let agents_path = Filename.concat workspace "AGENTS.md" in
+      let write_file path content =
+        let oc = open_out path in
+        Fun.protect
+          (fun () -> output_string oc content)
+          ~finally:(fun () -> close_out_noerr oc)
+      in
+      write_file agents_path "original";
+      let prompt =
+        { Runtime_config.default.prompt with workspace_files = [ "AGENTS.md" ] }
+      in
+      let config = { Runtime_config.default with workspace; prompt } in
+      let agent = Agent.create ~config () in
+      write_file agents_path "externally updated";
+      let _ = Agent.note_external_workspace_refresh_if_needed agent in
+      let msgs = Agent.build_messages agent in
+      Alcotest.(check bool)
+        "no event role in build_messages output" false
+        (List.exists (fun (msg : Provider.message) -> msg.role = "event") msgs))
+
+let test_no_false_positive_when_files_unchanged () =
+  with_temp_workspace (fun workspace ->
+      let agents_path = Filename.concat workspace "AGENTS.md" in
+      let write_file path content =
+        let oc = open_out path in
+        Fun.protect
+          (fun () -> output_string oc content)
+          ~finally:(fun () -> close_out_noerr oc)
+      in
+      write_file agents_path "stable content";
+      let prompt =
+        { Runtime_config.default.prompt with workspace_files = [ "AGENTS.md" ] }
+      in
+      let config = { Runtime_config.default with workspace; prompt } in
+      let agent = Agent.create ~config () in
+      let first = Agent.note_external_workspace_refresh_if_needed agent in
+      Alcotest.(check bool)
+        "no change on first call" true (Option.is_none first);
+      let second = Agent.note_external_workspace_refresh_if_needed agent in
+      Alcotest.(check bool)
+        "no change on second call" true (Option.is_none second);
+      Alcotest.(check bool)
+        "no event messages in history" false
+        (List.exists
+           (fun (msg : Provider.message) -> msg.role = "event")
+           agent.history))
+
+let test_external_file_deletion_detected () =
+  with_temp_workspace (fun workspace ->
+      let agents_path = Filename.concat workspace "AGENTS.md" in
+      let write_file path content =
+        let oc = open_out path in
+        Fun.protect
+          (fun () -> output_string oc content)
+          ~finally:(fun () -> close_out_noerr oc)
+      in
+      write_file agents_path "content that will be deleted";
+      let prompt =
+        { Runtime_config.default.prompt with workspace_files = [ "AGENTS.md" ] }
+      in
+      let config = { Runtime_config.default with workspace; prompt } in
+      let agent = Agent.create ~config () in
+      let first = Agent.note_external_workspace_refresh_if_needed agent in
+      Alcotest.(check bool) "no change initially" true (Option.is_none first);
+      Sys.remove agents_path;
+      let second = Agent.note_external_workspace_refresh_if_needed agent in
+      Alcotest.(check bool) "deletion detected" true (Option.is_some second);
+      let event_msg = Option.get second in
+      Alcotest.(check bool)
+        "deletion event mentions AGENTS.md" true
+        (string_contains event_msg.content "AGENTS.md"))
+
+let test_tool_write_then_external_edit_no_double_report () =
+  with_temp_workspace (fun workspace ->
+      let agents_path = Filename.concat workspace "AGENTS.md" in
+      let write_file path content =
+        let oc = open_out path in
+        Fun.protect
+          (fun () -> output_string oc content)
+          ~finally:(fun () -> close_out_noerr oc)
+      in
+      write_file agents_path "original";
+      let prompt =
+        { Runtime_config.default.prompt with workspace_files = [ "AGENTS.md" ] }
+      in
+      let config = { Runtime_config.default with workspace; prompt } in
+      let registry = Tool_registry.create () in
+      Tool_registry.register registry
+        (Tools_builtin.doc_write ~workspace ~workspace_files:[ "AGENTS.md" ]);
+      let agent = Agent.create ~config ~tool_registry:registry () in
+      let call =
+        {
+          Provider.id = "tc-doc-write-tool";
+          function_name = "doc_write";
+          arguments =
+            Yojson.Safe.to_string
+              (`Assoc
+                 [
+                   ("filename", `String "AGENTS.md");
+                   ("content", `String "tool-written content");
+                 ]);
+        }
+      in
+      Lwt_main.run
+        (Agent.execute_tool_calls agent ~db:None ~audit_enabled:false
+           ~session_key:(Some "web:s1") [ call ]);
+      let after_tool = Agent.note_external_workspace_refresh_if_needed agent in
+      Alcotest.(check bool)
+        "no external change detected right after tool write" true
+        (Option.is_none after_tool);
+      write_file agents_path "externally modified after tool write";
+      let after_external =
+        Agent.note_external_workspace_refresh_if_needed agent
+      in
+      Alcotest.(check bool)
+        "external edit after tool write detected" true
+        (Option.is_some after_external);
+      let event_count =
+        List.length
+          (List.filter
+             (fun (msg : Provider.message) -> msg.role = "event")
+             agent.history)
+      in
+      Alcotest.(check int)
+        "exactly one workspace refresh event from tool write + one from \
+         external edit"
+        2 event_count)
+
 let test_autonomous_continuation_stays_idle_disarms () =
   let continuation_calls = ref 0 in
   let response_for_user message =
@@ -2705,6 +2870,16 @@ let suite =
     Alcotest.test_case
       "restored session detects external workspace edit on next turn" `Quick
       test_restored_session_detects_external_workspace_edit_on_next_turn;
+    Alcotest.test_case "external edit detected via note function" `Quick
+      test_external_edit_detected_via_note_function;
+    Alcotest.test_case "external edit event filtered from build_messages" `Quick
+      test_external_edit_event_filtered_from_build_messages;
+    Alcotest.test_case "no false positive when files unchanged" `Quick
+      test_no_false_positive_when_files_unchanged;
+    Alcotest.test_case "external file deletion detected" `Quick
+      test_external_file_deletion_detected;
+    Alcotest.test_case "tool write then external edit no double report" `Quick
+      test_tool_write_then_external_edit_no_double_report;
     Alcotest.test_case
       "non-active doc_write does not persist workspace refresh event" `Quick
       test_non_active_doc_write_does_not_persist_workspace_refresh_event;
