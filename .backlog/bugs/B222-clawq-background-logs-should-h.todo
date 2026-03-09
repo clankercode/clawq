@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B222
+priority: high
+status: pending
+tags: []
+title: '''clawq background logs'' should have a follow mode'
+---
+
+'clawq background logs' should have a follow mode
