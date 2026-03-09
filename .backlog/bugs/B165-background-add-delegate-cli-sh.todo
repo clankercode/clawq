@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B165
+priority: high
+status: pending
+tags: []
+title: Background add/delegate CLI should preserve originating session routing for completion delivery
+---
+Observed after task 11 completed without any Telegram/session completion notice. Inspection showed the background_tasks row for task 11 had NULL routing metadata (`session_key`, `channel`, `channel_id`), even though the task was launched from an active Telegram DM session. Likely cause: the task was started via CLI (`clawq background add ...`) from inside a shell tool call rather than via the in-process background/delegate tool path that captures tool/session context. Need to determine whether this is expected, a missing env bridge, or a CLI integration gap. Goal: ensure background/delegate launches initiated from an active assistant session preserve originating session routing metadata even when the launch happens through CLI pathways used by the agent. Acceptance criteria: (1) launching delegated/background work from an active Telegram/Discord/etc session records route/session metadata on the task row; (2) completion notices can return visibly to the originating channel; (3) if applicable, the originating assistant session can also be reawakened; (4) tests cover the chosen path or the behavior is otherwise tightly verified; (5) docs/help clarify any intentional distinction between tool-context launches and raw standalone CLI launches.

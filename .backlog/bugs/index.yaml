@@ -163,3 +163,4 @@ bugs:
     - file: B162-heartbeat-loop-crashes-on-nest.todo
     - file: B163-clawq-background-should-give-s.todo
     - file: B164-telegram-agents-and-similar-sh.todo
+    - file: B165-background-add-delegate-cli-sh.todo
