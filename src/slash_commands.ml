@@ -6,6 +6,7 @@ type result =
   | Reset
   | Compact
   | Thinking of thinking_action
+  | Delegate of string
   | NotACommand
 
 let allowed_thinking_levels = [ "low"; "medium"; "high"; "off"; "xhigh"; "max" ]
@@ -47,6 +48,11 @@ let commands =
     {
       name = "update";
       description = "Pull, rebuild, and gracefully restart clawq";
+    };
+    {
+      name = "delegate";
+      description =
+        "Delegate a prompt to a temporary subagent: /delegate <prompt>";
     };
   ]
 
@@ -92,6 +98,10 @@ let handle text =
                 | Some level -> Thinking (SetThinking level)
                 | None -> Reply (invalid_thinking_level_message value))
             | _ -> Reply (thinking_usage ()))
+        | "delegate" -> (
+            match args with
+            | [] -> Reply "Usage: /delegate <prompt>"
+            | _ -> Delegate (String.concat " " args))
         | "" -> NotACommand
         | _ -> NotACommand)
 

@@ -764,6 +764,24 @@ let rec turn mgr ~key ~message ?(attachments = []) ?channel_name ?channel_type
                 let* () = drain_queued_messages mgr ~key agent interrupt in
                 Lwt.return response))
 
+let delegate_turn mgr ~prompt =
+  let open Lwt.Syntax in
+  if mgr.draining then Lwt.return (Error draining_message)
+  else
+    with_in_flight mgr (fun () ->
+        let agent =
+          Agent.create ~config:mgr.config ?tool_registry:mgr.tool_registry ()
+        in
+        Lwt.catch
+          (fun () ->
+            let* response = Agent.turn agent ~user_message:prompt () in
+            Lwt.return (Ok response))
+          (fun exn ->
+            Lwt.return
+              (Error
+                 (Printf.sprintf "Delegation failed: %s"
+                    (Printexc.to_string exn)))))
+
 let get_config mgr = mgr.config
 
 let update_config mgr config =

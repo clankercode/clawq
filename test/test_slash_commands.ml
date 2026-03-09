@@ -7,6 +7,7 @@ let result_to_string = function
   | Slash_commands.Thinking (Slash_commands.SetThinking (Some level)) ->
       "Thinking(Set " ^ level ^ ")"
   | Slash_commands.Compact -> "Compact"
+  | Slash_commands.Delegate s -> "Delegate(" ^ s ^ ")"
   | Slash_commands.NotACommand -> "NotACommand"
 
 let result_eq a b =
@@ -20,6 +21,7 @@ let result_eq a b =
       Slash_commands.Thinking (Slash_commands.SetThinking b) ) ->
       a = b
   | Slash_commands.Compact, Slash_commands.Compact -> true
+  | Slash_commands.Delegate a, Slash_commands.Delegate b -> a = b
   | Slash_commands.NotACommand, Slash_commands.NotACommand -> true
   | _ -> false
 
@@ -143,7 +145,8 @@ let test_commands_list () =
   Alcotest.(check bool) "has status" true (List.mem "status" names);
   Alcotest.(check bool) "has thinking" true (List.mem "thinking" names);
   Alcotest.(check bool) "has compact" true (List.mem "compact" names);
-  Alcotest.(check bool) "has update" true (List.mem "update" names)
+  Alcotest.(check bool) "has update" true (List.mem "update" names);
+  Alcotest.(check bool) "has delegate" true (List.mem "delegate" names)
 
 let test_case_insensitive () =
   (match Slash_commands.handle "/HELP" with
@@ -170,6 +173,21 @@ let test_command_with_args () =
 let test_whitespace_only () =
   Alcotest.check result_testable "whitespace only" Slash_commands.NotACommand
     (Slash_commands.handle "   ")
+
+let test_delegate_with_prompt () =
+  Alcotest.check result_testable "delegate with prompt"
+    (Slash_commands.Delegate "do something")
+    (Slash_commands.handle "/delegate do something")
+
+let test_delegate_no_args () =
+  Alcotest.check result_testable "delegate no args"
+    (Slash_commands.Reply "Usage: /delegate <prompt>")
+    (Slash_commands.handle "/delegate")
+
+let test_delegate_multi_word () =
+  Alcotest.check result_testable "delegate multi-word"
+    (Slash_commands.Delegate "a b c d")
+    (Slash_commands.handle "/delegate a b c d")
 
 let test_leading_whitespace () =
   match Slash_commands.handle "  /status  " with
@@ -203,4 +221,8 @@ let suite =
     Alcotest.test_case "command with args" `Quick test_command_with_args;
     Alcotest.test_case "whitespace only" `Quick test_whitespace_only;
     Alcotest.test_case "leading whitespace" `Quick test_leading_whitespace;
+    Alcotest.test_case "delegate with prompt" `Quick test_delegate_with_prompt;
+    Alcotest.test_case "delegate no args" `Quick test_delegate_no_args;
+    Alcotest.test_case "delegate multi-word prompt" `Quick
+      test_delegate_multi_word;
   ]

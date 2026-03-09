@@ -94,6 +94,7 @@ Available in chat-integrated channels that support slash commands.
 - `/new` — reset the current session
 - `/status` — report bot status
 - `/thinking [low|medium|high|off|xhigh|max]` — show or set the current thinking level; `off` clears `agent_defaults.reasoning_effort`
+- `/delegate <prompt>` — delegate a prompt to a temporary subagent session; the subagent runs the prompt, returns the result, and is discarded; the caller's main session history is not affected
 
 ## `!` Messages
 

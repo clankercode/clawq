@@ -465,6 +465,18 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
             ~text:
               (set_thinking_level ~session_mgr ~channel_id:msg.channel_id
                  ~author_id:msg.author_id level)
+      | Delegate prompt ->
+          let* () =
+            send_message_fn ~bot_token:discord_config.bot_token
+              ~channel_id:msg.channel_id
+              ~text:"Delegating to a temporary session..."
+          in
+          let* result = Session.delegate_turn session_mgr ~prompt in
+          let text =
+            match result with Ok response -> response | Error msg -> msg
+          in
+          send_message_fn ~bot_token:discord_config.bot_token
+            ~channel_id:msg.channel_id ~text
       | NotACommand when Update_tool.is_update_command msg.content -> (
           let send_first text =
             send_message_with_id ~suppress_notifications:true

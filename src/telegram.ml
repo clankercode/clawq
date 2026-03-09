@@ -821,6 +821,16 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                 (set_thinking_level ~session_mgr ~chat_id:update.chat_id
                    ~user_id:update.user_id level)
               ()
+        | Delegate prompt ->
+            let* () =
+              send_message ~bot_token ~chat_id:update.chat_id
+                ~text:"Delegating to a temporary session..." ()
+            in
+            let* result = Session.delegate_turn session_mgr ~prompt in
+            let text =
+              match result with Ok response -> response | Error msg -> msg
+            in
+            send_message ~bot_token ~chat_id:update.chat_id ~text ()
         | NotACommand -> (
             let msg = user_text in
             let agent_defaults =
