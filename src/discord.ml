@@ -81,6 +81,12 @@ let chunk_text ?(max_len = 2000) text =
     in
     go 0 []
 
+(* Tracks message IDs whose reactions should be kept in sync per session key *)
+let reaction_peers : (string, string list ref) Hashtbl.t = Hashtbl.create 16
+
+(* Per-message current reaction emoji, for proper remove-before-add *)
+let reaction_state : (string, string) Hashtbl.t = Hashtbl.create 16
+
 (* --- Discord REST rate limit tracking --- *)
 
 type route_bucket = { mutable remaining : int; mutable reset_at : float }
@@ -609,24 +615,39 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
             && agent_defaults.tool_status_mode = "consolidated"
           in
           let tool_reaction_set = ref false in
-          let current_reaction = ref "" in
-          let set_reaction emoji =
+          let peers =
+            match Hashtbl.find_opt reaction_peers key with
+            | Some p -> p
+            | None ->
+                let p = ref [ msg.id ] in
+                Hashtbl.replace reaction_peers key p;
+                p
+          in
+          if not (List.mem msg.id !peers) then peers := !peers @ [ msg.id ];
+          let set_reaction_on_single mid emoji =
             Lwt.catch
               (fun () ->
+                let prev =
+                  match Hashtbl.find_opt reaction_state mid with
+                  | Some e -> e
+                  | None -> ""
+                in
                 let* () =
-                  if !current_reaction <> "" then
+                  if prev <> "" then
                     Lwt.catch
                       (fun () ->
                         delete_own_reaction ~bot_token:discord_config.bot_token
-                          ~channel_id:msg.channel_id ~message_id:msg.id
-                          ~emoji:!current_reaction)
+                          ~channel_id:msg.channel_id ~message_id:mid ~emoji:prev)
                       (fun _exn -> Lwt.return_unit)
                   else Lwt.return_unit
                 in
-                current_reaction := emoji;
+                Hashtbl.replace reaction_state mid emoji;
                 add_reaction ~bot_token:discord_config.bot_token
-                  ~channel_id:msg.channel_id ~message_id:msg.id ~emoji)
+                  ~channel_id:msg.channel_id ~message_id:mid ~emoji)
               (fun _exn -> Lwt.return_unit)
+          in
+          let set_reaction emoji =
+            Lwt_list.iter_p (fun mid -> set_reaction_on_single mid emoji) !peers
           in
           let thinking_buf = Buffer.create 256 in
           let status_msg =
@@ -686,7 +707,12 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
           let on_drain_progress : Session.drain_progress =
             {
               before_turn =
-                (fun () ->
+                (fun queued_msg_id ->
+                  let* () =
+                    match queued_msg_id with
+                    | Some mid -> set_reaction_on_single mid "\xe2\x8f\xb3"
+                    | None -> Lwt.return_unit
+                  in
                   let* () =
                     match !drain_progress_msg_id with
                     | Some mid ->
@@ -706,6 +732,11 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                   in
                   drain_progress_msg_id := Some mid;
                   Lwt.return_unit);
+              after_turn =
+                (fun queued_msg_id ->
+                  match queued_msg_id with
+                  | Some mid -> set_reaction_on_single mid "\xE2\x9C\x85"
+                  | None -> Lwt.return_unit);
               after_all =
                 (fun () ->
                   match !drain_progress_msg_id with
@@ -764,8 +795,8 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                         ~channel_name:msg.channel_id
                         ~channel_type:discord_channel_type
                         ~sender_id:msg.author_id ~channel:"discord"
-                        ~channel_id:msg.channel_id ~on_drain_progress
-                        ~before_drain ~on_chunk ()
+                        ~channel_id:msg.channel_id ~message_id:msg.id
+                        ~on_drain_progress ~before_drain ~on_chunk ()
                     in
                     Lwt.return (Ok response))
                   (fun exn -> Lwt.return (Error (Printexc.to_string exn))))
@@ -775,6 +806,11 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
               if Session.is_queued_message_response response then
                 Lwt.return_unit
               else if !response_sent then begin
+                let peer_ids = !peers in
+                Hashtbl.remove reaction_peers key;
+                List.iter
+                  (fun mid -> Hashtbl.remove reaction_state mid)
+                  peer_ids;
                 let send_to_channel text =
                   send_message_fn ~bot_token:discord_config.bot_token
                     ~channel_id:msg.channel_id ~text
@@ -821,6 +857,11 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                     ~channel_id:msg.channel_id ~text:response
                 in
                 let* () = set_reaction "\xE2\x9C\x85" in
+                let peer_ids = !peers in
+                Hashtbl.remove reaction_peers key;
+                List.iter
+                  (fun mid -> Hashtbl.remove reaction_state mid)
+                  peer_ids;
                 if not (Session.take_response_deferred session_mgr ~key) then
                   Session.mark_response_sent session_mgr ~key;
                 let send_to_channel text =
@@ -863,6 +904,9 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                        err)
               in
               let* () = set_reaction "\xE2\x9A\xA0\xEF\xB8\x8F" in
+              let peer_ids = !peers in
+              Hashtbl.remove reaction_peers key;
+              List.iter (fun mid -> Hashtbl.remove reaction_state mid) peer_ids;
               if not (Session.take_response_deferred session_mgr ~key) then
                 Session.mark_response_sent session_mgr ~key;
               Lwt.return_unit)

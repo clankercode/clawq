@@ -15,6 +15,7 @@ type queued_message = {
   sender_name : string option;
   channel : string option;
   channel_id : string option;
+  message_id : string option;
 }
 
 type continuation_state = {
@@ -53,7 +54,8 @@ type t = {
 }
 
 type drain_progress = {
-  before_turn : unit -> unit Lwt.t;
+  before_turn : string option -> unit Lwt.t;
+  after_turn : string option -> unit Lwt.t;
   after_all : unit -> unit Lwt.t;
 }
 
@@ -865,7 +867,7 @@ let rec drain_queued_messages_loop mgr ~key agent interrupt ?on_drain_progress
       Logs.info (fun m -> m "Sending queued message to LLM for session %s" key);
       let* () =
         match on_drain_progress with
-        | Some dp -> dp.before_turn ()
+        | Some dp -> dp.before_turn queued.message_id
         | None -> Lwt.return_unit
       in
       let injected_message =
@@ -882,6 +884,11 @@ let rec drain_queued_messages_loop mgr ~key agent interrupt ?on_drain_progress
           ?channel_id:queued.channel_id ()
       in
       let* () = notify response in
+      let* () =
+        match on_drain_progress with
+        | Some dp -> dp.after_turn queued.message_id
+        | None -> Lwt.return_unit
+      in
       if not (take_response_deferred mgr ~key) then mark_response_sent mgr ~key;
       drain_queued_messages_loop mgr ~key agent interrupt ?on_drain_progress
         ~drained_any:true ()
@@ -913,7 +920,7 @@ let drain_queued_messages mgr ~key agent interrupt ?on_drain_progress () =
 
 let rec turn mgr ~key ~message ?(content_parts = []) ?(attachments = [])
     ?channel_name ?channel_type ?sender_id ?sender_name ?channel ?channel_id
-    ?before_drain () =
+    ?message_id ?before_drain () =
   with_live_activity mgr ~key (fun () ->
       let open Lwt.Syntax in
       let* () = mark_autonomous_activity_started mgr ~key in
@@ -938,6 +945,7 @@ let rec turn mgr ~key ~message ?(content_parts = []) ?(attachments = [])
               sender_name;
               channel;
               channel_id;
+              message_id;
             }
           in
           let* queued = enqueue_message_if_busy mgr ~key queued_message in
@@ -1049,7 +1057,7 @@ let update_config mgr config =
 
 let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
     ?channel_name ?channel_type ?sender_id ?sender_name ?channel ?channel_id
-    ?on_drain_progress ?before_drain ~on_chunk () =
+    ?message_id ?on_drain_progress ?before_drain ~on_chunk () =
   with_live_activity mgr ~key (fun () ->
       let open Lwt.Syntax in
       let* () = mark_autonomous_activity_started mgr ~key in
@@ -1077,6 +1085,7 @@ let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
               sender_name;
               channel;
               channel_id;
+              message_id;
             }
           in
           let* queued = enqueue_message_if_busy mgr ~key queued_message in

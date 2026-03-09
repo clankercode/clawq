@@ -169,6 +169,12 @@ let remove_reaction ~bot_token ~channel_id ~timestamp ~emoji_name =
 
 let _rate_limit_warnings : (string, float) Hashtbl.t = Hashtbl.create 16
 
+(* Tracks message timestamps whose reactions should be kept in sync per session key *)
+let reaction_peers : (string, string list ref) Hashtbl.t = Hashtbl.create 16
+
+(* Per-message current reaction emoji name *)
+let reaction_state : (string, string) Hashtbl.t = Hashtbl.create 16
+
 let parse_event body =
   try
     let json = Yojson.Safe.from_string body in
@@ -434,24 +440,42 @@ let handle_event ~(config : Runtime_config.slack_config)
                   && agent_defaults.tool_status_mode = "consolidated"
                 in
                 let tool_reaction_set = ref false in
-                let current_reaction = ref "" in
-                let set_reaction emoji_name =
+                let peers =
+                  match Hashtbl.find_opt reaction_peers key with
+                  | Some p -> p
+                  | None ->
+                      let p = ref [ ts ] in
+                      Hashtbl.replace reaction_peers key p;
+                      p
+                in
+                if not (List.mem ts !peers) then peers := !peers @ [ ts ];
+                let set_reaction_on_single timestamp emoji_name =
                   Lwt.catch
                     (fun () ->
+                      let prev =
+                        match Hashtbl.find_opt reaction_state timestamp with
+                        | Some e -> e
+                        | None -> ""
+                      in
                       let* () =
-                        if !current_reaction <> "" then
+                        if prev <> "" then
                           Lwt.catch
                             (fun () ->
                               remove_reaction ~bot_token:config.bot_token
-                                ~channel_id ~timestamp:ts
-                                ~emoji_name:!current_reaction)
+                                ~channel_id ~timestamp ~emoji_name:prev)
                             (fun _exn -> Lwt.return_unit)
                         else Lwt.return_unit
                       in
-                      current_reaction := emoji_name;
+                      Hashtbl.replace reaction_state timestamp emoji_name;
                       add_reaction ~bot_token:config.bot_token ~channel_id
-                        ~timestamp:ts ~emoji_name)
+                        ~timestamp ~emoji_name)
                     (fun _exn -> Lwt.return_unit)
+                in
+                let set_reaction emoji_name =
+                  Lwt_list.iter_p
+                    (fun timestamp ->
+                      set_reaction_on_single timestamp emoji_name)
+                    !peers
                 in
                 let thinking_buf = Buffer.create 256 in
                 let status_msg =
@@ -509,6 +533,56 @@ let handle_event ~(config : Runtime_config.slack_config)
                         chunk
                 in
                 let* () = set_reaction "hourglass_flowing_sand" in
+                let drain_progress_msg_ts = ref None in
+                let on_drain_progress : Session.drain_progress =
+                  {
+                    before_turn =
+                      (fun queued_msg_id ->
+                        let* () =
+                          match queued_msg_id with
+                          | Some msg_ts ->
+                              set_reaction_on_single msg_ts
+                                "hourglass_flowing_sand"
+                          | None -> Lwt.return_unit
+                        in
+                        let* () =
+                          match !drain_progress_msg_ts with
+                          | Some prev_ts ->
+                              Lwt.catch
+                                (fun () ->
+                                  delete_message ~bot_token:config.bot_token
+                                    ~channel_id ~ts:prev_ts)
+                                (fun _exn -> Lwt.return_unit)
+                          | None -> Lwt.return_unit
+                        in
+                        let* new_ts =
+                          send_message_with_id ~bot_token:config.bot_token
+                            ~channel_id
+                            ~text:
+                              "\xe2\x8f\xb3 Processing queued \
+                               message\xe2\x80\xa6"
+                        in
+                        drain_progress_msg_ts := Some new_ts;
+                        Lwt.return_unit);
+                    after_turn =
+                      (fun queued_msg_id ->
+                        match queued_msg_id with
+                        | Some msg_ts ->
+                            set_reaction_on_single msg_ts "white_check_mark"
+                        | None -> Lwt.return_unit);
+                    after_all =
+                      (fun () ->
+                        match !drain_progress_msg_ts with
+                        | Some prev_ts ->
+                            drain_progress_msg_ts := None;
+                            Lwt.catch
+                              (fun () ->
+                                delete_message ~bot_token:config.bot_token
+                                  ~channel_id ~ts:prev_ts)
+                              (fun _exn -> Lwt.return_unit)
+                        | None -> Lwt.return_unit);
+                  }
+                in
                 let response_sent = ref false in
                 let before_drain response =
                   if Session.is_queued_message_response response then
@@ -553,8 +627,8 @@ let handle_event ~(config : Runtime_config.slack_config)
                             Session.turn_stream session_manager ~key
                               ~message:text ~channel_name:channel_id
                               ~channel_type:"group" ~sender_id:user_id
-                              ~channel:"slack" ~channel_id ~before_drain
-                              ~on_chunk ()
+                              ~channel:"slack" ~channel_id ~message_id:ts
+                              ~on_drain_progress ~before_drain ~on_chunk ()
                           in
                           Lwt.return (Ok response))
                         (fun exn -> Lwt.return (Error (Printexc.to_string exn))))
@@ -564,6 +638,11 @@ let handle_event ~(config : Runtime_config.slack_config)
                     if Session.is_queued_message_response response then
                       Lwt.return "ok"
                     else if !response_sent then begin
+                      let peer_tss = !peers in
+                      Hashtbl.remove reaction_peers key;
+                      List.iter
+                        (fun t -> Hashtbl.remove reaction_state t)
+                        peer_tss;
                       let send_to_channel text =
                         send_message_fn ~bot_token:config.bot_token ~channel_id
                           ~text
@@ -597,6 +676,11 @@ let handle_event ~(config : Runtime_config.slack_config)
                           ~text:response
                       in
                       let* () = set_reaction "white_check_mark" in
+                      let peer_tss = !peers in
+                      Hashtbl.remove reaction_peers key;
+                      List.iter
+                        (fun t -> Hashtbl.remove reaction_state t)
+                        peer_tss;
                       if
                         not
                           (Session.take_response_deferred session_manager ~key)
@@ -628,6 +712,11 @@ let handle_event ~(config : Runtime_config.slack_config)
                              err)
                     in
                     let* () = set_reaction "warning" in
+                    let peer_tss = !peers in
+                    Hashtbl.remove reaction_peers key;
+                    List.iter
+                      (fun t -> Hashtbl.remove reaction_state t)
+                      peer_tss;
                     if not (Session.take_response_deferred session_manager ~key)
                     then Session.mark_response_sent session_manager ~key;
                     Lwt.return "ok")

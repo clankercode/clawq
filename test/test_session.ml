@@ -663,16 +663,18 @@ let test_drain_queued_messages_marks_live_activity () =
                    sender_name = None;
                    channel = Some "telegram";
                    channel_id = Some "1";
+                   message_id = None;
                  }
              in
              Alcotest.(check bool) "message queued" true queued;
              let on_drain_progress : Session.drain_progress =
                {
                  before_turn =
-                   (fun () ->
+                   (fun _msg_id ->
                      let* snapshot = Session.current_live_activity mgr ~key in
                      active_during_progress := snapshot.Session.active;
                      Lwt.return_unit);
+                 after_turn = (fun _msg_id -> Lwt.return_unit);
                  after_all = (fun () -> Lwt.return_unit);
                }
              in
@@ -688,7 +690,7 @@ let test_drain_queued_messages_marks_live_activity () =
         "drain progress sees live activity" true !active_during_progress)
 
 let queued_message ?channel_name ?channel_type ?sender_id ?sender_name ?channel
-    ?channel_id message =
+    ?channel_id ?message_id message =
   {
     Session.message;
     content_parts = [];
@@ -699,6 +701,7 @@ let queued_message ?channel_name ?channel_type ?sender_id ?sender_name ?channel
     sender_name;
     channel;
     channel_id;
+    message_id;
   }
 
 let test_enqueue_message_if_busy_marks_interrupt_and_preserves_message () =
@@ -1800,6 +1803,7 @@ let test_drain_queued_messages_drains_all_pending_without_relock () =
       sender_name = None;
       channel = Some "telegram";
       channel_id = Some "1";
+      message_id = None;
     }
   in
   ignore
@@ -1822,11 +1826,16 @@ let test_drain_progress_callbacks_fire_for_queued_messages () =
       let sent = ref [] in
       let before_count = ref 0 in
       let after_all_count = ref 0 in
+      let after_turn_count = ref 0 in
       let on_drain_progress : Session.drain_progress =
         {
           before_turn =
-            (fun () ->
+            (fun _msg_id ->
               incr before_count;
+              Lwt.return_unit);
+          after_turn =
+            (fun _msg_id ->
+              incr after_turn_count;
               Lwt.return_unit);
           after_all =
             (fun () ->
@@ -1858,6 +1867,8 @@ let test_drain_progress_callbacks_fire_for_queued_messages () =
                  Session.drain_queued_messages mgr ~key:"telegram:1:u" agent
                    interrupt ~on_drain_progress ())));
       Alcotest.(check int) "before_turn called per queued msg" 2 !before_count;
+      Alcotest.(check int)
+        "after_turn called per queued msg" 2 !after_turn_count;
       Alcotest.(check int) "after_all called once" 1 !after_all_count;
       Alcotest.(check int) "all messages notified" 2 (List.length !sent))
 
@@ -1866,12 +1877,17 @@ let test_drain_progress_not_called_when_no_queued_messages () =
       let db = Memory.init ~db_path:":memory:" () in
       let mgr = Session.create ~config ~db () in
       let before_count = ref 0 in
+      let after_turn_count = ref 0 in
       let after_all_count = ref 0 in
       let on_drain_progress : Session.drain_progress =
         {
           before_turn =
-            (fun () ->
+            (fun _msg_id ->
               incr before_count;
+              Lwt.return_unit);
+          after_turn =
+            (fun _msg_id ->
+              incr after_turn_count;
               Lwt.return_unit);
           after_all =
             (fun () ->
@@ -1888,6 +1904,7 @@ let test_drain_progress_not_called_when_no_queued_messages () =
                  Session.drain_queued_messages mgr ~key:"telegram:1:u" agent
                    interrupt ~on_drain_progress ())));
       Alcotest.(check int) "before_turn not called" 0 !before_count;
+      Alcotest.(check int) "after_turn not called" 0 !after_turn_count;
       Alcotest.(check int) "after_all not called" 0 !after_all_count)
 
 let test_before_drain_fires_before_drain_notifier () =

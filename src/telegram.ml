@@ -95,6 +95,9 @@ let typing_watchers : (string, typing_watcher) Hashtbl.t = Hashtbl.create 64
 let duplicate_update_ttl_seconds = 600.0
 let text_coalesce_window_seconds = ref 0.15
 
+(* Tracks message IDs whose reactions should be kept in sync per session key *)
+let reaction_peers : (string, int list ref) Hashtbl.t = Hashtbl.create 16
+
 let update_dedupe_key (u : update) =
   Printf.sprintf "%s:%d" u.chat_id u.update_id
 
@@ -1398,11 +1401,31 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
             in
             let current_turn_has_tools = ref false in
             let tool_reaction_set = ref false in
+            let peers =
+              match Hashtbl.find_opt reaction_peers key with
+              | Some p -> p
+              | None ->
+                  let p = ref [ update.message_id ] in
+                  Hashtbl.replace reaction_peers key p;
+                  p
+            in
+            if not (List.mem update.message_id !peers) then
+              peers := !peers @ [ update.message_id ];
             let set_reaction emoji =
+              Lwt_list.iter_p
+                (fun mid ->
+                  Lwt.catch
+                    (fun () ->
+                      set_message_reaction ~bot_token ~chat_id:update.chat_id
+                        ~message_id:mid ~emoji ())
+                    (fun _exn -> Lwt.return_unit))
+                !peers
+            in
+            let set_reaction_on mid emoji =
               Lwt.catch
                 (fun () ->
                   set_message_reaction ~bot_token ~chat_id:update.chat_id
-                    ~message_id:update.message_id ~emoji ())
+                    ~message_id:mid ~emoji ())
                 (fun _exn -> Lwt.return_unit)
             in
             let thinking_buf = Buffer.create 256 in
@@ -1557,7 +1580,16 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
             let on_drain_progress : Session.drain_progress =
               {
                 before_turn =
-                  (fun () ->
+                  (fun queued_msg_id ->
+                    let* () =
+                      match queued_msg_id with
+                      | Some mid -> (
+                          match int_of_string_opt mid with
+                          | Some mid_int ->
+                              set_reaction_on mid_int "\xF0\x9F\x91\x80"
+                          | None -> Lwt.return_unit)
+                      | None -> Lwt.return_unit
+                    in
                     let* () =
                       match !drain_progress_msg_id with
                       | Some mid ->
@@ -1578,6 +1610,14 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                     drain_progress_msg_id := Some mid;
                     refresh_typing ();
                     Lwt.return_unit);
+                after_turn =
+                  (fun queued_msg_id ->
+                    match queued_msg_id with
+                    | Some mid -> (
+                        match int_of_string_opt mid with
+                        | Some mid_int -> set_reaction_on mid_int "\xE2\x9C\x85"
+                        | None -> Lwt.return_unit)
+                    | None -> Lwt.return_unit);
                 after_all =
                   (fun () ->
                     match !drain_progress_msg_id with
@@ -1682,6 +1722,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                           ~content_parts:!image_content_parts
                           ~channel_name:"telegram" ~channel_type:"dm"
                           ~channel:"telegram" ~channel_id:update.chat_id
+                          ~message_id:(string_of_int update.message_id)
                           ~on_drain_progress ~before_drain ~on_chunk ()
                       in
                       let* response = turn_p in
@@ -1693,6 +1734,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                 if Session.is_queued_message_response response then
                   Lwt.return_unit
                 else if !response_sent then begin
+                  Hashtbl.remove reaction_peers key;
                   Lwt.async (fun () ->
                       Session.process_autonomous_turn_result
                         ~on_response:send_to_chat session_mgr ~key ~response);
@@ -1742,6 +1784,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                       ()
                   in
                   let* () = set_reaction "\xF0\x9F\x91\x8D" in
+                  Hashtbl.remove reaction_peers key;
                   if not (Session.take_response_deferred session_mgr ~key) then
                     Session.mark_response_sent session_mgr ~key;
                   Lwt.async (fun () ->
@@ -1765,6 +1808,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                     ()
                 in
                 let* () = set_reaction "\xF0\x9F\x92\x94" in
+                Hashtbl.remove reaction_peers key;
                 if not (Session.take_response_deferred session_mgr ~key) then
                   Session.mark_response_sent session_mgr ~key;
                 Lwt.return_unit)
