@@ -1,0 +1,38 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 10
+id: I011
+priority: medium
+status: pending
+tags:
+    - idea
+    - planning
+title: 'A current tasks tool that supports adding tasks/todos, listing them, setting them inprog, done, error/problem, or pending. Additionally, it should support adding subtasks to tasks so we have a tree structure. the description of the text should encourage the agent to make use of the tool and populate it to whatever depth is appropriate. The tool should be persistent and never reset by compaction etc. Tasks must have a strong lifecycle: cannot mark a parent done if all children are not, cannot remove an inprogress task, cannot overwrite all tasks at once (so tasks need to be managed individually, but the tool should accept a list of operations). We really want to make this a rich and highly opinionated, useful, tool that gives structure and direction to the agent. The status of the todos should be included in runtime context and sent along with every message like the rest of runtime context. If empty, it should have an explicit message and encourage the agent to add to it using the tool. We should come up with a good name for the tool that''s easy to remember and refer to. We should research other todo tools for agents (in opencode, claude code, codex, etc) and take the best lessons we can from them. see ~/src/pag-server/ref-projects/*. Let''s go deep and make this the best task tree todo tracker tool ever!'
+---
+
+# Original Idea
+
+A current tasks tool that supports adding tasks/todos, listing them, setting them inprog, done, error/problem, or pending. Additionally, it should support adding subtasks to tasks so we have a tree structure. the description of the text should encourage the agent to make use of the tool and populate it to whatever depth is appropriate. The tool should be persistent and never reset by compaction etc. Tasks must have a strong lifecycle: cannot mark a parent done if all children are not, cannot remove an inprogress task, cannot overwrite all tasks at once (so tasks need to be managed individually, but the tool should accept a list of operations). We really want to make this a rich and highly opinionated, useful, tool that gives structure and direction to the agent. The status of the todos should be included in runtime context and sent along with every message like the rest of runtime context. If empty, it should have an explicit message and encourage the agent to add to it using the tool. We should come up with a good name for the tool that's easy to remember and refer to. We should research other todo tools for agents (in opencode, claude code, codex, etc) and take the best lessons we can from them. see ~/src/pag-server/ref-projects/*. Let's go deep and make this the best task tree todo tracker tool ever!
+
+## Planning Task (Equivalent of /plan-task)
+
+- Run `/plan-task I011` to decompose this idea into actionable work.
+- Confirm placement in the current backlog hierarchy before creating work items.
+
+## Ingest Plan Into backlog
+
+- Create implementation items with `backlog add` and related hierarchy commands (`backlog add-epic`, `backlog add-milestone`, `backlog add-phase`) as needed.
+- Create follow-up defects with `backlog bug` when bug-style work is identified.
+- Record all created IDs below and wire dependencies.
+
+## Created Work Items
+
+- Add created task IDs
+- Add created bug IDs (if any)
+
+## Completion Criteria
+
+- Idea has been decomposed into concrete backlog work items.
+- New items include clear acceptance criteria and dependencies.
+- This idea intake is updated with created IDs and marked done.
