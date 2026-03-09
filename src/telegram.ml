@@ -1440,6 +1440,18 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                   ~is_draining:(fun () -> Session.is_draining session_mgr)
                   ~send_progress ()
         in
+        (* Eagerly acknowledge this update before starting the build.
+           Without this, if a concurrent /update is rejected by claim_update and
+           exec-restart then races with the normal poll-advance cycle, the rejected
+           message can be re-delivered to the new daemon, triggering a redundant
+           build.  Ignore failures — the prepare_restart path below is the safety
+           valve that will abort the restart if the final ack fails. *)
+        let* _ =
+          Lwt.catch
+            (fun () ->
+              acknowledge_update ~bot_token ~update_id:update.update_id)
+            (fun _ -> Lwt.return (Ok ()))
+        in
         let* _response =
           run_update_command
             ~prepare_restart:(fun () ->

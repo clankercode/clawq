@@ -170,7 +170,8 @@ let handle_daemon_exit ?(execve = Unix.execve) exit_intent =
       in
       execve executable
         (daemon_start_argv ~executable)
-        (build_env ~set_vars ~unset_vars:[ internal_nofork_env ])
+        (build_env ~set_vars
+           ~unset_vars:[ internal_nofork_env; Restart_notify.env_key ])
 
 let run_nofork_start ?(execve = Unix.execve)
     ?(run_daemon = fun ~config -> Lwt_main.run (Daemon.run ~config)) ~config ()
