@@ -256,3 +256,4 @@ bugs:
     - file: B255-claude-review-delegates-should.todo
     - file: B256-task-tree-runtime-context-and.todo
     - file: B257-compaction-tool-call-doesn-t-s.todo
+    - file: B258-provide-a-current-goal-project.todo

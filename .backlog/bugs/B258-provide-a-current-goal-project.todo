@@ -1,0 +1,21 @@
+---
+complexity: medium
+depends_on:
+    - The agent can lose focus across long autonomous sessions because the runtime context lacks a compact
+    - |-
+      authoritative current-goal projection. We should provide a first-class tool or derived runtime artifact that summarizes the current goal / next actions and is injected into runtime context more compactly than a full task tree.
+
+      Acceptance criteria:
+      - There is a first-class way to project the current goal / next actions from tracked work.
+      - That projection is available for runtime-context injection so the agent can retain orientation across long sessions and compaction.
+      - The projection is materially more compact than injecting the full task tree while still preserving enough actionable focus.
+      - Connectors/operators can inspect the fuller task tree separately when needed.
+estimate_hours: 1
+id: B258
+priority: high
+status: pending
+tags: []
+title: provide a current-goal projection tool for runtime context injection
+---
+
+provide a current-goal projection tool for runtime context injection
