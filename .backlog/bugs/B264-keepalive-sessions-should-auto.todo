@@ -1,0 +1,13 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 2
+id: B264
+priority: medium
+status: pending
+tags:
+    - automation
+    - sessions
+title: Keepalive sessions should auto-nudge every 15m when idle
+---
+Add a keepalive session feature: sessions marked keepalive should be checked every 15 minutes, and if such a session is idle, the system should inject an automated continuation prompt (for example, 'continue with your tasks') so autonomous work resumes instead of drifting idle. Review /home/xertrov/src/todoer/src/prompts.ts for example prompt style. Acceptance criteria: (1) sessions can be marked/configured as keepalive; (2) keepalive sessions are checked on a 15-minute cadence; (3) if the session is idle, a continuation/nudge message is injected automatically; (4) prompts are phrased appropriately for autonomous continuation; (5) behavior is testable and does not spam already-active sessions.
