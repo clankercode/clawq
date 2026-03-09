@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-09T18:37:39Z"
+claimed_by: cli-user
+completed_at: "2026-03-09T18:45:08Z"
 complexity: medium
 depends_on: []
+duration_minutes: 7.49635264785
 estimate_hours: 1
 id: B224
 priority: medium
-status: pending
+started_at: "2026-03-09T18:37:39Z"
+status: done
 tags: []
 title: task_tree tool should support reordering tasks/subtasks
 ---

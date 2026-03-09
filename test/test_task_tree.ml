@@ -929,6 +929,288 @@ let test_archive_all_completed_roots () =
   in
   Alcotest.(check int) "both archived" 2 archived
 
+let test_reorder_move_to_first () =
+  let db = fresh_db () in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc [ ("op", `String "add"); ("title", `String "A") ];
+        `Assoc [ ("op", `String "add"); ("title", `String "B") ];
+        `Assoc [ ("op", `String "add"); ("title", `String "C") ];
+      ]
+  in
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "reorder");
+            ("id", `String "3");
+            ("position", `String "first");
+          ];
+      ]
+  in
+  (match result with Ok _ -> () | Error e -> Alcotest.fail e);
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
+  let titles = List.map (fun t -> t.Task_tree.title) tasks in
+  Alcotest.(check (list string)) "C is first" [ "C"; "A"; "B" ] titles
+
+let test_reorder_move_to_last () =
+  let db = fresh_db () in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc [ ("op", `String "add"); ("title", `String "A") ];
+        `Assoc [ ("op", `String "add"); ("title", `String "B") ];
+        `Assoc [ ("op", `String "add"); ("title", `String "C") ];
+      ]
+  in
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "reorder");
+            ("id", `String "1");
+            ("position", `String "last");
+          ];
+      ]
+  in
+  (match result with Ok _ -> () | Error e -> Alcotest.fail e);
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
+  let titles = List.map (fun t -> t.Task_tree.title) tasks in
+  Alcotest.(check (list string)) "A is last" [ "B"; "C"; "A" ] titles
+
+let test_reorder_after_sibling () =
+  let db = fresh_db () in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc [ ("op", `String "add"); ("title", `String "A") ];
+        `Assoc [ ("op", `String "add"); ("title", `String "B") ];
+        `Assoc [ ("op", `String "add"); ("title", `String "C") ];
+      ]
+  in
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "reorder");
+            ("id", `String "1");
+            ("position", `String "after:2");
+          ];
+      ]
+  in
+  (match result with Ok _ -> () | Error e -> Alcotest.fail e);
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
+  let titles = List.map (fun t -> t.Task_tree.title) tasks in
+  Alcotest.(check (list string)) "A after B" [ "B"; "A"; "C" ] titles
+
+let test_reorder_before_sibling () =
+  let db = fresh_db () in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc [ ("op", `String "add"); ("title", `String "A") ];
+        `Assoc [ ("op", `String "add"); ("title", `String "B") ];
+        `Assoc [ ("op", `String "add"); ("title", `String "C") ];
+      ]
+  in
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "reorder");
+            ("id", `String "3");
+            ("position", `String "before:1");
+          ];
+      ]
+  in
+  (match result with Ok _ -> () | Error e -> Alcotest.fail e);
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
+  let titles = List.map (fun t -> t.Task_tree.title) tasks in
+  Alcotest.(check (list string)) "C before A" [ "C"; "A"; "B" ] titles
+
+let test_reorder_not_found () =
+  let db = fresh_db () in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [ `Assoc [ ("op", `String "add"); ("title", `String "A") ] ]
+  in
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "reorder");
+            ("id", `String "99");
+            ("position", `String "first");
+          ];
+      ]
+  in
+  match result with
+  | Error msg ->
+      Alcotest.(check bool)
+        "mentions not found" true
+        (try
+           ignore (Str.search_forward (Str.regexp_string "not found") msg 0);
+           true
+         with Not_found -> false)
+  | Ok _ -> Alcotest.fail "Expected error for missing task"
+
+let test_reorder_no_siblings () =
+  let db = fresh_db () in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [ `Assoc [ ("op", `String "add"); ("title", `String "Only") ] ]
+  in
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "reorder");
+            ("id", `String "1");
+            ("position", `String "first");
+          ];
+      ]
+  in
+  match result with
+  | Error msg ->
+      Alcotest.(check bool)
+        "mentions no siblings" true
+        (try
+           ignore (Str.search_forward (Str.regexp_string "No siblings") msg 0);
+           true
+         with Not_found -> false)
+  | Ok _ -> Alcotest.fail "Expected error for no siblings"
+
+let test_reorder_non_sibling_target () =
+  let db = fresh_db () in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "add"); ("title", `String "Root1"); ("depth", `Int 0);
+          ];
+        `Assoc
+          [
+            ("op", `String "add"); ("title", `String "Child"); ("depth", `Int 1);
+          ];
+        `Assoc
+          [
+            ("op", `String "add"); ("title", `String "Root2"); ("depth", `Int 0);
+          ];
+      ]
+  in
+  (* Try to reorder Root1 after Child (which is a child, not a sibling) *)
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "reorder");
+            ("id", `String "1");
+            ("position", `String "after:2");
+          ];
+      ]
+  in
+  match result with
+  | Error msg ->
+      Alcotest.(check bool)
+        "mentions not found among siblings" true
+        (try
+           ignore
+             (Str.search_forward
+                (Str.regexp_string "not found among siblings")
+                msg 0);
+           true
+         with Not_found -> false)
+  | Ok _ -> Alcotest.fail "Expected error for non-sibling reference"
+
+let test_reorder_invalid_position () =
+  let db = fresh_db () in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc [ ("op", `String "add"); ("title", `String "A") ];
+        `Assoc [ ("op", `String "add"); ("title", `String "B") ];
+      ]
+  in
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "reorder");
+            ("id", `String "1");
+            ("position", `String "middle");
+          ];
+      ]
+  in
+  match result with
+  | Error msg ->
+      Alcotest.(check bool)
+        "mentions invalid position" true
+        (try
+           ignore
+             (Str.search_forward (Str.regexp_string "Invalid position") msg 0);
+           true
+         with Not_found -> false)
+  | Ok _ -> Alcotest.fail "Expected error for invalid position"
+
+let test_reorder_preserves_children () =
+  let db = fresh_db () in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "add"); ("title", `String "Root1"); ("depth", `Int 0);
+          ];
+        `Assoc
+          [
+            ("op", `String "add");
+            ("title", `String "Child of Root1");
+            ("depth", `Int 1);
+          ];
+        `Assoc
+          [
+            ("op", `String "add"); ("title", `String "Root2"); ("depth", `Int 0);
+          ];
+      ]
+  in
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "reorder");
+            ("id", `String "1");
+            ("position", `String "last");
+          ];
+      ]
+  in
+  (match result with Ok _ -> () | Error e -> Alcotest.fail e);
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
+  let child = List.find (fun t -> t.Task_tree.title = "Child of Root1") tasks in
+  Alcotest.(check (option string))
+    "child still parented to Root1" (Some "1") child.parent_id;
+  (* Verify render order: Root2 first, then Root1 with its child *)
+  let tree = Task_tree.render_tree ~db ~session_key:"s1" in
+  let root2_pos =
+    try Str.search_forward (Str.regexp_string "Root2") tree 0
+    with Not_found -> max_int
+  in
+  let root1_pos =
+    try Str.search_forward (Str.regexp_string "Root1") tree 0
+    with Not_found -> max_int
+  in
+  Alcotest.(check bool) "Root2 before Root1" true (root2_pos < root1_pos)
+
 let suite =
   [
     Alcotest.test_case "init_schema idempotent" `Quick
@@ -981,4 +1263,17 @@ let suite =
       test_comma_separated_id_update;
     Alcotest.test_case "archive all completed roots" `Quick
       test_archive_all_completed_roots;
+    Alcotest.test_case "reorder move to first" `Quick test_reorder_move_to_first;
+    Alcotest.test_case "reorder move to last" `Quick test_reorder_move_to_last;
+    Alcotest.test_case "reorder after sibling" `Quick test_reorder_after_sibling;
+    Alcotest.test_case "reorder before sibling" `Quick
+      test_reorder_before_sibling;
+    Alcotest.test_case "reorder not found" `Quick test_reorder_not_found;
+    Alcotest.test_case "reorder no siblings" `Quick test_reorder_no_siblings;
+    Alcotest.test_case "reorder non-sibling target" `Quick
+      test_reorder_non_sibling_target;
+    Alcotest.test_case "reorder invalid position" `Quick
+      test_reorder_invalid_position;
+    Alcotest.test_case "reorder preserves children" `Quick
+      test_reorder_preserves_children;
   ]

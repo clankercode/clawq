@@ -303,6 +303,28 @@ let delete_task ~db ~session_key ~id =
             (Printf.sprintf "SQLite error deleting task: %s"
                (Sqlite3.Rc.to_string rc)))
 
+let update_sort_order ~db ~session_key ~id ~sort_order =
+  let sql =
+    "UPDATE task_tree SET sort_order = ?, updated_at = datetime('now') WHERE \
+     session_key = ? AND id = ?"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore
+        (Sqlite3.bind stmt 1 (Sqlite3.Data.INT (Int64.of_int sort_order))
+          : Sqlite3.Rc.t);
+      ignore
+        (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT session_key) : Sqlite3.Rc.t);
+      ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.TEXT id) : Sqlite3.Rc.t);
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.DONE -> Ok ()
+      | rc ->
+          Error
+            (Printf.sprintf "SQLite error updating sort_order: %s"
+               (Sqlite3.Rc.to_string rc)))
+
 let status_icon = function
   | Pending -> "[ ]"
   | In_progress -> "[>]"
@@ -637,6 +659,83 @@ let do_archive ~db ~session_key ~id =
         Ok ()
       end
 
+(* Reorder a task among its siblings *)
+let do_reorder ~db ~session_key ~id ~position =
+  let tasks = load_tasks ~db ~session_key in
+  match List.find_opt (fun t -> t.id = id) tasks with
+  | None -> Error (Printf.sprintf "Task '%s' not found" id)
+  | Some task -> (
+      let siblings =
+        List.filter (fun t -> t.parent_id = task.parent_id) tasks
+        |> List.sort (fun a b ->
+            let c = compare a.sort_order b.sort_order in
+            if c <> 0 then c else compare a.id b.id)
+      in
+      if List.length siblings <= 1 then Error "No siblings to reorder among"
+      else
+        let parse_position pos =
+          if pos = "first" then Ok `First
+          else if pos = "last" then Ok `Last
+          else if String.length pos > 7 && String.sub pos 0 7 = "before:" then
+            Ok (`Before (String.sub pos 7 (String.length pos - 7)))
+          else if String.length pos > 6 && String.sub pos 0 6 = "after:" then
+            Ok (`After (String.sub pos 6 (String.length pos - 6)))
+          else
+            Error
+              (Printf.sprintf
+                 "Invalid position '%s'. Use 'first', 'last', 'before:<id>', \
+                  or 'after:<id>'"
+                 pos)
+        in
+        match parse_position position with
+        | Error e -> Error e
+        | Ok parsed -> (
+            let validate_ref ref_id =
+              match List.find_opt (fun t -> t.id = ref_id) siblings with
+              | None ->
+                  Error
+                    (Printf.sprintf
+                       "Reference task '%s' not found among siblings" ref_id)
+              | Some _ ->
+                  if ref_id = id then
+                    Error "Cannot reorder a task relative to itself"
+                  else Ok ()
+            in
+            let ref_valid =
+              match parsed with
+              | `Before ref_id | `After ref_id -> validate_ref ref_id
+              | `First | `Last -> Ok ()
+            in
+            match ref_valid with
+            | Error e -> Error e
+            | Ok () -> (
+                let others = List.filter (fun t -> t.id <> id) siblings in
+                let new_order =
+                  match parsed with
+                  | `First -> task :: others
+                  | `Last -> others @ [ task ]
+                  | `Before ref_id ->
+                      List.concat_map
+                        (fun t -> if t.id = ref_id then [ task; t ] else [ t ])
+                        others
+                  | `After ref_id ->
+                      List.concat_map
+                        (fun t -> if t.id = ref_id then [ t; task ] else [ t ])
+                        others
+                in
+                let err = ref None in
+                List.iteri
+                  (fun i t ->
+                    if !err = None then
+                      match
+                        update_sort_order ~db ~session_key ~id:t.id
+                          ~sort_order:(i + 1)
+                      with
+                      | Ok () -> ()
+                      | Error e -> err := Some e)
+                  new_order;
+                match !err with None -> Ok () | Some e -> Error e)))
+
 (* Process a batch of operations *)
 let process_operations ~db ~session_key (ops : Yojson.Safe.t list) =
   let open Yojson.Safe.Util in
@@ -857,6 +956,25 @@ let process_operations ~db ~session_key (ops : Yojson.Safe.t list) =
                         | None -> "Archived all completed root trees\n");
                       Ok ()
                   | Error e -> Error e)
+              | "reorder" -> (
+                  let id =
+                    try Some (op_json |> member "id" |> to_string)
+                    with _ -> None
+                  in
+                  let position =
+                    try Some (op_json |> member "position" |> to_string)
+                    with _ -> None
+                  in
+                  match (id, position) with
+                  | None, _ -> Error "ID is required for reorder"
+                  | _, None -> Error "position is required for reorder"
+                  | Some id, Some position -> (
+                      match do_reorder ~db ~session_key ~id ~position with
+                      | Ok () ->
+                          Buffer.add_string results
+                            (Printf.sprintf "Reordered #%s to %s\n" id position);
+                          Ok ()
+                      | Error e -> Error e))
               | "" -> Error "Operation 'op' field is required"
               | other -> Error (Printf.sprintf "Unknown operation '%s'" other)
             with Failure msg -> Error msg
@@ -893,7 +1011,7 @@ let tool ~db : Tool.t =
        Use this proactively at the start of any non-trivial task to plan your \
        approach, and update it as you work. The task tree survives context \
        compaction and is visible every turn.\n\n\
-       Operations: add, update, remove, clear, archive.\n\n\
+       Operations: add, update, remove, clear, archive, reorder.\n\n\
        Statuses: pending (not started), in_progress (actively working), done \
        (completed), error (blocked/failed), cancelled (abandoned).\n\n\
        Adding tasks: Use 'depth' for easy tree building in a batch — depth 0 \
@@ -904,6 +1022,9 @@ let tool ~db : Tool.t =
        batch status updates, use comma-separated IDs.\n\n\
        Archiving: Use 'archive' to move fully completed subtrees to the \
        archive. This cleans up the active tree and resets ID numbering.\n\n\
+       Reordering: Use 'reorder' with 'id' and 'position' to change task \
+       priority order among siblings. Position values: 'before:<id>', \
+       'after:<id>', 'first', 'last'.\n\n\
        Lifecycle rules (enforced automatically):\n\
        - A parent cannot be marked done until all children are done or \
        cancelled.\n\
@@ -944,6 +1065,7 @@ let tool ~db : Tool.t =
                                               `String "remove";
                                               `String "clear";
                                               `String "archive";
+                                              `String "reorder";
                                             ] );
                                       ] );
                                   ("id", `Assoc [ ("type", `String "string") ]);
@@ -968,6 +1090,16 @@ let tool ~db : Tool.t =
                                             ] );
                                       ] );
                                   ("note", `Assoc [ ("type", `String "string") ]);
+                                  ( "position",
+                                    `Assoc
+                                      [
+                                        ("type", `String "string");
+                                        ( "description",
+                                          `String
+                                            "Position to move the task to: \
+                                             'first', 'last', 'before:<id>', \
+                                             or 'after:<id>'" );
+                                      ] );
                                 ] );
                             ("required", `List [ `String "op" ]);
                           ] );
