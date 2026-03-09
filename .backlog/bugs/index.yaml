@@ -252,3 +252,4 @@ bugs:
     - file: B251-clawq-debug-prompt-doesn-t-sho.todo
     - file: B252-clawq-session-show-telegram-58.todo
     - file: B253-add-clawq-debug-subcommand-to.todo
+    - file: B254-task-tree-should-allow-more-th.todo
