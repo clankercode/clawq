@@ -1087,6 +1087,15 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
             Session.delegate_turn session_mgr ~prompt ~send_reply:(fun text ->
                 send_chunked ~bot_token ~chat_id:update.chat_id ~text ());
             Lwt.return_unit
+        | Tools ->
+            let text =
+              match Session.get_tool_registry session_mgr with
+              | Some reg ->
+                  Slash_commands.format_tools_telegram (Tool_registry.list reg)
+              | None -> "Tools are not enabled."
+            in
+            send_message ~bot_token ~chat_id:update.chat_id ~text
+              ~parse_mode:"HTML" ()
         | ForkAnd prompt ->
             let* () =
               send_message ~bot_token ~chat_id:update.chat_id

@@ -405,6 +405,17 @@ let handle_event ~(config : Runtime_config.slack_config)
                     send_message_fn ~bot_token:config.bot_token ~channel_id
                       ~text);
                 Lwt.return "ok"
+            | Tools ->
+                let text =
+                  match Session.get_tool_registry session_manager with
+                  | Some reg ->
+                      Slash_commands.format_tools_plain (Tool_registry.list reg)
+                  | None -> "Tools are not enabled."
+                in
+                let* () =
+                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
+                in
+                Lwt.return "ok"
             | ForkAnd prompt ->
                 Lwt.async (fun () ->
                     send_message_fn ~bot_token:config.bot_token ~channel_id

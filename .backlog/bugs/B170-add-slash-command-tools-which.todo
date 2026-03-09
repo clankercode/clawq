@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-09T14:07:56Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B170
 priority: high
-status: pending
+started_at: "2026-03-09T14:07:56Z"
+status: in_progress
 tags: []
 title: 'Add slash command: `/tools` which listst all tools, their args, and descriptions in a nice table. When sending over telegram, use telegram features to make it as compact as possible.'
 ---

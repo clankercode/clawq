@@ -613,6 +613,15 @@ let handler ~session_manager ~require_pairing ~auth_token
                               "Failed to update show_thinking: " ^ err)
                     in
                     sse_reply text
+                | Slash_commands.Tools ->
+                    let text =
+                      match Session.get_tool_registry session_manager with
+                      | Some reg ->
+                          Slash_commands.format_tools_plain
+                            (Tool_registry.list reg)
+                      | None -> "Tools are not enabled."
+                    in
+                    sse_reply text
                 | Slash_commands.Delegate prompt ->
                     let stream, push = Lwt_stream.create () in
                     let push_sse text =

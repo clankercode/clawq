@@ -535,6 +535,15 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
               send_message_fn ~bot_token:discord_config.bot_token
                 ~channel_id:msg.channel_id ~text);
           Lwt.return_unit
+      | Tools ->
+          let text =
+            match Session.get_tool_registry session_mgr with
+            | Some reg ->
+                Slash_commands.format_tools_plain (Tool_registry.list reg)
+            | None -> "Tools are not enabled."
+          in
+          send_message_fn ~bot_token:discord_config.bot_token
+            ~channel_id:msg.channel_id ~text
       | ForkAnd prompt ->
           let* () =
             send_message_fn ~bot_token:discord_config.bot_token

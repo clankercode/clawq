@@ -10,6 +10,7 @@ type result =
   | ShowThinking of show_thinking_action
   | Delegate of string
   | ForkAnd of string
+  | Tools
   | NotACommand
 
 let allowed_thinking_levels = [ "low"; "medium"; "high"; "off"; "xhigh"; "max" ]
@@ -70,6 +71,7 @@ let commands =
       description =
         "Fork the current session and run a prompt: /fork_and <prompt>";
     };
+    { name = "tools"; description = "List all available tools" };
   ]
 
 let help_text =
@@ -212,7 +214,83 @@ let handle text =
             match args with
             | [] -> Reply "Usage: /fork_and <prompt>"
             | _ -> ForkAnd (String.concat " " args))
+        | "tools" -> Tools
         | "" -> NotACommand
         | _ -> NotACommand)
 
 let reset_message = "Session reset. Send a new message to start fresh."
+
+let risk_level_string (r : Tool.risk_level) =
+  match r with Low -> "Low" | Medium -> "Medium" | High -> "High"
+
+let extract_params (schema : Yojson.Safe.t) : (string * string * bool) list =
+  let open Yojson.Safe.Util in
+  let props = try schema |> member "properties" |> to_assoc with _ -> [] in
+  let required =
+    try schema |> member "required" |> to_list |> List.map to_string
+    with _ -> []
+  in
+  List.map
+    (fun (name, v) ->
+      let typ = try v |> member "type" |> to_string with _ -> "string" in
+      let is_required = List.mem name required in
+      (name, typ, is_required))
+    props
+
+let format_tools_plain (tools : Tool.t list) : string =
+  let sorted =
+    List.sort (fun (a : Tool.t) b -> String.compare a.name b.name) tools
+  in
+  let count = List.length sorted in
+  let buf = Buffer.create 1024 in
+  Buffer.add_string buf (Printf.sprintf "Available tools (%d):\n" count);
+  List.iter
+    (fun (t : Tool.t) ->
+      Buffer.add_char buf '\n';
+      Buffer.add_string buf
+        (Printf.sprintf "%s [%s]\n" t.name (risk_level_string t.risk_level));
+      Buffer.add_string buf (Printf.sprintf "  %s\n" t.description);
+      let params = extract_params t.parameters_schema in
+      if params <> [] then
+        let param_strs =
+          List.map
+            (fun (name, typ, req) ->
+              if req then Printf.sprintf "%s* (%s)" name typ
+              else Printf.sprintf "%s (%s)" name typ)
+            params
+        in
+        Buffer.add_string buf
+          (Printf.sprintf "  Args: %s\n" (String.concat ", " param_strs)))
+    sorted;
+  Buffer.contents buf
+
+let truncate_description desc max_len =
+  if String.length desc <= max_len then desc
+  else String.sub desc 0 (max_len - 3) ^ "..."
+
+let format_tools_telegram (tools : Tool.t list) : string =
+  let sorted =
+    List.sort (fun (a : Tool.t) b -> String.compare a.name b.name) tools
+  in
+  let count = List.length sorted in
+  let buf = Buffer.create 1024 in
+  Buffer.add_string buf (Printf.sprintf "<b>Tools (%d)</b>\n\n" count);
+  Buffer.add_string buf "<blockquote expandable>\n";
+  List.iter
+    (fun (t : Tool.t) ->
+      let params = extract_params t.parameters_schema in
+      let param_str =
+        if params = [] then ""
+        else
+          let names =
+            List.map
+              (fun (name, _, req) -> if req then name ^ "*" else name)
+              params
+          in
+          " <code>" ^ String.concat " " names ^ "</code>"
+      in
+      Buffer.add_string buf (Printf.sprintf "<b>%s</b>%s\n" t.name param_str);
+      Buffer.add_string buf (truncate_description t.description 60 ^ "\n\n"))
+    sorted;
+  Buffer.add_string buf "</blockquote>";
+  Buffer.contents buf

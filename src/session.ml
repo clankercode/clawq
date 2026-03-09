@@ -953,6 +953,7 @@ let fork_and_run mgr ~parent_key ~prompt ~send_reply =
                   (fun _ -> Lwt.return_unit))))
 
 let get_config mgr = mgr.config
+let get_tool_registry mgr = mgr.tool_registry
 
 let update_config mgr config =
   mgr.config <- config;

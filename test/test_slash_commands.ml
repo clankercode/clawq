@@ -13,6 +13,7 @@ let result_to_string = function
       "ShowThinking(Toggle)"
   | Slash_commands.Delegate s -> "Delegate(" ^ s ^ ")"
   | Slash_commands.ForkAnd s -> "ForkAnd(" ^ s ^ ")"
+  | Slash_commands.Tools -> "Tools"
   | Slash_commands.NotACommand -> "NotACommand"
 
 let result_eq a b =
@@ -29,6 +30,7 @@ let result_eq a b =
   | Slash_commands.ShowThinking a, Slash_commands.ShowThinking b -> a = b
   | Slash_commands.Delegate a, Slash_commands.Delegate b -> a = b
   | Slash_commands.ForkAnd a, Slash_commands.ForkAnd b -> a = b
+  | Slash_commands.Tools, Slash_commands.Tools -> true
   | Slash_commands.NotACommand, Slash_commands.NotACommand -> true
   | _ -> false
 
@@ -158,7 +160,8 @@ let test_commands_list () =
     "has show_thinking" true
     (List.mem "show_thinking" names);
   Alcotest.(check bool) "has config" true (List.mem "config" names);
-  Alcotest.(check bool) "has fork_and" true (List.mem "fork_and" names)
+  Alcotest.(check bool) "has fork_and" true (List.mem "fork_and" names);
+  Alcotest.(check bool) "has tools" true (List.mem "tools" names)
 
 let test_case_insensitive () =
   (match Slash_commands.handle "/HELP" with
@@ -362,6 +365,115 @@ let test_config_set_invalid_path () =
       Alcotest.fail
         (Printf.sprintf "expected Reply, got %s" (result_to_string other))
 
+let test_tools_command () =
+  Alcotest.check result_testable "/tools returns Tools" Slash_commands.Tools
+    (Slash_commands.handle "/tools")
+
+let test_format_tools_plain () =
+  let tools =
+    [
+      {
+        Tool.name = "file_read";
+        description = "Read file contents with optional offset/limit";
+        parameters_schema =
+          `Assoc
+            [
+              ( "properties",
+                `Assoc
+                  [
+                    ("path", `Assoc [ ("type", `String "string") ]);
+                    ("offset", `Assoc [ ("type", `String "integer") ]);
+                  ] );
+              ("required", `List [ `String "path" ]);
+            ];
+        invoke = (fun ?context:_ _args -> Lwt.return "");
+        invoke_stream = None;
+        risk_level = Tool.Low;
+        deferred = false;
+      };
+      {
+        Tool.name = "shell_exec";
+        description = "Execute shell commands in a sandboxed environment";
+        parameters_schema =
+          `Assoc
+            [
+              ( "properties",
+                `Assoc
+                  [
+                    ("command", `Assoc [ ("type", `String "string") ]);
+                    ("timeout", `Assoc [ ("type", `String "integer") ]);
+                  ] );
+              ("required", `List [ `String "command" ]);
+            ];
+        invoke = (fun ?context:_ _args -> Lwt.return "");
+        invoke_stream = None;
+        risk_level = Tool.High;
+        deferred = false;
+      };
+    ]
+  in
+  let output = Slash_commands.format_tools_plain tools in
+  Alcotest.(check bool) "contains count" true (contains_str output "(2)");
+  Alcotest.(check bool)
+    "contains file_read" true
+    (contains_str output "file_read");
+  Alcotest.(check bool)
+    "contains shell_exec" true
+    (contains_str output "shell_exec");
+  Alcotest.(check bool) "contains [High]" true (contains_str output "[High]");
+  Alcotest.(check bool) "contains [Low]" true (contains_str output "[Low]");
+  Alcotest.(check bool)
+    "contains required marker" true
+    (contains_str output "path*");
+  Alcotest.(check bool)
+    "file_read before shell_exec (sorted)" true
+    (let pos_file =
+       try Str.search_forward (Str.regexp_string "file_read") output 0
+       with Not_found -> max_int
+     in
+     let pos_shell =
+       try Str.search_forward (Str.regexp_string "shell_exec") output 0
+       with Not_found -> max_int
+     in
+     pos_file < pos_shell)
+
+let test_format_tools_telegram () =
+  let tools =
+    [
+      {
+        Tool.name = "memory_store";
+        description = "Store a key-value pair in session memory";
+        parameters_schema =
+          `Assoc
+            [
+              ( "properties",
+                `Assoc
+                  [
+                    ("key", `Assoc [ ("type", `String "string") ]);
+                    ("value", `Assoc [ ("type", `String "string") ]);
+                  ] );
+              ("required", `List [ `String "key"; `String "value" ]);
+            ];
+        invoke = (fun ?context:_ _args -> Lwt.return "");
+        invoke_stream = None;
+        risk_level = Tool.Low;
+        deferred = false;
+      };
+    ]
+  in
+  let output = Slash_commands.format_tools_telegram tools in
+  Alcotest.(check bool) "contains <b>" true (contains_str output "<b>");
+  Alcotest.(check bool)
+    "contains blockquote" true
+    (contains_str output "<blockquote expandable>");
+  Alcotest.(check bool)
+    "contains tool name" true
+    (contains_str output "memory_store");
+  Alcotest.(check bool) "contains <code>" true (contains_str output "<code>");
+  Alcotest.(check bool)
+    "contains required markers" true
+    (contains_str output "key* value*")
+
 let test_is_secret_path () =
   Alcotest.(check bool)
     "api_key is secret" true
@@ -430,4 +542,7 @@ let suite =
     Alcotest.test_case "/config get no key" `Quick test_config_get_no_key;
     Alcotest.test_case "/config set invalid path" `Quick
       test_config_set_invalid_path;
+    Alcotest.test_case "/tools returns Tools" `Quick test_tools_command;
+    Alcotest.test_case "format_tools_plain" `Quick test_format_tools_plain;
+    Alcotest.test_case "format_tools_telegram" `Quick test_format_tools_telegram;
   ]
