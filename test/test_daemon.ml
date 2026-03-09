@@ -306,11 +306,8 @@ let test_default_resume_turn_uses_explicit_resume_prompt () =
         (string_contains Daemon.resume_turn_prompt
            "without waiting for a new user message");
       Alcotest.(check bool)
-        "stay-idle is subordinate, not foregrounded" true
-        (string_contains Daemon.resume_turn_prompt "(If, after checking");
-      Alcotest.(check bool)
-        "stay-idle not presented as equal first-class branch" false
-        (string_contains Daemon.resume_turn_prompt "Reply exactly STAY_IDLE");
+        "stay-idle not mentioned in resume prompt" false
+        (string_contains Daemon.resume_turn_prompt "STAY_IDLE");
       let db = Memory.init ~db_path:":memory:" () in
       let telegram_account =
         { Runtime_config.bot_token = "tg-token"; allow_from = []; totp = None }
