@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B205
+priority: medium
+status: pending
+tags: []
+title: Workspace refresh visibility/invalidation should detect external active prompt-file edits, not only tool-call-observed changes
+---
+Current B186 logic snapshots active workspace file digests around agent tool calls and emits a refresh event when those files changed during the call. That covers direct and indirect agent-caused edits, but not arbitrary external edits (user editor, git checkout, background process, config management, etc.) occurring outside an agent tool-call execution window. Expected behavior: active workspace prompt-file changes should be noticed regardless of who or what changed them, and the system should refresh/invalidate prompt context observably on the next relevant turn (or via a watcher if appropriate). Acceptance criteria: 1) external edits to configured active workspace files are detected without requiring the assistant itself to have performed a write tool call; 2) subsequent turn/prompt generation reflects the updated file contents; 3) a user-verifiable refresh indication exists where appropriate; 4) no sensitive file contents are leaked in the notification path; 5) tests cover at least next-turn detection after an out-of-band file change.

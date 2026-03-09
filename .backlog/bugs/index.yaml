@@ -203,3 +203,4 @@ bugs:
     - file: B202-tool-calls-no-longer-visible-s.todo
     - file: B203-the-automatic-continuation-che.todo
     - file: B204-workspace-refresh-event-exists.todo
+    - file: B205-workspace-refresh-visibility-i.todo
