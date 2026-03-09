@@ -410,6 +410,51 @@ let test_autonomy_section_appears_before_workspace () =
         "autonomy before workspace" true
         (autonomy_pos < workspace_pos))
 
+let test_workspace_injection_note_present () =
+  with_temp_workspace (fun workspace ->
+      write_file (Filename.concat workspace "EGO.md") "EGO CONTENT";
+      let prompt_cfg =
+        {
+          Runtime_config.default.prompt with
+          dynamic_enabled = true;
+          include_tools_section = false;
+          include_safety_section = false;
+          include_runtime_section = false;
+          include_datetime_section = false;
+          include_autonomy_section = false;
+          workspace_files = [ "EGO.md" ];
+        }
+      in
+      let cfg =
+        { Runtime_config.default with workspace; prompt = prompt_cfg }
+      in
+      let prompt = Prompt_builder.build ~config:cfg ~tool_registry:None () in
+      Alcotest.(check bool)
+        "has no-reread note" true
+        (contains prompt "already injected into this prompt"))
+
+let test_workspace_injection_note_absent_when_no_files () =
+  with_temp_workspace (fun workspace ->
+      let prompt_cfg =
+        {
+          Runtime_config.default.prompt with
+          dynamic_enabled = true;
+          include_tools_section = false;
+          include_safety_section = false;
+          include_runtime_section = false;
+          include_datetime_section = false;
+          include_autonomy_section = false;
+          workspace_files = [ "EGO.md" ];
+        }
+      in
+      let cfg =
+        { Runtime_config.default with workspace; prompt = prompt_cfg }
+      in
+      let prompt = Prompt_builder.build ~config:cfg ~tool_registry:None () in
+      Alcotest.(check bool)
+        "no note when no files found" false
+        (contains prompt "already injected into this prompt"))
+
 let suite =
   [
     Alcotest.test_case "dynamic prompt disabled uses base prompt" `Quick
@@ -436,4 +481,8 @@ let suite =
       `Quick test_dynamic_prompt_excludes_autonomy_section_when_disabled;
     Alcotest.test_case "autonomy section appears before workspace" `Quick
       test_autonomy_section_appears_before_workspace;
+    Alcotest.test_case "workspace injection note present when files injected"
+      `Quick test_workspace_injection_note_present;
+    Alcotest.test_case "workspace injection note absent when no files" `Quick
+      test_workspace_injection_note_absent_when_no_files;
   ]

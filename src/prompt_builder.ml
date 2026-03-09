@@ -394,7 +394,12 @@ let build ~(config : Runtime_config.t) ~tool_registry ?(attachments = [])
             add ("### " ^ name);
             add content;
             add "")
-          docs
+          docs;
+        add
+          "**Note:** The workspace files above are already injected into this \
+           prompt and refreshed every turn. Do not re-read them with file_read \
+           unless you have a concrete reason to check for mid-session changes \
+           or need content beyond the truncation limit."
       end
     end;
     if config.prompt.include_safety_section then begin
