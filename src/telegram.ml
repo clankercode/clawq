@@ -1080,6 +1080,43 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                   | _ -> Lwt.return_unit)
             in
             let* () = set_reaction "\xe2\x8f\xb3" in
+            let drain_progress_msg_id = ref None in
+            let on_drain_progress : Session.drain_progress =
+              {
+                before_turn =
+                  (fun () ->
+                    let* () =
+                      match !drain_progress_msg_id with
+                      | Some mid ->
+                          Lwt.catch
+                            (fun () ->
+                              delete_message ~bot_token ~chat_id:update.chat_id
+                                ~message_id:mid ())
+                            (fun _exn -> Lwt.return_unit)
+                      | None -> Lwt.return_unit
+                    in
+                    let* mid =
+                      send_message_with_id ~disable_notification:true ~bot_token
+                        ~chat_id:update.chat_id
+                        ~text:
+                          "\xe2\x8f\xb3 Processing queued message\xe2\x80\xa6"
+                        ()
+                    in
+                    drain_progress_msg_id := Some mid;
+                    Lwt.return_unit);
+                after_all =
+                  (fun () ->
+                    match !drain_progress_msg_id with
+                    | Some mid ->
+                        drain_progress_msg_id := None;
+                        Lwt.catch
+                          (fun () ->
+                            delete_message ~bot_token ~chat_id:update.chat_id
+                              ~message_id:mid ())
+                          (fun _exn -> Lwt.return_unit)
+                    | None -> Lwt.return_unit);
+              }
+            in
             let* result =
               Session.with_registered_notifier session_mgr ~key
                 ~notify:(fun text ->
@@ -1094,7 +1131,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                         Session.turn_stream session_mgr ~key ~message:msg
                           ~channel_name:"telegram" ~channel_type:"dm"
                           ~channel:"telegram" ~channel_id:update.chat_id
-                          ~on_chunk ()
+                          ~on_drain_progress ~on_chunk ()
                       in
                       let* response =
                         with_typing ~bot_token ~chat_id:update.chat_id turn_p

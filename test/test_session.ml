@@ -588,7 +588,7 @@ let test_drain_queued_messages_sends_followup_response () =
                  in
                  Alcotest.(check bool) "busy queue succeeds" true queued;
                  Session.drain_queued_messages mgr ~key:"telegram:1:u" agent
-                   interrupt)));
+                   interrupt ())));
       Alcotest.(check int) "followup sent once" 1 (List.length !sent);
       Alcotest.(check bool)
         "followup produced provider reply" true
@@ -964,7 +964,7 @@ let test_drain_works_after_concurrent_notifier_registration () =
                        Lwt.return_unit)
                  in
                  Session.drain_queued_messages mgr ~key:"telegram:1:u" agent
-                   interrupt)));
+                   interrupt ())));
       Alcotest.(check int)
         "queued message drained and sent" 1 (List.length !sent))
 
@@ -1129,6 +1129,117 @@ let test_autonomous_continuation_is_cancellable_by_new_turn () =
       Alcotest.(check int)
         "continuation prompt suppressed" 0 !continuation_calls)
 
+let test_drain_queued_messages_drains_all_pending_without_relock () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let config = Runtime_config.default in
+  let session_manager = Session.create ~config ~db () in
+  let notified = ref [] in
+  let key = "telegram:1:1" in
+  Session.register_channel_notifier session_manager ~key (fun text ->
+      notified := text :: !notified;
+      Lwt.return_unit);
+  let agent = Agent.create ~config () in
+  let interrupt = ref None in
+  let mkq msg =
+    {
+      Session.message = msg;
+      attachments = [];
+      channel_name = None;
+      channel_type = None;
+      sender_id = None;
+      sender_name = None;
+      channel = Some "telegram";
+      channel_id = Some "1";
+    }
+  in
+  ignore
+    (Session.enqueue_message_if_busy session_manager ~key (mkq "one")
+    |> Lwt_main.run);
+  ignore
+    (Session.enqueue_message_if_busy session_manager ~key (mkq "two")
+    |> Lwt_main.run);
+  ignore
+    (Session.enqueue_message_if_busy session_manager ~key (mkq "three")
+    |> Lwt_main.run);
+  Lwt_main.run
+    (Session.drain_queued_messages session_manager ~key agent interrupt ());
+  Alcotest.(check int) "all queued messages notified" 3 (List.length !notified)
+
+let test_drain_progress_callbacks_fire_for_queued_messages () =
+  with_fake_chat_provider (fun config ->
+      let db = Memory.init ~db_path:":memory:" () in
+      let mgr = Session.create ~config ~db () in
+      let sent = ref [] in
+      let before_count = ref 0 in
+      let after_all_count = ref 0 in
+      let on_drain_progress : Session.drain_progress =
+        {
+          before_turn =
+            (fun () ->
+              incr before_count;
+              Lwt.return_unit);
+          after_all =
+            (fun () ->
+              incr after_all_count;
+              Lwt.return_unit);
+        }
+      in
+      Lwt_main.run
+        (Session.with_registered_notifier mgr ~key:"telegram:1:u"
+           ~notify:(fun text ->
+             sent := text :: !sent;
+             Lwt.return_unit)
+           (fun () ->
+             Session.with_session_lock mgr ~key:"telegram:1:u"
+               (fun agent interrupt ->
+                 let open Lwt.Syntax in
+                 let* q1 =
+                   Session.enqueue_message_if_busy mgr ~key:"telegram:1:u"
+                     (queued_message ~channel_name:"telegram" ~channel_type:"dm"
+                        ~channel:"telegram" ~channel_id:"1" "msg one")
+                 in
+                 let* q2 =
+                   Session.enqueue_message_if_busy mgr ~key:"telegram:1:u"
+                     (queued_message ~channel_name:"telegram" ~channel_type:"dm"
+                        ~channel:"telegram" ~channel_id:"1" "msg two")
+                 in
+                 Alcotest.(check bool) "q1 enqueued" true q1;
+                 Alcotest.(check bool) "q2 enqueued" true q2;
+                 Session.drain_queued_messages mgr ~key:"telegram:1:u" agent
+                   interrupt ~on_drain_progress ())));
+      Alcotest.(check int) "before_turn called per queued msg" 2 !before_count;
+      Alcotest.(check int) "after_all called once" 1 !after_all_count;
+      Alcotest.(check int) "all messages notified" 2 (List.length !sent))
+
+let test_drain_progress_not_called_when_no_queued_messages () =
+  with_fake_chat_provider (fun config ->
+      let db = Memory.init ~db_path:":memory:" () in
+      let mgr = Session.create ~config ~db () in
+      let before_count = ref 0 in
+      let after_all_count = ref 0 in
+      let on_drain_progress : Session.drain_progress =
+        {
+          before_turn =
+            (fun () ->
+              incr before_count;
+              Lwt.return_unit);
+          after_all =
+            (fun () ->
+              incr after_all_count;
+              Lwt.return_unit);
+        }
+      in
+      Lwt_main.run
+        (Session.with_registered_notifier mgr ~key:"telegram:1:u"
+           ~notify:(fun _text -> Lwt.return_unit)
+           (fun () ->
+             Session.with_session_lock mgr ~key:"telegram:1:u"
+               (fun agent interrupt ->
+                 Session.drain_queued_messages mgr ~key:"telegram:1:u" agent
+                   interrupt ~on_drain_progress ())));
+      Alcotest.(check int) "before_turn not called" 0 !before_count;
+      Alcotest.(check int) "after_all not called" 0 !after_all_count)
+
 let suite =
   [
     Alcotest.test_case "reset clears active session and history" `Quick
@@ -1211,40 +1322,8 @@ let suite =
       test_mid_turn_injection_adds_to_history;
     Alcotest.test_case "restore sanitizes orphaned tool results" `Quick
       test_restore_sanitizes_orphaned_tool_results;
+    Alcotest.test_case "drain progress callbacks fire for queued messages"
+      `Quick test_drain_progress_callbacks_fire_for_queued_messages;
+    Alcotest.test_case "drain progress not called when no queued messages"
+      `Quick test_drain_progress_not_called_when_no_queued_messages;
   ]
-
-let test_drain_queued_messages_drains_all_pending_without_relock () =
-  let db = Memory.init ~db_path:":memory:" () in
-  let config = Runtime_config.default in
-  let session_manager = Session.create ~config ~db () in
-  let notified = ref [] in
-  let key = "telegram:1:1" in
-  Session.register_channel_notifier session_manager ~key (fun text ->
-      notified := text :: !notified;
-      Lwt.return_unit);
-  let agent = Agent.create ~config () in
-  let interrupt = ref None in
-  let mkq msg =
-    {
-      Session.message = msg;
-      attachments = [];
-      channel_name = None;
-      channel_type = None;
-      sender_id = None;
-      sender_name = None;
-      channel = Some "telegram";
-      channel_id = Some "1";
-    }
-  in
-  ignore
-    (Session.enqueue_message_if_busy session_manager ~key (mkq "one")
-    |> Lwt_main.run);
-  ignore
-    (Session.enqueue_message_if_busy session_manager ~key (mkq "two")
-    |> Lwt_main.run);
-  ignore
-    (Session.enqueue_message_if_busy session_manager ~key (mkq "three")
-    |> Lwt_main.run);
-  Lwt_main.run
-    (Session.drain_queued_messages session_manager ~key agent interrupt);
-  Alcotest.(check int) "all queued messages notified" 3 (List.length !notified)

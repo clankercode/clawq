@@ -673,6 +673,43 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                   chunk
           in
           let* () = set_reaction "\xe2\x8f\xb3" in
+          let drain_progress_msg_id = ref None in
+          let on_drain_progress : Session.drain_progress =
+            {
+              before_turn =
+                (fun () ->
+                  let* () =
+                    match !drain_progress_msg_id with
+                    | Some mid ->
+                        Lwt.catch
+                          (fun () ->
+                            delete_message ~bot_token:discord_config.bot_token
+                              ~channel_id:msg.channel_id ~message_id:mid)
+                          (fun _exn -> Lwt.return_unit)
+                    | None -> Lwt.return_unit
+                  in
+                  let* mid =
+                    send_message_with_id ~suppress_notifications:true
+                      ~bot_token:discord_config.bot_token
+                      ~channel_id:msg.channel_id
+                      ~text:"\xe2\x8f\xb3 Processing queued message\xe2\x80\xa6"
+                      ()
+                  in
+                  drain_progress_msg_id := Some mid;
+                  Lwt.return_unit);
+              after_all =
+                (fun () ->
+                  match !drain_progress_msg_id with
+                  | Some mid ->
+                      drain_progress_msg_id := None;
+                      Lwt.catch
+                        (fun () ->
+                          delete_message ~bot_token:discord_config.bot_token
+                            ~channel_id:msg.channel_id ~message_id:mid)
+                        (fun _exn -> Lwt.return_unit)
+                  | None -> Lwt.return_unit);
+            }
+          in
           let* result =
             Session.with_registered_notifier session_mgr ~key
               ~notify:(fun text ->
@@ -686,7 +723,8 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                         ~channel_name:msg.channel_id
                         ~channel_type:discord_channel_type
                         ~sender_id:msg.author_id ~channel:"discord"
-                        ~channel_id:msg.channel_id ~on_chunk ()
+                        ~channel_id:msg.channel_id ~on_drain_progress ~on_chunk
+                        ()
                     in
                     Lwt.return (Ok response))
                   (fun exn -> Lwt.return (Error (Printexc.to_string exn))))

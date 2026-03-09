@@ -38,6 +38,11 @@ type t = {
   mutable special_command_handler : special_command_handler option;
 }
 
+type drain_progress = {
+  before_turn : unit -> unit Lwt.t;
+  after_all : unit -> unit Lwt.t;
+}
+
 let queued_message_response = "__clawq_message_queued__"
 
 let draining_message =
@@ -696,13 +701,19 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(attachments = [])
       end);
   Lwt.return response
 
-let rec drain_queued_messages mgr ~key agent interrupt =
+let rec drain_queued_messages_loop mgr ~key agent interrupt ?on_drain_progress
+    ~drained_any () =
   match
     (take_next_queued_message mgr ~key, find_registered_notifier mgr ~key)
   with
   | Some queued, Some notify ->
       let open Lwt.Syntax in
       Logs.info (fun m -> m "Sending queued message to LLM for session %s" key);
+      let* () =
+        match on_drain_progress with
+        | Some dp -> dp.before_turn ()
+        | None -> Lwt.return_unit
+      in
       let injected_message =
         queued_message_prompt
           (effective_message_for_turn ~message:queued.message
@@ -717,7 +728,8 @@ let rec drain_queued_messages mgr ~key agent interrupt =
       in
       let* () = notify response in
       if not (take_response_deferred mgr ~key) then mark_response_sent mgr ~key;
-      drain_queued_messages mgr ~key agent interrupt
+      drain_queued_messages_loop mgr ~key agent interrupt ?on_drain_progress
+        ~drained_any:true ()
   | Some queued, None ->
       Logs.warn (fun m ->
           m
@@ -728,7 +740,20 @@ let rec drain_queued_messages mgr ~key agent interrupt =
                String.sub queued.message 0 80 ^ "..."
              else queued.message));
       Lwt.return_unit
-  | None, _ -> Lwt.return_unit
+  | None, _ ->
+      if drained_any then
+        let open Lwt.Syntax in
+        let* () =
+          match on_drain_progress with
+          | Some dp -> dp.after_all ()
+          | None -> Lwt.return_unit
+        in
+        Lwt.return_unit
+      else Lwt.return_unit
+
+let drain_queued_messages mgr ~key agent interrupt ?on_drain_progress () =
+  drain_queued_messages_loop mgr ~key agent interrupt ?on_drain_progress
+    ~drained_any:false ()
 
 let rec turn mgr ~key ~message ?(attachments = []) ?channel_name ?channel_type
     ?sender_id ?sender_name ?channel ?channel_id () =
@@ -772,7 +797,7 @@ let rec turn mgr ~key ~message ?(attachments = []) ?channel_name ?channel_type
                     ?channel_name ?channel_type ?sender_id ?sender_name ?channel
                     ?channel_id ()
                 in
-                let* () = drain_queued_messages mgr ~key agent interrupt in
+                let* () = drain_queued_messages mgr ~key agent interrupt () in
                 Lwt.return response))
 
 let delegate_turn mgr ~prompt ~send_reply =
@@ -856,7 +881,8 @@ let update_config mgr config =
     mgr.sessions
 
 let turn_stream mgr ~key ~message ?(attachments = []) ?channel_name
-    ?channel_type ?sender_id ?sender_name ?channel ?channel_id ~on_chunk () =
+    ?channel_type ?sender_id ?sender_name ?channel ?channel_id
+    ?on_drain_progress ~on_chunk () =
   let open Lwt.Syntax in
   let* () = mark_autonomous_activity_started mgr ~key in
   let* message = normalize_incoming_message mgr ~key ~message in
@@ -1004,7 +1030,10 @@ let turn_stream mgr ~key ~message ?(attachments = []) ?channel_name
                            })
                   | _ -> ()
                 end;
-                let* () = drain_queued_messages mgr ~key agent interrupt in
+                let* () =
+                  drain_queued_messages mgr ~key agent interrupt
+                    ?on_drain_progress ()
+                in
                 Lwt.return response))
 
 let reset mgr ~key =
