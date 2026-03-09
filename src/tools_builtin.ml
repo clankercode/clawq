@@ -1844,7 +1844,23 @@ let glob ~workspace ~workspace_only ~extra_allowed_paths =
             if root_arg = "" then workspace
             else resolve_path ~workspace root_arg
           in
-          if
+          if root_arg <> "" && not (Sys.file_exists root) then
+            Lwt.return
+              (Printf.sprintf
+                 "Error: root directory does not exist: %s. Provide an \
+                  absolute path or a path relative to the workspace root."
+                 root_arg)
+          else if
+            root_arg <> ""
+            && try not (Sys.is_directory root) with Sys_error _ -> true
+          then
+            Lwt.return
+              (Printf.sprintf
+                 "Error: root is not a directory: %s. Provide a directory \
+                  path, not a file. Use list_dir to discover available \
+                  directories."
+                 root_arg)
+          else if
             workspace_only
             && not
                  (is_path_within_allowed_roots ~workspace ~extra_allowed_paths
@@ -1935,7 +1951,22 @@ let list_dir ~workspace ~workspace_only ~extra_allowed_paths =
         let path =
           if path_arg = "" then workspace else resolve_path ~workspace path_arg
         in
-        if
+        if path_arg <> "" && not (Sys.file_exists path) then
+          Lwt.return
+            (Printf.sprintf
+               "Error: path does not exist: %s. Provide an absolute path or a \
+                path relative to the workspace root."
+               path_arg)
+        else if
+          path_arg <> ""
+          && try not (Sys.is_directory path) with Sys_error _ -> true
+        then
+          Lwt.return
+            (Printf.sprintf
+               "Error: path is not a directory: %s. list_dir only works on \
+                directories. Use file_read to read a file's contents."
+               path_arg)
+        else if
           workspace_only
           && not
                (is_path_within_allowed_roots ~workspace ~extra_allowed_paths
@@ -2138,7 +2169,13 @@ let grep ~workspace ~workspace_only ~extra_allowed_paths =
                 if path_arg = "" then workspace
                 else resolve_path ~workspace path_arg
               in
-              if
+              if path_arg <> "" && not (Sys.file_exists root) then
+                Lwt.return
+                  (Printf.sprintf
+                     "Error: path does not exist: %s. Provide an absolute path \
+                      or a path relative to the workspace root."
+                     path_arg)
+              else if
                 workspace_only
                 && not
                      (is_path_within_allowed_roots ~workspace

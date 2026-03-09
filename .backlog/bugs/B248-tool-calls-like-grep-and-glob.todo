@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-09T21:11:15Z"
+claimed_by: cli-user
+completed_at: "2026-03-09T21:16:17Z"
 complexity: medium
 depends_on: []
+duration_minutes: 5.038069731533334
 estimate_hours: 1
 id: B248
 priority: high
-status: pending
+started_at: "2026-03-09T21:11:15Z"
+status: done
 tags: []
 title: tool calls like grep and glob should accept an optional directory argument to run in that is not the main working directory. if they don't already that is.
 ---

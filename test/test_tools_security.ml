@@ -456,6 +456,173 @@ let test_grep_honors_case_sensitive_flag () =
         "case-insensitive regex matches" true
         (contains out "search_provider"))
 
+let test_glob_with_root_subdirectory () =
+  with_temp_workspace (fun workspace ->
+      let subdir = Filename.concat workspace "subdir" in
+      Unix.mkdir subdir 0o755;
+      let file = Filename.concat subdir "foo.ml" in
+      let oc = open_out file in
+      output_string oc "let x = 1\n";
+      close_out oc;
+      let other = Filename.concat workspace "other.ml" in
+      let oc2 = open_out other in
+      output_string oc2 "let y = 2\n";
+      close_out oc2;
+      let tool =
+        Tools_builtin.glob ~workspace ~workspace_only:false
+          ~extra_allowed_paths:[]
+      in
+      let out =
+        Lwt_main.run
+          (tool.Tool.invoke
+             (`Assoc
+                [
+                  ("pattern", `String "*.ml");
+                  ("root", `String (Filename.concat workspace "subdir"));
+                ]))
+      in
+      Alcotest.(check bool) "finds file in subdir" true (contains out "foo.ml");
+      Alcotest.(check bool)
+        "does not include file outside subdir" false (contains out "other.ml"))
+
+let test_glob_invalid_root_returns_error () =
+  with_temp_workspace (fun workspace ->
+      let tool =
+        Tools_builtin.glob ~workspace ~workspace_only:false
+          ~extra_allowed_paths:[]
+      in
+      let out =
+        Lwt_main.run
+          (tool.Tool.invoke
+             (`Assoc
+                [
+                  ("pattern", `String "*.ml");
+                  ("root", `String "/nonexistent/path/xyz");
+                ]))
+      in
+      Alcotest.(check bool)
+        "error for nonexistent root" true (contains out "Error"))
+
+let test_glob_root_is_file_returns_error () =
+  with_temp_workspace (fun workspace ->
+      let file = Filename.concat workspace "notadir.ml" in
+      let oc = open_out file in
+      output_string oc "let x = 1\n";
+      close_out oc;
+      let tool =
+        Tools_builtin.glob ~workspace ~workspace_only:false
+          ~extra_allowed_paths:[]
+      in
+      let out =
+        Lwt_main.run
+          (tool.Tool.invoke
+             (`Assoc [ ("pattern", `String "*.ml"); ("root", `String file) ]))
+      in
+      Alcotest.(check bool)
+        "error for file used as root" true (contains out "Error"))
+
+let test_list_dir_with_custom_path () =
+  with_temp_workspace (fun workspace ->
+      let subdir = Filename.concat workspace "mysubdir" in
+      Unix.mkdir subdir 0o755;
+      let file = Filename.concat subdir "inside.ml" in
+      let oc = open_out file in
+      output_string oc "let y = 2\n";
+      close_out oc;
+      let other = Filename.concat workspace "outside.ml" in
+      let oc2 = open_out other in
+      output_string oc2 "let z = 3\n";
+      close_out oc2;
+      let tool =
+        Tools_builtin.list_dir ~workspace ~workspace_only:false
+          ~extra_allowed_paths:[]
+      in
+      let out =
+        Lwt_main.run (tool.Tool.invoke (`Assoc [ ("path", `String subdir) ]))
+      in
+      Alcotest.(check bool)
+        "finds file inside subdir" true (contains out "inside.ml");
+      Alcotest.(check bool)
+        "does not include file outside subdir" false
+        (contains out "outside.ml"))
+
+let test_list_dir_nonexistent_path_returns_error () =
+  with_temp_workspace (fun workspace ->
+      let tool =
+        Tools_builtin.list_dir ~workspace ~workspace_only:false
+          ~extra_allowed_paths:[]
+      in
+      let out =
+        Lwt_main.run
+          (tool.Tool.invoke (`Assoc [ ("path", `String "/nonexistent/xyz") ]))
+      in
+      Alcotest.(check bool)
+        "error for nonexistent path" true (contains out "Error"))
+
+let test_list_dir_file_path_returns_error () =
+  with_temp_workspace (fun workspace ->
+      let file = Filename.concat workspace "afile.txt" in
+      let oc = open_out file in
+      output_string oc "hello\n";
+      close_out oc;
+      let tool =
+        Tools_builtin.list_dir ~workspace ~workspace_only:false
+          ~extra_allowed_paths:[]
+      in
+      let out =
+        Lwt_main.run (tool.Tool.invoke (`Assoc [ ("path", `String file) ]))
+      in
+      Alcotest.(check bool)
+        "error for file used as path" true (contains out "Error"))
+
+let test_grep_with_directory_arg () =
+  with_temp_workspace (fun workspace ->
+      let subdir = Filename.concat workspace "src" in
+      Unix.mkdir subdir 0o755;
+      let file = Filename.concat subdir "main.ml" in
+      let oc = open_out file in
+      output_string oc "let main () = print_endline \"hello\"\n";
+      close_out oc;
+      let other = Filename.concat workspace "README.md" in
+      let oc2 = open_out other in
+      output_string oc2 "let main = not_a_function\n";
+      close_out oc2;
+      let tool =
+        Tools_builtin.grep ~workspace ~workspace_only:false
+          ~extra_allowed_paths:[]
+      in
+      let out =
+        Lwt_main.run
+          (tool.Tool.invoke
+             (`Assoc
+                [
+                  ("pattern", `String "let main");
+                  ("path", `String (Filename.concat workspace "src"));
+                ]))
+      in
+      Alcotest.(check bool)
+        "finds match in subdir" true (contains out "main.ml");
+      Alcotest.(check bool)
+        "does not search outside subdir" false (contains out "README.md"))
+
+let test_grep_invalid_path_returns_error () =
+  with_temp_workspace (fun workspace ->
+      let tool =
+        Tools_builtin.grep ~workspace ~workspace_only:false
+          ~extra_allowed_paths:[]
+      in
+      let out =
+        Lwt_main.run
+          (tool.Tool.invoke
+             (`Assoc
+                [
+                  ("pattern", `String "hello");
+                  ("path", `String "/nonexistent/path/xyz");
+                ]))
+      in
+      Alcotest.(check bool)
+        "error for nonexistent path" true (contains out "Error"))
+
 let test_transcribe_rejects_outside_workspace () =
   with_temp_workspace (fun _workspace ->
       let cfg = Runtime_config.default in
@@ -982,6 +1149,22 @@ let suite =
       test_grep_single_file_respects_include_filter;
     Alcotest.test_case "grep honors case_sensitive flag" `Quick
       test_grep_honors_case_sensitive_flag;
+    Alcotest.test_case "glob with root subdirectory" `Quick
+      test_glob_with_root_subdirectory;
+    Alcotest.test_case "glob invalid root returns error" `Quick
+      test_glob_invalid_root_returns_error;
+    Alcotest.test_case "glob root is file returns error" `Quick
+      test_glob_root_is_file_returns_error;
+    Alcotest.test_case "list_dir with custom path" `Quick
+      test_list_dir_with_custom_path;
+    Alcotest.test_case "list_dir nonexistent path returns error" `Quick
+      test_list_dir_nonexistent_path_returns_error;
+    Alcotest.test_case "list_dir file path returns error" `Quick
+      test_list_dir_file_path_returns_error;
+    Alcotest.test_case "grep with directory arg" `Quick
+      test_grep_with_directory_arg;
+    Alcotest.test_case "grep invalid path returns error" `Quick
+      test_grep_invalid_path_returns_error;
     Alcotest.test_case "file_read large file requires paging" `Quick
       test_file_read_large_file_requires_paged_read;
     Alcotest.test_case "file_read paged window" `Quick
