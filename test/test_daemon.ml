@@ -351,8 +351,13 @@ let test_default_resume_turn_uses_explicit_resume_prompt () =
            ~session_key:"telegram:42:user" ~channel:"telegram" ~channel_id:"42"
            ());
       Alcotest.(check int)
-        "resumed response dispatched once" 1 (List.length !dispatched);
-      let _chat_id, text = List.hd !dispatched in
+        "injection label plus response dispatched" 2 (List.length !dispatched);
+      let sent = List.rev !dispatched in
+      let _ci1, label = List.hd sent in
+      Alcotest.(check bool)
+        "first dispatch is injection label" true
+        (String.starts_with ~prefix:"[automatic restart-resume]" label);
+      let _ci2, text = List.nth sent 1 in
       Alcotest.(check bool)
         "resume response is not empty" true
         (String.trim text <> "");
@@ -472,13 +477,18 @@ let test_resume_agent_session_sends_compaction_notice () =
            ~session_key:"slack:c1:u1" ~channel:"slack" ~channel_id:"c1" ());
       let sent = List.rev !dispatched in
       Alcotest.(check int)
-        "compaction notice plus response" 2 (List.length sent);
-      Alcotest.(check string)
-        "first message is compaction notice" Session.compaction_notice
-        (List.nth sent 0);
+        "injection label plus compaction notice plus response" 3
+        (List.length sent);
       Alcotest.(check bool)
-        "second message is response" true
-        (String.starts_with ~prefix:"reply:" (List.nth sent 1)))
+        "first message is injection label" true
+        (String.starts_with ~prefix:"[automatic restart-resume]"
+           (List.nth sent 0));
+      Alcotest.(check string)
+        "second message is compaction notice" Session.compaction_notice
+        (List.nth sent 1);
+      Alcotest.(check bool)
+        "third message is response" true
+        (String.starts_with ~prefix:"reply:" (List.nth sent 2)))
 
 let test_wait_for_drain_returns_when_in_flight_reaches_zero () =
   let config = Runtime_config.default in
@@ -883,14 +893,14 @@ let test_notify_background_task_finished_dispatches_and_injects_wakeup () =
     }
   in
   let session_manager = Session.create ~config ~db () in
-  let dispatched = ref None in
+  let dispatched = ref [] in
   let injected = ref [] in
   let senders =
     {
       Daemon.default_resume_senders with
       send_telegram =
         (fun ~bot_token ~chat_id ~text ->
-          dispatched := Some (bot_token, chat_id, text);
+          dispatched := (bot_token, chat_id, text) :: !dispatched;
           Lwt.return_unit);
     }
   in
@@ -903,12 +913,30 @@ let test_notify_background_task_finished_dispatches_and_injects_wakeup () =
       else Lwt.return_none);
   let task = make_test_task () in
   Lwt_main.run
-    (Daemon.notify_background_task_finished ~senders ~session_manager ~config
-       task);
-  Alcotest.(check (option (triple string string string)))
-    "telegram sender called"
-    (Some ("tg-token", "42", Background_task.status_message task))
-    !dispatched;
+    (let open Lwt.Syntax in
+     let* () =
+       Daemon.notify_background_task_finished ~continuation_delay:100.0 ~senders
+         ~session_manager ~config task
+     in
+     let* () = Lwt.pause () in
+     Session.cancel_autonomous_continuation session_manager
+       ~key:"telegram:42:user");
+  let dispatched_rev = List.rev !dispatched in
+  Alcotest.(check int)
+    "two dispatches: status + agent response" 2
+    (List.length dispatched_rev);
+  (match dispatched_rev with
+  | [ (bt1, ci1, t1); (bt2, ci2, t2) ] ->
+      Alcotest.(check string) "first bot_token" "tg-token" bt1;
+      Alcotest.(check string) "first chat_id" "42" ci1;
+      Alcotest.(check string)
+        "first dispatch is status message"
+        (Background_task.status_message task)
+        t1;
+      Alcotest.(check string) "second bot_token" "tg-token" bt2;
+      Alcotest.(check string) "second chat_id" "42" ci2;
+      Alcotest.(check string) "second dispatch is agent response" "woke up" t2
+  | _ -> Alcotest.failf "expected exactly two dispatches");
   match List.rev !injected with
   | [ message ] ->
       Alcotest.(check bool)
@@ -923,9 +951,7 @@ let test_notify_background_task_finished_dispatches_and_injects_wakeup () =
                 (Str.regexp_string "wakes in the same session")
                 message 0);
            true
-         with Not_found -> false);
-      Alcotest.(check int)
-        "one automatic wake-up injection observed" 1 (List.length !injected)
+         with Not_found -> false)
   | msgs ->
       Alcotest.failf "expected exactly one injected wake-up message, got %d"
         (List.length msgs)
@@ -985,6 +1011,142 @@ let test_notify_background_task_finished_queues_wakeup_when_session_busy () =
       Alcotest.failf "expected one queued wake-up message, got %d"
         (List.length msgs)
 
+let test_background_task_wakeup_arms_autonomous_continuation () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let telegram_account =
+    { Runtime_config.bot_token = "tg-token"; allow_from = []; totp = None }
+  in
+  let config =
+    {
+      Runtime_config.default with
+      channels =
+        {
+          Runtime_config.default.channels with
+          telegram = Some { accounts = [ ("main", telegram_account) ] };
+        };
+    }
+  in
+  let session_manager = Session.create ~config ~db () in
+  let senders =
+    {
+      Daemon.default_resume_senders with
+      send_telegram = (fun ~bot_token:_ ~chat_id:_ ~text:_ -> Lwt.return_unit);
+    }
+  in
+  Session.set_special_command_handler session_manager
+    (fun ~key ~message:_ ~send_progress:_ ~interrupt_check:_ ->
+      if key = "telegram:42:user" then Lwt.return_some "still working"
+      else Lwt.return_none);
+  let task = make_test_task () in
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () =
+       Daemon.notify_background_task_finished ~continuation_delay:100.0 ~senders
+         ~session_manager ~config task
+     in
+     Lwt.pause ());
+  let state =
+    Session.continuation_state session_manager ~key:"telegram:42:user"
+  in
+  Alcotest.(check bool)
+    "continuation armed after wakeup" true
+    (Option.is_some state.cancel);
+  Lwt_main.run
+    (Session.cancel_autonomous_continuation session_manager
+       ~key:"telegram:42:user")
+
+let test_background_task_wakeup_stay_idle_disarms () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let telegram_account =
+    { Runtime_config.bot_token = "tg-token"; allow_from = []; totp = None }
+  in
+  let config =
+    {
+      Runtime_config.default with
+      channels =
+        {
+          Runtime_config.default.channels with
+          telegram = Some { accounts = [ ("main", telegram_account) ] };
+        };
+    }
+  in
+  let session_manager = Session.create ~config ~db () in
+  let senders =
+    {
+      Daemon.default_resume_senders with
+      send_telegram = (fun ~bot_token:_ ~chat_id:_ ~text:_ -> Lwt.return_unit);
+    }
+  in
+  Session.set_special_command_handler session_manager
+    (fun ~key ~message:_ ~send_progress:_ ~interrupt_check:_ ->
+      if key = "telegram:42:user" then
+        Lwt.return_some Session.autonomous_stay_idle_message
+      else Lwt.return_none);
+  let task = make_test_task () in
+  Lwt_main.run
+    (Daemon.notify_background_task_finished ~continuation_delay:100.0 ~senders
+       ~session_manager ~config task);
+  let state =
+    Session.continuation_state session_manager ~key:"telegram:42:user"
+  in
+  Alcotest.(check bool)
+    "continuation disarmed after STAY_IDLE" true state.disarmed
+
+let test_resume_agent_session_sends_visible_injection_prompt () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let telegram_account =
+    { Runtime_config.bot_token = "tg-token"; allow_from = []; totp = None }
+  in
+  let config =
+    {
+      Runtime_config.default with
+      channels =
+        {
+          Runtime_config.default.channels with
+          telegram = Some { accounts = [ ("main", telegram_account) ] };
+        };
+    }
+  in
+  let session_manager = Session.create ~config ~db () in
+  let sent = ref [] in
+  let senders =
+    {
+      Daemon.default_resume_senders with
+      send_telegram =
+        (fun ~bot_token:_ ~chat_id:_ ~text ->
+          sent := text :: !sent;
+          Lwt.return_unit);
+    }
+  in
+  Lwt_main.run
+    (Daemon.resume_agent_session ~senders ~session_manager ~config
+       ~session_key:"telegram:42:user" ~channel:"telegram" ~channel_id:"42"
+       ~run_turn:(fun agent _interrupt ->
+         agent.Agent.history <-
+           Provider.make_message ~role:"assistant" ~content:"ok"
+           :: agent.Agent.history;
+         Lwt.return "ok")
+       ());
+  let sent_rev = List.rev !sent in
+  Alcotest.(check bool)
+    "at least two messages sent" true
+    (List.length sent_rev >= 2);
+  let first = List.hd sent_rev in
+  Alcotest.(check bool)
+    "first message is labeled injection" true
+    (String.starts_with ~prefix:"[automatic restart-resume]" first);
+  Alcotest.(check bool)
+    "injection contains resume prompt" true
+    (try
+       ignore
+         (Str.search_forward
+            (Str.regexp_string "Automatic resume after daemon restart")
+            first 0);
+       true
+     with Not_found -> false);
+  let second = List.nth sent_rev 1 in
+  Alcotest.(check string) "second message is response" "ok" second
+
 let suite =
   [
     Alcotest.test_case "dispatch resumed message routes telegram" `Quick
@@ -1043,4 +1205,10 @@ let suite =
       test_maybe_emit_date_banner_logs_first_entry_date;
     Alcotest.test_case "date banner logs on day rollover" `Quick
       test_maybe_emit_date_banner_logs_when_day_advances;
+    Alcotest.test_case "background task wakeup arms autonomous continuation"
+      `Quick test_background_task_wakeup_arms_autonomous_continuation;
+    Alcotest.test_case "background task wakeup STAY_IDLE disarms" `Quick
+      test_background_task_wakeup_stay_idle_disarms;
+    Alcotest.test_case "resume agent session sends visible injection prompt"
+      `Quick test_resume_agent_session_sends_visible_injection_prompt;
   ]

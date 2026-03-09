@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-09T14:22:28Z"
+claimed_by: cli-user
+completed_at: "2026-03-09T14:41:26Z"
 complexity: medium
 depends_on: []
+duration_minutes: 18.97573046935
 estimate_hours: 1
 id: B134
 priority: high
-status: pending
+started_at: "2026-03-09T14:22:28Z"
+status: done
 tags: []
 title: Autonomous continuation injections should be visible and treated as user messages
 ---

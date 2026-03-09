@@ -296,42 +296,50 @@ let background_task_wakeup_message task =
      This message was injected automatically so the assistant wakes in the \
      same session and may continue working without waiting for a human reply."
 
-let inject_background_task_completion ~(session_manager : Session.t)
-    ~session_key ?channel ?channel_id task =
+let inject_background_task_completion
+    ?(continuation_delay = Session.default_autonomous_continuation_delay)
+    ?(senders = default_resume_senders) ~(session_manager : Session.t)
+    ~(config : Runtime_config.t) ~session_key ?channel ?channel_id task =
   let message = background_task_wakeup_message task in
   Lwt.catch
     (fun () ->
-      Session.with_registered_notifier session_manager ~key:session_key
-        ~notify:(fun _ -> Lwt.return_unit)
-        (fun () ->
-          let open Lwt.Syntax in
-          let* response =
-            Session.turn session_manager ~key:session_key ~message ?channel
-              ?channel_id ()
-          in
-          if Session.is_queued_message_response response then begin
-            Logs.info (fun m ->
-                m
-                  "Background task completion injected into busy session %s; \
-                   queued for later processing"
-                  session_key);
-            Lwt.return_unit
-          end
-          else begin
-            Session.mark_response_sent session_manager ~key:session_key;
-            Logs.info (fun m ->
-                m "Background task completion injected into session %s"
-                  session_key);
-            Lwt.return_unit
-          end))
+      let open Lwt.Syntax in
+      let* response =
+        Session.turn session_manager ~key:session_key ~message ?channel
+          ?channel_id ()
+      in
+      if Session.is_queued_message_response response then begin
+        Logs.info (fun m ->
+            m
+              "Background task completion injected into busy session %s; \
+               queued for later processing"
+              session_key);
+        Lwt.return_unit
+      end
+      else begin
+        Session.mark_response_sent session_manager ~key:session_key;
+        Logs.info (fun m ->
+            m "Background task completion injected into session %s" session_key);
+        match (channel, channel_id) with
+        | Some ch, Some cid ->
+            let* () =
+              notify_resumed_session ~senders ~session_manager ~config
+                ~session_key ~channel:ch ~channel_id:cid response
+            in
+            post_dispatch_resumed_session_response ~continuation_delay ~senders
+              ~session_manager ~config ~session_key ~channel:ch ~channel_id:cid
+              ~response ()
+        | _ -> Lwt.return_unit
+      end)
     (fun exn ->
       Logs.warn (fun m ->
           m "Background task completion session injection failed for %s: %s"
             session_key (Printexc.to_string exn));
       Lwt.return_unit)
 
-let notify_background_task_finished ?(senders = default_resume_senders)
-    ~(session_manager : Session.t) ~config task =
+let notify_background_task_finished ?continuation_delay
+    ?(senders = default_resume_senders) ~(session_manager : Session.t) ~config
+    task =
   let text = Background_task.status_message task in
   let open Lwt.Syntax in
   let* () =
@@ -376,8 +384,9 @@ let notify_background_task_finished ?(senders = default_resume_senders)
   in
   match task.Background_task.session_key with
   | Some session_key ->
-      inject_background_task_completion ~session_manager ~session_key
-        ?channel:task.channel ?channel_id:task.channel_id task
+      inject_background_task_completion ?continuation_delay ~senders
+        ~session_manager ~config ~session_key ?channel:task.channel
+        ?channel_id:task.channel_id task
   | None -> Lwt.return_unit
 
 let resume_turn_prompt =
@@ -436,6 +445,11 @@ let resume_agent_session ?(senders = default_resume_senders) ?run_turn
   Logs.info (fun m ->
       m "Automatic restart-resume: beginning resume sequence for %s"
         (resumed_dispatch_target ~session_key ~channel ~channel_id));
+  let* () =
+    notify_resumed_session ~senders ~session_manager ~config ~session_key
+      ~channel ~channel_id
+      ("[automatic restart-resume]\n" ^ resume_turn_prompt)
+  in
   Session.with_session_lock session_manager ~key:session_key
     (fun agent interrupt ->
       let history_before = List.length agent.Agent.history in

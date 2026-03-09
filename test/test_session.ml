@@ -1230,6 +1230,47 @@ let test_autonomous_continuation_is_cancellable_by_new_turn () =
       Alcotest.(check int)
         "continuation prompt suppressed" 0 !continuation_calls)
 
+let test_autonomous_continuation_sends_visible_injection () =
+  let continuation_calls = ref 0 in
+  let notified = ref [] in
+  let response_for_user message =
+    if String.starts_with ~prefix:Session.autonomous_continuation_prompt message
+    then (
+      incr continuation_calls;
+      "STAY_IDLE")
+    else "reply:" ^ message
+  in
+  with_fake_chat_provider ~response_for_user (fun config ->
+      let mgr = Session.create ~config () in
+      let key = "telegram:42:7" in
+      Session.register_channel_notifier mgr ~key (fun text ->
+          notified := text :: !notified;
+          Lwt.return_unit);
+      Lwt_main.run
+        (Session.schedule_autonomous_continuation ~delay:0.02 mgr ~key);
+      Alcotest.(check int) "continuation prompt sent once" 1 !continuation_calls;
+      let labeled =
+        List.find_opt
+          (fun text ->
+            String.starts_with ~prefix:"[automatic continuation check-in]" text)
+          !notified
+      in
+      Alcotest.(check bool)
+        "labeled injection present in notifier output" true
+        (Option.is_some labeled);
+      match labeled with
+      | Some msg ->
+          Alcotest.(check bool)
+            "injection contains continuation prompt" true
+            (try
+               ignore
+                 (Str.search_forward
+                    (Str.regexp_string Session.autonomous_continuation_prompt)
+                    msg 0);
+               true
+             with Not_found -> false)
+      | None -> ())
+
 let test_drain_queued_messages_drains_all_pending_without_relock () =
   let db = Memory.init ~db_path:":memory:" () in
   let config = Runtime_config.default in
@@ -1404,6 +1445,9 @@ let suite =
     Alcotest.test_case
       "autonomous continuation is cancellable by new turn activity" `Quick
       test_autonomous_continuation_is_cancellable_by_new_turn;
+    Alcotest.test_case
+      "autonomous continuation sends visible injection to notifier" `Quick
+      test_autonomous_continuation_sends_visible_injection;
     Alcotest.test_case "bang message interrupts before lock and turns normally"
       `Quick test_bang_message_interrupts_before_lock_and_turns_normally;
     Alcotest.test_case "bang message turn stream processes normally" `Quick

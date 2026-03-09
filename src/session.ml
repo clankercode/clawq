@@ -1190,6 +1190,16 @@ let rec schedule_autonomous_continuation
       in
       if cancelled then Lwt.return_unit
       else
+        let* () =
+          match find_registered_notifier mgr ~key with
+          | Some notify ->
+              let labeled =
+                "[automatic continuation check-in]\n"
+                ^ autonomous_continuation_prompt
+              in
+              Lwt.catch (fun () -> notify labeled) (fun _ -> Lwt.return_unit)
+          | None -> Lwt.return_unit
+        in
         let* response =
           Lwt.catch
             (fun () ->

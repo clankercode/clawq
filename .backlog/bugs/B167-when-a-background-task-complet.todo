@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-09T14:13:53Z"
+claimed_by: cli-user
+completed_at: "2026-03-09T14:41:26Z"
 complexity: medium
 depends_on: []
+duration_minutes: 27.560094774266666
 estimate_hours: 1
 id: B167
 priority: high
-status: pending
+started_at: "2026-03-09T14:13:53Z"
+status: done
 tags: []
 title: When a background task completes, the main user facing agent should get notified and triggered (starts its turn if idle). Also notified if a bg task fails. Plan this out thoroughly before writing any code.
 ---
