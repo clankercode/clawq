@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-10T12:17:40Z"
+claimed_by: cli-user
+completed_at: "2026-03-10T12:30:52Z"
 complexity: medium
 depends_on: []
+duration_minutes: 13.214543082483333
 estimate_hours: 2
 id: B336
 priority: high
-status: pending
+started_at: "2026-03-10T12:17:40Z"
+status: done
 tags: []
 title: In-memory queued messages lost on daemon restart
 ---

@@ -16,6 +16,8 @@ type queued_message = {
   channel : string option;
   channel_id : string option;
   message_id : string option;
+  inbound_queue_id : int option;
+      (** SQLite inbound_queue row id if persisted for crash recovery. *)
 }
 
 type continuation_state = {
@@ -304,7 +306,34 @@ let enqueue_message_if_busy mgr ~key queued_message =
             | Some msgs -> msgs
             | None -> []
           in
-          Hashtbl.replace mgr.queued_messages key (existing @ [ queued_message ]);
+          let inbound_queue_id =
+            match mgr.db with
+            | Some db -> (
+                let is_bang =
+                  String.length queued_message.message > 0
+                  && queued_message.message.[0] = '!'
+                in
+                let payload_json =
+                  Yojson.Safe.to_string
+                    (`Assoc
+                       [
+                         ("message", `String queued_message.message);
+                         ("bang", `Bool is_bang);
+                       ])
+                in
+                try
+                  Some
+                    (Memory.queue_enqueue ~db ~session_key:key ~source:"live"
+                       ~payload_json)
+                with exn ->
+                  Logs.warn (fun m ->
+                      m "[%s] Failed to persist queued message to SQLite: %s"
+                        key (Printexc.to_string exn));
+                  None)
+            | None -> None
+          in
+          let msg = { queued_message with inbound_queue_id } in
+          Hashtbl.replace mgr.queued_messages key (existing @ [ msg ]);
           Logs.info (fun m ->
               m "[%s] Queued inbound message for busy session (queue depth: %d)"
                 key
@@ -326,6 +355,15 @@ let take_all_queued_messages mgr ~key =
   match Hashtbl.find_opt mgr.queued_messages key with
   | Some msgs ->
       Hashtbl.remove mgr.queued_messages key;
+      (match mgr.db with
+      | Some db ->
+          List.iter
+            (fun (msg : queued_message) ->
+              match msg.inbound_queue_id with
+              | Some qid -> ignore (Memory.queue_delete ~db ~queue_id:qid)
+              | None -> ())
+            msgs
+      | None -> ());
       msgs
   | None -> []
 
@@ -1164,6 +1202,9 @@ let rec drain_queued_messages_loop mgr ~key agent interrupt ?on_drain_progress
           ?channel_id:queued.channel_id ()
       in
       let* () = notify response in
+      (match (queued.inbound_queue_id, mgr.db) with
+      | Some qid, Some db -> ignore (Memory.queue_delete ~db ~queue_id:qid)
+      | _ -> ());
       let* () =
         match on_drain_progress with
         | Some dp -> dp.after_turn queued.message_id
@@ -1181,6 +1222,9 @@ let rec drain_queued_messages_loop mgr ~key agent interrupt ?on_drain_progress
             (if String.length queued.message > 80 then
                String.sub queued.message 0 80 ^ "..."
              else queued.message));
+      (match (queued.inbound_queue_id, mgr.db) with
+      | Some qid, Some db -> ignore (Memory.queue_delete ~db ~queue_id:qid)
+      | _ -> ());
       Lwt.return_unit
   | None, _ ->
       if drained_any then
@@ -1226,6 +1270,7 @@ let rec turn mgr ~key ~message ?(content_parts = []) ?(attachments = [])
               channel;
               channel_id;
               message_id;
+              inbound_queue_id = None;
             }
           in
           let* queued = enqueue_message_if_busy mgr ~key queued_message in
@@ -1445,6 +1490,7 @@ let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
               channel;
               channel_id;
               message_id;
+              inbound_queue_id = None;
             }
           in
           let* queued = enqueue_message_if_busy mgr ~key queued_message in

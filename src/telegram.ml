@@ -603,6 +603,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                    channel = Some "telegram";
                    channel_id = Some update.chat_id;
                    message_id = Some (string_of_int update.message_id);
+                   inbound_queue_id = None;
                  }
                   : Session.queued_message)
             in

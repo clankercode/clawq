@@ -868,6 +868,7 @@ let test_drain_queued_messages_marks_live_activity () =
                    channel = Some "telegram";
                    channel_id = Some "1";
                    message_id = None;
+                   inbound_queue_id = None;
                  }
              in
              Alcotest.(check bool) "message queued" true queued;
@@ -906,6 +907,7 @@ let queued_message ?channel_name ?channel_type ?sender_id ?sender_name ?channel
     channel;
     channel_id;
     message_id;
+    inbound_queue_id = None;
   }
 
 let test_enqueue_message_if_busy_marks_interrupt_and_preserves_message () =
@@ -2651,6 +2653,7 @@ let test_drain_queued_messages_drains_all_pending_without_relock () =
       channel = Some "telegram";
       channel_id = Some "1";
       message_id = None;
+      inbound_queue_id = None;
     }
   in
   ignore
@@ -3122,6 +3125,54 @@ let test_runtime_context_block_ignores_prompt_toggles () =
     "includes background tasks" true
     (string_contains output "Background tasks:")
 
+let test_enqueue_message_if_busy_persists_to_sqlite () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let config = Runtime_config.default in
+  let mgr = Session.create ~config ~db () in
+  let key = "telegram:99:testuser" in
+  Session.register_channel_notifier mgr ~key (fun _ -> Lwt.return_unit);
+  Lwt_main.run
+    (Session.with_session_lock mgr ~key (fun _agent _interrupt ->
+         let open Lwt.Syntax in
+         let* queued =
+           Session.enqueue_message_if_busy mgr ~key
+             (queued_message ~channel_name:"telegram" ~channel:"telegram"
+                ~channel_id:"99" "durable test")
+         in
+         Alcotest.(check bool) "message was queued" true queued;
+         Alcotest.(check int)
+           "1 row persisted to inbound_queue" 1
+           (Memory.queue_count ~db ~session_key:key);
+         Lwt.return_unit))
+
+let test_drain_queued_messages_deletes_sqlite_row () =
+  with_fake_chat_provider (fun config ->
+      let db = Memory.init ~db_path:":memory:" () in
+      let mgr = Session.create ~config ~db () in
+      let key = "telegram:99:testuser" in
+      Lwt_main.run
+        (Session.with_registered_notifier mgr ~key
+           ~notify:(fun _ -> Lwt.return_unit)
+           (fun () ->
+             Session.with_session_lock mgr ~key (fun agent interrupt ->
+                 let open Lwt.Syntax in
+                 let* queued =
+                   Session.enqueue_message_if_busy mgr ~key
+                     (queued_message ~channel_name:"telegram"
+                        ~channel:"telegram" ~channel_id:"99" "drain me")
+                 in
+                 Alcotest.(check bool) "message queued" true queued;
+                 Alcotest.(check int)
+                   "1 row before drain" 1
+                   (Memory.queue_count ~db ~session_key:key);
+                 let* () =
+                   Session.drain_queued_messages mgr ~key agent interrupt ()
+                 in
+                 Alcotest.(check int)
+                   "0 rows after drain" 0
+                   (Memory.queue_count ~db ~session_key:key);
+                 Lwt.return_unit))))
+
 let suite =
   [
     Alcotest.test_case "reset clears active session and history" `Quick
@@ -3300,4 +3351,10 @@ let suite =
       test_vision_model_keeps_images;
     Alcotest.test_case "runtime context block ignores prompt toggles" `Quick
       test_runtime_context_block_ignores_prompt_toggles;
+    Alcotest.test_case
+      "enqueue_message_if_busy persists to sqlite when db available" `Quick
+      test_enqueue_message_if_busy_persists_to_sqlite;
+    Alcotest.test_case
+      "drain_queued_messages deletes sqlite row after successful turn" `Quick
+      test_drain_queued_messages_deletes_sqlite_row;
   ]

@@ -515,6 +515,7 @@ let notify_background_task_started ~(session_manager : Session.t)
             channel = task.channel;
             channel_id = task.channel_id;
             message_id = None;
+            inbound_queue_id = None;
           }
       in
       Lwt.return_unit
