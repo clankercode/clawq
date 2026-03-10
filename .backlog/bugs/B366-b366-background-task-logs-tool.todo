@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B366
+priority: high
+status: pending
+tags: []
+title: 'B366: background_task_logs tool can dump huge output into context at once'
+---
+
+B366: background_task_logs tool can dump huge output into context at once

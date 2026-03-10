@@ -364,3 +364,4 @@ bugs:
     - file: B363-groq-doesn-t-like-when-we-don.todo
     - file: B364-tests-still-trigger-sigusr1-si.todo
     - file: B365-autorestart-resumes-session-wi.todo
+    - file: B366-b366-background-task-logs-tool.todo
