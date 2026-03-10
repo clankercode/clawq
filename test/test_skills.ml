@@ -288,7 +288,7 @@ let test_skill_timeout_kills_descendants () =
       (Filename.quote pid_file)
   in
   with_temp_skill_file json (fun tmp ->
-      match Skills.load_skill ~workspace_only:false ~timeout_secs:1.0 tmp with
+      match Skills.load_skill ~workspace_only:false ~timeout_secs:0.2 tmp with
       | None -> Alcotest.fail "failed to load skill"
       | Some tool ->
           let result = Lwt_main.run (tool.invoke (`Assoc [])) in
@@ -307,7 +307,7 @@ let test_skill_timeout_kills_descendants () =
           in
           wait_until_gone 20;
           Alcotest.(check string)
-            "timeout result" "Error: skill command timed out after 1 seconds"
+            "timeout result" "Error: skill command timed out after 0 seconds"
             result;
           Alcotest.(check bool)
             "child process terminated" false (process_exists child_pid);

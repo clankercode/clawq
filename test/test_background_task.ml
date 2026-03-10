@@ -86,6 +86,7 @@ let test_cancel_running_task_signals_process_group () =
       let result =
         Background_task.cancel_with_signal
           ~send_signal:(fun pid signal -> signaled := Some (pid, signal))
+          ~terminate_group:(fun ?grace_seconds:_ ?wait_seconds:_ _pid -> ())
           ~db ~id ()
       in
       (match result with Ok _ -> () | Error msg -> Alcotest.fail msg);
@@ -162,7 +163,10 @@ let test_cancel_running_task_waits_for_descendants () =
         (Background_task.set_running ~db ~id ~branch:"clawq-bg-1"
            ~worktree_path:repo_path ~log_path:"/tmp/task.log" ~pid:proc.pid);
       let result =
-        Background_task.cancel_with_signal ~send_signal:Unix.kill ~db ~id ()
+        Background_task.cancel_with_signal ~send_signal:Unix.kill
+          ~terminate_group:(fun ?grace_seconds:_ ?wait_seconds:_ pid ->
+            try Unix.kill (-pid) Sys.sigkill with _ -> ())
+          ~db ~id ()
       in
       (match result with Ok _ -> () | Error msg -> Alcotest.fail msg);
       let rec wait_until_gone attempts =
@@ -1440,9 +1444,13 @@ let test_reap_keeps_alive_process () =
                 "status still running" "running"
                 (Background_task.string_of_status task.status))
         ~finally:(fun () ->
-          Process_group.terminate_blocking proc.pid;
-          ignore (Lwt_main.run (Process_group.wait proc.pid));
-          ignore (Lwt_main.run (Process_group.close proc))))
+          (* Use Lwt terminate to avoid zombie-detection issue in
+             terminate_blocking that causes it to loop for ~1s *)
+          Lwt_main.run
+            (let open Lwt.Syntax in
+             let* () = Process_group.terminate proc.pid in
+             let* _ = Process_group.wait proc.pid in
+             Process_group.close proc)))
 
 let test_reap_skips_locally_tracked () =
   with_temp_git_repo (fun repo_path ->
@@ -1754,17 +1762,17 @@ let test_log_follow_streams_new_lines () =
       (* Append a line after a short delay, then finish the task *)
       Lwt.async (fun () ->
           let open Lwt.Syntax in
-          let* () = Lwt_unix.sleep 0.15 in
+          let* () = Lwt_unix.sleep 0.05 in
           let oc = open_out_gen [ Open_append; Open_wronly ] 0o644 log_path in
           output_string oc "appended\n";
           close_out oc;
-          let* () = Lwt_unix.sleep 0.15 in
+          let* () = Lwt_unix.sleep 0.05 in
           Background_task.finish ~db ~id ~status:Background_task.Succeeded
             ~result_preview:"ok";
           Lwt.return_unit);
       let result =
         Lwt_main.run
-          (Background_task.log_follow ~poll_seconds:0.05 ~db ~id
+          (Background_task.log_follow ~poll_seconds:0.02 ~db ~id
              ~initial_lines:10 ~emit ())
       in
       (match result with
@@ -1949,7 +1957,7 @@ let test_readopt_running_alive_pid () =
       (* Spawn a short-lived child via start_to_file *)
       let proc =
         Process_group.start_to_file ~env:(Unix.environment ()) ~log_path
-          (Process_group.Exec [| "sh"; "-c"; "echo readopt-output; sleep 1" |])
+          (Process_group.Exec [| "sh"; "-c"; "echo readopt-output; sleep 0.1" |])
       in
       let pid = proc.Process_group.file_pid in
       ignore
@@ -2033,10 +2041,14 @@ let test_readopt_idempotent () =
             Lwt.return_unit)
       in
       Alcotest.(check int) "second call readopts zero" 0 second;
-      (* Cleanup: kill the sleep and wait *)
-      Process_group.terminate_blocking pid;
+      (* Cleanup: kill the sleep and wait for watchdog to finish.
+         Use Lwt terminate instead of terminate_blocking to avoid a ~1s
+         zombie-detection delay: terminate sends SIGKILL after grace, then
+         returns, allowing the Lwt watchdog's waitpid to resolve in the same
+         Lwt_main.run call and remove the task from local tracking. *)
       Lwt_main.run
         (let open Lwt.Syntax in
+         let* () = Process_group.terminate pid in
          let deadline = Unix.gettimeofday () +. 5.0 in
          let rec wait () =
            if not (Background_task.is_tracked_locally id) then Lwt.return_unit

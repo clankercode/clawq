@@ -1157,7 +1157,7 @@ let test_shell_exec_interrupts_running_process () =
         Lwt_main.run
           (let open Lwt.Syntax in
            let trigger =
-             let* () = Lwt_unix.sleep 0.1 in
+             let* () = Lwt_unix.sleep 0.03 in
              interrupted := Some "stop now";
              Lwt.return_unit
            in
@@ -1262,7 +1262,7 @@ let test_shell_exec_timeout_kills_descendants () =
       let result =
         Lwt_main.run
           (tool.Tool.invoke
-             (`Assoc [ ("command", `String command); ("timeout", `Float 1.0) ]))
+             (`Assoc [ ("command", `String command); ("timeout", `Float 0.2) ]))
       in
       let child_pid =
         let ic = open_in pid_file in
@@ -1279,7 +1279,7 @@ let test_shell_exec_timeout_kills_descendants () =
       in
       wait_until_gone 20;
       Alcotest.(check string)
-        "timeout result" "Error: command timed out after 1 seconds" result;
+        "timeout result" "Error: command timed out after 0 seconds" result;
       Alcotest.(check bool)
         "child process terminated after timeout" false
         (process_exists child_pid);

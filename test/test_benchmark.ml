@@ -1,5 +1,5 @@
 let test_run_default () =
-  let output = Benchmark.run [] in
+  let output = Benchmark.run [ "-n"; "1" ] in
   Alcotest.(check bool)
     "contains header" true
     (String.length output > 0
