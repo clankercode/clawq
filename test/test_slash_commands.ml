@@ -420,6 +420,71 @@ let test_tasks_command () =
   Alcotest.check result_testable "/tasks returns Tasks" Slash_commands.Tasks
     (Slash_commands.handle "/tasks")
 
+let test_tasks_render_empty_tree () =
+  let db = Sqlite3.db_open ":memory:" in
+  Task_tree.init_schema db;
+  let session_key = "telegram:123456:789012" in
+  let output = Task_tree.render_tree_with_legend ~db ~session_key in
+  Alcotest.(check bool)
+    "empty tree returns non-empty string" true
+    (String.length output > 0);
+  Alcotest.(check bool)
+    "contains 'No tasks tracked'" true
+    (try
+       ignore
+         (Str.search_forward (Str.regexp_string "No tasks tracked") output 0);
+       true
+     with Not_found -> false)
+
+let test_tasks_render_nonempty_tree () =
+  let db = Sqlite3.db_open ":memory:" in
+  Task_tree.init_schema db;
+  let session_key = "telegram:123456:789012" in
+  let _ =
+    Task_tree.process_operations ~db ~session_key
+      [ `Assoc [ ("op", `String "add"); ("title", `String "Test task") ] ]
+  in
+  let output = Task_tree.render_tree_with_legend ~db ~session_key in
+  Alcotest.(check bool)
+    "non-empty tree returns non-empty string" true
+    (String.length output > 0);
+  Alcotest.(check bool)
+    "contains 'Test task'" true
+    (try
+       ignore (Str.search_forward (Str.regexp_string "Test task") output 0);
+       true
+     with Not_found -> false);
+  Alcotest.(check bool)
+    "contains Legend" true
+    (try
+       ignore (Str.search_forward (Str.regexp_string "Legend") output 0);
+       true
+     with Not_found -> false)
+
+let test_tasks_session_key_isolation () =
+  let db = Sqlite3.db_open ":memory:" in
+  Task_tree.init_schema db;
+  let session1 = "telegram:111:222" in
+  let session2 = "telegram:333:444" in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:session1
+      [ `Assoc [ ("op", `String "add"); ("title", `String "Session1 task") ] ]
+  in
+  let output1 = Task_tree.render_tree_with_legend ~db ~session_key:session1 in
+  let output2 = Task_tree.render_tree_with_legend ~db ~session_key:session2 in
+  Alcotest.(check bool)
+    "session1 has task" true
+    (try
+       ignore (Str.search_forward (Str.regexp_string "Session1 task") output1 0);
+       true
+     with Not_found -> false);
+  Alcotest.(check bool)
+    "session2 has no task" true
+    (try
+       ignore (Str.search_forward (Str.regexp_string "Session1 task") output2 0);
+       false
+     with Not_found -> true)
+
 let test_format_tools_plain () =
   let tools =
     [
@@ -633,6 +698,12 @@ let suite =
     Alcotest.test_case "/model set-default" `Quick test_model_set_default;
     Alcotest.test_case "/tools returns Tools" `Quick test_tools_command;
     Alcotest.test_case "/tasks returns Tasks" `Quick test_tasks_command;
+    Alcotest.test_case "/tasks renders empty tree" `Quick
+      test_tasks_render_empty_tree;
+    Alcotest.test_case "/tasks renders nonempty tree" `Quick
+      test_tasks_render_nonempty_tree;
+    Alcotest.test_case "/tasks session key isolation" `Quick
+      test_tasks_session_key_isolation;
     Alcotest.test_case "format_tools_plain" `Quick test_format_tools_plain;
     Alcotest.test_case "format_tools_telegram" `Quick test_format_tools_telegram;
     Alcotest.test_case "/model bare name sets model" `Quick test_model_bare_name;
