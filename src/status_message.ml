@@ -1,8 +1,11 @@
 type notifier = {
   send : ?parse_mode:string -> string -> string Lwt.t;
       (** Send a message, return its id *)
-  edit : string -> ?parse_mode:string -> string -> unit Lwt.t;
-      (** [edit msg_id ?parse_mode text] edits message with given id *)
+  edit : string -> ?parse_mode:string -> string -> string option Lwt.t;
+      (** [edit msg_id ?parse_mode text] edits message with given id. Returns
+          [None] for a normal in-place edit, or [Some new_id] if the
+          implementation moved the message (delete + resend) and the caller
+          should adopt [new_id] as the new message id. *)
   delete : string -> unit Lwt.t;  (** [delete msg_id] deletes a message *)
 }
 (** Operations for sending/editing/deleting messages on a channel *)
@@ -304,11 +307,14 @@ let send_or_edit t =
                 t.last_edit <- Unix.gettimeofday ();
                 Lwt.return_unit
             | Some id ->
-                let* () =
+                let* new_id_opt =
                   t.notifier.edit id
                     ~parse_mode:(Format_adapter.parse_mode_string t.connector)
                     text
                 in
+                (match new_id_opt with
+                | Some new_id -> t.msg_id <- Some new_id
+                | None -> ());
                 t.last_edit <- Unix.gettimeofday ();
                 Lwt.return_unit
         in
@@ -468,11 +474,14 @@ let finalize t =
     let text = render t in
     match t.msg_id with
     | Some id ->
-        let* () =
+        let* new_id_opt =
           t.notifier.edit id
             ~parse_mode:(Format_adapter.parse_mode_string t.connector)
             text
         in
+        (match new_id_opt with
+        | Some new_id -> t.msg_id <- Some new_id
+        | None -> ());
         Lwt.return_unit
     | None -> Lwt.return_unit)
   else (

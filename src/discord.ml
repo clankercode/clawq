@@ -235,7 +235,11 @@ let make_status_notifier ~bot_token ~channel_id : Status_message.notifier =
           ~text ());
     edit =
       (fun msg_id ?parse_mode:_ text ->
-        edit_message ~bot_token ~channel_id ~message_id:msg_id ~text);
+        let open Lwt.Syntax in
+        let* () =
+          edit_message ~bot_token ~channel_id ~message_id:msg_id ~text
+        in
+        Lwt.return None);
     delete =
       (fun msg_id -> delete_message ~bot_token ~channel_id ~message_id:msg_id);
   }

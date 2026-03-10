@@ -31,7 +31,7 @@ let mock_status_notifier () =
       edit =
         (fun id ?parse_mode:_ text ->
           edited := (id, text) :: !edited;
-          Lwt.return_unit);
+          Lwt.return None);
       delete = (fun _id -> Lwt.return_unit);
     }
   in

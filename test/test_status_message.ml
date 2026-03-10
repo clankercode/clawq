@@ -11,7 +11,7 @@ let mock_notifier () =
       edit =
         (fun id ?parse_mode:_ text ->
           edited := (id, text) :: !edited;
-          Lwt.return_unit);
+          Lwt.return None);
       delete =
         (fun id ->
           deleted := id :: !deleted;
@@ -622,7 +622,7 @@ let test_concurrent_tool_starts_single_message () =
       edit =
         (fun _id ?parse_mode:_ _text ->
           incr edit_count;
-          Lwt.return_unit);
+          Lwt.return None);
       delete = (fun _id -> Lwt.return_unit);
     }
   in
@@ -676,6 +676,36 @@ let test_html_mode_render () =
         (contains text "<b>" || contains text "<code>" || text = ""))
     all_texts
 
+let test_reanchor_updates_msg_id () =
+  (* When notifier.edit returns Some new_id, status_message should update
+     its msg_id to the new value so subsequent edits target the moved message. *)
+  let reanchor_count = ref 0 in
+  let notifier : Status_message.notifier =
+    {
+      send = (fun ?parse_mode:_ _text -> Lwt.return "msg-1");
+      edit =
+        (fun _id ?parse_mode:_ _text ->
+          incr reanchor_count;
+          Lwt.return (Some "msg-2"));
+      delete = (fun _id -> Lwt.return_unit);
+    }
+  in
+  let t =
+    Status_message.create ~debounce_interval:0.0 ~notifier ~parse_mode:"HTML" ()
+  in
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () =
+       Status_message.tool_start t ~id:"t1" ~name:"file_read" ~summary:None
+     in
+     Status_message.tool_result t ~id:"t1" ~name:"file_read" ~result:"ok"
+       ~is_error:false);
+  (* edit was called (msg was sent first, then edited on result) *)
+  Alcotest.(check bool) "edit was called" true (!reanchor_count > 0);
+  (* After edit returned Some "msg-2", msg_id should be updated *)
+  Alcotest.(check (option string))
+    "msg_id updated to reanchored id" (Some "msg-2") t.msg_id
+
 let suite =
   [
     Alcotest.test_case "render empty" `Quick test_render_empty;
@@ -711,4 +741,6 @@ let suite =
       test_concurrent_tool_starts_single_message;
     Alcotest.test_case "HTML mode render produces proper tags" `Quick
       test_html_mode_render;
+    Alcotest.test_case "reanchor updates msg_id" `Quick
+      test_reanchor_updates_msg_id;
   ]

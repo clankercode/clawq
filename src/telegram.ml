@@ -82,6 +82,13 @@ type pending_text_update = {
 
 (* Keyed by "chat_id:tool_id" to prevent cross-chat data leakage *)
 let tool_result_cache : (string, string) Hashtbl.t = Hashtbl.create 32
+
+(* Tracks the highest message_id seen per chat_id — updated on every
+   incoming update and every bot-sent message.  The consolidated status
+   message uses this to detect when it has been displaced by newer chat
+   activity and should be re-anchored at the bottom rather than edited
+   in place. *)
+let latest_chat_msg_id : (string, int) Hashtbl.t = Hashtbl.create 64
 let recently_seen_updates : (string, float) Hashtbl.t = Hashtbl.create 256
 
 let pending_text_updates : (string, pending_text_update) Hashtbl.t =
@@ -763,6 +770,13 @@ let send_message_with_id ?(disable_notification = false) ?parse_mode ~bot_token
       |> Yojson.Safe.Util.to_int |> string_of_int
     with _ -> "0"
   in
+  (match int_of_string_opt msg_id with
+  | Some id ->
+      let cur =
+        Option.value ~default:0 (Hashtbl.find_opt latest_chat_msg_id chat_id)
+      in
+      if id > cur then Hashtbl.replace latest_chat_msg_id chat_id id
+  | None -> ());
   Lwt.return msg_id
 
 let send_message_with_keyboard ?(disable_notification = false) ?parse_mode
@@ -803,6 +817,13 @@ let send_message_with_keyboard ?(disable_notification = false) ?parse_mode
       |> Yojson.Safe.Util.to_int |> string_of_int
     with _ -> "0"
   in
+  (match int_of_string_opt msg_id with
+  | Some id ->
+      let cur =
+        Option.value ~default:0 (Hashtbl.find_opt latest_chat_msg_id chat_id)
+      in
+      if id > cur then Hashtbl.replace latest_chat_msg_id chat_id id
+  | None -> ());
   Lwt.return msg_id
 
 let answer_callback_query ~bot_token ~callback_query_id ?(text = "") () =
@@ -877,12 +898,41 @@ let make_status_notifier ~bot_token ~chat_id : Status_message.notifier =
           ~chat_id ~text ());
     edit =
       (fun message_id ?parse_mode text ->
+        let open Lwt.Syntax in
         let parse_mode = default_parse_mode parse_mode in
         let text =
           if parse_mode = Some "HTML" then text
           else Telegram_format.markdown_to_mdv2 text
         in
-        edit_message ?parse_mode ~bot_token ~chat_id ~message_id ~text ());
+        (* If newer messages exist in the chat, the status message has
+           scrolled off the screen.  Delete it and send a fresh one at the
+           bottom so the user can see live tool progress without scrolling. *)
+        let should_reanchor =
+          match int_of_string_opt message_id with
+          | None -> false
+          | Some mid ->
+              let latest =
+                Option.value ~default:0
+                  (Hashtbl.find_opt latest_chat_msg_id chat_id)
+              in
+              latest > mid
+        in
+        if should_reanchor then
+          let* () =
+            Lwt.catch
+              (fun () -> delete_message ~bot_token ~chat_id ~message_id ())
+              (fun _exn -> Lwt.return_unit)
+          in
+          let* new_id =
+            send_message_with_id ~disable_notification:true ?parse_mode
+              ~bot_token ~chat_id ~text ()
+          in
+          Lwt.return (Some new_id)
+        else
+          let* () =
+            edit_message ?parse_mode ~bot_token ~chat_id ~message_id ~text ()
+          in
+          Lwt.return None);
     delete =
       (fun message_id -> delete_message ~bot_token ~chat_id ~message_id ());
   }
@@ -2350,6 +2400,14 @@ let poll_account ~bot_token ~(account : Runtime_config.telegram_account) ~name
     List.iter
       (fun update ->
         offset := update.update_id + 1;
+        if update.message_id > 0 then begin
+          let cur =
+            Option.value ~default:0
+              (Hashtbl.find_opt latest_chat_msg_id update.chat_id)
+          in
+          if update.message_id > cur then
+            Hashtbl.replace latest_chat_msg_id update.chat_id update.message_id
+        end;
         if should_process_update update then
           buffer_or_dispatch_update ~bot_token ~account ~session_mgr
             ?run_update_command ?chat_limiter update
