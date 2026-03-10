@@ -1013,11 +1013,7 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
   let compacted = Option.is_some compaction_info in
   let* () = notify_compaction_if_needed ?notify compaction_info in
   if compacted then persist_compacted_history mgr ~key agent
-  else begin
-    if refresh_messages <> [] then
-      persist_new_messages mgr ~key ~history_before agent;
-    persist_new_messages mgr ~key ~history_before agent
-  end;
+  else persist_new_messages mgr ~key ~history_before agent;
   let runtime_context =
     Prompt_builder.build_runtime_context ~config:mgr.config
       ~details:

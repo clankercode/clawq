@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-10T12:44:42Z"
+claimed_by: cli-user
+completed_at: "2026-03-10T12:46:12Z"
 complexity: low
 depends_on: []
+duration_minutes: 1.5121310260833334
 estimate_hours: 0.5
 id: B339
 priority: medium
-status: pending
+started_at: "2026-03-10T12:44:42Z"
+status: done
 tags: []
 title: Double persist_new_messages creates duplicate DB rows on workspace refresh
 ---
