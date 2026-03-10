@@ -50,6 +50,10 @@ type t = {
 }
 (** The consolidated status message state *)
 
+let is_valid_notifier_message_id id =
+  let trimmed = String.trim id in
+  trimmed <> "" && trimmed <> "0"
+
 let create ?(debounce_interval = 0.5) ~notifier ~parse_mode () =
   {
     notifier;
@@ -303,7 +307,7 @@ let send_or_edit t =
                     ~parse_mode:(Format_adapter.parse_mode_string t.connector)
                     text
                 in
-                t.msg_id <- Some id;
+                if is_valid_notifier_message_id id then t.msg_id <- Some id;
                 t.last_edit <- Unix.gettimeofday ();
                 Lwt.return_unit
             | Some id ->
@@ -313,7 +317,9 @@ let send_or_edit t =
                     text
                 in
                 (match new_id_opt with
-                | Some new_id -> t.msg_id <- Some new_id
+                | Some new_id when is_valid_notifier_message_id new_id ->
+                    t.msg_id <- Some new_id
+                | Some _ -> ()
                 | None -> ());
                 t.last_edit <- Unix.gettimeofday ();
                 Lwt.return_unit
@@ -480,7 +486,9 @@ let finalize t =
             text
         in
         (match new_id_opt with
-        | Some new_id -> t.msg_id <- Some new_id
+        | Some new_id when is_valid_notifier_message_id new_id ->
+            t.msg_id <- Some new_id
+        | Some _ -> ()
         | None -> ());
         Lwt.return_unit
     | None -> Lwt.return_unit)

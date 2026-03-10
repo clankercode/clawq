@@ -80,8 +80,17 @@ type pending_text_update = {
   mutable generation : int;
 }
 
-(* Keyed by "chat_id:tool_id" to prevent cross-chat data leakage *)
-let tool_result_cache : (string, string) Hashtbl.t = Hashtbl.create 32
+type tool_result_detail_entry = {
+  chat_id : string;
+  user_id : string;
+  text : string;
+}
+
+(* callback_data -> scoped details text *)
+let tool_result_details : (string, tool_result_detail_entry) Hashtbl.t =
+  Hashtbl.create 64
+
+let tool_result_details_order : string Queue.t = Queue.create ()
 
 (* Tracks the highest message_id seen per chat_id — updated on every
    incoming update and every bot-sent message.  The consolidated status
@@ -101,6 +110,54 @@ let get_outbound_mutex chat_id =
       let m = Lwt_mutex.create () in
       Hashtbl.add outbound_mutexes chat_id m;
       m
+
+let with_outbound_lock ~chat_id f =
+  let mutex = get_outbound_mutex chat_id in
+  Lwt_mutex.with_lock mutex f
+
+let is_valid_message_id message_id =
+  match int_of_string_opt message_id with
+  | Some id when id > 0 -> true
+  | _ -> false
+
+let details_callback_prefix = "show_details:"
+
+let fresh_details_callback_data () =
+  let seed =
+    Printf.sprintf "%f:%d:%d" (Unix.gettimeofday ()) (Random.bits ())
+      (Hashtbl.length tool_result_details)
+  in
+  details_callback_prefix ^ String.sub (Digest.to_hex (Digest.string seed)) 0 16
+
+let register_tool_result_details ~chat_id ~user_id text =
+  let callback_data = fresh_details_callback_data () in
+  Queue.push callback_data tool_result_details_order;
+  Hashtbl.replace tool_result_details callback_data { chat_id; user_id; text };
+  while Hashtbl.length tool_result_details > 256 do
+    if Queue.is_empty tool_result_details_order then
+      Hashtbl.clear tool_result_details
+    else
+      let oldest = Queue.pop tool_result_details_order in
+      Hashtbl.remove tool_result_details oldest
+  done;
+  callback_data
+
+let take_tool_result_details ~chat_id ~user_id callback_data =
+  match Hashtbl.find_opt tool_result_details callback_data with
+  | None -> None
+  | Some { chat_id = detail_chat_id; user_id = detail_user_id; text }
+    when detail_chat_id = chat_id && detail_user_id = user_id ->
+      Hashtbl.remove tool_result_details callback_data;
+      Some text
+  | Some _ -> None
+
+let format_tool_result_detail ~name ~result =
+  let trimmed = String.trim result in
+  let body =
+    if trimmed = "" then "[empty output]"
+    else Stream_visibility.truncate_text ~max_chars:300 trimmed
+  in
+  Printf.sprintf "%s\n%s" name body
 
 let pending_text_updates : (string, pending_text_update) Hashtbl.t =
   Hashtbl.create 64
@@ -240,7 +297,7 @@ let can_coalesce_text_updates ~now older newer =
   && newer.message_id = older.update.message_id + 1
   && now -. older.last_seen_at <= !text_coalesce_window_seconds
 
-let merge_text_updates older newer =
+let merge_text_updates older (newer : update) =
   {
     newer with
     text = older.update.text ^ newer.text;
@@ -742,100 +799,115 @@ let ensure_session_typing_watcher ~(session_mgr : Session.t) ~key ~bot_token
 let send_message_with_id ?(disable_notification = false) ?parse_mode ~bot_token
     ~chat_id ~text () =
   let open Lwt.Syntax in
-  let uri = Printf.sprintf "%s%s/sendMessage" api_base bot_token in
-  let base_fields =
-    [
-      ("chat_id", `String chat_id);
-      ("text", `String text);
-      ("disable_notification", `Bool disable_notification);
-    ]
-  in
-  let fields =
-    match parse_mode with
-    | Some mode -> ("parse_mode", `String mode) :: base_fields
-    | None -> base_fields
-  in
-  let body = `Assoc fields |> Yojson.Safe.to_string in
-  let* status, resp_body = Http_client.post_json ~uri ~headers:[] ~body in
-  let* resp_body =
-    if parse_mode <> None && status >= 400 then (
-      Logs.warn (fun m ->
-          m
-            "Telegram sendMessage failed (HTTP %d, parse_mode=%s), retrying \
-             without parse_mode"
-            status
-            (Option.value parse_mode ~default:"none"));
-      let plain_body = `Assoc base_fields |> Yojson.Safe.to_string in
-      let* _status, resp_body =
-        Http_client.post_json ~uri ~headers:[] ~body:plain_body
+  with_outbound_lock ~chat_id (fun () ->
+      let uri = Printf.sprintf "%s%s/sendMessage" api_base bot_token in
+      let base_fields =
+        [
+          ("chat_id", `String chat_id);
+          ("text", `String text);
+          ("disable_notification", `Bool disable_notification);
+        ]
       in
-      Lwt.return resp_body)
-    else Lwt.return resp_body
-  in
-  let msg_id =
-    try
-      let json = Yojson.Safe.from_string resp_body in
-      let result = json |> Yojson.Safe.Util.member "result" in
-      result
-      |> Yojson.Safe.Util.member "message_id"
-      |> Yojson.Safe.Util.to_int |> string_of_int
-    with _ -> "0"
-  in
-  (match int_of_string_opt msg_id with
-  | Some id ->
-      let cur =
-        Option.value ~default:0 (Hashtbl.find_opt latest_chat_msg_id chat_id)
+      let fields =
+        match parse_mode with
+        | Some mode -> ("parse_mode", `String mode) :: base_fields
+        | None -> base_fields
       in
-      if id > cur then Hashtbl.replace latest_chat_msg_id chat_id id
-  | None -> ());
-  Lwt.return msg_id
+      let body = `Assoc fields |> Yojson.Safe.to_string in
+      let* status, resp_body = Http_client.post_json ~uri ~headers:[] ~body in
+      let* status, resp_body =
+        if parse_mode <> None && status >= 400 then (
+          Logs.warn (fun m ->
+              m
+                "Telegram sendMessage failed (HTTP %d, parse_mode=%s), \
+                 retrying without parse_mode"
+                status
+                (Option.value parse_mode ~default:"none"));
+          let plain_body = `Assoc base_fields |> Yojson.Safe.to_string in
+          Http_client.post_json ~uri ~headers:[] ~body:plain_body)
+        else Lwt.return (status, resp_body)
+      in
+      let msg_id =
+        try
+          let json = Yojson.Safe.from_string resp_body in
+          let result = json |> Yojson.Safe.Util.member "result" in
+          result
+          |> Yojson.Safe.Util.member "message_id"
+          |> Yojson.Safe.Util.to_int |> string_of_int
+        with _ ->
+          Logs.warn (fun m ->
+              m
+                "Telegram sendMessage did not return a message_id (HTTP %d, \
+                 chat_id=%s)"
+                status chat_id);
+          "0"
+      in
+      (match int_of_string_opt msg_id with
+      | Some id ->
+          let cur =
+            Option.value ~default:0
+              (Hashtbl.find_opt latest_chat_msg_id chat_id)
+          in
+          if id > cur then Hashtbl.replace latest_chat_msg_id chat_id id
+      | None -> ());
+      Lwt.return msg_id)
 
 let send_message_with_keyboard ?(disable_notification = false) ?parse_mode
     ~bot_token ~chat_id ~text ~buttons () =
   let open Lwt.Syntax in
-  let uri = Printf.sprintf "%s%s/sendMessage" api_base bot_token in
-  let inline_buttons =
-    List.map
-      (fun (label, callback_data) ->
-        `Assoc
-          [ ("text", `String label); ("callback_data", `String callback_data) ])
-      buttons
-  in
-  let reply_markup =
-    `Assoc [ ("inline_keyboard", `List [ `List inline_buttons ]) ]
-  in
-  let base_fields =
-    [
-      ("chat_id", `String chat_id);
-      ("text", `String text);
-      ("disable_notification", `Bool disable_notification);
-      ("reply_markup", reply_markup);
-    ]
-  in
-  let fields =
-    match parse_mode with
-    | Some mode -> ("parse_mode", `String mode) :: base_fields
-    | None -> base_fields
-  in
-  let body = `Assoc fields |> Yojson.Safe.to_string in
-  let* _status, resp_body = Http_client.post_json ~uri ~headers:[] ~body in
-  let msg_id =
-    try
-      let json = Yojson.Safe.from_string resp_body in
-      json
-      |> Yojson.Safe.Util.member "result"
-      |> Yojson.Safe.Util.member "message_id"
-      |> Yojson.Safe.Util.to_int |> string_of_int
-    with _ -> "0"
-  in
-  (match int_of_string_opt msg_id with
-  | Some id ->
-      let cur =
-        Option.value ~default:0 (Hashtbl.find_opt latest_chat_msg_id chat_id)
+  with_outbound_lock ~chat_id (fun () ->
+      let uri = Printf.sprintf "%s%s/sendMessage" api_base bot_token in
+      let inline_buttons =
+        List.map
+          (fun (label, callback_data) ->
+            `Assoc
+              [
+                ("text", `String label); ("callback_data", `String callback_data);
+              ])
+          buttons
       in
-      if id > cur then Hashtbl.replace latest_chat_msg_id chat_id id
-  | None -> ());
-  Lwt.return msg_id
+      let reply_markup =
+        `Assoc [ ("inline_keyboard", `List [ `List inline_buttons ]) ]
+      in
+      let base_fields =
+        [
+          ("chat_id", `String chat_id);
+          ("text", `String text);
+          ("disable_notification", `Bool disable_notification);
+          ("reply_markup", reply_markup);
+        ]
+      in
+      let fields =
+        match parse_mode with
+        | Some mode -> ("parse_mode", `String mode) :: base_fields
+        | None -> base_fields
+      in
+      let body = `Assoc fields |> Yojson.Safe.to_string in
+      let* status, resp_body = Http_client.post_json ~uri ~headers:[] ~body in
+      let msg_id =
+        try
+          let json = Yojson.Safe.from_string resp_body in
+          json
+          |> Yojson.Safe.Util.member "result"
+          |> Yojson.Safe.Util.member "message_id"
+          |> Yojson.Safe.Util.to_int |> string_of_int
+        with _ ->
+          Logs.warn (fun m ->
+              m
+                "Telegram sendMessage with keyboard did not return a \
+                 message_id (HTTP %d, chat_id=%s)"
+                status chat_id);
+          "0"
+      in
+      (match int_of_string_opt msg_id with
+      | Some id ->
+          let cur =
+            Option.value ~default:0
+              (Hashtbl.find_opt latest_chat_msg_id chat_id)
+          in
+          if id > cur then Hashtbl.replace latest_chat_msg_id chat_id id
+      | None -> ());
+      Lwt.return msg_id)
 
 let answer_callback_query ~bot_token ~callback_query_id ?(text = "") () =
   let open Lwt.Syntax in
@@ -856,57 +928,104 @@ let edit_message ?parse_mode ~bot_token ~chat_id ~message_id ~text () =
   if message_id = "0" then Lwt.return_unit
   else
     let open Lwt.Syntax in
-    let uri = Printf.sprintf "%s%s/editMessageText" api_base bot_token in
-    let base_fields =
-      [
-        ("chat_id", `String chat_id);
-        ("message_id", `Int (try int_of_string message_id with _ -> 0));
-        ("text", `String text);
-      ]
-    in
-    let fields =
-      match parse_mode with
-      | Some mode -> ("parse_mode", `String mode) :: base_fields
-      | None -> base_fields
-    in
-    let body = `Assoc fields |> Yojson.Safe.to_string in
-    let* status, _body = Http_client.post_json ~uri ~headers:[] ~body in
-    if parse_mode <> None && status >= 400 then
-      let plain_body = `Assoc base_fields |> Yojson.Safe.to_string in
-      let* _status, _body =
-        Http_client.post_json ~uri ~headers:[] ~body:plain_body
-      in
-      Lwt.return_unit
-    else Lwt.return_unit
+    with_outbound_lock ~chat_id (fun () ->
+        let uri = Printf.sprintf "%s%s/editMessageText" api_base bot_token in
+        let base_fields =
+          [
+            ("chat_id", `String chat_id);
+            ("message_id", `Int (try int_of_string message_id with _ -> 0));
+            ("text", `String text);
+          ]
+        in
+        let fields =
+          match parse_mode with
+          | Some mode -> ("parse_mode", `String mode) :: base_fields
+          | None -> base_fields
+        in
+        let body = `Assoc fields |> Yojson.Safe.to_string in
+        let* status, _body = Http_client.post_json ~uri ~headers:[] ~body in
+        if parse_mode <> None && status >= 400 then
+          let plain_body = `Assoc base_fields |> Yojson.Safe.to_string in
+          let* _status, _body =
+            Http_client.post_json ~uri ~headers:[] ~body:plain_body
+          in
+          Lwt.return_unit
+        else Lwt.return_unit)
 
 let delete_message ~bot_token ~chat_id ~message_id () =
   let open Lwt.Syntax in
-  let uri = Printf.sprintf "%s%s/deleteMessage" api_base bot_token in
-  let body =
-    `Assoc
-      [
-        ("chat_id", `String chat_id);
-        ("message_id", `Int (try int_of_string message_id with _ -> 0));
-      ]
-    |> Yojson.Safe.to_string
-  in
-  let* _status, _body = Http_client.post_json ~uri ~headers:[] ~body in
-  Lwt.return_unit
+  with_outbound_lock ~chat_id (fun () ->
+      let uri = Printf.sprintf "%s%s/deleteMessage" api_base bot_token in
+      let body =
+        `Assoc
+          [
+            ("chat_id", `String chat_id);
+            ("message_id", `Int (try int_of_string message_id with _ -> 0));
+          ]
+        |> Yojson.Safe.to_string
+      in
+      let* _status, _body = Http_client.post_json ~uri ~headers:[] ~body in
+      Lwt.return_unit)
 
 let default_parse_mode parse_mode =
   match parse_mode with Some mode -> Some mode | None -> Some "MarkdownV2"
 
-let make_status_notifier ~bot_token ~chat_id : Status_message.notifier =
+type status_transport = {
+  send_with_id :
+    ?disable_notification:bool ->
+    ?parse_mode:string ->
+    bot_token:string ->
+    chat_id:string ->
+    text:string ->
+    unit ->
+    string Lwt.t;
+  edit_text :
+    ?parse_mode:string ->
+    bot_token:string ->
+    chat_id:string ->
+    message_id:string ->
+    text:string ->
+    unit ->
+    unit Lwt.t;
+  delete_message :
+    bot_token:string ->
+    chat_id:string ->
+    message_id:string ->
+    unit ->
+    unit Lwt.t;
+}
+
+let default_status_transport =
+  {
+    send_with_id = send_message_with_id;
+    edit_text = edit_message;
+    delete_message;
+  }
+
+let make_status_notifier_with_transport transport ~bot_token ~chat_id :
+    Status_message.notifier =
   {
     send =
       (fun ?parse_mode text ->
+        let open Lwt.Syntax in
         let parse_mode = default_parse_mode parse_mode in
         let text =
           if parse_mode = Some "HTML" then text
           else Telegram_format.markdown_to_mdv2 text
         in
-        send_message_with_id ~disable_notification:true ?parse_mode ~bot_token
-          ~chat_id ~text ());
+        let* message_id =
+          transport.send_with_id ~disable_notification:true ?parse_mode
+            ~bot_token ~chat_id ~text ()
+        in
+        if is_valid_message_id message_id then Lwt.return message_id
+        else begin
+          Logs.warn (fun m ->
+              m
+                "Telegram status send returned an invalid message_id for \
+                 chat_id=%s; suppressing poisoned status id"
+                chat_id);
+          Lwt.return "0"
+        end);
     edit =
       (fun message_id ?parse_mode text ->
         let open Lwt.Syntax in
@@ -931,23 +1050,40 @@ let make_status_notifier ~bot_token ~chat_id : Status_message.notifier =
         in
         if should_reanchor then
           let* new_id =
-            send_message_with_id ~disable_notification:true ?parse_mode
+            transport.send_with_id ~disable_notification:true ?parse_mode
               ~bot_token ~chat_id ~text ()
           in
-          let* () =
-            Lwt.catch
-              (fun () -> delete_message ~bot_token ~chat_id ~message_id ())
-              (fun _exn -> Lwt.return_unit)
-          in
-          Lwt.return (Some new_id)
+          if is_valid_message_id new_id then begin
+            let* () =
+              Lwt.catch
+                (fun () ->
+                  transport.delete_message ~bot_token ~chat_id ~message_id ())
+                (fun _exn -> Lwt.return_unit)
+            in
+            Lwt.return (Some new_id)
+          end
+          else begin
+            Logs.warn (fun m ->
+                m
+                  "Telegram status reanchor failed to obtain a replacement \
+                   message_id for chat_id=%s; keeping prior status message"
+                  chat_id);
+            Lwt.return None
+          end
         else
           let* () =
-            edit_message ?parse_mode ~bot_token ~chat_id ~message_id ~text ()
+            transport.edit_text ?parse_mode ~bot_token ~chat_id ~message_id
+              ~text ()
           in
           Lwt.return None);
     delete =
-      (fun message_id -> delete_message ~bot_token ~chat_id ~message_id ());
+      (fun message_id ->
+        transport.delete_message ~bot_token ~chat_id ~message_id ());
   }
+
+let make_status_notifier ~bot_token ~chat_id =
+  make_status_notifier_with_transport default_status_transport ~bot_token
+    ~chat_id
 
 let set_message_reaction ~bot_token ~chat_id ~message_id ~emoji () =
   let open Lwt.Syntax in
@@ -1241,7 +1377,8 @@ let detect_mime_type data =
   else "image/jpeg"
 
 let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
-    ~(session_mgr : Session.t) ?run_update_command ?chat_limiter update =
+    ~(session_mgr : Session.t) ?run_update_command ?chat_limiter
+    (update : update) =
   let open Lwt.Syntax in
   (* Check /pair command first (before auth checks) *)
   let trimmed = String.trim update.text in
@@ -1856,6 +1993,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                 && agent_defaults.tool_status_mode = "consolidated"
               in
               let current_turn_has_tools = ref false in
+              let current_turn_tool_details = ref [] in
               let tool_reaction_set = ref false in
               let peers =
                 Reaction_tracker.get_or_create_peers reactions ~key
@@ -1952,13 +2090,9 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                             ~is_error
                         in
                         refresh_typing ();
-                        (* Cap cache size to prevent unbounded growth *)
-                        if Hashtbl.length tool_result_cache > 200 then
-                          Hashtbl.clear tool_result_cache;
-                        Hashtbl.replace tool_result_cache
-                          (update.chat_id ^ ":" ^ id)
-                          (Stream_visibility.truncate_text ~max_chars:2000
-                             result);
+                        current_turn_tool_details :=
+                          format_tool_result_detail ~name ~result
+                          :: !current_turn_tool_details;
                         current_turn_has_tools := true;
                         (* Only send inline messages for errors; non-error
                          output is available via "Show Details" button *)
@@ -2125,6 +2259,15 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                             let* () =
                               if status_msg <> None && !current_turn_has_tools
                               then (
+                                let details_text =
+                                  List.rev !current_turn_tool_details
+                                  |> String.concat "\n---\n"
+                                in
+                                let details_callback =
+                                  register_tool_result_details
+                                    ~chat_id:update.chat_id
+                                    ~user_id:update.user_id details_text
+                                in
                                 let* _msg_id =
                                   send_message_with_keyboard
                                     ~disable_notification:true ~bot_token
@@ -2132,7 +2275,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                                     ~text:
                                       "\xF0\x9F\x93\x8B Tool output available"
                                     ~buttons:
-                                      [ ("Show Details", "show_details") ]
+                                      [ ("Show Details", details_callback) ]
                                     ()
                                 in
                                 refresh_typing ();
@@ -2210,11 +2353,19 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                     in
                     let* () =
                       if status_msg <> None && !current_turn_has_tools then (
+                        let details_text =
+                          List.rev !current_turn_tool_details
+                          |> String.concat "\n---\n"
+                        in
+                        let details_callback =
+                          register_tool_result_details ~chat_id:update.chat_id
+                            ~user_id:update.user_id details_text
+                        in
                         let* _msg_id =
                           send_message_with_keyboard ~disable_notification:true
                             ~bot_token ~chat_id:update.chat_id
                             ~text:"\xF0\x9F\x93\x8B Tool output available"
-                            ~buttons:[ ("Show Details", "show_details") ]
+                            ~buttons:[ ("Show Details", details_callback) ]
                             ()
                         in
                         refresh_typing ();
@@ -2458,38 +2609,23 @@ let poll_account ~bot_token ~(account : Runtime_config.telegram_account) ~name
               Lwt.catch
                 (fun () ->
                   match cb.data with
-                  | "show_details" ->
-                      let prefix = cb.cb_chat_id ^ ":" in
-                      let details =
-                        Hashtbl.fold
-                          (fun key result acc ->
-                            if String.starts_with ~prefix key then
-                              acc
-                              ^ Stream_visibility.truncate_text ~max_chars:300
-                                  result
-                              ^ "\n---\n"
-                            else acc)
-                          tool_result_cache ""
-                      in
+                  | data
+                    when String.starts_with ~prefix:details_callback_prefix data
+                    ->
                       let text =
-                        if details = "" then "No details available."
-                        else details
+                        match
+                          take_tool_result_details ~chat_id:cb.cb_chat_id
+                            ~user_id:cb.cb_user_id data
+                        with
+                        | Some details when String.trim details <> "" -> details
+                        | _ -> "No details available."
                       in
                       let* () =
                         answer_callback_query ~bot_token
                           ~callback_query_id:cb.callback_query_id ()
                       in
-                      let* () =
-                        send_message ~disable_notification:true ~bot_token
-                          ~chat_id:cb.cb_chat_id ~text ()
-                      in
-                      (* Only clear entries for this chat *)
-                      Hashtbl.filter_map_inplace
-                        (fun key v ->
-                          if String.starts_with ~prefix key then None
-                          else Some v)
-                        tool_result_cache;
-                      Lwt.return_unit
+                      send_message ~disable_notification:true ~bot_token
+                        ~chat_id:cb.cb_chat_id ~text ()
                   | data -> (
                       match Hashtbl.find_opt callback_routing data with
                       | Some (session_key, label, _created) ->

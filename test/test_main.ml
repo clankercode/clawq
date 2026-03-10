@@ -110,6 +110,7 @@ let () =
        ("format_adapter", Test_format_adapter.suite);
        ("reaction_tracker", Test_reaction_tracker.suite);
        ("telegram_format", Test_telegram_format.suite);
+       ("telegram_status", Test_telegram_status.suite);
        ("telegram_typing", Test_telegram_typing.suite);
        ("telegram_reactions", Test_telegram_reactions.suite);
        ("compaction_flush", Test_compaction_flush.suite);

@@ -753,6 +753,21 @@ let test_reanchor_preserves_visibility_until_replacement_sent () =
       Alcotest.(check bool) "replacement sent before old deleted" true (si < di)
   | _ -> Alcotest.fail "expected both replacement send and delete events"
 
+let test_invalid_send_id_does_not_poison_msg_id () =
+  let notifier : Status_message.notifier =
+    {
+      send = (fun ?parse_mode:_ _text -> Lwt.return "0");
+      edit = (fun _id ?parse_mode:_ _text -> Lwt.return None);
+      delete = (fun _id -> Lwt.return_unit);
+    }
+  in
+  let t =
+    Status_message.create ~debounce_interval:0.0 ~notifier ~parse_mode:"HTML" ()
+  in
+  Lwt_main.run
+    (Status_message.tool_start t ~id:"t1" ~name:"file_read" ~summary:None);
+  Alcotest.(check (option string)) "invalid id is ignored" None t.msg_id
+
 let suite =
   [
     Alcotest.test_case "render empty" `Quick test_render_empty;
@@ -792,4 +807,6 @@ let suite =
       test_reanchor_updates_msg_id;
     Alcotest.test_case "reanchor preserves visibility until replacement sent"
       `Quick test_reanchor_preserves_visibility_until_replacement_sent;
+    Alcotest.test_case "invalid send id does not poison msg id" `Quick
+      test_invalid_send_id_does_not_poison_msg_id;
   ]

@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-10T08:18:19Z"
+claimed_by: cli-user
+completed_at: "2026-03-10T08:31:15Z"
 complexity: medium
 depends_on: []
+duration_minutes: 12.93794654385
 estimate_hours: 1
 id: B307
 priority: high
-status: pending
+started_at: "2026-03-10T08:18:19Z"
+status: done
 tags: []
 title: Telegram doesn't show tool calls anymore, or they can drop off or something and not update. Makes it hard to tell what's going on.
 ---
