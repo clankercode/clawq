@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B355
+priority: high
+status: pending
+tags: []
+title: Cloudflare tunnel name is where the token goes -- not ideal but we need to treat it as a private field which means redaction in the cloudflare tunnel setup wizard and elsewhere
+---
+
+Cloudflare tunnel name is where the token goes -- not ideal but we need to treat it as a private field which means redaction in the cloudflare tunnel setup wizard and elsewhere
