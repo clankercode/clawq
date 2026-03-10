@@ -1271,3 +1271,96 @@ let shell_exec_with_hooks ~workspace ~workspace_only ~allowed_commands
     risk_level = High;
     deferred = false;
   }
+
+let thread_summary ~db ~(config : Runtime_config.t) =
+  {
+    Tool.name = "thread_summary";
+    description =
+      "Get a concise dot-point summary of what a session is working on. \
+       Focuses on recent activity. Useful for understanding a thread at a \
+       glance.";
+    parameters_schema =
+      `Assoc
+        [
+          ("type", `String "object");
+          ( "properties",
+            `Assoc
+              [
+                ( "session_id",
+                  `Assoc
+                    [
+                      ("type", `String "string");
+                      ("description", `String "Session key to summarize");
+                    ] );
+              ] );
+          ("required", `List [ `String "session_id" ]);
+        ];
+    invoke =
+      (fun ?context:_ args ->
+        let open Lwt.Syntax in
+        let open Yojson.Safe.Util in
+        let session_id =
+          try args |> member "session_id" |> to_string with _ -> ""
+        in
+        if session_id = "" then
+          Lwt.return
+            "Error: session_id is required. Provide the session key to \
+             summarize (e.g., \"default\" or a channel-specific session key)."
+        else
+          let all_msgs = Memory.load_history ~db ~session_key:session_id in
+          if all_msgs = [] then
+            Lwt.return
+              (Printf.sprintf
+                 "No messages found for session '%s'. Check the session key or \
+                  use 'session list' to see active sessions."
+                 session_id)
+          else
+            let n = List.length all_msgs in
+            let window = min 40 n in
+            let recent = List.filteri (fun i _ -> i >= n - window) all_msgs in
+            let conversation =
+              List.map
+                (fun (m : Provider.message) ->
+                  let snippet =
+                    if String.length m.content > 800 then
+                      String.sub m.content 0 800 ^ "..."
+                    else m.content
+                  in
+                  Printf.sprintf "[%s]: %s" m.role snippet)
+                recent
+              |> String.concat "\n"
+            in
+            let prompt =
+              "Summarize what this session is working on. Be concise. Use \
+               dot-point form. Focus on the most recent activity and current \
+               state. Max 10 bullet points.\n\n" ^ conversation
+            in
+            let obs_config = Session_observer.observer_config_for ~config in
+            let messages =
+              [
+                Provider.make_message ~role:"system"
+                  ~content:
+                    "You are a session summarizer. Output a concise dot-point \
+                     summary of the session's current focus and recent \
+                     actions. No preamble.";
+                Provider.make_message ~role:"user" ~content:prompt;
+              ]
+            in
+            Lwt.catch
+              (fun () ->
+                let* response =
+                  Provider.complete ~config:obs_config ~messages ()
+                in
+                match response with
+                | Provider.Text { content; _ } ->
+                    Lwt.return (String.trim content)
+                | Provider.ToolCalls _ ->
+                    Lwt.return
+                      "Summary unavailable (unexpected tool call response)")
+              (fun exn ->
+                Lwt.return
+                  ("Error generating summary: " ^ Printexc.to_string exn)));
+    invoke_stream = None;
+    risk_level = Tool.Low;
+    deferred = false;
+  }

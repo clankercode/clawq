@@ -11,6 +11,10 @@ type verdict =
   | Stuck of { reason : string; confidence : [ `High | `Medium ] }
   | Error of string  (** LLM call failed *)
 
+val observer_config_for : config:Runtime_config.t -> Runtime_config.t
+(** Build a config override that routes requests to the observer model. Clears
+    default_provider and sets primary_model to config.observer.model. *)
+
 val check_stuck :
   config:Runtime_config.t ->
   history:Provider.message list ->
