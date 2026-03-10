@@ -911,14 +911,12 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
   in
   let history_before = List.length agent.history in
   let notify = find_registered_notifier mgr ~key in
-  let* () =
-    let refresh_messages =
-      match Agent.note_external_workspace_refresh_if_needed agent with
-      | Some msg -> [ msg ]
-      | None -> []
-    in
-    notify_event_messages ?notify refresh_messages
+  let refresh_messages =
+    match Agent.note_external_workspace_refresh_if_needed agent with
+    | Some msg -> [ msg ]
+    | None -> []
   in
+  let* () = notify_event_messages ?notify refresh_messages in
   let* compaction_info =
     Agent.prepare_turn_history agent ~user_message:effective_message
       ~content_parts ~workspace_refresh_checked:true ?db:mgr.db ()
@@ -926,7 +924,10 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
   let compacted = Option.is_some compaction_info in
   let* () = notify_compaction_if_needed ?notify compaction_info in
   if compacted then persist_compacted_history mgr ~key agent
-  else persist_new_messages mgr ~key ~history_before agent;
+  else begin
+    if refresh_messages <> [] then persist_new_messages mgr ~key ~history_before agent;
+    persist_new_messages mgr ~key ~history_before agent
+  end;
   let runtime_context =
     Prompt_builder.build_runtime_context ~config:mgr.config
       ~details:
@@ -1310,14 +1311,14 @@ let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
                     in
                     let history_before = List.length agent.history in
                     let notify = find_registered_notifier mgr ~key in
+                    let refresh_messages =
+                      match
+                        Agent.note_external_workspace_refresh_if_needed agent
+                      with
+                      | Some msg -> [ msg ]
+                      | None -> []
+                    in
                     let* () =
-                      let refresh_messages =
-                        match
-                          Agent.note_external_workspace_refresh_if_needed agent
-                        with
-                        | Some msg -> [ msg ]
-                        | None -> []
-                      in
                       notify_event_messages ?notify ~on_chunk refresh_messages
                     in
                     let* compaction_info =

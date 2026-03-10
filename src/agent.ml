@@ -241,8 +241,11 @@ let force_compress_history agent =
         Logs.warn (fun m ->
             m
               "force_compress_history: integrity check emptied history; \
-               keeping raw slice");
-        result
+               keeping raw compressed slice");
+        let raw_result =
+          Agent_loop_conformance.coq_to_provider_history coq_compressed
+        in
+        if raw_result = [] then result else raw_result
       end
       else bounded
     in

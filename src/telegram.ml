@@ -916,8 +916,9 @@ let make_status_notifier ~bot_token ~chat_id : Status_message.notifier =
           else Telegram_format.markdown_to_mdv2 text
         in
         (* If newer messages exist in the chat, the status message has
-           scrolled off the screen.  Delete it and send a fresh one at the
-           bottom so the user can see live tool progress without scrolling. *)
+           scrolled off the screen. Send a fresh one at the bottom first, then
+           delete the prior one so status visibility is preserved even if the
+           replacement send fails. *)
         let should_reanchor =
           match int_of_string_opt message_id with
           | None -> false
@@ -929,14 +930,14 @@ let make_status_notifier ~bot_token ~chat_id : Status_message.notifier =
               latest > mid
         in
         if should_reanchor then
+          let* new_id =
+            send_message_with_id ~disable_notification:true ?parse_mode
+              ~bot_token ~chat_id ~text ()
+          in
           let* () =
             Lwt.catch
               (fun () -> delete_message ~bot_token ~chat_id ~message_id ())
               (fun _exn -> Lwt.return_unit)
-          in
-          let* new_id =
-            send_message_with_id ~disable_notification:true ?parse_mode
-              ~bot_token ~chat_id ~text ()
           in
           Lwt.return (Some new_id)
         else

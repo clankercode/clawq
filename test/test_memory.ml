@@ -87,7 +87,7 @@ let test_init_double_call () =
   ignore db1;
   ignore db2
 
-let test_init_schema_version_is_6 () =
+let test_init_schema_version_is_7 () =
   let db = Memory.init ~db_path:":memory:" () in
   Alcotest.(check int)
     "schema version is 7" 7
@@ -881,6 +881,32 @@ let test_queue_migrate_v4_to_v5 () =
       Alcotest.(check string)
         "content preserved" "pre-migration msg" (List.hd msgs).content)
 
+let test_init_rejects_future_schema_version () =
+  with_temp_db (fun db_path ->
+      let db = Sqlite3.db_open db_path in
+      exec_exn db "CREATE TABLE schema_version (version INTEGER NOT NULL)";
+      exec_exn db "INSERT INTO schema_version (version) VALUES (8)";
+      exec_exn db
+        {|CREATE TABLE messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_key TEXT NOT NULL,
+  role TEXT NOT NULL,
+  content TEXT NOT NULL,
+  tool_call_id TEXT,
+  tool_name TEXT,
+  tool_calls_json TEXT,
+  provider_response_items_json TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+)|};
+      ignore (Sqlite3.db_close db);
+      match
+        (try `Msg (Memory.init ~db_path () |> ignore; "init unexpectedly succeeded")
+         with Failure msg -> `Msg msg | exn -> `Msg (Printexc.to_string exn))
+      with
+      | `Msg msg ->
+          Alcotest.(check bool) "rejects future version" true
+            (String.starts_with ~prefix:"Unsupported schema version 8" msg))
+
 let suite =
   [
     Alcotest.test_case "init sets busy_timeout" `Quick
@@ -890,7 +916,7 @@ let suite =
     Alcotest.test_case "init search disabled" `Quick test_init_search_disabled;
     Alcotest.test_case "init double call" `Quick test_init_double_call;
     Alcotest.test_case "init schema version is 7" `Quick
-      test_init_schema_version_is_6;
+      test_init_schema_version_is_7;
     Alcotest.test_case "init creates session persistence tables" `Quick
       test_init_creates_session_persistence_tables;
     Alcotest.test_case "migrates v1 db to v4 without data loss" `Quick
@@ -978,4 +1004,6 @@ let suite =
     Alcotest.test_case "queue count all" `Quick test_queue_count_all;
     Alcotest.test_case "queue migrate v4 to v5" `Quick
       test_queue_migrate_v4_to_v5;
+    Alcotest.test_case "init rejects future schema version" `Quick
+      test_init_rejects_future_schema_version;
   ]

@@ -146,10 +146,12 @@ let test_handle_channel () =
     && String.sub result 0 (String.length prefix) = prefix)
 
 let test_handle_memory () =
-  let result = Command_bridge.handle [ "memory" ] in
-  Alcotest.(check bool)
-    "memory contains 'Memory backend'" true
-    (String.length result > 0 && String.sub result 0 14 = "Memory backend")
+  with_temp_home (fun home ->
+      let _db = session_db home in
+      let result = Command_bridge.handle [ "memory" ] in
+      Alcotest.(check bool)
+        "memory contains 'Memory backend'" true
+        (String.length result > 0 && String.sub result 0 14 = "Memory backend"))
 
 let test_handle_workspace () =
   let result = Command_bridge.handle [ "workspace" ] in
@@ -798,10 +800,11 @@ let test_session_show_paging () =
         "mid slice excludes message_5" false (contains mid "message_5"))
 
 let test_handle_capabilities () =
-  let result = Command_bridge.handle [ "capabilities" ] in
-  Alcotest.(check bool)
-    "capabilities mentions LLM" true
-    (String.length result > 0)
+  with_temp_home (fun _home ->
+      let result = Command_bridge.handle [ "capabilities" ] in
+      Alcotest.(check bool)
+        "capabilities mentions LLM" true
+        (String.length result > 0))
 
 let test_handle_auth () =
   let result = Command_bridge.handle [ "auth" ] in
@@ -923,20 +926,23 @@ let test_handle_not_implemented () =
     [ "hardware" ]
 
 let test_handle_cron () =
-  let result = Command_bridge.handle [ "cron" ] in
-  Alcotest.(check bool) "cron returns output" true (String.length result > 0)
+  with_temp_home (fun _home ->
+      let result = Command_bridge.handle [ "cron" ] in
+      Alcotest.(check bool) "cron returns output" true (String.length result > 0))
 
 let test_handle_cron_list () =
-  let result = Command_bridge.handle [ "cron"; "list" ] in
-  Alcotest.(check bool)
-    "cron list returns output" true
-    (String.length result > 0)
+  with_temp_home (fun _home ->
+      let result = Command_bridge.handle [ "cron"; "list" ] in
+      Alcotest.(check bool)
+        "cron list returns output" true
+        (String.length result > 0))
 
 let test_handle_background_list () =
-  let result = Command_bridge.handle [ "background"; "list" ] in
-  Alcotest.(check bool)
-    "background list returns output" true
-    (String.length result > 0)
+  with_temp_home (fun _home ->
+      let result = Command_bridge.handle [ "background"; "list" ] in
+      Alcotest.(check bool)
+        "background list returns output" true
+        (String.length result > 0))
 
 let test_handle_background_bare_shows_commands () =
   let contains s sub =
@@ -945,22 +951,23 @@ let test_handle_background_bare_shows_commands () =
       true
     with Not_found -> false
   in
-  let result = Command_bridge.handle [ "background" ] in
-  Alcotest.(check bool)
-    "bare background includes task list" true
-    (String.length result > 0);
-  Alcotest.(check bool)
-    "bare background includes commands section" true
-    (contains result "Commands:");
-  Alcotest.(check bool)
-    "bare background mentions show" true
-    (contains result "background show");
-  Alcotest.(check bool)
-    "bare background mentions add" true
-    (contains result "background add");
-  Alcotest.(check bool)
-    "bare background mentions cancel" true
-    (contains result "background cancel")
+  with_temp_home (fun _home ->
+      let result = Command_bridge.handle [ "background" ] in
+      Alcotest.(check bool)
+        "bare background includes task list" true
+        (String.length result > 0);
+      Alcotest.(check bool)
+        "bare background includes commands section" true
+        (contains result "Commands:");
+      Alcotest.(check bool)
+        "bare background mentions show" true
+        (contains result "background show");
+      Alcotest.(check bool)
+        "bare background mentions add" true
+        (contains result "background add");
+      Alcotest.(check bool)
+        "bare background mentions cancel" true
+        (contains result "background cancel"))
 
 let test_handle_background_add_show_cancel () =
   with_temp_home (fun home ->
@@ -1630,9 +1637,10 @@ let test_cmd_agent_reexecs_on_restart () =
       ()
   in
   Alcotest.(check string) "restart result" "Daemon restart requested." result;
+  let expected = Restart_exec.executable () in
   Alcotest.(check (option (pair string (list string))))
     "re-execs agent"
-    (Some (Sys.executable_name, [ Sys.executable_name; "agent" ]))
+    (Some (expected, [ expected; "agent" ]))
     !execd
 
 let test_cmd_agent_reexecs_on_restart_with_fresh_path () =
@@ -2265,17 +2273,19 @@ let test_models_set_default_accepts_unknown_with_provider () =
         (contains result "Default model set to:");
       Alcotest.(check bool) "no error" true (not (contains result "Error:")))
 
-let test_models_set_rejected_without_live_session () =
+let test_models_set_usage_excludes_session_only_set_without_live_session () =
   with_temp_home (fun _dir ->
       let result = Command_bridge.handle [ "models"; "set"; "zai_coding:glm-5" ] in
       let contains s sub =
         let re = Re.(compile (str sub)) in
         Re.execp re s
       in
-      Alcotest.(check bool) "errors without live session" true
-        (contains result "Error: no active session available");
-      Alcotest.(check bool) "does not pretend persistence" true
-        (contains result "set-default"))
+      Alcotest.(check bool) "shows usage for unsupported subcommand" true
+        (contains result "Usage: clawq models <subcommand>");
+      Alcotest.(check bool) "does not advertise session-only set" false
+        (contains result "set MODEL");
+      Alcotest.(check bool) "still advertises persistent path" true
+        (contains result "set-default MODEL"))
 
 let suite =
   [
@@ -2291,8 +2301,8 @@ let suite =
       test_models_set_default_accepts_known_plain;
     Alcotest.test_case "models set-default accepts unknown with provider" `Quick
       test_models_set_default_accepts_unknown_with_provider;
-    Alcotest.test_case "models set rejects without live session" `Quick
-      test_models_set_rejected_without_live_session;
+    Alcotest.test_case "models usage excludes session-only set without live session" `Quick
+      test_models_set_usage_excludes_session_only_set_without_live_session;
     Alcotest.test_case "handle channel" `Quick test_handle_channel;
     Alcotest.test_case "handle memory" `Quick test_handle_memory;
     Alcotest.test_case "handle workspace" `Quick test_handle_workspace;

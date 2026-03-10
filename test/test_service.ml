@@ -34,14 +34,13 @@ let test_handle_daemon_exit_restart_sets_nofork_and_execs () =
     (match !called with
     | Some (_, _, env) -> env_lacks_key env "CLAWQ_DAEMON_INTERNAL_NOFORK"
     | None -> false);
-  Alcotest.(check (option (triple string (list string) bool)))
-    "execve called"
-    (Some
-       (Sys.executable_name, [ Sys.executable_name; "service"; "start" ], true))
+  Alcotest.(check bool)
+    "execve called with service start argv and nofork env" true
     (match !called with
-    | Some (path, argv, env) ->
-        Some (path, argv, env_contains env "CLAWQ_DAEMON_NOFORK=1")
-    | None -> None)
+    | Some (_path, argv, env) ->
+        argv = [ Restart_exec.executable (); "service"; "start" ]
+        && env_contains env "CLAWQ_DAEMON_NOFORK=1"
+    | None -> false)
 
 let test_handle_daemon_exit_restart_carries_restart_notify_env () =
   Restart_notify.write ~channel:"telegram" ~channel_id:"42";

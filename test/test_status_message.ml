@@ -706,6 +706,53 @@ let test_reanchor_updates_msg_id () =
   Alcotest.(check (option string))
     "msg_id updated to reanchored id" (Some "msg-2") t.msg_id
 
+let test_reanchor_preserves_visibility_until_replacement_sent () =
+  let events = ref [] in
+  let rec notifier : Status_message.notifier =
+    {
+      send =
+        (fun ?parse_mode:_ text ->
+          let next_id = if !events = [] then "msg-1" else "msg-2" in
+          events := !events @ [ "send:" ^ next_id ^ ":" ^ text ];
+          Lwt.return next_id);
+      edit =
+        (fun old_id ?parse_mode:_ text ->
+          let open Lwt.Syntax in
+          events := !events @ [ "edit-called:" ^ old_id ^ ":" ^ text ];
+          let* new_id = notifier.send ?parse_mode:None text in
+          let* () = notifier.delete old_id in
+          Lwt.return (Some new_id));
+      delete =
+        (fun old_id ->
+          events := !events @ [ "delete:" ^ old_id ];
+          Lwt.return_unit);
+    }
+  in
+  let t =
+    Status_message.create ~debounce_interval:0.0 ~notifier ~parse_mode:"HTML" ()
+  in
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () =
+       Status_message.tool_start t ~id:"t1" ~name:"file_read" ~summary:None
+     in
+     Status_message.tool_result t ~id:"t1" ~name:"file_read" ~result:"ok"
+       ~is_error:false);
+  let delete_idx =
+    List.find_opt
+      (fun (i, e) -> String.starts_with ~prefix:"delete:" e)
+      (List.mapi (fun i e -> (i, e)) !events)
+  in
+  let replacement_send_idx =
+    List.find_opt
+      (fun (i, e) -> String.starts_with ~prefix:"send:msg-2:" e)
+      (List.mapi (fun i e -> (i, e)) !events)
+  in
+  match (replacement_send_idx, delete_idx) with
+  | Some (si, _), Some (di, _) ->
+      Alcotest.(check bool) "replacement sent before old deleted" true (si < di)
+  | _ -> Alcotest.fail "expected both replacement send and delete events"
+
 let suite =
   [
     Alcotest.test_case "render empty" `Quick test_render_empty;
@@ -743,4 +790,6 @@ let suite =
       test_html_mode_render;
     Alcotest.test_case "reanchor updates msg_id" `Quick
       test_reanchor_updates_msg_id;
+    Alcotest.test_case "reanchor preserves visibility until replacement sent" `Quick
+      test_reanchor_preserves_visibility_until_replacement_sent;
   ]
