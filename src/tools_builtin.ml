@@ -487,8 +487,312 @@ let apply_shell_output_window ~head_lines ~tail_lines text =
         in
         (String.concat "\n" (head @ [ marker ] @ tail), true)
 
-let shell_exec ~workspace ~workspace_only ~allowed_commands ~extra_allowed_paths
-    ~sandbox =
+type ci_run = {
+  run_id : int;
+  status : string;
+  conclusion : string option;
+  url : string option;
+  workflow_name : string option;
+}
+
+let is_env_assignment_token token =
+  match String.index_opt token '=' with
+  | None -> false
+  | Some idx when idx = 0 -> false
+  | Some idx ->
+      let name = String.sub token 0 idx in
+      let valid_start =
+        let c = name.[0] in
+        (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c = '_'
+      in
+      valid_start
+      &&
+      let rec loop i =
+        if i >= String.length name then true
+        else
+          let c = name.[i] in
+          if
+            (c >= 'A' && c <= 'Z')
+            || (c >= 'a' && c <= 'z')
+            || (c >= '0' && c <= '9')
+            || c = '_'
+          then loop (i + 1)
+          else false
+      in
+      loop 1
+
+let drop_env_assignment_tokens argv =
+  let rec loop = function
+    | token :: rest when is_env_assignment_token token -> loop rest
+    | rest -> rest
+  in
+  loop argv
+
+let git_push_command_info ~command =
+  let candidate =
+    match extract_cd_prefix command with
+    | Some (_dir, rest) -> rest
+    | None -> command
+  in
+  match split_command_words candidate with
+  | Error _ -> None
+  | Ok argv -> (
+      match drop_env_assignment_tokens argv with
+      | git_cmd :: subcommand :: _
+        when Filename.basename git_cmd = "git" && subcommand = "push" ->
+          Some ()
+      | _ -> None)
+
+let ci_conclusion_is_failure = function
+  | Some ("success" | "neutral" | "skipped") -> false
+  | Some _ -> true
+  | None -> false
+
+let exec_command ?cwd program argv =
+  let open Lwt.Syntax in
+  let proc =
+    Lwt_process.open_process_full
+      (program, Array.of_list (program :: argv))
+      ?cwd
+  in
+  Lwt.finalize
+    (fun () ->
+      let* stdout, stderr =
+        Lwt.both (Lwt_io.read proc#stdout) (Lwt_io.read proc#stderr)
+      in
+      let* status = proc#status in
+      match status with
+      | Unix.WEXITED 0 -> Lwt.return (Ok stdout)
+      | Unix.WEXITED code ->
+          let detail = String.trim (if stderr <> "" then stderr else stdout) in
+          Lwt.return
+            (Error
+               (Printf.sprintf "%s exited %d%s" program code
+                  (if detail = "" then "" else ": " ^ detail)))
+      | Unix.WSIGNALED signal | Unix.WSTOPPED signal ->
+          Lwt.return
+            (Error (Printf.sprintf "%s terminated by signal %d" program signal)))
+    (fun () ->
+      let open Lwt.Syntax in
+      let* _ = proc#close in
+      Lwt.return_unit)
+
+let gh_json_command ?cwd argv = exec_command ?cwd "gh" argv
+
+let parse_ci_run_json json ~id_field =
+  let open Yojson.Safe.Util in
+  let opt_string field =
+    match json |> member field with
+    | `Null -> None
+    | value -> (
+        try
+          let s = to_string value |> String.trim in
+          if s = "" then None else Some s
+        with _ -> None)
+  in
+  try
+    Some
+      {
+        run_id = json |> member id_field |> to_int;
+        status = json |> member "status" |> to_string;
+        conclusion = opt_string "conclusion";
+        url = opt_string "url";
+        workflow_name = opt_string "workflowName";
+      }
+  with _ -> None
+
+let inject_session_message_async ?turn_override ~(session_mgr : Session.t)
+    ~session_key ~message () =
+  let open Lwt.Syntax in
+  let turn mgr ~key ~message ?channel ?channel_id () =
+    match turn_override with
+    | Some custom -> custom mgr ~key ~message ?channel ?channel_id ()
+    | None -> Session.turn mgr ~key ~message ?channel ?channel_id ()
+  in
+  let channel, channel_id =
+    match Restart_notify.parse_channel_from_key session_key with
+    | Some (channel, channel_id) -> (Some channel, Some channel_id)
+    | None -> (None, None)
+  in
+  Lwt.catch
+    (fun () ->
+      let* response =
+        turn session_mgr ~key:session_key ~message ?channel ?channel_id ()
+      in
+      if Session.is_queued_message_response response then
+        Logs.info (fun m ->
+            m "CI watch queued follow-up for busy session %s" session_key)
+      else
+        Logs.info (fun m ->
+            m "CI watch injected follow-up into session %s" session_key);
+      Lwt.return_unit)
+    (fun exn ->
+      Logs.warn (fun m ->
+          m "CI watch session injection failed for %s: %s" session_key
+            (Printexc.to_string exn));
+      Lwt.return_unit)
+
+let watch_ci_after_push
+    ?(resolve_head_sha =
+      fun ~repo_path ->
+        exec_command ~cwd:repo_path "git" [ "rev-parse"; "HEAD" ])
+    ?(gh_command = gh_json_command) ?(sleep = Lwt_unix.sleep)
+    ?(poll_interval = 10.0) ?(startup_timeout = 120.0)
+    ?(completion_timeout = 1800.0) ~(session_mgr : Session.t) ~session_key
+    ~repo_path () =
+  let open Lwt.Syntax in
+  let rec wait_for_run ~head_sha ~deadline () =
+    let* result =
+      gh_command ~cwd:repo_path
+        [
+          "run";
+          "list";
+          "--json";
+          "databaseId,headSha,status,conclusion,url,workflowName";
+          "--limit";
+          "20";
+        ]
+    in
+    match result with
+    | Error err -> Lwt.return (Error err)
+    | Ok body -> (
+        try
+          let open Yojson.Safe.Util in
+          let json = Yojson.Safe.from_string body |> to_list in
+          let matching =
+            List.filter_map
+              (fun item ->
+                let sha =
+                  try item |> member "headSha" |> to_string with _ -> ""
+                in
+                if sha = head_sha then
+                  parse_ci_run_json item ~id_field:"databaseId"
+                else None)
+              json
+          in
+          match matching with
+          | run :: _ -> Lwt.return (Ok (Some run))
+          | [] when Unix.gettimeofday () < deadline ->
+              let* () = sleep poll_interval in
+              wait_for_run ~head_sha ~deadline ()
+          | [] -> Lwt.return (Ok None)
+        with exn ->
+          Lwt.return
+            (Error
+               (Printf.sprintf "failed to parse gh run list JSON: %s"
+                  (Printexc.to_string exn))))
+  in
+  let rec wait_for_completion ~run_id ~deadline () =
+    let* result =
+      gh_command ~cwd:repo_path
+        [
+          "run";
+          "view";
+          string_of_int run_id;
+          "--json";
+          "databaseId,status,conclusion,url,workflowName";
+        ]
+    in
+    match result with
+    | Error err -> Lwt.return (Error err)
+    | Ok body -> (
+        try
+          let json = Yojson.Safe.from_string body in
+          match parse_ci_run_json json ~id_field:"databaseId" with
+          | Some run when run.status = "completed" -> Lwt.return (Ok run)
+          | Some _ when Unix.gettimeofday () < deadline ->
+              let* () = sleep poll_interval in
+              wait_for_completion ~run_id ~deadline ()
+          | Some run -> Lwt.return (Ok run)
+          | None ->
+              Lwt.return
+                (Error "failed to parse gh run view JSON: missing run fields")
+        with exn ->
+          Lwt.return
+            (Error
+               (Printf.sprintf "failed to parse gh run view JSON: %s"
+                  (Printexc.to_string exn))))
+  in
+  Lwt.catch
+    (fun () ->
+      let* git_head = resolve_head_sha ~repo_path in
+      let head_sha =
+        match git_head with
+        | Ok sha -> String.trim sha
+        | Error err ->
+            Logs.info (fun m ->
+                m "CI watch skipped for %s: unable to resolve HEAD: %s"
+                  repo_path err);
+            ""
+      in
+      if head_sha = "" then Lwt.return_unit
+      else
+        let startup_deadline = Unix.gettimeofday () +. startup_timeout in
+        let* run_result =
+          wait_for_run ~head_sha ~deadline:startup_deadline ()
+        in
+        match run_result with
+        | Error err ->
+            Logs.info (fun m -> m "CI watch stopped for %s: %s" repo_path err);
+            Lwt.return_unit
+        | Ok None ->
+            Logs.info (fun m ->
+                m "CI watch found no workflow run for HEAD %s in %s" head_sha
+                  repo_path);
+            Lwt.return_unit
+        | Ok (Some run) -> (
+            let completion_deadline =
+              Unix.gettimeofday () +. completion_timeout
+            in
+            let* final_run_result =
+              if run.status = "completed" then Lwt.return (Ok run)
+              else
+                wait_for_completion ~run_id:run.run_id
+                  ~deadline:completion_deadline ()
+            in
+            match final_run_result with
+            | Error err ->
+                Logs.info (fun m ->
+                    m "CI watch stopped for %s run %d: %s" repo_path run.run_id
+                      err);
+                Lwt.return_unit
+            | Ok final_run when ci_conclusion_is_failure final_run.conclusion ->
+                let workflow =
+                  Option.value final_run.workflow_name ~default:"GitHub Actions"
+                in
+                let conclusion =
+                  Option.value final_run.conclusion ~default:"failed"
+                in
+                let url_suffix =
+                  match final_run.url with
+                  | Some url -> "\nRun: " ^ url
+                  | None -> ""
+                in
+                let message =
+                  Printf.sprintf
+                    "[async CI watch]\n\
+                     The recent `git push` for HEAD `%s` in `%s` completed \
+                     with CI conclusion `%s` (%s). Investigate the failure and \
+                     continue from there.%s"
+                    head_sha
+                    (Filename.basename repo_path)
+                    conclusion workflow url_suffix
+                in
+                let* () =
+                  inject_session_message_async ~session_mgr ~session_key
+                    ~message ()
+                in
+                Lwt.return_unit
+            | Ok _ -> Lwt.return_unit))
+    (fun exn ->
+      Logs.warn (fun m ->
+          m "CI watch failed for session %s in %s: %s" session_key repo_path
+            (Printexc.to_string exn));
+      Lwt.return_unit)
+
+let shell_exec_with_hooks ~workspace ~workspace_only ~allowed_commands
+    ~extra_allowed_paths ~sandbox ?session_mgr ?(spawn_background = Lwt.async)
+    ?(watch_ci_after_push = watch_ci_after_push) () =
   let description =
     if workspace_only then
       "Execute a shell command and return stdout+stderr. Workspace policy: \
@@ -798,10 +1102,78 @@ let shell_exec ~workspace ~workspace_only ~allowed_commands ~extra_allowed_paths
                         | None -> base_env)
                     | None -> base_env
                   in
-                  let command = Sandbox.wrap_command sandbox command in
+                  let session_key =
+                    match context with
+                    | Some c -> c.Tool.session_key
+                    | None -> None
+                  in
+                  let original_command = command in
+                  let should_watch_ci_after_push =
+                    Option.is_some
+                      (git_push_command_info ~command:original_command)
+                  in
+                  let optimized_cd_prefix =
+                    if workspace_only then None
+                    else
+                      match extract_cd_prefix original_command with
+                      | Some (dir, rest)
+                        when Sys.file_exists dir && Sys.is_directory dir ->
+                          Some (dir, rest)
+                      | _ -> None
+                  in
+                  let repo_path =
+                    match (optimized_cd_prefix, cwd) with
+                    | Some (dir, _), _ -> dir
+                    | None, Some dir -> dir
+                    | None, None -> workspace
+                  in
+                  let* captured_head_sha =
+                    match
+                      (session_mgr, session_key, should_watch_ci_after_push)
+                    with
+                    | Some _mgr, Some _sk, true -> (
+                        let* result =
+                          exec_command ~cwd:repo_path "git"
+                            [ "rev-parse"; "HEAD" ]
+                        in
+                        match result with
+                        | Ok sha -> Lwt.return (Some (String.trim sha))
+                        | Error err ->
+                            Logs.info (fun m ->
+                                m
+                                  "CI watch could not capture pre-push HEAD in \
+                                   %s: %s"
+                                  repo_path err);
+                            Lwt.return_none)
+                    | _ -> Lwt.return_none
+                  in
+                  let command = Sandbox.wrap_command sandbox original_command in
                   let run_proc cmd =
                     run_process_with_timeout ?interrupt_check ?on_output_chunk
                       ~cwd ~env ~cmd ~timeout_secs ~head_lines ~tail_lines ()
+                  in
+                  let maybe_watch_ci_after_push result =
+                    match
+                      (session_mgr, session_key, should_watch_ci_after_push)
+                    with
+                    | Some mgr, Some sk, true
+                      when String.starts_with ~prefix:"exit_code: 0\n" result ->
+                        spawn_background (fun () ->
+                            match captured_head_sha with
+                            | Some head_sha when head_sha <> "" ->
+                                watch_ci_after_push
+                                  ~resolve_head_sha:(fun ~repo_path:_ ->
+                                    Lwt.return (Ok head_sha))
+                                  ~session_mgr:mgr ~session_key:sk ~repo_path ()
+                            | _ ->
+                                watch_ci_after_push ~session_mgr:mgr
+                                  ~session_key:sk ~repo_path ())
+                    | _ -> ()
+                  in
+                  let run_and_maybe_watch cmd =
+                    let* result = run_proc cmd in
+                    maybe_watch_ci_after_push result;
+                    Lwt.return result
                   in
                   if workspace_only then
                     match split_command_words command with
@@ -821,17 +1193,22 @@ let shell_exec ~workspace ~workspace_only ~allowed_commands ~extra_allowed_paths
                             Lwt.return
                               "Error: command contains paths/targets \
                                disallowed in workspace_only mode"
-                        | _ -> run_proc ("", Array.of_list argv))
+                        | _ -> run_and_maybe_watch ("", Array.of_list argv))
                   else
-                    match extract_cd_prefix command with
-                    | Some (dir, rest)
-                      when Sys.file_exists dir && Sys.is_directory dir ->
+                    match optimized_cd_prefix with
+                    | Some (dir, rest) ->
                         let cwd = Some dir in
-                        run_process_with_timeout ?interrupt_check
-                          ?on_output_chunk ~cwd ~env
-                          ~cmd:("", [| "/bin/sh"; "-c"; rest |])
-                          ~timeout_secs ~head_lines ~tail_lines ()
-                    | _ -> run_proc ("", [| "/bin/sh"; "-c"; command |]))))
+                        let* result =
+                          run_process_with_timeout ?interrupt_check
+                            ?on_output_chunk ~cwd ~env
+                            ~cmd:("", [| "/bin/sh"; "-c"; rest |])
+                            ~timeout_secs ~head_lines ~tail_lines ()
+                        in
+                        maybe_watch_ci_after_push result;
+                        Lwt.return result
+                    | _ ->
+                        run_and_maybe_watch ("", [| "/bin/sh"; "-c"; command |])
+                  )))
   in
   {
     Tool.name = "shell_exec";
@@ -1068,6 +1445,11 @@ let file_append ~workspace ~workspace_only ~extra_allowed_paths =
     risk_level = Medium;
     deferred = false;
   }
+
+let shell_exec ~workspace ~workspace_only ~allowed_commands ~extra_allowed_paths
+    ~sandbox =
+  shell_exec_with_hooks ~workspace ~workspace_only ~allowed_commands
+    ~extra_allowed_paths ~sandbox ()
 
 let file_write ~workspace ~workspace_only ~extra_allowed_paths =
   {

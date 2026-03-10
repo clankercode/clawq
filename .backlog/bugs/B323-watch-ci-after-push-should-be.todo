@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-10T08:57:16Z"
+claimed_by: cli-user
+completed_at: "2026-03-10T09:18:24Z"
 complexity: medium
 depends_on: []
+duration_minutes: 21.149100846016665
 estimate_hours: 1
 id: B323
 priority: high
-status: pending
+started_at: "2026-03-10T08:57:16Z"
+status: done
 tags: []
 title: watch_ci_after_push should be asynchronous. It can inject a message async if the CI fails (just needs to keep track of thread/session id).
 ---

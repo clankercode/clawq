@@ -1389,6 +1389,43 @@ let test_session_reset_clears_pending_queue () =
     "0 pending after reset" 0
     (Memory.queue_count ~db ~session_key:key)
 
+let test_refresh_runtime_bound_tools_replaces_shell_exec_on_reload () =
+  let registry = Tool_registry.create () in
+  let config1 = Runtime_config.default in
+  let sandbox1 =
+    Sandbox.create ~backend:Sandbox.None
+      ~workspace:(Runtime_config.effective_workspace config1)
+      ~extra_allowed_paths:config1.security.extra_allowed_paths
+      ~workspace_only:config1.security.workspace_only ()
+  in
+  let session_manager = Session.create ~config:config1 ~sandbox:sandbox1 () in
+  Daemon.refresh_runtime_bound_tools ~config:config1 ~session_manager
+    ~sandbox:sandbox1 registry;
+  let shell1 = Option.get (Tool_registry.find registry "shell_exec") in
+  let config2 =
+    {
+      config1 with
+      workspace =
+        Filename.concat (Runtime_config.effective_workspace config1) "alt";
+      security = { config1.security with workspace_only = true };
+    }
+  in
+  let sandbox2 =
+    Sandbox.create ~backend:Sandbox.None
+      ~workspace:(Runtime_config.effective_workspace config2)
+      ~extra_allowed_paths:config2.security.extra_allowed_paths
+      ~workspace_only:config2.security.workspace_only ()
+  in
+  Session.set_sandbox session_manager sandbox2;
+  Session.update_config ~source:"test_reload" session_manager config2;
+  Daemon.refresh_runtime_bound_tools ~config:config2 ~session_manager
+    ~sandbox:sandbox2 registry;
+  let shell2 = Option.get (Tool_registry.find registry "shell_exec") in
+  Alcotest.(check bool) "shell_exec replaced on reload" true (shell1 != shell2);
+  Alcotest.(check bool)
+    "shell_exec description reflects reloaded workspace policy" true
+    (string_contains shell2.Tool.description "Workspace policy")
+
 let suite =
   [
     Alcotest.test_case "dispatch resumed message routes telegram" `Quick
@@ -1476,4 +1513,6 @@ let suite =
       test_replay_preserves_bang_prefix;
     Alcotest.test_case "session reset clears pending queue" `Quick
       test_session_reset_clears_pending_queue;
+    Alcotest.test_case "refresh runtime-bound tools replaces shell_exec" `Quick
+      test_refresh_runtime_bound_tools_replaces_shell_exec_on_reload;
   ]

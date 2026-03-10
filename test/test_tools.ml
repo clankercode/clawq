@@ -67,6 +67,23 @@ let random_shell_string state =
   let len = Random.State.int state 32 in
   String.init len (fun _ -> random_shell_char state)
 
+let read_process_output_or_fail ~label cmd =
+  let ic = Unix.open_process_in cmd in
+  Fun.protect
+    ~finally:(fun () ->
+      match Unix.close_process_in ic with
+      | Unix.WEXITED 0 -> ()
+      | Unix.WEXITED code ->
+          Alcotest.failf "%s failed (exit %d): %s" label code cmd
+      | Unix.WSIGNALED signal | Unix.WSTOPPED signal ->
+          Alcotest.failf "%s terminated by signal %d: %s" label signal cmd)
+    (fun () -> input_line ic |> String.trim)
+
+let run_command_or_fail ~label cmd =
+  match Sys.command cmd with
+  | 0 -> ()
+  | code -> Alcotest.failf "%s failed (exit %d): %s" label code cmd
+
 let assert_no_drift label =
   let path_drift, shell_drift, tokenizer_drift =
     Tools_builtin.get_drift_counters ()
@@ -1352,6 +1369,283 @@ let test_shell_exec_injects_session_id_env () =
         (contains result "telegram:42:testuser");
       Alcotest.(check bool) "exit code 0" true (contains result "exit_code: 0"))
 
+let test_watch_ci_after_push_injects_failure_follow_up () =
+  let mgr = Session.create ~config:Runtime_config.default () in
+  let injected = ref [] in
+  Session.set_special_command_handler mgr
+    (fun ~key ~message ~send_progress:_ ~interrupt_check:_ ->
+      injected := (key, message) :: !injected;
+      Lwt.return_some Session.autonomous_stay_idle_message);
+  let gh_command ?cwd:_ argv =
+    match argv with
+    | [ "run"; "list"; "--json"; _; "--limit"; "20" ] ->
+        Lwt.return
+          (Ok
+             {|[
+                  {
+                    "databaseId": 17,
+                    "headSha": "abc123",
+                    "status": "completed",
+                    "conclusion": "failure",
+                    "url": "https://example.test/run/17",
+                    "workflowName": "CI"
+                  }
+                ]|})
+    | [ "run"; "view"; "17"; "--json"; _ ] ->
+        Lwt.return
+          (Ok
+             {|{
+                  "databaseId": 17,
+                  "status": "completed",
+                  "conclusion": "failure",
+                  "url": "https://example.test/run/17",
+                  "workflowName": "CI"
+                }|})
+    | _ -> Lwt.return (Error "unexpected gh invocation")
+  in
+  Lwt_main.run
+    (Tools_builtin.watch_ci_after_push
+       ~resolve_head_sha:(fun ~repo_path:_ -> Lwt.return (Ok "abc123\n"))
+       ~gh_command
+       ~sleep:(fun _ -> Lwt.return_unit)
+       ~poll_interval:0.0 ~startup_timeout:0.0 ~completion_timeout:0.0
+       ~session_mgr:mgr ~session_key:"telegram:42:testuser"
+       ~repo_path:"/tmp/repo" ());
+  Alcotest.(check int) "one async follow-up injected" 1 (List.length !injected);
+  let key, message = List.hd !injected in
+  Alcotest.(check string) "session key preserved" "telegram:42:testuser" key;
+  Alcotest.(check bool)
+    "message references async CI watch" true
+    (contains message "[async CI watch]");
+  Alcotest.(check bool)
+    "message includes head sha" true
+    (contains message "abc123");
+  Alcotest.(check bool)
+    "message includes run URL" true
+    (contains message "https://example.test/run/17")
+
+let test_inject_session_message_async_preserves_channel_context () =
+  let mgr = Session.create ~config:Runtime_config.default () in
+  let captured = ref None in
+  let turn _mgr ~key ~message ?channel ?channel_id () =
+    captured := Some (key, message, channel, channel_id);
+    Lwt.return Session.queued_message_response
+  in
+  Lwt_main.run
+    (Tools_builtin.inject_session_message_async ~turn_override:turn
+       ~session_mgr:mgr ~session_key:"telegram:42:testuser" ~message:"hello" ());
+  Alcotest.(
+    check
+      (option
+         (pair (pair string string) (pair (option string) (option string)))))
+    "inject uses channel routing from session key"
+    (Some (("telegram:42:testuser", "hello"), (Some "telegram", Some "42")))
+    (Option.map
+       (fun (key, message, channel, channel_id) ->
+         ((key, message), (channel, channel_id)))
+       !captured)
+
+let test_shell_exec_starts_ci_watch_asynchronously_after_push () =
+  with_temp_workspace (fun workspace ->
+      let real_git =
+        read_process_output_or_fail ~label:"which git" "which git"
+      in
+      run_command_or_fail ~label:"git init"
+        (Printf.sprintf "%s -C %s init -q" real_git (Filename.quote workspace));
+      run_command_or_fail ~label:"git config user.email"
+        (Printf.sprintf "%s -C %s config user.email test@example.com" real_git
+           (Filename.quote workspace));
+      run_command_or_fail ~label:"git config user.name"
+        (Printf.sprintf "%s -C %s config user.name 'Test User'" real_git
+           (Filename.quote workspace));
+      let tracked = Filename.concat workspace "tracked.txt" in
+      let tracked_oc = open_out tracked in
+      output_string tracked_oc "base\n";
+      close_out tracked_oc;
+      run_command_or_fail ~label:"git add"
+        (Printf.sprintf "%s -C %s add tracked.txt" real_git
+           (Filename.quote workspace));
+      run_command_or_fail ~label:"git commit"
+        (Printf.sprintf "%s -C %s commit -q -m initial" real_git
+           (Filename.quote workspace));
+      let head_before =
+        read_process_output_or_fail ~label:"git rev-parse HEAD"
+          (Printf.sprintf "%s -C %s rev-parse HEAD" real_git
+             (Filename.quote workspace))
+      in
+      let old_path = try Some (Sys.getenv "PATH") with Not_found -> None in
+      let fake_git = Filename.concat workspace "git" in
+      let oc = open_out fake_git in
+      output_string oc
+        (Printf.sprintf
+           "#!/bin/sh\n\
+            if [ \"$1\" = \"push\" ]; then\n\
+           \  exit 0\n\
+            fi\n\
+            exec %s \"$@\"\n"
+           (Filename.quote real_git));
+      close_out oc;
+      Unix.chmod fake_git 0o755;
+      Unix.putenv "PATH"
+        (workspace ^ match old_path with Some path -> ":" ^ path | None -> "");
+      Fun.protect
+        (fun () ->
+          let sandbox =
+            Sandbox.create ~backend:Sandbox.None ~workspace
+              ~extra_allowed_paths:[] ~workspace_only:false ()
+          in
+          let mgr = Session.create ~config:Runtime_config.default () in
+          let spawned = ref None in
+          let watcher_started = ref false in
+          let resolved_head = ref None in
+          let tool =
+            Tools_builtin.shell_exec_with_hooks ~workspace ~workspace_only:false
+              ~allowed_commands:[] ~extra_allowed_paths:[] ~sandbox
+              ~session_mgr:mgr
+              ~spawn_background:(fun promise -> spawned := Some promise)
+              ~watch_ci_after_push:(fun
+                  ?resolve_head_sha
+                  ?gh_command:_
+                  ?sleep:_
+                  ?poll_interval:_
+                  ?startup_timeout:_
+                  ?completion_timeout:_
+                  ~session_mgr:_
+                  ~session_key:_
+                  ~repo_path
+                  ()
+                ->
+                let open Lwt.Syntax in
+                let* () = Lwt.pause () in
+                let* () =
+                  match resolve_head_sha with
+                  | Some resolve ->
+                      let* head = resolve ~repo_path in
+                      resolved_head := Some head;
+                      Lwt.return_unit
+                  | None ->
+                      resolved_head := None;
+                      Lwt.return_unit
+                in
+                watcher_started := true;
+                Lwt.return_unit)
+              ()
+          in
+          let context =
+            {
+              Tool.session_key = Some "telegram:42:testuser";
+              send_progress = None;
+              interrupt_check = None;
+            }
+          in
+          let result =
+            Lwt_main.run
+              (tool.Tool.invoke ~context
+                 (`Assoc [ ("command", `String "git push") ]))
+          in
+          Alcotest.(check bool)
+            "push command succeeded" true
+            (contains result "exit_code: 0");
+          Alcotest.(check bool)
+            "watch not awaited inline" false !watcher_started;
+          Alcotest.(check bool) "watch scheduled" true (Option.is_some !spawned);
+          let tracked_oc = open_out tracked in
+          output_string tracked_oc "changed\n";
+          close_out tracked_oc;
+          run_command_or_fail ~label:"git commit after push"
+            (Printf.sprintf "%s -C %s commit -qam after-push" real_git
+               (Filename.quote workspace));
+          (match !spawned with
+          | Some promise -> Lwt_main.run (promise ())
+          | None -> Alcotest.fail "expected CI watch promise to be scheduled");
+          Alcotest.(check (option (result string string)))
+            "watch uses pre-push head after repo changes"
+            (Some (Ok head_before)) !resolved_head;
+          Alcotest.(check bool)
+            "watch runs after shell result returns" true !watcher_started)
+        ~finally:(fun () ->
+          match old_path with
+          | Some path -> Unix.putenv "PATH" path
+          | None -> Unix.putenv "PATH" ""))
+
+let test_shell_exec_cd_prefix_push_uses_cd_repo_path () =
+  with_temp_workspace (fun workspace ->
+      let repo = Filename.concat workspace "repo" in
+      Unix.mkdir repo 0o755;
+      let real_git =
+        read_process_output_or_fail ~label:"which git" "which git"
+      in
+      let old_path = try Some (Sys.getenv "PATH") with Not_found -> None in
+      let fake_git = Filename.concat workspace "git" in
+      let oc = open_out fake_git in
+      output_string oc
+        (Printf.sprintf
+           "#!/bin/sh\n\
+            if [ \"$1\" = \"push\" ]; then\n\
+           \  exit 0\n\
+            fi\n\
+            exec %s \"$@\"\n"
+           (Filename.quote real_git));
+      close_out oc;
+      Unix.chmod fake_git 0o755;
+      Unix.putenv "PATH"
+        (workspace ^ match old_path with Some path -> ":" ^ path | None -> "");
+      let sandbox =
+        Sandbox.create ~backend:Sandbox.None ~workspace ~extra_allowed_paths:[]
+          ~workspace_only:false ()
+      in
+      Fun.protect
+        (fun () ->
+          let mgr = Session.create ~config:Runtime_config.default () in
+          let captured_repo_path = ref None in
+          let spawned = ref None in
+          let tool =
+            Tools_builtin.shell_exec_with_hooks ~workspace ~workspace_only:false
+              ~allowed_commands:[] ~extra_allowed_paths:[] ~sandbox
+              ~session_mgr:mgr
+              ~spawn_background:(fun promise -> spawned := Some promise)
+              ~watch_ci_after_push:(fun
+                  ?resolve_head_sha:_
+                  ?gh_command:_
+                  ?sleep:_
+                  ?poll_interval:_
+                  ?startup_timeout:_
+                  ?completion_timeout:_
+                  ~session_mgr:_
+                  ~session_key:_
+                  ~repo_path
+                  ()
+                ->
+                captured_repo_path := Some repo_path;
+                Lwt.return_unit)
+              ()
+          in
+          let context =
+            {
+              Tool.session_key = Some "telegram:42:testuser";
+              send_progress = None;
+              interrupt_check = None;
+            }
+          in
+          let command = Printf.sprintf "cd %s && git push" repo in
+          let result =
+            Lwt_main.run
+              (tool.Tool.invoke ~context
+                 (`Assoc [ ("command", `String command) ]))
+          in
+          Alcotest.(check bool)
+            "push command succeeded" true
+            (contains result "exit_code: 0");
+          (match !spawned with
+          | Some promise -> Lwt_main.run (promise ())
+          | None -> Alcotest.fail "expected CI watch promise to be scheduled");
+          Alcotest.(check (option string))
+            "watch uses cd repo path" (Some repo) !captured_repo_path)
+        ~finally:(fun () ->
+          match old_path with
+          | Some path -> Unix.putenv "PATH" path
+          | None -> Unix.putenv "PATH" ""))
+
 let test_shell_exec_cd_prefix_optimization () =
   with_temp_workspace (fun workspace ->
       let subdir = Filename.concat workspace "subdir" in
@@ -1498,6 +1792,14 @@ let suite =
       test_shell_exec_interrupt_kills_descendants;
     Alcotest.test_case "shell_exec timeout kills descendants" `Quick
       test_shell_exec_timeout_kills_descendants;
+    Alcotest.test_case "watch_ci_after_push injects failure follow-up" `Quick
+      test_watch_ci_after_push_injects_failure_follow_up;
+    Alcotest.test_case "inject_session_message_async preserves channel context"
+      `Quick test_inject_session_message_async_preserves_channel_context;
+    Alcotest.test_case "shell_exec starts CI watch asynchronously" `Quick
+      test_shell_exec_starts_ci_watch_asynchronously_after_push;
+    Alcotest.test_case "shell_exec cd-prefix push uses cd repo path" `Quick
+      test_shell_exec_cd_prefix_push_uses_cd_repo_path;
     Alcotest.test_case "extract_cd_prefix parses cd path && cmd" `Quick
       test_extract_cd_prefix;
     Alcotest.test_case "shell_exec cd prefix optimization sets cwd" `Quick

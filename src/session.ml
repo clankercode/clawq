@@ -37,7 +37,7 @@ type t = {
   sessions : (string, Agent.t * Lwt_mutex.t * string option ref) Hashtbl.t;
   sessions_lock : Lwt_mutex.t;
   tool_registry : Tool_registry.t option;
-  sandbox : Sandbox.t option;
+  mutable sandbox : Sandbox.t option;
   landlock_enabled : bool;
   db : Sqlite3.db option;
   mutable draining : bool;
@@ -1236,6 +1236,7 @@ let fork_and_run mgr ~parent_key ~prompt ~send_reply =
 let get_config mgr = mgr.config
 let get_tool_registry mgr = mgr.tool_registry
 let get_db mgr = mgr.db
+let set_sandbox mgr sandbox = mgr.sandbox <- Some sandbox
 
 let update_config ?(source = "") mgr config =
   let old_model = mgr.config.Runtime_config.agent_defaults.primary_model in

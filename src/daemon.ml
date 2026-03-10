@@ -292,7 +292,8 @@ let handle_heartbeat_response
   end;
   Lwt.return_unit
 
-let refresh_runtime_bound_tools ~(config : Runtime_config.t) registry =
+let refresh_runtime_bound_tools ~(config : Runtime_config.t)
+    ~(session_manager : Session.t) ~sandbox registry =
   let refresh_optional name ~configured make_tool =
     if configured then Tool_registry.replace registry (make_tool ())
     else Tool_registry.remove registry name
@@ -303,9 +304,26 @@ let refresh_runtime_bound_tools ~(config : Runtime_config.t) registry =
       Tools_builtin.transcribe ~config);
   let workspace = Runtime_config.effective_workspace config in
   Tool_registry.replace registry
+    (Tools_builtin.shell_exec_with_hooks ~workspace
+       ~workspace_only:config.security.workspace_only
+       ~allowed_commands:Tools_builtin.default_shell_allowlist
+       ~extra_allowed_paths:config.security.extra_allowed_paths ~sandbox
+       ~session_mgr:session_manager ());
+  Tool_registry.replace registry
     (Tools_builtin.doc_write ~workspace
        ~workspace_files:config.prompt.workspace_files);
   Logs.info (fun m -> m "Refreshed runtime-bound tools")
+
+let make_sandbox (config : Runtime_config.t) =
+  let backend = Sandbox.backend_of_policy config.security.sandbox_backend in
+  let workspace = Runtime_config.effective_workspace config in
+  {
+    Sandbox.backend;
+    workspace;
+    extra_allowed_paths =
+      config.security.extra_allowed_paths |> List.map Runtime_config.expand_home;
+    isolate_filesystem = config.security.workspace_only;
+  }
 
 let background_task_wakeup_message task =
   Background_task.terse_finished_message task
@@ -964,20 +982,10 @@ let run ~(config : Runtime_config.t) =
         (match config.channels.lark with
         | Some lk -> lk.enabled
         | None -> false));
-  let sandbox =
-    let backend = Sandbox.backend_of_policy config.security.sandbox_backend in
-    {
-      Sandbox.backend;
-      workspace;
-      extra_allowed_paths =
-        config.security.extra_allowed_paths
-        |> List.map Runtime_config.expand_home;
-      isolate_filesystem = config.security.workspace_only;
-    }
-  in
+  let sandbox = ref (make_sandbox config) in
   Logs.info (fun m ->
       m "Sandbox backend: %s"
-        (Sandbox.backend_to_string sandbox.Sandbox.backend));
+        (Sandbox.backend_to_string !sandbox.Sandbox.backend));
   let db =
     let db_path =
       if config.memory.db_path <> "" then config.memory.db_path
@@ -1010,7 +1018,8 @@ let run ~(config : Runtime_config.t) =
   let tool_registry =
     if config.security.tools_enabled then begin
       let registry = Tool_registry.create () in
-      Tools_builtin.register_all ~config:!current_config ~sandbox ~db registry;
+      Tools_builtin.register_all ~config:!current_config ~sandbox:!sandbox ~db
+        registry;
       let skills =
         Skills.load_all ~workspace_only:config.security.workspace_only
           ~allowed_commands:Tools_builtin.default_shell_allowlist ()
@@ -1171,9 +1180,19 @@ let run ~(config : Runtime_config.t) =
     | _ -> None
   in
   let session_manager =
-    Session.create ~config:!current_config ?tool_registry ~sandbox
+    Session.create ~config:!current_config ?tool_registry ~sandbox:!sandbox
       ~landlock_enabled ?db ()
   in
+  (match tool_registry with
+  | Some registry ->
+      Tool_registry.replace registry
+        (Tools_builtin.shell_exec_with_hooks
+           ~workspace:(Runtime_config.effective_workspace !current_config)
+           ~workspace_only:config.security.workspace_only
+           ~allowed_commands:Tools_builtin.default_shell_allowlist
+           ~extra_allowed_paths:config.security.extra_allowed_paths
+           ~sandbox:!sandbox ~session_mgr:session_manager ())
+  | None -> ());
   let rich_send_fn =
     Some
       (fun ~session_key content ->
@@ -1598,12 +1617,15 @@ let run ~(config : Runtime_config.t) =
         Logs.info (fun m -> m "SIGHUP received, reloading config...");
         try
           let new_config = Config_loader.load () in
+          sandbox := make_sandbox new_config;
           current_config := new_config;
+          Session.set_sandbox session_manager !sandbox;
           Session.update_config ~source:"config_reload" session_manager
             new_config;
           (match tool_registry with
           | Some registry ->
-              refresh_runtime_bound_tools ~config:new_config registry
+              refresh_runtime_bound_tools ~config:new_config ~session_manager
+                ~sandbox:!sandbox registry
           | None -> ());
           Lwt.async (fun () ->
               Lwt.catch
@@ -1817,12 +1839,15 @@ let run ~(config : Runtime_config.t) =
                if st.Unix.st_mtime > !last_config_mtime then begin
                  last_config_mtime := st.Unix.st_mtime;
                  let new_config = Config_loader.load () in
+                 sandbox := make_sandbox new_config;
                  current_config := new_config;
+                 Session.set_sandbox session_manager !sandbox;
                  Session.update_config ~source:"config_reload" session_manager
                    new_config;
                  (match tool_registry with
                  | Some registry ->
-                     refresh_runtime_bound_tools ~config:new_config registry
+                     refresh_runtime_bound_tools ~config:new_config
+                       ~session_manager ~sandbox:!sandbox registry
                  | None -> ());
                  Lwt.async (fun () ->
                      Lwt.catch
