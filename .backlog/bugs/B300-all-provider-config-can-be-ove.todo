@@ -1,12 +1,17 @@
 ---
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B300
 priority: high
-status: pending
+started_at: null
+status: done
 tags: []
 title: All provider config can be overwritten (not sure of what operations, but it is not good)
 ---
 
 All provider config can be overwritten (not sure of what operations, but it is not good)
+
+
+Probably fixed by B319
