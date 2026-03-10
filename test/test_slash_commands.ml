@@ -588,7 +588,7 @@ let test_format_tools_plain () =
       };
     ]
   in
-  let output = Slash_commands.format_tools_plain tools in
+  let output = Slash_commands.format_tools_plain tools [] in
   Alcotest.(check bool) "contains count" true (contains_str output "(2)");
   Alcotest.(check bool)
     "contains file_read" true
@@ -611,7 +611,10 @@ let test_format_tools_plain () =
        try Str.search_forward (Str.regexp_string "shell_exec") output 0
        with Not_found -> max_int
      in
-     pos_file < pos_shell)
+     pos_file < pos_shell);
+  Alcotest.(check bool)
+    "no Skills section when skills empty" true
+    (not (contains_str output "Skills"))
 
 let test_format_tools_telegram () =
   let tools =
@@ -637,7 +640,7 @@ let test_format_tools_telegram () =
       };
     ]
   in
-  let output = Slash_commands.format_tools_telegram tools in
+  let output = Slash_commands.format_tools_telegram tools [] in
   Alcotest.(check bool) "contains <b>" true (contains_str output "<b>");
   Alcotest.(check bool)
     "contains blockquote" true
@@ -648,7 +651,83 @@ let test_format_tools_telegram () =
   Alcotest.(check bool) "contains <code>" true (contains_str output "<code>");
   Alcotest.(check bool)
     "contains required markers" true
-    (contains_str output "key* value*")
+    (contains_str output "key* value*");
+  Alcotest.(check bool)
+    "no Skills section when skills empty" true
+    (not (contains_str output "Skills"))
+
+let make_dummy_tool name description =
+  {
+    Tool.name;
+    description;
+    parameters_schema = `Assoc [ ("type", `String "object") ];
+    invoke = (fun ?context:_ _args -> Lwt.return "");
+    invoke_stream = None;
+    risk_level = Tool.Low;
+    deferred = false;
+  }
+
+let test_format_tools_telegram_with_skills () =
+  let tools = [ make_dummy_tool "file_read" "Read a file" ] in
+  let skills = [ make_dummy_tool "my_script" "Run my script" ] in
+  let output = Slash_commands.format_tools_telegram tools skills in
+  Alcotest.(check bool)
+    "has Tools section" true
+    (contains_str output "Tools (1)");
+  Alcotest.(check bool)
+    "has Skills section" true
+    (contains_str output "Skills (1)");
+  Alcotest.(check bool)
+    "tools before skills" true
+    (let pos_tools =
+       try Str.search_forward (Str.regexp_string "Tools (1)") output 0
+       with Not_found -> max_int
+     in
+     let pos_skills =
+       try Str.search_forward (Str.regexp_string "Skills (1)") output 0
+       with Not_found -> max_int
+     in
+     pos_tools < pos_skills);
+  Alcotest.(check bool)
+    "two blockquote sections" true
+    (let count = ref 0 in
+     let start = ref 0 in
+     (try
+        while true do
+          let pos =
+            Str.search_forward
+              (Str.regexp_string "<blockquote expandable>")
+              output !start
+          in
+          incr count;
+          start := pos + 1
+        done
+      with Not_found -> ());
+     !count = 2)
+
+let test_format_tools_plain_with_skills () =
+  let tools = [ make_dummy_tool "file_read" "Read a file" ] in
+  let skills = [ make_dummy_tool "my_script" "Run my script" ] in
+  let output = Slash_commands.format_tools_plain tools skills in
+  Alcotest.(check bool)
+    "has Tools section" true
+    (contains_str output "Tools (1)");
+  Alcotest.(check bool)
+    "has Skills section" true
+    (contains_str output "Skills (1)");
+  Alcotest.(check bool) "has file_read" true (contains_str output "file_read");
+  Alcotest.(check bool) "has my_script" true (contains_str output "my_script");
+  Alcotest.(check bool)
+    "tools before skills" true
+    (let pos_tools =
+       try Str.search_forward (Str.regexp_string "Tools (1)") output 0
+       with Not_found -> max_int
+     in
+     let pos_skills =
+       try Str.search_forward (Str.regexp_string "Skills (1)") output 0
+       with Not_found -> max_int
+     in
+     pos_tools < pos_skills)
 
 let test_model_bare_name () =
   match Slash_commands.handle "/model glm-5" with
@@ -773,6 +852,10 @@ let suite =
       test_tasks_session_key_isolation;
     Alcotest.test_case "format_tools_plain" `Quick test_format_tools_plain;
     Alcotest.test_case "format_tools_telegram" `Quick test_format_tools_telegram;
+    Alcotest.test_case "format_tools_telegram with skills" `Quick
+      test_format_tools_telegram_with_skills;
+    Alcotest.test_case "format_tools_plain with skills" `Quick
+      test_format_tools_plain_with_skills;
     Alcotest.test_case "/model bare name sets model" `Quick test_model_bare_name;
     Alcotest.test_case "/model provider/name sets model" `Quick
       test_model_bare_name_provider_prefix;

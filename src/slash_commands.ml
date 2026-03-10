@@ -302,62 +302,77 @@ let extract_params (schema : Yojson.Safe.t) : (string * string * bool) list =
       (name, typ, is_required))
     props
 
-let format_tools_plain (tools : Tool.t list) : string =
-  let sorted =
-    List.sort (fun (a : Tool.t) b -> String.compare a.name b.name) tools
+let format_tool_plain buf (t : Tool.t) =
+  Buffer.add_char buf '\n';
+  Buffer.add_string buf
+    (Printf.sprintf "%s [%s]\n" t.name (risk_level_string t.risk_level));
+  Buffer.add_string buf (Printf.sprintf "  %s\n" t.description);
+  let params = extract_params t.parameters_schema in
+  if params <> [] then
+    let param_strs =
+      List.map
+        (fun (name, typ, req) ->
+          if req then Printf.sprintf "%s* (%s)" name typ
+          else Printf.sprintf "%s (%s)" name typ)
+        params
+    in
+    Buffer.add_string buf
+      (Printf.sprintf "  Args: %s\n" (String.concat ", " param_strs))
+
+let format_tools_plain (tools : Tool.t list) (skills : Tool.t list) : string =
+  let sort_tools ts =
+    List.sort (fun (a : Tool.t) b -> String.compare a.name b.name) ts
   in
-  let count = List.length sorted in
+  let sorted = sort_tools tools in
   let buf = Buffer.create 1024 in
-  Buffer.add_string buf (Printf.sprintf "Available tools (%d):\n" count);
-  List.iter
-    (fun (t : Tool.t) ->
-      Buffer.add_char buf '\n';
-      Buffer.add_string buf
-        (Printf.sprintf "%s [%s]\n" t.name (risk_level_string t.risk_level));
-      Buffer.add_string buf (Printf.sprintf "  %s\n" t.description);
-      let params = extract_params t.parameters_schema in
-      if params <> [] then
-        let param_strs =
-          List.map
-            (fun (name, typ, req) ->
-              if req then Printf.sprintf "%s* (%s)" name typ
-              else Printf.sprintf "%s (%s)" name typ)
-            params
-        in
-        Buffer.add_string buf
-          (Printf.sprintf "  Args: %s\n" (String.concat ", " param_strs)))
-    sorted;
+  Buffer.add_string buf (Printf.sprintf "Tools (%d):\n" (List.length sorted));
+  List.iter (format_tool_plain buf) sorted;
+  if skills <> [] then begin
+    let sorted_skills = sort_tools skills in
+    Buffer.add_string buf
+      (Printf.sprintf "\n\nSkills (%d):\n" (List.length sorted_skills));
+    List.iter (format_tool_plain buf) sorted_skills
+  end;
   Buffer.contents buf
 
 let truncate_description desc max_len =
   if String.length desc <= max_len then desc
   else String.sub desc 0 (max_len - 3) ^ "..."
 
-let format_tools_telegram (tools : Tool.t list) : string =
-  let sorted =
-    List.sort (fun (a : Tool.t) b -> String.compare a.name b.name) tools
-  in
-  let count = List.length sorted in
-  let buf = Buffer.create 1024 in
-  Buffer.add_string buf (Printf.sprintf "<b>Tools (%d)</b>\n\n" count);
-  Buffer.add_string buf "<blockquote expandable>\n";
-  List.iter
-    (fun (t : Tool.t) ->
-      let params = extract_params t.parameters_schema in
-      let param_str =
-        if params = [] then ""
-        else
-          let names =
-            List.map
-              (fun (name, _, req) -> if req then name ^ "*" else name)
-              params
-          in
-          " <code>" ^ String.concat " " names ^ "</code>"
+let format_tool_telegram buf (t : Tool.t) =
+  let params = extract_params t.parameters_schema in
+  let param_str =
+    if params = [] then ""
+    else
+      let names =
+        List.map (fun (name, _, req) -> if req then name ^ "*" else name) params
       in
-      Buffer.add_string buf (Printf.sprintf "<b>%s</b>%s\n" t.name param_str);
-      Buffer.add_string buf (truncate_description t.description 60 ^ "\n\n"))
-    sorted;
+      " <code>" ^ String.concat " " names ^ "</code>"
+  in
+  Buffer.add_string buf (Printf.sprintf "<b>%s</b>%s\n" t.name param_str);
+  Buffer.add_string buf (truncate_description t.description 60 ^ "\n\n")
+
+let format_tools_telegram (tools : Tool.t list) (skills : Tool.t list) : string
+    =
+  let sort_tools ts =
+    List.sort (fun (a : Tool.t) b -> String.compare a.name b.name) ts
+  in
+  let sorted = sort_tools tools in
+  let buf = Buffer.create 1024 in
+  Buffer.add_string buf
+    (Printf.sprintf "<b>Tools (%d)</b>\n\n" (List.length sorted));
+  Buffer.add_string buf "<blockquote expandable>\n";
+  List.iter (format_tool_telegram buf) sorted;
   Buffer.add_string buf "</blockquote>";
+  if skills <> [] then begin
+    let sorted_skills = sort_tools skills in
+    Buffer.add_string buf "\n\n";
+    Buffer.add_string buf
+      (Printf.sprintf "<b>Skills (%d)</b>\n\n" (List.length sorted_skills));
+    Buffer.add_string buf "<blockquote expandable>\n";
+    List.iter (format_tool_telegram buf) sorted_skills;
+    Buffer.add_string buf "</blockquote>"
+  end;
   Buffer.contents buf
 
 let format_model_show_telegram ~current ~favorites ~usage_ranked =

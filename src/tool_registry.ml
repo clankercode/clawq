@@ -1,7 +1,21 @@
-type t = { mutable tools : Tool.t list }
+type t = { mutable tools : Tool.t list; mutable skill_names : string list }
 
-let create () = { tools = [] }
+let create () = { tools = []; skill_names = [] }
 let register registry tool = registry.tools <- tool :: registry.tools
+
+let register_skill registry tool =
+  registry.skill_names <- tool.Tool.name :: registry.skill_names;
+  registry.tools <- tool :: registry.tools
+
+let partition_skills registry =
+  let sk = registry.skill_names in
+  let proper =
+    List.filter (fun (t : Tool.t) -> not (List.mem t.name sk)) registry.tools
+  in
+  let skills =
+    List.filter (fun (t : Tool.t) -> List.mem t.name sk) registry.tools
+  in
+  (List.rev proper, List.rev skills)
 
 let replace registry tool =
   registry.tools <-

@@ -1743,7 +1743,8 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
             let text =
               match Session.get_tool_registry session_mgr with
               | Some reg ->
-                  Slash_commands.format_tools_telegram (Tool_registry.list reg)
+                  let tools, skills = Tool_registry.partition_skills reg in
+                  Slash_commands.format_tools_telegram tools skills
               | None -> "Tools are not enabled."
             in
             send_message ~bot_token ~chat_id:update.chat_id ~text

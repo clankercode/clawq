@@ -808,8 +808,10 @@ let handler ~session_manager ~require_pairing ~auth_token
                     let text =
                       match Session.get_tool_registry session_manager with
                       | Some reg ->
-                          Slash_commands.format_tools_plain
-                            (Tool_registry.list reg)
+                          let tools, skills =
+                            Tool_registry.partition_skills reg
+                          in
+                          Slash_commands.format_tools_plain tools skills
                       | None -> "Tools are not enabled."
                     in
                     sse_reply text

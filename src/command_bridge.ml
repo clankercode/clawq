@@ -264,7 +264,7 @@ let build_tool_registry ?db (cfg : Runtime_config.t) =
       Skills.load_all ~workspace_only:cfg.security.workspace_only
         ~allowed_commands:Tools_builtin.default_shell_allowlist ()
     in
-    List.iter (fun s -> Tool_registry.register registry s) skills;
+    List.iter (fun s -> Tool_registry.register_skill registry s) skills;
     Tool_registry.register registry
       (Skills.skill_create_tool ~workspace_only:cfg.security.workspace_only
          ~allowed_commands:Tools_builtin.default_shell_allowlist registry);
