@@ -121,6 +121,7 @@ let () =
        ("model_preferences", Test_model_preferences.suite);
        ("session_keepalive", Test_keepalive.suite);
        ("completions", Test_completions.suite);
+       ("session_model_override", Test_session_model_override.suite);
      ]
     @ Test_github.suites
     @ [

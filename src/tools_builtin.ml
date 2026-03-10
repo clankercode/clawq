@@ -3936,18 +3936,11 @@ let models_tool ~(config : Runtime_config.t) ?session_mgr () =
   let current_model () =
     Runtime_config.effective_primary_model config.agent_defaults
   in
-  let set_model model =
+  let set_model ?session_key model =
     match Models_catalog.find_by_full_name model with
     | Some _ -> (
         match session_mgr with
-        | Some mgr ->
-            let cfg = Session.get_config mgr in
-            let new_agent_defaults =
-              { cfg.agent_defaults with primary_model = model }
-            in
-            Session.update_config ~source:"tool:set_model" mgr
-              { cfg with agent_defaults = new_agent_defaults };
-            Model_preferences.increment_usage model |> ignore;
+        | Some mgr -> (
             let provider, model_id, fmt = Models_catalog.split_name model in
             let hint =
               match fmt with
@@ -3956,6 +3949,7 @@ let models_tool ~(config : Runtime_config.t) ?session_mgr () =
                     provider model_id provider model_id
               | _ -> ""
             in
+            let cfg = Session.get_config mgr in
             let provider_in_config = List.mem_assoc provider cfg.providers in
             let warn =
               if not provider_in_config then
@@ -3966,11 +3960,17 @@ let models_tool ~(config : Runtime_config.t) ?session_mgr () =
                   provider
               else ""
             in
-            Printf.sprintf
-              "Model set to: %s (provider: %s)%s%s\n\
-               Session-only change; use set-default to persist for new \
-               sessions and restarts."
-              model_id provider hint warn
+            match session_key with
+            | Some key ->
+                Session.set_session_model mgr ~key ~model;
+                Model_preferences.increment_usage model |> ignore;
+                Printf.sprintf
+                  "Model set to: %s (provider: %s)%s%s\n\
+                   Persisted for this session across restarts. Use 'models \
+                   set-default' to change the global default."
+                  model_id provider hint warn
+            | None ->
+                "Error: session key not available; cannot set session model.")
         | None ->
             "Error: no active session available; session-scoped model changes \
              require a live session. Use the CLI 'models set-default' command \
@@ -4031,9 +4031,12 @@ let models_tool ~(config : Runtime_config.t) ?session_mgr () =
           ("required", `List [ `String "action" ]);
         ];
     invoke =
-      (fun ?context:_ args ->
+      (fun ?context args ->
         let open Yojson.Safe.Util in
         let action = try args |> member "action" |> to_string with _ -> "" in
+        let session_key =
+          match context with Some ctx -> ctx.Tool.session_key | None -> None
+        in
         match action with
         | "list" ->
             let provider_filter =
@@ -4041,7 +4044,13 @@ let models_tool ~(config : Runtime_config.t) ?session_mgr () =
             in
             Lwt.return (Models_catalog.to_plain_list ~provider_filter ())
         | "get" ->
-            Lwt.return (Printf.sprintf "Current model: %s" (current_model ()))
+            let model =
+              match (session_mgr, session_key) with
+              | Some mgr, Some key ->
+                  Session.get_session_effective_model mgr ~key
+              | _ -> current_model ()
+            in
+            Lwt.return (Printf.sprintf "Current model: %s" model)
         | "set" ->
             let model =
               try args |> member "model" |> to_string with _ -> ""
@@ -4051,7 +4060,7 @@ let models_tool ~(config : Runtime_config.t) ?session_mgr () =
                 "Error: model parameter is required for 'set' action. Specify \
                  a model in provider/model format (e.g., openai/gpt-5.4). Use \
                  'models list' to see available models."
-            else Lwt.return (set_model model)
+            else Lwt.return (set_model ?session_key model)
         | _ ->
             Lwt.return
               "Error: action must be 'list', 'get', or 'set'. Use 'list' to \

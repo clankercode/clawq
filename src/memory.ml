@@ -1,4 +1,4 @@
-let schema_version = 9
+let schema_version = 10
 
 type session_activity = Active | Inactive | Any
 
@@ -113,7 +113,8 @@ let init_session_schema db =
     \     channel_id TEXT,\n\
     \     response_sent_at TEXT,\n\
     \     last_active TEXT NOT NULL DEFAULT (datetime('now')),\n\
-    \     keepalive_enabled INTEGER NOT NULL DEFAULT 0\n\
+    \     keepalive_enabled INTEGER NOT NULL DEFAULT 0,\n\
+    \     model_override TEXT DEFAULT NULL\n\
     \   )";
   exec_exn db
     "CREATE TABLE IF NOT EXISTS discord_resume_state (\n\
@@ -318,6 +319,15 @@ let migrate_schema db current_version =
       init_models_cache_schema db;
       init_request_stats_schema db;
       init_quota_cache_schema db;
+      set_schema_version db schema_version
+  | 9 ->
+      init_session_schema db;
+      init_inbound_queue_schema db;
+      init_models_cache_schema db;
+      init_request_stats_schema db;
+      init_quota_cache_schema db;
+      exec_exn db
+        "ALTER TABLE session_state ADD COLUMN model_override TEXT DEFAULT NULL";
       set_schema_version db schema_version
   | n when n = schema_version ->
       init_session_schema db;
@@ -826,6 +836,37 @@ let set_session_keepalive ~db ~session_key ~enabled =
       Logs.warn (fun m ->
           m "Failed to set session keepalive: %s" (Sqlite3.Rc.to_string rc)));
   ignore (Sqlite3.finalize stmt)
+
+let set_session_model_override ~db ~session_key ~model =
+  let sql =
+    "INSERT INTO session_state (session_key, model_override) VALUES (?, ?) ON \
+     CONFLICT(session_key) DO UPDATE SET model_override = \
+     excluded.model_override"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT session_key));
+  ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT model));
+  (match Sqlite3.step stmt with
+  | Sqlite3.Rc.DONE -> ()
+  | rc ->
+      Logs.warn (fun m ->
+          m "Failed to set session model override: %s" (Sqlite3.Rc.to_string rc)));
+  ignore (Sqlite3.finalize stmt)
+
+let get_session_model_override ~db ~session_key =
+  let sql = "SELECT model_override FROM session_state WHERE session_key = ?" in
+  let stmt = Sqlite3.prepare db sql in
+  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT session_key));
+  let result =
+    match Sqlite3.step stmt with
+    | Sqlite3.Rc.ROW -> (
+        match Sqlite3.column stmt 0 with
+        | Sqlite3.Data.TEXT s -> Some s
+        | _ -> None)
+    | _ -> None
+  in
+  ignore (Sqlite3.finalize stmt);
+  result
 
 let list_keepalive_session_keys ~db =
   let sql =

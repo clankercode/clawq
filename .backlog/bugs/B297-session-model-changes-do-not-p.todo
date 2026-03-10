@@ -1,14 +1,15 @@
 ---
-claimed_at: "2026-03-10T10:02:23Z"
+claimed_at: "2026-03-10T09:34:50Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-10T09:52:05Z"
 complexity: medium
 depends_on: []
+duration_minutes: 17.25507703355
 estimate_hours: 1
 id: B297
 priority: high
-started_at: "2026-03-10T10:02:23Z"
-status: in_progress
+started_at: "2026-03-10T09:34:50Z"
+status: done
 tags: []
 title: Session model changes do not persist across restarts and UX implies they might
 ---

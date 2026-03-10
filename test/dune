@@ -94,7 +94,8 @@
   test_wasm
   test_whatsapp
   test_keepalive
-  test_completions)
+  test_completions
+  test_session_model_override)
  (libraries
   clawq_extracted
   clawq_runtime_core

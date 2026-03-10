@@ -457,8 +457,7 @@ let handle_event ~(config : Runtime_config.slack_config)
                 match action with
                 | ModelShow ->
                     let current =
-                      (Session.get_config session_manager).agent_defaults
-                        .primary_model
+                      Session.get_session_effective_model session_manager ~key
                     in
                     let prefs = Model_preferences.load () in
                     let usage_ranked =
@@ -492,12 +491,6 @@ let handle_event ~(config : Runtime_config.slack_config)
                           | _ -> ""
                         in
                         let cfg = Session.get_config session_manager in
-                        let agent_defaults =
-                          { cfg.agent_defaults with primary_model = name }
-                        in
-                        Session.update_config ~source:"slack" session_manager
-                          { cfg with agent_defaults };
-                        let _ = Model_preferences.increment_usage name in
                         let provider_in_config =
                           List.mem_assoc provider cfg.providers
                         in
@@ -510,14 +503,18 @@ let handle_event ~(config : Runtime_config.slack_config)
                               provider
                           else ""
                         in
+                        Session.set_session_model session_manager ~key
+                          ~model:name;
+                        let _ = Model_preferences.increment_usage name in
                         let* () =
                           send_message_fn ~bot_token:config.bot_token
                             ~channel_id
                             ~text:
                               (Printf.sprintf
                                  "Model set to: %s (provider: %s)%s%s\n\
-                                  Session-only change; use /model set-default \
-                                  to persist for new sessions and restarts."
+                                  Persisted for this session across restarts. \
+                                  Use /model set-default to change the global \
+                                  default."
                                  model_id provider hint warn)
                         in
                         Lwt.return "ok"
@@ -530,15 +527,14 @@ let handle_event ~(config : Runtime_config.slack_config)
                             let text =
                               Printf.sprintf
                                 "Warning: '%s' not found in model catalog. \
-                                 Setting anyway."
+                                 Setting anyway.\n\
+                                 Persisted for this session across restarts. \
+                                 Use /model set-default to change the global \
+                                 default."
                                 name
                             in
-                            let cfg = Session.get_config session_manager in
-                            let agent_defaults =
-                              { cfg.agent_defaults with primary_model = name }
-                            in
-                            Session.update_config session_manager
-                              { cfg with agent_defaults };
+                            Session.set_session_model session_manager ~key
+                              ~model:name;
                             let _ = Model_preferences.increment_usage name in
                             let* () =
                               send_message_fn ~bot_token:config.bot_token
@@ -546,18 +542,24 @@ let handle_event ~(config : Runtime_config.slack_config)
                             in
                             Lwt.return "ok"
                         | Some m ->
-                            let cfg = Session.get_config session_manager in
-                            let agent_defaults =
-                              { cfg.agent_defaults with primary_model = name }
-                            in
-                            Session.update_config session_manager
-                              { cfg with agent_defaults };
+                            Session.set_session_model session_manager ~key
+                              ~model:name;
                             let _ = Model_preferences.increment_usage name in
                             let display =
                               if m.Models_catalog.provider <> "" then
-                                Printf.sprintf "Model set to: %s (provider: %s)"
+                                Printf.sprintf
+                                  "Model set to: %s (provider: %s)\n\
+                                   Persisted for this session across restarts. \
+                                   Use /model set-default to change the global \
+                                   default."
                                   m.Models_catalog.id m.Models_catalog.provider
-                              else Printf.sprintf "Model set to: %s" name
+                              else
+                                Printf.sprintf
+                                  "Model set to: %s\n\
+                                   Persisted for this session across restarts. \
+                                   Use /model set-default to change the global \
+                                   default."
+                                  name
                             in
                             let* () =
                               send_message_fn ~bot_token:config.bot_token

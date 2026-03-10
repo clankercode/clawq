@@ -1763,7 +1763,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
             match action with
             | ModelShow ->
                 let current =
-                  (Session.get_config session_mgr).agent_defaults.primary_model
+                  Session.get_session_effective_model session_mgr ~key
                 in
                 let prefs = Model_preferences.load () in
                 let usage_ranked =
@@ -1791,12 +1791,6 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                       | _ -> ""
                     in
                     let cfg = Session.get_config session_mgr in
-                    let agent_defaults =
-                      { cfg.agent_defaults with primary_model = name }
-                    in
-                    Session.update_config ~source:"telegram" session_mgr
-                      { cfg with agent_defaults };
-                    let _ = Model_preferences.increment_usage name in
                     let provider_in_config =
                       List.mem_assoc provider cfg.providers
                     in
@@ -1809,12 +1803,14 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                           provider
                       else ""
                     in
+                    Session.set_session_model session_mgr ~key ~model:name;
+                    let _ = Model_preferences.increment_usage name in
                     send_message ~bot_token ~chat_id:update.chat_id
                       ~text:
                         (Printf.sprintf
                            "Model set to: %s (provider: %s)%s%s\n\
-                            Session-only change; use /model set-default to \
-                            persist for new sessions and restarts."
+                            Persisted for this session across restarts. Use \
+                            /model set-default to change the global default."
                            model_id provider hint warn)
                       ()
                 | Models_catalog.Plain -> (
@@ -1824,30 +1820,32 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                         let text =
                           Printf.sprintf
                             "Warning: '%s' not found in model catalog. Setting \
-                             anyway."
+                             anyway.\n\
+                             Persisted for this session across restarts. Use \
+                             /model set-default to change the global default."
                             name
                         in
-                        let cfg = Session.get_config session_mgr in
-                        let agent_defaults =
-                          { cfg.agent_defaults with primary_model = name }
-                        in
-                        Session.update_config session_mgr
-                          { cfg with agent_defaults };
+                        Session.set_session_model session_mgr ~key ~model:name;
                         let _ = Model_preferences.increment_usage name in
                         send_message ~bot_token ~chat_id:update.chat_id ~text ()
                     | Some m ->
-                        let cfg = Session.get_config session_mgr in
-                        let agent_defaults =
-                          { cfg.agent_defaults with primary_model = name }
-                        in
-                        Session.update_config session_mgr
-                          { cfg with agent_defaults };
+                        Session.set_session_model session_mgr ~key ~model:name;
                         let _ = Model_preferences.increment_usage name in
                         let display =
                           if m.Models_catalog.provider <> "" then
-                            Printf.sprintf "Model set to: %s (provider: %s)"
+                            Printf.sprintf
+                              "Model set to: %s (provider: %s)\n\
+                               Persisted for this session across restarts. Use \
+                               /model set-default to change the global \
+                               default."
                               m.Models_catalog.id m.Models_catalog.provider
-                          else Printf.sprintf "Model set to: %s" name
+                          else
+                            Printf.sprintf
+                              "Model set to: %s\n\
+                               Persisted for this session across restarts. Use \
+                               /model set-default to change the global \
+                               default."
+                              name
                         in
                         send_message ~bot_token ~chat_id:update.chat_id
                           ~text:display ()))

@@ -884,9 +884,10 @@ let handler ~session_manager ~require_pairing ~auth_token
                     let open Slash_commands in
                     match action with
                     | ModelShow ->
+                        let key = "web:" ^ session_id in
                         let current =
-                          (Session.get_config session_manager).agent_defaults
-                            .primary_model
+                          Session.get_session_effective_model session_manager
+                            ~key
                         in
                         let prefs = Model_preferences.load () in
                         let usage_ranked =
@@ -902,6 +903,7 @@ let handler ~session_manager ~require_pairing ~auth_token
                         in
                         sse_reply text
                     | ModelSet name -> (
+                        let key = "web:" ^ session_id in
                         let provider, model_id, fmt =
                           Models_catalog.split_name name
                         in
@@ -916,13 +918,6 @@ let handler ~session_manager ~require_pairing ~auth_token
                               | _ -> ""
                             in
                             let cfg = Session.get_config session_manager in
-                            let agent_defaults =
-                              { cfg.agent_defaults with primary_model = name }
-                            in
-                            Session.update_config ~source:"gateway_api"
-                              session_manager
-                              { cfg with agent_defaults };
-                            let _ = Model_preferences.increment_usage name in
                             let provider_in_config =
                               List.mem_assoc provider cfg.providers
                             in
@@ -936,11 +931,15 @@ let handler ~session_manager ~require_pairing ~auth_token
                                   provider
                               else ""
                             in
+                            Session.set_session_model session_manager ~key
+                              ~model:name;
+                            let _ = Model_preferences.increment_usage name in
                             sse_reply
                               (Printf.sprintf
                                  "Model set to: %s (provider: %s)%s%s\n\
-                                  Session-only change; use set-default to \
-                                  persist for new sessions and restarts."
+                                  Persisted for this session across restarts. \
+                                  Use /model set-default to change the global \
+                                  default."
                                  model_id provider hint warn)
                         | Models_catalog.Plain -> (
                             let model_info =
@@ -951,44 +950,40 @@ let handler ~session_manager ~require_pairing ~auth_token
                                 let text =
                                   Printf.sprintf
                                     "Warning: '%s' not found in model catalog. \
-                                     Setting anyway."
+                                     Setting anyway.\n\
+                                     Persisted for this session across \
+                                     restarts. Use /model set-default to \
+                                     change the global default."
                                     name
                                 in
-                                let cfg = Session.get_config session_manager in
-                                let agent_defaults =
-                                  {
-                                    cfg.agent_defaults with
-                                    primary_model = name;
-                                  }
-                                in
-                                Session.update_config ~source:"gateway_api"
-                                  session_manager
-                                  { cfg with agent_defaults };
+                                Session.set_session_model session_manager ~key
+                                  ~model:name;
                                 let _ =
                                   Model_preferences.increment_usage name
                                 in
                                 sse_reply text
                             | Some m ->
-                                let cfg = Session.get_config session_manager in
-                                let agent_defaults =
-                                  {
-                                    cfg.agent_defaults with
-                                    primary_model = name;
-                                  }
-                                in
-                                Session.update_config ~source:"gateway_api"
-                                  session_manager
-                                  { cfg with agent_defaults };
+                                Session.set_session_model session_manager ~key
+                                  ~model:name;
                                 let _ =
                                   Model_preferences.increment_usage name
                                 in
                                 let display =
                                   if m.Models_catalog.provider <> "" then
                                     Printf.sprintf
-                                      "Model set to: %s (provider: %s)"
+                                      "Model set to: %s (provider: %s)\n\
+                                       Persisted for this session across \
+                                       restarts. Use /model set-default to \
+                                       change the global default."
                                       m.Models_catalog.id
                                       m.Models_catalog.provider
-                                  else Printf.sprintf "Model set to: %s" name
+                                  else
+                                    Printf.sprintf
+                                      "Model set to: %s\n\
+                                       Persisted for this session across \
+                                       restarts. Use /model set-default to \
+                                       change the global default."
+                                      name
                                 in
                                 sse_reply display))
                     | ModelSetDefault name -> (

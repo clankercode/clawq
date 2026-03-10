@@ -485,6 +485,17 @@ let get_or_create_locked mgr ~key =
                 observed_active_workspace_files
           | None -> Agent.sync_observed_active_workspace_files agent)
       | None -> ());
+      (match mgr.db with
+      | Some db -> (
+          match Memory.get_session_model_override ~db ~session_key:key with
+          | Some model ->
+              let cfg = agent.Agent.config in
+              let agent_defaults =
+                { cfg.agent_defaults with primary_model = model }
+              in
+              agent.Agent.config <- { cfg with agent_defaults }
+          | None -> ())
+      | None -> ());
       let mutex = Lwt_mutex.create () in
       let interrupt = ref None in
       let triple = (agent, mutex, interrupt) in
@@ -1256,6 +1267,28 @@ let update_config ?(source = "") mgr config =
       Agent.sync_observed_active_workspace_files agent;
       persist_session_workspace_state mgr ~key agent)
     mgr.sessions
+
+let set_session_model mgr ~key ~model =
+  (match Hashtbl.find_opt mgr.sessions key with
+  | Some (agent, _, _) ->
+      let cfg = agent.Agent.config in
+      let agent_defaults = { cfg.agent_defaults with primary_model = model } in
+      agent.Agent.config <- { cfg with agent_defaults }
+  | None -> ());
+  match mgr.db with
+  | Some db -> Memory.set_session_model_override ~db ~session_key:key ~model
+  | None -> ()
+
+let get_session_effective_model mgr ~key =
+  match Hashtbl.find_opt mgr.sessions key with
+  | Some (agent, _, _) -> agent.Agent.config.agent_defaults.primary_model
+  | None -> (
+      match mgr.db with
+      | Some db -> (
+          match Memory.get_session_model_override ~db ~session_key:key with
+          | Some model -> model
+          | None -> mgr.config.agent_defaults.primary_model)
+      | None -> mgr.config.agent_defaults.primary_model)
 
 let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
     ?channel_name ?channel_type ?sender_id ?sender_name ?channel ?channel_id
