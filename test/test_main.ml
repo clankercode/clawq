@@ -1,3 +1,33 @@
+let real_config_path =
+  let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
+  Filename.concat (Filename.concat home ".clawq") "config.json"
+
+(* Captured before any tests run — module-level bindings evaluate top-to-bottom
+   before Alcotest.run is called. *)
+let real_config_mtime =
+  try
+    let st = Unix.stat real_config_path in
+    Some st.Unix.st_mtime
+  with _ -> None
+
+let check_config_not_modified () =
+  let current_mtime =
+    try
+      let st = Unix.stat real_config_path in
+      Some st.Unix.st_mtime
+    with _ -> None
+  in
+  if real_config_mtime <> current_mtime then
+    Alcotest.failf
+      "A test modified the real ~/.clawq/config.json! mtime before=%s \
+       after=%s. Wrap the offending test in with_temp_home."
+      (match real_config_mtime with
+      | Some t -> string_of_float t
+      | None -> "absent")
+      (match current_mtime with
+      | Some t -> string_of_float t
+      | None -> "absent")
+
 let () =
   Alcotest.run "clawq"
     ([
@@ -90,4 +120,11 @@ let () =
        ("session_keepalive", Test_keepalive.suite);
        ("completions", Test_completions.suite);
      ]
-    @ Test_github.suites)
+    @ Test_github.suites
+    @ [
+        ( "config_isolation",
+          [
+            Alcotest.test_case "real config.json not modified by tests" `Quick
+              check_config_not_modified;
+          ] );
+      ])

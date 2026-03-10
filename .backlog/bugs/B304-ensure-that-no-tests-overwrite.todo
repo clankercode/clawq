@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-10T06:58:05Z"
+claimed_by: cli-user
+completed_at: "2026-03-10T07:06:09Z"
 complexity: medium
 depends_on: []
+duration_minutes: 8.06941358825
 estimate_hours: 1
 id: B304
 priority: high
-status: pending
+started_at: "2026-03-10T06:58:05Z"
+status: done
 tags: []
 title: Ensure that no tests overwrite ~/.clawq/config.json
 ---
