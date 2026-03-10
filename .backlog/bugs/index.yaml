@@ -307,3 +307,4 @@ bugs:
     - file: B302-can-we-prove-that-we-won-t-ove.todo
     - file: B303-add-costs-for-zai-coding-model.todo
     - file: B304-ensure-that-no-tests-overwrite.todo
+    - file: B305-add-to-config-a-search-subcomm.todo

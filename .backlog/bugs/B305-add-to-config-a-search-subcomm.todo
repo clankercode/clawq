@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B305
+priority: high
+status: pending
+tags: []
+title: 'Add to `/config`: a `search` subcommand that will take a query string and find matchs (in a predictable and expected order/priority)'
+---
+
+Add to `/config`: a `search` subcommand that will take a query string and find matchs (in a predictable and expected order/priority)
