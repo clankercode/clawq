@@ -2208,6 +2208,43 @@ let cmd_capabilities () =
   add "  - Service management: start/stop/restart/status";
   "Available capabilities:\n" ^ String.concat "\n" (List.rev !caps)
 
+let known_auth_providers =
+  [
+    ("anthropic", "Anthropic Claude (native)");
+    ("openai", "OpenAI (native)");
+    ("gemini", "Google Gemini (native)");
+    ("openai-codex", "OpenAI Codex / ChatGPT (OAuth or key)");
+    ("zai_coding", "Z.AI coding endpoint");
+    ("zai", "Z.AI general endpoint");
+    ("mistral", "Mistral AI");
+    ("xai", "xAI / Grok");
+    ("deepseek", "DeepSeek");
+    ("cohere", "Cohere");
+    ("kimi_coding", "Kimi coding subscription");
+    ("ollama", "Ollama (local, no key required)");
+  ]
+
+let is_known_provider name = List.mem_assoc name known_auth_providers
+
+let provider_not_found_error provider_name =
+  let cfg = get_config () in
+  let configured_names = List.map fst cfg.providers in
+  let extra =
+    List.filter (fun n -> not (is_known_provider n)) configured_names
+  in
+  let all_names = List.map fst known_auth_providers @ extra in
+  Printf.sprintf
+    "Error: unknown provider '%s'. Valid providers: %s\n\
+     Use 'clawq auth providers' to see providers with status."
+    provider_name
+    (String.concat ", " all_names)
+
+let is_valid_set_key_provider provider_name =
+  if is_known_provider provider_name then true
+  else
+    let cfg = get_config () in
+    List.mem_assoc provider_name cfg.providers
+
 let cmd_auth args =
   match args with
   | [ "codex-login" ] | [ "login"; "codex" ] -> (
@@ -2234,55 +2271,46 @@ let cmd_auth args =
   | [ "codex-logout"; provider_name ] ->
       Openai_codex_oauth.logout ~provider_name ()
   | [ "set-key"; provider_name; api_key ] -> (
-      let key = Printf.sprintf "providers.%s.api_key" provider_name in
-      match Config_set.set_json_value key (`String api_key) with
-      | Ok () ->
-          Printf.sprintf "API key set for provider '%s': %s" provider_name
-            (redact_key api_key)
-      | Error err -> err)
+      if not (is_valid_set_key_provider provider_name) then
+        provider_not_found_error provider_name
+      else
+        let key = Printf.sprintf "providers.%s.api_key" provider_name in
+        match Config_set.set_json_value key (`String api_key) with
+        | Ok () ->
+            Printf.sprintf "API key set for provider '%s': %s" provider_name
+              (redact_key api_key)
+        | Error err -> err)
   | [ "set-key"; provider_name ] -> (
-      let prompt =
-        Printf.sprintf "Enter API key for provider '%s': " provider_name
-      in
-      match Tui_input.read_secret prompt with
-      | Error msg -> msg
-      | Ok api_key -> (
-          let key = Printf.sprintf "providers.%s.api_key" provider_name in
-          match Config_set.set_json_value key (`String api_key) with
-          | Ok () ->
-              Printf.sprintf "API key set for provider '%s': %s" provider_name
-                (redact_key api_key)
-          | Error err -> err))
+      if not (is_valid_set_key_provider provider_name) then
+        provider_not_found_error provider_name
+      else
+        let prompt =
+          Printf.sprintf "Enter API key for provider '%s': " provider_name
+        in
+        match Tui_input.read_secret prompt with
+        | Error msg -> msg
+        | Ok api_key -> (
+            let key = Printf.sprintf "providers.%s.api_key" provider_name in
+            match Config_set.set_json_value key (`String api_key) with
+            | Ok () ->
+                Printf.sprintf "API key set for provider '%s': %s" provider_name
+                  (redact_key api_key)
+            | Error err -> err))
   | [ "set-key" ] ->
       "Usage: clawq auth set-key PROVIDER [API_KEY]\n\
        Example: clawq auth set-key anthropic sk-ant-...\n\
        Example: clawq auth set-key zai-coding\n\
        Omit API_KEY to enter it interactively (hidden input)."
   | [ "providers" ] | [ "list-providers" ] ->
-      let known =
-        [
-          ("anthropic", "Anthropic Claude (native)");
-          ("openai", "OpenAI (native)");
-          ("gemini", "Google Gemini (native)");
-          ("openai-codex", "OpenAI Codex / ChatGPT (OAuth or key)");
-          ("zai_coding", "Z.AI coding endpoint");
-          ("zai", "Z.AI general endpoint");
-          ("mistral", "Mistral AI");
-          ("xai", "xAI / Grok");
-          ("deepseek", "DeepSeek");
-          ("cohere", "Cohere");
-          ("ollama", "Ollama (local, no key required)");
-        ]
-      in
       let cfg = get_config () in
       let configured_names = List.map fst cfg.providers in
       let extra =
         List.filter_map
           (fun name ->
-            if List.mem_assoc name known then None else Some (name, "configured"))
+            if is_known_provider name then None else Some (name, "configured"))
           configured_names
       in
-      let all = known @ extra in
+      let all = known_auth_providers @ extra in
       let lines =
         List.map
           (fun (name, desc) ->

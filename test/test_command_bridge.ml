@@ -824,17 +824,39 @@ let test_auth_set_key_redacts_output () =
       Unix.mkdir clawq_dir 0o755;
       let result =
         Command_bridge.handle
-          [ "auth"; "set-key"; "testprov"; "sk-abcdef1234567890xyz" ]
+          [ "auth"; "set-key"; "anthropic"; "sk-abcdef1234567890xyz" ]
       in
       Alcotest.(check bool)
         "mentions provider" true
-        (str_contains result "testprov");
+        (str_contains result "anthropic");
       Alcotest.(check bool)
         "output redacted" true
         (str_contains result "sk-a...0xyz");
       Alcotest.(check bool)
         "full key not in output" false
         (str_contains result "sk-abcdef1234567890xyz"))
+
+let test_auth_set_key_unknown_provider_errors () =
+  with_temp_home (fun home ->
+      let clawq_dir = Filename.concat home ".clawq" in
+      Unix.mkdir clawq_dir 0o755;
+      let result =
+        Command_bridge.handle
+          [ "auth"; "set-key"; "notarealprovider"; "sk-abcdef" ]
+      in
+      Alcotest.(check bool) "returns error" true (str_contains result "Error:");
+      Alcotest.(check bool)
+        "mentions unknown provider" true
+        (str_contains result "notarealprovider");
+      Alcotest.(check bool)
+        "lists valid providers as CSV" true
+        (str_contains result "anthropic");
+      let result2 =
+        Command_bridge.handle [ "auth"; "set-key"; "notarealprovider" ]
+      in
+      Alcotest.(check bool)
+        "interactive form also errors" true
+        (str_contains result2 "Error:"))
 
 let test_auth_set_key_no_args_shows_usage () =
   let result = Command_bridge.handle [ "auth"; "set-key" ] in
@@ -2278,6 +2300,8 @@ let suite =
       test_auth_set_key_redacts_output;
     Alcotest.test_case "auth set-key no args shows usage" `Quick
       test_auth_set_key_no_args_shows_usage;
+    Alcotest.test_case "auth set-key unknown provider errors" `Quick
+      test_auth_set_key_unknown_provider_errors;
     Alcotest.test_case "config set secret redacts output" `Quick
       test_config_set_secret_redacts_output;
     Alcotest.test_case "config get secret redacted" `Quick
