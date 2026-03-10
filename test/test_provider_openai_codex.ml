@@ -109,7 +109,11 @@ let test_sanitize_function_call_strips_metadata () =
         ("name", `String "shell_exec");
       ]
   in
-  let result = Provider_openai_codex.sanitize_input_item item in
+  let result =
+    match Provider_openai_codex.sanitize_input_item item with
+    | Some r -> r
+    | None -> Alcotest.fail "expected Some but got None"
+  in
   let keys =
     match result with
     | `Assoc fields -> List.map fst fields |> List.sort String.compare
@@ -142,7 +146,11 @@ let test_sanitize_message_strips_metadata () =
         ("role", `String "assistant");
       ]
   in
-  let result = Provider_openai_codex.sanitize_input_item item in
+  let result =
+    match Provider_openai_codex.sanitize_input_item item with
+    | Some r -> r
+    | None -> Alcotest.fail "expected Some but got None"
+  in
   match result with
   | `Assoc fields -> (
       let keys = List.map fst fields |> List.sort String.compare in
@@ -161,6 +169,45 @@ let test_sanitize_message_strips_metadata () =
             "content part only type+text" [ "text"; "type" ] part_keys
       | _ -> Alcotest.fail "expected single content part")
   | _ -> Alcotest.fail "expected Assoc"
+
+let test_sanitize_reasoning_item_dropped () =
+  (* reasoning items are output-only and require store=true to reference by ID;
+     they must be dropped (None) rather than forwarded as input *)
+  let item =
+    `Assoc
+      [
+        ("id", `String "rs_0b6b337facf77de50169af8164c700819185245d5361c014c3");
+        ("type", `String "reasoning");
+        ("summary", `List []);
+      ]
+  in
+  Alcotest.(check bool)
+    "reasoning item dropped (None)" true
+    (Provider_openai_codex.sanitize_input_item item = None)
+
+let test_sanitize_unknown_type_strips_id () =
+  (* unknown output item types should have their server-assigned id stripped
+     (to avoid HTTP 404 when store=false) but otherwise be kept *)
+  let item =
+    `Assoc
+      [
+        ("id", `String "unknown_server_id");
+        ("type", `String "some_future_type");
+        ("data", `String "payload");
+      ]
+  in
+  let result =
+    match Provider_openai_codex.sanitize_input_item item with
+    | Some r -> r
+    | None -> Alcotest.fail "expected Some but got None"
+  in
+  let fields =
+    match result with `Assoc fs -> fs | _ -> Alcotest.fail "expected Assoc"
+  in
+  Alcotest.(check bool)
+    "id field stripped" true
+    (not (List.mem_assoc "id" fields));
+  Alcotest.(check bool) "type field kept" true (List.mem_assoc "type" fields)
 
 let test_force_compress_history_fallback_nonempty () =
   (* When force_compress_history is called and the entire history consists of
@@ -213,6 +260,10 @@ let suite =
       test_sanitize_function_call_strips_metadata;
     Alcotest.test_case "sanitize message strips metadata" `Quick
       test_sanitize_message_strips_metadata;
+    Alcotest.test_case "sanitize reasoning item dropped" `Quick
+      test_sanitize_reasoning_item_dropped;
+    Alcotest.test_case "sanitize unknown type strips id" `Quick
+      test_sanitize_unknown_type_strips_id;
     Alcotest.test_case "force_compress_history fallback nonempty" `Quick
       test_force_compress_history_fallback_nonempty;
   ]

@@ -550,6 +550,8 @@ let test_codex_stream_backfill_only_missing () =
   | _ -> Alcotest.fail "Expected ToolCalls response"
 
 let test_codex_message_to_input_replays_raw_output_items () =
+  (* reasoning items must be dropped (store=false — cannot reference by ID);
+     function_call items must be kept *)
   let raw_items =
     {|[{"type":"reasoning","id":"rs_1"},{"type":"function_call","call_id":"call_1","name":"bash","arguments":"{}"}]|}
   in
@@ -566,9 +568,10 @@ let test_codex_message_to_input_replays_raw_output_items () =
   in
   match Provider_openai_codex.message_to_input msg with
   | Some (`List items) ->
-      Alcotest.(check int) "replays all raw items" 2 (List.length items);
+      Alcotest.(check int)
+        "reasoning dropped; function_call kept" 1 (List.length items);
       Alcotest.(check string)
-        "first item is reasoning" "reasoning"
+        "surviving item is function_call" "function_call"
         Yojson.Safe.Util.(items |> List.hd |> member "type" |> to_string)
   | _ -> Alcotest.fail "Expected raw output items to be replayed"
 

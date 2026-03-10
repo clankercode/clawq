@@ -55,7 +55,7 @@ let sanitize_input_item item =
                 | _ -> false)
               fields
           in
-          `Assoc kept
+          Some (`Assoc kept)
       | "message" ->
           (* Rebuild as a clean assistant message *)
           let role =
@@ -69,17 +69,26 @@ let sanitize_input_item item =
             | Some other -> other
             | None -> `List []
           in
-          `Assoc [ ("role", `String role); ("content", content) ]
-      | _ -> item)
-  | other -> other
+          Some (`Assoc [ ("role", `String role); ("content", content) ])
+      | "reasoning" ->
+          (* Output-only item; requires store=true to reference by ID.
+             Drop it entirely — cannot be replayed as inline input. *)
+          None
+      | _ ->
+          (* Strip server-assigned id from unknown output-only types to avoid
+             HTTP 404 when store=false and the server no longer holds the item. *)
+          let kept = List.filter (fun (k, _) -> k <> "id") fields in
+          Some (`Assoc kept))
+  | other -> Some other
 
 let restore_provider_response_items msg =
   match msg.Provider.provider_response_items_json with
   | Some raw -> (
       try
         match Yojson.Safe.from_string raw with
-        | `List items -> Some (`List (List.map sanitize_input_item items))
-        | item -> Some (sanitize_input_item item)
+        | `List items ->
+            Some (`List (List.filter_map sanitize_input_item items))
+        | item -> sanitize_input_item item
       with _ -> None)
   | None -> None
 
