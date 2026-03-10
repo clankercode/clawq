@@ -82,6 +82,7 @@ let () =
        ("telegram_reactions", Test_telegram_reactions.suite);
        ("compaction_flush", Test_compaction_flush.suite);
        ("task_tree", Test_task_tree.suite);
+       ("plan_pipeline", Test_plan_pipeline.suite);
        ("benchmark", Test_benchmark.suite);
        ("models_catalog", Test_models_catalog.suite);
        ("model_preferences", Test_model_preferences.suite);

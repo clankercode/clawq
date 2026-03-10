@@ -36,6 +36,7 @@
   rate_limiter
   scheduler
   background_task
+  plan_pipeline
   task_tree
   migrate
   audit

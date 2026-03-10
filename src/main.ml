@@ -406,6 +406,23 @@ let delegate_cmd =
              run "delegate" (args @ goal))
         $ runner $ model $ repo $ branch $ goal))
 
+let plan_cmd =
+  with_args "plan"
+    "Run multi-stage planning pipelines: planner → plan-review loop → coder → \
+     code-review loop."
+    [
+      `S "SUBCOMMANDS";
+      `I
+        ( "start <PROMPT> [--repo PATH] [--runner NAME] [--planner-model M] \
+           [--reviewer-model M] [--coder-model M] [--max-plan-review-iters N] \
+           [--max-code-review-iters N] [--no-plan-review] [--no-code-review]",
+          "Start a new planning pipeline (foreground, blocking)." );
+      `I ("list", "List all pipelines (default).");
+      `I ("show <id>", "Show pipeline status and details.");
+      `I ("logs <id> [--lines N]", "Show logs for the current stage.");
+      `I ("cancel <id>", "Cancel a running pipeline.");
+    ]
+
 let audit_list_cmd =
   let limit =
     Arg.(
@@ -662,6 +679,7 @@ let () =
       cron_cmd;
       background_cmd;
       delegate_cmd;
+      plan_cmd;
       audit_cmd;
       skills_cmd;
       service_cmd;

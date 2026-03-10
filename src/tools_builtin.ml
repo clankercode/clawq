@@ -3672,6 +3672,7 @@ let register_all ~(config : Runtime_config.t) ~sandbox ?(db = None)
       Tool_registry.register registry (history_search ~db);
       Background_task.init_schema db;
       Task_tree.init_schema db;
+      Plan_pipeline.init_schema db;
       Tool_registry.register registry (Task_tree.tool ~db ());
       Tool_registry.register registry
         (Background_task.enqueue_tool_with_notify ~notify_cfg:config.notify ~db);
@@ -3681,5 +3682,11 @@ let register_all ~(config : Runtime_config.t) ~sandbox ?(db = None)
       Tool_registry.register registry
         (Background_task.delegate_tool_with_notify ~db
            ~default_repo_path:workspace ~notify_cfg:config.notify ());
-      Tool_registry.register registry (Background_task.cancel_tool ~db)
+      Tool_registry.register registry (Background_task.cancel_tool ~db);
+      Tool_registry.register registry
+        (Plan_pipeline.start_tool ~db ~default_repo_path:workspace);
+      Tool_registry.register registry (Plan_pipeline.status_tool ~db);
+      Tool_registry.register registry (Plan_pipeline.list_tool ~db);
+      Tool_registry.register registry (Plan_pipeline.logs_tool ~db);
+      Tool_registry.register registry (Plan_pipeline.cancel_tool ~db)
   | None -> ()

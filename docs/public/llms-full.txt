@@ -43,6 +43,12 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 | `background logs ID [--lines COUNT] [--offset LINE] [--follow/-f]` | Print the captured log for a background task; `--offset` reads forward from a line number, `--follow` tails live output (mutually exclusive) |
 | `background cancel ID` | Cancel a queued or running background task |
 | `delegate [--runner auto|kimi|opencode|codex|claude|gemini|cursor] [--model MODEL] [--repo PATH] [--branch NAME] GOAL` | High-level shortcut for handing off repository work as a background task with sensible defaults; auto order: kimi → cursor → opencode (zai-coding-plan/glm-5) → claude → codex → gemini |
+| `plan` | Run multi-stage planning pipelines (default: list) |
+| `plan start PROMPT [--repo PATH] [--runner NAME] [--planner-model M] [--reviewer-model M] [--coder-model M] [--max-plan-review-iters N] [--max-code-review-iters N] [--no-plan-review] [--no-code-review]` | Start a planning pipeline (foreground, blocking): planner agent writes a plan to `~/.clawq/plans/pipeline-N/plan.md`, plan-review agents improve it (up to N iterations), a coder agent implements, code-review agents verify |
+| `plan list` | List all pipelines with id, stage, status, and prompt summary |
+| `plan show ID` | Show full pipeline details including plan file path, bg task id, coder worktree, and error if any |
+| `plan logs ID [--lines N]` | Show log output from the current pipeline stage (reads from the most recent background task log) |
+| `plan cancel ID` | Cancel a running pipeline and its current background task |
 | `debug` | Internal debugging utilities |
 | `debug html-preview [PORT]` | Serve HTML preview test pages on localhost |
 | `doctor` | Check config for common issues |
@@ -263,7 +269,7 @@ To encrypt API keys at rest: set `security.encrypt_secrets` to true, set `CLAWQ_
 
 ## Your Tools
 
-You have up to 30 built-in tools. 15 are always registered; `web_search`, `send_message`, `transcribe`, the four memory tools, `history_search`, `task_tree`, and the six background/delegation tools are conditional on runtime configuration/wiring.
+You have up to 35 built-in tools. 15 are always registered; `web_search`, `send_message`, `transcribe`, the four memory tools, `history_search`, `task_tree`, the six background/delegation tools, and the five `plan_pipeline_*` tools are conditional on runtime configuration/wiring.
 
 | Tool | Description |
 |------|-------------|
@@ -297,6 +303,11 @@ You have up to 30 built-in tools. 15 are always registered; `web_search`, `send_
 | `delegate` | Delegate a coding task to a background subagent (Codex/Claude/Kimi/Gemini/Opencode/Cursor) in a git worktree. Use for 'spawn subagent'/'use haiku to ...' requests |
 | `background_task_cancel` | Cancel a queued or running background task |
 | `task_tree` | Track and organize work using a persistent hierarchical task tree. Survives context compaction, visible every turn. Operations: add, update, remove, clear, archive. Statuses: pending, in_progress, done, error, cancelled. Supports depth-based auto-nesting, lifecycle enforcement (parent can't be done until children are), and archiving completed subtrees |
+| `plan_pipeline_start` | Start a multi-stage planning pipeline (foreground/blocking): planner agent writes `plan.md`, plan-review loop refines it, coder agent implements, code-review loop verifies. Params: `prompt` (required), `repo_path`, `runner`, `planner_model`, `reviewer_model`, `coder_model`, `max_plan_review_iters` (default 3), `max_code_review_iters` (default 3). Set iters to 0 to skip a review phase |
+| `plan_pipeline_status` | Get the current stage and status of a pipeline by id |
+| `plan_pipeline_list` | List all planning pipelines with id, stage, status, and prompt summary |
+| `plan_pipeline_logs` | Read log output from the most recent background task for a pipeline. Params: `id` (required), `lines` (default 50) |
+| `plan_pipeline_cancel` | Cancel a running pipeline and its current background task |
 
 Background delegation notes:
 - `delegate` is the high-level user-facing entry point for handing off repository work asynchronously.
