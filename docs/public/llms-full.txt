@@ -107,6 +107,13 @@ Available in chat-integrated channels that support slash commands.
 - `/delegate <prompt>` — delegate a prompt to a temporary subagent session; the subagent runs the prompt, returns the result, and is discarded; the caller's main session history is not affected
 - `/fork_and <prompt>` — fork the current session's history into an ephemeral subagent and run the prompt there; the result is sent back to the channel but the parent session is not modified; useful for exploring side-tasks without polluting the main conversation
 - `/tasks` — display the agent's current task tree for this session (user-facing visibility into what the agent is tracking)
+- `/model` — show current model, favorites, and usage ranking
+- `/model set <name>` — set model for this session; supports `provider:model` (canonical) or `provider/model` (legacy, accepted with a format hint); e.g. `/model set anthropic:claude-sonnet-4-6`
+- `/model set-default <name>` — write model to `~/.clawq/config.json` as the new default; applies to new sessions (not the current one)
+- `/model fav <name>` — toggle a model as favorite
+- `/model unfav <name>` — remove a model from favorites
+- `/model list [provider]` — list available models, optionally filtered by provider
+- `/model usage` — show provider quota and model usage stats
 
 ## `!` Messages
 
@@ -133,9 +140,9 @@ Note: Structural changes that affect daemon startup (enabling/disabling channels
 ```
 clawq config set providers.openrouter.api_key "sk-or-v1-..."
 clawq config set providers.openrouter.base_url "https://openrouter.ai/api/v1"
-clawq config set providers.openrouter.default_model "openai/gpt-4o"
+clawq config set providers.openrouter.default_model "anthropic:claude-sonnet-4-6"
 clawq config set default_provider "openrouter"
-clawq config set agent_defaults.primary_model "openai/gpt-4o"
+clawq config set agent_defaults.primary_model "anthropic:claude-sonnet-4-6"
 clawq config set agent_defaults.max_tool_iterations 10
 clawq config set agent_defaults.reasoning_effort "medium"
 clawq config set agent_defaults.show_thinking true
@@ -193,7 +200,7 @@ clawq config show security
 
 **model_context_limits** — optional top-level object mapping model names to manual token limits used for runtime context budgeting and history compaction. Keys may include provider prefixes (for example `openai-codex/gpt-5.4`). These values are not inferred or backfilled automatically; only explicitly configured entries are written. Lookup is normalized the same way model selection is normalized (case-insensitive, provider prefix/date suffix tolerated). Built-in defaults still exist for some known models; configured entries take precedence. Example: use `"openai-codex/gpt-5.4": 272000` to treat 272k as the practical soft cap for compaction even if the upstream provider allows a larger absolute window.
 
-**agent_defaults** — `primary_model` (default "openai/gpt-4o"), `system_prompt` (default ""), `max_tool_iterations` (default 10), `tool_search_enabled` (default false), `reasoning_effort` (optional string), `show_thinking` (default false), `show_tool_calls` (default true for connector notifiers), `send_continuation_checkin` (default false; when true, the "[automatic continuation check-in]" message is sent to connector notifiers before autonomous continuation prompts), `autonomous_continuation_delay` (default 90.0; seconds to wait before sending the autonomous continuation prompt after each turn), `autonomous_continuation_enabled` (default true; set to false to disable the periodic autonomous continuation check-in that prompts the agent to continue or go idle after each turn).
+**agent_defaults** — `primary_model` (default "openai/gpt-4o"; use `provider:model` format, e.g. `anthropic:claude-sonnet-4-6`, for explicit provider selection), `system_prompt` (default ""), `max_tool_iterations` (default 10), `tool_search_enabled` (default false), `reasoning_effort` (optional string), `show_thinking` (default false), `show_tool_calls` (default true for connector notifiers), `send_continuation_checkin` (default false; when true, the "[automatic continuation check-in]" message is sent to connector notifiers before autonomous continuation prompts), `autonomous_continuation_delay` (default 90.0; seconds to wait before sending the autonomous continuation prompt after each turn), `autonomous_continuation_enabled` (default true; set to false to disable the periodic autonomous continuation check-in that prompts the agent to continue or go idle after each turn).
 
 **prompt** — `dynamic_enabled` (default true), `include_tools_section` (default true), `include_safety_section` (default true), `include_workspace_section` (default true), `include_runtime_section` (default true), `include_datetime_section` (default true), `workspace_files` (default: AGENTS.md, EGO.md, SOUL.md, TOOLS.md, IDENTITY.md, USER.md, HEARTBEAT.md, BOOTSTRAP.md, MEMORY.md, memory.md), `max_workspace_file_chars` (default 8000), `max_workspace_total_chars` (default 20000). When `include_runtime_section` is enabled, the per-turn runtime block can include current cwd, effective workspace, git root/branch, OS, session id, optional session name, main-session status, whether heartbeat routing currently applies, `workspace_only`, requested/effective sandbox backend, shell policy and visible roots summary, plus estimated context-usage and compaction-threshold information.
 

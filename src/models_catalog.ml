@@ -654,14 +654,31 @@ let by_provider provider =
 
 let find_by_id id = List.find_opt (fun m -> m.id = id) known_models
 
+type name_format = Canonical | Legacy | Plain
+
+(* Returns (provider, model_id, format).
+   Tries ':' (canonical) first, then '/' (legacy). *)
+let split_name name =
+  let try_split delim fmt =
+    match String.index_opt name delim with
+    | Some i when i > 0 && i + 1 < String.length name ->
+        let provider = String.sub name 0 i in
+        let model = String.sub name (i + 1) (String.length name - i - 1) in
+        Some (provider, model, fmt)
+    | _ -> None
+  in
+  match try_split ':' Canonical with
+  | Some r -> r
+  | None -> (
+      match try_split '/' Legacy with Some r -> r | None -> ("", name, Plain))
+
 let find_by_full_name name =
-  match String.split_on_char '/' name with
-  | [ provider; model ] ->
+  match split_name name with
+  | provider, model, (Canonical | Legacy) ->
       List.find_opt
         (fun m -> m.provider = provider && m.id = model)
         known_models
-  | [ model ] -> find_by_id model
-  | _ -> None
+  | _, model, Plain -> find_by_id model
 
 let format_context_window = function
   | None -> ""

@@ -5,6 +5,7 @@ type show_thinking_action = ShowThinkingStatus | ToggleShowThinking
 type model_action =
   | ModelShow
   | ModelSet of string
+  | ModelSetDefault of string
   | ModelFav of string
   | ModelUnfav of string
   | ModelList of string option
@@ -238,6 +239,7 @@ let handle text =
             match args with
             | [] -> Model ModelShow
             | [ "set"; name ] -> Model (ModelSet name)
+            | [ "set-default"; name ] -> Model (ModelSetDefault name)
             | [ "fav"; name ] -> Model (ModelFav name)
             | [ "unfav"; name ] -> Model (ModelUnfav name)
             | "list" :: rest ->
@@ -251,13 +253,16 @@ let handle text =
                 Model (ModelSet (String.concat " " args))
             | _ ->
                 Reply
-                  "Usage: /model [set|fav|unfav|list|usage] [args]\n\
-                  \  /model             — Show current model and favorites\n\
-                  \  /model set <name>  — Set model for this session\n\
-                  \  /model fav <name>  — Toggle favorite status\n\
-                  \  /model unfav <name> — Remove from favorites\n\
-                  \  /model list [provider] — List available models\n\
-                  \  /model usage       — Show provider quota/usage")
+                  "Usage: /model [set|set-default|fav|unfav|list|usage] [args]\n\
+                  \  /model                    — Show current model and \
+                   favorites\n\
+                  \  /model set <name>         — Set model for this session\n\
+                  \  /model set-default <name> — Set default model in config \
+                   (persistent)\n\
+                  \  /model fav <name>         — Toggle favorite status\n\
+                  \  /model unfav <name>       — Remove from favorites\n\
+                  \  /model list [provider]    — List available models\n\
+                  \  /model usage              — Show provider quota/usage")
         | "" -> NotACommand
         | _ -> NotACommand)
 

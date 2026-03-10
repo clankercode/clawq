@@ -26,6 +26,8 @@ let result_to_string = function
   | Slash_commands.Model (Slash_commands.ModelList (Some p)) ->
       "Model(List " ^ p ^ ")"
   | Slash_commands.Model Slash_commands.ModelUsage -> "Model(Usage)"
+  | Slash_commands.Model (Slash_commands.ModelSetDefault name) ->
+      "Model(SetDefault " ^ name ^ ")"
   | Slash_commands.NotACommand -> "NotACommand"
 
 let result_eq a b =
@@ -380,6 +382,36 @@ let test_config_set_invalid_path () =
       Alcotest.fail
         (Printf.sprintf "expected Reply, got %s" (result_to_string other))
 
+let test_model_set_colon_format () =
+  match Slash_commands.handle "/model set zai_coding:glm-5" with
+  | Slash_commands.Model (Slash_commands.ModelSet name) ->
+      Alcotest.(check string) "colon name preserved" "zai_coding:glm-5" name
+  | other ->
+      Alcotest.fail
+        (Printf.sprintf "expected Model(ModelSet), got %s"
+           (result_to_string other))
+
+let test_model_set_slash_format () =
+  match Slash_commands.handle "/model set zai_coding/glm-5" with
+  | Slash_commands.Model (Slash_commands.ModelSet name) ->
+      Alcotest.(check string) "slash name preserved" "zai_coding/glm-5" name
+  | other ->
+      Alcotest.fail
+        (Printf.sprintf "expected Model(ModelSet), got %s"
+           (result_to_string other))
+
+let test_model_set_default () =
+  match
+    Slash_commands.handle "/model set-default anthropic:claude-3-5-sonnet"
+  with
+  | Slash_commands.Model (Slash_commands.ModelSetDefault name) ->
+      Alcotest.(check string)
+        "set-default name preserved" "anthropic:claude-3-5-sonnet" name
+  | other ->
+      Alcotest.fail
+        (Printf.sprintf "expected Model(ModelSetDefault), got %s"
+           (result_to_string other))
+
 let test_tools_command () =
   Alcotest.check result_testable "/tools returns Tools" Slash_commands.Tools
     (Slash_commands.handle "/tools")
@@ -594,6 +626,11 @@ let suite =
     Alcotest.test_case "/config get no key" `Quick test_config_get_no_key;
     Alcotest.test_case "/config set invalid path" `Quick
       test_config_set_invalid_path;
+    Alcotest.test_case "/model set colon format" `Quick
+      test_model_set_colon_format;
+    Alcotest.test_case "/model set slash format" `Quick
+      test_model_set_slash_format;
+    Alcotest.test_case "/model set-default" `Quick test_model_set_default;
     Alcotest.test_case "/tools returns Tools" `Quick test_tools_command;
     Alcotest.test_case "/tasks returns Tasks" `Quick test_tasks_command;
     Alcotest.test_case "format_tools_plain" `Quick test_format_tools_plain;

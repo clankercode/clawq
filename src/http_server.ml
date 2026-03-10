@@ -875,16 +875,18 @@ let handler ~session_manager ~require_pairing ~auth_token
                         in
                         sse_reply text
                     | ModelSet name -> (
-                        let model_info =
-                          Models_catalog.find_by_full_name name
+                        let provider, model_id, fmt =
+                          Models_catalog.split_name name
                         in
-                        match model_info with
-                        | None ->
-                            let text =
-                              Printf.sprintf
-                                "Warning: '%s' not found in model catalog. \
-                                 Setting anyway."
-                                name
+                        match fmt with
+                        | Models_catalog.Canonical | Models_catalog.Legacy ->
+                            let hint =
+                              match fmt with
+                              | Models_catalog.Legacy ->
+                                  Printf.sprintf
+                                    "\nHint: use %s:%s format instead of %s/%s."
+                                    provider model_id provider model_id
+                              | _ -> ""
                             in
                             let cfg = Session.get_config session_manager in
                             let agent_defaults =
@@ -893,16 +895,92 @@ let handler ~session_manager ~require_pairing ~auth_token
                             Session.update_config session_manager
                               { cfg with agent_defaults };
                             let _ = Model_preferences.increment_usage name in
-                            sse_reply text
-                        | Some _ ->
-                            let cfg = Session.get_config session_manager in
-                            let agent_defaults =
-                              { cfg.agent_defaults with primary_model = name }
+                            sse_reply
+                              (Printf.sprintf
+                                 "Model set to: %s (provider: %s)%s" model_id
+                                 provider hint)
+                        | Models_catalog.Plain -> (
+                            let model_info =
+                              Models_catalog.find_by_full_name name
                             in
-                            Session.update_config session_manager
-                              { cfg with agent_defaults };
-                            let _ = Model_preferences.increment_usage name in
-                            sse_reply (Printf.sprintf "Model set to: %s" name))
+                            match model_info with
+                            | None ->
+                                let text =
+                                  Printf.sprintf
+                                    "Warning: '%s' not found in model catalog. \
+                                     Setting anyway."
+                                    name
+                                in
+                                let cfg = Session.get_config session_manager in
+                                let agent_defaults =
+                                  {
+                                    cfg.agent_defaults with
+                                    primary_model = name;
+                                  }
+                                in
+                                Session.update_config session_manager
+                                  { cfg with agent_defaults };
+                                let _ =
+                                  Model_preferences.increment_usage name
+                                in
+                                sse_reply text
+                            | Some m ->
+                                let cfg = Session.get_config session_manager in
+                                let agent_defaults =
+                                  {
+                                    cfg.agent_defaults with
+                                    primary_model = name;
+                                  }
+                                in
+                                Session.update_config session_manager
+                                  { cfg with agent_defaults };
+                                let _ =
+                                  Model_preferences.increment_usage name
+                                in
+                                let display =
+                                  if m.Models_catalog.provider <> "" then
+                                    Printf.sprintf
+                                      "Model set to: %s (provider: %s)"
+                                      m.Models_catalog.id
+                                      m.Models_catalog.provider
+                                  else Printf.sprintf "Model set to: %s" name
+                                in
+                                sse_reply display))
+                    | ModelSetDefault name -> (
+                        let provider, model_id, fmt =
+                          Models_catalog.split_name name
+                        in
+                        let hint =
+                          match fmt with
+                          | Models_catalog.Legacy ->
+                              Printf.sprintf "\nHint: use %s:%s format instead."
+                                provider model_id
+                          | _ -> ""
+                        in
+                        let result =
+                          Config_set.set_json_value
+                            "agent_defaults.primary_model" (`String name)
+                        in
+                        match result with
+                        | Error e ->
+                            sse_reply
+                              (Printf.sprintf "Error writing config: %s" e)
+                        | Ok () ->
+                            let msg =
+                              match fmt with
+                              | Models_catalog.Canonical | Models_catalog.Legacy
+                                ->
+                                  Printf.sprintf
+                                    "Default model set to: %s (provider: %s)%s\n\
+                                     Applies to new sessions."
+                                    model_id provider hint
+                              | Models_catalog.Plain ->
+                                  Printf.sprintf
+                                    "Default model set to: %s\n\
+                                     Applies to new sessions."
+                                    name
+                            in
+                            sse_reply msg)
                     | ModelFav name ->
                         let prefs = Model_preferences.toggle_favorite name in
                         let status =

@@ -6,13 +6,28 @@ let test_find_by_id () =
 
 let test_find_by_full_name () =
   let m = Models_catalog.find_by_full_name "anthropic/claude-3-5-sonnet" in
-  Alcotest.(check bool) "full name found" true (Option.is_some m);
+  Alcotest.(check bool) "slash format found" true (Option.is_some m);
+  let m = Models_catalog.find_by_full_name "anthropic:claude-3-5-sonnet" in
+  Alcotest.(check bool) "colon format found" true (Option.is_some m);
   let m = Models_catalog.find_by_full_name "claude-3-5-sonnet" in
   Alcotest.(check bool) "short name found" true (Option.is_some m);
   let m =
     Models_catalog.find_by_full_name "anthropic/claude-3-5-sonnet/extra"
   in
-  Alcotest.(check bool) "invalid format None" true (Option.is_none m)
+  Alcotest.(check bool) "slash extra segment None" true (Option.is_none m)
+
+let test_split_name () =
+  let provider, model, fmt = Models_catalog.split_name "zai_coding:glm-5" in
+  Alcotest.(check string) "canonical provider" "zai_coding" provider;
+  Alcotest.(check string) "canonical model" "glm-5" model;
+  Alcotest.(check bool) "canonical fmt" true (fmt = Models_catalog.Canonical);
+  let provider2, model2, fmt2 = Models_catalog.split_name "zai_coding/glm-5" in
+  Alcotest.(check string) "legacy provider" "zai_coding" provider2;
+  Alcotest.(check string) "legacy model" "glm-5" model2;
+  Alcotest.(check bool) "legacy fmt" true (fmt2 = Models_catalog.Legacy);
+  let _, model3, fmt3 = Models_catalog.split_name "some-plain-model" in
+  Alcotest.(check string) "plain model" "some-plain-model" model3;
+  Alcotest.(check bool) "plain fmt" true (fmt3 = Models_catalog.Plain)
 
 let test_by_provider () =
   let anthropic = Models_catalog.by_provider "anthropic" in
@@ -64,6 +79,7 @@ let suite =
   [
     ("find_by_id", `Quick, test_find_by_id);
     ("find_by_full_name", `Quick, test_find_by_full_name);
+    ("split_name", `Quick, test_split_name);
     ("by_provider", `Quick, test_by_provider);
     ("providers", `Quick, test_providers_list);
     ("deprecated", `Quick, test_deprecated_models);

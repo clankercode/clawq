@@ -582,19 +582,45 @@ let cmd_models args =
   | [ "list"; "--json"; "--provider"; p ] ->
       Yojson.Safe.to_string
         (Models_catalog.to_json ~provider_filter:(Some p) ())
-  | [ "set-default"; model ] -> (
-      match Models_catalog.find_by_full_name model with
-      | Some _ -> Config_set.set_value "agent_defaults.primary_model" model
-      | None ->
-          Printf.sprintf "Warning: model '%s' not found in catalog.\n%s" model
-            (Config_set.set_value "agent_defaults.primary_model" model))
+  | [ "set-default"; model ] ->
+      let provider, model_id, fmt = Models_catalog.split_name model in
+      let hint =
+        match fmt with
+        | Models_catalog.Legacy ->
+            Printf.sprintf "\nHint: use %s:%s format instead of %s/%s." provider
+              model_id provider model_id
+        | _ -> ""
+      in
+      let set_result =
+        Config_set.set_value "agent_defaults.primary_model" model
+      in
+      let confirm =
+        match fmt with
+        | Models_catalog.Canonical | Models_catalog.Legacy ->
+            Printf.sprintf "Default model set to: %s (provider: %s)%s\n%s"
+              model_id provider hint set_result
+        | Models_catalog.Plain -> (
+            match Models_catalog.find_by_full_name model with
+            | None ->
+                Printf.sprintf "Warning: model '%s' not found in catalog.\n%s"
+                  model set_result
+            | Some m ->
+                let display =
+                  if m.Models_catalog.provider <> "" then
+                    Printf.sprintf "Default model set to: %s (provider: %s)"
+                      m.Models_catalog.id m.Models_catalog.provider
+                  else Printf.sprintf "Default model set to: %s" model
+                in
+                Printf.sprintf "%s\n%s" display set_result)
+      in
+      confirm
   | _ ->
       "Usage: clawq models <subcommand>\n\n\
        Subcommands:\n\
       \  list [--provider P] [--json]  List known models (optionally filter by \
        provider)\n\
       \  set-default MODEL            Set default model (e.g. \
-       anthropic/claude-sonnet-4-5)"
+       anthropic:claude-sonnet-4-6)"
 
 let cmd_usage refresh =
   let cfg = get_config () in
