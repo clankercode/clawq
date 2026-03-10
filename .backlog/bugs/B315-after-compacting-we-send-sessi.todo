@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B315
+priority: high
+status: pending
+tags: []
+title: after compacting, we send 'Session history compacted. Older messages have been summarized.' atm. We should instead send a message when we start compacting with a checklist of the various subtasks to do (memory, summarize, etc). This message should have an emoji and be well styled. This message should get updated as the subtasks finish and show that they are finished + their duration. When everything is complete, we should update this message to show compaction complete + emoji + overall duration.
+---
+
+after compacting, we send 'Session history compacted. Older messages have been summarized.' atm. We should instead send a message when we start compacting with a checklist of the various subtasks to do (memory, summarize, etc). This message should have an emoji and be well styled. This message should get updated as the subtasks finish and show that they are finished + their duration. When everything is complete, we should update this message to show compaction complete + emoji + overall duration.

@@ -313,3 +313,4 @@ bugs:
     - file: B312-task-tree-cannot-mark-done-with-cancelled-children.todo
     - file: B313-task-tree-bulk-ops-soft-delete-restore.todo
     - file: B314-clawq-auth-should-print-what-i.todo
+    - file: B315-after-compacting-we-send-sessi.todo
