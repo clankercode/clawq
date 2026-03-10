@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B322
+priority: high
+status: pending
+tags: []
+title: the typing indicator in telegram updates too infrequenlty. Increase the frequency of checking if we need to update it.
+---
+
+the typing indicator in telegram updates too infrequenlty. Increase the frequency of checking if we need to update it.
