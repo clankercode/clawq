@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B317
+priority: high
+status: pending
+tags: []
+title: '`./clawq usage --refresh` seems not to cache results, because ./clawq usage right after says ''no cached data'''
+---
+
+`./clawq usage --refresh` seems not to cache results, because ./clawq usage right after says 'no cached data'
