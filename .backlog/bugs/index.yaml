@@ -355,3 +355,4 @@ bugs:
     - file: B354-the-still-restarting-messages.todo
     - file: B355-cloudflare-tunnel-name-is-wher.todo
     - file: B356-config-via-telegram-will-redac.todo
+    - file: B357-need-to-update-docs-with-every.todo

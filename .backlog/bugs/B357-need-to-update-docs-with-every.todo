@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B357
+priority: high
+status: pending
+tags: []
+title: Need to update docs with everything from last like 30 commits. setup wizards, config stuff, etc
+---
+
+Need to update docs with everything from last like 30 commits. setup wizards, config stuff, etc
