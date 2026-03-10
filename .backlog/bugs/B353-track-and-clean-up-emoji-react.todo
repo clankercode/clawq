@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B353
+priority: high
+status: pending
+tags: []
+title: 'Track and clean up emoji reactions: when reacting to new messages, remove reactions from prior messages to keep UI clean'
+---
+
+Track and clean up emoji reactions: when reacting to new messages, remove reactions from prior messages to keep UI clean
