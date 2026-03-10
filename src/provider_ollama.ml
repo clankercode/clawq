@@ -5,16 +5,13 @@ let default_base_url = "http://localhost:11434"
 let messages_to_ollama_json messages =
   List.filter_map
     (fun (m : Provider.message) ->
+      let sc = Provider.sanitize_utf8 m.content in
       match m.role with
       | "system" ->
-          Some
-            (`Assoc
-               [ ("role", `String "system"); ("content", `String m.content) ])
+          Some (`Assoc [ ("role", `String "system"); ("content", `String sc) ])
       | "tool" ->
           (* Ollama tool results: role "tool" with content *)
-          let fields =
-            [ ("role", `String "tool"); ("content", `String m.content) ]
-          in
+          let fields = [ ("role", `String "tool"); ("content", `String sc) ] in
           let fields =
             match m.tool_call_id with
             | Some id -> fields @ [ ("tool_call_id", `String id) ]
@@ -52,12 +49,14 @@ let messages_to_ollama_json messages =
       | role ->
           let fields =
             match m.Provider.content_parts with
-            | [] -> [ ("role", `String role); ("content", `String m.content) ]
+            | [] -> [ ("role", `String role); ("content", `String sc) ]
             | parts ->
                 let texts =
                   List.filter_map
                     (fun (p : Provider.content_part) ->
-                      match p with Provider.Text s -> Some s | _ -> None)
+                      match p with
+                      | Provider.Text s -> Some (Provider.sanitize_utf8 s)
+                      | _ -> None)
                     parts
                 in
                 let images =

@@ -8,6 +8,7 @@ let messages_to_anthropic_json messages =
      content type "tool_result". System messages are extracted separately. *)
   List.filter_map
     (fun (m : Provider.message) ->
+      let sc = Provider.sanitize_utf8 m.content in
       match m.role with
       | "system" -> None (* system handled separately *)
       | "tool" ->
@@ -20,10 +21,10 @@ let messages_to_anthropic_json messages =
                       [
                         ("type", `String "tool_result");
                         ("tool_use_id", `String id);
-                        ("content", `String m.content);
+                        ("content", `String sc);
                       ];
                   ]
-            | None -> `String m.content
+            | None -> `String sc
           in
           Some (`Assoc [ ("role", `String "user"); ("content", content) ])
       | "assistant" when m.Provider.tool_calls <> [] ->
@@ -48,7 +49,7 @@ let messages_to_anthropic_json messages =
       | role ->
           let content =
             match m.Provider.content_parts with
-            | [] -> `String m.content
+            | [] -> `String sc
             | parts ->
                 `List
                   (List.map
@@ -56,7 +57,10 @@ let messages_to_anthropic_json messages =
                        match part with
                        | Provider.Text s ->
                            `Assoc
-                             [ ("type", `String "text"); ("text", `String s) ]
+                             [
+                               ("type", `String "text");
+                               ("text", `String (Provider.sanitize_utf8 s));
+                             ]
                        | Provider.Image_base64 { data; media_type } ->
                            `Assoc
                              [
@@ -115,7 +119,8 @@ let extract_system_prompt messages =
   List.fold_left
     (fun acc (m : Provider.message) ->
       if m.role = "system" then
-        if acc = "" then m.content else acc ^ "\n" ^ m.content
+        let sc = Provider.sanitize_utf8 m.content in
+        if acc = "" then sc else acc ^ "\n" ^ sc
       else acc)
     "" messages
 

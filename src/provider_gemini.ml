@@ -12,8 +12,9 @@ let messages_to_gemini_contents messages =
       match m.role with
       | "system" -> None
       | "tool" ->
+          let sc = Provider.sanitize_utf8 m.content in
           let response_data =
-            try Yojson.Safe.from_string m.content with _ -> `String m.content
+            try Yojson.Safe.from_string sc with _ -> `String sc
           in
           let fn_name = match m.name with Some n -> n | None -> "unknown" in
           Some
@@ -53,22 +54,26 @@ let messages_to_gemini_contents messages =
           in
           Some (`Assoc [ ("role", `String "model"); ("parts", `List parts) ])
       | "assistant" ->
+          let sc = Provider.sanitize_utf8 m.content in
           Some
             (`Assoc
                [
                  ("role", `String "model");
-                 ("parts", `List [ `Assoc [ ("text", `String m.content) ] ]);
+                 ("parts", `List [ `Assoc [ ("text", `String sc) ] ]);
                ])
       | _ ->
+          let sc = Provider.sanitize_utf8 m.content in
           let parts =
             match m.Provider.content_parts with
-            | [] -> `List [ `Assoc [ ("text", `String m.content) ] ]
+            | [] -> `List [ `Assoc [ ("text", `String sc) ] ]
             | cparts ->
                 `List
                   (List.map
                      (fun (part : Provider.content_part) ->
                        match part with
-                       | Provider.Text s -> `Assoc [ ("text", `String s) ]
+                       | Provider.Text s ->
+                           `Assoc
+                             [ ("text", `String (Provider.sanitize_utf8 s)) ]
                        | Provider.Image_base64 { data; media_type } ->
                            `Assoc
                              [
@@ -88,7 +93,8 @@ let extract_system_prompt messages =
   List.fold_left
     (fun acc (m : Provider.message) ->
       if m.role = "system" then
-        if acc = "" then m.content else acc ^ "\n" ^ m.content
+        let sc = Provider.sanitize_utf8 m.content in
+        if acc = "" then sc else acc ^ "\n" ^ sc
       else acc)
     "" messages
 

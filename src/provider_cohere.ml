@@ -7,11 +7,10 @@ let messages_to_cohere_json messages =
      Tool results use role "tool" with tool_call_id. *)
   List.map
     (fun (m : Provider.message) ->
+      let sc = Provider.sanitize_utf8 m.content in
       match m.role with
       | "tool" ->
-          let fields =
-            [ ("role", `String "tool"); ("content", `String m.content) ]
-          in
+          let fields = [ ("role", `String "tool"); ("content", `String sc) ] in
           let fields =
             match m.tool_call_id with
             | Some id -> fields @ [ ("tool_call_id", `String id) ]
@@ -31,14 +30,14 @@ let messages_to_cohere_json messages =
                          `Assoc
                            [
                              ("name", `String tc.function_name);
-                             ("arguments", `String tc.arguments);
+                             ( "arguments",
+                               `String (Provider.sanitize_utf8 tc.arguments) );
                            ] );
                      ])
                  m.Provider.tool_calls)
           in
           `Assoc [ ("role", `String "assistant"); ("tool_calls", tc_json) ]
-      | role ->
-          `Assoc [ ("role", `String role); ("content", `String m.content) ])
+      | role -> `Assoc [ ("role", `String role); ("content", `String sc) ])
     messages
 
 let tools_to_cohere_json tools =

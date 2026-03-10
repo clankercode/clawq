@@ -502,6 +502,54 @@ let test_select_provider_quota_fallback_respects_user_model () =
     "routes to alternative" "alternative-provider" provider_name;
   Alcotest.(check string) "uses user model not alt default" "gpt-5.4" model
 
+let test_sanitize_utf8_valid_ascii () =
+  Alcotest.(check string)
+    "ascii unchanged" "hello world"
+    (Provider.sanitize_utf8 "hello world")
+
+let test_sanitize_utf8_valid_multibyte () =
+  let s = "\xC3\xA9\xE2\x80\x99\xF0\x9F\x98\x80" in
+  Alcotest.(check string)
+    "valid multibyte unchanged" s (Provider.sanitize_utf8 s)
+
+let test_sanitize_utf8_lone_continuation () =
+  let s = "abc\x9Cdef" in
+  let expected = "abc\xEF\xBF\xBDdef" in
+  Alcotest.(check string)
+    "lone 0x9C replaced" expected (Provider.sanitize_utf8 s)
+
+let test_sanitize_utf8_truncated_sequence () =
+  let s = "abc\xC3" in
+  let expected = "abc\xEF\xBF\xBD" in
+  Alcotest.(check string)
+    "truncated 2-byte replaced" expected (Provider.sanitize_utf8 s)
+
+let test_sanitize_utf8_overlong () =
+  let s = "\xE0\x80\xAF" in
+  (* Each byte replaced individually: 0xE0 rejected as overlong start,
+     then 0x80 and 0xAF are lone continuations *)
+  let r = "\xEF\xBF\xBD" in
+  let expected = r ^ r ^ r in
+  Alcotest.(check string)
+    "overlong 3-byte rejected" expected (Provider.sanitize_utf8 s)
+
+let test_sanitize_utf8_surrogate () =
+  let s = "\xED\xA0\x80" in
+  let r = "\xEF\xBF\xBD" in
+  let expected = r ^ r ^ r in
+  Alcotest.(check string)
+    "surrogate half rejected" expected (Provider.sanitize_utf8 s)
+
+let test_sanitize_utf8_empty () =
+  Alcotest.(check string) "empty unchanged" "" (Provider.sanitize_utf8 "")
+
+let test_sanitize_utf8_message_to_json () =
+  let m = Provider.make_message ~role:"user" ~content:"hello\x9Cworld" in
+  let json = Provider.message_to_json m in
+  let content = Yojson.Safe.Util.(json |> member "content" |> to_string) in
+  Alcotest.(check string)
+    "content sanitized in json" "hello\xEF\xBF\xBDworld" content
+
 let suite =
   [
     Alcotest.test_case "strip date suffix + normalize" `Quick
@@ -577,4 +625,20 @@ let suite =
       test_select_provider_bare_model_overrides_default;
     Alcotest.test_case "select_provider quota fallback respects user model"
       `Quick test_select_provider_quota_fallback_respects_user_model;
+    Alcotest.test_case "sanitize_utf8 valid ascii" `Quick
+      test_sanitize_utf8_valid_ascii;
+    Alcotest.test_case "sanitize_utf8 valid multibyte" `Quick
+      test_sanitize_utf8_valid_multibyte;
+    Alcotest.test_case "sanitize_utf8 lone continuation byte" `Quick
+      test_sanitize_utf8_lone_continuation;
+    Alcotest.test_case "sanitize_utf8 truncated sequence" `Quick
+      test_sanitize_utf8_truncated_sequence;
+    Alcotest.test_case "sanitize_utf8 overlong encoding" `Quick
+      test_sanitize_utf8_overlong;
+    Alcotest.test_case "sanitize_utf8 surrogate half" `Quick
+      test_sanitize_utf8_surrogate;
+    Alcotest.test_case "sanitize_utf8 empty string" `Quick
+      test_sanitize_utf8_empty;
+    Alcotest.test_case "sanitize_utf8 in message_to_json" `Quick
+      test_sanitize_utf8_message_to_json;
   ]

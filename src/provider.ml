@@ -84,12 +84,60 @@ let make_tool_search_result ~tool_call_id ~tools_json =
     provider_response_items_json = None;
   }
 
+let sanitize_utf8 s =
+  let len = String.length s in
+  let buf = Buffer.create len in
+  let replacement = "\xEF\xBF\xBD" in
+  let i = ref 0 in
+  while !i < len do
+    let b = Char.code (String.unsafe_get s !i) in
+    if b <= 0x7F then (
+      Buffer.add_char buf (String.unsafe_get s !i);
+      incr i)
+    else
+      let expected_len, valid_start =
+        if b land 0xE0 = 0xC0 then (2, b land 0x1F >= 0x02)
+        else if b land 0xF0 = 0xE0 then (3, true)
+        else if b land 0xF8 = 0xF0 then (4, b <= 0xF4)
+        else (1, false)
+      in
+      if (not valid_start) || !i + expected_len > len then (
+        Buffer.add_string buf replacement;
+        incr i)
+      else
+        let ok = ref true in
+        for j = 1 to expected_len - 1 do
+          let c = Char.code (String.unsafe_get s (!i + j)) in
+          if c land 0xC0 <> 0x80 then ok := false
+        done;
+        (* Check for overlong encodings and surrogates *)
+        if !ok && expected_len = 3 then begin
+          let b1 = Char.code (String.unsafe_get s (!i + 1)) in
+          if b = 0xE0 && b1 < 0xA0 then ok := false
+          else if b = 0xED && b1 >= 0xA0 then ok := false
+        end;
+        if !ok && expected_len = 4 then begin
+          let b1 = Char.code (String.unsafe_get s (!i + 1)) in
+          if b = 0xF0 && b1 < 0x90 then ok := false
+          else if b = 0xF4 && b1 > 0x8F then ok := false
+        end;
+        if !ok then (
+          Buffer.add_string buf (String.sub s !i expected_len);
+          i := !i + expected_len)
+        else (
+          Buffer.add_string buf replacement;
+          incr i)
+  done;
+  Buffer.contents buf
+
 let content_parts_to_openai_json (parts : content_part list) =
   `List
     (List.map
        (fun (part : content_part) ->
          match part with
-         | Text s -> `Assoc [ ("type", `String "text"); ("text", `String s) ]
+         | Text s ->
+             `Assoc
+               [ ("type", `String "text"); ("text", `String (sanitize_utf8 s)) ]
          | Image_base64 { data; media_type } ->
              `Assoc
                [
@@ -106,15 +154,16 @@ let content_parts_to_openai_json (parts : content_part list) =
 
 let content_json_of_message m =
   match m.content_parts with
-  | [] -> `String m.content
+  | [] -> `String (sanitize_utf8 m.content)
   | parts -> content_parts_to_openai_json parts
 
 let message_to_json m =
+  let sc = sanitize_utf8 m.content in
   let fields = [ ("role", `String m.role) ] in
   let fields =
     match m.role with
     | "tool" -> (
-        let fields = fields @ [ ("content", `String m.content) ] in
+        let fields = fields @ [ ("content", `String sc) ] in
         let fields =
           match m.tool_call_id with
           | Some id -> fields @ [ ("tool_call_id", `String id) ]
@@ -136,12 +185,12 @@ let message_to_json m =
                        `Assoc
                          [
                            ("name", `String tc.function_name);
-                           ("arguments", `String tc.arguments);
+                           ("arguments", `String (sanitize_utf8 tc.arguments));
                          ] );
                    ])
                m.tool_calls)
         in
-        fields @ [ ("content", `String m.content); ("tool_calls", tc_json) ]
+        fields @ [ ("content", `String sc); ("tool_calls", tc_json) ]
     | _ -> fields @ [ ("content", content_json_of_message m) ]
   in
   `Assoc fields

@@ -93,6 +93,7 @@ let restore_provider_response_items msg =
   | None -> None
 
 let message_to_input (msg : Provider.message) =
+  let sc = Provider.sanitize_utf8 msg.content in
   match msg.role with
   | "user" ->
       Some
@@ -103,10 +104,7 @@ let message_to_input (msg : Provider.message) =
                `List
                  [
                    `Assoc
-                     [
-                       ("type", `String "input_text");
-                       ("text", `String msg.content);
-                     ];
+                     [ ("type", `String "input_text"); ("text", `String sc) ];
                  ] );
            ])
   | "assistant" -> (
@@ -125,7 +123,7 @@ let message_to_input (msg : Provider.message) =
                           `Assoc
                             [
                               ("type", `String "output_text");
-                              ("text", `String msg.content);
+                              ("text", `String sc);
                             ];
                         ] );
                   ];
@@ -140,7 +138,8 @@ let message_to_input (msg : Provider.message) =
                       ("type", `String "function_call");
                       ("call_id", `String tc.id);
                       ("name", `String tc.function_name);
-                      ("arguments", `String tc.arguments);
+                      ( "arguments",
+                        `String (Provider.sanitize_utf8 tc.arguments) );
                     ];
                 ])
           msg.tool_calls;
@@ -158,7 +157,7 @@ let message_to_input (msg : Provider.message) =
                [
                  ("type", `String "function_call_output");
                  ("call_id", `String tool_call_id);
-                 ("output", `String msg.content);
+                 ("output", `String sc);
                ])
       | None -> None)
   | _ -> None
