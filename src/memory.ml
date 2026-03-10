@@ -1,4 +1,4 @@
-let schema_version = 11
+let schema_version = 12
 
 type session_activity = Active | Inactive | Any
 
@@ -187,6 +187,14 @@ let init_models_cache_schema db =
     \     UNIQUE(provider, model_id)\n\
     \   )"
 
+let init_model_discovery_state_schema db =
+  exec_exn db
+    "CREATE TABLE IF NOT EXISTS model_discovery_state (\n\
+    \     provider TEXT PRIMARY KEY,\n\
+    \     last_attempted_at TEXT NOT NULL DEFAULT (datetime('now')),\n\
+    \     last_error TEXT\n\
+    \   )"
+
 let init_request_stats_schema db =
   exec_exn db
     "CREATE TABLE IF NOT EXISTS request_stats (\n\
@@ -350,13 +358,23 @@ let migrate_schema db current_version =
       init_quota_cache_schema db;
       init_postmortems_schema db;
       set_schema_version db schema_version
+  | 11 ->
+      init_session_schema db;
+      init_inbound_queue_schema db;
+      init_models_cache_schema db;
+      init_request_stats_schema db;
+      init_quota_cache_schema db;
+      init_postmortems_schema db;
+      init_model_discovery_state_schema db;
+      set_schema_version db schema_version
   | n when n = schema_version ->
       init_session_schema db;
       init_inbound_queue_schema db;
       init_models_cache_schema db;
       init_request_stats_schema db;
       init_quota_cache_schema db;
-      init_postmortems_schema db
+      init_postmortems_schema db;
+      init_model_discovery_state_schema db
   | n ->
       failwith
         (Printf.sprintf "DB uses future schema version %d (current=%d)" n
@@ -433,6 +451,7 @@ let init ~db_path ?(search_enabled = false) () =
   end;
   init_core_schema db;
   init_models_cache_schema db;
+  init_model_discovery_state_schema db;
   init_request_stats_schema db;
   init_quota_cache_schema db;
   init_postmortems_schema db;

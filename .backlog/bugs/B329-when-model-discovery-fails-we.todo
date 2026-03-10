@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-10T10:46:32Z"
+claimed_by: cli-user
+completed_at: "2026-03-10T10:51:02Z"
 complexity: medium
 depends_on: []
+duration_minutes: 4.501228888166667
 estimate_hours: 1
 id: B329
 priority: high
-status: pending
+started_at: "2026-03-10T10:46:32Z"
+status: done
 tags: []
 title: When model discovery fails, we should not try it again later
 ---

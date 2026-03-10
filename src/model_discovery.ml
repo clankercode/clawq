@@ -53,6 +53,52 @@ let check_ttl_hours ~db ~provider ~hours =
           | _ -> true)
       | _ -> false)
 
+(* Returns true if a discovery attempt (success or failure) was recorded for
+   this provider within the given number of hours. *)
+let check_attempt_ttl ~db ~provider ~hours =
+  let sql =
+    "SELECT last_attempted_at FROM model_discovery_state WHERE provider = ? \
+     AND last_attempted_at > datetime('now', ?)"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT provider));
+      ignore
+        (Sqlite3.bind stmt 2
+           (Sqlite3.Data.TEXT (Printf.sprintf "-%d hours" hours)));
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.ROW -> (
+          match Sqlite3.column stmt 0 with
+          | Sqlite3.Data.NULL -> false
+          | Sqlite3.Data.TEXT s when s = "" -> false
+          | _ -> true)
+      | _ -> false)
+
+let record_attempt ~db ~provider ~error =
+  let sql =
+    "INSERT INTO model_discovery_state (provider, last_attempted_at, \
+     last_error) VALUES (?, datetime('now'), ?) ON CONFLICT(provider) DO \
+     UPDATE SET last_attempted_at = datetime('now'), last_error = \
+     excluded.last_error"
+  in
+  try
+    let stmt = Sqlite3.prepare db sql in
+    Fun.protect
+      ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+      (fun () ->
+        ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT provider));
+        ignore
+          (Sqlite3.bind stmt 2
+             (match error with
+             | None -> Sqlite3.Data.NULL
+             | Some e -> Sqlite3.Data.TEXT e));
+        ignore (Sqlite3.step stmt))
+  with exn ->
+    Logs.warn (fun m ->
+        m "model_discovery: record_attempt error: %s" (Printexc.to_string exn))
+
 let upsert_models ~db ~provider models =
   let sql =
     "INSERT OR REPLACE INTO models_cache (provider, model_id, fetched_at) \
@@ -157,14 +203,16 @@ let maybe_refresh ?db ?(force = false) ~(config : Runtime_config.t) () =
             if should_skip_provider pc then Lwt.return_unit
             else
               let fresh =
-                (not force) && check_ttl_hours ~db ~provider:name ~hours:12
+                (not force)
+                && (check_ttl_hours ~db ~provider:name ~hours:12
+                   || check_attempt_ttl ~db ~provider:name ~hours:12)
               in
               if fresh then (
                 Logs.debug (fun m ->
                     m "model_discovery: %s cache fresh, skipping" name);
                 Lwt.return_unit)
               else
-                let* _ =
+                let* result =
                   Lwt.catch
                     (fun () ->
                       refresh_provider ~db ~provider_name:name
@@ -175,6 +223,10 @@ let maybe_refresh ?db ?(force = false) ~(config : Runtime_config.t) () =
                             (Printexc.to_string exn));
                       Lwt.return (Error "exception"))
                 in
+                let error =
+                  match result with Ok _ -> None | Error e -> Some e
+                in
+                record_attempt ~db ~provider:name ~error;
                 Lwt.return_unit)
           providers
       in
