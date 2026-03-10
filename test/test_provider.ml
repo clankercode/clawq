@@ -502,6 +502,76 @@ let test_select_provider_quota_fallback_respects_user_model () =
     "routes to alternative" "alternative-provider" provider_name;
   Alcotest.(check string) "uses user model not alt default" "gpt-5.4" model
 
+let test_select_provider_preferred_provider_forces_failover_route () =
+  let config =
+    {
+      Runtime_config.default with
+      default_provider = Some "openrouter";
+      providers =
+        [
+          ( "openrouter",
+            {
+              Runtime_config.default_provider_config with
+              api_key = "sk-openrouter";
+            } );
+          ( "groq",
+            {
+              Runtime_config.default_provider_config with
+              api_key = "sk-groq";
+              default_model = Some "llama-3.3-70b";
+            } );
+        ];
+      agent_defaults =
+        {
+          Runtime_config.default.agent_defaults with
+          primary_model = "openai/gpt-4o";
+        };
+    }
+  in
+  let primary_name, _, primary_model = Provider.select_provider ~config () in
+  Alcotest.(check string) "primary route uses openrouter" "openrouter"
+    primary_name;
+  Alcotest.(check string)
+    "primary keeps explicit provider-prefixed model" "openai/gpt-4o"
+    primary_model;
+  let fallback_name, _, fallback_model =
+    Provider.select_provider ~config ~preferred_provider:"groq" ()
+  in
+  Alcotest.(check string) "preferred provider selected" "groq" fallback_name;
+  Alcotest.(check string)
+    "fallback strips provider prefix for alternate provider" "gpt-4o"
+    fallback_model
+
+let test_select_provider_preferred_provider_requires_auth () =
+  let config =
+    {
+      Runtime_config.default with
+      default_provider = Some "openrouter";
+      providers =
+        [
+          ( "openrouter",
+            {
+              Runtime_config.default_provider_config with
+              api_key = "sk-openrouter";
+            } );
+          ( "groq",
+            {
+              Runtime_config.default_provider_config with
+              api_key = "";
+              default_model = Some "llama-3.3-70b";
+            } );
+        ];
+      agent_defaults =
+        { Runtime_config.default.agent_defaults with primary_model = "gpt-4o" };
+    }
+  in
+  let provider_name, _, model =
+    Provider.select_provider ~config ~preferred_provider:"groq" ()
+  in
+  Alcotest.(check string)
+    "missing-auth preferred provider ignored" "openrouter" provider_name;
+  Alcotest.(check string) "user model preserved" "gpt-4o" model
+
 let test_find_provider_kimi_coding_via_default_model () =
   (* When kimi_coding is the only kimi-family provider, default_model match
      routes kimi-for-coding correctly. *)
@@ -733,6 +803,10 @@ let suite =
       test_select_provider_bare_model_overrides_default;
     Alcotest.test_case "select_provider quota fallback respects user model"
       `Quick test_select_provider_quota_fallback_respects_user_model;
+    Alcotest.test_case "select_provider preferred provider forces failover"
+      `Quick test_select_provider_preferred_provider_forces_failover_route;
+    Alcotest.test_case "select_provider preferred provider requires auth"
+      `Quick test_select_provider_preferred_provider_requires_auth;
     Alcotest.test_case "sanitize_utf8 valid ascii" `Quick
       test_sanitize_utf8_valid_ascii;
     Alcotest.test_case "sanitize_utf8 valid multibyte" `Quick

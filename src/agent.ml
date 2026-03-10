@@ -1551,16 +1551,17 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
     let with_optional_fallback () =
       match res.fallback_provider with
       | Some fb_name ->
-          let fb_config = { config with default_provider = Some fb_name } in
-          let primary_name, _, _ = Provider.select_provider ~config () in
+          let primary_name, _, _ =
+            Provider.select_provider ~config ?quota_states:quota_states_opt ()
+          in
           let fallback_name, _, _ =
-            Provider.select_provider ~config:fb_config ()
+            Provider.select_provider ~config ~preferred_provider:fb_name ()
           in
           if fallback_name = primary_name then primary ()
           else
             Resilience.with_fallback ~primary ~fallback:(fun () ->
-                Provider.complete ~config:fb_config ~messages ?tools
-                  ?session_key ())
+                Provider.complete ~config ~messages ?tools ?session_key
+                  ~preferred_provider:fb_name ())
       | None -> primary ()
     in
     let* timed =
@@ -1814,16 +1815,17 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
     let with_optional_fallback () =
       match res.fallback_provider with
       | Some fb_name ->
-          let fb_config = { config with default_provider = Some fb_name } in
-          let primary_name, _, _ = Provider.select_provider ~config () in
+          let primary_name, _, _ =
+            Provider.select_provider ~config ?quota_states:quota_states_opt ()
+          in
           let fallback_name, _, _ =
-            Provider.select_provider ~config:fb_config ()
+            Provider.select_provider ~config ~preferred_provider:fb_name ()
           in
           if fallback_name = primary_name then primary ()
           else
             Resilience.with_fallback ~primary ~fallback:(fun () ->
-                Provider.complete_stream ~config:fb_config ~messages ?tools
-                  ?session_key ~on_chunk ())
+                Provider.complete_stream ~config ~messages ?tools ?session_key
+                  ~preferred_provider:fb_name ~on_chunk ())
       | None -> primary ()
     in
     let* timed =

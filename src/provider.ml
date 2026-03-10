@@ -530,7 +530,7 @@ let find_provider_for_model ~providers ~model_name =
   in
   List.find_map match_provider providers
 
-let select_provider ~(config : Runtime_config.t)
+let select_provider ~(config : Runtime_config.t) ?preferred_provider
     ?(quota_states : (string * Provider_quota.provider_quota) list = []) () =
   let find_named name =
     List.find_opt (fun (n, _) -> n = name) config.providers
@@ -564,28 +564,46 @@ let select_provider ~(config : Runtime_config.t)
           ~model_name:model_target.model
     | Some _ -> None
   in
+  let fallback_provider_preferred =
+    match preferred_provider with
+    | Some name -> (
+        match find_named name with
+        | Some (n, p) when Runtime_config.provider_has_auth p -> Some (n, p)
+        | _ -> None)
+    | None -> None
+  in
   let chosen =
-    match model_provider_preferred with
+    match fallback_provider_preferred with
     | Some pair -> pair
     | None -> (
-        match model_routed with
+        match model_provider_preferred with
         | Some pair -> pair
         | None -> (
-            match config_provider_preferred with
+            match model_routed with
             | Some pair -> pair
             | None -> (
-                match with_key with
-                | (name, p) :: _ -> (name, p)
-                | [] -> (
-                    match config.providers with
+                match config_provider_preferred with
+                | Some pair -> pair
+                | None -> (
+                    match with_key with
                     | (name, p) :: _ -> (name, p)
-                    | [] -> ("default", Runtime_config.default_provider_config))
-                )))
+                    | [] -> (
+                        match config.providers with
+                        | (name, p) :: _ -> (name, p)
+                        | [] ->
+                            ("default", Runtime_config.default_provider_config))
+                    ))))
   in
   let provider_name, provider = chosen in
+  let preferred_override_selected =
+    match preferred_provider with
+    | Some name -> name = provider_name
+    | None -> false
+  in
   let model =
     match model_target.provider with
     | Some requested when requested = provider_name -> model_target.model
+    | Some _ when preferred_override_selected -> model_target.model
     | Some _ -> raw_model
     | _ -> (
         if raw_model <> "" then raw_model
@@ -640,10 +658,10 @@ let select_provider ~(config : Runtime_config.t)
             (alt_name, alt_p, alt_model))
 
 let complete ~(config : Runtime_config.t) ~messages ?tools ?session_key
-    ?quota_states () =
+    ?preferred_provider ?quota_states () =
   let open Lwt.Syntax in
   let provider_name, provider, model =
-    select_provider ~config ?quota_states ()
+    select_provider ~config ?preferred_provider ?quota_states ()
   in
   let kind = detect_kind ~name:provider_name provider in
   let sk_tag = match session_key with Some s -> "[" ^ s ^ "] " | None -> "" in
@@ -1010,10 +1028,10 @@ let process_sse_stream ?(thinking_style = NoThinking) stream ~on_chunk =
          })
 
 let complete_stream ~(config : Runtime_config.t) ~messages ?tools ?session_key
-    ?quota_states ~on_chunk () =
+    ?preferred_provider ?quota_states ~on_chunk () =
   let open Lwt.Syntax in
   let provider_name, provider, model =
-    select_provider ~config ?quota_states ()
+    select_provider ~config ?preferred_provider ?quota_states ()
   in
   let kind = detect_kind ~name:provider_name provider in
   let sk_tag = match session_key with Some s -> "[" ^ s ^ "] " | None -> "" in
