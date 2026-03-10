@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B282
+priority: high
+status: pending
+tags: []
+title: 'if the user tries to set an unknown model: with a provider we shoudl warn and set (current behavior), without a rpovider we should error and not set.'
+---
+
+if the user tries to set an unknown model: with a provider we shoudl warn and set (current behavior), without a rpovider we should error and not set.
