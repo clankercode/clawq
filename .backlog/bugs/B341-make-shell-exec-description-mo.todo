@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-10T13:07:24Z"
+claimed_by: cli-user
+completed_at: "2026-03-10T13:10:30Z"
 complexity: medium
 depends_on: []
+duration_minutes: 3.1070313473666666
 estimate_hours: 1
 id: B341
 priority: high
-status: pending
+started_at: "2026-03-10T13:07:24Z"
+status: done
 tags: []
 title: Make shell_exec description more forceful about providing arguments. Possibly add something to tools.md
 ---

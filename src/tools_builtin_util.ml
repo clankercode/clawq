@@ -795,13 +795,16 @@ let shell_exec_with_hooks ~workspace ~workspace_only ~allowed_commands
     ?(watch_ci_after_push = watch_ci_after_push) () =
   let description =
     if workspace_only then
-      "Execute a shell command and return stdout+stderr. Workspace policy: \
-       only allowlisted commands (ls, cat, head, tail, grep, find, wc, sort, \
-       uniq, echo, pwd, date, whoami, which, file, stat, diff, patch, mkdir, \
-       touch, git, make, dune, opam, npm, yarn, jq, sed, awk, tr, cut, tee, \
-       tar, zip, unzip, gzip, gunzip). No pipes, semicolons, redirects, or \
-       subshells. Default timeout 30s, max 600s."
-    else "Execute a shell command and return stdout and stderr"
+      "Execute a shell command and return stdout+stderr. IMPORTANT: You MUST \
+       provide the 'command' argument — calls without 'command' will fail. \
+       Workspace policy: only allowlisted commands (ls, cat, head, tail, grep, \
+       find, wc, sort, uniq, echo, pwd, date, whoami, which, file, stat, diff, \
+       patch, mkdir, touch, git, make, dune, opam, npm, yarn, jq, sed, awk, \
+       tr, cut, tee, tar, zip, unzip, gzip, gunzip). No pipes, semicolons, \
+       redirects, or subshells. Default timeout 30s, max 600s."
+    else
+      "Execute a shell command and return stdout+stderr. IMPORTANT: You MUST \
+       provide the 'command' argument — calls without 'command' will fail."
   in
   let read_channel ?on_chunk ic buf =
     let open Lwt.Syntax in
@@ -1233,7 +1236,10 @@ let shell_exec_with_hooks ~workspace ~workspace_only ~allowed_commands
                   `Assoc
                     [
                       ("type", `String "string");
-                      ("description", `String "Shell command to execute");
+                      ( "description",
+                        `String
+                          "The shell command to execute (REQUIRED — must be \
+                           non-empty)" );
                     ] );
                 ( "cwd",
                   `Assoc

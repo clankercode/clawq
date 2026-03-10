@@ -357,6 +357,16 @@ confidence.
 let tools_md =
   {|# TOOLS.md — Operational Notes
 
+## Tool Usage Rules
+
+When calling any tool, always provide all required arguments. In particular:
+
+- **shell_exec**: Always provide the `command` argument. Never call shell_exec
+  without specifying the command to run. Omitting `command` will cause the call
+  to fail.
+
+## Workspace Knowledge
+
 Workspace-specific knowledge that should persist across sessions:
 
 - Service hostnames, ports, and access patterns
