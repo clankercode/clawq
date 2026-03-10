@@ -172,10 +172,31 @@ let read_live_gateway_pairing_code () =
 
 type auto_pair_result = No_attempt | Paired of string | Pair_failed of string
 
+let fetch_gateway_pairing_code ~host ~port =
+  (* Fetch the pairing code directly from the running gateway via GET /pair.
+     Only safe because this path is guarded by is_loopback_host. *)
+  let url = Printf.sprintf "http://%s:%d/pair" host port in
+  match get_sync ~uri:url ~headers:[] with
+  | Error _ -> None
+  | Ok (200, body) -> (
+      try
+        let json = Yojson.Safe.from_string body in
+        let open Yojson.Safe.Util in
+        match json |> member "code" with
+        | `String code when String.trim code <> "" -> Some (String.trim code)
+        | _ -> None
+      with _ -> None)
+  | Ok _ -> None
+
 let try_auto_pair_live_gateway ~host ~port =
   if not (is_loopback_host host) then No_attempt
   else
-    match read_live_gateway_pairing_code () with
+    let code =
+      match read_live_gateway_pairing_code () with
+      | Some _ as c -> c
+      | None -> fetch_gateway_pairing_code ~host ~port
+    in
+    match code with
     | None -> No_attempt
     | Some code -> (
         let url = Printf.sprintf "http://%s:%d/pair" host port in
