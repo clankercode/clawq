@@ -490,15 +490,9 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
           in
           let* compact_result = Session.compact session_mgr ~key ~notifier () in
           match compact_result with
-          | Ok true ->
-              (* Final state already rendered into the live progress message *)
+          | Ok _ ->
+              (* Progress/result message handled by session.compact via notifier *)
               Lwt.return_unit
-          | Ok false ->
-              send_message ~bot_token:discord_config.bot_token
-                ~channel_id:msg.channel_id
-                ~text:
-                  "Nothing to compact \xe2\x80\x94 session history is already \
-                   short enough."
           | Error err ->
               send_message ~bot_token:discord_config.bot_token
                 ~channel_id:msg.channel_id

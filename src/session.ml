@@ -1499,6 +1499,8 @@ let reset mgr ~key =
       Lwt.return_unit
   | None -> Lwt.return_unit
 
+(* Step tuple: (name, emoji, started_at option, done_at option)
+   None/None = Pending, Some t0/None = Running, Some t0/Some t1 = Done *)
 let compact_progress_render ~steps ~overall_start ~finished =
   let buf = Buffer.create 256 in
   if finished then
@@ -1510,12 +1512,18 @@ let compact_progress_render ~steps ~overall_start ~finished =
     Buffer.add_string buf
       "\xf0\x9f\x97\x9c\xef\xb8\x8f Compacting session history\xe2\x80\xa6\n";
   List.iter
-    (fun (name, emoji, started_at, done_at_opt) ->
-      match done_at_opt with
-      | None ->
+    (fun (name, emoji, started_at_opt, done_at_opt) ->
+      match (started_at_opt, done_at_opt) with
+      | None, _ ->
+          (* Pending — not yet started *)
+          Buffer.add_string buf
+            (Printf.sprintf "\xe2\x97\x8c %s %s\n" emoji name)
+      | Some _, None ->
+          (* Running *)
           Buffer.add_string buf
             (Printf.sprintf "\xe2\x8f\xb3 %s %s\n" emoji name)
-      | Some done_at ->
+      | Some started_at, Some done_at ->
+          (* Done *)
           Buffer.add_string buf
             (Printf.sprintf "\xe2\x9c\x93 %s %s \xe2\x80\x94 %s\n" emoji name
                (Status_message.format_duration (done_at -. started_at))))
@@ -1528,17 +1536,17 @@ let compact mgr ~key ?notifier () =
   let open Lwt.Syntax in
   Logs.info (fun m ->
       m "/compact requested for session %s — starting compaction" key);
-  (* Build progress-tracking callbacks when a notifier is provided. *)
-  let compact_cbs, finalize_progress =
+  (* Mutable progress state, shared between callbacks and finalization. *)
+  let steps : (string * string * float option * float option) list ref =
+    ref []
+  in
+  let msg_id : string option ref = ref None in
+  let overall_start = ref (Unix.gettimeofday ()) in
+  let send_or_edit_opt =
     match notifier with
-    | None -> (None, fun _finished -> Lwt.return_unit)
+    | None -> None
     | Some (n : Status_message.notifier) ->
-        let steps : (string * string * float * float option) list ref =
-          ref []
-        in
-        let msg_id : string option ref = ref None in
-        let overall_start = Unix.gettimeofday () in
-        let send_or_edit text =
+        let f text =
           Lwt.catch
             (fun () ->
               match !msg_id with
@@ -1547,7 +1555,10 @@ let compact mgr ~key ?notifier () =
                   msg_id := Some id;
                   Lwt.return_unit
               | Some id ->
-                  let* _ = n.edit id text in
+                  let* new_id_opt = n.edit id text in
+                  (match new_id_opt with
+                  | Some new_id -> msg_id := Some new_id
+                  | None -> ());
                   Lwt.return_unit)
             (fun exn ->
               Logs.warn (fun m ->
@@ -1555,43 +1566,95 @@ let compact mgr ~key ?notifier () =
                     (Printexc.to_string exn));
               Lwt.return_unit)
         in
-        let on_step_start name emoji =
-          let now = Unix.gettimeofday () in
-          steps := !steps @ [ (name, emoji, now, None) ];
-          send_or_edit
-            (compact_progress_render ~steps ~overall_start ~finished:false)
+        Some f
+  in
+  let render ~finished =
+    compact_progress_render ~steps ~overall_start:!overall_start ~finished
+  in
+  let compact_cbs =
+    match send_or_edit_opt with
+    | None -> None
+    | Some soe ->
+        let on_step_start name _emoji =
+          (* Transition the matching Pending step to Running *)
+          steps :=
+            List.map
+              (fun (n', e, s, d) ->
+                if n' = name && s = None then
+                  (n', e, Some (Unix.gettimeofday ()), d)
+                else (n', e, s, d))
+              !steps;
+          soe (render ~finished:false)
         in
         let on_step_done name dur =
           steps :=
             List.map
               (fun (n', e, s, d) ->
-                if n' = name then (n', e, s, Some (s +. dur)) else (n', e, s, d))
+                match s with
+                | Some t0 when n' = name && d = None ->
+                    (n', e, s, Some (t0 +. dur))
+                | _ -> (n', e, s, d))
               !steps;
-          send_or_edit
-            (compact_progress_render ~steps ~overall_start ~finished:false)
+          soe (render ~finished:false)
         in
-        let cbs = Agent.{ on_step_start; on_step_done } in
-        let finalize finished =
-          send_or_edit (compact_progress_render ~steps ~overall_start ~finished)
-        in
-        (Some cbs, finalize)
+        Some Agent.{ on_step_start; on_step_done }
   in
   (* Use with_session_lock which calls get_or_create_locked, ensuring the
      session is loaded from DB if it exists but isn't in memory yet (e.g.
      after daemon restart). *)
   let* result =
-    with_session_lock mgr ~key (fun agent _interrupt ->
-        let* compaction_info =
-          Agent.force_compact_history agent ?db:mgr.db ?compact_cbs ()
-        in
-        match compaction_info with
-        | Some _ ->
-            persist_compacted_history mgr ~key agent;
-            Lwt.return (Ok true)
-        | None -> Lwt.return (Ok false))
+    Lwt.catch
+      (fun () ->
+        with_session_lock mgr ~key (fun agent _interrupt ->
+            (* Now inside the lock we have the agent.  Determine which steps will
+               happen and send the initial pending checklist. *)
+            let* () =
+              match send_or_edit_opt with
+              | None -> Lwt.return_unit
+              | Some soe ->
+                  let has_mem_flush =
+                    agent.Agent.config.memory.pre_compaction_flush
+                    && Option.is_some mgr.db
+                  in
+                  overall_start := Unix.gettimeofday ();
+                  steps :=
+                    (if has_mem_flush then
+                       [ ("Save memories", "\xf0\x9f\xa7\xa0", None, None) ]
+                     else [])
+                    @ [
+                        ( "Summarize (part 1)",
+                          "\xe2\x9c\x82\xef\xb8\x8f",
+                          None,
+                          None );
+                        ( "Summarize (part 2)",
+                          "\xe2\x9c\x82\xef\xb8\x8f",
+                          None,
+                          None );
+                      ];
+                  soe (render ~finished:false)
+            in
+            let* compaction_info =
+              Agent.force_compact_history agent ?db:mgr.db ?compact_cbs ()
+            in
+            match compaction_info with
+            | Some _ ->
+                persist_compacted_history mgr ~key agent;
+                Lwt.return (Ok true)
+            | None -> Lwt.return (Ok false)))
+      (fun exn -> Lwt.return (Error (Printexc.to_string exn)))
   in
   let* () =
-    match result with Ok true -> finalize_progress true | _ -> Lwt.return_unit
+    match (result, send_or_edit_opt) with
+    | Ok true, Some soe -> soe (render ~finished:true)
+    | Ok false, Some soe ->
+        soe
+          "Nothing to compact \xe2\x80\x94 session history is already short \
+           enough."
+    | Error _, Some soe when !msg_id <> None ->
+        Lwt.catch
+          (fun () -> soe "\xe2\x9d\x8c Compaction failed")
+          (fun _ -> Lwt.return_unit)
+    | _ -> Lwt.return_unit
   in
   Lwt.return result
 

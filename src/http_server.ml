@@ -736,12 +736,10 @@ let handler ~session_manager ~require_pairing ~auth_token
                     in
                     let text =
                       match compact_result with
-                      | Ok true ->
-                          "Session history compacted. Older messages have been \
-                           summarized."
+                      | Ok true -> "\xe2\x9c\x85 Session history compacted."
                       | Ok false ->
-                          "Nothing to compact — session history is already \
-                           short enough."
+                          "Nothing to compact \xe2\x80\x94 session history is \
+                           already short enough."
                       | Error err -> Printf.sprintf "Compaction failed: %s" err
                     in
                     sse_reply text
