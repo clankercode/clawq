@@ -587,21 +587,27 @@ let resume_agent_session ?(senders = default_resume_senders) ?run_turn
         dispatch_resumed_message ~senders ~config ~channel ~channel_id
           ~text:response ()
       in
-      match dispatch_result with
-      | Ok () ->
-          Logs.info (fun m ->
-              m "Resumed session response dispatched %s response_len=%d"
-                (resumed_dispatch_target ~session_key ~channel ~channel_id)
-                (String.length (String.trim response)));
-          let* () = after_dispatch ~response in
-          Session.clear_response_deferred session_manager ~key:session_key;
-          Session.mark_response_sent session_manager ~key:session_key;
-          Lwt.return_unit
-      | Error msg ->
-          Logs.warn (fun m ->
-              m "Failed to deliver resumed session %s via %s:%s: %s" session_key
-                channel channel_id msg);
-          Lwt.return_unit)
+      let* () =
+        match dispatch_result with
+        | Ok () ->
+            Logs.info (fun m ->
+                m "Resumed session response dispatched %s response_len=%d"
+                  (resumed_dispatch_target ~session_key ~channel ~channel_id)
+                  (String.length (String.trim response)));
+            let* () = after_dispatch ~response in
+            Session.clear_response_deferred session_manager ~key:session_key;
+            Session.mark_response_sent session_manager ~key:session_key;
+            Lwt.return_unit
+        | Error msg ->
+            Logs.warn (fun m ->
+                m "Failed to deliver resumed session %s via %s:%s: %s"
+                  session_key channel channel_id msg);
+            Lwt.return_unit
+      in
+      (* Drain any messages that were queued while the resume turn held the lock *)
+      interrupt := None;
+      Session.drain_queued_messages session_manager ~key:session_key agent
+        interrupt ())
 
 let setup_mcp_clients ?(connect_client = Mcp_client.connect) ~registry
     ~mcp_clients () =

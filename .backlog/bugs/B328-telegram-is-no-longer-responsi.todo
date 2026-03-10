@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-10T10:34:33Z"
+claimed_by: cli-user
+completed_at: "2026-03-10T10:54:06Z"
 complexity: medium
 depends_on: []
+duration_minutes: 19.557542727316665
 estimate_hours: 1
 id: B328
 priority: high
-status: pending
+started_at: "2026-03-10T10:34:33Z"
+status: done
 tags: []
 title: Telegram is no longer responsive. I restart the server, send a message, and nothing in logs
 ---
