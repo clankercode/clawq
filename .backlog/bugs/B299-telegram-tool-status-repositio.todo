@@ -1,0 +1,17 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B299
+priority: medium
+status: pending
+tags: []
+title: Telegram tool-status reposition deletes old message before sending replacement
+---
+Observed in Telegram DM: when a tool call status message is repositioned lower in the chat because other messages arrived in the meantime, the current behavior deletes the old status message first and then sends the replacement. This creates an avoidable visible gap / flicker and risks losing status visibility if the resend fails.
+
+Acceptance criteria:
+- Reproduce the reorder/reposition path for Telegram tool status updates.
+- Change the sequence so replacement status message is sent successfully before deleting the prior one.
+- Preserve correct per-chat ordering and avoid duplicate lingering status messages.
+- Add regression coverage for reposition/update behavior, including interleaved incoming/outgoing messages.
