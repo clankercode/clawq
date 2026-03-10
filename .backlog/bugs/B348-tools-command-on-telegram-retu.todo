@@ -1,10 +1,12 @@
 ---
+completed_at: "2026-03-10T14:56:05Z"
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B348
 priority: high
-status: pending
+started_at: null
+status: done
 tags: []
 title: /tools command on telegram returns nothing
 ---

@@ -1,12 +1,14 @@
 ---
+completed_at: "2026-03-10T14:56:05Z"
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B350
 priority: high
-status: pending
+started_at: null
+status: done
 tags: []
-title: "Telegram tool call progress message handling on user interruption"
+title: Telegram tool call progress message handling on user interruption
 ---
 
 ## Current Behavior
