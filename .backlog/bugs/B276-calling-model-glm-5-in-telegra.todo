@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B276
+priority: high
+status: pending
+tags: []
+title: calling `/model glm-5` in telegram should work the same as `/model set glm-5`. So the set is optional and assumed default if we don't have set|fav|unfav|list|usage etc
+---
+
+calling `/model glm-5` in telegram should work the same as `/model set glm-5`. So the set is optional and assumed default if we don't have set|fav|unfav|list|usage etc
