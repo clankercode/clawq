@@ -1,4 +1,5 @@
-let test_status_notifier_keeps_old_message_when_reanchor_send_fails () =
+let test_status_notifier_edits_in_place_without_reanchoring () =
+  let edited = ref [] in
   let sent = ref [] in
   let deleted = ref [] in
   let transport : Telegram.status_transport =
@@ -12,9 +13,10 @@ let test_status_notifier_keeps_old_message_when_reanchor_send_fails () =
           ()
         ->
           sent := text :: !sent;
-          Lwt.return "0");
+          Lwt.return "999");
       edit_text =
-        (fun ?parse_mode:_ ~bot_token:_ ~chat_id:_ ~message_id:_ ~text:_ () ->
+        (fun ?parse_mode:_ ~bot_token:_ ~chat_id:_ ~message_id ~text () ->
+          edited := (message_id, text) :: !edited;
           Lwt.return_unit);
       delete_message =
         (fun ~bot_token:_ ~chat_id:_ ~message_id () ->
@@ -27,13 +29,20 @@ let test_status_notifier_keeps_old_message_when_reanchor_send_fails () =
       ~chat_id:"chat-1"
   in
   Hashtbl.replace Telegram.latest_chat_msg_id "chat-1" 99;
-  let reanchor_result =
+  let edit_result =
     Lwt_main.run (notifier.edit "10" ~parse_mode:"HTML" "status update")
   in
   Alcotest.(check (option string))
-    "failed replacement keeps existing message" None reanchor_result;
-  Alcotest.(check int) "old message not deleted" 0 (List.length !deleted);
-  Alcotest.(check int) "replacement send attempted once" 1 (List.length !sent)
+    "edit returns None (no message id change)" None edit_result;
+  Alcotest.(check int) "no messages sent" 0 (List.length !sent);
+  Alcotest.(check int) "no messages deleted" 0 (List.length !deleted);
+  Alcotest.(check int) "edit called once" 1 (List.length !edited);
+  Alcotest.(check string)
+    "edit called with correct message_id" "10"
+    (fst (List.hd !edited));
+  Alcotest.(check string)
+    "edit called with correct text" "status update"
+    (snd (List.hd !edited))
 
 let test_tool_result_details_callbacks_are_scoped () =
   let cb1 =
@@ -129,8 +138,8 @@ let test_format_tool_result_detail_includes_tool_name_and_empty_output () =
 
 let suite =
   [
-    Alcotest.test_case "status notifier keeps old message on failed reanchor"
-      `Quick test_status_notifier_keeps_old_message_when_reanchor_send_fails;
+    Alcotest.test_case "status notifier edits in place without reanchoring"
+      `Quick test_status_notifier_edits_in_place_without_reanchoring;
     Alcotest.test_case "tool result details callbacks are scoped" `Quick
       test_tool_result_details_callbacks_are_scoped;
     Alcotest.test_case "tool result details require matching chat and user"

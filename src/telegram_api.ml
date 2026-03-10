@@ -1034,48 +1034,11 @@ let make_status_notifier_with_transport transport ~bot_token ~chat_id :
           if parse_mode = Some "HTML" then text
           else Telegram_format.markdown_to_mdv2 text
         in
-        (* If newer messages exist in the chat, the status message has
-           scrolled off the screen. Send a fresh one at the bottom first, then
-           delete the prior one so status visibility is preserved even if the
-           replacement send fails. *)
-        let should_reanchor =
-          match int_of_string_opt message_id with
-          | None -> false
-          | Some mid ->
-              let latest =
-                Option.value ~default:0
-                  (Hashtbl.find_opt latest_chat_msg_id chat_id)
-              in
-              latest > mid
+        let* () =
+          transport.edit_text ?parse_mode ~bot_token ~chat_id ~message_id ~text
+            ()
         in
-        if should_reanchor then
-          let* new_id =
-            transport.send_with_id ~disable_notification:true ?parse_mode
-              ~bot_token ~chat_id ~text ()
-          in
-          if is_valid_message_id new_id then begin
-            let* () =
-              Lwt.catch
-                (fun () ->
-                  transport.delete_message ~bot_token ~chat_id ~message_id ())
-                (fun _exn -> Lwt.return_unit)
-            in
-            Lwt.return (Some new_id)
-          end
-          else begin
-            Logs.warn (fun m ->
-                m
-                  "Telegram status reanchor failed to obtain a replacement \
-                   message_id for chat_id=%s; keeping prior status message"
-                  chat_id);
-            Lwt.return None
-          end
-        else
-          let* () =
-            transport.edit_text ?parse_mode ~bot_token ~chat_id ~message_id
-              ~text ()
-          in
-          Lwt.return None);
+        Lwt.return None);
     delete =
       (fun message_id ->
         transport.delete_message ~bot_token ~chat_id ~message_id ());
