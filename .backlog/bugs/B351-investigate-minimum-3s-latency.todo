@@ -1,12 +1,30 @@
 ---
 complexity: medium
 depends_on: []
-estimate_hours: 1
+estimate_hours: 2
 id: B351
 priority: high
 status: pending
-tags: []
+tags: [performance, observability]
 title: Investigate minimum ~3s latency on all tool calls
 ---
 
 Investigate minimum ~3s latency on all tool calls
+
+## Observation
+All tool calls, even trivial ones, appear to take at least ~2.9-3 seconds to execute.
+The fastest observed tool call time is around 2.9s, suggesting there may be a minimum
+latency floor being introduced somewhere in the execution path.
+
+## Potential Causes
+- Shell process spawn overhead
+- Bubblewrap/sandboxing initialization
+- Some sleep/wait in tool execution pipeline
+- Lwt async scheduling delays
+- Logging/telemetry overhead
+- Tool registry lookup or validation
+
+## Acceptance Criteria
+- Identify the source of the ~3s floor latency
+- Either fix it or document why it exists and is acceptable
+- Add observability to track tool execution timing breakdown

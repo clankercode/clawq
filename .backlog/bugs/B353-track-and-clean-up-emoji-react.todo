@@ -6,7 +6,23 @@ id: B353
 priority: high
 status: pending
 tags: []
-title: 'Track and clean up emoji reactions: when reacting to new messages, remove reactions from prior messages to keep UI clean'
+title: 'Track and clean up emoji reactions: when reacting to new messages, remove reactions from prior messages to keep UI clean.
+
+## Problem
+When clawq adds emoji reactions to messages (e.g., to indicate tool call progress), these reactions accumulate over time. Old reactions on earlier messages persist, creating visual clutter.
+
+## Proposed Solution
+- Keep track of which messages have been reacted to (message_id -> emoji list)
+- When starting to react to a new message (or set of messages):
+  1. Remove emoji reactions from all previously-reacted messages
+  2. Clear the tracking state
+  3. Add new reactions to the current message(s)
+  4. Update tracking state with the new reactions
+
+## Acceptance Criteria
+- Reactions are removed from prior messages when new reactions are added
+- Only the most recent "active" messages have reactions at any given time
+- Handles edge cases: message deleted, reaction already removed by user, etc.'
 ---
 
 Track and clean up emoji reactions: when reacting to new messages, remove reactions from prior messages to keep UI clean

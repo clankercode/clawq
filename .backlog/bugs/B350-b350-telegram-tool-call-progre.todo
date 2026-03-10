@@ -6,7 +6,34 @@ id: B350
 priority: high
 status: pending
 tags: []
-title: 'B350: Telegram tool call progress message handling on user interruption'
+title: "Telegram tool call progress message handling on user interruption"
 ---
 
-B350: Telegram tool call progress message handling on user interruption
+## Current Behavior
+When the agent is executing tool calls and displaying a progress message in Telegram, if the user sends a new message:
+- The progress message gets deleted and replaced with a new one moved down
+- This causes a visual "jump" as the message moves position
+
+## Desired Behavior
+When user sends a new message while tool call progress is being displayed:
+1. **Leave the existing progress message in place** - don't move it
+2. **Complete any in-progress tool call** for that progress message
+3. **Start a fresh progress message** positioned *under* the user's new message
+
+This creates a cleaner conversation flow where:
+- Each "turn" has its tool calls shown in context below the relevant user message
+- No message repositioning/jumping
+- Clear visual hierarchy: user message -> tool calls for that message
+
+## Example Flow
+```
+Agent: [tool calls in progress...]  <- stays here
+User:  Wait, also check X
+Agent: [continues and completes tool calls, shows result]
+       [tool calls for "check X"...]  <- new progress under user's message
+Agent: Here's what I found...
+```
+
+## Notes
+- May need to track which "parent" message a tool call batch belongs to
+- Consider whether to finalize/mark the first progress message as complete before starting new one
