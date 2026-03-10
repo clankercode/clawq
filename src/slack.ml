@@ -300,6 +300,11 @@ let handle_event ~(config : Runtime_config.slack_config)
                     progress_send )
             in
             Session.register_channel_notifier session_manager ~key notify;
+            Logs.info (fun m ->
+                m
+                  "Slack: /update command from channel=%s user=%s, initiating \
+                   update"
+                  channel_id user_id);
             Lwt.async (fun () ->
                 Lwt.finalize
                   (fun () ->

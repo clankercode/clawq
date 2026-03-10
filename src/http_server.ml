@@ -610,6 +610,9 @@ let handler ~session_manager ~require_pairing ~auth_token
                       ~status:`Internal_server_error ~headers:json_headers
                       ~body:{|{"error":"daemon update not available"}|} ()
                 | Some run_update_command -> (
+                    Logs.info (fun m ->
+                        m "POST /daemon/update: initiating update (mode=%s)"
+                          mode_raw);
                     let progress = ref [] in
                     let* result =
                       Lwt.catch

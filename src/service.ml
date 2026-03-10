@@ -306,6 +306,11 @@ let cmd_signal_restart ?(read_pid = read_pid) ?(send_signal = Unix.kill) () =
   | None -> "Daemon is not running"
   | Some pid -> (
       try
+        Logs.info (fun m ->
+            m
+              "Sending SIGUSR1 to daemon pid %d (source: clawq service \
+               signal-restart)"
+              pid);
         send_signal pid Sys.sigusr1;
         Printf.sprintf "Restart signal sent to daemon (PID %d)" pid
       with Unix.Unix_error (err, _, _) ->

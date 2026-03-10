@@ -1415,7 +1415,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                 | None -> Lwt.return update.text))
       in
       if user_text = "" then Lwt.return_unit
-      else if Update_tool.is_update_command user_text then
+      else if Update_tool.is_update_command user_text then (
         let send_first text =
           send_message_with_id ~disable_notification:true ~bot_token
             ~chat_id:update.chat_id ~text ()
@@ -1453,6 +1453,9 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
               acknowledge_update ~bot_token ~update_id:update.update_id)
             (fun _ -> Lwt.return (Ok ()))
         in
+        Logs.info (fun m ->
+            m "Telegram: /update command from chat_id=%s, initiating update"
+              update.chat_id);
         let* _response =
           run_update_command
             ~prepare_restart:(fun () ->
@@ -1461,7 +1464,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
               acknowledge_update ~bot_token ~update_id:update.update_id)
             ~send_progress ()
         in
-        Lwt.return_unit
+        Lwt.return_unit)
       else
         match Slash_commands.handle user_text with
         | Reply text -> send_message ~bot_token ~chat_id:update.chat_id ~text ()

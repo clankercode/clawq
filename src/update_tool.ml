@@ -209,6 +209,11 @@ let run_git_update ~repo_root ~run_command ~send_signal ~send_progress
     match prepared with
     | Some err -> Lwt.return err
     | None ->
+        Logs.info (fun m ->
+            m
+              "Sending SIGUSR1 to self (pid %d) for graceful restart (source: \
+               update_clawq tool, git build)"
+              (Unix.getpid ()));
         send_signal (Unix.getpid ()) Sys.sigusr1;
         Lwt.return message
   end
@@ -282,6 +287,11 @@ let run_binary_update ~binary_url ~target_path ~run_command ~send_signal
         match prepared with
         | Some err -> Lwt.return err
         | None ->
+            Logs.info (fun m ->
+                m
+                  "Sending SIGUSR1 to self (pid %d) for graceful restart \
+                   (source: update_clawq tool, binary update)"
+                  (Unix.getpid ()));
             send_signal (Unix.getpid ()) Sys.sigusr1;
             Lwt.return message
       end
