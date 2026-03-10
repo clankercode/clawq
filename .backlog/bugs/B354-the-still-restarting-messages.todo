@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B354
+priority: high
+status: pending
+tags: []
+title: the 'Still restarting' messages when sent over telegram should not notify the user
+---
+
+the 'Still restarting' messages when sent over telegram should not notify the user
