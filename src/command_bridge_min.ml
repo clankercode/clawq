@@ -414,6 +414,7 @@ let handle args =
   | "runtime" :: _ -> unsupported "runtime"
   | "tunnel" :: _ -> unsupported "tunnel"
   | "service" :: _ -> unsupported "service"
+  | "setup" :: _ -> unsupported "setup"
   | "hardware" :: _ -> "hardware: deferred to Phase 2"
   | "benchmark" :: rest -> Benchmark.run rest
   | "migrate" :: rest -> Migrate.cmd_migrate rest

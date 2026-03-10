@@ -123,6 +123,12 @@ let () =
        ("completions", Test_completions.suite);
        ("session_model_override", Test_session_model_override.suite);
      ]
+    @ [ ("setup_github", Test_setup_github.suite) ]
+    @ [ ("setup_discord", Test_setup_discord.suite) ]
+    @ [ ("setup_slack", Test_setup_slack.suite) ]
+    @ [ ("setup_teams", Test_setup_teams.suite) ]
+    @ [ ("setup_telegram", Test_setup_telegram.suite) ]
+    @ [ ("setup_tunnel", Test_setup_tunnel.suite) ]
     @ Test_github.suites
     @ [
         ( "config_isolation",

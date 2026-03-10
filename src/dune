@@ -73,6 +73,7 @@
   config_wizard_view
   config_wizard_tui
   tui_input
+  setup_common
   restart_exec
   restart_notify
   benchmark
@@ -161,7 +162,13 @@
   provider_ollama
   provider_vertex
   provider_init
-  config_validate)
+  config_validate
+  setup_github
+  setup_discord
+  setup_slack
+  setup_teams
+  setup_telegram
+  setup_tunnel)
  (wrapped false)
  (libraries
   clawq_runtime_core

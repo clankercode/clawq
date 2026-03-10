@@ -1088,6 +1088,49 @@ let completions_cmd =
        ~doc:"Generate and install shell tab-completion scripts.")
     [ completions_print_cmd; completions_install_cmd ]
 
+let setup_discord_cmd =
+  Cmd.v
+    (Cmd.info "discord" ~doc:"Configure Discord bot integration.")
+    Term.(ret (const (run "setup") $ const [ "discord" ]))
+
+let setup_github_cmd =
+  Cmd.v
+    (Cmd.info "github" ~doc:"Configure GitHub webhook integration.")
+    Term.(ret (const (run "setup") $ const [ "github" ]))
+
+let setup_slack_cmd =
+  Cmd.v
+    (Cmd.info "slack" ~doc:"Configure Slack integration.")
+    Term.(ret (const (run "setup") $ const [ "slack" ]))
+
+let setup_teams_cmd =
+  Cmd.v
+    (Cmd.info "teams" ~doc:"Configure MS Teams bot integration.")
+    Term.(ret (const (run "setup") $ const [ "teams" ]))
+
+let setup_telegram_cmd =
+  Cmd.v
+    (Cmd.info "telegram" ~doc:"Configure Telegram bot integration.")
+    Term.(ret (const (run "setup") $ const [ "telegram" ]))
+
+let setup_tunnel_cmd =
+  Cmd.v
+    (Cmd.info "tunnel" ~doc:"Configure Cloudflare tunnel.")
+    Term.(ret (const (run "setup") $ const [ "tunnel" ]))
+
+let setup_cmd =
+  Cmd.group
+    ~default:Term.(ret (const (run "setup") $ const []))
+    (Cmd.info "setup" ~doc:"Interactive setup wizards for channel integrations.")
+    [
+      setup_discord_cmd;
+      setup_github_cmd;
+      setup_slack_cmd;
+      setup_teams_cmd;
+      setup_telegram_cmd;
+      setup_tunnel_cmd;
+    ]
+
 let version_cmd =
   let info = Cmd.info "version" ~doc:"Print version and build info." in
   Cmd.v info
@@ -1162,6 +1205,7 @@ let () =
       debug_cmd;
       benchmark_cmd;
       completions_cmd;
+      setup_cmd;
     ]
   in
   exit (Cmd.eval ~argv ~env:help_env (Cmd.group main_info cmds))

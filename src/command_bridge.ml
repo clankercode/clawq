@@ -1124,6 +1124,24 @@ let cmd_debug args =
        Usage: clawq debug prompt [MESSAGE]\n\
        Prints the normalized logical messages for a single agent turn."
 
+let cmd_setup args =
+  match args with
+  | [ "discord" ] -> Setup_discord.run ()
+  | [ "github" ] -> Setup_github.run ()
+  | [ "slack" ] -> Setup_slack.run ()
+  | [ "teams" ] -> Setup_teams.run ()
+  | [ "telegram" ] -> Setup_telegram.run ()
+  | [ "tunnel" ] -> Setup_tunnel.run ()
+  | _ ->
+      "Usage: clawq setup <channel>\n\n\
+       Available channels:\n\
+      \  discord   Configure Discord bot integration\n\
+      \  github    Configure GitHub webhook integration\n\
+      \  slack     Configure Slack integration\n\
+      \  teams     Configure MS Teams bot integration\n\
+      \  telegram  Configure Telegram bot integration\n\
+      \  tunnel    Configure Cloudflare tunnel\n"
+
 let handle args =
   match args with
   | "phase2" :: _ -> Phase2.render ()
@@ -1161,6 +1179,7 @@ let handle args =
   | "reset-workspace" :: _ -> cmd_reset_workspace ()
   | "otp-show" :: _ -> cmd_otp_show ()
   | "debug" :: rest -> cmd_debug rest
+  | "setup" :: rest -> cmd_setup rest
   | "plan" :: rest -> cmd_plan rest
   | "benchmark" :: rest -> Benchmark.run rest
   | "completions" :: rest -> Completions.cmd_completions rest

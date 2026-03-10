@@ -95,7 +95,13 @@
   test_whatsapp
   test_keepalive
   test_completions
-  test_session_model_override)
+  test_session_model_override
+  test_setup_github
+  test_setup_discord
+  test_setup_slack
+  test_setup_teams
+  test_setup_telegram
+  test_setup_tunnel)
  (libraries
   clawq_extracted
   clawq_runtime_core
