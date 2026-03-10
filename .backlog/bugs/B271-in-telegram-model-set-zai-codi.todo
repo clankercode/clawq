@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B271
+priority: high
+status: pending
+tags: []
+title: in telegram `/model set zai_coding:glm-5 (or zai_coding/glm-5) should be detected as setting both a provider and a model.
+---
+
+in telegram `/model set zai_coding:glm-5 (or zai_coding/glm-5) should be detected as setting both a provider and a model.

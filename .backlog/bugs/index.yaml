@@ -269,3 +269,4 @@ bugs:
     - file: B268-for-the-openai-400-errors-in-t.todo
     - file: B269-compact-history-tool-leaves-or.todo
     - file: B270-background-task-list-with-id-u.todo
+    - file: B271-in-telegram-model-set-zai-codi.todo
