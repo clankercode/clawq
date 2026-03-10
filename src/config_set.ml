@@ -343,6 +343,17 @@ let rec validate_path segments schema =
       | None -> false)
   | _ :: rest, D child -> validate_path rest child
 
+let rec validate_set_path segments schema =
+  match (segments, schema) with
+  | [], L -> true
+  | [], _ -> false
+  | _, L -> false
+  | seg :: rest, O fields -> (
+      match List.assoc_opt seg fields with
+      | Some child -> validate_set_path rest child
+      | None -> false)
+  | _ :: rest, D child -> validate_set_path rest child
+
 let siblings_at_path segments schema =
   let rec go segs s =
     match (segs, s) with
@@ -379,6 +390,12 @@ let suggest_key key segments =
   | suggestions ->
       Printf.sprintf "Error: unknown config key '%s'. Did you mean: %s?" key
         (String.concat ", " suggestions)
+
+let section_not_settable_error ?(show_cmd = "clawq config show") key =
+  Printf.sprintf
+    "Error: config key '%s' is a section, not a settable value. Set a leaf key \n\
+     such as '%s.<field>', or use '%s %s' to inspect it."
+    key key show_cmd key
 
 let config_path () =
   let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
@@ -468,6 +485,8 @@ let set_json_value key json_val =
       if segments = [ "" ] then Error "Error: empty key"
       else if not (validate_path segments config_schema) then
         Error (suggest_key key segments)
+      else if not (validate_set_path segments config_schema) then
+        Error (section_not_settable_error key)
       else
         let updated = json_set segments json_val json in
         match write_json path updated with

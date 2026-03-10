@@ -192,6 +192,15 @@ let handle text =
                        (Config_set.validate_path segments
                           Config_set.config_schema)
                 then Reply (Config_set.suggest_key key segments)
+                else if
+                  segments <> [ "" ]
+                  && not
+                       (Config_set.validate_set_path segments
+                          Config_set.config_schema)
+                then
+                  Reply
+                    (Config_set.section_not_settable_error
+                       ~show_cmd:"/config show" key)
                 else if Config_set.is_secret_path key then
                   Reply
                     (Printf.sprintf

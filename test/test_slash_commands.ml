@@ -306,6 +306,41 @@ let test_config_show () =
       Alcotest.fail
         (Printf.sprintf "expected Reply, got %s" (result_to_string other))
 
+let test_config_show_provider_section () =
+  Test_helpers.with_temp_home (fun home ->
+      let clawq_dir = Filename.concat home ".clawq" in
+      Unix.mkdir clawq_dir 0o755;
+      let config_path = Filename.concat clawq_dir "config.json" in
+      let config_json =
+        `Assoc
+          [
+            ( "providers",
+              `Assoc
+                [
+                  ( "openai",
+                    `Assoc
+                      [
+                        ("api_key", `String "sk-test");
+                        ("base_url", `String "https://api.example.com");
+                      ] );
+                ] );
+          ]
+      in
+      let oc = open_out config_path in
+      output_string oc (Yojson.Safe.pretty_to_string ~std:true config_json);
+      close_out oc;
+      match Slash_commands.handle "/config show providers.openai" with
+      | Slash_commands.Reply s ->
+          Alcotest.(check bool)
+            "mentions api_key" true (contains_str s "api_key");
+          Alcotest.(check bool) "redacts api_key" true (contains_str s "***");
+          Alcotest.(check bool)
+            "mentions base_url" true
+            (contains_str s "base_url")
+      | other ->
+          Alcotest.fail
+            (Printf.sprintf "expected Reply, got %s" (result_to_string other)))
+
 let test_config_get_missing () =
   match Slash_commands.handle "/config get nonexistent.key" with
   | Slash_commands.Reply s ->
@@ -387,6 +422,18 @@ let test_config_set_invalid_path () =
       Alcotest.(check bool)
         "mentions unknown key" true
         (contains_str s "unknown" || contains_str s "Error")
+  | other ->
+      Alcotest.fail
+        (Printf.sprintf "expected Reply, got %s" (result_to_string other))
+
+let test_config_set_section_path_rejected () =
+  match Slash_commands.handle "/config set providers.openai value" with
+  | Slash_commands.Reply s ->
+      Alcotest.(check string)
+        "section path rejected"
+        (Config_set.section_not_settable_error ~show_cmd:"/config show"
+           "providers.openai")
+        s
   | other ->
       Alcotest.fail
         (Printf.sprintf "expected Reply, got %s" (result_to_string other))
@@ -693,6 +740,8 @@ let suite =
       test_show_thinking_bad_args;
     Alcotest.test_case "/config usage" `Quick test_config_usage;
     Alcotest.test_case "/config show" `Quick test_config_show;
+    Alcotest.test_case "/config show provider section" `Quick
+      test_config_show_provider_section;
     Alcotest.test_case "/config get missing key" `Quick test_config_get_missing;
     Alcotest.test_case "/config keys" `Quick test_config_keys;
     Alcotest.test_case "/config keys prefix" `Quick test_config_keys_prefix;
@@ -705,6 +754,8 @@ let suite =
     Alcotest.test_case "/config get no key" `Quick test_config_get_no_key;
     Alcotest.test_case "/config set invalid path" `Quick
       test_config_set_invalid_path;
+    Alcotest.test_case "/config set section path rejected" `Quick
+      test_config_set_section_path_rejected;
     Alcotest.test_case "/model set colon format" `Quick
       test_model_set_colon_format;
     Alcotest.test_case "/model set slash format" `Quick

@@ -87,6 +87,9 @@ let test_validate_path () =
   Alcotest.(check bool)
     "providers.myhost.base_url" true
     (valid [ "providers"; "myhost"; "base_url" ] schema);
+  Alcotest.(check bool)
+    "providers.openai section navigable" true
+    (valid [ "providers"; "openai" ] schema);
   (* Dynamic telegram account key *)
   Alcotest.(check bool)
     "channels.telegram.accounts.bot1.bot_token" true
@@ -103,6 +106,25 @@ let test_validate_path () =
   Alcotest.(check bool)
     "invalid provider field" false
     (valid [ "providers"; "openai"; "bogus_field" ] schema)
+
+let test_validate_set_path () =
+  let valid = Config_set.validate_set_path in
+  let schema = Config_set.config_schema in
+  Alcotest.(check bool)
+    "workspace leaf settable" true
+    (valid [ "workspace" ] schema);
+  Alcotest.(check bool)
+    "providers.openai.api_key settable" true
+    (valid [ "providers"; "openai"; "api_key" ] schema);
+  Alcotest.(check bool)
+    "providers section not settable" false
+    (valid [ "providers" ] schema);
+  Alcotest.(check bool)
+    "providers.openai section not settable" false
+    (valid [ "providers"; "openai" ] schema);
+  Alcotest.(check bool)
+    "codex oauth section not settable" false
+    (valid [ "providers"; "openai"; "codex_oauth" ] schema)
 
 let test_set_rejects_invalid_key () =
   Test_helpers.with_temp_dir (fun dir ->
@@ -236,6 +258,43 @@ let test_get_value_redacted () =
       in
       Alcotest.(check string) "non-secret visible" "gpt-5.4" result2)
 
+let test_set_json_value_rejects_section_path () =
+  with_temp_home (fun home ->
+      let clawq_dir = Filename.concat home ".clawq" in
+      Unix.mkdir clawq_dir 0o755;
+      let config_path = Filename.concat clawq_dir "config.json" in
+      let original =
+        `Assoc
+          [
+            ( "providers",
+              `Assoc [ ("openai", `Assoc [ ("api_key", `String "before") ]) ] );
+          ]
+      in
+      let oc = open_out config_path in
+      output_string oc (Yojson.Safe.pretty_to_string ~std:true original);
+      output_char oc '\n';
+      close_out oc;
+      match
+        Config_set.set_json_value "providers.openai" (`String "clobbered")
+      with
+      | Ok () -> Alcotest.fail "expected section path write to be rejected"
+      | Error err ->
+          Alcotest.(check string)
+            "section error"
+            (Config_set.section_not_settable_error "providers.openai")
+            err;
+          let after = Yojson.Safe.from_file config_path in
+          check_json "config unchanged after rejected section write" original
+            after)
+
+let test_set_value_rejects_section_path () =
+  with_temp_home (fun _home ->
+      let result = Config_set.set_value "providers.openai" "clobbered" in
+      Alcotest.(check string)
+        "cli-facing section error"
+        (Config_set.section_not_settable_error "providers.openai")
+        result)
+
 let suite =
   [
     Alcotest.test_case "infer value types" `Quick test_infer_value;
@@ -246,6 +305,7 @@ let suite =
     Alcotest.test_case "roundtrip" `Quick test_roundtrip;
     Alcotest.test_case "split path" `Quick test_split_path;
     Alcotest.test_case "validate path" `Quick test_validate_path;
+    Alcotest.test_case "validate set path" `Quick test_validate_set_path;
     Alcotest.test_case "set rejects invalid key" `Quick
       test_set_rejects_invalid_key;
     Alcotest.test_case "set reasoning_effort string" `Quick
@@ -255,4 +315,8 @@ let suite =
     Alcotest.test_case "is_secret_path" `Quick test_is_secret_path;
     Alcotest.test_case "redact" `Quick test_redact;
     Alcotest.test_case "get_value_redacted" `Quick test_get_value_redacted;
+    Alcotest.test_case "set_value rejects section path" `Quick
+      test_set_value_rejects_section_path;
+    Alcotest.test_case "set rejects section path" `Quick
+      test_set_json_value_rejects_section_path;
   ]
