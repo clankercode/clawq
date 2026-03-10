@@ -1,0 +1,15 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B363
+priority: high
+status: pending
+tags: []
+title: groq doesn't like when we don't have tool names
+---
+
+
+01:56:34.999] INFO  [telegram:58495225:58495225] Cost: model=gpt-5.4 prompt=99248 completion=315 cost=0.252845 session_total=6.7377
+[01:56:35.027] INFO  -> LLM provider=groq model=openai/gpt-oss-120b msgs=9 ~6k tok
+[01:56:35.070] WARN  [session_observer] LLM call failed: Failure("LLM API error (HTTP 400): {\"error\":{\"message\":\"failed to template request: failed to render tokenized output: failed to render tokens with harmony: HarmonyError: EncodingError: Message=render failed: Tools should have a name\",\"type\":\"invalid_request_error\"}}\n")
