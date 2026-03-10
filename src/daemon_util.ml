@@ -529,7 +529,10 @@ let resume_turn_prompt =
   ^ "that point. Limit yourself to at most 3 tool-call iterations. Produce a "
   ^ "text response in this same turn — do not wait for a follow-up message. "
   ^ "If you cannot reach a conclusion in 3 iterations, summarise what is in "
-  ^ "progress and stop."
+  ^ "progress and stop. "
+  ^ "IMPORTANT: Do not call update_clawq during a restart-resume turn — the "
+  ^ "daemon has just restarted and triggering another restart would cause a "
+  ^ "boot loop."
 (* Agent says STAY_IDLE too much so let's pretend it doesn't exist and see what happens *)
 (*^ "(If, after checking the full conversation state, you have confirmed that "
   ^ "there is absolutely no way to continue, reply exactly STAY_IDLE.)"*)
@@ -639,6 +642,10 @@ let resume_agent_session ?(senders = default_resume_senders) ?run_turn
             Logs.warn (fun m ->
                 m "Failed to deliver resumed session %s via %s:%s: %s"
                   session_key channel channel_id msg);
+            (* Mark responded even on dispatch failure to prevent boot-loop:
+               the turn completed and retrying on next boot would re-run the
+               same agent turn indefinitely. *)
+            Session.mark_response_sent session_manager ~key:session_key;
             Lwt.return_unit
       in
       (* Drain any messages that were queued while the resume turn held the lock *)
