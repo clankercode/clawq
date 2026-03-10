@@ -307,6 +307,40 @@ let test_select_provider_prefers_colon_model_provider () =
     "provider chosen from model target" "zai_coding" provider_name;
   Alcotest.(check string) "model parsed from colon target" "glm-5" model
 
+let test_select_provider_colon_prefix_with_slash_in_model () =
+  let config : Runtime_config.t =
+    {
+      Runtime_config.default with
+      providers =
+        [
+          ( "groq",
+            {
+              Runtime_config.default_provider_config with
+              api_key = "sk-groq";
+              base_url = Some "https://api.groq.com/openai/v1";
+              default_model = Some "llama-3.3-70b-versatile";
+            } );
+          ( "zai_coding",
+            {
+              Runtime_config.default_provider_config with
+              api_key = "sk-zai";
+              base_url = Some "https://api.z.ai/api/coding/paas/v4";
+              default_model = Some "glm-5";
+            } );
+        ];
+      default_provider = Some "groq";
+      agent_defaults =
+        {
+          Runtime_config.default.agent_defaults with
+          primary_model = "groq:openai/gpt-oss-120b";
+        };
+    }
+  in
+  let provider_name, _, model = Provider.select_provider ~config () in
+  Alcotest.(check string)
+    "provider chosen from colon prefix" "groq" provider_name;
+  Alcotest.(check string) "model includes slash" "openai/gpt-oss-120b" model
+
 let test_select_provider_keeps_raw_model_when_target_provider_missing () =
   let config : Runtime_config.t =
     {
@@ -692,6 +726,8 @@ let suite =
       test_provider_config_default_model;
     Alcotest.test_case "select provider with colon target" `Quick
       test_select_provider_prefers_colon_model_provider;
+    Alcotest.test_case "colon prefix with slash in model" `Quick
+      test_select_provider_colon_prefix_with_slash_in_model;
     Alcotest.test_case "preserve raw model when provider missing" `Quick
       test_select_provider_keeps_raw_model_when_target_provider_missing;
     Alcotest.test_case "explicit provider honored without api_key" `Quick

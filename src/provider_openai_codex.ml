@@ -13,17 +13,7 @@ let string_contains s sub =
     loop 0
 
 let strip_provider_prefix model =
-  if string_contains model "/" then
-    match String.index_opt model '/' with
-    | Some idx when idx + 1 < String.length model ->
-        String.sub model (idx + 1) (String.length model - idx - 1)
-    | _ -> model
-  else if string_contains model ":" then
-    match String.index_opt model ':' with
-    | Some idx when idx + 1 < String.length model ->
-        String.sub model (idx + 1) (String.length model - idx - 1)
-    | _ -> model
-  else model
+  Runtime_config.strip_model_provider_prefix model
 
 let sanitize_content_part part =
   match part with

@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-10T12:22:50Z"
+claimed_by: cli-user
+completed_at: "2026-03-10T12:45:32Z"
 complexity: medium
 depends_on: []
+duration_minutes: 22.7131474062
 estimate_hours: 1
 id: B338
 priority: high
-status: pending
+started_at: "2026-03-10T12:22:50Z"
+status: done
 tags: []
 title: postmortem model is using wrong provider
 ---

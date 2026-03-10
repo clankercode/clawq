@@ -630,12 +630,23 @@ let effective_primary_target (ad : agent_defaults) : model_target =
         Some { provider = Some provider; model }
     | _ -> None
   in
-  match split_at '/' with
+  match split_at ':' with
   | Some t -> t
   | None -> (
-      match split_at ':' with
+      match split_at '/' with
       | Some t -> t
       | None -> { provider = None; model = raw })
+
+let strip_model_provider_prefix model =
+  let try_strip delim =
+    match String.index_opt model delim with
+    | Some i when i > 0 && i + 1 < String.length model ->
+        Some (String.sub model (i + 1) (String.length model - i - 1))
+    | _ -> None
+  in
+  match try_strip ':' with
+  | Some m -> m
+  | None -> ( match try_strip '/' with Some m -> m | None -> model)
 
 let context_window_table =
   [
@@ -690,10 +701,7 @@ let normalize_model_name_for_context_lookup model_name =
   let norm =
     String.lowercase_ascii (strip_date_suffix_cfg (String.trim model_name))
   in
-  match String.index_opt norm '/' with
-  | Some i when i + 1 < String.length norm ->
-      String.sub norm (i + 1) (String.length norm - i - 1)
-  | _ -> norm
+  strip_model_provider_prefix norm
 
 let context_window_for_model ?(configured_limits = []) model_name =
   let bare = normalize_model_name_for_context_lookup model_name in

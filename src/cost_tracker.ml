@@ -96,12 +96,7 @@ let pricing_table =
 
 let normalize_model s =
   let s = String.lowercase_ascii (String.trim s) in
-  let strip_provider s =
-    match String.index_opt s '/' with
-    | Some i when i + 1 < String.length s ->
-        String.sub s (i + 1) (String.length s - i - 1)
-    | _ -> s
-  in
+  let s = Runtime_config.strip_model_provider_prefix s in
   let strip_date s =
     let len = String.length s in
     if len >= 9 && s.[len - 9] = '-' then
@@ -115,7 +110,7 @@ let normalize_model s =
       if all_digits then String.sub s 0 (len - 9) else s
     else s
   in
-  strip_date (strip_provider s)
+  strip_date s
 
 let lookup_pricing model =
   let raw = String.lowercase_ascii (String.trim model) in
