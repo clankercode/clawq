@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-10T08:48:23Z"
+claimed_by: cli-user
+completed_at: "2026-03-10T09:05:29Z"
 complexity: medium
 depends_on: []
+duration_minutes: 17.105799284133333
 estimate_hours: 1
 id: B321
 priority: high
-status: pending
+started_at: "2026-03-10T08:48:23Z"
+status: done
 tags: []
 title: better handling of errored tool calls
 ---

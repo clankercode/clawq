@@ -116,6 +116,33 @@ let test_format_sensitive_result_none () =
   in
   Alcotest.(check bool) "normal returns None" true (result = None)
 
+let contains s sub =
+  try
+    ignore (Str.search_forward (Str.regexp_string sub) s 0);
+    true
+  with Not_found -> false
+
+let test_format_error_standalone () =
+  let result =
+    Telegram_format.format_error_standalone ~emoji:"X" ~name:"shell_exec"
+      ~summary:(Some "bad cmd") ~duration_secs:(Some 2.9)
+      ~result:"Error: command is required"
+  in
+  (* MarkdownV2 escapes _ in tool name *)
+  Alcotest.(check bool)
+    "contains escaped name" true
+    (contains result "shell\\_exec");
+  (* MarkdownV2 escapes . in duration *)
+  Alcotest.(check bool)
+    "contains escaped duration" true (contains result "2\\.9s");
+  (* └ = E2 94 94 *)
+  Alcotest.(check bool)
+    "contains tree corner" true
+    (contains result "\xe2\x94\x94");
+  Alcotest.(check bool)
+    "contains error text" true
+    (contains result "Error: command is required")
+
 let suite =
   [
     Alcotest.test_case "escape_mdv2 special chars" `Quick
@@ -155,4 +182,6 @@ let suite =
       test_format_sensitive_result_some;
     Alcotest.test_case "format_sensitive_result none" `Quick
       test_format_sensitive_result_none;
+    Alcotest.test_case "format_error_standalone" `Quick
+      test_format_error_standalone;
   ]

@@ -219,7 +219,7 @@ let test_render_summary_footer () =
        true
      with Not_found -> false)
 
-let test_failed_tools_never_collapse () =
+let test_failed_tools_chronological_order () =
   let notifier, _, _, _ = mock_notifier () in
   let t =
     Status_message.create ~debounce_interval:0.0 ~notifier
@@ -227,16 +227,46 @@ let test_failed_tools_never_collapse () =
   in
   Lwt_main.run
     (let open Lwt.Syntax in
-     (* Add first tool as failed *)
      let* () =
-       Status_message.tool_start t ~id:"fail1" ~name:"bad_tool"
-         ~summary:(Some "oops")
+       Status_message.tool_start t ~id:"fail1" ~name:"bad_tool" ~summary:None
      in
      let* () =
        Status_message.tool_result t ~id:"fail1" ~name:"bad_tool"
          ~result:"error msg" ~is_error:true
      in
-     (* Add 10 more successful tools *)
+     let* () =
+       Status_message.tool_start t ~id:"s1" ~name:"good_tool" ~summary:None
+     in
+     Status_message.tool_result t ~id:"s1" ~name:"good_tool" ~result:"ok"
+       ~is_error:false);
+  let output = Status_message.render t in
+  let pos_bad =
+    try Str.search_forward (Str.regexp_string "bad_tool") output 0
+    with Not_found -> -1
+  in
+  let pos_good =
+    try Str.search_forward (Str.regexp_string "good_tool") output 0
+    with Not_found -> -1
+  in
+  Alcotest.(check bool) "bad_tool present" true (pos_bad >= 0);
+  Alcotest.(check bool) "good_tool present" true (pos_good >= 0);
+  Alcotest.(check bool) "bad_tool before good_tool" true (pos_bad < pos_good)
+
+let test_failed_tool_collapses_with_many_done () =
+  let notifier, _, _, _ = mock_notifier () in
+  let t =
+    Status_message.create ~debounce_interval:0.0 ~notifier
+      ~parse_mode:"Markdown" ()
+  in
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () =
+       Status_message.tool_start t ~id:"fail1" ~name:"bad_tool" ~summary:None
+     in
+     let* () =
+       Status_message.tool_result t ~id:"fail1" ~name:"bad_tool"
+         ~result:"error msg" ~is_error:true
+     in
      let* () =
        Lwt_list.iter_s
          (fun i ->
@@ -247,21 +277,15 @@ let test_failed_tools_never_collapse () =
      in
      Lwt.return_unit);
   let output = Status_message.render t in
-  (* The failed tool should still be visible even with collapsing *)
-  Alcotest.(check bool)
-    "failed tool visible" true
-    (let re = Str.regexp_string "bad_tool" in
-     try
-       ignore (Str.search_forward re output 0);
-       true
-     with Not_found -> false);
-  Alcotest.(check bool)
-    "error detail visible" true
-    (let re = Str.regexp_string "error msg" in
-     try
-       ignore (Str.search_forward re output 0);
-       true
-     with Not_found -> false)
+  let has sub =
+    try
+      ignore (Str.search_forward (Str.regexp_string sub) output 0);
+      true
+    with Not_found -> false
+  in
+  (* With 11 total done/failed and collapsing, bad_tool (first entry) collapses *)
+  Alcotest.(check bool) "bad_tool collapsed" false (has "bad_tool");
+  Alcotest.(check bool) "collapse line present" true (has "tools completed")
 
 let contains s sub =
   try
@@ -779,8 +803,10 @@ let suite =
     Alcotest.test_case "format duration" `Quick test_format_duration;
     Alcotest.test_case "render collapsing" `Quick test_render_collapsing;
     Alcotest.test_case "render summary footer" `Quick test_render_summary_footer;
-    Alcotest.test_case "failed tools never collapse" `Quick
-      test_failed_tools_never_collapse;
+    Alcotest.test_case "failed tools chronological order" `Quick
+      test_failed_tools_chronological_order;
+    Alcotest.test_case "failed tool collapses with many done" `Quick
+      test_failed_tool_collapses_with_many_done;
     Alcotest.test_case "finalize compacts" `Quick test_finalize_compacts;
     Alcotest.test_case "running tool elapsed time" `Quick
       test_running_tool_elapsed_time;

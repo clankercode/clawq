@@ -2030,6 +2030,9 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                 else None
               in
               let visibility = Stream_visibility.create () in
+              let tool_start_times : (string, float * string option) Hashtbl.t =
+                Hashtbl.create 8
+              in
               let send_expandable ~name ~result ~is_error =
                 if is_error then
                   let formatted = Telegram_format.format_error_trace result in
@@ -2097,7 +2100,33 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                         (* Only send inline messages for errors; non-error
                          output is available via "Show Details" button *)
                         if is_error then (
-                          let* () = send_expandable ~name ~result ~is_error in
+                          let info = Status_message.get_tool_info sm ~id in
+                          let emoji =
+                            Option.fold ~none:"\xE2\x9C\x97"
+                              ~some:(fun (e : Status_message.tool_entry) ->
+                                e.emoji)
+                              info
+                          in
+                          let summary =
+                            Option.bind info
+                              (fun (e : Status_message.tool_entry) -> e.summary)
+                          in
+                          let duration_secs =
+                            Option.bind info
+                              (fun (e : Status_message.tool_entry) ->
+                                Option.map
+                                  (fun fin -> fin -. e.started_at)
+                                  e.finished_at)
+                          in
+                          let formatted =
+                            Telegram_format.format_error_standalone ~emoji ~name
+                              ~summary ~duration_secs ~result
+                          in
+                          let* () =
+                            send_chunked ~disable_notification:true
+                              ~parse_mode:"MarkdownV2" ~bot_token
+                              ~chat_id:update.chat_id ~text:formatted ()
+                          in
                           refresh_typing ();
                           Lwt.return_unit)
                         else Lwt.return_unit
@@ -2121,7 +2150,13 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                     in
                     let* () =
                       match chunk with
-                      | Provider.ToolStart { name; _ } ->
+                      | Provider.ToolStart { id; name; arguments } ->
+                          let summary =
+                            Stream_visibility.summarize_tool_arguments ~name
+                              arguments
+                          in
+                          Hashtbl.replace tool_start_times id
+                            (Unix.gettimeofday (), summary);
                           let action = chat_action_for_tool name in
                           let* () =
                             Lwt.catch
@@ -2157,8 +2192,25 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                         chunk
                     in
                     match chunk with
-                    | Provider.ToolResult { name; result; is_error; _ } ->
-                        let* () = send_expandable ~name ~result ~is_error in
+                    | Provider.ToolResult { id; name; result; is_error; _ } ->
+                        let* () =
+                          if is_error then
+                            let emoji = Stream_visibility.tool_emoji name in
+                            let duration_secs, summary =
+                              match Hashtbl.find_opt tool_start_times id with
+                              | Some (t0, s) ->
+                                  (Some (Unix.gettimeofday () -. t0), s)
+                              | None -> (None, None)
+                            in
+                            let formatted =
+                              Telegram_format.format_error_standalone ~emoji
+                                ~name ~summary ~duration_secs ~result
+                            in
+                            send_chunked ~disable_notification:true
+                              ~parse_mode:"MarkdownV2" ~bot_token
+                              ~chat_id:update.chat_id ~text:formatted ()
+                          else send_expandable ~name ~result ~is_error
+                        in
                         refresh_typing ();
                         Lwt.return_unit
                     | _ -> Lwt.return_unit)

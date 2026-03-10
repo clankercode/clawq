@@ -180,3 +180,31 @@ let format_sensitive_result ~name result =
 let format_error_trace error_text =
   let trimmed = String.trim error_text in
   if trimmed = "" then "" else expandable_blockquote ~visible_lines:2 trimmed
+
+let format_error_standalone ~emoji ~name ~summary ~duration_secs ~result =
+  let dur_str =
+    match duration_secs with
+    | Some d when d > 0.1 ->
+        let s =
+          if d < 10.0 then Printf.sprintf "%.1fs" d
+          else Printf.sprintf "%ds" (int_of_float d)
+        in
+        " " ^ escape_mdv2 s
+    | _ -> ""
+  in
+  let summary_part =
+    match summary with
+    | Some s -> Printf.sprintf " \xE2\x80\x94 `%s`" (escape_code_content s)
+    | None -> ""
+  in
+  (* ✗ = E2 9C 97 *)
+  let header =
+    Printf.sprintf "\xE2\x9C\x97 %s *%s*%s%s" emoji (escape_mdv2 name)
+      summary_part dur_str
+  in
+  let trimmed = String.trim result in
+  if trimmed = "" then header
+  else
+    let error_text = Stream_visibility.truncate_text ~max_chars:300 trimmed in
+    (* └ = E2 94 94 *)
+    Printf.sprintf "%s\n  \xE2\x94\x94 _%s_" header (escape_mdv2 error_text)

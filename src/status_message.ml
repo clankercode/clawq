@@ -104,9 +104,8 @@ let render t =
     let entries_in_order =
       Queue.fold (fun acc id -> id :: acc) [] t.tool_order |> List.rev
     in
-    (* Separate entries by state *)
-    let completed = ref [] in
-    let failed = ref [] in
+    (* Separate entries by state, preserving chronological insertion order *)
+    let done_and_failed = ref [] in
     let running = ref [] in
     let pending = ref [] in
     List.iter
@@ -115,13 +114,11 @@ let render t =
         | None -> ()
         | Some entry -> (
             match entry.state with
-            | Done -> completed := entry :: !completed
-            | Failed -> failed := entry :: !failed
+            | Done | Failed -> done_and_failed := entry :: !done_and_failed
             | Running -> running := entry :: !running
             | Pending -> pending := entry :: !pending))
       entries_in_order;
-    let completed = List.rev !completed in
-    let failed = List.rev !failed in
+    let all_done_list = List.rev !done_and_failed in
     let running = List.rev !running in
     let pending = List.rev !pending in
     let all_done =
@@ -129,61 +126,64 @@ let render t =
       && List.length pending = 0
       && total = t.total_done + t.total_failed
     in
-    (* Collapsing: if more than 8 completed, collapse all but last 2 *)
-    let n_completed = List.length completed in
-    let collapsed_count, visible_completed =
-      if n_completed > 8 && not t.finalized then
-        let to_collapse = n_completed - 2 in
-        let visible = List.filteri (fun i _ -> i >= to_collapse) completed in
+    (* Collapsing: if more than 8 done/failed, collapse all but last 2 *)
+    let n_done = List.length all_done_list in
+    let collapsed_count, visible_done =
+      if n_done > 8 && not t.finalized then
+        let to_collapse = n_done - 2 in
+        let visible =
+          List.filteri (fun i _ -> i >= to_collapse) all_done_list
+        in
         (to_collapse, visible)
-      else (0, completed)
+      else (0, all_done_list)
     in
     (* Render collapsed line *)
     if collapsed_count > 0 then
       Buffer.add_string buf
         (Printf.sprintf "\xE2\x9C\x93 %d tools completed\n" collapsed_count);
-    (* Render visible completed *)
+    (* Render visible done/failed in chronological order *)
     List.iter
       (fun (entry : tool_entry) ->
-        let timing =
-          match entry.finished_at with
-          | Some fin ->
-              let dur = fin -. entry.started_at in
-              if dur > 1.0 then " " ^ format_duration dur else ""
-          | None -> ""
-        in
-        let summary_part =
-          match entry.summary with
-          | Some s -> Printf.sprintf " \xE2\x80\x94 %s" (fmt_code t s)
-          | None -> ""
-        in
-        let preview_part =
-          match entry.result_preview with
-          | Some p -> Printf.sprintf " \xE2\x86\x92 %s" (fmt_italic t p)
-          | None -> ""
-        in
-        Buffer.add_string buf
-          (Printf.sprintf "\xE2\x9C\x93 %s %s%s%s%s\n" entry.emoji
-             (fmt_bold t entry.name) summary_part preview_part
-             (fmt_plain t timing)))
-      visible_completed;
-    (* Render failed (always expanded) *)
-    List.iter
-      (fun (entry : tool_entry) ->
-        let summary_part =
-          match entry.summary with
-          | Some s -> Printf.sprintf " \xE2\x80\x94 %s" (fmt_code t s)
-          | None -> ""
-        in
-        let error_part =
-          match entry.error_detail with
-          | Some err -> Printf.sprintf "\n  \xE2\x94\x94 %s" (fmt_italic t err)
-          | None -> ""
-        in
-        Buffer.add_string buf
-          (Printf.sprintf "\xE2\x9C\x97 %s %s%s%s\n" entry.emoji
-             (fmt_bold t entry.name) summary_part error_part))
-      failed;
+        match entry.state with
+        | Done ->
+            let timing =
+              match entry.finished_at with
+              | Some fin ->
+                  let dur = fin -. entry.started_at in
+                  if dur > 1.0 then " " ^ format_duration dur else ""
+              | None -> ""
+            in
+            let summary_part =
+              match entry.summary with
+              | Some s -> Printf.sprintf " \xE2\x80\x94 %s" (fmt_code t s)
+              | None -> ""
+            in
+            let preview_part =
+              match entry.result_preview with
+              | Some p -> Printf.sprintf " \xE2\x86\x92 %s" (fmt_italic t p)
+              | None -> ""
+            in
+            Buffer.add_string buf
+              (Printf.sprintf "\xE2\x9C\x93 %s %s%s%s%s\n" entry.emoji
+                 (fmt_bold t entry.name) summary_part preview_part
+                 (fmt_plain t timing))
+        | Failed ->
+            let summary_part =
+              match entry.summary with
+              | Some s -> Printf.sprintf " \xE2\x80\x94 %s" (fmt_code t s)
+              | None -> ""
+            in
+            let error_part =
+              match entry.error_detail with
+              | Some err ->
+                  Printf.sprintf "\n  \xE2\x94\x94 %s" (fmt_italic t err)
+              | None -> ""
+            in
+            Buffer.add_string buf
+              (Printf.sprintf "\xE2\x9C\x97 %s %s%s%s\n" entry.emoji
+                 (fmt_bold t entry.name) summary_part error_part)
+        | _ -> ())
+      visible_done;
     (* Render running with box drawing *)
     let active_items = running @ pending in
     let n_active = List.length active_items in
@@ -495,3 +495,5 @@ let finalize t =
   else (
     t.finalized <- true;
     Lwt.return_unit)
+
+let get_tool_info t ~id = Hashtbl.find_opt t.tools id
