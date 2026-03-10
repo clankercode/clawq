@@ -357,3 +357,4 @@ bugs:
     - file: B356-config-via-telegram-will-redac.todo
     - file: B357-need-to-update-docs-with-every.todo
     - file: B358-telegram-progress-message-fina.todo
+    - file: B359-the-new-setup-wizard-for-githu.todo

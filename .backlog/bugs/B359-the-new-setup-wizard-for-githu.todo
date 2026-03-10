@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B359
+priority: high
+status: pending
+tags: []
+title: The new setup wizard for github, teams, tunnel, etc, the far right wall of the header box has one too many spaces on the left between the text and it.
+---
+
+The new setup wizard for github, teams, tunnel, etc, the far right wall of the header box has one too many spaces on the left between the text and it.
