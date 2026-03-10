@@ -84,6 +84,17 @@ type pending_text_update = {
 let tool_result_cache : (string, string) Hashtbl.t = Hashtbl.create 32
 let recently_seen_updates : (string, float) Hashtbl.t = Hashtbl.create 256
 
+(* Per-chat mutex for outbound message serialization - prevents reordering *)
+let outbound_mutexes : (string, Lwt_mutex.t) Hashtbl.t = Hashtbl.create 64
+
+let get_outbound_mutex chat_id =
+  match Hashtbl.find_opt outbound_mutexes chat_id with
+  | Some m -> m
+  | None ->
+      let m = Lwt_mutex.create () in
+      Hashtbl.add outbound_mutexes chat_id m;
+      m
+
 let pending_text_updates : (string, pending_text_update) Hashtbl.t =
   Hashtbl.create 64
 
@@ -914,28 +925,30 @@ let set_message_reaction ~bot_token ~chat_id ~message_id ~emoji () =
 let send_message ?(disable_notification = false) ?parse_mode ~bot_token ~chat_id
     ~text () =
   let open Lwt.Syntax in
-  let uri = Printf.sprintf "%s%s/sendMessage" api_base bot_token in
-  let base_fields =
-    [
-      ("chat_id", `String chat_id);
-      ("text", `String text);
-      ("disable_notification", `Bool disable_notification);
-    ]
-  in
-  let fields =
-    match parse_mode with
-    | Some mode -> ("parse_mode", `String mode) :: base_fields
-    | None -> base_fields
-  in
-  let body = `Assoc fields |> Yojson.Safe.to_string in
-  let* status, _body = Http_client.post_json ~uri ~headers:[] ~body in
-  if parse_mode <> None && status >= 400 then
-    let plain_body = `Assoc base_fields |> Yojson.Safe.to_string in
-    let* _status, _body =
-      Http_client.post_json ~uri ~headers:[] ~body:plain_body
-    in
-    Lwt.return_unit
-  else Lwt.return_unit
+  let mutex = get_outbound_mutex chat_id in
+  Lwt_mutex.with_lock mutex (fun () ->
+      let uri = Printf.sprintf "%s%s/sendMessage" api_base bot_token in
+      let base_fields =
+        [
+          ("chat_id", `String chat_id);
+          ("text", `String text);
+          ("disable_notification", `Bool disable_notification);
+        ]
+      in
+      let fields =
+        match parse_mode with
+        | Some mode -> ("parse_mode", `String mode) :: base_fields
+        | None -> base_fields
+      in
+      let body = `Assoc fields |> Yojson.Safe.to_string in
+      let* status, _body = Http_client.post_json ~uri ~headers:[] ~body in
+      if parse_mode <> None && status >= 400 then
+        let plain_body = `Assoc base_fields |> Yojson.Safe.to_string in
+        let* _status, _body =
+          Http_client.post_json ~uri ~headers:[] ~body:plain_body
+        in
+        Lwt.return_unit
+      else Lwt.return_unit)
 
 let send_chunked ?(disable_notification = false) ?parse_mode ~bot_token ~chat_id
     ~text () =
