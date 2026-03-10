@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B270
+priority: high
+status: pending
+tags: []
+title: background_task_list with id uses a lot of tokens still
+---
+
+background_task_list with id uses a lot of tokens still
