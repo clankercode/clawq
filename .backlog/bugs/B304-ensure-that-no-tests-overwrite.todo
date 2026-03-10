@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B304
+priority: high
+status: pending
+tags: []
+title: Ensure that no tests overwrite ~/.clawq/config.json
+---
+
+Ensure that no tests overwrite ~/.clawq/config.json
