@@ -97,16 +97,25 @@ let path_is_git_repo path =
        (Filename.quote path))
   = 0
 
-let validate_repo_path repo_path =
-  if String.trim repo_path = "" then Error "Repository path is required"
-  else if not (Sys.file_exists repo_path) then
-    Error (Printf.sprintf "Repository path does not exist: %s" repo_path)
-  else if not (Sys.is_directory repo_path) then
-    Error (Printf.sprintf "Repository path is not a directory: %s" repo_path)
-  else if not (path_is_git_repo repo_path) then
-    Error
-      (Printf.sprintf "Repository path is not a git repository: %s" repo_path)
+let validate_workspace_path path =
+  if String.trim path = "" then Error "Path is required"
+  else if not (Sys.file_exists path) then
+    Error (Printf.sprintf "Path does not exist: %s" path)
+  else if not (Sys.is_directory path) then
+    Error (Printf.sprintf "Path is not a directory: %s" path)
   else Ok ()
+
+let validate_repo_path ?(require_git = true) repo_path =
+  match validate_workspace_path repo_path with
+  | Error _ as err -> err
+  | Ok () ->
+      if require_git && not (path_is_git_repo repo_path) then
+        Error
+          (Printf.sprintf
+             "Repository path is not a git repository: %s\n\
+              Use a git repository path or run `git init` in the directory."
+             repo_path)
+      else Ok ()
 
 let runner_available runner = command_exists (runner_binary runner)
 
@@ -412,9 +421,9 @@ let init_schema db =
         (Printf.sprintf "SQLite error: %s (sql: %s)" (Sqlite3.Rc.to_string rc)
            "ALTER TABLE background_tasks ADD COLUMN model TEXT")
 
-let enqueue ~db ~runner ?model ~repo_path ~prompt ?branch ?session_key ?channel
-    ?channel_id () =
-  match validate_repo_path repo_path with
+let enqueue ~db ~runner ?model ?(require_git = true) ~repo_path ~prompt ?branch
+    ?session_key ?channel ?channel_id () =
+  match validate_repo_path ~require_git repo_path with
   | Error _ as err -> err
   | Ok () ->
       let sql =
@@ -924,14 +933,14 @@ let routing_from_context ?context ?notify_cfg () =
 let build_delegate_prompt ~goal =
   String.concat "\n"
     [
-      "You are a delegated background coding agent running in an isolated git \
-       worktree.";
+      "You are a delegated background coding agent running in the target \
+       directory.";
       "";
       "Goal:";
       goal;
       "";
       "Execution contract:";
-      "- Work only inside this worktree for the target repository.";
+      "- Work only inside this directory.";
       "- Make the smallest focused change that completes the task well.";
       "- Run relevant verification when practical and mention what you ran.";
       "- Summarize the changes, results, and any follow-up concerns at the end.";
@@ -949,7 +958,7 @@ let delegate_enqueue ?context ?notify_cfg ?(check_available = true) ~db
   if String.trim chosen_repo_path = "" then
     Error "Could not determine a repository path for delegation"
   else
-    match validate_repo_path chosen_repo_path with
+    match validate_workspace_path chosen_repo_path with
     | Error _ as err -> err
     | Ok () -> (
         match
@@ -965,7 +974,7 @@ let delegate_enqueue ?context ?notify_cfg ?(check_available = true) ~db
               routing_from_context ?context ?notify_cfg ()
             in
             match
-              enqueue ~db ~runner ?model:effective_model
+              enqueue ~db ~runner ?model:effective_model ~require_git:false
                 ~repo_path:chosen_repo_path ~prompt ?branch ?session_key
                 ?channel ?channel_id ()
             with
@@ -1163,37 +1172,42 @@ let run_simple_command ~cwd argv =
     (fun () -> Process_group.close proc)
 
 let prepare_worktree ?(run_simple_command = run_simple_command) task =
-  let branch =
-    if task.branch <> "" then task.branch else default_branch_name task.id
-  in
-  let worktree_path = task_worktree_path task.id in
   let log_path = task_log_path task.id in
   ensure_roots ();
   ensure_parent_dir log_path;
   let open Lwt.Syntax in
-  if Sys.file_exists worktree_path then
-    Lwt.return
-      (Error (Printf.sprintf "Worktree path already exists: %s" worktree_path))
+  if not (path_is_git_repo task.repo_path) then
+    (* Non-git directory: run agent directly in the path without worktree
+       isolation (B349). *)
+    Lwt.return (Ok ("", task.repo_path, log_path))
   else
-    let* exit_code, stdout, stderr =
-      run_simple_command ~cwd:task.repo_path
-        [|
-          "git";
-          "-C";
-          task.repo_path;
-          "worktree";
-          "add";
-          "-b";
-          branch;
-          worktree_path;
-        |]
+    let branch =
+      if task.branch <> "" then task.branch else default_branch_name task.id
     in
-    if exit_code = 0 then Lwt.return (Ok (branch, worktree_path, log_path))
-    else
+    let worktree_path = task_worktree_path task.id in
+    if Sys.file_exists worktree_path then
       Lwt.return
-        (Error
-           (Printf.sprintf "git worktree add failed (exit %d): %s%s" exit_code
-              stdout stderr))
+        (Error (Printf.sprintf "Worktree path already exists: %s" worktree_path))
+    else
+      let* exit_code, stdout, stderr =
+        run_simple_command ~cwd:task.repo_path
+          [|
+            "git";
+            "-C";
+            task.repo_path;
+            "worktree";
+            "add";
+            "-b";
+            branch;
+            worktree_path;
+          |]
+      in
+      if exit_code = 0 then Lwt.return (Ok (branch, worktree_path, log_path))
+      else
+        Lwt.return
+          (Error
+             (Printf.sprintf "git worktree add failed (exit %d): %s%s" exit_code
+                stdout stderr))
 
 let running : (int, unit) Hashtbl.t = Hashtbl.create 16
 

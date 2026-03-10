@@ -1238,23 +1238,37 @@ let test_handle_delegate_with_model () =
              with Not_found -> false))
         ~finally:(fun () -> Unix.putenv "PATH" old_path))
 
-let test_handle_delegate_rejects_non_git_repo () =
+let test_handle_delegate_accepts_non_git_repo () =
+  (* B349: delegate accepts non-git directories and runs in them without
+     worktree isolation *)
   with_temp_home (fun home ->
       let repo = Filename.concat home "repo" in
       Unix.mkdir repo 0o755;
-      let result =
-        Command_bridge.handle
-          [ "delegate"; "--runner"; "codex"; "--repo"; repo; "implement" ]
-      in
-      Alcotest.(check bool)
-        "delegate rejects non-git repo" true
-        (try
-           ignore
-             (Str.search_forward
-                (Str.regexp_string "not a git repository")
-                result 0);
-           true
-         with Not_found -> false))
+      let bin_dir = Filename.concat home "bin" in
+      Unix.mkdir bin_dir 0o755;
+      let fake_codex = Filename.concat bin_dir "codex" in
+      let oc = open_out fake_codex in
+      output_string oc "#!/bin/sh\n";
+      close_out oc;
+      Unix.chmod fake_codex 0o755;
+      let old_path = try Sys.getenv "PATH" with Not_found -> "" in
+      Unix.putenv "PATH" (bin_dir ^ ":" ^ old_path);
+      Fun.protect
+        (fun () ->
+          let result =
+            Command_bridge.handle
+              [ "delegate"; "--runner"; "codex"; "--repo"; repo; "implement" ]
+          in
+          Alcotest.(check bool)
+            "delegate accepts non-git repo and queues task" true
+            (try
+               ignore
+                 (Str.search_forward
+                    (Str.regexp_string "Delegated task")
+                    result 0);
+               true
+             with Not_found -> false))
+        ~finally:(fun () -> Unix.putenv "PATH" old_path))
 
 let test_handle_service () =
   let result = Command_bridge.handle [ "service" ] in
@@ -2364,8 +2378,8 @@ let suite =
     Alcotest.test_case "handle delegate" `Quick test_handle_delegate;
     Alcotest.test_case "handle delegate with --model" `Quick
       test_handle_delegate_with_model;
-    Alcotest.test_case "handle delegate rejects non-git repo" `Quick
-      test_handle_delegate_rejects_non_git_repo;
+    Alcotest.test_case "handle delegate accepts non-git repo" `Quick
+      test_handle_delegate_accepts_non_git_repo;
     Alcotest.test_case "handle service" `Quick test_handle_service;
     Alcotest.test_case "handle service signal restart" `Quick
       test_handle_service_signal_restart;
