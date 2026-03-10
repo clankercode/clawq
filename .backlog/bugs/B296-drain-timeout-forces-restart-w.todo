@@ -1,0 +1,35 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B296
+priority: medium
+status: pending
+tags: []
+title: Drain timeout forces restart with in-flight agent turn, abandoning background_task_wait mid-wait
+---
+## Summary
+During graceful restart, wait_for_drain (60s max) expires while an agent session has background_task_wait in flight. This forces the restart, abandoning the tool call and leaving the __main__ session in an undefined state.
+
+## Observed in daemon.log
+[16:48:16.788] Tool call: background_task_wait id=48, timeout_seconds=180 (2nd invocation)
+[16:49:00.394] SIGUSR1 received, initiating graceful restart
+[16:50:01.902] WARN  Drain timeout, forcing restart with 1 requests in flight
+
+background_task_wait was actively polling task 48 (up to 110s) when restart was triggered ~43s in.
+The drain window (600 attempts × 0.1s = 60s) expired before the tool could complete.
+
+## Root Cause
+daemon.ml wait_for_drain polls current_in_flight every 0.1s for up to 60s.
+background_task_wait polls task status in a loop up to 110s — much longer than the drain window.
+There is no mechanism to cancel/interrupt in-flight tool calls to speed up drain.
+
+## Impact
+The agent session holding background_task_wait is hard-interrupted. The tool result is never delivered to the LLM. On next startup, the session may replay or be in a confused state.
+
+## Fix Options
+1. Inject a shutdown interrupt_check into active tool invocations so background_task_wait (and other long-running tools) can detect imminent restart and return early with a 'restarting' status.
+2. Increase drain timeout to accommodate longest possible tool duration.
+3. Both: send interrupt signal to tools, but also increase drain window as a fallback.
+
+Note: Tool.interrupt_check already exists in the tool context (src/tool.ml) — it just needs to be wired to the shutdown signal.

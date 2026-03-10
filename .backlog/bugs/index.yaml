@@ -294,3 +294,4 @@ bugs:
     - file: B293-background-task-wait-silently.todo
     - file: B294-cohttp-body-stream-not-consume.todo
     - file: B295-telegram-409-conflict-race-dur.todo
+    - file: B296-drain-timeout-forces-restart-w.todo
