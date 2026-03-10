@@ -281,3 +281,4 @@ bugs:
     - file: B280-clawq-auth-should-support-sett.todo
     - file: B281-clawq-session-list-active-or-a.todo
     - file: B282-if-the-user-tries-to-set-an-un.todo
+    - file: B283-uncaught-exception-eaccess-exe.todo

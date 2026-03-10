@@ -1,0 +1,26 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B283
+priority: high
+status: pending
+tags: []
+title: uncaught exception EACCESS execve main.exe
+---
+Logs: 
+
+[14:29:12.455] INFO  Cron scheduler started
+[14:29:12.455] INFO  Heartbeat enabled: interval=300s quiet=23:00-8:00
+[14:29:12.555] WARN  model_discovery: openai-codex refresh failed: HTTP 404
+[14:29:13.186] INFO  Quota refresh: openai-codexsession=1% (1h54m left)  weekly=74% (5d3h left)
+[14:29:13.908] INFO  Telegram: registered 15 slash commands
+[14:29:13.908] INFO  Telegram poll #1 for account default
+[14:29:45.148] INFO  Telegram poll #1 for default: 31240ms elapsed, 0 update(s) received
+[14:29:45.148] INFO  Telegram poll #2 for account default
+[14:29:57.698] INFO  SIGUSR1 received, initiating graceful restart
+[14:29:57.698] INFO  Draining complete, stopping gateway for restart
+[14:29:57.698] INFO  Gateway stopped; proceeding with restart exec
+[14:29:57.698] INFO  clawq daemon ready to restart
+clawq: internal error, uncaught exception:
+       Unix.Unix_error(Unix.EACCES, "execve", "/home/xertrov/src/clawq/_build/default/src/main.exe")
