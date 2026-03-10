@@ -158,8 +158,7 @@ let restart_signal_duplicate_delta ~now ~last_signal_at =
     Some delta
   else None
 
-let send_drain_warnings ?(schedule = drain_warning_schedule)
-    ~(session_manager : Session.t) ~stop () =
+let send_drain_warnings ?(schedule = drain_warning_schedule) ~stop () =
   let rec loop last_t = function
     | [] -> Lwt.return_unit
     | (t, message) :: rest ->
@@ -169,7 +168,7 @@ let send_drain_warnings ?(schedule = drain_warning_schedule)
         in
         if !stop then Lwt.return_unit
         else begin
-          let* () = Session.notify_channel_sessions session_manager message in
+          Logs.info (fun m -> m "Drain warning: %s" message);
           loop t rest
         end
   in

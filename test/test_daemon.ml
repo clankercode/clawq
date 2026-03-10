@@ -899,7 +899,7 @@ let test_wait_for_drain_reports_timeout () =
   in
   Alcotest.(check bool) "timeout reported" true timed_out
 
-let test_send_drain_warnings_sends_scheduled_messages () =
+let test_send_drain_warnings_does_not_notify_channel () =
   let config = Runtime_config.default in
   let session_manager = Session.create ~config () in
   let received = ref [] in
@@ -911,9 +911,8 @@ let test_send_drain_warnings_sends_scheduled_messages () =
        (fun () ->
          Daemon.send_drain_warnings
            ~schedule:[ (0.0, "five"); (0.0, "ten") ]
-           ~session_manager ~stop:(ref false) ()));
-  Alcotest.(check (list string))
-    "warnings delivered in order" [ "five"; "ten" ] (List.rev !received)
+           ~stop:(ref false) ()));
+  Alcotest.(check (list string)) "warnings not sent to channel" [] !received
 
 let test_restart_signal_duplicate_delta_recent () =
   let now = 100.0 in
@@ -1919,7 +1918,7 @@ let suite =
     Alcotest.test_case "wait for drain reports timeout" `Quick
       test_wait_for_drain_reports_timeout;
     Alcotest.test_case "send drain warnings sends scheduled messages" `Quick
-      test_send_drain_warnings_sends_scheduled_messages;
+      test_send_drain_warnings_does_not_notify_channel;
     Alcotest.test_case "restart signal duplicate delta detects recent signal"
       `Quick test_restart_signal_duplicate_delta_recent;
     Alcotest.test_case "restart signal duplicate delta ignores older signal"

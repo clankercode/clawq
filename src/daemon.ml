@@ -1271,8 +1271,7 @@ let run ~(config : Runtime_config.t) =
         let stop_warnings = ref false in
         let warnings_p =
           Lwt.catch
-            (fun () ->
-              send_drain_warnings ~session_manager ~stop:stop_warnings ())
+            (fun () -> send_drain_warnings ~stop:stop_warnings ())
             (fun exn ->
               Logs.warn (fun m ->
                   m "Drain warning loop failed: %s" (Printexc.to_string exn));
