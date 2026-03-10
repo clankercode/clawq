@@ -105,6 +105,25 @@ let read_live_daemon_gateway () =
               json |> member "gateway_port" |> to_int )
       with _ -> None)
 
+let get_sync ~uri ~headers =
+  Lwt_main.run
+    (Lwt.catch
+       (fun () ->
+         let open Lwt.Syntax in
+         let* status, resp_body = Http_client.get ~uri ~headers in
+         Lwt.return (Ok (status, resp_body)))
+       (fun exn -> Lwt.return (Error (Printexc.to_string exn))))
+
+let try_localhost_gateway () =
+  (* Try to detect a gateway running on localhost without requiring daemon_state.json *)
+  let host = "127.0.0.1" in
+  let port = 13451 in
+  let url = Printf.sprintf "http://%s:%d/health" host port in
+  match get_sync ~uri:url ~headers:[] with
+  | Error _ -> None
+  | Ok (200, _) -> Some (host, port)
+  | Ok _ -> None
+
 let gateway_auth_headers cfg =
   match (cfg.Runtime_config.gateway.auth_token, read_gateway_token ()) with
   | Some token, _ when String.trim token <> "" ->
@@ -3069,7 +3088,12 @@ let cmd_update args =
   match parse_update_args args with
   | Error msg -> msg
   | Ok mode -> (
-      match read_live_daemon_gateway () with
+      let gateway =
+        match read_live_daemon_gateway () with
+        | Some _ as result -> result
+        | None -> try_localhost_gateway ()
+      in
+      match gateway with
       | None -> offline_update_stub mode
       | Some (host, port) -> (
           let cfg = get_config () in
