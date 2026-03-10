@@ -1,0 +1,73 @@
+---
+title: "Roadmap and Support"
+description: "Public roadmap, release cadence, and sponsorship contact surface for clawq"
+section: "operations"
+order: 2
+---
+
+This page is the lightweight public stewardship surface for clawq: what is next,
+how often to expect releases, and how to signal that funding or sponsorship would
+accelerate specific work.
+
+## Near-term roadmap
+
+The current public focus is intentionally narrow:
+
+1. **Distribution and packaging**
+   - tighten install and release ergonomics
+   - keep the docs and release assets easy to evaluate from the repo
+   - reduce friction for self-hosted trial installs
+2. **Delegation and multi-agent workflow polish**
+   - improve background task handoff quality and review loops
+   - make repository worktrees, summaries, and follow-up inspection more reliable
+3. **Monetization groundwork**
+   - add visible sponsor/support surfaces
+   - keep the future pro-feature seam narrow and optional rather than gating the basics
+4. **Verification expansion**
+   - continue beyond the current verified core into tool safety, config merge semantics,
+     and protocol framing
+
+For the proof-specific track, see the separate
+[Formal Verification page](/formal-verification) and
+[Formal Verification Roadmap - 2026-03-07](/formal-verification-roadmap-2026-03-07/).
+
+## Release cadence
+
+The project should follow a simple, sponsor-readable update rhythm:
+
+- **Monthly release target** for tagged feature updates
+- **Patch releases as needed** for regressions, packaging fixes, or security-sensitive changes
+- **Short public notes** in the repo for each release so users can see active stewardship
+
+## Release note template
+
+Use this lightweight structure for each public update:
+
+```md
+## Highlights
+- One to three user-visible improvements
+
+## Verification and runtime changes
+- Proof coverage, extraction, runtime semantics, or command changes
+
+## Packaging and distribution
+- Install, release artifact, docs, or onboarding improvements
+
+## Upgrade notes
+- Breaking changes, migration steps, or compatibility caveats
+
+## Next up
+- The highest-priority roadmap items for the next cycle
+```
+
+## Support and sponsorship
+
+If clawq is useful in a production or commercial setting, the most helpful signals
+right now are:
+
+- open an issue describing the workflow you want clawq to unblock
+- mention if the request is tied to sponsorship, bounty funding, or commercial use
+- link the request to a concrete release or roadmap milestone when possible
+
+That keeps support demand tied to visible roadmap delivery while the project grows
+its dedicated funding surface.
