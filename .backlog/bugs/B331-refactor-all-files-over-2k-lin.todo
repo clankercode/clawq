@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B331
+priority: high
+status: pending
+tags: []
+title: Refactor all files over 2k lines into multiple files, each under 1500 lines. Update CLAUDE.md to mention that ideally files are under 1000 lines and 2k is a hard limit.
+---
+
+Refactor all files over 2k lines into multiple files, each under 1500 lines. Update CLAUDE.md to mention that ideally files are under 1000 lines and 2k is a hard limit.
