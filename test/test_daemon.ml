@@ -695,7 +695,7 @@ let test_default_resume_turn_uses_explicit_resume_prompt () =
       Alcotest.(check bool)
         "resume prompt says not to wait for a user" true
         (string_contains Daemon.resume_turn_prompt
-           "without waiting for a new user message");
+           "do not wait for a follow-up message");
       Alcotest.(check bool)
         "stay-idle not mentioned in resume prompt" false
         (string_contains Daemon.resume_turn_prompt "STAY_IDLE");

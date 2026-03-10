@@ -526,8 +526,10 @@ let resume_turn_prompt =
   ^ "actively in progress in this session. Resume the interrupted work now "
   ^ "— review the conversation history to identify where you left off, pick "
   ^ "up the highest-priority unfinished task, and continue executing from "
-  ^ "that point. Use the available tools as needed and deliver the next "
-  ^ "meaningful progress update without waiting for a new user message. "
+  ^ "that point. Limit yourself to at most 3 tool-call iterations. Produce a "
+  ^ "text response in this same turn — do not wait for a follow-up message. "
+  ^ "If you cannot reach a conclusion in 3 iterations, summarise what is in "
+  ^ "progress and stop."
 (* Agent says STAY_IDLE too much so let's pretend it doesn't exist and see what happens *)
 (*^ "(If, after checking the full conversation state, you have confirmed that "
   ^ "there is absolutely no way to continue, reply exactly STAY_IDLE.)"*)
@@ -556,10 +558,36 @@ let default_resume_turn ~(session_manager : Session.t) ~notify ~session_key
            ~compacted_before_turn:compacted)
       ()
   in
-  Agent.turn agent ~user_message:resume_turn_prompt ?db:session_manager.db
-    ~session_key
-    ~interrupt_check:(fun () -> !interrupt)
-    ?runtime_context ~history_prepared:true ()
+  (* Cap tool iterations for restart-resume to prevent indefinite blocking *)
+  let resume_max_iters = 3 in
+  let saved_config = agent.Agent.config in
+  agent.Agent.config <-
+    {
+      saved_config with
+      agent_defaults =
+        {
+          saved_config.agent_defaults with
+          max_tool_iterations =
+            min resume_max_iters saved_config.agent_defaults.max_tool_iterations;
+        };
+    };
+  (* Treat queued-message interrupt as a stop signal during restart-resume so
+     that a new inbound message terminates the resume turn immediately rather
+     than letting the loop continue with no benefit. *)
+  let restart_resume_interrupt_check () =
+    match !interrupt with
+    | Some s when s = Agent.queued_message_interrupt_token ->
+        Some "restart_resume_queued_stop"
+    | v -> v
+  in
+  Lwt.finalize
+    (fun () ->
+      Agent.turn agent ~user_message:resume_turn_prompt ?db:session_manager.db
+        ~session_key ~interrupt_check:restart_resume_interrupt_check
+        ?runtime_context ~history_prepared:true ())
+    (fun () ->
+      agent.Agent.config <- saved_config;
+      Lwt.return_unit)
 
 let resume_agent_session ?(senders = default_resume_senders) ?run_turn
     ?(after_dispatch = fun ~response:_ -> Lwt.return_unit)
