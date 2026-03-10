@@ -298,3 +298,4 @@ bugs:
     - file: B297-session-model-changes-do-not-p.todo
     - file: B298-migration-test-coverage-is-ins.todo
     - file: B299-telegram-tool-status-repositio.todo
+    - file: B300-all-provider-config-can-be-ove.todo
