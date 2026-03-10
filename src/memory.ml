@@ -1,4 +1,4 @@
-let schema_version = 8
+let schema_version = 9
 
 type session_activity = Active | Inactive | Any
 
@@ -146,6 +146,14 @@ let init_inbound_queue_schema db =
   exec_exn db
     "CREATE INDEX IF NOT EXISTS idx_inbound_queue_session_state ON \
      inbound_queue (session_key, state, id ASC)"
+
+let init_quota_cache_schema db =
+  exec_exn db
+    "CREATE TABLE IF NOT EXISTS quota_cache (\n\
+    \     provider TEXT PRIMARY KEY,\n\
+    \     state_json TEXT NOT NULL,\n\
+    \     fetched_at REAL NOT NULL\n\
+    \   )"
 
 let init_models_cache_schema db =
   exec_exn db
@@ -304,11 +312,19 @@ let migrate_schema db current_version =
            "ALTER TABLE task_tree ADD COLUMN deleted_at TEXT DEFAULT NULL"
        with _ -> ());
       set_schema_version db schema_version
+  | 8 ->
+      init_session_schema db;
+      init_inbound_queue_schema db;
+      init_models_cache_schema db;
+      init_request_stats_schema db;
+      init_quota_cache_schema db;
+      set_schema_version db schema_version
   | n when n = schema_version ->
       init_session_schema db;
       init_inbound_queue_schema db;
       init_models_cache_schema db;
-      init_request_stats_schema db
+      init_request_stats_schema db;
+      init_quota_cache_schema db
   | n ->
       failwith
         (Printf.sprintf "Unsupported schema version %d (current=%d)" n
@@ -386,6 +402,7 @@ let init ~db_path ?(search_enabled = false) () =
   init_core_schema db;
   init_models_cache_schema db;
   init_request_stats_schema db;
+  init_quota_cache_schema db;
   db
 
 let store_message ~db ~session_key (msg : Provider.message) =

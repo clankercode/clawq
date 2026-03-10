@@ -994,6 +994,7 @@ let run ~(config : Runtime_config.t) =
         Memory.init ~db_path ~search_enabled:config.memory.search_enabled ()
       in
       Vector.init_schema db;
+      Provider_quota.set_db db;
       if config.security.audit_enabled then begin
         Audit.init_schema db;
         Logs.info (fun m -> m "Audit trail enabled")

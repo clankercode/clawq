@@ -27,7 +27,160 @@ let cache : (string, provider_quota) Hashtbl.t = Hashtbl.create 8
 let cache_ttl_s = ref 300.0
 let set_cache_ttl s = cache_ttl_s := float_of_int s
 
+(* Optional DB handle for persistent quota cache across process invocations. *)
+let db_handle : Sqlite3.db option ref = ref None
+let loaded_from_db = ref false
+
+let set_db db =
+  db_handle := Some db;
+  loaded_from_db := false;
+  try
+    ignore
+      (Sqlite3.exec db
+         "CREATE TABLE IF NOT EXISTS quota_cache (provider TEXT PRIMARY KEY, \
+          state_json TEXT NOT NULL, fetched_at REAL NOT NULL)")
+  with _ -> ()
+
+let reset_for_test () =
+  Hashtbl.reset cache;
+  loaded_from_db := false;
+  db_handle := None
+
+(* ── JSON serialization for quota_state ─────────────────────────────────── *)
+
+let window_state_to_json ws =
+  let resets = match ws.resets_at with None -> `Null | Some f -> `Float f in
+  let dur =
+    match ws.window_duration_s with None -> `Null | Some f -> `Float f
+  in
+  `Assoc
+    [
+      ("used_pct", `Float ws.used_pct);
+      ("resets_at", resets);
+      ("window_duration_s", dur);
+    ]
+
+let window_state_of_json j =
+  try
+    let used_pct = Yojson.Safe.Util.(j |> member "used_pct" |> to_float) in
+    let resets_at =
+      try Some Yojson.Safe.Util.(j |> member "resets_at" |> to_float)
+      with _ -> None
+    in
+    let window_duration_s =
+      try Some Yojson.Safe.Util.(j |> member "window_duration_s" |> to_float)
+      with _ -> None
+    in
+    Some { used_pct; resets_at; window_duration_s }
+  with _ -> None
+
+let opt_window_of_json = function `Null -> None | j -> window_state_of_json j
+
+let quota_state_to_json = function
+  | Unknown msg -> `Assoc [ ("kind", `String "unknown"); ("msg", `String msg) ]
+  | Known { session; weekly; monthly } ->
+      let opt w =
+        match w with None -> `Null | Some ws -> window_state_to_json ws
+      in
+      `Assoc
+        [
+          ("kind", `String "known");
+          ("session", opt session);
+          ("weekly", opt weekly);
+          ("monthly", opt monthly);
+        ]
+
+let quota_state_of_json j =
+  try
+    let kind = Yojson.Safe.Util.(j |> member "kind" |> to_string) in
+    if kind = "unknown" then
+      Some (Unknown Yojson.Safe.Util.(j |> member "msg" |> to_string))
+    else if kind = "known" then
+      Some
+        (Known
+           {
+             session =
+               opt_window_of_json Yojson.Safe.Util.(j |> member "session");
+             weekly = opt_window_of_json Yojson.Safe.Util.(j |> member "weekly");
+             monthly =
+               opt_window_of_json Yojson.Safe.Util.(j |> member "monthly");
+           })
+    else None
+  with _ -> None
+
+(* ── DB persistence ──────────────────────────────────────────────────────── *)
+
+let store_to_db ?(replace = true) db pq =
+  try
+    let state_json = Yojson.Safe.to_string (quota_state_to_json pq.state) in
+    let sql =
+      if replace then
+        "INSERT OR REPLACE INTO quota_cache (provider, state_json, fetched_at) \
+         VALUES (?, ?, ?)"
+      else
+        "INSERT OR IGNORE INTO quota_cache (provider, state_json, fetched_at) \
+         VALUES (?, ?, ?)"
+    in
+    let stmt = Sqlite3.prepare db sql in
+    Fun.protect
+      ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+      (fun () ->
+        ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT pq.provider_name));
+        ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT state_json));
+        ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.FLOAT pq.fetched_at));
+        ignore (Sqlite3.step stmt))
+  with _ -> ()
+
+let load_from_db db =
+  try
+    let stmt =
+      Sqlite3.prepare db
+        "SELECT provider, state_json, fetched_at FROM quota_cache"
+    in
+    Fun.protect
+      ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+      (fun () ->
+        let rec loop () =
+          match Sqlite3.step stmt with
+          | Sqlite3.Rc.ROW ->
+              (try
+                 let provider =
+                   match Sqlite3.column stmt 0 with
+                   | Sqlite3.Data.TEXT s -> s
+                   | _ -> raise Exit
+                 in
+                 let state_json =
+                   match Sqlite3.column stmt 1 with
+                   | Sqlite3.Data.TEXT s -> s
+                   | _ -> raise Exit
+                 in
+                 let fetched_at =
+                   match Sqlite3.column stmt 2 with
+                   | Sqlite3.Data.FLOAT f -> f
+                   | Sqlite3.Data.INT n -> Int64.to_float n
+                   | _ -> raise Exit
+                 in
+                 let json = Yojson.Safe.from_string state_json in
+                 match quota_state_of_json json with
+                 | Some state ->
+                     Hashtbl.replace cache provider
+                       { provider_name = provider; state; fetched_at }
+                 | None -> ()
+               with _ -> ());
+              loop ()
+          | _ -> ()
+        in
+        loop ())
+  with _ -> ()
+
+let ensure_loaded_from_db () =
+  if not !loaded_from_db then begin
+    loaded_from_db := true;
+    match !db_handle with None -> () | Some db -> load_from_db db
+  end
+
 let get_cached name =
+  ensure_loaded_from_db ();
   match Hashtbl.find_opt cache name with
   | None -> None
   | Some pq ->
@@ -35,6 +188,7 @@ let get_cached name =
       if age < !cache_ttl_s then Some pq else None
 
 let get_all_cached () =
+  ensure_loaded_from_db ();
   let now = Unix.gettimeofday () in
   Hashtbl.fold
     (fun _name pq acc ->
@@ -43,14 +197,23 @@ let get_all_cached () =
     cache []
 
 let store_result pq =
-  match pq.state with
+  (match pq.state with
   | Known _ -> Hashtbl.replace cache pq.provider_name pq
   | Unknown s when String.length s >= 12 && String.sub s 0 12 = "fetch_failed"
     ->
       (* On fetch failure, keep existing stale entry if present *)
       if not (Hashtbl.mem cache pq.provider_name) then
         Hashtbl.replace cache pq.provider_name pq
-  | Unknown _ -> Hashtbl.replace cache pq.provider_name pq
+  | Unknown _ -> Hashtbl.replace cache pq.provider_name pq);
+  match !db_handle with
+  | None -> ()
+  | Some db -> (
+      match pq.state with
+      | Unknown s
+        when String.length s >= 12 && String.sub s 0 12 = "fetch_failed" ->
+          (* Mirror in-memory: don't overwrite an existing entry in DB *)
+          store_to_db ~replace:false db pq
+      | _ -> store_to_db db pq)
 
 (* Pace-aware constrained check for a single window *)
 let is_window_constrained ~threshold w =

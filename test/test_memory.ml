@@ -87,10 +87,10 @@ let test_init_double_call () =
   ignore db1;
   ignore db2
 
-let test_init_schema_version_is_8 () =
+let test_init_schema_version_is_9 () =
   let db = Memory.init ~db_path:":memory:" () in
   Alcotest.(check int)
-    "schema version is 8" 8
+    "schema version is 9" 9
     (query_single_int db "SELECT version FROM schema_version")
 
 let test_init_creates_session_persistence_tables () =
@@ -118,7 +118,10 @@ let test_init_creates_session_persistence_tables () =
     (table_exists db "models_cache");
   Alcotest.(check bool)
     "request_stats exists" true
-    (table_exists db "request_stats")
+    (table_exists db "request_stats");
+  Alcotest.(check bool)
+    "quota_cache exists" true
+    (table_exists db "quota_cache")
 
 let test_migrates_v1_db_to_v4_without_data_loss () =
   with_temp_db (fun db_path ->
@@ -142,7 +145,7 @@ let test_migrates_v1_db_to_v4_without_data_loss () =
       ignore (Sqlite3.db_close db);
       let migrated = Memory.init ~db_path () in
       Alcotest.(check int)
-        "schema version migrated" 8
+        "schema version migrated" 9
         (query_single_int migrated "SELECT version FROM schema_version");
       Alcotest.(check bool)
         "session_state exists after migration" true
@@ -865,7 +868,7 @@ let test_queue_migrate_v4_to_v5 () =
       ignore (Sqlite3.db_close db);
       let migrated = Memory.init ~db_path () in
       Alcotest.(check int)
-        "schema version is 8" 8
+        "schema version is 9" 9
         (query_single_int migrated "SELECT version FROM schema_version");
       Alcotest.(check bool)
         "inbound_queue exists after v4->v5" true
@@ -885,7 +888,7 @@ let test_init_rejects_future_schema_version () =
   with_temp_db (fun db_path ->
       let db = Sqlite3.db_open db_path in
       exec_exn db "CREATE TABLE schema_version (version INTEGER NOT NULL)";
-      exec_exn db "INSERT INTO schema_version (version) VALUES (9)";
+      exec_exn db "INSERT INTO schema_version (version) VALUES (10)";
       exec_exn db
         {|CREATE TABLE messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -911,7 +914,7 @@ let test_init_rejects_future_schema_version () =
       | `Msg msg ->
           Alcotest.(check bool)
             "rejects future version" true
-            (String.starts_with ~prefix:"Unsupported schema version 9" msg))
+            (String.starts_with ~prefix:"Unsupported schema version 10" msg))
 
 let suite =
   [
@@ -921,8 +924,8 @@ let suite =
     Alcotest.test_case "init search enabled" `Quick test_init_search_enabled;
     Alcotest.test_case "init search disabled" `Quick test_init_search_disabled;
     Alcotest.test_case "init double call" `Quick test_init_double_call;
-    Alcotest.test_case "init schema version is 8" `Quick
-      test_init_schema_version_is_8;
+    Alcotest.test_case "init schema version is 9" `Quick
+      test_init_schema_version_is_9;
     Alcotest.test_case "init creates session persistence tables" `Quick
       test_init_creates_session_persistence_tables;
     Alcotest.test_case "migrates v1 db to v4 without data loss" `Quick

@@ -719,6 +719,8 @@ let cmd_models args =
 
 let cmd_usage refresh =
   let cfg = get_config () in
+  let db = get_db () in
+  Provider_quota.set_db db;
   Provider_quota.set_cache_ttl cfg.quota_cache_ttl_s;
   let results =
     if refresh then
@@ -767,6 +769,8 @@ let cmd_provider args =
   match args with
   | "quota" :: rest -> (
       let cfg = get_config () in
+      let db = get_db () in
+      Provider_quota.set_db db;
       let target = match rest with [ name ] -> Some name | _ -> None in
       match target with
       | Some name when not (List.mem_assoc name cfg.providers) ->

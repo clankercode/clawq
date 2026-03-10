@@ -202,6 +202,7 @@ let test_to_summary_known () =
 (* ── cache ───────────────────────────────────────────────────────────────── *)
 
 let test_cache_roundtrip () =
+  Provider_quota.reset_for_test ();
   let name = Printf.sprintf "test_provider_%d" (Random.int 1000000) in
   Alcotest.(check bool)
     "not in cache before insert" true
@@ -210,6 +211,55 @@ let test_cache_roundtrip () =
   Alcotest.(check bool)
     "get_all_cached does not contain test name" true
     (not (List.exists (fun (n, _) -> n = name) all))
+
+let test_db_persistence () =
+  let db = Sqlite3.db_open ":memory:" in
+  Provider_quota.set_db db;
+  Provider_quota.reset_for_test ();
+  Provider_quota.set_db db;
+  let name = "test_db_provider_persist" in
+  let pq =
+    {
+      Provider_quota.provider_name = name;
+      state =
+        Provider_quota.Known
+          { session = Some (make_window 55.0); weekly = None; monthly = None };
+      fetched_at = Unix.gettimeofday ();
+    }
+  in
+  Provider_quota.store_result pq;
+  (* Simulate new process: clear in-memory cache but keep DB *)
+  Provider_quota.reset_for_test ();
+  Provider_quota.set_db db;
+  Alcotest.(check bool)
+    "entry present after DB roundtrip" true
+    (Provider_quota.get_cached name <> None);
+  Provider_quota.reset_for_test ()
+
+let test_db_ttl_expired () =
+  let db = Sqlite3.db_open ":memory:" in
+  Provider_quota.set_db db;
+  Provider_quota.reset_for_test ();
+  Provider_quota.set_db db;
+  Provider_quota.set_cache_ttl 0;
+  let name = "test_db_ttl_expired" in
+  let pq =
+    {
+      Provider_quota.provider_name = name;
+      state =
+        Provider_quota.Known
+          { session = Some (make_window 40.0); weekly = None; monthly = None };
+      fetched_at = Unix.gettimeofday () -. 10.0;
+    }
+  in
+  Provider_quota.store_result pq;
+  Provider_quota.reset_for_test ();
+  Provider_quota.set_db db;
+  Alcotest.(check bool)
+    "expired entry not returned by get_all_cached" true
+    (Provider_quota.get_all_cached () = []);
+  Provider_quota.reset_for_test ();
+  Provider_quota.set_cache_ttl 300
 
 let suite =
   [
@@ -234,4 +284,6 @@ let suite =
     Alcotest.test_case "to_summary Unknown" `Quick test_to_summary_unknown;
     Alcotest.test_case "to_summary Known" `Quick test_to_summary_known;
     Alcotest.test_case "cache roundtrip" `Quick test_cache_roundtrip;
+    Alcotest.test_case "DB persistence roundtrip" `Quick test_db_persistence;
+    Alcotest.test_case "DB TTL expiry" `Quick test_db_ttl_expired;
   ]
