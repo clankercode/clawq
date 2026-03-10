@@ -329,34 +329,50 @@ let handler ~session_manager ~require_pairing ~auth_token
               if not sess_ok then rate_limit_response ()
               else
                 let key = "web:" ^ session_id in
-                let* result =
-                  Lwt.catch
-                    (fun () ->
-                      let* response =
-                        Session.turn session_manager ~key ~message ()
-                      in
-                      Lwt.return (Ok response))
-                    (fun exn -> Lwt.return (Error (Printexc.to_string exn)))
-                in
-                match result with
-                | Ok response ->
-                    if not (Session.take_response_deferred session_manager ~key)
-                    then Session.mark_response_sent session_manager ~key;
+                match Slash_commands.handle message with
+                | Slash_commands.RuntimeCtx ->
+                    let* response =
+                      Session.runtime_context_block session_manager ~key
+                    in
                     let resp_json =
                       `Assoc [ ("response", `String response) ]
                       |> Yojson.Safe.to_string
                     in
                     Cohttp_lwt_unix.Server.respond_string ~status:`OK
                       ~headers:json_headers ~body:resp_json ()
-                | Error err ->
-                    if not (Session.take_response_deferred session_manager ~key)
-                    then Session.mark_response_sent session_manager ~key;
-                    Cohttp_lwt_unix.Server.respond_string
-                      ~status:`Internal_server_error ~headers:json_headers
-                      ~body:
-                        (Yojson.Safe.to_string
-                           (`Assoc [ ("error", `String err) ]))
-                      ()))
+                | _ -> (
+                    let* result =
+                      Lwt.catch
+                        (fun () ->
+                          let* response =
+                            Session.turn session_manager ~key ~message ()
+                          in
+                          Lwt.return (Ok response))
+                        (fun exn -> Lwt.return (Error (Printexc.to_string exn)))
+                    in
+                    match result with
+                    | Ok response ->
+                        if
+                          not
+                            (Session.take_response_deferred session_manager ~key)
+                        then Session.mark_response_sent session_manager ~key;
+                        let resp_json =
+                          `Assoc [ ("response", `String response) ]
+                          |> Yojson.Safe.to_string
+                        in
+                        Cohttp_lwt_unix.Server.respond_string ~status:`OK
+                          ~headers:json_headers ~body:resp_json ()
+                    | Error err ->
+                        if
+                          not
+                            (Session.take_response_deferred session_manager ~key)
+                        then Session.mark_response_sent session_manager ~key;
+                        Cohttp_lwt_unix.Server.respond_string
+                          ~status:`Internal_server_error ~headers:json_headers
+                          ~body:
+                            (Yojson.Safe.to_string
+                               (`Assoc [ ("error", `String err) ]))
+                          ())))
   | `POST, "/session/inject" -> (
       if require_pairing && not (pairing_auth_ok ~auth_token ?pairing req) then
         let* _ = Cohttp_lwt.Body.drain_body body in
@@ -727,6 +743,12 @@ let handler ~session_manager ~require_pairing ~auth_token
                           "Nothing to compact — session history is already \
                            short enough."
                       | Error err -> Printf.sprintf "Compaction failed: %s" err
+                    in
+                    sse_reply text
+                | Slash_commands.RuntimeCtx ->
+                    let key = "web:" ^ session_id in
+                    let* text =
+                      Session.runtime_context_block session_manager ~key
                     in
                     sse_reply text
                 | Slash_commands.Thinking Slash_commands.ShowThinking ->

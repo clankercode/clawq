@@ -185,17 +185,18 @@ let add_runtime_details lines (details : runtime_context_details) =
       add "## Current Tasks";
       add summary
 
-let build_runtime_context ~(config : Runtime_config.t) ?details () =
-  if not config.prompt.dynamic_enabled then None
+let build_runtime_context ~(config : Runtime_config.t) ?(force_full = false)
+    ?details () =
+  if (not force_full) && not config.prompt.dynamic_enabled then None
   else
     let lines = ref [] in
     let add line = lines := line :: !lines in
-    if config.prompt.include_datetime_section then begin
+    if force_full || config.prompt.include_datetime_section then begin
       add ("- Current UTC: " ^ now_utc_iso8601 ());
       add ("- Local time: " ^ now_local_iso8601 ());
       add ("- Local timezone: " ^ local_timezone_label ())
     end;
-    if config.prompt.include_runtime_section then begin
+    if force_full || config.prompt.include_runtime_section then begin
       add ("- Current working directory: " ^ Sys.getcwd ());
       add ("- Workspace root: " ^ Runtime_config.effective_workspace config);
       (match find_git_root_and_dir (Sys.getcwd ()) with

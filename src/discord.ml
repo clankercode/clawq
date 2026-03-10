@@ -496,6 +496,10 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
           in
           send_message ~bot_token:discord_config.bot_token
             ~channel_id:msg.channel_id ~text
+      | RuntimeCtx ->
+          let* text = Session.runtime_context_block session_mgr ~key in
+          send_message_fn ~bot_token:discord_config.bot_token
+            ~channel_id:msg.channel_id ~text
       | Thinking Slash_commands.ShowThinking ->
           let current =
             (Session.get_config session_mgr).agent_defaults.reasoning_effort

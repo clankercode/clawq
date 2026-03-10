@@ -670,6 +670,21 @@ let runtime_context_details mgr ~agent ~key ~compacted_before_turn =
       | None -> None);
   }
 
+let runtime_context_block mgr ~key =
+  with_session_lock mgr ~key (fun agent _interrupt ->
+      let details =
+        runtime_context_details mgr ~agent ~key ~compacted_before_turn:false
+      in
+      let text =
+        match
+          Prompt_builder.build_runtime_context ~config:mgr.config
+            ~force_full:true ~details ()
+        with
+        | Some ctx -> ctx
+        | None -> "(dynamic prompt disabled -- no runtime context generated)"
+      in
+      Lwt.return text)
+
 let format_context_block ?channel_name ?channel_type ?sender_id ?sender_name ()
     =
   let cn = match channel_name with Some n -> n | None -> "cli" in

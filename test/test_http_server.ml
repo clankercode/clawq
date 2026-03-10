@@ -65,6 +65,42 @@ let test_chat_rejects_missing_auth_token () =
 
 let body_string body = Lwt_main.run (Cohttp_lwt.Body.to_string body)
 
+let test_chat_runtime_ctx_returns_runtime_context () =
+  let config =
+    {
+      Runtime_config.default with
+      prompt = { Runtime_config.default.prompt with dynamic_enabled = false };
+    }
+  in
+  let session_manager = Session.create ~config () in
+  let req =
+    Cohttp.Request.make ~meth:`POST (Uri.of_string "http://127.0.0.1/chat")
+  in
+  let body =
+    Cohttp_lwt.Body.of_string {|{"session_id":"s","message":"/runtime-ctx"}|}
+  in
+  let resp, body =
+    Lwt_main.run
+      (Http_server.handler ~session_manager ~require_pairing:false
+         ~auth_token:None (Obj.magic ()) req body)
+  in
+  Alcotest.(check int)
+    "ok" 200
+    (Cohttp.Code.code_of_status (Cohttp.Response.status resp));
+  let payload = Yojson.Safe.from_string (body_string body) in
+  let open Yojson.Safe.Util in
+  let response = payload |> member "response" |> to_string in
+  let contains needle =
+    try
+      ignore (Str.search_forward (Str.regexp_string needle) response 0);
+      true
+    with Not_found -> false
+  in
+  Alcotest.(check bool)
+    "runtime header present" true
+    (contains "[Runtime context for this turn only]");
+  Alcotest.(check bool) "session id present" true (contains "Session id: web:s")
+
 let test_session_inject_rejects_missing_auth_token () =
   let config = Runtime_config.default in
   let session_manager = Session.create ~config () in
@@ -348,6 +384,8 @@ let suite =
       test_require_pairing_blocks_chat_stream;
     Alcotest.test_case "chat rejects missing auth token" `Quick
       test_chat_rejects_missing_auth_token;
+    Alcotest.test_case "chat runtime ctx returns runtime context" `Quick
+      test_chat_runtime_ctx_returns_runtime_context;
     Alcotest.test_case "session inject rejects missing auth token" `Quick
       test_session_inject_rejects_missing_auth_token;
     Alcotest.test_case "session inject uses session turn" `Quick

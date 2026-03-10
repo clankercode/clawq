@@ -15,6 +15,7 @@ type result =
   | Reply of string
   | Reset
   | Compact
+  | RuntimeCtx
   | Thinking of thinking_action
   | ShowThinking of show_thinking_action
   | Delegate of string
@@ -51,6 +52,7 @@ let commands =
     { name = "help"; description = "Show available commands" };
     { name = "new"; description = "Start a new conversation" };
     { name = "status"; description = "Show bot status" };
+    { name = "runtime_ctx"; description = "Show current runtime context" };
     {
       name = "thinking";
       description = "Show or set thinking level: /thinking [level]";
@@ -128,6 +130,7 @@ let handle text =
         | "help" -> Reply help_text
         | "new" -> Reset
         | "compact" -> Compact
+        | "runtime-ctx" | "runtime_ctx" -> RuntimeCtx
         | "status" -> Reply "Bot is running."
         | "thinking" -> (
             match args with

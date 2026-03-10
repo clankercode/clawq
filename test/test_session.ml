@@ -3077,6 +3077,51 @@ let test_vision_model_keeps_images () =
   let filtered = Agent.filter_content_parts_for_model config content_parts in
   Alcotest.(check int) "all parts kept" 3 (List.length filtered)
 
+let test_runtime_context_block_ignores_prompt_toggles () =
+  let config =
+    {
+      Runtime_config.default with
+      prompt =
+        {
+          Runtime_config.default.prompt with
+          dynamic_enabled = false;
+          include_runtime_section = false;
+          include_datetime_section = false;
+        };
+    }
+  in
+  let session_manager = Session.create ~config () in
+  let output =
+    Lwt_main.run (Session.runtime_context_block session_manager ~key:"__main__")
+  in
+  Alcotest.(check bool)
+    "includes runtime header" true
+    (string_contains output "[Runtime context for this turn only]");
+  Alcotest.(check bool)
+    "includes session id" true
+    (string_contains output "Session id: __main__");
+  Alcotest.(check bool)
+    "includes main session flag" true
+    (string_contains output "Main session: yes");
+  Alcotest.(check bool)
+    "includes workspace" true
+    (string_contains output "Effective workspace:");
+  Alcotest.(check bool)
+    "includes git field" true
+    (string_contains output "Git branch:");
+  Alcotest.(check bool)
+    "includes timezone" true
+    (string_contains output "Local timezone:");
+  Alcotest.(check bool)
+    "includes shell policy" true
+    (string_contains output "Shell policy:");
+  Alcotest.(check bool)
+    "includes context usage" true
+    (string_contains output "Context usage:");
+  Alcotest.(check bool)
+    "includes background tasks" true
+    (string_contains output "Background tasks:")
+
 let suite =
   [
     Alcotest.test_case "reset clears active session and history" `Quick
@@ -3253,4 +3298,6 @@ let suite =
       test_non_vision_model_filters_images;
     Alcotest.test_case "vision model keeps images" `Quick
       test_vision_model_keeps_images;
+    Alcotest.test_case "runtime context block ignores prompt toggles" `Quick
+      test_runtime_context_block_ignores_prompt_toggles;
   ]
