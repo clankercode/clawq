@@ -330,3 +330,4 @@ bugs:
     - file: B329-when-model-discovery-fails-we.todo
     - file: B330-running-clawq-update-from-loca.todo
     - file: B331-refactor-all-files-over-2k-lin.todo
+    - file: B332-add-a-new-agent-tool-thread-su.todo

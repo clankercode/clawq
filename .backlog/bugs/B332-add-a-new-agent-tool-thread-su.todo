@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B332
+priority: high
+status: pending
+tags: []
+title: 'Add a new agent tool: thread summary -- get a summary of a given session_id, so like a ''what is this up to'' kinda thing. We should use the same model as the stuck detector (groq:openai/gpt-oss-120b) to summarize the sesison log. It should be a concise summary and focus on more recent things. Dot point form.'
+---
+
+Add a new agent tool: thread summary -- get a summary of a given session_id, so like a 'what is this up to' kinda thing. We should use the same model as the stuck detector (groq:openai/gpt-oss-120b) to summarize the sesison log. It should be a concise summary and focus on more recent things. Dot point form.
