@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B343
+priority: high
+status: pending
+tags: []
+title: Setup wizard for Cloudflare tunnel
+---
+
+Setup wizard for Cloudflare tunnel
