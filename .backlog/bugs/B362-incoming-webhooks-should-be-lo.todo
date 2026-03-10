@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B362
+priority: high
+status: pending
+tags: []
+title: Incoming webhooks should be logged (not the whole webhook, just a line describing major details)
+---
+
+Incoming webhooks should be logged (not the whole webhook, just a line describing major details)
