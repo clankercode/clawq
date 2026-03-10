@@ -8,8 +8,10 @@ let skip_kinds =
     "kimi";
     "kimi_coding";
     "zai";
+    "zai_coding";
     "minimax";
     "mimo";
+    "openai-codex";
   ]
 
 let default_base_url_for_kind = function

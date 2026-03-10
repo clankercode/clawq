@@ -492,7 +492,14 @@ let flush_memory_tool_schemas =
 
 let dispatch_flush_tool_call ~db (tc : Provider.tool_call) =
   let open Yojson.Safe.Util in
-  let args = try Yojson.Safe.from_string tc.arguments with _ -> `Assoc [] in
+  let args =
+    try Yojson.Safe.from_string tc.arguments
+    with _ ->
+      Logs.warn (fun m ->
+          m "dispatch_flush_tool_call '%s': failed to parse arguments as JSON (raw: %s)"
+            tc.function_name tc.arguments);
+      `Assoc []
+  in
   let content =
     match tc.function_name with
     | "memory_store" ->
@@ -1118,7 +1125,13 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
                           (fun () ->
                             let args =
                               try Yojson.Safe.from_string tc.arguments
-                              with _ -> `Assoc []
+                              with _ ->
+                                Logs.warn (fun m ->
+                                    m
+                                      "Tool call '%s': failed to parse \
+                                       arguments as JSON (raw: %s)"
+                                      tc.function_name tc.arguments);
+                                `Assoc []
                             in
                             let context =
                               {
@@ -1290,7 +1303,13 @@ let execute_tool_calls agent ~db ~audit_enabled ~session_key ?interrupt_check
                           (fun () ->
                             let args =
                               try Yojson.Safe.from_string tc.arguments
-                              with _ -> `Assoc []
+                              with _ ->
+                                Logs.warn (fun m ->
+                                    m
+                                      "Tool call '%s': failed to parse \
+                                       arguments as JSON (raw: %s)"
+                                      tc.function_name tc.arguments);
+                                `Assoc []
                             in
                             let context =
                               {
