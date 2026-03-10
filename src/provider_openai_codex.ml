@@ -469,15 +469,15 @@ let do_request ~provider_name ~provider ~model ~messages ?tools ~on_chunk () =
             0 messages
         in
         let large_request =
-          List.length messages > 150 || estimated_tokens > 100_000
+          List.length messages > 150 || estimated_tokens > 75_000
         in
         let msg =
           if status = 400 && string_contains body "Bad Request" && large_request
           then
             Printf.sprintf
-              "OpenAI Codex error (HTTP %d): context length likely exceeded \
-               (%s)"
-              status body
+              "OpenAI Codex error (HTTP %d): possible context length issue \
+               (msgs=%d ~%dk tok; raw: %s)"
+              status (List.length messages) (estimated_tokens / 1000) body
           else Printf.sprintf "OpenAI Codex error (HTTP %d): %s" status body
         in
         Lwt.fail_with msg
