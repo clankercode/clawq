@@ -745,7 +745,8 @@ let handler ~session_manager ~require_pairing ~auth_token
                           let agent_defaults =
                             { cfg.agent_defaults with reasoning_effort = level }
                           in
-                          Session.update_config session_manager
+                          Session.update_config ~source:"gateway_api"
+                            session_manager
                             { cfg with agent_defaults };
                           Printf.sprintf "Thinking level changed from %s to %s."
                             (Slash_commands.thinking_level_to_string previous)
@@ -771,7 +772,8 @@ let handler ~session_manager ~require_pairing ~auth_token
                                   show_thinking = new_val;
                                 }
                               in
-                              Session.update_config session_manager
+                              Session.update_config ~source:"gateway_api"
+                                session_manager
                                 { cfg with agent_defaults };
                               Printf.sprintf "Show thinking: %s"
                                 (if new_val then "on" else "off")
@@ -892,7 +894,8 @@ let handler ~session_manager ~require_pairing ~auth_token
                             let agent_defaults =
                               { cfg.agent_defaults with primary_model = name }
                             in
-                            Session.update_config session_manager
+                            Session.update_config ~source:"gateway_api"
+                              session_manager
                               { cfg with agent_defaults };
                             let _ = Model_preferences.increment_usage name in
                             sse_reply
@@ -918,7 +921,8 @@ let handler ~session_manager ~require_pairing ~auth_token
                                     primary_model = name;
                                   }
                                 in
-                                Session.update_config session_manager
+                                Session.update_config ~source:"gateway_api"
+                                  session_manager
                                   { cfg with agent_defaults };
                                 let _ =
                                   Model_preferences.increment_usage name
@@ -932,7 +936,8 @@ let handler ~session_manager ~require_pairing ~auth_token
                                     primary_model = name;
                                   }
                                 in
-                                Session.update_config session_manager
+                                Session.update_config ~source:"gateway_api"
+                                  session_manager
                                   { cfg with agent_defaults };
                                 let _ =
                                   Model_preferences.increment_usage name

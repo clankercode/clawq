@@ -1524,7 +1524,8 @@ let run ~(config : Runtime_config.t) =
         try
           let new_config = Config_loader.load () in
           current_config := new_config;
-          Session.update_config session_manager new_config;
+          Session.update_config ~source:"config_reload" session_manager
+            new_config;
           (match tool_registry with
           | Some registry ->
               refresh_runtime_bound_tools ~config:new_config registry
@@ -1718,7 +1719,8 @@ let run ~(config : Runtime_config.t) =
                  last_config_mtime := st.Unix.st_mtime;
                  let new_config = Config_loader.load () in
                  current_config := new_config;
-                 Session.update_config session_manager new_config;
+                 Session.update_config ~source:"config_reload" session_manager
+                   new_config;
                  (match tool_registry with
                  | Some registry ->
                      refresh_runtime_bound_tools ~config:new_config registry

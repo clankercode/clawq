@@ -533,7 +533,7 @@ let cmd_onboard () =
     }
   },
   "agent_defaults": {
-    "primary_model": "openai/gpt-4o"
+    "primary_model": "openai/gpt-5.4"
   },
   "security": {
     "workspace_only": true,

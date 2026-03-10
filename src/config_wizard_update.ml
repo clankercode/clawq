@@ -26,7 +26,7 @@ let provider_names =
 let model_presets =
   [
     Openai_codex_oauth.default_model;
-    "openai/gpt-4o";
+    "openai/gpt-5.4";
     "anthropic/claude-sonnet-4-6";
     "anthropic/claude-haiku-4-5";
     "groq/llama-3.3-70b";

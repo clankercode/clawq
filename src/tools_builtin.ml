@@ -3396,7 +3396,7 @@ let models_tool ~(config : Runtime_config.t) ?session_mgr () =
             let new_agent_defaults =
               { cfg.agent_defaults with primary_model = model }
             in
-            Session.update_config mgr
+            Session.update_config ~source:"tool:set_model" mgr
               { cfg with agent_defaults = new_agent_defaults };
             Model_preferences.increment_usage model |> ignore;
             result
@@ -3404,7 +3404,8 @@ let models_tool ~(config : Runtime_config.t) ?session_mgr () =
     | None ->
         Printf.sprintf
           "Error: model '%s' not found in catalog. Use 'models list' to see \
-           available models. Format: provider/model-name (e.g., openai/gpt-4o)"
+           available models. Format: provider/model-name (e.g., \
+           openai/gpt-5.4)"
           model
   in
   {
@@ -3412,7 +3413,7 @@ let models_tool ~(config : Runtime_config.t) ?session_mgr () =
     description =
       "List available LLM models, get the current model, or set the model for \
        this session. Models are specified in provider/model format (e.g., \
-       anthropic/claude-sonnet-4-5, openai/gpt-4o). Use 'list' to discover \
+       anthropic/claude-sonnet-4-6, openai/gpt-5.4). Use 'list' to discover \
        available models.";
     parameters_schema =
       `Assoc
@@ -3441,7 +3442,7 @@ let models_tool ~(config : Runtime_config.t) ?session_mgr () =
                       ( "description",
                         `String
                           "Model name for 'set' action (provider/model format, \
-                           e.g., openai/gpt-4o)" );
+                           e.g., openai/gpt-5.4)" );
                     ] );
                 ( "provider",
                   `Assoc
@@ -3474,7 +3475,7 @@ let models_tool ~(config : Runtime_config.t) ?session_mgr () =
             if model = "" then
               Lwt.return
                 "Error: model parameter is required for 'set' action. Specify \
-                 a model in provider/model format (e.g., openai/gpt-4o). Use \
+                 a model in provider/model format (e.g., openai/gpt-5.4). Use \
                  'models list' to see available models."
             else Lwt.return (set_model model)
         | _ ->

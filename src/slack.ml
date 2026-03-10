@@ -33,7 +33,8 @@ let set_thinking_level ~(session_manager : Session.t) ~channel_id ~user_id level
       let agent_defaults =
         { cfg.agent_defaults with reasoning_effort = level }
       in
-      Session.update_config session_manager { cfg with agent_defaults };
+      Session.update_config ~source:"slack" session_manager
+        { cfg with agent_defaults };
       Logs.info (fun m ->
           m "Slack thinking level updated channel=%s user=%s from=%s to=%s"
             channel_id user_id
@@ -387,7 +388,7 @@ let handle_event ~(config : Runtime_config.slack_config)
                           let agent_defaults =
                             { cfg.agent_defaults with show_thinking = new_val }
                           in
-                          Session.update_config session_manager
+                          Session.update_config ~source:"slack" session_manager
                             { cfg with agent_defaults };
                           Logs.info (fun m ->
                               m
@@ -477,7 +478,7 @@ let handle_event ~(config : Runtime_config.slack_config)
                         let agent_defaults =
                           { cfg.agent_defaults with primary_model = name }
                         in
-                        Session.update_config session_manager
+                        Session.update_config ~source:"slack" session_manager
                           { cfg with agent_defaults };
                         let _ = Model_preferences.increment_usage name in
                         let* () =

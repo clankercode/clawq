@@ -24,7 +24,8 @@ let set_thinking_level ~(session_mgr : Session.t) ~channel_id ~author_id level =
       let agent_defaults =
         { cfg.agent_defaults with reasoning_effort = level }
       in
-      Session.update_config session_mgr { cfg with agent_defaults };
+      Session.update_config ~source:"discord" session_mgr
+        { cfg with agent_defaults };
       Logs.info (fun m ->
           m "Discord thinking level updated channel=%s user=%s from=%s to=%s"
             channel_id author_id
@@ -519,7 +520,7 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                     let agent_defaults =
                       { cfg.agent_defaults with show_thinking = new_val }
                     in
-                    Session.update_config session_mgr
+                    Session.update_config ~source:"discord" session_mgr
                       { cfg with agent_defaults };
                     Logs.info (fun m ->
                         m
@@ -587,7 +588,8 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                   let agent_defaults =
                     { cfg.agent_defaults with primary_model = name }
                   in
-                  Session.update_config session_mgr { cfg with agent_defaults };
+                  Session.update_config ~source:"discord" session_mgr
+                    { cfg with agent_defaults };
                   let _ = Model_preferences.increment_usage name in
                   send_message_fn ~bot_token:discord_config.bot_token
                     ~channel_id:msg.channel_id

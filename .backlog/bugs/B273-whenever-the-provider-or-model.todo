@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-10T00:57:04Z"
+claimed_by: cli-user
+completed_at: "2026-03-10T01:04:32Z"
 complexity: medium
 depends_on: []
+duration_minutes: 7.4751109819
 estimate_hours: 1
 id: B273
 priority: high
-status: pending
+started_at: "2026-03-10T00:57:04Z"
+status: done
 tags: []
 title: Whenever the provider or model on a thread is changed, there should be a log message about it (eg when /model set x is called from telegram, or it's set from the CLI, or from gateway API, etc)
 ---

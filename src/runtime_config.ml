@@ -426,7 +426,7 @@ let default =
     model_context_limits = [];
     agent_defaults =
       {
-        primary_model = "openai/gpt-4o";
+        primary_model = "openai/gpt-5.4";
         system_prompt = "";
         max_tool_iterations = 10;
         tool_search_enabled = false;

@@ -64,7 +64,7 @@ let models_cmd =
         );
       `I
         ( "set-default MODEL",
-          "Set default model (e.g. anthropic/claude-sonnet-4-5)." );
+          "Set default model (e.g. anthropic/claude-sonnet-4-6)." );
     ]
 
 let usage_cmd =

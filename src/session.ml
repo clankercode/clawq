@@ -1214,8 +1214,18 @@ let get_config mgr = mgr.config
 let get_tool_registry mgr = mgr.tool_registry
 let get_db mgr = mgr.db
 
-let update_config mgr config =
+let update_config ?(source = "") mgr config =
+  let old_model = mgr.config.Runtime_config.agent_defaults.primary_model in
+  let new_model = config.Runtime_config.agent_defaults.primary_model in
   mgr.config <- config;
+  if old_model <> new_model then
+    if source = "" then
+      Logs.info (fun m ->
+          m "Primary model changed from '%s' to '%s'" old_model new_model)
+    else
+      Logs.info (fun m ->
+          m "Primary model changed from '%s' to '%s' [source: %s]" old_model
+            new_model source);
   Hashtbl.iter
     (fun key (agent, _, _) ->
       agent.Agent.config <- config;
