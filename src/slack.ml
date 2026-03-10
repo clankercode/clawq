@@ -347,19 +347,25 @@ let handle_event ~(config : Runtime_config.slack_config)
                 in
                 Lwt.return "ok"
             | Compact ->
-                let* compact_result = Session.compact session_manager ~key in
-                let text =
-                  match compact_result with
-                  | Ok true ->
-                      "Session history compacted. Older messages have been \
-                       summarized."
-                  | Ok false ->
-                      "Nothing to compact — session history is already short \
-                       enough."
-                  | Error err -> Printf.sprintf "Compaction failed: %s" err
+                let notifier =
+                  make_status_notifier ~bot_token:config.bot_token ~channel_id
+                in
+                let* compact_result =
+                  Session.compact session_manager ~key ~notifier ()
                 in
                 let* () =
-                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
+                  match compact_result with
+                  | Ok true ->
+                      (* Final state already rendered into the live progress message *)
+                      Lwt.return_unit
+                  | Ok false ->
+                      send_message_fn ~bot_token:config.bot_token ~channel_id
+                        ~text:
+                          "Nothing to compact \xe2\x80\x94 session history is \
+                           already short enough."
+                  | Error err ->
+                      send_message_fn ~bot_token:config.bot_token ~channel_id
+                        ~text:(Printf.sprintf "Compaction failed: %s" err)
                 in
                 Lwt.return "ok"
             | RuntimeCtx ->

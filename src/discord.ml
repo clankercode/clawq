@@ -483,19 +483,26 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
           let* () = Session.reset session_mgr ~key in
           send_message_fn ~bot_token:discord_config.bot_token
             ~channel_id:msg.channel_id ~text:Slash_commands.reset_message
-      | Compact ->
-          let* compact_result = Session.compact session_mgr ~key in
-          let text =
-            match compact_result with
-            | Ok true ->
-                "Session history compacted. Older messages have been \
-                 summarized."
-            | Ok false ->
-                "Nothing to compact — session history is already short enough."
-            | Error err -> Printf.sprintf "Compaction failed: %s" err
+      | Compact -> (
+          let notifier =
+            make_status_notifier ~bot_token:discord_config.bot_token
+              ~channel_id:msg.channel_id
           in
-          send_message ~bot_token:discord_config.bot_token
-            ~channel_id:msg.channel_id ~text
+          let* compact_result = Session.compact session_mgr ~key ~notifier () in
+          match compact_result with
+          | Ok true ->
+              (* Final state already rendered into the live progress message *)
+              Lwt.return_unit
+          | Ok false ->
+              send_message ~bot_token:discord_config.bot_token
+                ~channel_id:msg.channel_id
+                ~text:
+                  "Nothing to compact \xe2\x80\x94 session history is already \
+                   short enough."
+          | Error err ->
+              send_message ~bot_token:discord_config.bot_token
+                ~channel_id:msg.channel_id
+                ~text:(Printf.sprintf "Compaction failed: %s" err))
       | RuntimeCtx ->
           let* text = Session.runtime_context_block session_mgr ~key in
           send_message_fn ~bot_token:discord_config.bot_token

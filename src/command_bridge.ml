@@ -595,6 +595,11 @@ let cmd_config args =
           | Error err -> err))
   | [ "get"; key ] -> Config_set.get_value_redacted key
   | "show" :: rest -> Config_show.show (List.nth_opt rest 0)
+  | "search" :: rest -> (
+      match rest with
+      | [ query ] -> Config_search.search query
+      | [] -> Config_search.search ""
+      | _ -> Config_search.search (String.concat " " rest))
   | _ ->
       "Usage: clawq config <subcommand>\n\n\
        Subcommands:\n\
@@ -602,7 +607,8 @@ let cmd_config args =
       \  set KEY VALUE    Set a config value by dot-path\n\
       \  set KEY          Prompt for value (secret keys only, hidden input)\n\
       \  get KEY          Get a config value by dot-path (secrets redacted)\n\
-      \  show [SECTION]   Display current config (secrets redacted)"
+      \  show [SECTION]   Display current config (secrets redacted)\n\
+      \  search QUERY     Search config keys matching QUERY"
 
 let cmd_models args =
   match args with

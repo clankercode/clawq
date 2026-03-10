@@ -16,6 +16,13 @@ type compaction_info = {
   context_window : int;
 }
 
+type compact_callbacks = {
+  on_step_start : string -> string -> unit Lwt.t;
+      (** [on_step_start name emoji] called when a compaction sub-step begins *)
+  on_step_done : string -> float -> unit Lwt.t;
+      (** [on_step_done name duration_s] called when a sub-step finishes *)
+}
+
 let string_contains_ci_small s sub =
   let sl = String.lowercase_ascii s in
   let subl = String.lowercase_ascii sub in
@@ -710,7 +717,7 @@ let compact_history_if_needed agent ?db () =
   end
   else Lwt.return_none
 
-let force_compact_history agent ?db () =
+let force_compact_history agent ?db ?compact_cbs () =
   let open Lwt.Syntax in
   let pre_tokens = estimate_history_tokens agent.history in
   let cw = context_window_for_agent agent in
@@ -736,13 +743,18 @@ let force_compact_history agent ?db () =
     in
     if to_compact = [] then Lwt.return_none
     else begin
-      (* Launch background memory flush before compaction destroys detail *)
-      (match db with
-      | Some db when agent.config.memory.pre_compaction_flush ->
-          let snapshot = List.map Fun.id to_compact in
-          let flush_config = agent.config in
-          let system_prompt = agent.system_prompt in
-          Lwt.async (fun () ->
+      (* Launch memory flush before compaction destroys detail.
+         With compact_cbs: run synchronously so progress can be tracked.
+         Without compact_cbs: run in background (existing behaviour). *)
+      let* () =
+        match (db, compact_cbs, agent.config.memory.pre_compaction_flush) with
+        | Some db, Some cbs, true ->
+            let snapshot = List.map Fun.id to_compact in
+            let flush_config = agent.config in
+            let system_prompt = agent.system_prompt in
+            let t0 = Unix.gettimeofday () in
+            let* () = cbs.on_step_start "Save memories" "\xf0\x9f\xa7\xa0" in
+            let* () =
               Lwt.catch
                 (fun () ->
                   flush_memories_before_compaction ~config:flush_config
@@ -751,10 +763,29 @@ let force_compact_history agent ?db () =
                   Logs.warn (fun m ->
                       m "Pre-compaction memory flush failed: %s"
                         (Printexc.to_string exn));
-                  Lwt.return_unit))
-      | _ ->
-          Logs.debug (fun m ->
-              m "Pre-compaction memory flush: skipped (disabled)"));
+                  Lwt.return_unit)
+            in
+            cbs.on_step_done "Save memories" (Unix.gettimeofday () -. t0)
+        | Some db, None, true ->
+            let snapshot = List.map Fun.id to_compact in
+            let flush_config = agent.config in
+            let system_prompt = agent.system_prompt in
+            Lwt.async (fun () ->
+                Lwt.catch
+                  (fun () ->
+                    flush_memories_before_compaction ~config:flush_config
+                      ~system_prompt ~db ~to_compact:snapshot)
+                  (fun exn ->
+                    Logs.warn (fun m ->
+                        m "Pre-compaction memory flush failed: %s"
+                          (Printexc.to_string exn));
+                    Lwt.return_unit));
+            Lwt.return_unit
+        | _ ->
+            Logs.debug (fun m ->
+                m "Pre-compaction memory flush: skipped (disabled)");
+            Lwt.return_unit
+      in
       (* Preserve the chronologically last message from integrity stripping:
          when called mid-turn (e.g. via compact_history tool), the newest
          assistant message has tool_calls whose results haven't been appended
@@ -769,8 +800,34 @@ let force_compact_history agent ?db () =
       let mid = List.length to_compact / 2 in
       let first_half = List.filteri (fun i _ -> i < mid) to_compact in
       let second_half = List.filteri (fun i _ -> i >= mid) to_compact in
-      let* summary1 = summarize_messages agent first_half in
-      let* summary2 = summarize_messages agent second_half in
+      let* summary1 =
+        match compact_cbs with
+        | Some cbs ->
+            let t0 = Unix.gettimeofday () in
+            let* () =
+              cbs.on_step_start "Summarize (part 1)" "\xe2\x9c\x82\xef\xb8\x8f"
+            in
+            let* s = summarize_messages agent first_half in
+            let* () =
+              cbs.on_step_done "Summarize (part 1)" (Unix.gettimeofday () -. t0)
+            in
+            Lwt.return s
+        | None -> summarize_messages agent first_half
+      in
+      let* summary2 =
+        match compact_cbs with
+        | Some cbs ->
+            let t0 = Unix.gettimeofday () in
+            let* () =
+              cbs.on_step_start "Summarize (part 2)" "\xe2\x9c\x82\xef\xb8\x8f"
+            in
+            let* s = summarize_messages agent second_half in
+            let* () =
+              cbs.on_step_done "Summarize (part 2)" (Unix.gettimeofday () -. t0)
+            in
+            Lwt.return s
+        | None -> summarize_messages agent second_half
+      in
       let merged_summary =
         Printf.sprintf
           "[Conversation history compacted]\n\n\

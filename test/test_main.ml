@@ -104,6 +104,7 @@ let () =
        ("telegram_dedupe", Test_telegram_dedupe.suite);
        ("config_set", Test_config_set.suite);
        ("config_show", Test_config_show.suite);
+       ("config_search", Test_config_search.suite);
        ("config_wizard", Test_config_wizard.suite);
        ("status_message", Test_status_message.suite);
        ("format_adapter", Test_format_adapter.suite);

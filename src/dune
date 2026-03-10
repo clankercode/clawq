@@ -62,6 +62,7 @@
   chat_ui_assets
   config_set
   config_show
+  config_search
   config_wizard_model
   cli_exit
   config_wizard_update

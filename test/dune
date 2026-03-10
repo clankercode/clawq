@@ -19,6 +19,7 @@
   test_config_loader
   test_config_set
   test_config_show
+  test_config_search
   test_config_wizard
   test_connector_tool_calls
   test_contracts

@@ -502,6 +502,38 @@ let config_leaf_paths () =
   in
   List.rev (collect [] [] config_schema)
 
+(** Returns all schema paths: both settable leaf values and intermediate
+    sections. Each entry is (path, kind) where kind is [`Leaf] or [`Section].
+    Leaf paths are directly gettable/settable. Section paths are navigable
+    containers (useful for 'config show' and 'config search'). Dynamic keys use
+    the literal placeholder [<NAME>]. *)
+let all_schema_paths () =
+  let rec collect acc prefix add_self = function
+    | L ->
+        let path = String.concat "." (List.rev prefix) in
+        (path, `Leaf) :: acc
+    | O fields ->
+        let acc =
+          if add_self && prefix <> [] then
+            let path = String.concat "." (List.rev prefix) in
+            (path, `Section) :: acc
+          else acc
+        in
+        List.fold_left
+          (fun acc (name, child) -> collect acc (name :: prefix) true child)
+          acc fields
+    | D child ->
+        let acc =
+          if prefix <> [] then
+            let path = String.concat "." (List.rev prefix) ^ ".<NAME>" in
+            (path, `Section) :: acc
+          else acc
+        in
+        (* Recurse into child without re-adding the current path as a section *)
+        collect acc ("<NAME>" :: prefix) false child
+  in
+  List.rev (collect [] [] true config_schema)
+
 let is_secret_path key =
   let segments = split_path key in
   match segments with

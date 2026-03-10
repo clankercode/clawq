@@ -376,6 +376,7 @@ let config_cmd =
       `I ("set KEY VALUE", "Set a config value by dot-path.");
       `I ("get KEY", "Get a config value by dot-path.");
       `I ("show [SECTION]", "Display current config (secrets redacted).");
+      `I ("search QUERY", "Search config keys matching QUERY.");
     ]
 
 let phase2_cmd = simple "phase2" "Show Phase 2 feature status."

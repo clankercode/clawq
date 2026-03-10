@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-10T07:50:49Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B315
 priority: high
-status: pending
+started_at: "2026-03-10T07:50:49Z"
+status: in_progress
 tags: []
 title: after compacting, we send 'Session history compacted. Older messages have been summarized.' atm. We should instead send a message when we start compacting with a checklist of the various subtasks to do (memory, summarize, etc). This message should have an emoji and be well styled. This message should get updated as the subtasks finish and show that they are finished + their duration. When everything is complete, we should update this message to show compaction complete + emoji + overall duration.
 ---

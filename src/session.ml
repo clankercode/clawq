@@ -1499,20 +1499,101 @@ let reset mgr ~key =
       Lwt.return_unit
   | None -> Lwt.return_unit
 
-let compact mgr ~key =
+let compact_progress_render ~steps ~overall_start ~finished =
+  let buf = Buffer.create 256 in
+  if finished then
+    Buffer.add_string buf
+      (Printf.sprintf "\xe2\x9c\x85 Session history compacted \xe2\x80\x94 %s\n"
+         (Status_message.format_duration
+            (Unix.gettimeofday () -. overall_start)))
+  else
+    Buffer.add_string buf
+      "\xf0\x9f\x97\x9c\xef\xb8\x8f Compacting session history\xe2\x80\xa6\n";
+  List.iter
+    (fun (name, emoji, started_at, done_at_opt) ->
+      match done_at_opt with
+      | None ->
+          Buffer.add_string buf
+            (Printf.sprintf "\xe2\x8f\xb3 %s %s\n" emoji name)
+      | Some done_at ->
+          Buffer.add_string buf
+            (Printf.sprintf "\xe2\x9c\x93 %s %s \xe2\x80\x94 %s\n" emoji name
+               (Status_message.format_duration (done_at -. started_at))))
+    !steps;
+  let s = Buffer.contents buf in
+  let n = String.length s in
+  if n > 0 && s.[n - 1] = '\n' then String.sub s 0 (n - 1) else s
+
+let compact mgr ~key ?notifier () =
   let open Lwt.Syntax in
   Logs.info (fun m ->
       m "/compact requested for session %s — starting compaction" key);
+  (* Build progress-tracking callbacks when a notifier is provided. *)
+  let compact_cbs, finalize_progress =
+    match notifier with
+    | None -> (None, fun _finished -> Lwt.return_unit)
+    | Some (n : Status_message.notifier) ->
+        let steps : (string * string * float * float option) list ref =
+          ref []
+        in
+        let msg_id : string option ref = ref None in
+        let overall_start = Unix.gettimeofday () in
+        let send_or_edit text =
+          Lwt.catch
+            (fun () ->
+              match !msg_id with
+              | None ->
+                  let* id = n.send text in
+                  msg_id := Some id;
+                  Lwt.return_unit
+              | Some id ->
+                  let* _ = n.edit id text in
+                  Lwt.return_unit)
+            (fun exn ->
+              Logs.warn (fun m ->
+                  m "Compact progress update failed: %s"
+                    (Printexc.to_string exn));
+              Lwt.return_unit)
+        in
+        let on_step_start name emoji =
+          let now = Unix.gettimeofday () in
+          steps := !steps @ [ (name, emoji, now, None) ];
+          send_or_edit
+            (compact_progress_render ~steps ~overall_start ~finished:false)
+        in
+        let on_step_done name dur =
+          steps :=
+            List.map
+              (fun (n', e, s, d) ->
+                if n' = name then (n', e, s, Some (s +. dur)) else (n', e, s, d))
+              !steps;
+          send_or_edit
+            (compact_progress_render ~steps ~overall_start ~finished:false)
+        in
+        let cbs = Agent.{ on_step_start; on_step_done } in
+        let finalize finished =
+          send_or_edit (compact_progress_render ~steps ~overall_start ~finished)
+        in
+        (Some cbs, finalize)
+  in
   (* Use with_session_lock which calls get_or_create_locked, ensuring the
      session is loaded from DB if it exists but isn't in memory yet (e.g.
      after daemon restart). *)
-  with_session_lock mgr ~key (fun agent _interrupt ->
-      let* compaction_info = Agent.force_compact_history agent ?db:mgr.db () in
-      match compaction_info with
-      | Some _ ->
-          persist_compacted_history mgr ~key agent;
-          Lwt.return (Ok true)
-      | None -> Lwt.return (Ok false))
+  let* result =
+    with_session_lock mgr ~key (fun agent _interrupt ->
+        let* compaction_info =
+          Agent.force_compact_history agent ?db:mgr.db ?compact_cbs ()
+        in
+        match compaction_info with
+        | Some _ ->
+            persist_compacted_history mgr ~key agent;
+            Lwt.return (Ok true)
+        | None -> Lwt.return (Ok false))
+  in
+  let* () =
+    match result with Ok true -> finalize_progress true | _ -> Lwt.return_unit
+  in
+  Lwt.return result
 
 let rec schedule_autonomous_continuation ?delay ?(around_turn = fun f -> f ())
     ?(on_response = fun _response -> Lwt.return_unit) mgr ~key =

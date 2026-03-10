@@ -2942,7 +2942,7 @@ let test_compact_loads_session_from_db_when_not_in_memory () =
   Alcotest.(check bool)
     "session not in memory before compact" false
     (Hashtbl.mem mgr.sessions "telegram:42:user1");
-  let result = Lwt_main.run (Session.compact mgr ~key:"telegram:42:user1") in
+  let result = Lwt_main.run (Session.compact mgr ~key:"telegram:42:user1" ()) in
   (* Before the fix, this returned Error "Session not found".
      Now it should load the session from DB and return Ok _. *)
   match result with

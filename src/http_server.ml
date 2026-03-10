@@ -528,7 +528,7 @@ let handler ~session_manager ~require_pairing ~auth_token
                     Lwt.catch
                       (fun () ->
                         let* compaction_result =
-                          Session.compact session_manager ~key:session_key
+                          Session.compact session_manager ~key:session_key ()
                         in
                         Lwt.return (Ok compaction_result))
                       (fun exn -> Lwt.return (Error (Printexc.to_string exn)))
@@ -732,7 +732,7 @@ let handler ~session_manager ~require_pairing ~auth_token
                 | Slash_commands.Compact ->
                     let key = "web:" ^ session_id in
                     let* compact_result =
-                      Session.compact session_manager ~key
+                      Session.compact session_manager ~key ()
                     in
                     let text =
                       match compact_result with
