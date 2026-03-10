@@ -5,8 +5,30 @@ estimate_hours: 2
 id: B306
 priority: high
 status: pending
-tags: []
+tags: [mcp, zai, tools]
 title: Add Z.ai MCP websearch and webfetch tools with config integration
 ---
+## Summary
+Add native support for Z.ai's MCP-powered websearch and webfetch tools. These should be exposed as first-class tools in clawq, configured via a dedicated config section, and automatically reuse existing `zai` or `zai_coding` API keys.
 
-Add Z.ai MCP websearch and webfetch tools with config integration
+## Acceptance Criteria
+- Config schema has new `zai_mcp` object with fields for enabling/configuring websearch and webfetch
+- If `zai_mcp` is enabled but no explicit API key is set, auto-detect and reuse `providers.zai.api_key` or `providers.zai_coding.api_key`
+- Two new tools: `zai_websearch` and `zai_webfetch` (or similar naming)
+- Tools call Z.ai's MCP endpoints for websearch/webfetch functionality
+- Documentation updated in llms-full.txt and relevant docs
+
+## Research Needed
+- Find Z.ai MCP websearch/webfetch API docs (URLs, request/response formats)
+- Determine authentication method (API key in header vs other)
+- Check rate limits and pricing if applicable
+
+## Files to Modify
+- src/runtime_config.ml (add zai_mcp config type)
+- src/config_loader.ml (parse zai_mcp config)
+- src/tools_builtin.ml (add websearch/webfetch tool implementations)
+- src/provider.ml or src/http_client.ml (API calls if needed)
+- docs/public/llms-full.txt
+
+## Delegation
+Use opencode glm-5 to research Z.ai MCP docs and implement.
