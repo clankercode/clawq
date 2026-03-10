@@ -345,3 +345,4 @@ bugs:
     - file: B344-setup-wizard-for-ms-teams.todo
     - file: B345-setup-wizard-for-github-webhoo.todo
     - file: B346-setup-wizard-for-discord.todo
+    - file: B347-setup-wizard-for-slack.todo
