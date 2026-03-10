@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-10T01:26:20Z"
+claimed_by: cli-user
+completed_at: "2026-03-10T01:34:48Z"
 complexity: medium
 depends_on: []
+duration_minutes: 8.472265157483333
 estimate_hours: 1
 id: B272
 priority: high
-status: pending
+started_at: "2026-03-10T01:26:20Z"
+status: done
 tags: []
 title: when running `/model set gpt-5.4` in telegram, it sets the model to openai-codex/gpt-5.4.
 ---

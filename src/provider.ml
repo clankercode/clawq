@@ -526,7 +526,8 @@ let select_provider ~(config : Runtime_config.t)
     | Some requested when requested = provider_name -> model_target.model
     | Some _ -> raw_model
     | _ -> (
-        match provider.default_model with Some m -> m | None -> raw_model)
+        if raw_model <> "" then raw_model
+        else match provider.default_model with Some m -> m | None -> raw_model)
   in
   (* Quota-aware deprioritisation: if the selected provider is constrained and
      an unconstrained alternative exists, prefer the alternative. *)
@@ -568,9 +569,11 @@ let select_provider ~(config : Runtime_config.t)
                 m "[quota] deprioritized %s (constrained), routing to %s"
                   provider_name alt_name);
             let alt_model =
-              match alt_p.Runtime_config.default_model with
-              | Some m -> m
-              | None -> raw_model
+              if raw_model <> "" then raw_model
+              else
+                match alt_p.Runtime_config.default_model with
+                | Some m -> m
+                | None -> raw_model
             in
             (alt_name, alt_p, alt_model))
 

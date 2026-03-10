@@ -419,6 +419,89 @@ let test_anthropic_content_parts () =
       | _ -> Alcotest.fail "expected list content")
   | _ -> Alcotest.fail "expected single message"
 
+let test_select_provider_bare_model_overrides_default () =
+  let config =
+    {
+      Runtime_config.default with
+      providers =
+        [
+          ( "openai-codex",
+            {
+              Runtime_config.default_provider_config with
+              kind = Some "openai-codex";
+              base_url = Some "https://chatgpt.com/backend-api/codex";
+              default_model = Some "openai-codex/gpt-5-codex";
+              codex_oauth =
+                Some
+                  {
+                    Runtime_config.access_token = "access-token";
+                    refresh_token = "refresh-token";
+                    expires_at_ms = 1730000000000;
+                    account_id = None;
+                    email = None;
+                  };
+            } );
+        ];
+      agent_defaults =
+        { Runtime_config.default.agent_defaults with primary_model = "gpt-5.4" };
+    }
+  in
+  let provider_name, _provider, model = Provider.select_provider ~config () in
+  Alcotest.(check string) "routes to codex" "openai-codex" provider_name;
+  Alcotest.(check string) "uses user model not default" "gpt-5.4" model
+
+let test_select_provider_quota_fallback_respects_user_model () =
+  let config =
+    {
+      Runtime_config.default with
+      providers =
+        [
+          ( "constrained-provider",
+            {
+              Runtime_config.default_provider_config with
+              api_key = "sk-constrained";
+              quota_threshold = Some 0.8;
+            } );
+          ( "alternative-provider",
+            {
+              Runtime_config.default_provider_config with
+              api_key = "sk-alternative";
+              default_model = Some "alternative/default-model";
+            } );
+        ];
+      agent_defaults =
+        { Runtime_config.default.agent_defaults with primary_model = "gpt-5.4" };
+    }
+  in
+  let quota_states =
+    [
+      ( "constrained-provider",
+        {
+          Provider_quota.provider_name = "constrained-provider";
+          state =
+            Provider_quota.Known
+              {
+                session =
+                  Some
+                    {
+                      used_pct = 90.0;
+                      resets_at = None;
+                      window_duration_s = None;
+                    };
+                weekly = None;
+                monthly = None;
+              };
+          fetched_at = Unix.gettimeofday ();
+        } );
+    ]
+  in
+  let provider_name, _provider, model =
+    Provider.select_provider ~config ~quota_states ()
+  in
+  Alcotest.(check string)
+    "routes to alternative" "alternative-provider" provider_name;
+  Alcotest.(check string) "uses user model not alt default" "gpt-5.4" model
+
 let suite =
   [
     Alcotest.test_case "strip date suffix + normalize" `Quick
@@ -490,4 +573,8 @@ let suite =
       test_detect_mime_type_fallback;
     Alcotest.test_case "anthropic content parts" `Quick
       test_anthropic_content_parts;
+    Alcotest.test_case "select_provider bare model overrides default" `Quick
+      test_select_provider_bare_model_overrides_default;
+    Alcotest.test_case "select_provider quota fallback respects user model"
+      `Quick test_select_provider_quota_fallback_respects_user_model;
   ]
