@@ -449,6 +449,29 @@ let test_to_json_preserves_codex_oauth_provider () =
     (json |> member "providers" |> member "openai-codex" |> member "codex_oauth"
    |> member "access_token" |> to_string)
 
+let test_parse_zai_mcp_with_provider_fallback () =
+  let json =
+    Yojson.Safe.from_string
+      {|{
+        "providers": {
+          "zai": {"api_key": "sk-zai-provider"}
+        },
+        "zai_mcp": {
+          "enabled": true,
+          "websearch_enabled": true,
+          "webfetch_enabled": false
+        }
+      }|}
+  in
+  let cfg = Config_loader.parse_config json in
+  match cfg.zai_mcp with
+  | None -> Alcotest.fail "expected zai_mcp config"
+  | Some zm ->
+      Alcotest.(check string)
+        "api key falls back to provider" "sk-zai-provider" zm.key;
+      Alcotest.(check bool) "websearch enabled" true zm.websearch_enabled;
+      Alcotest.(check bool) "webfetch disabled" false zm.webfetch_enabled
+
 let test_backfill_preserves_existing_providers () =
   let json =
     {|{
@@ -548,6 +571,8 @@ let suite =
       test_parse_codex_oauth_provider;
     Alcotest.test_case "to_json preserves codex oauth provider" `Quick
       test_to_json_preserves_codex_oauth_provider;
+    Alcotest.test_case "parse zai mcp with provider fallback" `Quick
+      test_parse_zai_mcp_with_provider_fallback;
     Alcotest.test_case "backfill preserves existing providers" `Quick
       test_backfill_preserves_existing_providers;
     Alcotest.test_case "parse provider thinking fields" `Quick
