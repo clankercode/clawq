@@ -29,6 +29,19 @@ let test_dispatch_help () =
     "dispatch help contains Usage" true
     (String.length result > 0 && String.sub result 0 5 = "Usage")
 
+let test_dispatch_cron_mentions_runtime_bridge () =
+  let result = Clawq_core.dispatch [ "cron" ] in
+  let contains s sub =
+    try
+      ignore (Str.search_forward (Str.regexp_string sub) s 0);
+      true
+    with Not_found -> false
+  in
+  Alcotest.(check bool)
+    "dispatch cron mentions scheduler-backed command" true
+    (contains result "scheduler-backed command"
+    && contains result "list/add/remove/history/runs")
+
 let test_audit_make_entry_with_metadata () =
   let entry =
     Clawq_core.make_entry "secret" None "2030-01-01 00:00:00" "tool_result"
@@ -66,6 +79,8 @@ let suite =
     Alcotest.test_case "dispatch empty" `Quick test_dispatch_empty;
     Alcotest.test_case "dispatch version" `Quick test_dispatch_version;
     Alcotest.test_case "dispatch help" `Quick test_dispatch_help;
+    Alcotest.test_case "dispatch cron mentions runtime bridge" `Quick
+      test_dispatch_cron_mentions_runtime_bridge;
     Alcotest.test_case "audit make_entry with metadata" `Quick
       test_audit_make_entry_with_metadata;
     Alcotest.test_case "audit verify_chain detects metadata tamper" `Quick

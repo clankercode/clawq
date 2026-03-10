@@ -997,6 +997,20 @@ let test_handle_cron_list () =
         "cron list returns output" true
         (String.length result > 0))
 
+let test_handle_cron_runs () =
+  with_temp_home (fun _home ->
+      let result = Command_bridge.handle [ "cron"; "runs" ] in
+      Alcotest.(check bool)
+        "cron runs returns output" true
+        (String.length result > 0))
+
+let test_handle_cron_history_missing_job () =
+  with_temp_home (fun _home ->
+      let result = Command_bridge.handle [ "cron"; "history"; "missing-job" ] in
+      Alcotest.(check bool)
+        "cron history returns missing-job output" true
+        (String.length result > 0))
+
 let test_handle_background_list () =
   with_temp_home (fun _home ->
       let result = Command_bridge.handle [ "background"; "list" ] in
@@ -2423,6 +2437,9 @@ let suite =
       test_handle_not_implemented;
     Alcotest.test_case "handle cron" `Quick test_handle_cron;
     Alcotest.test_case "handle cron list" `Quick test_handle_cron_list;
+    Alcotest.test_case "handle cron runs" `Quick test_handle_cron_runs;
+    Alcotest.test_case "handle cron history missing job" `Quick
+      test_handle_cron_history_missing_job;
     Alcotest.test_case "handle background list" `Quick
       test_handle_background_list;
     Alcotest.test_case "handle background bare shows commands" `Quick

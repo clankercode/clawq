@@ -81,13 +81,38 @@ let auth_cmd =
           "Disabled in minimal build; use full clawq binary for Codex OAuth." );
     ]
 
+let cron_history_cmd =
+  let name = Arg.(required & pos 0 (some string) None & info [] ~docv:"NAME") in
+  Cmd.v
+    (Cmd.info "history" ~doc:"Show the last 10 run records for a cron job.")
+    Term.(ret (const (fun name -> run "cron" [ "history"; name ]) $ name))
+
+let cron_runs_cmd =
+  let name = Arg.(value & pos 0 (some string) None & info [] ~docv:"NAME") in
+  Cmd.v
+    (Cmd.info "runs" ~doc:"Show recent cron run history for all jobs or one job.")
+    Term.(ret (const (fun name ->
+             match name with
+             | Some value -> run "cron" [ "runs"; value ]
+             | None -> run "cron" [ "runs" ])
+         $ name))
+
 let cron_cmd =
-  with_args "cron" "Manage cron jobs for scheduled agent messages."
+  Cmd.group
+    ~default:Term.(ret (const (run "cron") $ const [ "list" ]))
+    (Cmd.info "cron" ~doc:"Manage cron jobs for scheduled agent messages.")
     [
-      `S "SUBCOMMANDS";
-      `I ("list", "List all configured cron jobs (default).");
-      `I ("add NAME SESSION SCHEDULE MSG", "Add a cron job.");
-      `I ("remove NAME", "Remove a cron job by name.");
+      Cmd.v
+        (Cmd.info "list" ~doc:"List all configured cron jobs.")
+        Term.(ret (const (run "cron") $ const [ "list" ]));
+      Cmd.v
+        (Cmd.info "add" ~doc:"Add a cron job.")
+        Term.(ret (const (run "cron") $ const [ "add" ]));
+      Cmd.v
+        (Cmd.info "remove" ~doc:"Remove a cron job by name.")
+        Term.(ret (const (run "cron") $ const [ "remove" ]));
+      cron_history_cmd;
+      cron_runs_cmd;
     ]
 
 let background_list_cmd =

@@ -391,7 +391,7 @@ let dispatch = function
    | CmdOnboard -> "onboard: TODO (MVP command skeleton wired)"
    | CmdStatus -> "status: TODO (MVP command skeleton wired)"
    | CmdDoctor -> "doctor: TODO (MVP command skeleton wired)"
-   | CmdCron -> "cron: TODO (MVP command skeleton wired)"
+   | CmdCron -> "cron: scheduler-backed command available in full runtime; use CLI bridge for list/add/remove/history/runs"
    | CmdChannel -> "channel: TODO (MVP command skeleton wired)"
    | CmdSkills -> "skills: TODO (MVP command skeleton wired)"
    | CmdHardware -> "hardware: deferred in part (phase 2 peripherals)"
