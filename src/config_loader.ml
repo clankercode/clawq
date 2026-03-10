@@ -1371,6 +1371,39 @@ let parse_config ?(resolve_secrets = true) json =
                : Runtime_config.web_search_config)
          else None
        with _ -> None);
+    zai_mcp =
+      (try
+         let zm = json |> member "zai_mcp" in
+         let enabled = try zm |> member "enabled" |> to_bool with _ -> true in
+         if not enabled then None
+         else
+           let explicit_key =
+             try zm |> member "api_key" |> to_string |> resolve_secret
+             with _ -> ""
+           in
+           let api_key =
+             if Runtime_config.is_key_set explicit_key then explicit_key
+             else
+               (* Auto-detect from providers.zai or providers.zai_coding *)
+               let find_provider name =
+                 match List.assoc_opt name providers with
+                 | Some p when Runtime_config.provider_has_auth p -> p.api_key
+                 | _ -> ""
+               in
+               let k = find_provider "zai" in
+               if Runtime_config.is_key_set k then k
+               else find_provider "zai_coding"
+           in
+           let websearch_enabled =
+             try zm |> member "websearch_enabled" |> to_bool with _ -> true
+           in
+           let webfetch_enabled =
+             try zm |> member "webfetch_enabled" |> to_bool with _ -> true
+           in
+           Some
+             ({ key = api_key; websearch_enabled; webfetch_enabled }
+               : Runtime_config.zai_mcp_config)
+       with _ -> None);
     quota_cache_ttl_s =
       (try json |> member "quota_cache_ttl_s" |> to_int
        with _ -> Runtime_config.default.quota_cache_ttl_s);

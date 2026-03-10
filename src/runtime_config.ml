@@ -373,6 +373,14 @@ type web_search_config = {
       (** Override API endpoint (e.g. for SearXNG) *)
 }
 
+type zai_mcp_config = {
+  key : string;
+      (** Bearer token for Z.ai API. If empty, auto-detected from providers.zai
+          or providers.zai_coding. *)
+  websearch_enabled : bool;
+  webfetch_enabled : bool;
+}
+
 type t = {
   workspace : string;
   default_temperature : float;
@@ -397,6 +405,7 @@ type t = {
   heartbeat : heartbeat_config;
   notify : notify_config option;
   web_search : web_search_config option;
+  zai_mcp : zai_mcp_config option;
   quota_cache_ttl_s : int;
 }
 
@@ -564,6 +573,7 @@ let default =
       };
     notify = None;
     web_search = None;
+    zai_mcp = None;
     quota_cache_ttl_s = 300;
   }
 
@@ -1388,6 +1398,21 @@ let to_json (cfg : t) : Yojson.Safe.t =
           | None -> []
         in
         fields @ [ ("web_search", `Assoc ws_fields) ]
+    | None -> fields
+  in
+  let fields =
+    match cfg.zai_mcp with
+    | Some zm ->
+        fields
+        @ [
+            ( "zai_mcp",
+              `Assoc
+                [
+                  ("api_key", `String zm.key);
+                  ("websearch_enabled", `Bool zm.websearch_enabled);
+                  ("webfetch_enabled", `Bool zm.webfetch_enabled);
+                ] );
+          ]
     | None -> fields
   in
   let fields =

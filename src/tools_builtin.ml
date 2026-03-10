@@ -2710,6 +2710,173 @@ let web_search ~(config : Runtime_config.t) =
     deferred = false;
   }
 
+(* ───── Z.ai MCP tools ─────
+   Calls Z.ai's remote MCP servers via HTTP JSON-RPC (streamable-http transport).
+   Auth: Bearer token from zai_mcp.api_key (auto-detected from providers if absent).
+   Web Search endpoint: https://api.z.ai/api/mcp/web_search_prime/mcp  tool: webSearchPrime
+   Web Reader endpoint: https://api.z.ai/api/mcp/web_reader/mcp         tool: webReader *)
+
+let zai_mcp_call ~api_key ~endpoint ~tool_name ~arguments =
+  let open Lwt.Syntax in
+  let id = Random.bits () land 0xFFFF in
+  let body =
+    `Assoc
+      [
+        ("jsonrpc", `String "2.0");
+        ("id", `Int id);
+        ("method", `String "tools/call");
+        ( "params",
+          `Assoc [ ("name", `String tool_name); ("arguments", arguments) ] );
+      ]
+    |> Yojson.Safe.to_string
+  in
+  let* status, resp_body =
+    Http_client.post_json ~uri:endpoint
+      ~headers:[ ("Authorization", "Bearer " ^ api_key) ]
+      ~body
+  in
+  if status >= 400 then
+    Lwt.return
+      (Printf.sprintf "Error: Z.ai MCP returned HTTP %d: %s" status resp_body)
+  else
+    let open Yojson.Safe.Util in
+    let json = try Yojson.Safe.from_string resp_body with _ -> `Assoc [] in
+    let rpc_error = try json |> member "error" with _ -> `Null in
+    if rpc_error <> `Null then
+      let msg =
+        try rpc_error |> member "message" |> to_string
+        with _ -> Yojson.Safe.to_string rpc_error
+      in
+      Lwt.return ("Error: Z.ai MCP error: " ^ msg)
+    else
+      let result = try json |> member "result" with _ -> `Null in
+      let is_error =
+        try result |> member "isError" |> to_bool with _ -> false
+      in
+      let content =
+        try
+          result |> member "content" |> to_list
+          |> List.filter_map (fun item ->
+              try Some (item |> member "text" |> to_string) with _ -> None)
+          |> String.concat "\n"
+        with _ -> ( try Yojson.Safe.to_string result with _ -> resp_body)
+      in
+      if is_error then Lwt.return ("Error: " ^ content) else Lwt.return content
+
+let zai_mcp_api_key (config : Runtime_config.t) =
+  match config.zai_mcp with
+  | Some cfg when Runtime_config.is_key_set cfg.key -> cfg.key
+  | _ -> ""
+
+let zai_websearch ~(config : Runtime_config.t) =
+  {
+    Tool.name = "zai_websearch";
+    description =
+      "Search the web via Z.ai and return results with titles, URLs, and \
+       summaries. Uses Z.ai's webSearchPrime MCP tool.";
+    parameters_schema =
+      `Assoc
+        [
+          ("type", `String "object");
+          ( "properties",
+            `Assoc
+              [
+                ( "query",
+                  `Assoc
+                    [
+                      ("type", `String "string");
+                      ("description", `String "Search query");
+                    ] );
+              ] );
+          ("required", `List [ `String "query" ]);
+        ];
+    invoke =
+      (fun ?context:_ args ->
+        let open Yojson.Safe.Util in
+        let query = try args |> member "query" |> to_string with _ -> "" in
+        if query = "" then
+          Lwt.return
+            "Error: parameter \"query\" is required. Provide a search query \
+             string, e.g. {\"query\": \"OCaml MCP server\"}."
+        else
+          let api_key = zai_mcp_api_key config in
+          if not (Runtime_config.is_key_set api_key) then
+            Lwt.return
+              "Error: Z.ai API key not configured. Add a \"zai_mcp\" section \
+               to ~/.clawq/config.json with \"enabled\": true, or set \
+               providers.zai.api_key / providers.zai_coding.api_key."
+          else
+            Lwt.catch
+              (fun () ->
+                let open Lwt.Syntax in
+                let* result =
+                  zai_mcp_call ~api_key
+                    ~endpoint:"https://api.z.ai/api/mcp/web_search_prime/mcp"
+                    ~tool_name:"webSearchPrime"
+                    ~arguments:(`Assoc [ ("query", `String query) ])
+                in
+                Lwt.return result)
+              (fun exn -> Lwt.return ("Error: " ^ Printexc.to_string exn)));
+    invoke_stream = None;
+    risk_level = Low;
+    deferred = false;
+  }
+
+let zai_webfetch ~(config : Runtime_config.t) =
+  {
+    Tool.name = "zai_webfetch";
+    description =
+      "Fetch a webpage and return its content (title, main text, links) via \
+       Z.ai's webReader MCP tool. Better than web_fetch for structured page \
+       extraction.";
+    parameters_schema =
+      `Assoc
+        [
+          ("type", `String "object");
+          ( "properties",
+            `Assoc
+              [
+                ( "url",
+                  `Assoc
+                    [
+                      ("type", `String "string");
+                      ("description", `String "URL of the webpage to fetch");
+                    ] );
+              ] );
+          ("required", `List [ `String "url" ]);
+        ];
+    invoke =
+      (fun ?context:_ args ->
+        let open Yojson.Safe.Util in
+        let url = try args |> member "url" |> to_string with _ -> "" in
+        if url = "" then
+          Lwt.return
+            "Error: parameter \"url\" is required. Provide a fully-formed URL \
+             string, e.g. {\"url\": \"https://example.com\"}."
+        else
+          let api_key = zai_mcp_api_key config in
+          if not (Runtime_config.is_key_set api_key) then
+            Lwt.return
+              "Error: Z.ai API key not configured. Add a \"zai_mcp\" section \
+               to ~/.clawq/config.json with \"enabled\": true, or set \
+               providers.zai.api_key / providers.zai_coding.api_key."
+          else
+            Lwt.catch
+              (fun () ->
+                let open Lwt.Syntax in
+                let* result =
+                  zai_mcp_call ~api_key
+                    ~endpoint:"https://api.z.ai/api/mcp/web_reader/mcp"
+                    ~tool_name:"webReader"
+                    ~arguments:(`Assoc [ ("url", `String url) ])
+                in
+                Lwt.return result)
+              (fun exn -> Lwt.return ("Error: " ^ Printexc.to_string exn)));
+    invoke_stream = None;
+    risk_level = Low;
+    deferred = false;
+  }
+
 (* ───── Git operations tool ───── *)
 
 let sanitize_git_arg arg =
@@ -3678,6 +3845,14 @@ let register_all ~(config : Runtime_config.t) ~sandbox ?(db = None)
   Tool_registry.register registry (git_operations ~workspace);
   if config.web_search <> None then
     Tool_registry.register registry (web_search ~config);
+  (match config.zai_mcp with
+  | Some cfg when cfg.websearch_enabled ->
+      Tool_registry.register registry (zai_websearch ~config)
+  | _ -> ());
+  (match config.zai_mcp with
+  | Some cfg when cfg.webfetch_enabled ->
+      Tool_registry.register registry (zai_webfetch ~config)
+  | _ -> ());
   Tool_registry.register registry (models_tool ~config ?session_mgr ());
   Tool_registry.register registry (provider_usage_tool ~config);
   (match send_fn with

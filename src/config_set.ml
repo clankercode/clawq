@@ -323,6 +323,14 @@ let config_schema =
           [
             ("provider", L); ("api_key", L); ("num_results", L); ("base_url", L);
           ] );
+      ( "zai_mcp",
+        O
+          [
+            ("enabled", L);
+            ("api_key", L);
+            ("websearch_enabled", L);
+            ("webfetch_enabled", L);
+          ] );
     ]
 
 let rec validate_path segments schema =

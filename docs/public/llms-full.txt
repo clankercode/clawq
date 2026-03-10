@@ -273,6 +273,8 @@ clawq config show security
 
 **web_search** — `search_provider` ("brave" or "ddg"), `search_api_key`, `num_results`, `search_base_url` (optional, for SearXNG override). When the daemon is running, config reload updates the active runtime config object, so changes here are intended to take effect without a full restart.
 
+**zai_mcp** — Enables Z.ai MCP-powered web tools. Fields: `enabled` (bool, default true when section present), `api_key` (optional; auto-detected from `providers.zai.api_key` or `providers.zai_coding.api_key` if absent), `websearch_enabled` (bool, default true), `webfetch_enabled` (bool, default true). When configured, registers `zai_websearch` and `zai_webfetch` tools. Auth uses Z.ai GLM Coding Plan API key as Bearer token.
+
 **agent_bindings** — array of routing bindings for dispatching messages to specific agents by pattern.
 
 ### Secret encryption
@@ -281,7 +283,7 @@ To encrypt API keys at rest: set `security.encrypt_secrets` to true, set `CLAWQ_
 
 ## Your Tools
 
-You have up to 35 built-in tools. 15 are always registered; `web_search`, `send_message`, `transcribe`, the four memory tools, `history_search`, `task_tree`, the six background/delegation tools, and the five `plan_pipeline_*` tools are conditional on runtime configuration/wiring.
+You have up to 37 built-in tools. 15 are always registered; `web_search`, `zai_websearch`, `zai_webfetch`, `send_message`, `transcribe`, the four memory tools, `history_search`, `task_tree`, the six background/delegation tools, and the five `plan_pipeline_*` tools are conditional on runtime configuration/wiring.
 
 | Tool | Description |
 |------|-------------|
@@ -298,6 +300,8 @@ You have up to 35 built-in tools. 15 are always registered; `web_search`, `send_
 | `http_request` | HTTP request with configurable method/headers/body (20KB truncation; localhost-only when workspace_only). For web pages use web_fetch |
 | `web_fetch` | Fetch a URL, return readable text with HTML stripped (20KB truncation; localhost-only when workspace_only). For raw API responses use http_get/http_request |
 | `web_search` | Search the web (conditional: only if web_search config is set) |
+| `zai_websearch` | Search the web via Z.ai's webSearchPrime MCP tool (conditional: only if zai_mcp config is set and websearch_enabled) |
+| `zai_webfetch` | Fetch a webpage via Z.ai's webReader MCP tool, returning title, main content, and links (conditional: only if zai_mcp config is set and webfetch_enabled) |
 | `git_operations` | Git operations: status, diff, log, branch, add, commit, checkout, stash, show |
 | `send_message` | Send a message to the user via the current session or notification channel. Use when asked to notify/alert the user (conditional: runtime wiring) |
 | `doc_write` | Write or update a workspace document |
