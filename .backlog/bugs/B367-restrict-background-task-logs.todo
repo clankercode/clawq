@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B367
+priority: high
+status: pending
+tags: []
+title: Restrict background_task_logs output per invocation to ~1k-2k tokens
+---
+
+Restrict background_task_logs output per invocation to ~1k-2k tokens

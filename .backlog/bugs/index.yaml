@@ -365,3 +365,4 @@ bugs:
     - file: B364-tests-still-trigger-sigusr1-si.todo
     - file: B365-autorestart-resumes-session-wi.todo
     - file: B366-b366-background-task-logs-tool.todo
+    - file: B367-restrict-background-task-logs.todo
