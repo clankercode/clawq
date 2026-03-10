@@ -253,7 +253,7 @@ clawq config show security
 
 **resilience** — `timeout_s` (default 120.0), `max_retries` (default 2), `base_delay_s` (default 1.0), `fallback_provider` (optional).
 
-**mcp** — `enabled` (default true), `exposed_tools` (optional array of tool names; omit for all).
+**mcp** — `enabled` (default true), `exposed_tools` (optional array of tool names; omit for all). External MCP clients are loaded from `~/.clawq/mcp_servers.json`; each entry can be either local stdio (`name`, `command`, optional `args`/`env`) or a remote JSON-RPC-over-HTTP endpoint (`name`, `url`, optional `headers`).
 
 **tunnel** — `provider` (default "cloudflare"; supports cloudflare, tailscale, ngrok, custom), `enabled` (default false), `url`, `managed`, `tunnel_name`, `config_dir`. Live reconfiguration: the daemon detects tunnel config changes on SIGHUP and config file changes (10s poll), and will start/stop/restart the tunnel accordingly. Use `tunnel apply` to trigger reconfiguration explicitly. Managed/named Cloudflare tunnels require pre-existing `cloudflared tunnel create` and DNS setup outside clawq.
 

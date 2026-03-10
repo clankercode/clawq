@@ -58,6 +58,73 @@ let default_resume_senders =
     send_slack = Slack.send_message;
   }
 
+type boot_resume_summary = {
+  pending_count : int;
+  resumed_count : int;
+  missing_channel_count : int;
+  failed_count : int;
+}
+
+type boot_replay_summary = {
+  reclaimed_stale_count : int;
+  reclaimed_failed_count : int;
+  session_count : int;
+  total_rows : int;
+  replayed_count : int;
+  failed_count : int;
+}
+
+let boot_stage_start_message stage = Printf.sprintf "Boot: %s start" stage
+
+let boot_stage_done_message ?detail ~elapsed_s stage =
+  match detail with
+  | Some detail when String.trim detail <> "" ->
+      Printf.sprintf "Boot: %s done elapsed=%.3fs %s" stage elapsed_s detail
+  | Some _ | None ->
+      Printf.sprintf "Boot: %s done elapsed=%.3fs" stage elapsed_s
+
+let log_boot_stage_start stage =
+  Logs.info (fun m -> m "%s" (boot_stage_start_message stage))
+
+let log_boot_stage_done ?detail ~started_at stage =
+  let elapsed_s = max 0.0 (Unix.gettimeofday () -. started_at) in
+  Logs.info (fun m -> m "%s" (boot_stage_done_message ?detail ~elapsed_s stage))
+
+let with_boot_stage_logging ?detail_of_result stage f =
+  let open Lwt.Syntax in
+  let started_at = Unix.gettimeofday () in
+  log_boot_stage_start stage;
+  Lwt.catch
+    (fun () ->
+      let* result = f () in
+      let detail =
+        Option.map (fun detail_fn -> detail_fn result) detail_of_result
+      in
+      log_boot_stage_done ?detail ~started_at stage;
+      Lwt.return result)
+    (fun exn ->
+      let detail =
+        Printf.sprintf "status=error error=%s" (Printexc.to_string exn)
+      in
+      log_boot_stage_done ~detail ~started_at stage;
+      Lwt.fail exn)
+
+let boot_resume_summary_message (summary : boot_resume_summary) =
+  Printf.sprintf "pending=%d resumed=%d missing_channel=%d failed=%d"
+    summary.pending_count summary.resumed_count summary.missing_channel_count
+    summary.failed_count
+
+let boot_replay_summary_message (summary : boot_replay_summary) =
+  Printf.sprintf
+    "sessions=%d rows=%d reclaimed_stale=%d reclaimed_failed=%d replayed=%d \
+     failed=%d"
+    summary.session_count summary.total_rows summary.reclaimed_stale_count
+    summary.reclaimed_failed_count summary.replayed_count summary.failed_count
+
+let mcp_servers_path () =
+  let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
+  Filename.concat (Filename.concat home ".clawq") "mcp_servers.json"
+
 type exit_intent = Shutdown | Restart
 
 let initial_drain_warning = "Restarting soon, finishing current requests..."
@@ -536,6 +603,34 @@ let resume_agent_session ?(senders = default_resume_senders) ?run_turn
                 channel channel_id msg);
           Lwt.return_unit)
 
+let setup_mcp_clients ?(connect_client = Mcp_client.connect) ~registry
+    ~mcp_clients () =
+  let servers_path = mcp_servers_path () in
+  if not (Sys.file_exists servers_path) then Lwt.return_unit
+  else
+    let servers = Mcp_client.load_server_configs servers_path in
+    let open Lwt.Syntax in
+    Lwt_list.iter_s
+      (fun cfg ->
+        Lwt.catch
+          (fun () ->
+            let* client = connect_client cfg in
+            mcp_clients := client :: !mcp_clients;
+            List.iter
+              (fun t ->
+                Tool_registry.register registry t;
+                Logs.info (fun m ->
+                    m "MCP tool registered: %s (from %s)" t.Tool.name
+                      cfg.Mcp_client.name))
+              (Mcp_client.discovered_tools client);
+            Lwt.return_unit)
+          (fun exn ->
+            Logs.warn (fun m ->
+                m "MCP client '%s' failed to connect: %s" cfg.Mcp_client.name
+                  (Printexc.to_string exn));
+            Lwt.return_unit))
+      servers
+
 let resume_pending_agent_sessions ?(senders = default_resume_senders)
     ?resume_one ~(session_manager : Session.t) ~(config : Runtime_config.t) () =
   let resume_one =
@@ -554,26 +649,52 @@ let resume_pending_agent_sessions ?(senders = default_resume_senders)
     Session.load_pending_agent_sessions session_manager ~max_age_seconds:3600
   in
   let open Lwt.Syntax in
+  let summary =
+    {
+      pending_count = List.length pending;
+      resumed_count = 0;
+      missing_channel_count = 0;
+      failed_count = 0;
+    }
+    |> ref
+  in
   if pending <> [] then
     Logs.info (fun m ->
         m "Resuming %d pending agent sessions" (List.length pending));
-  Lwt_list.iter_s
-    (fun (session_key, channel_opt, channel_id_opt) ->
-      match (channel_opt, channel_id_opt) with
-      | Some channel, Some channel_id ->
-          Lwt.catch
-            (fun () -> resume_one ~session_key ~channel ~channel_id)
-            (fun exn ->
-              Logs.err (fun m ->
-                  m "Failed to resume session %s: %s" session_key
-                    (Printexc.to_string exn));
-              Lwt.return_unit)
-      | _ ->
-          Logs.warn (fun m ->
-              m "Cannot resume session %s: missing channel info" session_key);
-          Session.mark_response_sent session_manager ~key:session_key;
-          Lwt.return_unit)
-    pending
+  let* () =
+    Lwt_list.iter_s
+      (fun (session_key, channel_opt, channel_id_opt) ->
+        match (channel_opt, channel_id_opt) with
+        | Some channel, Some channel_id ->
+            Lwt.catch
+              (fun () ->
+                let* () = resume_one ~session_key ~channel ~channel_id in
+                summary :=
+                  { !summary with resumed_count = !summary.resumed_count + 1 };
+                Lwt.return_unit)
+              (fun exn ->
+                summary :=
+                  { !summary with failed_count = !summary.failed_count + 1 };
+                Logs.err (fun m ->
+                    m "Failed to resume session %s: %s" session_key
+                      (Printexc.to_string exn));
+                Lwt.return_unit)
+        | _ ->
+            summary :=
+              {
+                !summary with
+                missing_channel_count = !summary.missing_channel_count + 1;
+              };
+            Logs.warn (fun m ->
+                m "Cannot resume session %s: missing channel info" session_key);
+            Session.mark_response_sent session_manager ~key:session_key;
+            Lwt.return_unit)
+      pending
+  in
+  Logs.info (fun m ->
+      m "Boot: pending-session resume summary %s"
+        (boot_resume_summary_message !summary));
+  Lwt.return !summary
 
 (* ANSI color codes for log output — respects NO_COLOR convention *)
 let no_color =
@@ -708,7 +829,21 @@ let replay_durable_inbound_queue
        option) ~(session_manager : Session.t) ~(config : Runtime_config.t) () =
   ignore config;
   match session_manager.Session.db with
-  | None -> Lwt.return_unit
+  | None ->
+      let summary =
+        {
+          reclaimed_stale_count = 0;
+          reclaimed_failed_count = 0;
+          session_count = 0;
+          total_rows = 0;
+          replayed_count = 0;
+          failed_count = 0;
+        }
+      in
+      Logs.info (fun m ->
+          m "Boot: durable inbound replay summary %s"
+            (boot_replay_summary_message summary));
+      Lwt.return summary
   | Some db ->
       let open Lwt.Syntax in
       let turn_fn =
@@ -726,18 +861,30 @@ let replay_durable_inbound_queue
             m "Boot: reclaimed %d failed inbound queue rows for retry"
               reclaimed_failed);
       let pending_sessions = Memory.queue_list_pending_sessions ~db in
+      let total = Memory.queue_count_all ~db in
+      let summary =
+        {
+          reclaimed_stale_count = reclaimed;
+          reclaimed_failed_count = reclaimed_failed;
+          session_count = List.length pending_sessions;
+          total_rows = total;
+          replayed_count = 0;
+          failed_count = 0;
+        }
+        |> ref
+      in
       if pending_sessions = [] then begin
         Logs.info (fun m -> m "Boot: no durable inbound queue rows to replay");
-        Lwt.return_unit
+        Logs.info (fun m ->
+            m "Boot: durable inbound replay summary %s"
+              (boot_replay_summary_message !summary));
+        Lwt.return !summary
       end
       else begin
-        let total = Memory.queue_count_all ~db in
         Logs.info (fun m ->
             m "Boot: replaying %d durable inbound queue rows across %d sessions"
               total
               (List.length pending_sessions));
-        let replay_count = ref 0 in
-        let fail_count = ref 0 in
         let* () =
           Lwt_list.iter_s
             (fun session_key ->
@@ -773,7 +920,11 @@ let replay_durable_inbound_queue
                             row.queue_id session_key);
                       Memory.queue_record_failure ~db ~queue_id:row.queue_id
                         ~error:"empty message";
-                      incr fail_count;
+                      summary :=
+                        {
+                          !summary with
+                          failed_count = !summary.failed_count + 1;
+                        };
                       drain_session ()
                     end
                     else
@@ -812,7 +963,11 @@ let replay_durable_inbound_queue
                                   "Replay: success queue_id=%d session=%s \
                                    deleted=false (already removed)"
                                   row.queue_id session_key);
-                          incr replay_count;
+                          summary :=
+                            {
+                              !summary with
+                              replayed_count = !summary.replayed_count + 1;
+                            };
                           drain_session ())
                         (fun exn ->
                           let error = Printexc.to_string exn in
@@ -821,7 +976,11 @@ let replay_durable_inbound_queue
                                 row.queue_id session_key error);
                           Memory.queue_record_failure ~db ~queue_id:row.queue_id
                             ~error;
-                          incr fail_count;
+                          summary :=
+                            {
+                              !summary with
+                              failed_count = !summary.failed_count + 1;
+                            };
                           drain_session ())
               in
               drain_session ())
@@ -829,8 +988,11 @@ let replay_durable_inbound_queue
         in
         Logs.info (fun m ->
             m "Boot: durable inbound replay complete replayed=%d failed=%d"
-              !replay_count !fail_count);
-        Lwt.return_unit
+              !summary.replayed_count !summary.failed_count);
+        Logs.info (fun m ->
+            m "Boot: durable inbound replay summary %s"
+              (boot_replay_summary_message !summary));
+        Lwt.return !summary
       end
 
 let run ~(config : Runtime_config.t) =
@@ -1044,69 +1206,21 @@ let run ~(config : Runtime_config.t) =
       None
     end
   in
-  (* Connect MCP stdio clients and register their tools *)
+  (* Connect configured MCP clients and register their tools *)
   let mcp_clients = ref [] in
-  (match (tool_registry, config.mcp.enabled) with
-  | Some registry, true -> (
-      let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
-      let servers_path =
-        Filename.concat (Filename.concat home ".clawq") "mcp_servers.json"
-      in
-      if Sys.file_exists servers_path then
-        try
-          let json = Yojson.Safe.from_file servers_path in
-          let open Yojson.Safe.Util in
-          let servers = try json |> to_list with _ -> [] in
-          List.iter
-            (fun s ->
-              try
-                let name = s |> member "name" |> to_string in
-                let command = s |> member "command" |> to_string in
-                let args =
-                  try s |> member "args" |> to_list |> List.map to_string
-                  with _ -> []
-                in
-                let env =
-                  try
-                    s |> member "env" |> to_assoc
-                    |> List.map (fun (k, v) -> (k, to_string v))
-                  with _ -> []
-                in
-                let cfg = { Mcp_client.name; command; args; env } in
-                let client =
-                  Lwt_main.run
-                    (Lwt.catch
-                       (fun () ->
-                         let open Lwt.Syntax in
-                         let* c = Mcp_client.connect cfg in
-                         Lwt.return (Some c))
-                       (fun exn ->
-                         Logs.warn (fun m ->
-                             m "MCP client '%s' failed to connect: %s" name
-                               (Printexc.to_string exn));
-                         Lwt.return_none))
-                in
-                match client with
-                | None -> ()
-                | Some c ->
-                    mcp_clients := c :: !mcp_clients;
-                    List.iter
-                      (fun t ->
-                        Tool_registry.register registry t;
-                        Logs.info (fun m ->
-                            m "MCP tool registered: %s (from %s)" t.Tool.name
-                              name))
-                      (Mcp_client.discovered_tools c)
-              with exn ->
+  let* () =
+    with_boot_stage_logging "mcp-setup" (fun () ->
+        match (tool_registry, config.mcp.enabled) with
+        | Some registry, true ->
+            Lwt.catch
+              (fun () -> setup_mcp_clients ~registry ~mcp_clients ())
+              (fun exn ->
                 Logs.warn (fun m ->
-                    m "MCP server config parse error: %s"
-                      (Printexc.to_string exn)))
-            servers
-        with exn ->
-          Logs.warn (fun m ->
-              m "Failed to load MCP servers config: %s" (Printexc.to_string exn))
-      )
-  | _ -> ());
+                    m "Failed to load MCP servers config: %s"
+                      (Printexc.to_string exn));
+                Lwt.return_unit)
+        | _ -> Lwt.return_unit)
+  in
   (* Auto-hydrate core memories from snapshot if db is empty *)
   (match db with
   | Some db ->
@@ -1796,8 +1910,15 @@ let run ~(config : Runtime_config.t) =
                   m "Lark channel error: %s" (Printexc.to_string exn));
               Lwt.return_unit))
   | Some _ | None -> ());
-  let* () = resume_sessions_after_channels () in
-  let* () = replay_durable_inbound_queue ~session_manager ~config () in
+  let* _resume_summary =
+    with_boot_stage_logging ~detail_of_result:boot_resume_summary_message
+      "pending-session-resume" resume_sessions_after_channels
+  in
+  let* _replay_summary =
+    with_boot_stage_logging ~detail_of_result:boot_replay_summary_message
+      "durable-replay" (fun () ->
+        replay_durable_inbound_queue ~session_manager ~config ())
+  in
   (* Keepalive periodic loop: nudges idle keepalive-enabled sessions every 15m *)
   (match db with
   | Some db ->

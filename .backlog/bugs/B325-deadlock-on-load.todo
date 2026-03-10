@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-10T09:11:52Z"
+claimed_by: cli-user
+completed_at: "2026-03-10T09:51:26Z"
 complexity: medium
 depends_on: []
+duration_minutes: 39.57690683721667
 estimate_hours: 1
 id: B325
 priority: high
-status: pending
+started_at: "2026-03-10T09:11:52Z"
+status: done
 tags: []
 title: deadlock on load
 ---

@@ -149,6 +149,106 @@ let render_date_banners times =
   Format.pp_print_flush ppf ();
   Buffer.contents buf
 
+let write_file path body =
+  let oc = open_out_bin path in
+  Fun.protect
+    ~finally:(fun () -> close_out_noerr oc)
+    (fun () -> output_string oc body)
+
+let test_boot_stage_message_helpers () =
+  Alcotest.(check string)
+    "start message" "Boot: mcp-setup start"
+    (Daemon.boot_stage_start_message "mcp-setup");
+  Alcotest.(check string)
+    "done message includes elapsed and detail"
+    "Boot: durable-replay done elapsed=0.125s replayed=2 failed=1"
+    (Daemon.boot_stage_done_message ~detail:"replayed=2 failed=1"
+       ~elapsed_s:0.125 "durable-replay")
+
+let test_setup_mcp_clients_loads_configs_and_registers_tools () =
+  Test_helpers.with_temp_home (fun home ->
+      let clawq_dir = Filename.concat home ".clawq" in
+      Unix.mkdir clawq_dir 0o755;
+      write_file
+        (Filename.concat clawq_dir "mcp_servers.json")
+        {|
+[
+  {
+    "name": "local",
+    "command": "uvx",
+    "args": ["mcp-server", "--stdio"],
+    "env": {"TOKEN": "abc"}
+  },
+  {
+    "name": "remote",
+    "url": "https://mcp.example.test/rpc",
+    "headers": {"Authorization": "Bearer token"}
+  }
+]
+|};
+      let registry = Tool_registry.create () in
+      let mcp_clients = ref [] in
+      let connected = ref [] in
+      let connect_client ?startup_timeout_s:_ ?http_post:_ cfg =
+        connected := cfg :: !connected;
+        let tool_name = cfg.Mcp_client.name ^ "_tool" in
+        let tool =
+          {
+            Tool.name = tool_name;
+            description = "fake MCP tool";
+            parameters_schema = `Assoc [ ("type", `String "object") ];
+            invoke = (fun ?context:_ _args -> Lwt.return tool_name);
+            invoke_stream = None;
+            risk_level = Tool.Low;
+            deferred = false;
+          }
+        in
+        let client =
+          {
+            Mcp_client.config = cfg;
+            transport =
+              Mcp_client.Http
+                {
+                  url = "https://unused.example.test/rpc";
+                  headers = [];
+                  post =
+                    (fun ~url:_ ~headers:_ ~body:_ -> Lwt.return (200, "{}"));
+                };
+            next_id = 1;
+            discovered = [ tool ];
+          }
+        in
+        Lwt.return client
+      in
+      Lwt_main.run
+        (Daemon.setup_mcp_clients ~connect_client ~registry ~mcp_clients ());
+      let connected = List.rev !connected in
+      Alcotest.(check int) "two configs loaded" 2 (List.length connected);
+      let local_cfg = List.nth connected 0 in
+      let remote_cfg = List.nth connected 1 in
+      Alcotest.(check string) "local config name" "local" local_cfg.name;
+      Alcotest.(check (list string))
+        "local args"
+        [ "mcp-server"; "--stdio" ]
+        local_cfg.args;
+      Alcotest.(check (list (pair string string)))
+        "local env"
+        [ ("TOKEN", "abc") ]
+        local_cfg.env;
+      Alcotest.(check string) "remote config name" "remote" remote_cfg.name;
+      Alcotest.(check string)
+        "remote url stored in command" "https://mcp.example.test/rpc"
+        remote_cfg.command;
+      Alcotest.(check (list (pair string string)))
+        "remote headers"
+        [ ("Authorization", "Bearer token") ]
+        remote_cfg.env;
+      Alcotest.(check (list string))
+        "registered MCP tools"
+        [ "local_tool"; "remote_tool" ]
+        (Tool_registry.list registry |> List.map (fun t -> t.Tool.name));
+      Alcotest.(check int) "clients tracked" 2 (List.length !mcp_clients))
+
 let test_dispatch_resumed_message_routes_telegram () =
   let called = ref None in
   let senders =
@@ -276,17 +376,51 @@ let test_resume_pending_agent_sessions_marks_missing_channel_info () =
   let session_manager = Session.create ~config ~db () in
   Session.record_agent_turn session_manager ~key:"resume:missing" ();
   let resumed = ref [] in
-  Lwt_main.run
-    (Daemon.resume_pending_agent_sessions ~session_manager ~config
-       ~resume_one:(fun ~session_key ~channel ~channel_id ->
-         resumed := (session_key, channel, channel_id) :: !resumed;
-         Lwt.return_unit)
-       ());
+  let summary =
+    Lwt_main.run
+      (Daemon.resume_pending_agent_sessions ~session_manager ~config
+         ~resume_one:(fun ~session_key ~channel ~channel_id ->
+           resumed := (session_key, channel, channel_id) :: !resumed;
+           Lwt.return_unit)
+         ())
+  in
   Alcotest.(check int) "resume callback not called" 0 (List.length !resumed);
+  Alcotest.(check int) "summary pending count" 1 summary.pending_count;
+  Alcotest.(check int)
+    "summary missing channel count" 1 summary.missing_channel_count;
+  Alcotest.(check int) "summary resumed count" 0 summary.resumed_count;
+  Alcotest.(check int) "summary failed count" 0 summary.failed_count;
   Alcotest.(check (option string))
     "pending state cleared" (Some "user")
     (query_single_text_option db
        "SELECT turn FROM session_state WHERE session_key = 'resume:missing'")
+
+let test_resume_pending_agent_sessions_summary_counts () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let config = Runtime_config.default in
+  let session_manager = Session.create ~config ~db () in
+  Session.record_agent_turn session_manager ~key:"resume:ok" ~channel:"slack"
+    ~channel_id:"c1" ();
+  Session.record_agent_turn session_manager ~key:"resume:missing" ();
+  Session.record_agent_turn session_manager ~key:"resume:fail" ~channel:"slack"
+    ~channel_id:"c2" ();
+  let resumed = ref [] in
+  let summary =
+    Lwt_main.run
+      (Daemon.resume_pending_agent_sessions ~session_manager ~config
+         ~resume_one:(fun ~session_key ~channel ~channel_id ->
+           resumed := (session_key, channel, channel_id) :: !resumed;
+           if session_key = "resume:fail" then Lwt.fail_with "resume failed"
+           else Lwt.return_unit)
+         ())
+  in
+  Alcotest.(check int) "summary pending count" 3 summary.pending_count;
+  Alcotest.(check int) "summary resumed count" 1 summary.resumed_count;
+  Alcotest.(check int)
+    "summary missing channel count" 1 summary.missing_channel_count;
+  Alcotest.(check int) "summary failed count" 1 summary.failed_count;
+  Alcotest.(check int)
+    "resume callback ran for routed rows" 2 (List.length !resumed)
 
 let test_default_resume_turn_uses_explicit_resume_prompt () =
   with_fake_chat_provider (fun base_config ->
@@ -704,9 +838,10 @@ let test_resume_pending_main_session_arms_autonomous_continuation () =
         Lwt.return_unit)
       ()
   in
-  Lwt_main.run
-    (Daemon.resume_pending_agent_sessions ~session_manager ~config ~resume_one
-       ());
+  ignore
+    (Lwt_main.run
+       (Daemon.resume_pending_agent_sessions ~session_manager ~config
+          ~resume_one ()));
   let state =
     Hashtbl.find session_manager.Session.continuation_checks "__main__"
   in
@@ -1266,16 +1401,57 @@ let test_replay_durable_inbound_drains_and_deletes () =
     replayed := (key, message) :: !replayed;
     Lwt.return "ok"
   in
-  Lwt_main.run
-    (Daemon.replay_durable_inbound_queue ~replay_turn ~session_manager ~config
-       ());
+  let summary =
+    Lwt_main.run
+      (Daemon.replay_durable_inbound_queue ~replay_turn ~session_manager ~config
+         ())
+  in
   Alcotest.(check int)
     "0 pending after replay" 0
     (Memory.queue_count ~db ~session_key:key);
+  Alcotest.(check int) "summary session count" 1 summary.session_count;
+  Alcotest.(check int) "summary total rows" 1 summary.total_rows;
+  Alcotest.(check int) "summary replayed count" 1 summary.replayed_count;
+  Alcotest.(check int) "summary failed count" 0 summary.failed_count;
   Alcotest.(check int) "1 message replayed" 1 (List.length !replayed);
   let rkey, rmsg = List.hd !replayed in
   Alcotest.(check string) "correct key" key rkey;
   Alcotest.(check string) "correct message" "hello" rmsg
+
+let test_replay_durable_inbound_summary_counts () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let config = Runtime_config.default in
+  let session_manager = Session.create ~config ~db () in
+  ignore
+    (Memory.queue_enqueue ~db ~session_key:"telegram:10:user" ~source:"cli"
+       ~payload_json:
+         (Yojson.Safe.to_string
+            (`Assoc [ ("message", `String "ok"); ("bang", `Bool false) ])));
+  ignore
+    (Memory.queue_enqueue ~db ~session_key:"telegram:10:user" ~source:"cli"
+       ~payload_json:
+         (Yojson.Safe.to_string
+            (`Assoc [ ("message", `String ""); ("bang", `Bool false) ])));
+  ignore
+    (Memory.queue_enqueue ~db ~session_key:"telegram:11:user" ~source:"cli"
+       ~payload_json:
+         (Yojson.Safe.to_string
+            (`Assoc [ ("message", `String "boom"); ("bang", `Bool false) ])));
+  let summary =
+    Lwt_main.run
+      (Daemon.replay_durable_inbound_queue
+         ~replay_turn:(fun _mgr ~key:_ ~message () ->
+           if message = "boom" then Lwt.fail_with "boom" else Lwt.return "ok")
+         ~session_manager ~config ())
+  in
+  Alcotest.(check int) "summary session count" 2 summary.session_count;
+  Alcotest.(check int) "summary total rows" 3 summary.total_rows;
+  Alcotest.(check int) "summary replayed count" 1 summary.replayed_count;
+  Alcotest.(check int) "summary failed count" 2 summary.failed_count;
+  Alcotest.(check int)
+    "summary reclaimed stale count" 0 summary.reclaimed_stale_count;
+  Alcotest.(check int)
+    "summary reclaimed failed count" 0 summary.reclaimed_failed_count
 
 let test_replay_durable_inbound_fifo_ordering () =
   let db = Memory.init ~db_path:":memory:" () in
@@ -1297,9 +1473,10 @@ let test_replay_durable_inbound_fifo_ordering () =
     replayed := message :: !replayed;
     Lwt.return "ok"
   in
-  Lwt_main.run
-    (Daemon.replay_durable_inbound_queue ~replay_turn ~session_manager ~config
-       ());
+  ignore
+    (Lwt_main.run
+       (Daemon.replay_durable_inbound_queue ~replay_turn ~session_manager
+          ~config ()));
   let ordered = List.rev !replayed in
   Alcotest.(check (list string))
     "FIFO order"
@@ -1317,9 +1494,10 @@ let test_replay_records_failure_on_error () =
          (Yojson.Safe.to_string
             (`Assoc [ ("message", `String "fail me"); ("bang", `Bool false) ])));
   let replay_turn _mgr ~key:_ ~message:_ () = Lwt.fail_with "test error" in
-  Lwt_main.run
-    (Daemon.replay_durable_inbound_queue ~replay_turn ~session_manager ~config
-       ());
+  ignore
+    (Lwt_main.run
+       (Daemon.replay_durable_inbound_queue ~replay_turn ~session_manager
+          ~config ()));
   let rows = Memory.queue_list ~db ~session_key:key in
   Alcotest.(check int) "row still present" 1 (List.length rows);
   let row = List.hd rows in
@@ -1342,9 +1520,10 @@ let test_replay_skips_empty_message () =
     incr replayed;
     Lwt.return "ok"
   in
-  Lwt_main.run
-    (Daemon.replay_durable_inbound_queue ~replay_turn ~session_manager ~config
-       ());
+  ignore
+    (Lwt_main.run
+       (Daemon.replay_durable_inbound_queue ~replay_turn ~session_manager
+          ~config ()));
   Alcotest.(check int) "turn not called for empty" 0 !replayed;
   let rows = Memory.queue_list ~db ~session_key:key in
   Alcotest.(check int) "row still present (failed)" 1 (List.length rows);
@@ -1366,9 +1545,10 @@ let test_replay_preserves_bang_prefix () =
     replayed := message :: !replayed;
     Lwt.return "ok"
   in
-  Lwt_main.run
-    (Daemon.replay_durable_inbound_queue ~replay_turn ~session_manager ~config
-       ());
+  ignore
+    (Lwt_main.run
+       (Daemon.replay_durable_inbound_queue ~replay_turn ~session_manager
+          ~config ()));
   Alcotest.(check (list string)) "bang prefix added" [ "!urgent" ] !replayed
 
 let test_session_reset_clears_pending_queue () =
@@ -1428,6 +1608,10 @@ let test_refresh_runtime_bound_tools_replaces_shell_exec_on_reload () =
 
 let suite =
   [
+    Alcotest.test_case "boot stage message helpers" `Quick
+      test_boot_stage_message_helpers;
+    Alcotest.test_case "setup MCP clients loads configs and registers tools"
+      `Quick test_setup_mcp_clients_loads_configs_and_registers_tools;
     Alcotest.test_case "dispatch resumed message routes telegram" `Quick
       test_dispatch_resumed_message_routes_telegram;
     Alcotest.test_case "dispatch resumed message routes discord" `Quick
@@ -1437,6 +1621,8 @@ let suite =
     Alcotest.test_case
       "resume pending sessions marks missing channel info as sent" `Quick
       test_resume_pending_agent_sessions_marks_missing_channel_info;
+    Alcotest.test_case "resume pending sessions summary counts" `Quick
+      test_resume_pending_agent_sessions_summary_counts;
     Alcotest.test_case "default resume turn uses explicit automatic prompt"
       `Quick test_default_resume_turn_uses_explicit_resume_prompt;
     Alcotest.test_case "resume agent session persists response and marks sent"
@@ -1503,6 +1689,8 @@ let suite =
       `Quick test_rich_send_fn_fallback_unparseable_key;
     Alcotest.test_case "replay durable inbound drains and deletes" `Quick
       test_replay_durable_inbound_drains_and_deletes;
+    Alcotest.test_case "replay durable inbound summary counts" `Quick
+      test_replay_durable_inbound_summary_counts;
     Alcotest.test_case "replay durable inbound FIFO ordering" `Quick
       test_replay_durable_inbound_fifo_ordering;
     Alcotest.test_case "replay records failure on error" `Quick

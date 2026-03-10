@@ -926,6 +926,44 @@ let test_registry_remove_drops_tool () =
     "tool absent after remove" true
     (Tool_registry.find registry "web_search" = None)
 
+let test_zai_websearch_requires_api_key () =
+  let tool = Tools_builtin.zai_websearch ~config:Runtime_config.default in
+  let out =
+    Lwt_main.run (tool.Tool.invoke (`Assoc [ ("query", `String "clawq") ]))
+  in
+  Alcotest.(check string)
+    "missing key error"
+    "Error: Z.ai API key not configured. Add a \"zai_mcp\" section to \
+     ~/.clawq/config.json with \"enabled\": true, or set providers.zai.api_key \
+     / providers.zai_coding.api_key."
+    out
+
+let test_register_builtin_tools_includes_enabled_zai_tools () =
+  let registry = Tool_registry.create () in
+  let sandbox =
+    Sandbox.create ~backend:Sandbox.None ~workspace:"." ~extra_allowed_paths:[]
+      ~workspace_only:false ()
+  in
+  let config =
+    {
+      Runtime_config.default with
+      zai_mcp =
+        Some
+          {
+            Runtime_config.key = "sk-zai";
+            websearch_enabled = true;
+            webfetch_enabled = false;
+          };
+    }
+  in
+  Tools_builtin.register_all ~config ~sandbox registry;
+  Alcotest.(check bool)
+    "zai_websearch registered" true
+    (Tool_registry.find registry "zai_websearch" <> None);
+  Alcotest.(check bool)
+    "zai_webfetch omitted when disabled" true
+    (Tool_registry.find registry "zai_webfetch" = None)
+
 let test_refresh_replaces_config_bound_tools () =
   let base = Runtime_config.default in
   let registry = Tool_registry.create () in
@@ -1716,6 +1754,10 @@ let suite =
       `Quick test_web_search_reads_live_config_after_registry_refresh;
     Alcotest.test_case "registry remove drops tool" `Quick
       test_registry_remove_drops_tool;
+    Alcotest.test_case "zai websearch requires api key" `Quick
+      test_zai_websearch_requires_api_key;
+    Alcotest.test_case "register builtin tools includes enabled zai tools"
+      `Quick test_register_builtin_tools_includes_enabled_zai_tools;
     Alcotest.test_case "refresh replaces config-bound tools" `Quick
       test_refresh_replaces_config_bound_tools;
     Alcotest.test_case "safe command no special chars" `Quick
