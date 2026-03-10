@@ -1,0 +1,31 @@
+# B292: task_tree cannot mark parent done when children are cancelled
+
+## Summary
+A parent task with all children cancelled should be markable as done. Currently the tool rejects `update status=done` when children are not done/cancelled, but cancelled children should satisfy the completion constraint.
+
+## Problem
+Attempted:
+```
+task_tree op=update id="recent_work_review" status=done
+```
+
+Error:
+```
+Cannot mark #recent_work_review done — children still incomplete: #identify_open_threads
+```
+
+But the child `#identify_open_threads` was either done or cancelled. The constraint check appears to only count `done` children as complete, ignoring `cancelled`.
+
+## Expected Behavior
+- A parent can be marked done when ALL children are either `done` OR `cancelled`
+- Cancelled children satisfy the completion constraint
+
+## Acceptance Criteria
+- `update status=done` succeeds when all children are done OR cancelled
+- Test case: parent with cancelled-only children can be marked done
+- Test case: parent with mixed done/cancelled children can be marked done
+- Test case: parent with pending/in_progress children still blocked
+
+## Files
+- src/task_tree.ml (status transition validation)
+- test/test_task_tree.ml
