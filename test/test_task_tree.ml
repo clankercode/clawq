@@ -241,6 +241,100 @@ let test_update_done_after_completing_children () =
   | Ok _ -> ()
   | Error e -> Alcotest.fail ("Expected Ok, got Error: " ^ e)
 
+let test_update_done_with_cancelled_child () =
+  (* B292: Parent should be markable done when all children are done OR cancelled *)
+  let db = fresh_db () in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "add"); ("title", `String "Parent"); ("depth", `Int 0);
+          ];
+        `Assoc
+          [
+            ("op", `String "add"); ("title", `String "Cancelled child"); ("depth", `Int 1);
+          ];
+      ]
+  in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "update");
+            ("id", `String "2");
+            ("status", `String "cancelled");
+          ];
+      ]
+  in
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "update");
+            ("id", `String "1");
+            ("status", `String "done");
+          ];
+      ]
+  in
+  match result with
+  | Ok _ -> ()
+  | Error e -> Alcotest.fail ("Expected Ok with cancelled child, got Error: " ^ e)
+
+let test_update_done_with_mixed_children () =
+  (* B292: Parent with both done and cancelled children should be markable done *)
+  let db = fresh_db () in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "add"); ("title", `String "Parent"); ("depth", `Int 0);
+          ];
+        `Assoc
+          [
+            ("op", `String "add"); ("title", `String "Done child"); ("depth", `Int 1);
+          ];
+        `Assoc
+          [
+            ("op", `String "add"); ("title", `String "Cancelled child"); ("depth", `Int 1);
+          ];
+      ]
+  in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "update");
+            ("id", `String "2");
+            ("status", `String "done");
+          ];
+        `Assoc
+          [
+            ("op", `String "update");
+            ("id", `String "3");
+            ("status", `String "cancelled");
+          ];
+      ]
+  in
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "update");
+            ("id", `String "1");
+            ("status", `String "done");
+          ];
+      ]
+  in
+  match result with
+  | Ok _ -> ()
+  | Error e -> Alcotest.fail ("Expected Ok with mixed children, got Error: " ^ e)
+
 let test_in_progress_propagation () =
   let db = fresh_db () in
   let _ =
@@ -2363,6 +2457,10 @@ let suite =
       test_update_done_with_incomplete_children;
     Alcotest.test_case "update done after completing children" `Quick
       test_update_done_after_completing_children;
+    Alcotest.test_case "update done with cancelled child" `Quick
+      test_update_done_with_cancelled_child;
+    Alcotest.test_case "update done with mixed done/cancelled children" `Quick
+      test_update_done_with_mixed_children;
     Alcotest.test_case "in_progress propagation" `Quick
       test_in_progress_propagation;
     Alcotest.test_case "remove task and subtree" `Quick
