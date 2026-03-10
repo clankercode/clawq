@@ -3595,4 +3595,5 @@ let handle args =
   | "debug" :: rest -> cmd_debug rest
   | "plan" :: rest -> cmd_plan rest
   | "benchmark" :: rest -> Benchmark.run rest
+  | "completions" :: rest -> Completions.cmd_completions rest
   | _ -> Clawq_core.dispatch args

@@ -800,6 +800,58 @@ let benchmark_cmd =
              run "benchmark" args)
         $ iterations $ tool))
 
+let completions_shell_arg =
+  Arg.(
+    value
+    & opt (some string) None
+    & info [ "shell" ] ~docv:"SHELL"
+        ~doc:
+          "Target shell: bash, zsh, or fish. Auto-detected from \\$SHELL if \
+           omitted.")
+
+let completions_print_cmd =
+  let info =
+    Cmd.info "print"
+      ~doc:"Print the completion script for the current or specified shell."
+  in
+  Cmd.v info
+    Term.(
+      ret
+        (const (fun shell ->
+             let args =
+               match shell with
+               | Some s -> [ "print"; "--shell"; s ]
+               | None -> [ "print" ]
+             in
+             run "completions" args)
+        $ completions_shell_arg))
+
+let completions_install_cmd =
+  let info =
+    Cmd.info "install"
+      ~doc:
+        "Install completion script to the default location for the current or \
+         specified shell."
+  in
+  Cmd.v info
+    Term.(
+      ret
+        (const (fun shell ->
+             let args =
+               match shell with
+               | Some s -> [ "install"; "--shell"; s ]
+               | None -> [ "install" ]
+             in
+             run "completions" args)
+        $ completions_shell_arg))
+
+let completions_cmd =
+  Cmd.group
+    ~default:Term.(ret (const (run "completions") $ const []))
+    (Cmd.info "completions"
+       ~doc:"Generate and install shell tab-completion scripts.")
+    [ completions_print_cmd; completions_install_cmd ]
+
 let version_cmd =
   let info = Cmd.info "version" ~doc:"Print version and build info." in
   Cmd.v info
@@ -873,6 +925,7 @@ let () =
       hardware_cmd;
       debug_cmd;
       benchmark_cmd;
+      completions_cmd;
     ]
   in
   exit (Cmd.eval ~argv ~env:help_env (Cmd.group main_info cmds))

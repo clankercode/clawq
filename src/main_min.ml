@@ -323,6 +323,58 @@ let benchmark_cmd =
 
 let migrate_cmd = with_args "migrate" "Run database migrations." []
 
+let completions_shell_arg =
+  Arg.(
+    value
+    & opt (some string) None
+    & info [ "shell" ] ~docv:"SHELL"
+        ~doc:
+          "Target shell: bash, zsh, or fish. Auto-detected from \\$SHELL if \
+           omitted.")
+
+let completions_print_cmd =
+  let info =
+    Cmd.info "print"
+      ~doc:"Print the completion script for the current or specified shell."
+  in
+  Cmd.v info
+    Term.(
+      ret
+        (const (fun shell ->
+             let args =
+               match shell with
+               | Some s -> [ "print"; "--shell"; s ]
+               | None -> [ "print" ]
+             in
+             run "completions" args)
+        $ completions_shell_arg))
+
+let completions_install_cmd =
+  let info =
+    Cmd.info "install"
+      ~doc:
+        "Install completion script to the default location for the current or \
+         specified shell."
+  in
+  Cmd.v info
+    Term.(
+      ret
+        (const (fun shell ->
+             let args =
+               match shell with
+               | Some s -> [ "install"; "--shell"; s ]
+               | None -> [ "install" ]
+             in
+             run "completions" args)
+        $ completions_shell_arg))
+
+let completions_cmd =
+  Cmd.group
+    ~default:Term.(ret (const (run "completions") $ const []))
+    (Cmd.info "completions"
+       ~doc:"Generate and install shell tab-completion scripts.")
+    [ completions_print_cmd; completions_install_cmd ]
+
 (* Disabled-in-minimal stubs — shown in help but print a clear message at runtime *)
 let disabled name doc =
   simple name (doc ^ " (disabled in minimal build; use full clawq binary).")
@@ -400,6 +452,7 @@ let () =
       version_cmd;
       hardware_cmd;
       benchmark_cmd;
+      completions_cmd;
     ]
   in
   exit (Cmd.eval ~argv ~env:help_env (Cmd.group main_info cmds))

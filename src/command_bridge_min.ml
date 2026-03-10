@@ -411,4 +411,5 @@ let handle args =
   | "hardware" :: _ -> "hardware: deferred to Phase 2"
   | "benchmark" :: rest -> Benchmark.run rest
   | "migrate" :: rest -> Migrate.cmd_migrate rest
+  | "completions" :: rest -> Completions.cmd_completions rest
   | _ -> Clawq_core.dispatch args

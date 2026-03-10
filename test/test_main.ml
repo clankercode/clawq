@@ -88,5 +88,6 @@ let () =
        ("models_catalog", Test_models_catalog.suite);
        ("model_preferences", Test_model_preferences.suite);
        ("session_keepalive", Test_keepalive.suite);
+       ("completions", Test_completions.suite);
      ]
     @ Test_github.suites)

@@ -91,7 +91,8 @@
   test_vector
   test_wasm
   test_whatsapp
-  test_keepalive)
+  test_keepalive
+  test_completions)
  (libraries
   clawq_extracted
   clawq_runtime_core

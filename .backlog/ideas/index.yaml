@@ -109,5 +109,12 @@ ideas:
       status: done
       tags: []
       title: 'We should add support for a planning mode via background task runners. It should work by getting one agent (as bg task) to produce a plan. Then, if it''s possible to resume sessions and send new prompts to existing sessions, the main agent can go back and forth with the planning agent about any design questions or whatever. Finally, the planning agent produces a plan. This is then fed into a new coding agent (another bg task) to implement. We can store this plan on disk in the worktree directory while this is going on to avoid loading it all into the main agents context (then the planning agent writes to disk and returns a summary). We can even have a version of review-and-fix just for the plan (so planner saves to disk -> loop: plan-review-and-fix goes over plan looking for footguns, gaps, inconsistencies, etc (repeats while improvements are still made) -> coder agent implements -> loop: review-and-fix agent does a review and fixes any issues till none more found). Also we can make use of gpt-5.3-codex-spark here and composer-1.5, both of which will be good for some quick rounds (note: for these lower-reliability models, if used as part of the loop we always want to run an expensive model afterwards. For this reason we should run them earlier in the process so they can do a lot of the heavy lifting). As part of this too, we can ensure the plan lists relevant files so it''s super fast for agents to get up to speed when reviewing.'
-    - file: I014-add-tab-completions-for-bash-z.todo
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 10
+      file: I014-add-tab-completions-for-bash-z.todo
       id: I014
+      priority: medium
+      status: done
+      tags: []
+      title: Add tab-completions for bash/zsh/fish via `clawq completions` (the shell is autodetected, or --shell <bash|zsh|fish>). Also `clawq completions` should print a nice message about how to use it. `clawq completions install` should install the completions in typical places for bash/zsh/fish, and `clawq completions print` should print out for that shell. the `--shell` cli arg should work with all those subcommands.
