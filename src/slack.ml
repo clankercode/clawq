@@ -486,13 +486,25 @@ let handle_event ~(config : Runtime_config.slack_config)
                         Session.update_config ~source:"slack" session_manager
                           { cfg with agent_defaults };
                         let _ = Model_preferences.increment_usage name in
+                        let provider_in_config =
+                          List.mem_assoc provider cfg.providers
+                        in
+                        let warn =
+                          if not provider_in_config then
+                            Printf.sprintf
+                              "\n\
+                               Warning: provider '%s' not found in config. Add \
+                               it to your config.json to use this model."
+                              provider
+                          else ""
+                        in
                         let* () =
                           send_message_fn ~bot_token:config.bot_token
                             ~channel_id
                             ~text:
                               (Printf.sprintf
-                                 "Model set to: %s (provider: %s)%s" model_id
-                                 provider hint)
+                                 "Model set to: %s (provider: %s)%s%s" model_id
+                                 provider hint warn)
                         in
                         Lwt.return "ok"
                     | Models_catalog.Plain -> (

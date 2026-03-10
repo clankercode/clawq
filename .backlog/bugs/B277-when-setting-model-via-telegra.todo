@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-10T02:26:17Z"
+claimed_by: cli-user
+completed_at: "2026-03-10T02:50:00Z"
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B277
 priority: high
-status: pending
+started_at: "2026-03-10T02:26:17Z"
+status: done
 tags: []
 title: when setting model via telegram '/model set zai_coding:glm-5', it does not update the provider correctly
 ---

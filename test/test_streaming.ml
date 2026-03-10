@@ -332,6 +332,35 @@ let test_select_provider_keeps_raw_model_when_target_provider_missing () =
   Alcotest.(check string) "fallback provider selected" "groq" provider_name;
   Alcotest.(check string) "raw model preserved" "zai_coding:glm-5" model
 
+let test_select_provider_honors_explicit_no_auth_provider () =
+  let config : Runtime_config.t =
+    {
+      Runtime_config.default with
+      providers =
+        [
+          ( "openai-codex",
+            { Runtime_config.default_provider_config with api_key = "sk-codex" }
+          );
+          ( "zai_coding",
+            {
+              Runtime_config.default_provider_config with
+              api_key = "";
+              base_url = Some "https://api.z.ai/api/coding/paas/v4";
+            } );
+        ];
+      default_provider = Some "openai-codex";
+      agent_defaults =
+        {
+          Runtime_config.default.agent_defaults with
+          primary_model = "zai_coding:glm-5";
+        };
+    }
+  in
+  let provider_name, _, model = Provider.select_provider ~config () in
+  Alcotest.(check string)
+    "explicit provider honored even without api_key" "zai_coding" provider_name;
+  Alcotest.(check string) "model parsed from colon target" "glm-5" model
+
 let test_codex_stream_no_duplicate_tool_calls () =
   (* Simulate OpenAI Codex Responses API streaming with 3 tool calls.
      Event sequence: 3x output_item.added, 3x argument deltas,
@@ -665,6 +694,8 @@ let suite =
       test_select_provider_prefers_colon_model_provider;
     Alcotest.test_case "preserve raw model when provider missing" `Quick
       test_select_provider_keeps_raw_model_when_target_provider_missing;
+    Alcotest.test_case "explicit provider honored without api_key" `Quick
+      test_select_provider_honors_explicit_no_auth_provider;
     Alcotest.test_case "codex stream no duplicate tool calls" `Quick
       test_codex_stream_no_duplicate_tool_calls;
     Alcotest.test_case "codex stream backfill only missing" `Quick

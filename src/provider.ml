@@ -481,10 +481,7 @@ let select_provider ~(config : Runtime_config.t)
   let raw_model = String.trim config.agent_defaults.primary_model in
   let model_provider_preferred =
     match model_target.provider with
-    | Some name -> (
-        match find_named name with
-        | Some (n, p) when Runtime_config.provider_has_auth p -> Some (n, p)
-        | _ -> None)
+    | Some name -> find_named name
     | None -> None
   in
   let config_provider_preferred =

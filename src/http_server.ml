@@ -901,10 +901,23 @@ let handler ~session_manager ~require_pairing ~auth_token
                               session_manager
                               { cfg with agent_defaults };
                             let _ = Model_preferences.increment_usage name in
+                            let provider_in_config =
+                              List.mem_assoc provider cfg.providers
+                            in
+                            let warn =
+                              if not provider_in_config then
+                                Printf.sprintf
+                                  "\n\
+                                   Warning: provider '%s' not found in config. \
+                                   Add it to your config.json to use this \
+                                   model."
+                                  provider
+                              else ""
+                            in
                             sse_reply
                               (Printf.sprintf
-                                 "Model set to: %s (provider: %s)%s" model_id
-                                 provider hint)
+                                 "Model set to: %s (provider: %s)%s%s" model_id
+                                 provider hint warn)
                         | Models_catalog.Plain -> (
                             let model_info =
                               Models_catalog.find_by_full_name name

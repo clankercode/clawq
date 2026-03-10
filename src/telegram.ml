@@ -1593,10 +1593,22 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                     Session.update_config ~source:"telegram" session_mgr
                       { cfg with agent_defaults };
                     let _ = Model_preferences.increment_usage name in
+                    let provider_in_config =
+                      List.mem_assoc provider cfg.providers
+                    in
+                    let warn =
+                      if not provider_in_config then
+                        Printf.sprintf
+                          "\n\
+                           Warning: provider '%s' not found in config. Add it \
+                           to your config.json to use this model."
+                          provider
+                      else ""
+                    in
                     send_message ~bot_token ~chat_id:update.chat_id
                       ~text:
-                        (Printf.sprintf "Model set to: %s (provider: %s)%s"
-                           model_id provider hint)
+                        (Printf.sprintf "Model set to: %s (provider: %s)%s%s"
+                           model_id provider hint warn)
                       ()
                 | Models_catalog.Plain -> (
                     let model_info = Models_catalog.find_by_full_name name in
