@@ -70,6 +70,12 @@ let autonomous_continuation_prompt =
   "Autonomous session check-in: continue working if more remains; otherwise \
    reply exactly " ^ autonomous_stay_idle_message
 
+let keepalive_nudge_prompt =
+  "[Automated Keepalive Check-In]\n\
+   Continue working on your tasks if any remain.\n\n\
+   If you have nothing to do and want to remain idle, reply exactly: "
+  ^ autonomous_stay_idle_message
+
 let get_context_usage_percent mgr ~key =
   match Hashtbl.find_opt mgr.sessions key with
   | Some (agent, _, _) ->

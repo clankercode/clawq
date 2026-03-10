@@ -1,4 +1,4 @@
-let schema_version = 6
+let schema_version = 7
 
 type session_activity = Active | Inactive | Any
 
@@ -11,6 +11,7 @@ type session_info = {
   last_active : string option;
   message_count : int;
   archived_epoch_count : int;
+  keepalive_enabled : bool;
 }
 
 type raw_message = {
@@ -111,7 +112,8 @@ let init_session_schema db =
     \     channel TEXT,\n\
     \     channel_id TEXT,\n\
     \     response_sent_at TEXT,\n\
-    \     last_active TEXT NOT NULL DEFAULT (datetime('now'))\n\
+    \     last_active TEXT NOT NULL DEFAULT (datetime('now')),\n\
+    \     keepalive_enabled INTEGER NOT NULL DEFAULT 0\n\
     \   )";
   exec_exn db
     "CREATE TABLE IF NOT EXISTS discord_resume_state (\n\
@@ -251,6 +253,18 @@ let migrate_schema db current_version =
       init_inbound_queue_schema db;
       init_models_cache_schema db;
       init_request_stats_schema db;
+      exec_exn db
+        "ALTER TABLE session_state ADD COLUMN keepalive_enabled INTEGER NOT \
+         NULL DEFAULT 0";
+      set_schema_version db schema_version
+  | 6 ->
+      init_session_schema db;
+      init_inbound_queue_schema db;
+      init_models_cache_schema db;
+      init_request_stats_schema db;
+      exec_exn db
+        "ALTER TABLE session_state ADD COLUMN keepalive_enabled INTEGER NOT \
+         NULL DEFAULT 0";
       set_schema_version db schema_version
   | n when n = schema_version ->
       init_session_schema db;
@@ -742,6 +756,36 @@ let mark_response_sent ~db ~session_key =
           m "Failed to mark response sent: %s" (Sqlite3.Rc.to_string rc)));
   ignore (Sqlite3.finalize stmt)
 
+let set_session_keepalive ~db ~session_key ~enabled =
+  let sql =
+    "INSERT INTO session_state (session_key, keepalive_enabled) VALUES (?, ?) \
+     ON CONFLICT(session_key) DO UPDATE SET keepalive_enabled = \
+     excluded.keepalive_enabled"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT session_key));
+  ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (if enabled then 1L else 0L)));
+  (match Sqlite3.step stmt with
+  | Sqlite3.Rc.DONE -> ()
+  | rc ->
+      Logs.warn (fun m ->
+          m "Failed to set session keepalive: %s" (Sqlite3.Rc.to_string rc)));
+  ignore (Sqlite3.finalize stmt)
+
+let list_keepalive_session_keys ~db =
+  let sql =
+    "SELECT session_key FROM session_state WHERE keepalive_enabled = 1"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  let keys = ref [] in
+  while Sqlite3.step stmt = Sqlite3.Rc.ROW do
+    match Sqlite3.column stmt 0 with
+    | Sqlite3.Data.TEXT s -> keys := s :: !keys
+    | _ -> ()
+  done;
+  ignore (Sqlite3.finalize stmt);
+  List.rev !keys
+
 let load_pending_agent_sessions ~db ~max_age_seconds =
   let sql =
     "SELECT session_key, channel, channel_id FROM session_state WHERE turn = \
@@ -786,10 +830,11 @@ let list_session_infos ~db ?channel ?prefix ?(activity = Any) ?only_main () =
     "SELECT k.session_key, s.channel, s.channel_id, s.turn, \
      s.response_sent_at, s.last_active, (SELECT COUNT(*) FROM messages m WHERE \
      m.session_key = k.session_key), (SELECT COUNT(*) FROM session_log_epochs \
-     e WHERE e.session_key = k.session_key) FROM (SELECT session_key FROM \
-     messages UNION SELECT session_key FROM session_state UNION SELECT \
-     session_key FROM session_log_epochs) k LEFT JOIN session_state s ON \
-     s.session_key = k.session_key ORDER BY k.session_key"
+     e WHERE e.session_key = k.session_key), COALESCE(s.keepalive_enabled, 0) \
+     FROM (SELECT session_key FROM messages UNION SELECT session_key FROM \
+     session_state UNION SELECT session_key FROM session_log_epochs) k LEFT \
+     JOIN session_state s ON s.session_key = k.session_key ORDER BY \
+     k.session_key"
   in
   let stmt = Sqlite3.prepare db sql in
   let rows = ref [] in
@@ -816,6 +861,7 @@ let list_session_infos ~db ?channel ?prefix ?(activity = Any) ?only_main () =
           last_active = text_opt 5;
           message_count = int_value 6;
           archived_epoch_count = int_value 7;
+          keepalive_enabled = int_value 8 <> 0;
         }
         :: !rows
   done;

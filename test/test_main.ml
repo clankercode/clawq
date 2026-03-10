@@ -87,5 +87,6 @@ let () =
        ("benchmark", Test_benchmark.suite);
        ("models_catalog", Test_models_catalog.suite);
        ("model_preferences", Test_model_preferences.suite);
+       ("session_keepalive", Test_keepalive.suite);
      ]
     @ Test_github.suites)

@@ -71,6 +71,8 @@ let drain_warning_schedule =
     (60.0, "Restart timeout reached, forcing restart now.");
   ]
 
+let keepalive_check_interval_s = 900.0
+let keepalive_idle_threshold_s = 900.0
 let restart_signal_ts_env = "CLAWQ_LAST_RESTART_SIGNAL_TS"
 let restart_signal_duplicate_window_seconds = 5.0
 
@@ -611,6 +613,75 @@ let pp_header_with_ts ppf t (level, _header) =
   let lt = level_tag level in
   Fmt.pf ppf "%s[%02d:%02d:%02d.%03d]%s %s%s%s " ansi_fg_gray tm.Unix.tm_hour
     tm.Unix.tm_min tm.Unix.tm_sec ms ansi_reset lc lt ansi_reset
+
+let run_keepalive_loop ~db ~(session_manager : Session.t) =
+  let open Lwt.Syntax in
+  let rec loop () =
+    let* () = Lwt_unix.sleep keepalive_check_interval_s in
+    let keys = Memory.list_keepalive_session_keys ~db in
+    let* () =
+      Lwt_list.iter_s
+        (fun session_key ->
+          let* snapshot =
+            Session.current_live_activity session_manager ~key:session_key
+          in
+          if snapshot.Session.active then begin
+            Logs.debug (fun m ->
+                m "Keepalive: skipping %s (currently active)" session_key);
+            Lwt.return_unit
+          end
+          else begin
+            let infos =
+              Memory.list_session_infos ~db ~prefix:session_key
+                ~activity:Memory.Any ()
+            in
+            let is_idle =
+              match
+                List.find_opt
+                  (fun (r : Memory.session_info) -> r.session_key = session_key)
+                  infos
+              with
+              | None -> true
+              | Some r -> (
+                  match r.last_active with
+                  | None -> true
+                  | Some ts ->
+                      let epoch = Background_task.parse_sqlite_datetime ts in
+                      epoch = 0.0
+                      || Unix.gettimeofday () -. epoch
+                         >= keepalive_idle_threshold_s)
+            in
+            if not is_idle then begin
+              Logs.debug (fun m ->
+                  m "Keepalive: skipping %s (recently active)" session_key);
+              Lwt.return_unit
+            end
+            else begin
+              Logs.info (fun m ->
+                  m "Keepalive: nudging idle session %s" session_key);
+              Lwt.async (fun () ->
+                  Lwt.catch
+                    (fun () ->
+                      Session.with_suppressed_channel_output session_manager
+                        ~key:session_key (fun () ->
+                          let* _response =
+                            Session.turn session_manager ~key:session_key
+                              ~message:Session.keepalive_nudge_prompt ()
+                          in
+                          Lwt.return_unit))
+                    (fun exn ->
+                      Logs.err (fun m ->
+                          m "Keepalive turn error for %s: %s" session_key
+                            (Printexc.to_string exn));
+                      Lwt.return_unit));
+              Lwt.return_unit
+            end
+          end)
+        keys
+    in
+    loop ()
+  in
+  loop ()
 
 let replay_durable_inbound_queue
     ?(replay_turn :
@@ -1700,6 +1771,17 @@ let run ~(config : Runtime_config.t) =
   | Some _ | None -> ());
   let* () = resume_sessions_after_channels () in
   let* () = replay_durable_inbound_queue ~session_manager ~config () in
+  (* Keepalive periodic loop: nudges idle keepalive-enabled sessions every 15m *)
+  (match db with
+  | Some db ->
+      Lwt.async (fun () ->
+          Lwt.catch
+            (fun () -> run_keepalive_loop ~db ~session_manager)
+            (fun exn ->
+              Logs.err (fun m ->
+                  m "Keepalive loop error: %s" (Printexc.to_string exn));
+              Lwt.return_unit))
+  | None -> ());
   (* Background model discovery refresh at startup *)
   (match db with
   | Some db ->

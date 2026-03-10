@@ -90,7 +90,7 @@ let test_init_double_call () =
 let test_init_schema_version_is_6 () =
   let db = Memory.init ~db_path:":memory:" () in
   Alcotest.(check int)
-    "schema version is 6" 6
+    "schema version is 7" 7
     (query_single_int db "SELECT version FROM schema_version")
 
 let test_init_creates_session_persistence_tables () =
@@ -142,7 +142,7 @@ let test_migrates_v1_db_to_v4_without_data_loss () =
       ignore (Sqlite3.db_close db);
       let migrated = Memory.init ~db_path () in
       Alcotest.(check int)
-        "schema version migrated" 6
+        "schema version migrated" 7
         (query_single_int migrated "SELECT version FROM schema_version");
       Alcotest.(check bool)
         "session_state exists after migration" true
@@ -865,7 +865,7 @@ let test_queue_migrate_v4_to_v5 () =
       ignore (Sqlite3.db_close db);
       let migrated = Memory.init ~db_path () in
       Alcotest.(check int)
-        "schema version is 6" 6
+        "schema version is 7" 7
         (query_single_int migrated "SELECT version FROM schema_version");
       Alcotest.(check bool)
         "inbound_queue exists after v4->v5" true
@@ -889,7 +889,7 @@ let suite =
     Alcotest.test_case "init search enabled" `Quick test_init_search_enabled;
     Alcotest.test_case "init search disabled" `Quick test_init_search_disabled;
     Alcotest.test_case "init double call" `Quick test_init_double_call;
-    Alcotest.test_case "init schema version is 6" `Quick
+    Alcotest.test_case "init schema version is 7" `Quick
       test_init_schema_version_is_6;
     Alcotest.test_case "init creates session persistence tables" `Quick
       test_init_creates_session_persistence_tables;

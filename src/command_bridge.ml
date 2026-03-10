@@ -1284,10 +1284,13 @@ let cmd_session args =
                    Printf.sprintf "  pending_inbound=%d" pending
                  else ""
                in
+               let keepalive_suffix =
+                 if row.keepalive_enabled then "  [keepalive]" else ""
+               in
                Printf.sprintf
-                 "%s  state=%s  channel=%s  messages=%d  archives=%d%s"
+                 "%s  state=%s  channel=%s  messages=%d  archives=%d%s%s"
                  row.session_key state channel row.message_count
-                 row.archived_epoch_count pending_suffix)
+                 row.archived_epoch_count pending_suffix keepalive_suffix)
              sessions)
   | "list" :: rest -> (
       match parse_session_list_args rest with
@@ -1324,10 +1327,13 @@ let cmd_session args =
                        Printf.sprintf "  pending_inbound=%d" pending
                      else ""
                    in
+                   let keepalive_suffix =
+                     if row.keepalive_enabled then "  [keepalive]" else ""
+                   in
                    Printf.sprintf
-                     "%s  state=%s  channel=%s  messages=%d  archives=%d%s"
+                     "%s  state=%s  channel=%s  messages=%d  archives=%d%s%s"
                      row.session_key state channel row.message_count
-                     row.archived_epoch_count pending_suffix)
+                     row.archived_epoch_count pending_suffix keepalive_suffix)
                  sessions))
   | [ "epochs"; session_key ] ->
       let epochs = Memory.list_session_epochs ~db ~session_key in
@@ -1678,6 +1684,32 @@ let cmd_session args =
                     (match parse_json_error_body resp_body with
                     | Some msg -> msg
                     | None -> resp_body))))
+  | "keepalive" :: session_key :: rest -> (
+      match rest with
+      | [] | [ "status" ] ->
+          let infos =
+            Memory.list_session_infos ~db ~prefix:session_key
+              ~activity:Memory.Any ()
+          in
+          let enabled =
+            match
+              List.find_opt
+                (fun (r : Memory.session_info) -> r.session_key = session_key)
+                infos
+            with
+            | Some r -> r.keepalive_enabled
+            | None -> false
+          in
+          Printf.sprintf "Session %s: keepalive = %s" session_key
+            (if enabled then "on" else "off")
+      | [ "on" ] ->
+          Memory.set_session_keepalive ~db ~session_key ~enabled:true;
+          Printf.sprintf "Keepalive enabled for session %s" session_key
+      | [ "off" ] ->
+          Memory.set_session_keepalive ~db ~session_key ~enabled:false;
+          Printf.sprintf "Keepalive disabled for session %s" session_key
+      | _ -> "Usage: clawq session keepalive SESSION [on|off|status]")
+  | [ "keepalive" ] -> "Usage: clawq session keepalive SESSION [on|off|status]"
   | _ ->
       "Usage: clawq session <subcommand>\n\
       \  session list [--channel NAME] [--prefix PREFIX] [--active|--inactive] \
@@ -1687,7 +1719,8 @@ let cmd_session args =
       \  session pending SESSION\n\
       \  session events SESSION [--epoch current|ID] [--type TYPE]\n\
       \  session inject SESSION MESSAGE...\n\
-      \  session compact SESSION"
+      \  session compact SESSION\n\
+      \  session keepalive SESSION [on|off|status]"
 
 type background_add_args = {
   runner : Background_task.runner;
