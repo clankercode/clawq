@@ -276,3 +276,4 @@ bugs:
     - file: B275-need-to-search-the-web-for-acc.todo
     - file: B276-calling-model-glm-5-in-telegra.todo
     - file: B277-when-setting-model-via-telegra.todo
+    - file: B278-item-not-found-store-true-or-r.todo

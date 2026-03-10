@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B278
+priority: high
+status: pending
+tags: []
+title: item not found, store=true or remove from input
+---
+
+item not found, store=true or remove from input
