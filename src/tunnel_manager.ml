@@ -159,8 +159,8 @@ let start_cf_managed ~(config : Runtime_config.tunnel_config)
                 | None ->
                     Logs.warn (fun m ->
                         m
-                          "[Tunnel] Ready but no URL configured; set tunnel.url \
-                           in config")
+                          "[Tunnel] Ready but no URL configured; set \
+                           tunnel.url in config")
               end
             end;
             read_stderr ())
