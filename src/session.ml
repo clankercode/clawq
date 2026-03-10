@@ -338,6 +338,12 @@ let enqueue_message_if_busy mgr ~key queued_message =
               m "[%s] Queued inbound message for busy session (queue depth: %d)"
                 key
                 (List.length existing + 1));
+          (* NOTE: queued_message_interrupt_token does not interrupt the
+             normal agent loop (agent.ml checks it but continues looping).
+             Its effects: (1) inject_messages picks up queued messages
+             between tool-call batches when wired by run_locked_turn, and
+             (2) restart-resume turns remap it to a real stop signal in
+             daemon_util.ml:restart_resume_interrupt_check. *)
           if !interrupt = None then
             interrupt := Some Agent.queued_message_interrupt_token;
           Lwt.return_true
@@ -1214,6 +1220,9 @@ let rec drain_queued_messages_loop mgr ~key agent interrupt ?on_drain_progress
       drain_queued_messages_loop mgr ~key agent interrupt ?on_drain_progress
         ~drained_any:true ()
   | Some queued, None ->
+      (* TODO: instead of dropping, could leave the inbound_queue row intact
+         so boot replay picks it up on next restart.  Currently the row is
+         deleted below, making the loss permanent. *)
       Logs.warn (fun m ->
           m
             "Dropping queued message for session %s: no notifier registered \

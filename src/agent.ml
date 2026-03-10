@@ -1709,6 +1709,10 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
             | interrupt when is_restart_interrupt interrupt ->
                 Lwt.fail Restart_requested
             | interrupt when is_queued_message_interrupt interrupt ->
+                (* Not a real interrupt: continue looping.  Queued messages
+                   are picked up via inject_messages between tool batches.
+                   Restart-resume turns remap this token to a real stop
+                   signal in daemon_util.ml. *)
                 loop (iteration + 1)
             | Some _ ->
                 let partial =

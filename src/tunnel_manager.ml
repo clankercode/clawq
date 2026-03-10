@@ -74,19 +74,33 @@ let start_cf_managed ~(config : Runtime_config.tunnel_config)
   else
     let rec supervisor_loop backoff_s =
       let started_at = Unix.gettimeofday () in
-      let args =
-        [|
-          "cloudflared";
-          "tunnel";
-          "--no-autoupdate";
-          "--grace-period";
-          "5s";
-          "run";
-          config.tunnel_name;
-        |]
+      let is_token =
+        let name = String.trim config.tunnel_name in
+        String.length name >= 3 && String.sub name 0 3 = "eyJ"
       in
       let args =
-        if config.config_dir <> "" then
+        if is_token then
+          [|
+            "cloudflared";
+            "tunnel";
+            "--no-autoupdate";
+            "run";
+            "--token";
+            config.tunnel_name;
+          |]
+        else
+          [|
+            "cloudflared";
+            "tunnel";
+            "--no-autoupdate";
+            "--grace-period";
+            "5s";
+            "run";
+            config.tunnel_name;
+          |]
+      in
+      let args =
+        if (not is_token) && config.config_dir <> "" then
           let cfg_path =
             Filename.concat
               (Runtime_config.expand_home config.config_dir)
@@ -97,8 +111,17 @@ let start_cf_managed ~(config : Runtime_config.tunnel_config)
             (Array.sub args 1 (Array.length args - 1))
         else args
       in
+      let redacted_args =
+        Array.map
+          (fun s ->
+            if String.length s >= 3 && String.sub s 0 3 = "eyJ" then
+              String.sub s 0 8 ^ "..."
+            else s)
+          args
+      in
       Logs.info (fun m ->
-          m "Starting cloudflared: %s" (String.concat " " (Array.to_list args)));
+          m "[Tunnel] Starting cloudflared: %s"
+            (String.concat " " (Array.to_list redacted_args)));
       let proc = Lwt_process.open_process_full ("cloudflared", args) in
       let conn_count = ref 0 in
       let url_notified = ref false in
@@ -120,7 +143,7 @@ let start_cf_managed ~(config : Runtime_config.tunnel_config)
             then begin
               incr conn_count;
               Logs.info (fun m ->
-                  m "cloudflared connection %d/4 registered" !conn_count);
+                  m "[Tunnel] cloudflared connection %d/4 registered" !conn_count);
               if !conn_count >= 4 then begin
                 url_notified := true;
                 let static =
@@ -172,7 +195,7 @@ let start_cf_managed ~(config : Runtime_config.tunnel_config)
           ]
       in
       if !cancelled then begin
-        Logs.info (fun m -> m "Tunnel supervisor cancelled");
+        Logs.info (fun m -> m "[Tunnel] Supervisor cancelled");
         on_url None;
         Lwt.return_unit
       end
@@ -182,8 +205,8 @@ let start_cf_managed ~(config : Runtime_config.tunnel_config)
           if elapsed > 300.0 then 1.0 else min 60.0 (backoff_s *. 2.0)
         in
         Logs.info (fun m ->
-            m "cloudflared exited after %.0fs, restarting in %.0fs" elapsed
-              backoff_s);
+            m "[Tunnel] cloudflared exited after %.0fs, restarting in %.0fs"
+              elapsed backoff_s);
         let* () =
           Lwt.pick
             [
@@ -194,7 +217,7 @@ let start_cf_managed ~(config : Runtime_config.tunnel_config)
             ]
         in
         if !cancelled then begin
-          Logs.info (fun m -> m "Tunnel supervisor cancelled during backoff");
+          Logs.info (fun m -> m "[Tunnel] Supervisor cancelled during backoff");
           on_url None;
           Lwt.return_unit
         end

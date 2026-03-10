@@ -83,8 +83,19 @@ let start t =
       end
       else begin
         let stderr_file = Filename.temp_file "cloudflared" ".log" in
+        (* Detect if tunnel_name is a JWT token (starts with "eyJ") *)
+        let is_token =
+          let name = String.trim cfg.tunnel_name in
+          String.length name >= 3 && String.sub name 0 3 = "eyJ"
+        in
         let cmd =
-          if String.trim cfg.config_dir <> "" then
+          if is_token then
+            (* Token-based auth: cloudflared tunnel run --token <token> *)
+            Printf.sprintf
+              "exec cloudflared tunnel --no-autoupdate run --token %s 2>%s"
+              (Filename.quote cfg.tunnel_name)
+              (Filename.quote stderr_file)
+          else if String.trim cfg.config_dir <> "" then
             Printf.sprintf
               "exec cloudflared --config %s tunnel --no-autoupdate \
                --grace-period 5s run %s 2>%s"
