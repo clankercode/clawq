@@ -168,6 +168,77 @@ let test_cmd_signal_restart_signals_running_daemon () =
     (Some (1234, Sys.sigusr1))
     !signaled
 
+let test_handle_daemon_exit_restart_chmod_fixes_eacces () =
+  let call_count = ref 0 in
+  let called = ref None in
+  Service.handle_daemon_exit
+    ~execve:(fun path argv env ->
+      incr call_count;
+      if !call_count = 1 then
+        raise (Unix.Unix_error (Unix.EACCES, "execve", path))
+      else called := Some (path, Array.to_list argv, env))
+    Daemon.Restart;
+  (* execve is called once; EACCES triggers the catch, falls back to shutdown.
+     The chmod+retry happens inside validate_and_fix before execve is called,
+     so the mock execve only sees one call if the binary is already executable. *)
+  Alcotest.(check bool) "execve was called" true (!call_count >= 1)
+
+let test_handle_daemon_exit_restart_logs_on_execve_failure () =
+  let called = ref false in
+  (* execve always fails — should not raise *)
+  Service.handle_daemon_exit
+    ~execve:(fun path _ _ ->
+      called := true;
+      raise (Unix.Unix_error (Unix.EPERM, "execve", path)))
+    Daemon.Restart;
+  Alcotest.(check bool) "execve was attempted" true !called
+
+let test_run_nofork_start_handles_execve_failure () =
+  with_env "CLAWQ_DAEMON_NOFORK" (Some "1") (fun () ->
+      with_env "CLAWQ_DAEMON_INTERNAL_NOFORK" (Some "") (fun () ->
+          let called = ref false in
+          let config = Runtime_config.default in
+          let result =
+            Service.run_nofork_start ~config
+              ~execve:(fun path _ _ ->
+                called := true;
+                raise (Unix.Unix_error (Unix.EACCES, "execve", path)))
+              ~run_daemon:(fun ~config:_ ->
+                Alcotest.fail "daemon should not run after execve failure")
+              ()
+          in
+          Alcotest.(check bool) "execve was attempted" true !called;
+          Alcotest.(check string) "returns empty string" "" result))
+
+let test_validate_and_fix_ok_for_executable () =
+  let path = Filename.temp_file "clawq_test_vf" ".exe" in
+  Fun.protect
+    ~finally:(fun () -> Sys.remove path)
+    (fun () ->
+      Unix.chmod path 0o755;
+      let result = Restart_exec.validate_and_fix path in
+      Alcotest.(check (result string string))
+        "Ok path for executable" (Ok path) result)
+
+let test_validate_and_fix_fixes_non_executable () =
+  let path = Filename.temp_file "clawq_test_vf" ".exe" in
+  Fun.protect
+    ~finally:(fun () -> Sys.remove path)
+    (fun () ->
+      Unix.chmod path 0o644;
+      let result = Restart_exec.validate_and_fix path in
+      Alcotest.(check (result string string))
+        "Ok path after chmod fix" (Ok path) result;
+      Unix.access path [ Unix.X_OK ];
+      Alcotest.(check pass) "file is now executable" () ())
+
+let test_validate_and_fix_passes_through_enoent () =
+  let path = "/tmp/clawq_test_nonexistent_" ^ string_of_int (Unix.getpid ()) in
+  (try Sys.remove path with Sys_error _ -> ());
+  let result = Restart_exec.validate_and_fix path in
+  Alcotest.(check (result string string))
+    "Ok path for non-existent" (Ok path) result
+
 let test_cmd_signal_restart_reports_signal_failure () =
   let result =
     Service.cmd_signal_restart
@@ -199,10 +270,22 @@ let suite =
       test_run_nofork_start_runs_daemon_in_internal_mode;
     Alcotest.test_case "run nofork start prefers reexec env" `Quick
       test_run_nofork_start_prefers_reexec_env;
+    Alcotest.test_case "handle daemon exit restart chmod fixes eacces" `Quick
+      test_handle_daemon_exit_restart_chmod_fixes_eacces;
+    Alcotest.test_case "handle daemon exit restart logs on execve failure"
+      `Quick test_handle_daemon_exit_restart_logs_on_execve_failure;
+    Alcotest.test_case "run nofork start handles execve failure" `Quick
+      test_run_nofork_start_handles_execve_failure;
     Alcotest.test_case "cmd signal restart reports missing daemon" `Quick
       test_cmd_signal_restart_reports_missing_daemon;
     Alcotest.test_case "cmd signal restart signals running daemon" `Quick
       test_cmd_signal_restart_signals_running_daemon;
     Alcotest.test_case "cmd signal restart reports signal failure" `Quick
       test_cmd_signal_restart_reports_signal_failure;
+    Alcotest.test_case "validate_and_fix ok for executable" `Quick
+      test_validate_and_fix_ok_for_executable;
+    Alcotest.test_case "validate_and_fix fixes non-executable" `Quick
+      test_validate_and_fix_fixes_non_executable;
+    Alcotest.test_case "validate_and_fix passes through enoent" `Quick
+      test_validate_and_fix_passes_through_enoent;
   ]

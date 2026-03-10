@@ -156,22 +156,35 @@ let daemon_start_argv ~executable = [| executable; "service"; "start" |]
 let handle_daemon_exit ?(execve = Unix.execve) exit_intent =
   match exit_intent with
   | Daemon.Shutdown -> ()
-  | Daemon.Restart ->
+  | Daemon.Restart -> (
       let executable = Restart_exec.executable () in
-      let set_vars =
-        match Restart_notify.read () with
-        | Some (channel, channel_id) ->
-            [
-              (nofork_env, "1");
-              ( Restart_notify.env_key,
-                Restart_notify.to_json_string ~channel ~channel_id );
-            ]
-        | None -> [ (nofork_env, "1") ]
-      in
-      execve executable
-        (daemon_start_argv ~executable)
-        (build_env ~set_vars
-           ~unset_vars:[ internal_nofork_env; Restart_notify.env_key ])
+      match Restart_exec.validate_and_fix executable with
+      | Error msg ->
+          Logs.err (fun m ->
+              m "Restart aborted: %s; falling back to clean shutdown" msg)
+      | Ok executable -> (
+          let set_vars =
+            match Restart_notify.read () with
+            | Some (channel, channel_id) ->
+                [
+                  (nofork_env, "1");
+                  ( Restart_notify.env_key,
+                    Restart_notify.to_json_string ~channel ~channel_id );
+                ]
+            | None -> [ (nofork_env, "1") ]
+          in
+          try
+            execve executable
+              (daemon_start_argv ~executable)
+              (build_env ~set_vars
+                 ~unset_vars:[ internal_nofork_env; Restart_notify.env_key ])
+          with Unix.Unix_error (err, func, arg) ->
+            Logs.err (fun m ->
+                m
+                  "execve failed for %s: %s(%s)%s; falling back to clean \
+                   shutdown"
+                  executable (Unix.error_message err) func
+                  (if arg <> "" then ": " ^ arg else ""))))
 
 let run_nofork_start ?(execve = Unix.execve)
     ?(run_daemon = fun ~config -> Lwt_main.run (Daemon.run ~config)) ~config ()
@@ -180,11 +193,22 @@ let run_nofork_start ?(execve = Unix.execve)
   let internal_nofork = Sys.getenv_opt internal_nofork_env = Some "1" in
   if nofork_requested && not internal_nofork then begin
     let executable = Restart_exec.executable () in
-    execve executable
-      (daemon_start_argv ~executable)
-      (build_env
-         ~set_vars:[ (internal_nofork_env, "1") ]
-         ~unset_vars:[ nofork_env ]);
+    (match Restart_exec.validate_and_fix executable with
+    | Error msg ->
+        Logs.err (fun m ->
+            m "Restart aborted: %s; falling back to clean shutdown" msg)
+    | Ok executable -> (
+        try
+          execve executable
+            (daemon_start_argv ~executable)
+            (build_env
+               ~set_vars:[ (internal_nofork_env, "1") ]
+               ~unset_vars:[ nofork_env ])
+        with Unix.Unix_error (err, func, arg) ->
+          Logs.err (fun m ->
+              m "execve failed for %s: %s(%s)%s; falling back to clean shutdown"
+                executable (Unix.error_message err) func
+                (if arg <> "" then ": " ^ arg else ""))));
     ""
   end
   else begin

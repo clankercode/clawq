@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-10T03:41:22Z"
+claimed_by: cli-user
+completed_at: "2026-03-10T03:46:49Z"
 complexity: medium
 depends_on: []
+duration_minutes: 5.462041849166667
 estimate_hours: 1
 id: B283
 priority: high
-status: pending
+started_at: "2026-03-10T03:41:22Z"
+status: done
 tags: []
 title: uncaught exception EACCESS execve main.exe
 ---
