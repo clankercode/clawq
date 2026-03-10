@@ -2422,25 +2422,32 @@ let cmd_auth args =
           with exn ->
             Printf.sprintf "Failed to parse response: %s\nBody: %s"
               (Printexc.to_string exn) resp_body))
-  | _ -> (
+  | _ ->
+      let subcommands_csv =
+        "set-key, providers, encrypt, codex-login, codex-status, codex-logout, \
+         pair"
+      in
       let cfg = get_config () in
-      match cfg.providers with
-      | [] -> "No providers configured. No provider auth set."
-      | providers ->
-          let lines =
-            List.map
-              (fun (name, (p : Runtime_config.provider_config)) ->
-                let auth_status =
-                  if Runtime_config.is_key_set p.api_key then
-                    redact_key p.api_key
-                  else if Runtime_config.provider_has_codex_oauth p then
-                    "codex-oauth configured"
-                  else "not set"
-                in
-                Printf.sprintf "  %s: %s" name auth_status)
-              providers
-          in
-          "Provider auth status:\n" ^ String.concat "\n" lines)
+      let status =
+        match cfg.providers with
+        | [] -> "No providers configured. No provider auth set."
+        | providers ->
+            let lines =
+              List.map
+                (fun (name, (p : Runtime_config.provider_config)) ->
+                  let s =
+                    if Runtime_config.is_key_set p.api_key then
+                      redact_key p.api_key
+                    else if Runtime_config.provider_has_codex_oauth p then
+                      "codex-oauth configured"
+                    else "not set"
+                  in
+                  Printf.sprintf "  %s: %s" name s)
+                providers
+            in
+            "Provider auth status:\n" ^ String.concat "\n" lines
+      in
+      Printf.sprintf "%s\n\nAvailable subcommands: %s" status subcommands_csv
 
 let cmd_transcribe args =
   match args with

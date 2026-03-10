@@ -1,7 +1,4 @@
 ---
-claimed_at: "2026-03-10T05:56:13Z"
-claimed_by: cli-user
-completed_at: "2026-03-10T06:04:57Z"
 complexity: medium
 depends_on:
     - 'Observed in Telegram DM: model was changed to glm-5'
@@ -21,12 +18,10 @@ depends_on:
     - |-
       implement and test it.
       - Add regression coverage for the chosen behavior across restart/new-session boundaries.
-duration_minutes: 8.745971956466667
 estimate_hours: 1
 id: B297
 priority: high
-started_at: "2026-03-10T05:56:13Z"
-status: done
+status: pending
 tags: []
 title: Session model changes do not persist across restarts and UX implies they might
 ---

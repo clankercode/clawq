@@ -399,6 +399,10 @@ let auth_cmd =
       `I ("codex-login [PROVIDER]", "Start ChatGPT/Codex OAuth login flow.");
       `I ("codex-status [PROVIDER]", "Show stored Codex OAuth status.");
       `I ("codex-logout [PROVIDER]", "Clear stored Codex OAuth credentials.");
+      `I
+        ( "pair [OTP]",
+          "Pair with a running clawq gateway using an OTP code. Omit OTP to \
+           enter it interactively." );
     ]
 
 let transcribe_cmd =
