@@ -524,6 +524,35 @@ let test_send_drain_warnings_sends_scheduled_messages () =
   Alcotest.(check (list string))
     "warnings delivered in order" [ "five"; "ten" ] (List.rev !received)
 
+let test_restart_signal_duplicate_delta_recent () =
+  let now = 100.0 in
+  let expected = Daemon.restart_signal_duplicate_window_seconds /. 2.0 in
+  let actual =
+    Daemon.restart_signal_duplicate_delta ~now
+      ~last_signal_at:(now -. expected)
+  in
+  Alcotest.(check (option (float 1e-6)))
+    "recent SIGUSR1 is treated as duplicate"
+    (Some expected) actual
+
+let test_restart_signal_duplicate_delta_outside_window () =
+  let now = 100.0 in
+  let actual =
+    Daemon.restart_signal_duplicate_delta ~now
+      ~last_signal_at:
+        (now -. (Daemon.restart_signal_duplicate_window_seconds +. 0.1))
+  in
+  Alcotest.(check (option (float 1e-6)))
+    "older SIGUSR1 is not treated as duplicate" None actual
+
+let test_restart_signal_duplicate_delta_negative_delta () =
+  let now = 100.0 in
+  let actual =
+    Daemon.restart_signal_duplicate_delta ~now ~last_signal_at:(now +. 1.0)
+  in
+  Alcotest.(check (option (float 1e-6)))
+    "future timestamp is ignored" None actual
+
 let test_restart_notify_write_read_roundtrip () =
   Restart_notify.write ~channel:"telegram" ~channel_id:"12345";
   let result = Restart_notify.read () in
@@ -1405,6 +1434,14 @@ let suite =
       test_wait_for_drain_reports_timeout;
     Alcotest.test_case "send drain warnings sends scheduled messages" `Quick
       test_send_drain_warnings_sends_scheduled_messages;
+    Alcotest.test_case "restart signal duplicate delta detects recent signal"
+      `Quick test_restart_signal_duplicate_delta_recent;
+    Alcotest.test_case
+      "restart signal duplicate delta ignores older signal" `Quick
+      test_restart_signal_duplicate_delta_outside_window;
+    Alcotest.test_case
+      "restart signal duplicate delta ignores future timestamp" `Quick
+      test_restart_signal_duplicate_delta_negative_delta;
     Alcotest.test_case "restart notify write/read roundtrip" `Quick
       test_restart_notify_write_read_roundtrip;
     Alcotest.test_case "restart notify expired marker" `Quick

@@ -71,6 +71,17 @@ let drain_warning_schedule =
     (60.0, "Restart timeout reached, forcing restart now.");
   ]
 
+let restart_signal_ts_env = "CLAWQ_LAST_RESTART_SIGNAL_TS"
+let restart_signal_duplicate_window_seconds = 5.0
+
+let restart_signal_duplicate_delta ~now ~last_signal_at =
+  let delta = now -. last_signal_at in
+  if
+    delta >= 0.0
+    && delta < restart_signal_duplicate_window_seconds
+  then Some delta
+  else None
+
 let send_drain_warnings ?(schedule = drain_warning_schedule)
     ~(session_manager : Session.t) ~stop () =
   let rec loop last_t = function
@@ -1453,6 +1464,12 @@ let run ~(config : Runtime_config.t) =
   let restart_waiter, restart_resolver = Lwt.wait () in
   let shutting_down = ref false in
   let restarting = ref false in
+  let last_restart_signal_at =
+    ref
+      (match Sys.getenv_opt restart_signal_ts_env with
+      | Some raw -> float_of_string_opt (String.trim raw)
+      | None -> None)
+  in
   let do_shutdown _ =
     if not !shutting_down then begin
       shutting_down := true;
@@ -1464,11 +1481,34 @@ let run ~(config : Runtime_config.t) =
   in
   let do_restart _ =
     if not !restarting then begin
-      restarting := true;
-      Logs.info (fun m -> m "SIGUSR1 received, initiating graceful restart");
-      write_runtime_state
-        ~components:[ ("gateway", "restarting"); ("telegram", "restarting") ];
-      Lwt.wakeup_later restart_resolver ()
+      let now = Unix.gettimeofday () in
+      match !last_restart_signal_at with
+      | Some last -> (
+          match restart_signal_duplicate_delta ~now ~last_signal_at:last with
+          | Some delta ->
+              Logs.warn (fun m ->
+                  m
+                    "Ignoring duplicate SIGUSR1 restart signal %.3fs after \
+                     previous restart handoff"
+                    delta)
+          | None ->
+              last_restart_signal_at := Some now;
+              Unix.putenv restart_signal_ts_env (Printf.sprintf "%.6f" now);
+              restarting := true;
+              Logs.info (fun m ->
+                  m "SIGUSR1 received, initiating graceful restart");
+              write_runtime_state
+                ~components:
+                  [ ("gateway", "restarting"); ("telegram", "restarting") ];
+              Lwt.wakeup_later restart_resolver ())
+      | None ->
+          last_restart_signal_at := Some now;
+          Unix.putenv restart_signal_ts_env (Printf.sprintf "%.6f" now);
+          restarting := true;
+          Logs.info (fun m -> m "SIGUSR1 received, initiating graceful restart");
+          write_runtime_state
+            ~components:[ ("gateway", "restarting"); ("telegram", "restarting") ];
+          Lwt.wakeup_later restart_resolver ()
     end
   in
   let _ = Lwt_unix.on_signal Sys.sigint do_shutdown in
