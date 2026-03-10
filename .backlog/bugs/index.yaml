@@ -288,3 +288,4 @@ bugs:
     - file: B287-clawq-auth-set-key-should-erro.todo
     - file: B288-make-some-tool-calls-like-back.todo
     - file: B289-background-task-wait-and-backg.todo
+    - file: B290-in-telegram-when-we-have-a-too.todo

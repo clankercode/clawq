@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B290
+priority: high
+status: pending
+tags: []
+title: In telegram, when we have a tool call aggregation message and then get a few messages more (esp if I send some), then it goes off the screen and is a pain to watch. We should have some logic so that those tool call progress messages which get updated get moved to the bottom of the chat if they're not the most recent message. If this doesn't make sense, ask questions.
+---
+
+In telegram, when we have a tool call aggregation message and then get a few messages more (esp if I send some), then it goes off the screen and is a pain to watch. We should have some logic so that those tool call progress messages which get updated get moved to the bottom of the chat if they're not the most recent message. If this doesn't make sense, ask questions.
