@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B319
+priority: high
+status: pending
+tags: []
+title: audit the codebase and look for places that could overwrite providers with an empty object in config. We must never do this.
+---
+
+audit the codebase and look for places that could overwrite providers with an empty object in config. We must never do this.
