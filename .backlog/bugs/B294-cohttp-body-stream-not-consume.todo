@@ -1,0 +1,28 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B294
+priority: medium
+status: pending
+tags: []
+title: Cohttp body stream not consumed after streaming LLM response, leaking connections
+---
+## Summary
+After streaming LLM responses, cohttp emits 'Body not consumed, leaking stream!' warnings. This indicates the HTTP response body stream is being abandoned without being drained, causing connection leaks.
+
+## Observed in daemon.log
+[16:46:20.232] WARN  Body not consumed, leaking stream! Refer to https://github.com/mirage/ocaml-cohttp/issues/730
+[16:48:09.547] WARN  Body not consumed, leaking stream!
+Both occurrences follow a LLM streaming call (provider=zai_coding model=glm-5).
+
+## Root Cause (suspected)
+src/http_client.ml post_stream (line 100-105): returns the Lwt_stream from Cohttp_lwt.Body.to_stream directly.
+If the consumer (process_sse_stream in provider.ml) exits early (e.g., on restart signal, agent cancellation, or exception in on_chunk), the stream is abandoned without being drained.
+Cohttp detects the undrained stream and logs the warning.
+
+## Impact
+Connection leak per occurrence. Under load or with repeated restarts/errors, this can exhaust the connection pool.
+
+## Fix
+Ensure stream is fully consumed or explicitly drained on any exit path from process_sse_stream. Use Lwt.finalize or Lwt.catch to drain remaining chunks on error/cancellation.

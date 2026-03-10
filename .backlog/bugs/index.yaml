@@ -292,3 +292,4 @@ bugs:
     - file: B291-set-max-background-task-wait-t.todo
     - file: B292-does-not-exist-clawq-usage-ref.todo
     - file: B293-background-task-wait-silently.todo
+    - file: B294-cohttp-body-stream-not-consume.todo
