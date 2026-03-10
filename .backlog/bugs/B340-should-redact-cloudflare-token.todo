@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B340
+priority: high
+status: pending
+tags: []
+title: should redact cloudflare token in Starting cloudflared log line; also should have a [Tunnel] log prefix or something
+---
+
+should redact cloudflare token in Starting cloudflared log line; also should have a [Tunnel] log prefix or something
