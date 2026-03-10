@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B323
+priority: high
+status: pending
+tags: []
+title: watch_ci_after_push should be asynchronous. It can inject a message async if the CI fails (just needs to keep track of thread/session id).
+---
+
+watch_ci_after_push should be asynchronous. It can inject a message async if the CI fails (just needs to keep track of thread/session id).
