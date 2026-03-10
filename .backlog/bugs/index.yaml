@@ -308,3 +308,4 @@ bugs:
     - file: B303-add-costs-for-zai-coding-model.todo
     - file: B304-ensure-that-no-tests-overwrite.todo
     - file: B305-add-to-config-a-search-subcomm.todo
+    - file: B306-add-z-ai-mcp-websearch-and-web.todo

@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 2
+id: B306
+priority: high
+status: pending
+tags: []
+title: Add Z.ai MCP websearch and webfetch tools with config integration
+---
+
+Add Z.ai MCP websearch and webfetch tools with config integration
