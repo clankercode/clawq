@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-10T10:19:48Z"
+claimed_by: cli-user
+completed_at: "2026-03-10T10:23:30Z"
 complexity: medium
 depends_on: []
+duration_minutes: 3.7093621025
 estimate_hours: 1
 id: B228
 priority: medium
-status: pending
+started_at: "2026-03-10T10:19:48Z"
+status: done
 tags: []
 title: Delegated review/fix workflow should be standardized around review-and-fix skill with explicit PASS/FAIL contracts
 ---
