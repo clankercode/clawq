@@ -334,7 +334,7 @@ let fixup_input_item_ordering items =
           prev_type = "function_call_output" && is_user_item item
         in
         if needs_synthetic then begin
-          Logs.info (fun m ->
+          Logs.debug (fun m ->
               m
                 "Codex: inserting synthetic assistant turn between \
                  function_call_output and user message");
@@ -353,7 +353,7 @@ let fixup_input_item_ordering items =
     | first :: rest when not (is_user_item first) ->
         (* First item is assistant — prepend a synthetic user greeting so the
            API sees a user turn first *)
-        Logs.info (fun m ->
+        Logs.debug (fun m ->
             m
               "Codex: prepending synthetic user turn before initial assistant \
                item");

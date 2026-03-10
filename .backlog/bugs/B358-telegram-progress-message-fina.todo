@@ -6,7 +6,7 @@ id: B358
 priority: high
 status: pending
 tags: []
-title: 'Telegram progress message finalization on user interrupt: capture state at user message time, finalize old progress, start new one below user message'
+title: Telegram progress message finalization on user interrupt
 ---
 
 Telegram progress message finalization on user interrupt: capture state at user message time, finalize old progress, start new one below user message
