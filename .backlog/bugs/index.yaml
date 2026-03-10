@@ -273,3 +273,4 @@ bugs:
     - file: B272-when-running-model-set-gpt-5-4.todo
     - file: B273-whenever-the-provider-or-model.todo
     - file: B274-when-listing-models-eg-via-mod.todo
+    - file: B275-need-to-search-the-web-for-acc.todo
