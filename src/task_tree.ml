@@ -1401,9 +1401,11 @@ let process_operations ~db ~session_key (ops : Yojson.Safe.t list) =
   match expand_seeds ops with
   | Error e -> Error e
   | Ok ops ->
+      let ops =
+        if ops = [] then [ `Assoc [ ("op", `String "list") ] ] else ops
+      in
       let n = List.length ops in
-      if n = 0 then Error "No operations provided"
-      else if n > max_batch_size then
+      if n > max_batch_size then
         Error
           (Printf.sprintf "Too many operations (%d, max %d)" n max_batch_size)
       else begin
@@ -1924,7 +1926,8 @@ let tool ~db ?notify () : Tool.t =
       "Persistent hierarchical task tree. Survives context compaction, visible \
        every turn.\n\n\
        Ops: add, update, remove, clear, archive, restore, list, reorder, seed, \
-       save_template, list_templates, delete_template.\n\
+       save_template, list_templates, delete_template. Omit 'operations' (or \
+       pass an empty array) to default to 'list'.\n\
        Statuses: pending, in_progress, done, error, cancelled.\n\n\
        Rules:\n\
        - Parent cannot be done until all children are done/cancelled.\n\
@@ -2051,7 +2054,7 @@ let tool ~db ?notify () : Tool.t =
                           ] );
                     ] );
               ] );
-          ("required", `List [ `String "operations" ]);
+          ("required", `List []);
         ];
     invoke =
       (fun ?context args ->

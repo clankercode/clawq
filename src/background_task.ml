@@ -1673,8 +1673,7 @@ let wait_tool ~db =
                     runner: %s | runtime: %s | repo: %s"
                    id
                    (string_of_status task.status)
-                   clamp_note
-                   id
+                   clamp_note id
                    (string_of_runner task.runner)
                    (runtime_string task) task.repo_path)
           | Interrupted task ->

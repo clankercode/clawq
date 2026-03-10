@@ -2282,11 +2282,14 @@ let test_models_set_usage_excludes_session_only_set_without_live_session () =
         let re = Re.(compile (str sub)) in
         Re.execp re s
       in
-      Alcotest.(check bool) "shows usage for unsupported subcommand" true
+      Alcotest.(check bool)
+        "shows usage for unsupported subcommand" true
         (contains result "Usage: clawq models <subcommand>");
-      Alcotest.(check bool) "does not advertise session-only set" false
+      Alcotest.(check bool)
+        "does not advertise session-only set" false
         (contains result "set MODEL");
-      Alcotest.(check bool) "still advertises persistent path" true
+      Alcotest.(check bool)
+        "still advertises persistent path" true
         (contains result "set-default MODEL"))
 
 let suite =
@@ -2303,7 +2306,8 @@ let suite =
       test_models_set_default_accepts_known_plain;
     Alcotest.test_case "models set-default accepts unknown with provider" `Quick
       test_models_set_default_accepts_unknown_with_provider;
-    Alcotest.test_case "models usage excludes session-only set without live session" `Quick
+    Alcotest.test_case
+      "models usage excludes session-only set without live session" `Quick
       test_models_set_usage_excludes_session_only_set_without_live_session;
     Alcotest.test_case "handle channel" `Quick test_handle_channel;
     Alcotest.test_case "handle memory" `Quick test_handle_memory;

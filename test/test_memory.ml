@@ -900,11 +900,17 @@ let test_init_rejects_future_schema_version () =
 )|};
       ignore (Sqlite3.db_close db);
       match
-        (try `Msg (Memory.init ~db_path () |> ignore; "init unexpectedly succeeded")
-         with Failure msg -> `Msg msg | exn -> `Msg (Printexc.to_string exn))
+        try
+          `Msg
+            (Memory.init ~db_path () |> ignore;
+             "init unexpectedly succeeded")
+        with
+        | Failure msg -> `Msg msg
+        | exn -> `Msg (Printexc.to_string exn)
       with
       | `Msg msg ->
-          Alcotest.(check bool) "rejects future version" true
+          Alcotest.(check bool)
+            "rejects future version" true
             (String.starts_with ~prefix:"Unsupported schema version 8" msg))
 
 let suite =

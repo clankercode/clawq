@@ -2864,6 +2864,58 @@ let test_list_excludes_deleted_by_default () =
          with Not_found -> false)
   | Error e -> Alcotest.fail ("Expected Ok, got Error: " ^ e)
 
+let test_list_op_explicit () =
+  let db = fresh_db () in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [ `Assoc [ ("op", `String "add"); ("title", `String "My task") ] ]
+  in
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [ `Assoc [ ("op", `String "list") ] ]
+  in
+  match result with
+  | Ok output ->
+      Alcotest.(check bool)
+        "list shows task" true
+        (try
+           ignore (Str.search_forward (Str.regexp_string "My task") output 0);
+           true
+         with Not_found -> false)
+  | Error e -> Alcotest.fail ("Expected Ok, got Error: " ^ e)
+
+let test_default_list_empty_ops () =
+  let db = fresh_db () in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc [ ("op", `String "add"); ("title", `String "Default list task") ];
+      ]
+  in
+  let result = Task_tree.process_operations ~db ~session_key:"s1" [] in
+  match result with
+  | Ok output ->
+      Alcotest.(check bool)
+        "empty ops defaults to list" true
+        (try
+           ignore
+             (Str.search_forward
+                (Str.regexp_string "Default list task")
+                output 0);
+           true
+         with Not_found -> false)
+  | Error e -> Alcotest.fail ("Expected Ok, got Error: " ^ e)
+
+let test_default_list_empty_db () =
+  let db = fresh_db () in
+  let result = Task_tree.process_operations ~db ~session_key:"s1" [] in
+  match result with
+  | Ok output ->
+      Alcotest.(check bool)
+        "empty ops on empty db returns ok" true
+        (String.length output > 0)
+  | Error e -> Alcotest.fail ("Expected Ok on empty list, got Error: " ^ e)
+
 let test_purge_disabled_by_default () =
   let db = fresh_db () in
   let _ =
@@ -3075,6 +3127,10 @@ let suite =
     Alcotest.test_case "list include_deleted" `Quick test_list_include_deleted;
     Alcotest.test_case "list excludes deleted by default" `Quick
       test_list_excludes_deleted_by_default;
+    Alcotest.test_case "list op explicit" `Quick test_list_op_explicit;
+    Alcotest.test_case "default list empty ops" `Quick
+      test_default_list_empty_ops;
+    Alcotest.test_case "default list empty db" `Quick test_default_list_empty_db;
     Alcotest.test_case "purge disabled by default" `Quick
       test_purge_disabled_by_default;
     Alcotest.test_case "purge removes old rows" `Quick

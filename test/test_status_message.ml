@@ -790,6 +790,6 @@ let suite =
       test_html_mode_render;
     Alcotest.test_case "reanchor updates msg_id" `Quick
       test_reanchor_updates_msg_id;
-    Alcotest.test_case "reanchor preserves visibility until replacement sent" `Quick
-      test_reanchor_preserves_visibility_until_replacement_sent;
+    Alcotest.test_case "reanchor preserves visibility until replacement sent"
+      `Quick test_reanchor_preserves_visibility_until_replacement_sent;
   ]
