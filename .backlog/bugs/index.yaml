@@ -358,3 +358,4 @@ bugs:
     - file: B357-need-to-update-docs-with-every.todo
     - file: B358-telegram-progress-message-fina.todo
     - file: B359-the-new-setup-wizard-for-githu.todo
+    - file: B360-need-some-kind-of-logs-rotatio.todo
