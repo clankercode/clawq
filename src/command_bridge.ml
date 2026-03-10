@@ -1792,6 +1792,51 @@ let cmd_session args =
           Printf.sprintf "Keepalive disabled for session %s" session_key
       | _ -> "Usage: clawq session keepalive SESSION [on|off|status]")
   | [ "keepalive" ] -> "Usage: clawq session keepalive SESSION [on|off|status]"
+  | "postmortems" :: rest ->
+      let session_key, limit =
+        let rec parse_args args sk lim =
+          match args with
+          | [] -> (sk, lim)
+          | [ "--limit"; n ] -> (
+              match int_of_string_opt n with
+              | Some v -> (sk, v)
+              | None -> (sk, lim))
+          | "--limit" :: n :: tail -> (
+              match int_of_string_opt n with
+              | Some v -> parse_args tail sk v
+              | None -> parse_args tail sk lim)
+          | key :: tail when not (String.length key > 0 && key.[0] = '-') ->
+              parse_args tail (Some key) lim
+          | _ :: tail -> parse_args tail sk lim
+        in
+        parse_args rest None 20
+      in
+      let rows = Memory.list_postmortems ~db ?session_key ~limit () in
+      if rows = [] then "No postmortems found."
+      else
+        let buf = Buffer.create 512 in
+        List.iter
+          (fun (p : Memory.postmortem) ->
+            Buffer.add_string buf
+              (Printf.sprintf
+                 "postmortem id: %d\n\
+                  session: %s\n\
+                  created_at: %s\n\
+                  pattern: %s\n\
+                  correction: %s\n\
+                  outcome: %s\n\
+                  doc: %s\n\
+                  ---\n"
+                 p.id p.session_key p.created_at p.pattern p.correction_injected
+                 (match p.outcome with Some s -> s | None -> "(pending)")
+                 p.doc_path))
+          rows;
+        let s = Buffer.contents buf in
+        (* trim trailing separator *)
+        let len = String.length s in
+        if len >= 4 && String.sub s (len - 4) 4 = "\n---\n" then
+          String.sub s 0 (len - 4)
+        else s
   | _ ->
       "Usage: clawq session <subcommand>\n\
       \  session list [--channel NAME] [--prefix PREFIX] [--active|--inactive] \
@@ -1802,7 +1847,8 @@ let cmd_session args =
       \  session events SESSION [--epoch current|ID] [--type TYPE]\n\
       \  session inject SESSION MESSAGE...\n\
       \  session compact SESSION\n\
-      \  session keepalive SESSION [on|off|status]"
+      \  session keepalive SESSION [on|off|status]\n\
+      \  session postmortems [SESSION] [--limit N]"
 
 type background_add_args = {
   runner : Background_task.runner;

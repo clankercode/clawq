@@ -184,6 +184,7 @@ let convert (json : Yojson.Safe.t) =
       web_search = None;
       zai_mcp = None;
       quota_cache_ttl_s = default.quota_cache_ttl_s;
+      observer = default.observer;
     }
   in
   (config, List.rev !warnings)

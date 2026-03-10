@@ -381,6 +381,17 @@ type zai_mcp_config = {
   webfetch_enabled : bool;
 }
 
+type observer_config = {
+  enabled : bool;
+  model : string;
+  check_every_n_messages : int;
+  round1_window : int;
+  round2_window : int;
+  thinking_token_threshold : int;
+  consecutive_errors_threshold : int;
+  repeat_call_threshold : int;
+}
+
 type t = {
   workspace : string;
   default_temperature : float;
@@ -407,7 +418,20 @@ type t = {
   web_search : web_search_config option;
   zai_mcp : zai_mcp_config option;
   quota_cache_ttl_s : int;
+  observer : observer_config;
 }
+
+let default_observer_config : observer_config =
+  {
+    enabled = true;
+    model = "groq:openai/gpt-oss-120b";
+    check_every_n_messages = 5;
+    round1_window = 8;
+    round2_window = 30;
+    thinking_token_threshold = 5000;
+    consecutive_errors_threshold = 3;
+    repeat_call_threshold = 2;
+  }
 
 let default_workspace_files =
   [
@@ -575,6 +599,7 @@ let default =
     web_search = None;
     zai_mcp = None;
     quota_cache_ttl_s = 300;
+    observer = default_observer_config;
   }
 
 let is_key_set key =
@@ -1422,6 +1447,25 @@ let to_json (cfg : t) : Yojson.Safe.t =
     if cfg.quota_cache_ttl_s <> default.quota_cache_ttl_s then
       fields @ [ ("quota_cache_ttl_s", `Int cfg.quota_cache_ttl_s) ]
     else fields
+  in
+  let obs = cfg.observer in
+  let fields =
+    fields
+    @ [
+        ( "observer",
+          `Assoc
+            [
+              ("enabled", `Bool obs.enabled);
+              ("model", `String obs.model);
+              ("check_every_n_messages", `Int obs.check_every_n_messages);
+              ("round1_window", `Int obs.round1_window);
+              ("round2_window", `Int obs.round2_window);
+              ("thinking_token_threshold", `Int obs.thinking_token_threshold);
+              ( "consecutive_errors_threshold",
+                `Int obs.consecutive_errors_threshold );
+              ("repeat_call_threshold", `Int obs.repeat_call_threshold);
+            ] );
+      ]
   in
   `Assoc fields
 

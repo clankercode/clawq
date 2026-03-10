@@ -74,7 +74,10 @@
   benchmark
   models_catalog
   model_preferences
-  completions)
+  completions
+  stuck_detector
+  session_observer
+  postmortem)
  (foreign_stubs
   (language c)
   (names landlock_stubs))

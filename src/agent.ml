@@ -1467,7 +1467,8 @@ let prepare_turn_history agent ~user_message ?(content_parts = [])
   Lwt.return compacted
 
 let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
-    ?runtime_context ?(history_prepared = false) ?on_history_update () =
+    ?runtime_context ?(history_prepared = false) ?on_history_update ?on_stuck ()
+    =
   let is_restart_interrupt = function
     | Some reason when reason = restart_interrupt_token -> true
     | _ -> false
@@ -1667,6 +1668,20 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
               msgs
         | None -> ());
         let* () = fire_history_update len_before_tool_loop in
+        (* Check for stuck patterns after each tool call batch *)
+        let stuck_signals =
+          let result =
+            Stuck_detector.check ~history:agent.history ~iteration ~max_iters
+          in
+          match result with
+          | Stuck_detector.Definite signals -> Some signals
+          | _ -> None
+        in
+        let* () =
+          match (stuck_signals, on_stuck) with
+          | Some signals, Some cb -> cb signals
+          | _ -> Lwt.return_unit
+        in
         match interrupt_check with
         | Some check -> (
             match check () with
@@ -1691,7 +1706,7 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
 
 let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
     ?inject_messages ?runtime_context ?(history_prepared = false)
-    ?on_history_update ~on_chunk () =
+    ?on_history_update ?on_stuck ~on_chunk () =
   let is_restart_interrupt = function
     | Some reason when reason = restart_interrupt_token -> true
     | _ -> false
@@ -1910,6 +1925,21 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
                   msgs
             | None -> ());
             let* () = fire_history_update len_before_tool_loop in
+            (* Check for stuck patterns after each tool call batch *)
+            let stuck_signals =
+              let result =
+                Stuck_detector.check ~history:agent.history ~iteration
+                  ~max_iters
+              in
+              match result with
+              | Stuck_detector.Definite signals -> Some signals
+              | _ -> None
+            in
+            let* () =
+              match (stuck_signals, on_stuck) with
+              | Some signals, Some cb -> cb signals
+              | _ -> Lwt.return_unit
+            in
             match interrupt_check with
             | Some check -> (
                 match check () with

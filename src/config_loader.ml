@@ -1324,6 +1324,57 @@ let parse_config ?(resolve_secrets = true) json =
       else None
     with _ -> None
   in
+  let observer =
+    try
+      let o = json |> member "observer" in
+      let enabled =
+        try o |> member "enabled" |> to_bool
+        with _ -> Runtime_config.default_observer_config.enabled
+      in
+      let model =
+        try o |> member "model" |> to_string
+        with _ -> Runtime_config.default_observer_config.model
+      in
+      let check_every_n_messages =
+        try o |> member "check_every_n_messages" |> to_int
+        with _ ->
+          Runtime_config.default_observer_config.check_every_n_messages
+      in
+      let round1_window =
+        try o |> member "round1_window" |> to_int
+        with _ -> Runtime_config.default_observer_config.round1_window
+      in
+      let round2_window =
+        try o |> member "round2_window" |> to_int
+        with _ -> Runtime_config.default_observer_config.round2_window
+      in
+      let thinking_token_threshold =
+        try o |> member "thinking_token_threshold" |> to_int
+        with _ ->
+          Runtime_config.default_observer_config.thinking_token_threshold
+      in
+      let consecutive_errors_threshold =
+        try o |> member "consecutive_errors_threshold" |> to_int
+        with _ ->
+          Runtime_config.default_observer_config.consecutive_errors_threshold
+      in
+      let repeat_call_threshold =
+        try o |> member "repeat_call_threshold" |> to_int
+        with _ -> Runtime_config.default_observer_config.repeat_call_threshold
+      in
+      ({
+         enabled;
+         model;
+         check_every_n_messages;
+         round1_window;
+         round2_window;
+         thinking_token_threshold;
+         consecutive_errors_threshold;
+         repeat_call_threshold;
+       }
+        : Runtime_config.observer_config)
+    with _ -> Runtime_config.default_observer_config
+  in
   {
     workspace;
     Runtime_config.default_temperature;
@@ -1407,6 +1458,7 @@ let parse_config ?(resolve_secrets = true) json =
     quota_cache_ttl_s =
       (try json |> member "quota_cache_ttl_s" |> to_int
        with _ -> Runtime_config.default.quota_cache_ttl_s);
+    observer;
   }
 
 let rec merge_json (original : Yojson.Safe.t) (complete : Yojson.Safe.t) :

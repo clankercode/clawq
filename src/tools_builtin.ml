@@ -3427,148 +3427,160 @@ let git_operations ~workspace =
           in
           match cwd_result with
           | Error err -> Lwt.return err
-          | Ok cwd ->
-          let build_argv () =
-            match operation with
-            | "status" -> Ok [ "git"; "status"; "--short" ]
-            | "diff" ->
-                let argv = [ "git"; "diff" ] in
-                let argv = if cached then argv @ [ "--cached" ] else argv in
-                let argv = if paths <> [] then argv @ paths else argv in
-                Ok argv
-            | "log" ->
-                Ok [ "git"; "log"; "--oneline"; Printf.sprintf "-n%d" limit ]
-            | "branch" ->
-                if branch <> "" then Ok [ "git"; "branch"; branch ]
-                else Ok [ "git"; "branch"; "-a" ]
-            | "add" ->
-                if paths = [] then Error "Error: paths required for add"
-                else Ok ("git" :: "add" :: paths)
-            | "commit" ->
-                if message = "" then Error "Error: message required for commit"
-                else Ok [ "git"; "commit"; "-m"; message ]
-            | "checkout" ->
-                if branch = "" && paths = [] then
-                  Error "Error: branch or paths required for checkout"
-                else if branch <> "" then Ok [ "git"; "checkout"; branch ]
-                else Ok ("git" :: "checkout" :: "--" :: paths)
-            | "stash" -> Ok [ "git"; "stash" ]
-            | "show" ->
-                let argv = [ "git"; "show"; "--stat" ] in
-                let argv =
-                  if paths <> [] then argv @ [ "--" ] @ paths else argv
-                in
-                Ok argv
-            | op -> Error (Printf.sprintf "Error: unknown operation '%s'" op)
-          in
-          match build_argv () with
-          | Error msg -> Lwt.return msg
-          | Ok argv -> (
-              (* Sanitize user-supplied inputs: paths and branch name.
+          | Ok cwd -> (
+              let build_argv () =
+                match operation with
+                | "status" -> Ok [ "git"; "status"; "--short" ]
+                | "diff" ->
+                    let argv = [ "git"; "diff" ] in
+                    let argv = if cached then argv @ [ "--cached" ] else argv in
+                    let argv = if paths <> [] then argv @ paths else argv in
+                    Ok argv
+                | "log" ->
+                    Ok
+                      [ "git"; "log"; "--oneline"; Printf.sprintf "-n%d" limit ]
+                | "branch" ->
+                    if branch <> "" then Ok [ "git"; "branch"; branch ]
+                    else Ok [ "git"; "branch"; "-a" ]
+                | "add" ->
+                    if paths = [] then Error "Error: paths required for add"
+                    else Ok ("git" :: "add" :: paths)
+                | "commit" ->
+                    if message = "" then
+                      Error "Error: message required for commit"
+                    else Ok [ "git"; "commit"; "-m"; message ]
+                | "checkout" ->
+                    if branch = "" && paths = [] then
+                      Error "Error: branch or paths required for checkout"
+                    else if branch <> "" then Ok [ "git"; "checkout"; branch ]
+                    else Ok ("git" :: "checkout" :: "--" :: paths)
+                | "stash" -> Ok [ "git"; "stash" ]
+                | "show" ->
+                    let argv = [ "git"; "show"; "--stat" ] in
+                    let argv =
+                      if paths <> [] then argv @ [ "--" ] @ paths else argv
+                    in
+                    Ok argv
+                | op ->
+                    Error (Printf.sprintf "Error: unknown operation '%s'" op)
+              in
+              match build_argv () with
+              | Error msg -> Lwt.return msg
+              | Ok argv -> (
+                  (* Sanitize user-supplied inputs: paths and branch name.
                  The commit message is intentionally excluded — it is passed
                  as an execve argument, not interpreted by a shell, so shell
                  metacharacters in a commit message are safe. *)
-              let user_inputs =
-                paths @ if branch <> "" then [ branch ] else []
-              in
-              let safe = List.for_all sanitize_git_arg user_inputs in
-              if not safe then
-                Lwt.return "Error: git arguments contain disallowed patterns"
-              else
-                let open Lwt.Syntax in
-                let env =
-                  [|
-                    ("HOME=" ^ try Sys.getenv "HOME" with Not_found -> "/tmp");
-                    ("PATH="
-                    ^ try Sys.getenv "PATH" with Not_found -> "/usr/bin:/bin");
-                    "GIT_TERMINAL_PROMPT=0";
-                  |]
-                in
-                let proc =
-                  Process_group.start ~cwd ~env
-                    (Process_group.Exec (Array.of_list argv))
-                in
-                let runner_result, runner_wakener = Lwt.wait () in
-                let forced_result = ref None in
-                let finish_runner result =
-                  if Lwt.is_sleeping runner_result then
-                    Lwt.wakeup_later runner_wakener result
-                in
-                Lwt.async (fun () ->
-                    Lwt.catch
-                      (fun () ->
-                        Lwt.finalize
+                  let user_inputs =
+                    paths @ if branch <> "" then [ branch ] else []
+                  in
+                  let safe = List.for_all sanitize_git_arg user_inputs in
+                  if not safe then
+                    Lwt.return
+                      "Error: git arguments contain disallowed patterns"
+                  else
+                    let open Lwt.Syntax in
+                    let env =
+                      [|
+                        ("HOME="
+                        ^ try Sys.getenv "HOME" with Not_found -> "/tmp");
+                        ("PATH="
+                        ^
+                          try Sys.getenv "PATH"
+                          with Not_found -> "/usr/bin:/bin");
+                        "GIT_TERMINAL_PROMPT=0";
+                      |]
+                    in
+                    let proc =
+                      Process_group.start ~cwd ~env
+                        (Process_group.Exec (Array.of_list argv))
+                    in
+                    let runner_result, runner_wakener = Lwt.wait () in
+                    let forced_result = ref None in
+                    let finish_runner result =
+                      if Lwt.is_sleeping runner_result then
+                        Lwt.wakeup_later runner_wakener result
+                    in
+                    Lwt.async (fun () ->
+                        Lwt.catch
                           (fun () ->
-                            let* stdout, stderr =
-                              Lwt.both
-                                (Lwt_io.read proc.Process_group.stdout)
-                                (Lwt_io.read proc.Process_group.stderr)
-                            in
-                            let* status = Process_group.wait proc.pid in
-                            let exit_code =
-                              match status with
-                              | Unix.WEXITED n -> n
-                              | Unix.WSIGNALED n -> 128 + n
-                              | Unix.WSTOPPED n -> 128 + n
-                            in
-                            let output =
-                              (if stdout <> "" then stdout else "")
-                              ^ if stderr <> "" then stderr else ""
-                            in
-                            finish_runner
-                              (Ok
-                                 (if exit_code = 0 then
-                                    if output = "" then "(no output)"
-                                    else output
-                                  else
-                                    Printf.sprintf "exit_code: %d\n%s" exit_code
-                                      output));
-                            Lwt.return_unit)
-                          (fun () -> Process_group.close proc))
-                      (fun exn ->
-                        finish_runner (Error exn);
-                        Lwt.return_unit));
-                let timeout =
-                  let* () = Lwt_unix.sleep 30.0 in
-                  forced_result := Some "Error: git timed out after 30 seconds";
-                  let* () = Process_group.terminate proc.pid in
-                  let* _ = runner_result in
-                  Lwt.return (`Done "Error: git timed out after 30 seconds")
-                in
-                let interrupt =
-                  match interrupt_check with
-                  | None -> fst (Lwt.wait ())
-                  | Some check ->
-                      let rec wait () =
-                        match check () with
-                        | Some reason
-                          when reason <> Agent.queued_message_interrupt_token ->
-                            Lwt.return_unit
-                        | _ ->
-                            let* () = Lwt_unix.sleep 0.05 in
-                            wait ()
-                      in
-                      let* () = wait () in
-                      forced_result := Some "Git command interrupted by user.";
-                      let* () = Process_group.terminate_immediately proc.pid in
+                            Lwt.finalize
+                              (fun () ->
+                                let* stdout, stderr =
+                                  Lwt.both
+                                    (Lwt_io.read proc.Process_group.stdout)
+                                    (Lwt_io.read proc.Process_group.stderr)
+                                in
+                                let* status = Process_group.wait proc.pid in
+                                let exit_code =
+                                  match status with
+                                  | Unix.WEXITED n -> n
+                                  | Unix.WSIGNALED n -> 128 + n
+                                  | Unix.WSTOPPED n -> 128 + n
+                                in
+                                let output =
+                                  (if stdout <> "" then stdout else "")
+                                  ^ if stderr <> "" then stderr else ""
+                                in
+                                finish_runner
+                                  (Ok
+                                     (if exit_code = 0 then
+                                        if output = "" then "(no output)"
+                                        else output
+                                      else
+                                        Printf.sprintf "exit_code: %d\n%s"
+                                          exit_code output));
+                                Lwt.return_unit)
+                              (fun () -> Process_group.close proc))
+                          (fun exn ->
+                            finish_runner (Error exn);
+                            Lwt.return_unit));
+                    let timeout =
+                      let* () = Lwt_unix.sleep 30.0 in
+                      forced_result :=
+                        Some "Error: git timed out after 30 seconds";
+                      let* () = Process_group.terminate proc.pid in
                       let* _ = runner_result in
-                      Lwt.return (`Done "Git command interrupted by user.")
-                in
-                let* outcome =
-                  Lwt.pick
-                    [
-                      (let* result = runner_result in
-                       match !forced_result with
-                       | Some output -> Lwt.return (`Done output)
-                       | None -> Lwt.return (`Runner result));
-                      timeout;
-                      interrupt;
-                    ]
-                in
-                match outcome with
-                | `Runner (Ok result) -> Lwt.return result
-                | `Runner (Error exn) -> Lwt.fail exn
-                | `Done result -> Lwt.return result));
+                      Lwt.return (`Done "Error: git timed out after 30 seconds")
+                    in
+                    let interrupt =
+                      match interrupt_check with
+                      | None -> fst (Lwt.wait ())
+                      | Some check ->
+                          let rec wait () =
+                            match check () with
+                            | Some reason
+                              when reason
+                                   <> Agent.queued_message_interrupt_token ->
+                                Lwt.return_unit
+                            | _ ->
+                                let* () = Lwt_unix.sleep 0.05 in
+                                wait ()
+                          in
+                          let* () = wait () in
+                          forced_result :=
+                            Some "Git command interrupted by user.";
+                          let* () =
+                            Process_group.terminate_immediately proc.pid
+                          in
+                          let* _ = runner_result in
+                          Lwt.return (`Done "Git command interrupted by user.")
+                    in
+                    let* outcome =
+                      Lwt.pick
+                        [
+                          (let* result = runner_result in
+                           match !forced_result with
+                           | Some output -> Lwt.return (`Done output)
+                           | None -> Lwt.return (`Runner result));
+                          timeout;
+                          interrupt;
+                        ]
+                    in
+                    match outcome with
+                    | `Runner (Ok result) -> Lwt.return result
+                    | `Runner (Error exn) -> Lwt.fail exn
+                    | `Done result -> Lwt.return result)));
     invoke_stream = None;
     risk_level = Medium;
     deferred = false;

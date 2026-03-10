@@ -127,5 +127,12 @@ ideas:
       status: in_progress
       tags: []
       title: Add support for MS Teams integration. See ~/src/pag-server which has it, and otherwise search online for docs on how to integrate. Add something to the human readable docs, and also add docs near llms.txt but don't put it in llms-full.txt. like at integrations/teams/llms.txt or something.
-    - file: I016-observation-correction-loops-h.todo
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 10
+      file: I016-observation-correction-loops-h.todo
       id: I016
+      priority: medium
+      status: done
+      tags: []
+      title: 'Observation + correction loops: have a cheap observer watch the main chat for when it might be getting stuck. If it gets stuck, then we trigger a workflow to look for solutions and update workspace files. Postmortems. criticalfallibilism.com'

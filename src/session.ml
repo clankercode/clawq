@@ -51,6 +51,8 @@ type t = {
   live_activity : (string, live_activity_state) Hashtbl.t;
   continuation_checks : (string, continuation_state) Hashtbl.t;
   mutable special_command_handler : special_command_handler option;
+  observer_last_checked : (string, int) Hashtbl.t;
+      (** Maps session_key -> history length at last observer check *)
 }
 
 type drain_progress = {
@@ -212,6 +214,7 @@ let create ~config ?tool_registry ?sandbox ?(landlock_enabled = false) ?db () =
     live_activity = Hashtbl.create 16;
     continuation_checks = Hashtbl.create 16;
     special_command_handler = None;
+    observer_last_checked = Hashtbl.create 8;
   }
 
 let is_draining mgr = mgr.draining
@@ -800,7 +803,7 @@ let consolidated_status_on_chunk
 
 let stream_turn_with_visibility mgr ~notify agent ~key ~effective_message
     ~persisted_up_to ~interrupt_check ~inject_messages ~runtime_context
-    ~on_history_update =
+    ~on_history_update ?on_stuck () =
   let open Lwt.Syntax in
   let agent_defaults = mgr.config.agent_defaults in
   let use_consolidated =
@@ -821,7 +824,7 @@ let stream_turn_with_visibility mgr ~notify agent ~key ~effective_message
       let* response =
         Agent.turn_stream agent ~user_message:effective_message ?db:mgr.db
           ~session_key:key ~interrupt_check ~inject_messages ?runtime_context
-          ~history_prepared:true ~on_history_update ~on_chunk ()
+          ~history_prepared:true ~on_history_update ?on_stuck ~on_chunk ()
       in
       let* () = Status_message.finalize sm in
       let thinking = Buffer.contents thinking_buf in
@@ -859,7 +862,7 @@ let stream_turn_with_visibility mgr ~notify agent ~key ~effective_message
       let* response =
         Agent.turn_stream agent ~user_message:effective_message ?db:mgr.db
           ~session_key:key ~interrupt_check ~inject_messages ?runtime_context
-          ~history_prepared:true ~on_history_update
+          ~history_prepared:true ~on_history_update ?on_stuck
           ~on_chunk:(Stream_visibility.on_chunk visibility ~settings ~notify)
           ()
       in
@@ -917,6 +920,22 @@ let effective_message_for_turn ~message ?channel_name ?channel_type ?sender_id
           ()
       in
       ctx ^ "\n" ^ message
+
+(* Forward reference: filled in after [turn] is defined below *)
+let spawn_postmortem_agent_fn :
+    (t ->
+    stuck_history:Provider.message list ->
+    session_key:string ->
+    reason:string ->
+    ?db:Sqlite3.db ->
+    unit ->
+    unit Lwt.t)
+    ref =
+  ref (fun _mgr ~stuck_history:_ ~session_key:_ ~reason:_ ?db:_ () ->
+      Lwt.return_unit)
+
+let spawn_postmortem_agent mgr ~stuck_history ~session_key ~reason ?db () =
+  !spawn_postmortem_agent_fn mgr ~stuck_history ~session_key ~reason ?db ()
 
 let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
     ?(attachments = []) ?channel_name ?channel_type ?sender_id ?sender_name
@@ -985,6 +1004,32 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
              ?sender_id:qm.sender_id ?sender_name:qm.sender_name ()))
       msgs
   in
+  let on_stuck signals =
+    let open Lwt.Syntax in
+    let signal_desc = Stuck_detector.signals_to_string signals in
+    Logs.warn (fun m ->
+        m "[observer] stuck detected session=%s: %s" key signal_desc);
+    let correction =
+      Printf.sprintf
+        "[Observer] Stuck pattern detected: %s\n\n\
+         A postmortem agent has been launched to analyze this failure and look \
+         for solutions. While it works, you can:\n\
+         1. Ask a subagent to help find an alternative approach\n\
+         2. Work on a different part of the task\n\
+         3. Wait for the postmortem agent to write its findings to \
+         POSTMORTEM.md"
+        signal_desc
+    in
+    let correction_msg =
+      Provider.make_message ~role:"user" ~content:correction
+    in
+    agent.Agent.history <- correction_msg :: agent.Agent.history;
+    let* () = on_history_update [ correction_msg ] in
+    Lwt.async (fun () ->
+        spawn_postmortem_agent mgr ~stuck_history:agent.Agent.history
+          ~session_key:key ~reason:signal_desc ?db:mgr.db ());
+    Lwt.return_unit
+  in
   let* response =
     Lwt.catch
       (fun () ->
@@ -998,11 +1043,13 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
                    || mgr.config.agent_defaults.show_tool_calls ->
                 stream_turn_with_visibility mgr ~notify:send agent ~key
                   ~effective_message ~persisted_up_to ~interrupt_check
-                  ~inject_messages ~runtime_context ~on_history_update
+                  ~inject_messages ~runtime_context ~on_history_update ~on_stuck
+                  ()
             | _ ->
                 Agent.turn agent ~user_message:effective_message ?db:mgr.db
                   ~session_key:key ~interrupt_check ~inject_messages
-                  ?runtime_context ~history_prepared:true ~on_history_update ()))
+                  ?runtime_context ~history_prepared:true ~on_history_update
+                  ~on_stuck ()))
       (function
         | Agent.Restart_requested ->
             if agent.Agent.compacted_mid_turn then begin
@@ -1053,6 +1100,41 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
                  })
         | _ -> ()
       end);
+  (* Message-count observer: trigger LLM stuck check every N new messages *)
+  if mgr.config.observer.enabled then begin
+    let cur_len = List.length agent.Agent.history in
+    let last_checked =
+      Option.value ~default:0 (Hashtbl.find_opt mgr.observer_last_checked key)
+    in
+    let n = mgr.config.observer.check_every_n_messages in
+    if cur_len - last_checked >= n then begin
+      Hashtbl.replace mgr.observer_last_checked key cur_len;
+      let history_snapshot = agent.Agent.history in
+      let stats : Session_observer.session_stats =
+        {
+          session_key = key;
+          turn_count = cur_len / 2;
+          total_tool_calls = 0;
+          error_count = 0;
+          session_age_s = 0.0;
+        }
+      in
+      Lwt.async (fun () ->
+          let open Lwt.Syntax in
+          let* verdict =
+            Session_observer.check_stuck ~config:mgr.config
+              ~history:history_snapshot ~stats ()
+          in
+          match verdict with
+          | Session_observer.Ok | Session_observer.Error _ -> Lwt.return_unit
+          | Session_observer.Stuck { reason; _ } ->
+              Logs.warn (fun m ->
+                  m "[observer] message-count check: stuck session=%s: %s" key
+                    reason);
+              spawn_postmortem_agent mgr ~stuck_history:history_snapshot
+                ~session_key:key ~reason ?db:mgr.db ())
+    end
+  end;
   Lwt.return response
 
 let rec drain_queued_messages_loop mgr ~key agent interrupt ?on_drain_progress
@@ -1171,6 +1253,48 @@ let rec turn mgr ~key ~message ?(content_parts = []) ?(attachments = [])
                       drain_queued_messages mgr ~key agent interrupt ()
                     in
                     Lwt.return response)))
+
+let () =
+  spawn_postmortem_agent_fn :=
+    fun mgr ~stuck_history ~session_key ~reason ?db () ->
+      let open Lwt.Syntax in
+      let postmortem_session_key = "__postmortem_" ^ session_key in
+      let evidence_summary = Postmortem.format_history_text stuck_history in
+      let correction = "(postmortem agent will determine correction)" in
+      let* doc_path =
+        Postmortem.write_doc ~session_key ~pattern:reason ~evidence_summary
+          ~correction
+      in
+      (match db with
+      | Some db -> (
+          try
+            ignore
+              (Memory.insert_postmortem ~db ~session_key ~pattern:reason
+                 ~evidence_json:
+                   (Yojson.Safe.to_string (`String evidence_summary))
+                 ~correction_injected:correction ~doc_path)
+          with exn ->
+            Logs.warn (fun m ->
+                m "postmortem: failed to insert DB record: %s"
+                  (Printexc.to_string exn)))
+      | None -> ());
+      let prompt =
+        Postmortem.make_postmortem_prompt ~session_key ~reason ~doc_path
+          ~history_text:evidence_summary ()
+      in
+      Lwt.async (fun () ->
+          Lwt.catch
+            (fun () ->
+              let* _response =
+                turn mgr ~key:postmortem_session_key ~message:prompt ()
+              in
+              Lwt.return_unit)
+            (fun exn ->
+              Logs.warn (fun m ->
+                  m "postmortem agent error for session %s: %s" session_key
+                    (Printexc.to_string exn));
+              Lwt.return_unit));
+      Lwt.return_unit
 
 let delegate_turn mgr ~prompt ~send_reply =
   if mgr.draining then
@@ -1514,6 +1638,7 @@ let reset mgr ~key =
             Hashtbl.remove mgr.deferred_responses key;
             Hashtbl.remove mgr.queued_messages key;
             Hashtbl.remove mgr.continuation_checks key;
+            Hashtbl.remove mgr.observer_last_checked key;
             unregister_channel_notifier mgr ~key;
             unregister_rich_notifier mgr ~key;
             Hashtbl.remove mgr.sessions key;
@@ -1523,6 +1648,7 @@ let reset mgr ~key =
             Hashtbl.remove mgr.deferred_responses key;
             Hashtbl.remove mgr.queued_messages key;
             Hashtbl.remove mgr.continuation_checks key;
+            Hashtbl.remove mgr.observer_last_checked key;
             unregister_channel_notifier mgr ~key;
             unregister_rich_notifier mgr ~key;
             Lwt.return None)

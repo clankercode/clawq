@@ -1729,8 +1729,7 @@ let test_git_operations_repo_path_relative_rejected () =
                 ]))
       in
       Alcotest.(check bool)
-        "relative repo_path returns error" true
-        (contains result "Error:"))
+        "relative repo_path returns error" true (contains result "Error:"))
 
 let test_git_operations_repo_path_absolute_used_as_cwd () =
   with_temp_workspace (fun workspace ->
@@ -1752,10 +1751,7 @@ let test_git_operations_repo_path_absolute_used_as_cwd () =
         Lwt_main.run
           (tool.Tool.invoke
              (`Assoc
-                [
-                  ("operation", `String "status");
-                  ("repo_path", `String repo);
-                ]))
+                [ ("operation", `String "status"); ("repo_path", `String repo) ]))
       in
       Alcotest.(check bool)
         "status in explicit repo succeeds (no fatal error)" true

@@ -1,4 +1,4 @@
-let schema_version = 10
+let schema_version = 11
 
 type session_activity = Active | Inactive | Any
 
@@ -155,6 +155,19 @@ let init_quota_cache_schema db =
     \     state_json TEXT NOT NULL,\n\
     \     fetched_at REAL NOT NULL\n\
     \   )"
+
+let init_postmortems_schema db =
+  exec_exn db
+    "CREATE TABLE IF NOT EXISTS postmortems (\n\
+    \  id INTEGER PRIMARY KEY AUTOINCREMENT,\n\
+    \  session_key TEXT NOT NULL,\n\
+    \  created_at TEXT NOT NULL DEFAULT (datetime('now')),\n\
+    \  pattern TEXT NOT NULL,\n\
+    \  evidence_json TEXT NOT NULL,\n\
+    \  correction_injected TEXT NOT NULL,\n\
+    \  outcome TEXT,\n\
+    \  doc_path TEXT NOT NULL\n\
+     )"
 
 let init_models_cache_schema db =
   exec_exn db
@@ -329,12 +342,21 @@ let migrate_schema db current_version =
       exec_exn db
         "ALTER TABLE session_state ADD COLUMN model_override TEXT DEFAULT NULL";
       set_schema_version db schema_version
+  | 10 ->
+      init_session_schema db;
+      init_inbound_queue_schema db;
+      init_models_cache_schema db;
+      init_request_stats_schema db;
+      init_quota_cache_schema db;
+      init_postmortems_schema db;
+      set_schema_version db schema_version
   | n when n = schema_version ->
       init_session_schema db;
       init_inbound_queue_schema db;
       init_models_cache_schema db;
       init_request_stats_schema db;
-      init_quota_cache_schema db
+      init_quota_cache_schema db;
+      init_postmortems_schema db
   | n ->
       failwith
         (Printf.sprintf "DB uses future schema version %d (current=%d)" n
@@ -413,6 +435,7 @@ let init ~db_path ?(search_enabled = false) () =
   init_models_cache_schema db;
   init_request_stats_schema db;
   init_quota_cache_schema db;
+  init_postmortems_schema db;
   db
 
 let store_message ~db ~session_key (msg : Provider.message) =
@@ -1730,3 +1753,105 @@ let queue_clear ~db ~session_key =
       ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT session_key));
       ignore (Sqlite3.step stmt);
       Sqlite3.changes db)
+
+type postmortem = {
+  id : int;
+  session_key : string;
+  created_at : string;
+  pattern : string;
+  evidence_json : string;
+  correction_injected : string;
+  outcome : string option;
+  doc_path : string;
+}
+
+let postmortem_of_stmt stmt =
+  let text_col i =
+    match Sqlite3.column stmt i with Sqlite3.Data.TEXT s -> s | _ -> ""
+  in
+  let int_col i =
+    match Sqlite3.column stmt i with
+    | Sqlite3.Data.INT n -> Int64.to_int n
+    | _ -> 0
+  in
+  let text_opt_col i =
+    match Sqlite3.column stmt i with
+    | Sqlite3.Data.TEXT s -> Some s
+    | Sqlite3.Data.NULL -> None
+    | _ -> None
+  in
+  {
+    id = int_col 0;
+    session_key = text_col 1;
+    created_at = text_col 2;
+    pattern = text_col 3;
+    evidence_json = text_col 4;
+    correction_injected = text_col 5;
+    outcome = text_opt_col 6;
+    doc_path = text_col 7;
+  }
+
+let insert_postmortem ~db ~session_key ~pattern ~evidence_json
+    ~correction_injected ~doc_path =
+  let sql =
+    "INSERT INTO postmortems (session_key, pattern, evidence_json, \
+     correction_injected, doc_path) VALUES (?, ?, ?, ?, ?)"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT session_key));
+      ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT pattern));
+      ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.TEXT evidence_json));
+      ignore (Sqlite3.bind stmt 4 (Sqlite3.Data.TEXT correction_injected));
+      ignore (Sqlite3.bind stmt 5 (Sqlite3.Data.TEXT doc_path));
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.DONE -> Int64.to_int (Sqlite3.last_insert_rowid db)
+      | rc ->
+          failwith
+            (Printf.sprintf "insert_postmortem failed: %s"
+               (Sqlite3.Rc.to_string rc)))
+
+let list_postmortems ~db ?session_key ?(limit = 100) () =
+  let sql, bind_key =
+    match session_key with
+    | None ->
+        ( "SELECT id, session_key, created_at, pattern, evidence_json, \
+           correction_injected, outcome, doc_path FROM postmortems ORDER BY id \
+           DESC LIMIT ?",
+          false )
+    | Some _ ->
+        ( "SELECT id, session_key, created_at, pattern, evidence_json, \
+           correction_injected, outcome, doc_path FROM postmortems WHERE \
+           session_key = ? ORDER BY id DESC LIMIT ?",
+          true )
+  in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      (if bind_key then
+         match session_key with
+         | Some k ->
+             ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT k));
+             ignore
+               (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int limit)))
+         | None -> ());
+      if not bind_key then
+        ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.INT (Int64.of_int limit)));
+      let rows = ref [] in
+      while Sqlite3.step stmt = Sqlite3.Rc.ROW do
+        rows := postmortem_of_stmt stmt :: !rows
+      done;
+      List.rev !rows)
+
+let update_postmortem_outcome ~db ~id ~outcome =
+  let sql = "UPDATE postmortems SET outcome = ? WHERE id = ?" in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT outcome));
+      ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int id)));
+      ignore (Sqlite3.step stmt))
