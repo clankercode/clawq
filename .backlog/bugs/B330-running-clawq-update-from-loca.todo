@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B330
+priority: high
+status: pending
+tags: []
+title: Running `clawq update` from localhost should automatically pair with the gateway.
+---
+
+Running `clawq update` from localhost should automatically pair with the gateway.
