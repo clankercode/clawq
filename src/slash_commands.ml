@@ -361,9 +361,11 @@ let format_tools_telegram (tools : Tool.t list) (skills : Tool.t list) : string
   let buf = Buffer.create 1024 in
   Buffer.add_string buf
     (Printf.sprintf "<b>Tools (%d)</b>\n\n" (List.length sorted));
-  Buffer.add_string buf "<blockquote expandable>\n";
-  List.iter (format_tool_telegram buf) sorted;
-  Buffer.add_string buf "</blockquote>";
+  if sorted <> [] then begin
+    Buffer.add_string buf "<blockquote expandable>\n";
+    List.iter (format_tool_telegram buf) sorted;
+    Buffer.add_string buf "</blockquote>"
+  end;
   if skills <> [] then begin
     let sorted_skills = sort_tools skills in
     Buffer.add_string buf "\n\n";

@@ -667,6 +667,15 @@ let make_dummy_tool name description =
     deferred = false;
   }
 
+let test_format_tools_telegram_empty () =
+  let output = Slash_commands.format_tools_telegram [] [] in
+  Alcotest.(check bool)
+    "contains Tools (0)" true
+    (contains_str output "Tools (0)");
+  Alcotest.(check bool)
+    "no blockquote when empty" true
+    (not (contains_str output "<blockquote"))
+
 let test_format_tools_telegram_with_skills () =
   let tools = [ make_dummy_tool "file_read" "Read a file" ] in
   let skills = [ make_dummy_tool "my_script" "Run my script" ] in
@@ -852,6 +861,8 @@ let suite =
       test_tasks_session_key_isolation;
     Alcotest.test_case "format_tools_plain" `Quick test_format_tools_plain;
     Alcotest.test_case "format_tools_telegram" `Quick test_format_tools_telegram;
+    Alcotest.test_case "format_tools_telegram empty" `Quick
+      test_format_tools_telegram_empty;
     Alcotest.test_case "format_tools_telegram with skills" `Quick
       test_format_tools_telegram_with_skills;
     Alcotest.test_case "format_tools_plain with skills" `Quick
