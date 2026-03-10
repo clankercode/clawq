@@ -2,6 +2,7 @@ From Coq Require Import Extraction.
 From Coq Require Import ExtrOcamlBasic.
 From Coq Require Import ExtrOcamlNativeString.
 From Coq Require Import ExtrOcamlNatInt.
+From Coq Require Import ExtrOcamlZInt.
 Require Import Clawq.Cli.
 Require Import Clawq.Config.
 Require Import Clawq.PathSafety.
@@ -11,6 +12,7 @@ Require Import Clawq.ChannelAuth.
 Require Import Clawq.AuditChain.
 Require Import Clawq.AuditChainConcrete.
 Require Import Clawq.AgentLoop.
+Require Import Clawq.RateLimiter.
 
 Extraction Language OCaml.
 
@@ -115,6 +117,11 @@ Extraction "src/extracted/clawq_core.ml"
   (* Audit chain (F3 concrete extracted path) *)
   Clawq.AuditChainConcrete.make_entry
   Clawq.AuditChainConcrete.verify_chain
+  (* Rate limiter (F4 conformance oracles) *)
+  RateLimiter.token_scale
+  RateLimiter.one_token
+  RateLimiter.refill
+  RateLimiter.try_consume
   (* AgentLoop history helpers (F10 partial) *)
   AgentLoop.string_in
   AgentLoop.trim_history

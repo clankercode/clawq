@@ -1,0 +1,97 @@
+# B293: task_tree — recursive/bulk status ops, soft delete, and restore
+
+## Summary
+The task_tree tool needs three related improvements: (1) recursive status propagation so an
+agent can bulk-cancel or bulk-complete a subtree without visiting every leaf manually,
+(2) soft delete so `remove`/`clear`/`archive` operations are reversible, and (3) a `restore`
+operation and clear docs in tool responses telling agents how to undo destructive ops.
+
+## Problems
+
+### 1. No way to bulk-cancel or bulk-complete a subtree
+`op=update status=cancelled` (or `done`) on a parent is blocked if any descendant is
+still active. The agent must cancel every leaf individually, working up the tree — which
+is fragile and token-expensive. See B292 (stuck agent loop) for a real example.
+
+### 2. `op=remove` and `op=clear` are hard deletes (unrecoverable)
+Agents that nuke a stale task tree cannot get it back. This makes the "remove" path scary
+and forces agents to be conservative, often leaving junk tasks rather than cleaning up.
+
+### 3. Tool responses don't tell agents how to undo destructive actions
+After `op=clear` or `op=remove` the response just says "Cleared N tasks". There is no hint
+that the operation was (or wasn't) reversible, or how to recover if the agent changes its mind.
+
+## Proposed Changes
+
+### A. `recursive: true` flag on `op=update`
+```json
+{"op": "update", "id": "root_task", "status": "cancelled", "recursive": true}
+```
+- Propagates the new status to all descendants (depth-first, leaves first so constraints
+  are satisfied naturally)
+- Valid for `status=cancelled` and `status=done`; reject `recursive=true` for other
+  status values with a clear error
+- If any leaf update fails, roll back the whole batch (same atomicity as existing batch ops)
+- Return a summary: `"Cancelled 7 tasks (root_task + 6 descendants)"`
+
+### B. `recursive: true` flag on `op=remove`
+```json
+{"op": "remove", "id": "root_task", "recursive": true}
+```
+- Soft-deletes the subtree regardless of status
+- Without `recursive=true`, `op=remove` continues to reject non-leaf in_progress trees
+  (current behaviour, not broken)
+- Return: `"Removed 7 tasks — restore with op=restore id=root_task"`
+
+### C. Soft delete in DB instead of hard delete
+- Add `deleted_at TIMESTAMP` column to `task_tree` table (migration: schema bump)
+- `op=remove` sets `deleted_at = now()` instead of `DELETE`
+- `op=clear` (clears done/cancelled) and `op=archive` (archives completed roots) also soft-delete
+- `op=list` filters `WHERE deleted_at IS NULL` by default; add `include_deleted: true` to
+  surface them
+- Add a periodic hard-purge of soft-deleted rows older than 30 days (configurable)
+
+### D. `op=restore` to undelete
+```json
+{"op": "restore", "id": "root_task"}
+```
+- Clears `deleted_at` on the task and all its soft-deleted descendants
+- Errors clearly if `id` not found even among deleted rows
+- Return: `"Restored 7 tasks"`
+
+### E. Informative responses on destructive ops
+After any `clear`, `archive`, `remove` (with or without `recursive`), include in the
+tool response:
+- Count of affected tasks
+- The `op=restore id=X` invocation to undo (or "not reversible: hard-purge already ran"
+  if applicable)
+
+Example response:
+```
+Cleared 12 done/cancelled tasks.
+Restore with: task_tree op=restore id=<root_id> (or list individual ids below)
+Restored set: root_task, child_1, child_2, ...
+```
+
+## Acceptance Criteria
+- [ ] `op=update status=cancelled recursive=true` cancels full subtree atomically
+- [ ] `op=update status=done recursive=true` completes full subtree atomically
+- [ ] `op=remove recursive=true` soft-deletes subtree, response includes restore hint
+- [ ] `op=clear` and `op=archive` soft-delete (not hard-delete), response includes restore hint
+- [ ] `op=restore id=X` recovers a soft-deleted task tree
+- [ ] `op=list include_deleted=true` shows deleted tasks (marked as [deleted])
+- [ ] DB migration increments schema version; existing rows unaffected
+- [ ] All existing task_tree tests still pass; new tests cover the above ACs
+- [ ] `recursive=true` on unsupported ops or statuses returns a clear error, not a silent no-op
+
+## Files
+- `src/task_tree.ml` — operation handling, DB queries, constraint checks
+- `src/tools_builtin.ml` — task_tree tool schema (add recursive param, restore op, include_deleted)
+- `src/memory.ml` or wherever schema migrations live — bump schema version, add `deleted_at`
+- `test/test_task_tree.ml` — new test cases
+
+## Related
+- B292: `task_tree` cannot mark parent done when children are cancelled (separate constraint
+  bug, fix independently)
+- B292 (daemon-filed): task_tree tool cannot force-clear in_progress tasks (root cause of
+  the need for this ticket)

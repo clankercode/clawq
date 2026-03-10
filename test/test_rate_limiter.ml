@@ -130,6 +130,38 @@ let test_consume_decreases_tokens_by_one () =
         "consume decreases by exactly one" 1.0 (before -. entry.tokens);
       Lwt.return_unit)
 
+let test_refill_matches_extracted_oracle () =
+  let entry = Rate_limiter.{ tokens = 1.5; last_refill = 10.000 } in
+  let _coq, _native, equal =
+    Rate_limiter.conformance_refill ~rate_per_minute:120 ~max_tokens:10.0
+      entry ~now:10.250
+  in
+  Alcotest.(check bool) "refill matches extracted oracle" true equal
+
+let test_refill_cap_matches_extracted_oracle () =
+  let entry = Rate_limiter.{ tokens = 1.75; last_refill = 5.000 } in
+  let _coq, _native, equal =
+    Rate_limiter.conformance_refill ~rate_per_minute:120 ~max_tokens:2.0 entry
+      ~now:5.250
+  in
+  Alcotest.(check bool) "capped refill matches extracted oracle" true equal
+
+let test_try_consume_allowed_matches_extracted_oracle () =
+  let entry = Rate_limiter.{ tokens = 1.25; last_refill = 1.000 } in
+  let _coq, _native, equal =
+    Rate_limiter.conformance_try_consume ~rate_per_minute:60 ~max_tokens:5.0
+      entry ~now:1.500
+  in
+  Alcotest.(check bool) "allowed consume matches extracted oracle" true equal
+
+let test_try_consume_denied_matches_extracted_oracle () =
+  let entry = Rate_limiter.{ tokens = 0.25; last_refill = 7.000 } in
+  let _coq, _native, equal =
+    Rate_limiter.conformance_try_consume ~rate_per_minute:0 ~max_tokens:1.0
+      entry ~now:7.500
+  in
+  Alcotest.(check bool) "denied consume matches extracted oracle" true equal
+
 let suite =
   [
     Alcotest.test_case "within limit" `Quick test_within_limit;
@@ -141,4 +173,12 @@ let suite =
     Alcotest.test_case "independent keys" `Quick test_independent_keys;
     Alcotest.test_case "consume decreases tokens by one" `Quick
       test_consume_decreases_tokens_by_one;
+    Alcotest.test_case "refill matches extracted oracle" `Quick
+      test_refill_matches_extracted_oracle;
+    Alcotest.test_case "capped refill matches extracted oracle" `Quick
+      test_refill_cap_matches_extracted_oracle;
+    Alcotest.test_case "allowed consume matches extracted oracle" `Quick
+      test_try_consume_allowed_matches_extracted_oracle;
+    Alcotest.test_case "denied consume matches extracted oracle" `Quick
+      test_try_consume_denied_matches_extracted_oracle;
   ]

@@ -18,14 +18,10 @@ let rec app l m =
   | [] -> m
   | a :: l1 -> a :: (app l1 m)
 
-type positive =
-| XI of positive
-| XO of positive
-| XH
-
-type n =
-| N0
-| Npos of positive
+type comparison =
+| Eq
+| Lt
+| Gt
 
 module Nat =
  struct
@@ -37,30 +33,142 @@ module Nat =
 
 module Pos =
  struct
-  (** val succ : positive -> positive **)
+  (** val succ : int -> int **)
 
-  let rec succ = function
-  | XI p -> XO (succ p)
-  | XO p -> XI p
-  | XH -> XO XH
+  let rec succ x =
+    (fun f2p1 f2p f1 p ->
+  if p<=1 then f1 () else if p mod 2 = 0 then f2p (p/2) else f2p1 (p/2))
+      (fun p -> (fun p->2*p) (succ p))
+      (fun p -> (fun p->1+2*p) p)
+      (fun _ -> (fun p->2*p) 1)
+      x
 
-  (** val of_succ_nat : int -> positive **)
+  (** val add : int -> int -> int **)
+
+  let rec add x y =
+    (fun f2p1 f2p f1 p ->
+  if p<=1 then f1 () else if p mod 2 = 0 then f2p (p/2) else f2p1 (p/2))
+      (fun p ->
+      (fun f2p1 f2p f1 p ->
+  if p<=1 then f1 () else if p mod 2 = 0 then f2p (p/2) else f2p1 (p/2))
+        (fun q -> (fun p->2*p) (add_carry p q))
+        (fun q -> (fun p->1+2*p) (add p q))
+        (fun _ -> (fun p->2*p) (succ p))
+        y)
+      (fun p ->
+      (fun f2p1 f2p f1 p ->
+  if p<=1 then f1 () else if p mod 2 = 0 then f2p (p/2) else f2p1 (p/2))
+        (fun q -> (fun p->1+2*p) (add p q))
+        (fun q -> (fun p->2*p) (add p q))
+        (fun _ -> (fun p->1+2*p) p)
+        y)
+      (fun _ ->
+      (fun f2p1 f2p f1 p ->
+  if p<=1 then f1 () else if p mod 2 = 0 then f2p (p/2) else f2p1 (p/2))
+        (fun q -> (fun p->2*p) (succ q))
+        (fun q -> (fun p->1+2*p) q)
+        (fun _ -> (fun p->2*p) 1)
+        y)
+      x
+
+  (** val add_carry : int -> int -> int **)
+
+  and add_carry x y =
+    (fun f2p1 f2p f1 p ->
+  if p<=1 then f1 () else if p mod 2 = 0 then f2p (p/2) else f2p1 (p/2))
+      (fun p ->
+      (fun f2p1 f2p f1 p ->
+  if p<=1 then f1 () else if p mod 2 = 0 then f2p (p/2) else f2p1 (p/2))
+        (fun q -> (fun p->1+2*p) (add_carry p q))
+        (fun q -> (fun p->2*p) (add_carry p q))
+        (fun _ -> (fun p->1+2*p) (succ p))
+        y)
+      (fun p ->
+      (fun f2p1 f2p f1 p ->
+  if p<=1 then f1 () else if p mod 2 = 0 then f2p (p/2) else f2p1 (p/2))
+        (fun q -> (fun p->2*p) (add_carry p q))
+        (fun q -> (fun p->1+2*p) (add p q))
+        (fun _ -> (fun p->2*p) (succ p))
+        y)
+      (fun _ ->
+      (fun f2p1 f2p f1 p ->
+  if p<=1 then f1 () else if p mod 2 = 0 then f2p (p/2) else f2p1 (p/2))
+        (fun q -> (fun p->1+2*p) (succ q))
+        (fun q -> (fun p->2*p) (succ q))
+        (fun _ -> (fun p->1+2*p) 1)
+        y)
+      x
+
+  (** val pred_double : int -> int **)
+
+  let rec pred_double x =
+    (fun f2p1 f2p f1 p ->
+  if p<=1 then f1 () else if p mod 2 = 0 then f2p (p/2) else f2p1 (p/2))
+      (fun p -> (fun p->1+2*p) ((fun p->2*p) p))
+      (fun p -> (fun p->1+2*p) (pred_double p))
+      (fun _ -> 1)
+      x
+
+  (** val mul : int -> int -> int **)
+
+  let rec mul x y =
+    (fun f2p1 f2p f1 p ->
+  if p<=1 then f1 () else if p mod 2 = 0 then f2p (p/2) else f2p1 (p/2))
+      (fun p -> add y ((fun p->2*p) (mul p y)))
+      (fun p -> (fun p->2*p) (mul p y))
+      (fun _ -> y)
+      x
+
+  (** val compare_cont : comparison -> int -> int -> comparison **)
+
+  let rec compare_cont r x y =
+    (fun f2p1 f2p f1 p ->
+  if p<=1 then f1 () else if p mod 2 = 0 then f2p (p/2) else f2p1 (p/2))
+      (fun p ->
+      (fun f2p1 f2p f1 p ->
+  if p<=1 then f1 () else if p mod 2 = 0 then f2p (p/2) else f2p1 (p/2))
+        (fun q -> compare_cont r p q)
+        (fun q -> compare_cont Gt p q)
+        (fun _ -> Gt)
+        y)
+      (fun p ->
+      (fun f2p1 f2p f1 p ->
+  if p<=1 then f1 () else if p mod 2 = 0 then f2p (p/2) else f2p1 (p/2))
+        (fun q -> compare_cont Lt p q)
+        (fun q -> compare_cont r p q)
+        (fun _ -> Gt)
+        y)
+      (fun _ ->
+      (fun f2p1 f2p f1 p ->
+  if p<=1 then f1 () else if p mod 2 = 0 then f2p (p/2) else f2p1 (p/2))
+        (fun _ -> Lt)
+        (fun _ -> Lt)
+        (fun _ -> r)
+        y)
+      x
+
+  (** val compare : int -> int -> comparison **)
+
+  let compare =
+    compare_cont Eq
+
+  (** val of_succ_nat : int -> int **)
 
   let rec of_succ_nat n0 =
     (fun fO fS n -> if n=0 then fO () else fS (n-1))
-      (fun _ -> XH)
+      (fun _ -> 1)
       (fun x -> succ (of_succ_nat x))
       n0
  end
 
 module N =
  struct
-  (** val of_nat : int -> n **)
+  (** val of_nat : int -> int **)
 
   let of_nat n0 =
     (fun fO fS n -> if n=0 then fO () else fS (n-1))
-      (fun _ -> N0)
-      (fun n' -> Npos (Pos.of_succ_nat n'))
+      (fun _ -> 0)
+      (fun n' -> (Pos.of_succ_nat n'))
       n0
  end
 
@@ -97,6 +205,91 @@ let rec existsb f = function
 let rec filter f = function
 | [] -> []
 | x :: l0 -> if f x then x :: (filter f l0) else filter f l0
+
+module Z =
+ struct
+  (** val double : int -> int **)
+
+  let double x =
+    (fun f0 fp fn z -> if z=0 then f0 () else if z>0 then fp z else fn (-z))
+      (fun _ -> 0)
+      (fun p -> ((fun p->2*p) p))
+      (fun p -> (~-) ((fun p->2*p) p))
+      x
+
+  (** val succ_double : int -> int **)
+
+  let succ_double x =
+    (fun f0 fp fn z -> if z=0 then f0 () else if z>0 then fp z else fn (-z))
+      (fun _ -> 1)
+      (fun p -> ((fun p->1+2*p) p))
+      (fun p -> (~-) (Pos.pred_double p))
+      x
+
+  (** val pred_double : int -> int **)
+
+  let pred_double x =
+    (fun f0 fp fn z -> if z=0 then f0 () else if z>0 then fp z else fn (-z))
+      (fun _ -> (~-) 1)
+      (fun p -> (Pos.pred_double p))
+      (fun p -> (~-) ((fun p->1+2*p) p))
+      x
+
+  (** val pos_sub : int -> int -> int **)
+
+  let rec pos_sub x y =
+    (fun f2p1 f2p f1 p ->
+  if p<=1 then f1 () else if p mod 2 = 0 then f2p (p/2) else f2p1 (p/2))
+      (fun p ->
+      (fun f2p1 f2p f1 p ->
+  if p<=1 then f1 () else if p mod 2 = 0 then f2p (p/2) else f2p1 (p/2))
+        (fun q -> double (pos_sub p q))
+        (fun q -> succ_double (pos_sub p q))
+        (fun _ -> ((fun p->2*p) p))
+        y)
+      (fun p ->
+      (fun f2p1 f2p f1 p ->
+  if p<=1 then f1 () else if p mod 2 = 0 then f2p (p/2) else f2p1 (p/2))
+        (fun q -> pred_double (pos_sub p q))
+        (fun q -> double (pos_sub p q))
+        (fun _ -> (Pos.pred_double p))
+        y)
+      (fun _ ->
+      (fun f2p1 f2p f1 p ->
+  if p<=1 then f1 () else if p mod 2 = 0 then f2p (p/2) else f2p1 (p/2))
+        (fun q -> (~-) ((fun p->2*p) q))
+        (fun q -> (~-) (Pos.pred_double q))
+        (fun _ -> 0)
+        y)
+      x
+
+  (** val add : int -> int -> int **)
+
+  let add = (+)
+
+  (** val opp : int -> int **)
+
+  let opp = (~-)
+
+  (** val sub : int -> int -> int **)
+
+  let sub = (-)
+
+  (** val mul : int -> int -> int **)
+
+  let mul = ( * )
+
+  (** val compare : int -> int -> comparison **)
+
+  let compare = fun x y -> if x=y then Eq else if x<y then Lt else Gt
+
+  (** val leb : int -> int -> bool **)
+
+  let leb x y =
+    match compare x y with
+    | Gt -> false
+    | _ -> true
+ end
 
 type command =
 | CmdAgent
@@ -713,4 +906,64 @@ module AgentLoop =
        adjust_split_for_tool_groups
          (app to_compact ((ToolResultMsg (id, name)) :: [])) rest
      | _ -> (to_compact, to_keep))
+ end
+
+module RateLimiter =
+ struct
+  (** val token_scale : int **)
+
+  let token_scale =
+    ((fun p->2*p) ((fun p->2*p) ((fun p->2*p) ((fun p->2*p) ((fun p->2*p)
+      ((fun p->1+2*p) ((fun p->1+2*p) ((fun p->2*p) ((fun p->2*p)
+      ((fun p->1+2*p) ((fun p->2*p) ((fun p->1+2*p) ((fun p->2*p)
+      ((fun p->1+2*p) ((fun p->1+2*p) 1)))))))))))))))
+
+  (** val one_token : int **)
+
+  let one_token =
+    token_scale
+
+  type limiter_config = { rate_per_minute : int; max_tokens : int }
+
+  (** val rate_per_minute : limiter_config -> int **)
+
+  let rate_per_minute l =
+    l.rate_per_minute
+
+  (** val max_tokens : limiter_config -> int **)
+
+  let max_tokens l =
+    l.max_tokens
+
+  type bucket = { tokens : int; last_refill : int }
+
+  (** val tokens : bucket -> int **)
+
+  let tokens b =
+    b.tokens
+
+  (** val last_refill : bucket -> int **)
+
+  let last_refill b =
+    b.last_refill
+
+  (** val refill : limiter_config -> bucket -> int -> bucket **)
+
+  let refill cfg b now =
+    let elapsed = Z.sub now b.last_refill in
+    let added = Z.mul elapsed cfg.rate_per_minute in
+    let new_tok = Z.add b.tokens added in
+    let capped =
+      if Z.leb new_tok cfg.max_tokens then new_tok else cfg.max_tokens
+    in
+    { tokens = capped; last_refill = now }
+
+  (** val try_consume : limiter_config -> bucket -> int -> bool * bucket **)
+
+  let try_consume cfg b now =
+    let b' = refill cfg b now in
+    if Z.leb one_token b'.tokens
+    then (true, { tokens = (Z.sub b'.tokens one_token); last_refill =
+           b'.last_refill })
+    else (false, b')
  end

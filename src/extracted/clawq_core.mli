@@ -5,14 +5,10 @@ val length : 'a1 list -> int
 
 val app : 'a1 list -> 'a1 list -> 'a1 list
 
-type positive =
-| XI of positive
-| XO of positive
-| XH
-
-type n =
-| N0
-| Npos of positive
+type comparison =
+| Eq
+| Lt
+| Gt
 
 module Nat :
  sig
@@ -21,14 +17,26 @@ module Nat :
 
 module Pos :
  sig
-  val succ : positive -> positive
+  val succ : int -> int
 
-  val of_succ_nat : int -> positive
+  val add : int -> int -> int
+
+  val add_carry : int -> int -> int
+
+  val pred_double : int -> int
+
+  val mul : int -> int -> int
+
+  val compare_cont : comparison -> int -> int -> comparison
+
+  val compare : int -> int -> comparison
+
+  val of_succ_nat : int -> int
  end
 
 module N :
  sig
-  val of_nat : int -> n
+  val of_nat : int -> int
  end
 
 val map : ('a1 -> 'a2) -> 'a1 list -> 'a2 list
@@ -40,6 +48,29 @@ val rev : 'a1 list -> 'a1 list
 val existsb : ('a1 -> bool) -> 'a1 list -> bool
 
 val filter : ('a1 -> bool) -> 'a1 list -> 'a1 list
+
+module Z :
+ sig
+  val double : int -> int
+
+  val succ_double : int -> int
+
+  val pred_double : int -> int
+
+  val pos_sub : int -> int -> int
+
+  val add : int -> int -> int
+
+  val opp : int -> int
+
+  val sub : int -> int -> int
+
+  val mul : int -> int -> int
+
+  val compare : int -> int -> comparison
+
+  val leb : int -> int -> bool
+ end
 
 type command =
 | CmdAgent
@@ -218,4 +249,27 @@ module AgentLoop :
   val ensure_tool_group_integrity : history -> history
 
   val adjust_split_for_tool_groups : history -> history -> history * history
+ end
+
+module RateLimiter :
+ sig
+  val token_scale : int
+
+  val one_token : int
+
+  type limiter_config = { rate_per_minute : int; max_tokens : int }
+
+  val rate_per_minute : limiter_config -> int
+
+  val max_tokens : limiter_config -> int
+
+  type bucket = { tokens : int; last_refill : int }
+
+  val tokens : bucket -> int
+
+  val last_refill : bucket -> int
+
+  val refill : limiter_config -> bucket -> int -> bucket
+
+  val try_consume : limiter_config -> bucket -> int -> bool * bucket
  end
