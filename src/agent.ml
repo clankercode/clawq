@@ -198,40 +198,31 @@ let collect_tool_result_ids = Message_history.collect_tool_result_ids
    result). Works on messages in any order. *)
 let ensure_tool_group_integrity = Message_history.ensure_tool_group_integrity
 
-(* Backstop: enforce the hard message-count cap only. Token-based compaction
-   (with LLM summarisation) is handled by compact_history_if_needed before
-   each turn; this function is a cheap post-response safety net. *)
 let trim_history agent =
   let effective_max = effective_max_messages agent in
-  let len = List.length agent.history in
-  if len > effective_max then begin
-    agent.history <- List.filteri (fun i _ -> i < effective_max) agent.history;
-    agent.history <- ensure_tool_group_integrity agent.history
-  end;
+  let coq_input =
+    Agent_loop_conformance.provider_to_coq_history agent.history
+  in
+  let coq_trimmed = Clawq_core.AgentLoop.trim_history effective_max coq_input in
+  let coq_output =
+    Clawq_core.AgentLoop.ensure_tool_group_integrity coq_trimmed
+  in
+  agent.history <- Agent_loop_conformance.coq_to_provider_history coq_output;
   assert_history_bound ~where:"trim_history" agent
 
-(* Emergency context-exhaustion recovery: drop all but the last
-   force_compress_keep messages (no LLM call possible at this point).
-   Returns true if compression was performed. *)
 let force_compress_history agent =
   let len = List.length agent.history in
   if len > context_recovery_min_history then begin
-    (* Work in chronological order so expand_keep_for_tool_groups can pull
-       the assistant message in when the slice boundary falls mid-group.
-       Without this, if the last force_compress_keep messages are all tool
-       results, ensure_tool_group_integrity strips them (no matching call
-       in the kept set), producing an empty history and a subsequent
-       "missing_required_parameter" error from the API. *)
-    let history_chrono = List.rev agent.history in
-    let to_compact =
-      List.filteri (fun i _ -> i < len - force_compress_keep) history_chrono
+    let coq_input =
+      Agent_loop_conformance.provider_to_coq_history agent.history
     in
-    let to_keep_raw =
-      List.filteri (fun i _ -> i >= len - force_compress_keep) history_chrono
+    let coq_compressed =
+      Clawq_core.AgentLoop.force_compress_history force_compress_keep coq_input
     in
-    let to_keep =
-      Message_history.expand_keep_for_tool_groups to_compact to_keep_raw
+    let coq_output =
+      Clawq_core.AgentLoop.ensure_tool_group_integrity coq_compressed
     in
+    let result = Agent_loop_conformance.coq_to_provider_history coq_output in
     let bounded =
       List.map
         (fun (m : Provider.message) ->
@@ -243,20 +234,19 @@ let force_compress_history agent =
                 String.sub m.content 0 max_tool_result_chars
                 ^ "\n\n[truncated during emergency context recovery]";
             })
-        to_keep
+        result
     in
-    let compressed = ensure_tool_group_integrity bounded in
     let compressed =
-      if compressed = [] then begin
+      if bounded = [] then begin
         Logs.warn (fun m ->
             m
               "force_compress_history: integrity check emptied history; \
                keeping raw slice");
-        bounded
+        result
       end
-      else compressed
+      else bounded
     in
-    agent.history <- List.rev compressed;
+    agent.history <- compressed;
     assert_history_bound ~where:"force_compress_history" agent;
     true
   end
