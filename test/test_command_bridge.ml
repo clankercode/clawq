@@ -1478,8 +1478,11 @@ let test_handle_session_inject_auto_pairs_with_live_gateway () =
              with Not_found -> false)))
 
 let test_handle_migrate_no_source () =
-  let result = Command_bridge.handle [ "migrate" ] in
-  Alcotest.(check bool) "migrate returns output" true (String.length result > 0)
+  with_temp_home (fun _home ->
+      let result = Command_bridge.handle [ "migrate" ] in
+      Alcotest.(check bool)
+        "migrate returns output" true
+        (String.length result > 0))
 
 let test_handle_skills () =
   let result = Command_bridge.handle [ "skills" ] in

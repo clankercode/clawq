@@ -128,6 +128,101 @@ let test_convert_temperature () =
   let config, _ = Migrate.convert json in
   Alcotest.(check (float 0.01)) "temperature" 0.8 config.default_temperature
 
+let test_apply_writes_config () =
+  Test_helpers.with_temp_home (fun home ->
+      let config, _ = Migrate.convert (Yojson.Safe.from_string nullclaw_json) in
+      let result = Migrate.apply config in
+      let config_path =
+        Filename.concat (Filename.concat home ".clawq") "config.json"
+      in
+      Alcotest.(check bool)
+        "config.json exists after apply" true
+        (Sys.file_exists config_path);
+      Alcotest.(check bool)
+        "apply result mentions config.json" true
+        (let re = Str.regexp_string "config.json" in
+         try
+           ignore (Str.search_forward re result 0);
+           true
+         with Not_found -> false);
+      (* Verify it is valid JSON *)
+      let ic = open_in config_path in
+      let contents = really_input_string ic (in_channel_length ic) in
+      close_in ic;
+      let parsed = Yojson.Safe.from_string contents in
+      Alcotest.(check bool)
+        "config.json parses as JSON" true
+        (match parsed with `Assoc _ -> true | _ -> false))
+
+let test_apply_does_not_touch_real_home () =
+  (* Belt-and-suspenders: Migrate.apply must honour the temp HOME, not escape
+     to the real home directory. *)
+  let real_home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
+  let real_config =
+    Filename.concat (Filename.concat real_home ".clawq") "config.json"
+  in
+  let before_mtime =
+    try
+      let st = Unix.stat real_config in
+      Some st.Unix.st_mtime
+    with _ -> None
+  in
+  Test_helpers.with_temp_home (fun _home ->
+      let config, _ = Migrate.convert (Yojson.Safe.from_string nullclaw_json) in
+      ignore (Migrate.apply config));
+  let after_mtime =
+    try
+      let st = Unix.stat real_config in
+      Some st.Unix.st_mtime
+    with _ -> None
+  in
+  Alcotest.(check bool)
+    "real ~/.clawq/config.json not modified" true
+    (before_mtime = after_mtime)
+
+let test_cmd_migrate_from_apply () =
+  Test_helpers.with_temp_home (fun home ->
+      let src_path = Filename.temp_file "clawq_nullclaw_" ".json" in
+      Fun.protect
+        (fun () ->
+          let oc = open_out src_path in
+          output_string oc nullclaw_json;
+          close_out oc;
+          let result = Migrate.cmd_migrate [ "from"; src_path; "apply" ] in
+          let config_path =
+            Filename.concat (Filename.concat home ".clawq") "config.json"
+          in
+          Alcotest.(check bool)
+            "config.json created by cmd_migrate apply" true
+            (Sys.file_exists config_path);
+          Alcotest.(check bool)
+            "result mentions config.json" true
+            (let re = Str.regexp_string "config.json" in
+             try
+               ignore (Str.search_forward re result 0);
+               true
+             with Not_found -> false))
+        ~finally:(fun () -> try Sys.remove src_path with _ -> ()))
+
+let test_cmd_migrate_auto_discover_apply () =
+  (* When $HOME/.nullclaw/config.json exists, cmd_migrate apply must write
+     to the temp $HOME/.clawq/config.json and NOT to the real home. *)
+  Test_helpers.with_temp_home (fun home ->
+      let nullclaw_dir = Filename.concat home ".nullclaw" in
+      Unix.mkdir nullclaw_dir 0o755;
+      let src_path = Filename.concat nullclaw_dir "config.json" in
+      let oc = open_out src_path in
+      output_string oc nullclaw_json;
+      close_out oc;
+      let result = Migrate.cmd_migrate [ "apply" ] in
+      let config_path =
+        Filename.concat (Filename.concat home ".clawq") "config.json"
+      in
+      Alcotest.(check bool)
+        "config.json created by auto-discovered apply" true
+        (Sys.file_exists config_path);
+      ignore result)
+
 let suite =
   [
     Alcotest.test_case "convert providers" `Quick test_convert_providers;
@@ -138,4 +233,12 @@ let suite =
     Alcotest.test_case "convert gateway" `Quick test_convert_gateway;
     Alcotest.test_case "convert security" `Quick test_convert_security;
     Alcotest.test_case "convert temperature" `Quick test_convert_temperature;
+    Alcotest.test_case "apply writes config.json" `Quick
+      test_apply_writes_config;
+    Alcotest.test_case "apply does not touch real home" `Quick
+      test_apply_does_not_touch_real_home;
+    Alcotest.test_case "cmd_migrate from apply" `Quick
+      test_cmd_migrate_from_apply;
+    Alcotest.test_case "cmd_migrate auto-discover apply" `Quick
+      test_cmd_migrate_auto_discover_apply;
   ]
