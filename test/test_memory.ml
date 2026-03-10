@@ -914,7 +914,7 @@ let test_init_rejects_future_schema_version () =
       | `Msg msg ->
           Alcotest.(check bool)
             "rejects future version" true
-            (String.starts_with ~prefix:"Unsupported schema version 10" msg))
+            (String.starts_with ~prefix:"DB uses future schema version 10" msg))
 
 let suite =
   [
