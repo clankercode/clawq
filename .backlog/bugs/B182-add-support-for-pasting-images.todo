@@ -1,16 +1,33 @@
 ---
 claimed_at: "2026-03-09T14:43:07Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-10T05:30:00Z"
 complexity: medium
 depends_on: []
+duration_minutes: 420
 estimate_hours: 1
 id: B182
 priority: high
 started_at: "2026-03-09T14:43:07Z"
-status: in_progress
+status: done
 tags: []
 title: add support for pasting images and things in telegram and having multimodal models automatically handle them correctly.
+---
+
+## Completed (2026-03-10)
+
+**Key Discovery:** Image support was already implemented in `telegram.ml` (lines 1313-1413). Photos, stickers, and image documents are downloaded, converted to base64, and passed to models via `content_parts`.
+
+**What was added:**
+- Graceful degradation in `agent.ml` (`filter_content_parts_for_model` function)
+- Images are filtered out for non-vision models with a log message
+- Tests verify behavior for both vision and non-vision models
+
+**Behavior:**
+- Vision models: Receive images normally ✓
+- Non-vision models: Gracefully degrade to text-only ✓
+- Users: See log message when filtering occurs ✓
+
 ---
 
 add support for pasting images and things in telegram and having multimodal models automatically handle them correctly.
