@@ -1,0 +1,31 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B295
+priority: medium
+status: pending
+tags: []
+title: Telegram 409 Conflict race during graceful restart — old poller still active when new process starts
+---
+## Summary
+During graceful restart (SIGUSR1), the new daemon process starts Telegram long-polling before the old process has fully stopped its poller, causing a 409 Conflict error from the Telegram API.
+
+## Observed in daemon.log
+[16:48:30.091] WARN  Telegram: 409 Conflict — another getUpdates instance is running for token=8547...eIsE
+[16:48:30.091] WARN  Telegram: another poller is active for 'default', backing off 5s
+
+Sequence:
+1. /update command received at 16:48:33
+2. SIGUSR1 sent at 16:49:00 (graceful restart triggered)
+3. Old process shutting down, new process already polling
+
+## Root Cause
+The restart flow in daemon.ml wakes the restart_resolver and then exec's a new process.
+The old Telegram poller (Lwt.async) may still be mid-poll when the new process starts polling the same token. There is no synchronization to ensure the old poller has stopped before the new one begins.
+
+## Impact
+Telegram integration briefly fails on every update/restart. The 5s backoff mitigates it but it is a race condition that should not occur.
+
+## Fix
+Before exec'ing the new process, signal the Telegram poller to stop and wait for its current getUpdates request to complete (or at least let its in-flight request time out with a short offset). Alternatively, set offset=-1 or use a restart-aware handoff between old and new process.

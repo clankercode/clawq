@@ -293,3 +293,4 @@ bugs:
     - file: B292-does-not-exist-clawq-usage-ref.todo
     - file: B293-background-task-wait-silently.todo
     - file: B294-cohttp-body-stream-not-consume.todo
+    - file: B295-telegram-409-conflict-race-dur.todo
