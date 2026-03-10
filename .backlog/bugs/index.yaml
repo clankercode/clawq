@@ -322,3 +322,4 @@ bugs:
     - file: B321-better-handling-of-errored-too.todo
     - file: B322-the-typing-indicator-in-telegr.todo
     - file: B323-watch-ci-after-push-should-be.todo
+    - file: B324-in-the-tools-output-telegram-e.todo

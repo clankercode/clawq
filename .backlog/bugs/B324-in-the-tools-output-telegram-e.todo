@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B324
+priority: high
+status: pending
+tags: []
+title: 'in the /tools output (telegram et al), skills should be separated from legit tool calls. We can have two collapsible sections in the message returned to the user: 1st for tools proper, 2nd for skills'
+---
+
+in the /tools output (telegram et al), skills should be separated from legit tool calls. We can have two collapsible sections in the message returned to the user: 1st for tools proper, 2nd for skills
