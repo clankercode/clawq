@@ -1,0 +1,31 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B293
+priority: medium
+status: pending
+tags: []
+title: background_task_wait silently caps timeout_seconds at 110s with no LLM feedback
+---
+## Summary
+background_task_wait accepts a timeout_seconds parameter but silently clamps it to max_wait_seconds (110.0) without informing the caller.
+
+## Observed in daemon.log
+LLM invokes: background_task_wait args={"id":48,"timeout_seconds":180}
+Tool waits only 110s (max_wait_seconds), returns Timeout result.
+LLM has no way to know its requested 180s was silently ignored — it may mis-schedule retries or misjudge elapsed time.
+
+## Root Cause
+src/background_task.ml line 1645-1646:
+  let timeout_seconds = Float.min (Float.max raw_timeout 0.0) max_wait_seconds
+
+max_wait_seconds = 110.0 (line 511). The cap is applied silently.
+
+## Fix Options
+1. Include the actual timeout used (and the cap) in the tool result when clamping occurs.
+2. Document the maximum in the tool schema description so the LLM knows not to request more.
+3. Both: add schema note + surface effective_timeout_seconds in the result.
+
+## Severity
+Medium — causes LLM confusion about elapsed wait time, leads to unnecessary re-calls.

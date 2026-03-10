@@ -291,3 +291,4 @@ bugs:
     - file: B290-in-telegram-when-we-have-a-too.todo
     - file: B291-set-max-background-task-wait-t.todo
     - file: B292-does-not-exist-clawq-usage-ref.todo
+    - file: B293-background-task-wait-silently.todo
