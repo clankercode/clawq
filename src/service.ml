@@ -214,7 +214,12 @@ let run_nofork_start ?(execve = Unix.execve)
   else begin
     Unix.putenv internal_nofork_env "";
     Logs.info (fun m -> m "Daemon restarting in-place (NOFORK mode)");
-    let result = try run_daemon ~config with _ -> Daemon.Shutdown in
+    let result =
+      try run_daemon ~config
+      with exn ->
+        Logs.err (fun m -> m "Daemon error: %s" (Printexc.to_string exn));
+        Daemon.Shutdown
+    in
     handle_daemon_exit ~execve result;
     ""
   end
@@ -247,7 +252,11 @@ let cmd_start ~config =
             Unix.close null_fd;
             write_pid (Unix.getpid ());
             let result =
-              try Lwt_main.run (Daemon.run ~config) with _ -> Daemon.Shutdown
+              try Lwt_main.run (Daemon.run ~config)
+              with exn ->
+                Logs.err (fun m ->
+                    m "Daemon error: %s" (Printexc.to_string exn));
+                Daemon.Shutdown
             in
             handle_daemon_exit result;
             remove_pid ();

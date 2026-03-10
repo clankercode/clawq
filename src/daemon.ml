@@ -7,26 +7,6 @@ let run ~(config : Runtime_config.t) =
     let h = String.lowercase_ascii (String.trim host) in
     h = "127.0.0.1" || h = "localhost" || h = "::1"
   in
-  if
-    (not (is_loopback_host config.gateway.host))
-    && config.gateway.auth_token = None
-  then
-    failwith
-      (Printf.sprintf
-         "Refusing to bind gateway.host=%S without gateway.auth_token.\n\
-          To keep the gateway loopback-only, set gateway.host to 127.0.0.1 (or \
-          localhost / ::1).\n\
-          Example: clawq config set gateway.host 127.0.0.1\n\
-          To allow non-loopback binding, set gateway.auth_token in \
-          ~/.clawq/config.json or run: clawq config set gateway.auth_token \
-          YOUR_TOKEN"
-         config.gateway.host);
-  if (not config.gateway.require_pairing) && config.gateway.auth_token = None
-  then
-    Logs.warn (fun m ->
-        m
-          "Gateway running without require_pairing or auth_token; suitable \
-           only for local development on loopback");
   (* All log output is rendered to a side buffer first so we can:
      1. Drop cohttp/client.ml HTTP-method request lines (those log the full
         request URI at Info level via the default "application" source).
@@ -120,6 +100,26 @@ let run ~(config : Runtime_config.t) =
       if String.length name >= 6 && String.sub name 0 6 = "cohttp" then
         Logs.Src.set_level src (Some Logs.Warning))
     (Logs.Src.list ());
+  if (not config.gateway.require_pairing) && config.gateway.auth_token = None
+  then
+    Logs.warn (fun m ->
+        m
+          "Gateway running without require_pairing or auth_token; suitable \
+           only for local development on loopback");
+  if
+    (not (is_loopback_host config.gateway.host))
+    && config.gateway.auth_token = None
+  then
+    failwith
+      (Printf.sprintf
+         "Refusing to bind gateway.host=%S without gateway.auth_token.\n\
+          To keep the gateway loopback-only, set gateway.host to 127.0.0.1 (or \
+          localhost / ::1).\n\
+          Example: clawq config set gateway.host 127.0.0.1\n\
+          To allow non-loopback binding, set gateway.auth_token in \
+          ~/.clawq/config.json or run: clawq config set gateway.auth_token \
+          YOUR_TOKEN"
+         config.gateway.host);
   Logs.info (fun m ->
       m "clawq %s starting (pid=%d build=%s)" Build_info.version_string
         (Unix.getpid ()) Build_info.version_string);

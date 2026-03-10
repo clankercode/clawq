@@ -61,7 +61,7 @@ let cmd_agent ?(run_daemon = fun ~config -> Lwt_main.run (Daemon.run ~config))
       let result =
         try run_daemon ~config:cfg
         with Failure msg ->
-          print_endline ("Error: " ^ msg);
+          Logs.err (fun m -> m "%s" msg);
           release_lock (Some lock_fd);
           exit 1
       in
