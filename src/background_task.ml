@@ -1339,6 +1339,14 @@ let reap_dead_running_tasks ~db ~on_task_finished =
   !count
 
 let readopt_running_tasks ~db ~on_task_finished =
+  let pid_or_group_alive pid =
+    Process_group.group_alive pid
+    ||
+      try
+        Unix.kill pid 0;
+        true
+      with Unix.Unix_error _ -> false
+  in
   let orphaned =
     List.filter
       (fun t ->
@@ -1346,7 +1354,7 @@ let readopt_running_tasks ~db ~on_task_finished =
         && (not (Hashtbl.mem running t.id))
         &&
         match t.pid with
-        | Some pid when pid > 0 -> Process_group.group_alive pid
+        | Some pid when pid > 0 -> pid_or_group_alive pid
         | _ -> false)
       (list_tasks ~db)
   in

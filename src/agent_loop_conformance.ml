@@ -1,12 +1,16 @@
 (* F10 conformance oracles: compare Coq-extracted AgentLoop with native OCaml implementations *)
 
 (* Convert Provider.message to Clawq_core.AgentLoop.message for conformance testing.
-   Only preserves information needed for tool-group integrity: role, tool_calls, tool_call_id.
-   Content and other fields are discarded. *)
+   Only preserves information needed for tool-group integrity: role, tool_calls,
+   tool_call_id. Event messages are encoded into user messages with a sentinel so
+   trim/integrity passes preserve their role across the Coq roundtrip. *)
+
+let event_role_prefix = "__clawq_event__:"
 
 let provider_to_coq_message (m : Provider.message) :
     Clawq_core.AgentLoop.message =
   match m.role with
+  | "event" -> Clawq_core.AgentLoop.UserMsg (event_role_prefix ^ m.content)
   | "user" -> Clawq_core.AgentLoop.UserMsg m.content
   | "assistant" when m.tool_calls <> [] ->
       let coq_calls =
@@ -33,7 +37,13 @@ let coq_to_provider_message (m : Clawq_core.AgentLoop.message) :
     Provider.message =
   match m with
   | Clawq_core.AgentLoop.UserMsg content ->
-      Provider.make_message ~role:"user" ~content
+      if String.starts_with ~prefix:event_role_prefix content then
+        let prefix_len = String.length event_role_prefix in
+        let event_content =
+          String.sub content prefix_len (String.length content - prefix_len)
+        in
+        Provider.make_message ~role:"event" ~content:event_content
+      else Provider.make_message ~role:"user" ~content
   | Clawq_core.AgentLoop.AssistantMsg content ->
       Provider.make_message ~role:"assistant" ~content
   | Clawq_core.AgentLoop.AssistantToolCallsMsg calls ->
