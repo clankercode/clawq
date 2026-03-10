@@ -420,6 +420,10 @@ let test_tasks_command () =
   Alcotest.check result_testable "/tasks returns Tasks" Slash_commands.Tasks
     (Slash_commands.handle "/tasks")
 
+let test_tasks_command_with_telegram_bot_suffix () =
+  Alcotest.check result_testable "/tasks@bot returns Tasks" Slash_commands.Tasks
+    (Slash_commands.handle "/tasks@clawq_bot")
+
 let test_tasks_render_empty_tree () =
   let db = Sqlite3.db_open ":memory:" in
   Task_tree.init_schema db;
@@ -698,6 +702,8 @@ let suite =
     Alcotest.test_case "/model set-default" `Quick test_model_set_default;
     Alcotest.test_case "/tools returns Tools" `Quick test_tools_command;
     Alcotest.test_case "/tasks returns Tasks" `Quick test_tasks_command;
+    Alcotest.test_case "/tasks@bot returns Tasks" `Quick
+      test_tasks_command_with_telegram_bot_suffix;
     Alcotest.test_case "/tasks renders empty tree" `Quick
       test_tasks_render_empty_tree;
     Alcotest.test_case "/tasks renders nonempty tree" `Quick

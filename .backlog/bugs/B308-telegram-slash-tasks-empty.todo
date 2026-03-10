@@ -1,4 +1,18 @@
-# B308: /tasks in Telegram returns nothing
+---
+claimed_at: "2026-03-10T07:53:17Z"
+claimed_by: cli-user
+completed_at: "2026-03-10T07:57:03Z"
+complexity: medium
+depends_on: []
+duration_minutes: 3.76874769175
+estimate_hours: 1
+id: B308
+priority: medium
+started_at: "2026-03-10T07:53:17Z"
+status: done
+tags: []
+title: /tasks in Telegram returns nothing
+---
 
 ## Summary
 The `/tasks` slash command in Telegram does not return anything (empty or no response).
@@ -10,10 +24,10 @@ The `/tasks` slash command in Telegram does not return anything (empty or no res
 
 ## Investigation
 - Slash_commands.handle "/tasks" returns Tasks (tested in test_slash_commands.ml)
-- Telegram handler at src/telegram.ml:1545-1553 calls Task_tree.render_tree_with_legend
+- Telegram handler at `src/telegram.ml` calls `Task_tree.render_tree_with_legend`
 - Likely issue: empty tree produces empty string, or session_key mismatch, or render returns empty
 
 ## Files
-- src/telegram.ml (handler)
-- src/task_tree.ml (render_tree_with_legend)
-- src/slash_commands.ml (command parsing)
+- `src/telegram.ml` (handler)
+- `src/task_tree.ml` (`render_tree_with_legend`)
+- `src/slash_commands.ml` (command parsing)

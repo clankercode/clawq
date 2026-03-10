@@ -113,6 +113,11 @@ let handle text =
           if String.length first <= 1 then ""
           else String.sub first 1 (String.length first - 1)
         in
+        let cmd =
+          match String.index_opt cmd '@' with
+          | Some idx -> String.sub cmd 0 idx
+          | None -> cmd
+        in
         let cmd_lower = String.lowercase_ascii cmd in
         match cmd_lower with
         | "start" ->
