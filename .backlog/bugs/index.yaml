@@ -331,3 +331,4 @@ bugs:
     - file: B330-running-clawq-update-from-loca.todo
     - file: B331-refactor-all-files-over-2k-lin.todo
     - file: B332-add-a-new-agent-tool-thread-su.todo
+    - file: B333-config-wizard-needs-skip-optio.todo

@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B333
+priority: high
+status: pending
+tags: []
+title: config wizard needs skip options esp when we already have settings. also, i had to select a provider and chose groq which i have configured already. the api key got replaced with abc123 which shouldn't happen because i already had an api key.
+---
+
+config wizard needs skip options esp when we already have settings. also, i had to select a provider and chose groq which i have configured already. the api key got replaced with abc123 which shouldn't happen because i already had an api key.
