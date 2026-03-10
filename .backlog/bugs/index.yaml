@@ -271,3 +271,4 @@ bugs:
     - file: B270-background-task-list-with-id-u.todo
     - file: B271-in-telegram-model-set-zai-codi.todo
     - file: B272-when-running-model-set-gpt-5-4.todo
+    - file: B273-whenever-the-provider-or-model.todo
