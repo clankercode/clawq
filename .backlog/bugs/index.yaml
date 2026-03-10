@@ -296,3 +296,4 @@ bugs:
     - file: B295-telegram-409-conflict-race-dur.todo
     - file: B296-drain-timeout-forces-restart-w.todo
     - file: B297-session-model-changes-do-not-p.todo
+    - file: B298-migration-test-coverage-is-ins.todo

@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B298
+priority: high
+status: pending
+tags: []
+title: Migration test coverage is insufficient for schema-version bumps and test runs may auto-upgrade the DB
+---
+
+Migration test coverage is insufficient for schema-version bumps and test runs may auto-upgrade the DB
