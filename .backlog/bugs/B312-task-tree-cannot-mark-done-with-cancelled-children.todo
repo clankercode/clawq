@@ -1,3 +1,14 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 0
+id: B312
+priority: medium
+status: pending
+tags: []
+title: task_tree cannot mark parent done when children are cancelled
+---
+
 # B312: task_tree cannot mark parent done when children are cancelled
 
 ## Status: VERIFIED WORKING
