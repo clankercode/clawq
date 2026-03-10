@@ -182,6 +182,60 @@ let test_set_reasoning_effort_null () =
             "reasoning_effort cleared" (Some "null")
             (Option.map Yojson.Safe.to_string value))
 
+let test_is_secret_path () =
+  Alcotest.(check bool)
+    "api_key is secret" true
+    (Config_set.is_secret_path "providers.anthropic.api_key");
+  Alcotest.(check bool)
+    "bot_token is secret" true
+    (Config_set.is_secret_path "channels.discord.bot_token");
+  Alcotest.(check bool)
+    "signing_secret is secret" true
+    (Config_set.is_secret_path "channels.slack.signing_secret");
+  Alcotest.(check bool)
+    "password is secret" true
+    (Config_set.is_secret_path "channels.irc.password");
+  Alcotest.(check bool)
+    "access_token is secret" true
+    (Config_set.is_secret_path "channels.matrix.access_token");
+  Alcotest.(check bool)
+    "host is not secret" false
+    (Config_set.is_secret_path "gateway.host");
+  Alcotest.(check bool)
+    "primary_model is not secret" false
+    (Config_set.is_secret_path "agent_defaults.primary_model")
+
+let test_redact () =
+  Alcotest.(check string) "short" "***" (Tui_input.redact "abc");
+  Alcotest.(check string) "8 chars" "********" (Tui_input.redact "12345678");
+  Alcotest.(check string)
+    "long key" "sk-a...wxyz"
+    (Tui_input.redact "sk-abcdefghijklmnopqrstuvwxyz");
+  Alcotest.(check string) "9 chars" "1234...6789" (Tui_input.redact "123456789")
+
+let test_get_value_redacted () =
+  with_temp_home (fun home ->
+      let clawq_dir = Filename.concat home ".clawq" in
+      Unix.mkdir clawq_dir 0o755;
+      (match
+         Config_set.set_json_value "providers.test.api_key"
+           (`String "sk-secret-key-12345")
+       with
+      | Ok () -> ()
+      | Error e -> Alcotest.fail e);
+      let result = Config_set.get_value_redacted "providers.test.api_key" in
+      Alcotest.(check string) "secret redacted" "***" result;
+      (match
+         Config_set.set_json_value "agent_defaults.primary_model"
+           (`String "gpt-5.4")
+       with
+      | Ok () -> ()
+      | Error e -> Alcotest.fail e);
+      let result2 =
+        Config_set.get_value_redacted "agent_defaults.primary_model"
+      in
+      Alcotest.(check string) "non-secret visible" "gpt-5.4" result2)
+
 let suite =
   [
     Alcotest.test_case "infer value types" `Quick test_infer_value;
@@ -198,4 +252,7 @@ let suite =
       test_set_reasoning_effort_string;
     Alcotest.test_case "set reasoning_effort null" `Quick
       test_set_reasoning_effort_null;
+    Alcotest.test_case "is_secret_path" `Quick test_is_secret_path;
+    Alcotest.test_case "redact" `Quick test_redact;
+    Alcotest.test_case "get_value_redacted" `Quick test_get_value_redacted;
   ]

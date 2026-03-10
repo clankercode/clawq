@@ -317,7 +317,9 @@ let test_discord_is_allowed_wildcard_guild_with_no_guild_id () =
 let test_telegram_redact_short_token () =
   (* Short token - all stars *)
   let r = Telegram.redact_token "abc" in
-  Alcotest.(check string) "short token redacted" "***" r
+  Alcotest.(check string) "short token redacted" "***" r;
+  let r8 = Telegram.redact_token "12345678" in
+  Alcotest.(check string) "8 char redacted" "********" r8
 
 let test_telegram_redact_long_token () =
   let r = Telegram.redact_token "1234567890abcdef" in
@@ -420,7 +422,7 @@ let test_telegram_empty_text_default () =
 
 let test_telegram_redact_eight_char_token () =
   let r = Telegram.redact_token "12345678" in
-  Alcotest.(check string) "8 char redacted" "***" r
+  Alcotest.(check string) "8 char redacted" "********" r
 
 (* ===== Slack additional tests ===== *)
 

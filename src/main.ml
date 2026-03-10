@@ -326,9 +326,9 @@ let auth_cmd =
       `S "SUBCOMMANDS";
       `I ("(no args)", "Print redacted provider auth status for all providers.");
       `I
-        ( "set-key PROVIDER API_KEY",
-          "Set the API key for a named provider (e.g. anthropic, zai-coding, \
-           kimi, opencode-zen)." );
+        ( "set-key PROVIDER [API_KEY]",
+          "Set the API key for a named provider. Omit API_KEY to enter it \
+           interactively with hidden input." );
       `I ("providers", "List known provider names and their configured status.");
       `I
         ("encrypt", "Encrypt plaintext API keys in config using the master key.");

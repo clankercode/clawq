@@ -30,10 +30,7 @@ let set_thinking_level ~(session_mgr : Session.t) ~chat_id ~user_id level =
             chat_id user_id err);
       "Failed to update thinking level: " ^ err
 
-let redact_token token =
-  let len = String.length token in
-  if len <= 8 then "***"
-  else String.sub token 0 4 ^ "..." ^ String.sub token (len - 4) 4
+let redact_token = Tui_input.redact
 
 type update = {
   update_id : int;

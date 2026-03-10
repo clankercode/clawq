@@ -807,6 +807,89 @@ let test_handle_auth () =
   let result = Command_bridge.handle [ "auth" ] in
   Alcotest.(check bool) "auth returns output" true (String.length result > 0)
 
+let str_contains haystack needle =
+  let nlen = String.length needle in
+  let hlen = String.length haystack in
+  if nlen > hlen then false
+  else
+    let found = ref false in
+    for i = 0 to hlen - nlen do
+      if (not !found) && String.sub haystack i nlen = needle then found := true
+    done;
+    !found
+
+let test_auth_set_key_redacts_output () =
+  with_temp_home (fun home ->
+      let clawq_dir = Filename.concat home ".clawq" in
+      Unix.mkdir clawq_dir 0o755;
+      let result =
+        Command_bridge.handle
+          [ "auth"; "set-key"; "testprov"; "sk-abcdef1234567890xyz" ]
+      in
+      Alcotest.(check bool)
+        "mentions provider" true
+        (str_contains result "testprov");
+      Alcotest.(check bool)
+        "output redacted" true
+        (str_contains result "sk-a...0xyz");
+      Alcotest.(check bool)
+        "full key not in output" false
+        (str_contains result "sk-abcdef1234567890xyz"))
+
+let test_auth_set_key_no_args_shows_usage () =
+  let result = Command_bridge.handle [ "auth"; "set-key" ] in
+  Alcotest.(check bool) "shows usage" true (str_contains result "Usage:");
+  Alcotest.(check bool)
+    "mentions interactive" true
+    (str_contains result "interactively")
+
+let test_config_set_secret_redacts_output () =
+  with_temp_home (fun home ->
+      let clawq_dir = Filename.concat home ".clawq" in
+      Unix.mkdir clawq_dir 0o755;
+      let result =
+        Command_bridge.handle
+          [
+            "config"; "set"; "providers.myprov.api_key"; "secret-key-value-1234";
+          ]
+      in
+      Alcotest.(check bool)
+        "output redacted" true
+        (str_contains result "secr...1234");
+      Alcotest.(check bool)
+        "full key not in output" false
+        (str_contains result "secret-key-value-1234"))
+
+let test_config_get_secret_redacted () =
+  with_temp_home (fun home ->
+      let clawq_dir = Filename.concat home ".clawq" in
+      Unix.mkdir clawq_dir 0o755;
+      ignore
+        (Command_bridge.handle
+           [
+             "config";
+             "set";
+             "providers.myprov.api_key";
+             "my-secret-api-key-999";
+           ]);
+      let result =
+        Command_bridge.handle [ "config"; "get"; "providers.myprov.api_key" ]
+      in
+      Alcotest.(check string) "secret redacted" "***" result)
+
+let test_config_get_nonsecret_visible () =
+  with_temp_home (fun home ->
+      let clawq_dir = Filename.concat home ".clawq" in
+      Unix.mkdir clawq_dir 0o755;
+      ignore
+        (Command_bridge.handle
+           [ "config"; "set"; "agent_defaults.primary_model"; "gpt-5.4" ]);
+      let result =
+        Command_bridge.handle
+          [ "config"; "get"; "agent_defaults.primary_model" ]
+      in
+      Alcotest.(check string) "non-secret visible" "gpt-5.4" result)
+
 let test_handle_not_implemented () =
   List.iter
     (fun cmd ->
@@ -2191,6 +2274,16 @@ let suite =
       test_handle_session_epochs_and_show_archived_epoch;
     Alcotest.test_case "handle capabilities" `Quick test_handle_capabilities;
     Alcotest.test_case "handle auth" `Quick test_handle_auth;
+    Alcotest.test_case "auth set-key redacts output" `Quick
+      test_auth_set_key_redacts_output;
+    Alcotest.test_case "auth set-key no args shows usage" `Quick
+      test_auth_set_key_no_args_shows_usage;
+    Alcotest.test_case "config set secret redacts output" `Quick
+      test_config_set_secret_redacts_output;
+    Alcotest.test_case "config get secret redacted" `Quick
+      test_config_get_secret_redacted;
+    Alcotest.test_case "config get non-secret visible" `Quick
+      test_config_get_nonsecret_visible;
     Alcotest.test_case "handle not-impl commands" `Quick
       test_handle_not_implemented;
     Alcotest.test_case "handle cron" `Quick test_handle_cron;

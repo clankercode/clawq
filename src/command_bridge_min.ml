@@ -1,9 +1,5 @@
 let get_config () = Config_loader.load ()
-
-let redact_key s =
-  let len = String.length s in
-  if len <= 8 then String.make len '*'
-  else String.sub s 0 4 ^ "..." ^ String.sub s (len - 4) 4
+let redact_key = Tui_input.redact
 
 let cmd_status () =
   let cfg = get_config () in
@@ -111,15 +107,28 @@ let cmd_config args =
   | [ "wizard" ] ->
       Config_wizard_tui.run_wizard Config_wizard_model.Onboard;
       ""
-  | "set" :: key :: value :: _ -> Config_set.set_value key value
-  | [ "get"; key ] -> Config_set.get_value key
+  | "set" :: key :: value :: _ ->
+      let result = Config_set.set_value key value in
+      if Config_set.is_secret_path key then
+        Printf.sprintf "Set %s = %s" key (redact_key value)
+      else result
+  | [ "set"; key ] when Config_set.is_secret_path key -> (
+      let prompt = Printf.sprintf "Enter value for '%s': " key in
+      match Tui_input.read_secret prompt with
+      | Error msg -> msg
+      | Ok value -> (
+          match Config_set.set_json_value key (`String value) with
+          | Ok () -> Printf.sprintf "Set %s = %s" key (redact_key value)
+          | Error err -> err))
+  | [ "get"; key ] -> Config_set.get_value_redacted key
   | "show" :: rest -> Config_show.show (List.nth_opt rest 0)
   | _ ->
       "Usage: clawq-min config <subcommand>\n\n\
        Subcommands:\n\
       \  wizard           Interactive configuration wizard\n\
       \  set KEY VALUE    Set a config value by dot-path\n\
-      \  get KEY          Get a config value by dot-path\n\
+      \  set KEY          Prompt for value (secret keys only, hidden input)\n\
+      \  get KEY          Get a config value by dot-path (secrets redacted)\n\
       \  show [SECTION]   Display current config (secrets redacted)"
 
 let cmd_models args =
