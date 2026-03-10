@@ -2686,6 +2686,16 @@ let cmd_background args =
                 (Background_task.string_of_status task.status)
                 parsed.id parsed.id
                 (Background_task.format_task_summary task)
+          | Background_task.Interrupted task ->
+              Printf.sprintf
+                "Task %d is still %s. Run `clawq background wait %d` to \
+                 continue waiting, or `clawq background logs %d` to check \
+                 progress.\n\n\
+                 %s"
+                parsed.id
+                (Background_task.string_of_status task.status)
+                parsed.id parsed.id
+                (Background_task.format_task_summary task)
           | Background_task.Not_found ->
               Printf.sprintf "Error: No background task found with id %d"
                 parsed.id))

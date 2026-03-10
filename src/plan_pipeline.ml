@@ -532,6 +532,9 @@ let run_foreground ~db ~pipeline ~runner ~on_progress () =
                             (Printf.sprintf "task %d timed out after 30 minutes"
                                task_id);
                       }
+                | Background_task.Interrupted _ ->
+                    (* Interrupted mid-poll; resume waiting on the next loop *)
+                    loop p
                 | Background_task.Finished finished -> (
                     match finished.Background_task.status with
                     | Background_task.Cancelled ->

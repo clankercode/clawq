@@ -1689,6 +1689,8 @@ let test_wait_until_terminal_not_found () =
   | Background_task.Finished _ ->
       Alcotest.fail "expected Not_found, got Finished"
   | Background_task.Timeout _ -> Alcotest.fail "expected Not_found, got Timeout"
+  | Background_task.Interrupted _ ->
+      Alcotest.fail "expected Not_found, got Interrupted"
 
 let test_wait_until_terminal_timeout () =
   with_temp_git_repo (fun repo_path ->
@@ -1714,7 +1716,9 @@ let test_wait_until_terminal_timeout () =
       | Background_task.Finished _ ->
           Alcotest.fail "expected Timeout, got Finished"
       | Background_task.Not_found ->
-          Alcotest.fail "expected Timeout, got Not_found")
+          Alcotest.fail "expected Timeout, got Not_found"
+      | Background_task.Interrupted _ ->
+          Alcotest.fail "expected Timeout, got Interrupted")
 
 let test_max_wait_seconds_is_180 () =
   Alcotest.(check (float 0.0))

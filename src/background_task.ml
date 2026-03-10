@@ -492,12 +492,16 @@ let get_task ~db ~id =
       | Sqlite3.Rc.ROW -> Some (task_of_stmt stmt)
       | _ -> None)
 
-type wait_result = Finished of task | Timeout of task | Not_found
+type wait_result =
+  | Finished of task
+  | Timeout of task
+  | Interrupted of task
+  | Not_found
 
 let max_wait_seconds = 180.0
 
-let rec wait_until_terminal ?(timeout_seconds = 180.0) ?(poll_seconds = 1.0) ~db
-    ~id () =
+let rec wait_until_terminal ?(timeout_seconds = 180.0) ?(poll_seconds = 1.0)
+    ?interrupt_check ~db ~id () =
   let open Lwt.Syntax in
   match get_task ~db ~id with
   | None -> Lwt.return Not_found
@@ -506,9 +510,19 @@ let rec wait_until_terminal ?(timeout_seconds = 180.0) ?(poll_seconds = 1.0) ~db
   | Some _ ->
       let sleep_for = Float.min poll_seconds timeout_seconds in
       let* () = Lwt_unix.sleep sleep_for in
-      wait_until_terminal
-        ~timeout_seconds:(timeout_seconds -. sleep_for)
-        ~poll_seconds ~db ~id ()
+      let interrupted =
+        match interrupt_check with
+        | Some check -> check () <> None
+        | None -> false
+      in
+      if interrupted then
+        match get_task ~db ~id with
+        | None -> Lwt.return Not_found
+        | Some task -> Lwt.return (Interrupted task)
+      else
+        wait_until_terminal
+          ~timeout_seconds:(timeout_seconds -. sleep_for)
+          ~poll_seconds ?interrupt_check ~db ~id ()
 
 let read_last_lines path ~lines =
   if lines <= 0 then Ok []
@@ -1598,7 +1612,7 @@ let wait_tool ~db =
           ("additionalProperties", `Bool false);
         ];
     invoke =
-      (fun ?context:_ args ->
+      (fun ?context args ->
         let open Yojson.Safe.Util in
         let id = try args |> member "id" |> to_int with _ -> -1 in
         let raw_timeout =
@@ -1608,10 +1622,16 @@ let wait_tool ~db =
         let timeout_seconds =
           Float.min (Float.max raw_timeout 0.0) max_wait_seconds
         in
-        if id < 0 then Lwt.return "Error: id is required"
+        let interrupt_check =
+          Option.bind context (fun c -> c.Tool.interrupt_check)
+        in
+        if id < 0 then
+          Lwt.return "Error: id is required and must be a non-negative integer."
         else
           let open Lwt.Syntax in
-          let* result = wait_until_terminal ~timeout_seconds ~db ~id () in
+          let* result =
+            wait_until_terminal ~timeout_seconds ?interrupt_check ~db ~id ()
+          in
           match result with
           | Finished task -> Lwt.return (format_task_summary task)
           | Timeout task ->
@@ -1620,6 +1640,17 @@ let wait_tool ~db =
                    "Task %d is still %s after waiting. To continue waiting, \
                     call background_task_wait again with {\"id\": %d}. You can \
                     also check progress with background_task_logs.\n\n\
+                    %s"
+                   id
+                   (string_of_status task.status)
+                   id (format_task_summary task))
+          | Interrupted task ->
+              Lwt.return
+                (Printf.sprintf
+                   "Task %d is still %s. Waiting was interrupted to process a \
+                    new incoming message. Call background_task_wait again with \
+                    {\"id\": %d} to resume waiting. You can also check \
+                    progress with background_task_logs.\n\n\
                     %s"
                    id
                    (string_of_status task.status)
