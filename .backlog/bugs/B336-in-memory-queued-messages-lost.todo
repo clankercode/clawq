@@ -1,0 +1,22 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 2
+id: B336
+priority: high
+status: pending
+tags: []
+title: In-memory queued messages lost on daemon restart
+---
+When messages arrive while a session is busy, they are queued in the in-memory `queued_messages` hashtable (session.ml:307). On daemon restart (SIGUSR1), this hashtable is lost and those messages are silently dropped.
+
+The SQLite `inbound_queue` table exists for durable delivery but is not used for live queue overflow — only for the `session inject` command path.
+
+## Root Cause
+`enqueue_message_if_busy` (session.ml:296) stores to `mgr.queued_messages` only. No write to SQLite. Boot replay finds nothing and skips them.
+
+## Fix
+When `enqueue_message_if_busy` queues a message and `mgr.db` is available, also insert into the SQLite `inbound_queue` table. On drain (after the turn completes), delete the row. Existing restart replay logic then covers the restart case automatically.
+
+## Observed
+Session telegram:58495225:58495225 accumulated queue depth 4 before restart at 23:10:41. All 4 messages silently dropped. Boot replay reported 'no durable inbound queue rows to replay'.
