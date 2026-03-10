@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B368
+priority: high
+status: pending
+tags: []
+title: Background tasks should persist over resets
+---
+
+Background tasks should persist over resets

@@ -366,3 +366,4 @@ bugs:
     - file: B365-autorestart-resumes-session-wi.todo
     - file: B366-b366-background-task-logs-tool.todo
     - file: B367-restrict-background-task-logs.todo
+    - file: B368-background-tasks-should-persis.todo
