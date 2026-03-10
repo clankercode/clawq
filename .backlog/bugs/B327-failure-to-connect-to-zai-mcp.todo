@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-10T10:32:15Z"
+claimed_by: cli-user
+completed_at: "2026-03-10T10:36:57Z"
 complexity: medium
 depends_on: []
+duration_minutes: 4.700400067233334
 estimate_hours: 1
 id: B327
 priority: high
-status: pending
+started_at: "2026-03-10T10:32:15Z"
+status: done
 tags: []
 title: failure to connect to zai mcp error 400
 ---

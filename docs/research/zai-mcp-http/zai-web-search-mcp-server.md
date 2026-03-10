@@ -57,3 +57,25 @@ Key points captured from the official page:
 
 - Troubleshooting highlights: invalid API key, timeout, empty search results
 - Quota note from page: search/reader calls share GLM Coding Plan quota
+
+## Root Cause: HTTP 400 on Connect (B327)
+
+clawq's MCP HTTP client was getting HTTP 400 from these endpoints because it did
+not send the `Accept: application/json, text/event-stream` header required by the
+MCP Streamable HTTP specification (2025-03-26).
+
+**Fix (landed in B327):** `default_http_post` now always includes this header.
+The client also handles `text/event-stream` response bodies by extracting JSON
+from SSE `data:` lines, since the server may reply with either content-type.
+
+Config for clawq (`~/.clawq/mcp_servers.json`):
+
+```json
+[
+  {
+    "name": "zai-web-search",
+    "url": "https://api.z.ai/api/mcp/web_search_prime/mcp",
+    "headers": { "Authorization": "Bearer YOUR_API_KEY" }
+  }
+]
+```

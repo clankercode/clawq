@@ -17,7 +17,8 @@ type http_transport = {
     url:string ->
     headers:(string * string) list ->
     body:string ->
-    (int * string) Lwt.t;
+    (int * string * string) Lwt.t;
+      (** Returns [(status, body, content_type)]. *)
 }
 
 type transport = Stdio of io_transport | Http of http_transport
@@ -157,7 +158,10 @@ let cleanup_stdio_transport { process; stderr_drain } =
 let default_http_post ~url ~headers ~body =
   let open Lwt.Syntax in
   let headers =
-    Cohttp.Header.of_list (("Content-Type", "application/json") :: headers)
+    Cohttp.Header.of_list
+      (("Content-Type", "application/json")
+      :: ("Accept", "application/json, text/event-stream")
+      :: headers)
   in
   let* response, response_body =
     Cohttp_lwt_unix.Client.post ~headers
@@ -166,18 +170,41 @@ let default_http_post ~url ~headers ~body =
   in
   let* response_body = Cohttp_lwt.Body.to_string response_body in
   let status = Cohttp.Response.status response |> Cohttp.Code.code_of_status in
-  Lwt.return (status, response_body)
+  let content_type =
+    Cohttp.Header.get (Cohttp.Response.headers response) "content-type"
+    |> Option.value ~default:"application/json"
+  in
+  Lwt.return (status, response_body, content_type)
+
+let parse_sse_body body =
+  (* Extract the first valid JSON payload from an SSE stream.
+     Each event line has the form [data: <json>]. *)
+  let lines = String.split_on_char '\n' body in
+  List.find_map
+    (fun line ->
+      let line = String.trim line in
+      if starts_with_ci ~prefix:"data:" line then
+        let data = String.trim (String.sub line 5 (String.length line - 5)) in
+        if data = "" || data = "[DONE]" then None
+        else
+          match Yojson.Safe.from_string data with
+          | json -> Some json
+          | exception _ -> None
+      else None)
+    lines
 
 let send_http_json transport json =
   let open Lwt.Syntax in
   let body = Yojson.Safe.to_string json in
-  let* status, response_body =
+  let* status, response_body, content_type =
     transport.post ~url:transport.url ~headers:transport.headers ~body
   in
   if status < 200 || status >= 300 then
     Lwt.fail_with
       (Printf.sprintf "MCP client: HTTP %d from %s" status transport.url)
   else if String.trim response_body = "" then Lwt.return_none
+  else if starts_with_ci ~prefix:"text/event-stream" content_type then
+    Lwt.return (parse_sse_body response_body)
   else
     match Yojson.Safe.from_string response_body with
     | json -> Lwt.return_some json

@@ -212,7 +212,8 @@ let test_setup_mcp_clients_loads_configs_and_registers_tools () =
                   url = "https://unused.example.test/rpc";
                   headers = [];
                   post =
-                    (fun ~url:_ ~headers:_ ~body:_ -> Lwt.return (200, "{}"));
+                    (fun ~url:_ ~headers:_ ~body:_ ->
+                      Lwt.return (200, "{}", "application/json"));
                 };
             next_id = 1;
             discovered = [ tool ];
