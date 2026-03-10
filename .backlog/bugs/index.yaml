@@ -340,3 +340,4 @@ bugs:
     - file: B339-double-persist-new-messages-cr.todo
     - file: B340-should-redact-cloudflare-token.todo
     - file: B341-make-shell-exec-description-mo.todo
+    - file: B342-setup-wizard-for-telegram-conf.todo
