@@ -93,6 +93,7 @@ let render_step_indicator step =
       (SecurityTools, "tools");
       (ToolSearchConfig, "search");
       (SecurityWorkspace, "access");
+      (TunnelConfig, "tunnel");
       (Review, "review");
     ]
   in
@@ -212,6 +213,16 @@ let render_review (m : model) =
   add
     (Printf.sprintf "  %s%s workspace_only%s: %s" fg_teal bullet reset
        (if m.workspace_only then "true" else "false"));
+  if m.tunnel_enabled then begin
+    add
+      (Printf.sprintf "  %s%s tunnel%s: %s (%s)" fg_teal bullet reset
+         (fg_green ^ "enabled" ^ reset)
+         m.tunnel_provider);
+    add
+      (Printf.sprintf "    name: %s"
+         (if m.tunnel_name <> "" then fg_green ^ "configured" ^ reset
+          else fg_red ^ "not set" ^ reset))
+  end;
   if m.channel_sel.telegram then
     add
       (Printf.sprintf "  %s%s telegram%s: %s" fg_teal bullet reset

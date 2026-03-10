@@ -17,6 +17,7 @@ type step =
   | ChannelTelegram
   | ChannelDiscord
   | ChannelSlack
+  | TunnelConfig
   | GatewayConfig
   | MemoryConfig
   | Review
@@ -82,6 +83,11 @@ type model = {
   slack_bot_token : string;
   slack_app_token : string;
   slack_signing_secret : string;
+  tunnel_enabled : bool;
+  tunnel_provider : string;
+  tunnel_name : string;
+  tunnel_url : string;
+  tunnel_managed : bool;
   gateway_host : string;
   gateway_port : string;
   gateway_auth_token : string;
@@ -119,6 +125,11 @@ let initial_model mode =
     slack_bot_token = "";
     slack_app_token = "";
     slack_signing_secret = "";
+    tunnel_enabled = false;
+    tunnel_provider = "cloudflare";
+    tunnel_name = "";
+    tunnel_url = "";
+    tunnel_managed = false;
     gateway_host = "127.0.0.1";
     gateway_port = "13451";
     gateway_auth_token = "";

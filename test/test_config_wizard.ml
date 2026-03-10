@@ -22,6 +22,7 @@ let check_step =
         | ChannelTelegram -> "ChannelTelegram"
         | ChannelDiscord -> "ChannelDiscord"
         | ChannelSlack -> "ChannelSlack"
+        | TunnelConfig -> "TunnelConfig"
         | GatewayConfig -> "GatewayConfig"
         | MemoryConfig -> "MemoryConfig"
         | Review -> "Review"
@@ -480,6 +481,112 @@ let test_skip_option_absent_without_providers () =
         "first option is not skip" (Some "openai-codex") first
   | _ -> Alcotest.fail "expected Select widget"
 
+let test_full_wizard_tunnel_config () =
+  (* Navigate a full wizard to ChannelMenu, skip channels, land on TunnelConfig *)
+  let m = initial_model FullWizard in
+  let m, _ = update KeyEnter m in
+  let m, _ = update KeyDown m in
+  let m, _ = update KeyEnter m in
+  let m, _ = update (KeyChar 'k') m in
+  let m, _ = update KeyEnter m in
+  let m, _ = update KeyEnter m in
+  let m, _ = update (KeyChar 'n') m in
+  let m, _ = update KeyEnter m in
+  let m, _ = update KeyEnter m in
+  let m, _ = update KeyEnter m in
+  let m, _ = update KeyEnter m in
+  let m, _ = update KeyEnter m in
+  Alcotest.check check_step "channel menu" ChannelMenu m.step;
+  (* Skip channels -> TunnelConfig *)
+  let m, _ = update KeyDown m in
+  let m, _ = update KeyDown m in
+  let m, _ = update KeyDown m in
+  let m, _ = update KeyEnter m in
+  Alcotest.check check_step "tunnel config" TunnelConfig m.step;
+  (* Decline tunnel -> GatewayConfig *)
+  let m, _ = update (KeyChar 'n') m in
+  let m, _ = update KeyEnter m in
+  Alcotest.check check_step "gateway config" GatewayConfig m.step
+
+let test_tunnel_enabled_flow () =
+  (* Start at TunnelConfig step directly *)
+  let m =
+    {
+      (initial_model FullWizard) with
+      step = TunnelConfig;
+      widget = make_confirm ~value:false "Enable tunnel?";
+    }
+  in
+  (* Enable tunnel *)
+  let m, _ = update (KeyChar 'y') m in
+  let m, _ = update KeyEnter m in
+  Alcotest.check check_step "still tunnel config (provider select)" TunnelConfig
+    m.step;
+  (match m.widget with
+  | Select si ->
+      Alcotest.(check string)
+        "first option is cloudflare" "cloudflare" (List.hd si.options)
+  | _ -> Alcotest.fail "expected Select widget for provider");
+  (* Select cloudflare *)
+  let m, _ = update KeyEnter m in
+  Alcotest.check check_step "still tunnel config (name input)" TunnelConfig
+    m.step;
+  (* Verify secret input for tunnel name *)
+  (match m.widget with
+  | TextInput ti ->
+      Alcotest.(check bool) "tunnel name input is secret" true ti.secret
+  | _ -> Alcotest.fail "expected TextInput widget for tunnel name");
+  (* Type a tunnel name *)
+  let m, _ = update (KeyChar 't') m in
+  let m, _ = update (KeyChar 'u') m in
+  let m, _ = update (KeyChar 'n') m in
+  let m, _ = update KeyEnter m in
+  Alcotest.(check string) "tunnel name stored" "tun" m.tunnel_name;
+  (* Now at tunnel URL input *)
+  Alcotest.check check_step "still tunnel config (url input)" TunnelConfig
+    m.step;
+  (match m.widget with
+  | TextInput ti ->
+      Alcotest.(check bool) "tunnel url is not secret" false ti.secret
+  | _ -> Alcotest.fail "expected TextInput widget for tunnel url");
+  let m, _ = update KeyEnter m in
+  Alcotest.check check_step "gateway config" GatewayConfig m.step
+
+let test_build_config_json_includes_tunnel () =
+  let m =
+    {
+      (initial_model FullWizard) with
+      tunnel_enabled = true;
+      tunnel_provider = "cloudflare";
+      tunnel_name = "my-tunnel-token";
+      tunnel_url = "https://tunnel.example.com";
+      tunnel_managed = false;
+    }
+  in
+  let json = Config_wizard_tui.build_config_json m in
+  let open Yojson.Safe.Util in
+  let tunnel = json |> member "tunnel" in
+  Alcotest.(check bool) "tunnel section exists" true (tunnel <> `Null);
+  Alcotest.(check string)
+    "tunnel provider" "cloudflare"
+    (tunnel |> member "provider" |> to_string);
+  Alcotest.(check bool)
+    "tunnel enabled" true
+    (tunnel |> member "enabled" |> to_bool);
+  Alcotest.(check string)
+    "tunnel_name" "my-tunnel-token"
+    (tunnel |> member "tunnel_name" |> to_string);
+  Alcotest.(check string)
+    "tunnel url" "https://tunnel.example.com"
+    (tunnel |> member "url" |> to_string)
+
+let test_build_config_json_no_tunnel_when_disabled () =
+  let m = initial_model FullWizard in
+  let json = Config_wizard_tui.build_config_json m in
+  let open Yojson.Safe.Util in
+  let tunnel = json |> member "tunnel" in
+  Alcotest.(check bool) "no tunnel section" true (tunnel = `Null)
+
 let suite =
   [
     Alcotest.test_case "welcome -> provider select" `Quick
@@ -515,4 +622,11 @@ let suite =
       test_skip_option_goes_to_review;
     Alcotest.test_case "skip option absent without providers" `Quick
       test_skip_option_absent_without_providers;
+    Alcotest.test_case "full wizard tunnel config" `Quick
+      test_full_wizard_tunnel_config;
+    Alcotest.test_case "tunnel enabled flow" `Quick test_tunnel_enabled_flow;
+    Alcotest.test_case "build_config_json includes tunnel" `Quick
+      test_build_config_json_includes_tunnel;
+    Alcotest.test_case "build_config_json no tunnel when disabled" `Quick
+      test_build_config_json_no_tunnel_when_disabled;
   ]

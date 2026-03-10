@@ -212,6 +212,72 @@ let test_config_change_detected () =
      let* () = Tunnel_manager.stop mgr in
      Lwt.return_unit)
 
+(* Test that redaction covers both --token values and positional tunnel names.
+   We replicate the redaction logic from tunnel_manager.ml to verify. *)
+let redact_args args =
+  let arr = Array.copy args in
+  let len = Array.length arr in
+  for i = 0 to len - 2 do
+    if arr.(i) = "--token" then arr.(i + 1) <- Tui_input.redact arr.(i + 1)
+    else if arr.(i) = "run" && i + 1 < len && arr.(i + 1) <> "--token" then
+      arr.(i + 1) <- Tui_input.redact arr.(i + 1)
+  done;
+  arr
+
+let test_redact_token_arg () =
+  let args =
+    [|
+      "cloudflared";
+      "tunnel";
+      "--no-autoupdate";
+      "run";
+      "--token";
+      "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.longtoken";
+    |]
+  in
+  let redacted = redact_args args in
+  Alcotest.(check string) "--token flag unchanged" "--token" redacted.(4);
+  Alcotest.(check bool)
+    "token value redacted" true
+    (redacted.(5) <> "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.longtoken");
+  Alcotest.(check bool)
+    "token value uses redact format" true
+    (String.length redacted.(5) < String.length args.(5))
+
+let test_redact_named_tunnel_arg () =
+  let args =
+    [|
+      "cloudflared";
+      "tunnel";
+      "--no-autoupdate";
+      "--grace-period";
+      "5s";
+      "run";
+      "my-secret-tunnel";
+    |]
+  in
+  let redacted = redact_args args in
+  Alcotest.(check string) "run unchanged" "run" redacted.(5);
+  Alcotest.(check bool)
+    "tunnel name redacted" true
+    (redacted.(6) <> "my-secret-tunnel");
+  Alcotest.(check string)
+    "tunnel name uses Tui_input.redact"
+    (Tui_input.redact "my-secret-tunnel")
+    redacted.(6)
+
+let test_redact_preserves_other_args () =
+  let args =
+    [|
+      "cloudflared"; "tunnel"; "--no-autoupdate"; "run"; "--token"; "eyJtoken";
+    |]
+  in
+  let redacted = redact_args args in
+  Alcotest.(check string) "cloudflared" "cloudflared" redacted.(0);
+  Alcotest.(check string) "tunnel" "tunnel" redacted.(1);
+  Alcotest.(check string) "--no-autoupdate" "--no-autoupdate" redacted.(2);
+  Alcotest.(check string) "run" "run" redacted.(3)
+
 let suite =
   [
     Alcotest.test_case "config_equal same" `Quick test_config_equal_same;
@@ -236,4 +302,9 @@ let suite =
     Alcotest.test_case "restart unconditional" `Quick test_restart_unconditional;
     Alcotest.test_case "config change detected" `Quick
       test_config_change_detected;
+    Alcotest.test_case "redact --token arg" `Quick test_redact_token_arg;
+    Alcotest.test_case "redact named tunnel arg" `Quick
+      test_redact_named_tunnel_arg;
+    Alcotest.test_case "redact preserves other args" `Quick
+      test_redact_preserves_other_args;
   ]

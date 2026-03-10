@@ -117,6 +117,8 @@ let start_cf_managed ~(config : Runtime_config.tunnel_config)
         for i = 0 to len - 2 do
           if arr.(i) = "--token" then
             arr.(i + 1) <- Tui_input.redact arr.(i + 1)
+          else if arr.(i) = "run" && i + 1 < len && arr.(i + 1) <> "--token"
+          then arr.(i + 1) <- Tui_input.redact arr.(i + 1)
         done;
         arr
       in

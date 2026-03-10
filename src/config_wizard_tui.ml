@@ -143,6 +143,19 @@ let build_config_json (m : model) : Yojson.Safe.t =
       [ ("gateway", `Assoc fields) ]
     else []
   in
+  let tunnel =
+    if m.tunnel_enabled then
+      let fields =
+        [ ("provider", `String m.tunnel_provider); ("enabled", `Bool true) ]
+        @ (if m.tunnel_name <> "" then
+             [ ("tunnel_name", `String m.tunnel_name) ]
+           else [])
+        @ (if m.tunnel_url <> "" then [ ("url", `String m.tunnel_url) ] else [])
+        @ [ ("managed", `Bool m.tunnel_managed) ]
+      in
+      [ ("tunnel", `Assoc fields) ]
+    else []
+  in
   let providers_entry =
     match providers with `Assoc [] -> [] | _ -> [ ("providers", providers) ]
   in
@@ -151,7 +164,7 @@ let build_config_json (m : model) : Yojson.Safe.t =
     @ default_provider @ providers_entry
     @ [ ("agent_defaults", agent_defaults) ]
     @ [ ("security", security) ]
-    @ channels @ gateway)
+    @ channels @ tunnel @ gateway)
 
 let write_wizard_config (m : model) =
   let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
@@ -254,6 +267,11 @@ let model_from_config mode (config : Runtime_config.t) =
     slack_bot_token;
     slack_app_token;
     slack_signing_secret;
+    tunnel_enabled = config.tunnel.enabled;
+    tunnel_provider = config.tunnel.provider;
+    tunnel_name = config.tunnel.tunnel_name;
+    tunnel_url = config.tunnel.url;
+    tunnel_managed = config.tunnel.managed;
     gateway_host = config.gateway.host;
     gateway_port = string_of_int config.gateway.port;
     gateway_auth_token;

@@ -270,31 +270,70 @@ let transition_from_channel_menu m (si : select_input) =
            ~placeholder:"xoxb-..." "Slack bot token")
         { m with channel_sel = sel }
   | _ ->
-      goto GatewayConfig
-        (make_text_input ~value:m.gateway_host ~placeholder:"127.0.0.1"
-           "Gateway host")
+      goto TunnelConfig
+        (make_confirm ~value:m.tunnel_enabled "Enable tunnel?")
         m
 
 let transition_from_channel_telegram m (ti : text_input) =
   let m = { m with telegram_token = ti.value } in
-  goto GatewayConfig
-    (make_text_input ~value:m.gateway_host ~placeholder:"127.0.0.1"
-       "Gateway host")
-    m
+  goto TunnelConfig (make_confirm ~value:m.tunnel_enabled "Enable tunnel?") m
 
 let transition_from_channel_discord m (ti : text_input) =
   let m = { m with discord_token = ti.value } in
-  goto GatewayConfig
-    (make_text_input ~value:m.gateway_host ~placeholder:"127.0.0.1"
-       "Gateway host")
-    m
+  goto TunnelConfig (make_confirm ~value:m.tunnel_enabled "Enable tunnel?") m
 
 let transition_from_channel_slack m (ti : text_input) =
   let m = { m with slack_bot_token = ti.value } in
-  goto GatewayConfig
-    (make_text_input ~value:m.gateway_host ~placeholder:"127.0.0.1"
-       "Gateway host")
-    m
+  goto TunnelConfig (make_confirm ~value:m.tunnel_enabled "Enable tunnel?") m
+
+let tunnel_provider_options = [ "cloudflare"; "tailscale"; "ngrok"; "custom" ]
+
+let transition_from_tunnel m =
+  match m.widget with
+  | ConfirmInput ci ->
+      if not ci.value then
+        let m = { m with tunnel_enabled = false } in
+        goto GatewayConfig
+          (make_text_input ~value:m.gateway_host ~placeholder:"127.0.0.1"
+             "Gateway host")
+          m
+      else
+        let m = { m with tunnel_enabled = true } in
+        let selected =
+          match index_of m.tunnel_provider tunnel_provider_options with
+          | Some i -> i
+          | None -> 0
+        in
+        goto TunnelConfig
+          (make_select_at "Tunnel provider" tunnel_provider_options selected)
+          m
+  | Select si ->
+      let provider =
+        match List.nth_opt si.options si.selected with
+        | Some p -> p
+        | None -> "cloudflare"
+      in
+      let m = { m with tunnel_provider = provider } in
+      goto TunnelConfig
+        (make_text_input ~secret:true ~value:m.tunnel_name
+           ~placeholder:"tunnel-name or eyJ... token" "Tunnel name/token")
+        m
+  | TextInput ti ->
+      if m.tunnel_name = "" then
+        (* First text input: tunnel_name *)
+        let m = { m with tunnel_name = ti.value } in
+        goto TunnelConfig
+          (make_text_input ~value:m.tunnel_url
+             ~placeholder:"https://your-tunnel.example.com"
+             "Tunnel URL (optional)")
+          m
+      else
+        (* Second text input: tunnel_url *)
+        let m = { m with tunnel_url = ti.value } in
+        goto GatewayConfig
+          (make_text_input ~value:m.gateway_host ~placeholder:"127.0.0.1"
+             "Gateway host")
+          m
 
 let transition_from_gateway m (ti : text_input) =
   if m.gateway_host = "127.0.0.1" && ti.value <> "" then
@@ -353,6 +392,7 @@ let go_back m =
         | ChannelMenu ->
             make_select "Configure channels"
               [ "Telegram"; "Discord"; "Slack"; "Skip channels" ]
+        | TunnelConfig -> make_confirm ~value:m.tunnel_enabled "Enable tunnel?"
         | GatewayConfig ->
             make_text_input ~value:m.gateway_host ~placeholder:"127.0.0.1"
               "Gateway host"
@@ -483,6 +523,15 @@ let update msg (m : model) : model * action =
           | _, TextInput ti ->
               ({ m with widget = TextInput (text_input_update msg ti) }, Noop)
           | _ -> (m, Noop))
+      | TunnelConfig -> (
+          match (msg, m.widget) with
+          | KeyEnter, _ -> (transition_from_tunnel m, Noop)
+          | _, ConfirmInput ci ->
+              ({ m with widget = ConfirmInput (confirm_update msg ci) }, Noop)
+          | _, Select si ->
+              ({ m with widget = Select (select_update msg si) }, Noop)
+          | _, TextInput ti ->
+              ({ m with widget = TextInput (text_input_update msg ti) }, Noop))
       | GatewayConfig -> (
           match (msg, m.widget) with
           | KeyEnter, TextInput ti -> (transition_from_gateway m ti, Noop)
