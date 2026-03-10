@@ -2265,6 +2265,18 @@ let test_models_set_default_accepts_unknown_with_provider () =
         (contains result "Default model set to:");
       Alcotest.(check bool) "no error" true (not (contains result "Error:")))
 
+let test_models_set_rejected_without_live_session () =
+  with_temp_home (fun _dir ->
+      let result = Command_bridge.handle [ "models"; "set"; "zai_coding:glm-5" ] in
+      let contains s sub =
+        let re = Re.(compile (str sub)) in
+        Re.execp re s
+      in
+      Alcotest.(check bool) "errors without live session" true
+        (contains result "Error: no active session available");
+      Alcotest.(check bool) "does not pretend persistence" true
+        (contains result "set-default"))
+
 let suite =
   [
     Alcotest.test_case "handle phase2" `Quick test_handle_phase2;
@@ -2279,6 +2291,8 @@ let suite =
       test_models_set_default_accepts_known_plain;
     Alcotest.test_case "models set-default accepts unknown with provider" `Quick
       test_models_set_default_accepts_unknown_with_provider;
+    Alcotest.test_case "models set rejects without live session" `Quick
+      test_models_set_rejected_without_live_session;
     Alcotest.test_case "handle channel" `Quick test_handle_channel;
     Alcotest.test_case "handle memory" `Quick test_handle_memory;
     Alcotest.test_case "handle workspace" `Quick test_handle_workspace;

@@ -3390,9 +3390,6 @@ let models_tool ~(config : Runtime_config.t) ?session_mgr () =
   let set_model model =
     match Models_catalog.find_by_full_name model with
     | Some _ -> (
-        let result =
-          Config_set.set_value "agent_defaults.primary_model" model
-        in
         match session_mgr with
         | Some mgr ->
             let cfg = Session.get_config mgr in
@@ -3402,8 +3399,32 @@ let models_tool ~(config : Runtime_config.t) ?session_mgr () =
             Session.update_config ~source:"tool:set_model" mgr
               { cfg with agent_defaults = new_agent_defaults };
             Model_preferences.increment_usage model |> ignore;
-            result
-        | None -> result)
+            let provider, model_id, fmt = Models_catalog.split_name model in
+            let hint =
+              match fmt with
+              | Models_catalog.Legacy ->
+                  Printf.sprintf
+                    "\nHint: use %s:%s format instead of %s/%s." provider
+                    model_id provider model_id
+              | _ -> ""
+            in
+            let provider_in_config = List.mem_assoc provider cfg.providers in
+            let warn =
+              if not provider_in_config then
+                Printf.sprintf
+                  "\nWarning: provider '%s' not found in config. Add it to \
+                   your config.json to use this model."
+                  provider
+              else ""
+            in
+            Printf.sprintf
+              "Model set to: %s (provider: %s)%s%s\nSession-only change; use \
+               set-default to persist for new sessions and restarts."
+              model_id provider hint warn
+        | None ->
+            "Error: no active session available; session-scoped model changes \
+             require a live session. Use the CLI 'models set-default' command \
+             to change the persistent default.")
     | None ->
         Printf.sprintf
           "Error: model '%s' not found in catalog. Use 'models list' to see \

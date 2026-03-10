@@ -1667,7 +1667,10 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                     in
                     send_message ~bot_token ~chat_id:update.chat_id
                       ~text:
-                        (Printf.sprintf "Model set to: %s (provider: %s)%s%s"
+                        (Printf.sprintf
+                           "Model set to: %s (provider: %s)%s%s\nSession-only \
+                            change; use /model set-default to persist for new \
+                            sessions and restarts."
                            model_id provider hint warn)
                       ()
                 | Models_catalog.Plain -> (

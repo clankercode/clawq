@@ -610,7 +610,10 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                   send_message_fn ~bot_token:discord_config.bot_token
                     ~channel_id:msg.channel_id
                     ~text:
-                      (Printf.sprintf "Model set to: %s (provider: %s)%s%s"
+                      (Printf.sprintf
+                         "Model set to: %s (provider: %s)%s%s\nSession-only \
+                          change; use /model set-default to persist for new \
+                          sessions and restarts."
                          model_id provider hint warn)
               | Models_catalog.Plain -> (
                   let model_info = Models_catalog.find_by_full_name name in

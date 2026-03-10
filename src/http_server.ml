@@ -916,8 +916,10 @@ let handler ~session_manager ~require_pairing ~auth_token
                             in
                             sse_reply
                               (Printf.sprintf
-                                 "Model set to: %s (provider: %s)%s%s" model_id
-                                 provider hint warn)
+                                 "Model set to: %s (provider: %s)%s%s\nSession-only \
+                                  change; use set-default to persist for new \
+                                  sessions and restarts."
+                                 model_id provider hint warn)
                         | Models_catalog.Plain -> (
                             let model_info =
                               Models_catalog.find_by_full_name name
