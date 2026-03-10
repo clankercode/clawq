@@ -275,3 +275,4 @@ bugs:
     - file: B274-when-listing-models-eg-via-mod.todo
     - file: B275-need-to-search-the-web-for-acc.todo
     - file: B276-calling-model-glm-5-in-telegra.todo
+    - file: B277-when-setting-model-via-telegra.todo
