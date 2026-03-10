@@ -1,15 +1,29 @@
 ---
 claimed_at: "2026-03-09T14:08:22Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-10T12:00:00Z"
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B180
 priority: medium
 started_at: "2026-03-09T14:08:22Z"
-status: in_progress
+status: done
 tags: []
 title: Telegram send_message notifications can appear delayed or reordered relative to busy session output
 ---
 Observed in live Telegram DM during autonomous/restart work. `send_message` tool logged success early (`Tool result: send_message -> Message sent` at 00:55:12), but the user did not clearly receive/notice that notification until after a queued inbound message was processed for the same busy session around 00:56:32+, making delivery order appear confusing or delayed. Need to determine whether Telegram outbound notifications are actually delayed, whether client/UI ordering is misleading, or whether daemon/session batching/queue semantics are causing confusing interleaving between out-of-band `send_message` notifications and in-session queued replies. Acceptance criteria: (1) characterize the exact cause with logs/code-level analysis; (2) if there is a batching/queueing bug, fix it narrowly; (3) if behavior is expected but confusing, improve logging and/or delivery semantics to make ordering legible; (4) keep this distinct from restart-resume prompt behavior and general busy-session queue handling unless they share a root cause.
+
+## Root Cause
+
+The `send_message` function in `telegram.ml` lacked per-chat serialization of outbound messages. Multiple concurrent calls from different execution contexts (tool results via `on_chunk` callbacks vs. drain queue processing) could interleave HTTP requests, causing messages to arrive out of order on the Telegram client.
+
+## Fix
+
+Added per-chat mutex (`Lwt_mutex.t`) to serialize outbound message sends:
+
+1. Added `outbound_mutexes` hashtable (line 88) to track mutex per chat_id
+2. Added `get_outbound_mutex` helper (lines 90-96) for lazy mutex creation
+3. Wrapped `send_message` with `Lwt_mutex.with_lock` (line 929) to ensure sequential delivery
+
+This pattern mirrors the `send_mutex` approach in `ws_client.ml` (lines 10, 144, 267, 279).
