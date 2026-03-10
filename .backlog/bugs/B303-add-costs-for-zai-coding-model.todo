@@ -1,0 +1,15 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B303
+priority: high
+status: pending
+tags: []
+title: Add costs for zai_coding models based on zai API prices
+---
+
+Add costs for zai_coding models based on zai API prices
+
+Use subagents to search the web for a source. Record the source for price near where we save the actual price so it's easy to check in future.
+
