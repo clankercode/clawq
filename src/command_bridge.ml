@@ -2220,6 +2220,7 @@ let known_auth_providers =
     ("zai", "Z.AI general endpoint");
     ("mistral", "Mistral AI");
     ("xai", "xAI / Grok");
+    ("groq", "Groq (fast inference)");
     ("deepseek", "DeepSeek");
     ("cohere", "Cohere");
     ("kimi_coding", "Kimi coding subscription");
