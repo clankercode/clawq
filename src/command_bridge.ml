@@ -595,36 +595,47 @@ let cmd_models args =
         (Models_catalog.to_json ~provider_filter:(Some p) ())
   | [ "set-default"; model ] ->
       let provider, model_id, fmt = Models_catalog.split_name model in
-      let hint =
-        match fmt with
-        | Models_catalog.Legacy ->
-            Printf.sprintf "\nHint: use %s:%s format instead of %s/%s." provider
-              model_id provider model_id
-        | _ -> ""
-      in
-      let set_result =
-        Config_set.set_value "agent_defaults.primary_model" model
-      in
-      let confirm =
-        match fmt with
-        | Models_catalog.Canonical | Models_catalog.Legacy ->
-            Printf.sprintf "Default model set to: %s (provider: %s)%s\n%s"
-              model_id provider hint set_result
-        | Models_catalog.Plain -> (
-            match Models_catalog.find_by_full_name model with
-            | None ->
-                Printf.sprintf "Warning: model '%s' not found in catalog.\n%s"
-                  model set_result
-            | Some m ->
-                let display =
-                  if m.Models_catalog.provider <> "" then
-                    Printf.sprintf "Default model set to: %s (provider: %s)"
-                      m.Models_catalog.id m.Models_catalog.provider
-                  else Printf.sprintf "Default model set to: %s" model
-                in
-                Printf.sprintf "%s\n%s" display set_result)
-      in
-      confirm
+      (* Plain name with no provider: reject if not in catalog *)
+      if
+        fmt = Models_catalog.Plain
+        && Models_catalog.find_by_full_name model = None
+      then
+        Printf.sprintf
+          "Error: model '%s' not found in catalog.\n\
+           Hint: use provider:model format (e.g. anthropic:claude-sonnet-4-6) \
+           to set an unknown model."
+          model
+      else
+        let hint =
+          match fmt with
+          | Models_catalog.Legacy ->
+              Printf.sprintf "\nHint: use %s:%s format instead of %s/%s."
+                provider model_id provider model_id
+          | _ -> ""
+        in
+        let set_result =
+          Config_set.set_value "agent_defaults.primary_model" model
+        in
+        let confirm =
+          match fmt with
+          | Models_catalog.Canonical | Models_catalog.Legacy ->
+              Printf.sprintf "Default model set to: %s (provider: %s)%s\n%s"
+                model_id provider hint set_result
+          | Models_catalog.Plain -> (
+              match Models_catalog.find_by_full_name model with
+              | None ->
+                  (* unreachable: guarded above *)
+                  Printf.sprintf "Error: model '%s' not found in catalog." model
+              | Some m ->
+                  let display =
+                    if m.Models_catalog.provider <> "" then
+                      Printf.sprintf "Default model set to: %s (provider: %s)"
+                        m.Models_catalog.id m.Models_catalog.provider
+                    else Printf.sprintf "Default model set to: %s" model
+                  in
+                  Printf.sprintf "%s\n%s" display set_result)
+        in
+        confirm
   | [ "refresh" ] ->
       let db = get_db () in
       let config = get_config () in

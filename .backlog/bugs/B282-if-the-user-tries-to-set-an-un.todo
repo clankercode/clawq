@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-10T03:31:54Z"
+claimed_by: cli-user
+completed_at: "2026-03-10T03:35:06Z"
 complexity: medium
 depends_on: []
+duration_minutes: 3.2135279965166665
 estimate_hours: 1
 id: B282
 priority: high
-status: pending
+started_at: "2026-03-10T03:31:54Z"
+status: done
 tags: []
 title: 'if the user tries to set an unknown model: with a provider we shoudl warn and set (current behavior), without a rpovider we should error and not set.'
 ---

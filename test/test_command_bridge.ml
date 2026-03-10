@@ -2114,6 +2114,52 @@ let test_session_events_type_filter () =
         "type filter excludes memory_context" true
         (not (contains result "memory_context")))
 
+let test_models_set_default_rejects_unknown_plain () =
+  with_temp_home (fun _dir ->
+      let result =
+        Command_bridge.handle
+          [ "models"; "set-default"; "nonexistent-model-xyz" ]
+      in
+      let contains s sub =
+        let re = Re.(compile (str sub)) in
+        Re.execp re s
+      in
+      Alcotest.(check bool) "error message" true (contains result "Error:");
+      Alcotest.(check bool)
+        "mentions model name" true
+        (contains result "nonexistent-model-xyz");
+      Alcotest.(check bool)
+        "hint about provider format" true
+        (contains result "provider:model"))
+
+let test_models_set_default_accepts_known_plain () =
+  with_temp_home (fun _dir ->
+      let result =
+        Command_bridge.handle [ "models"; "set-default"; "claude-3-5-sonnet" ]
+      in
+      let contains s sub =
+        let re = Re.(compile (str sub)) in
+        Re.execp re s
+      in
+      Alcotest.(check bool)
+        "confirms set" true
+        (contains result "Default model set to:"))
+
+let test_models_set_default_accepts_unknown_with_provider () =
+  with_temp_home (fun _dir ->
+      let result =
+        Command_bridge.handle
+          [ "models"; "set-default"; "myprovider:some-custom-model" ]
+      in
+      let contains s sub =
+        let re = Re.(compile (str sub)) in
+        Re.execp re s
+      in
+      Alcotest.(check bool)
+        "confirms set" true
+        (contains result "Default model set to:");
+      Alcotest.(check bool) "no error" true (not (contains result "Error:")))
+
 let suite =
   [
     Alcotest.test_case "handle phase2" `Quick test_handle_phase2;
@@ -2122,6 +2168,12 @@ let suite =
     Alcotest.test_case "handle status" `Quick test_handle_status;
     Alcotest.test_case "handle doctor" `Quick test_handle_doctor;
     Alcotest.test_case "handle models" `Quick test_handle_models;
+    Alcotest.test_case "models set-default rejects unknown plain model" `Quick
+      test_models_set_default_rejects_unknown_plain;
+    Alcotest.test_case "models set-default accepts known plain model" `Quick
+      test_models_set_default_accepts_known_plain;
+    Alcotest.test_case "models set-default accepts unknown with provider" `Quick
+      test_models_set_default_accepts_unknown_with_provider;
     Alcotest.test_case "handle channel" `Quick test_handle_channel;
     Alcotest.test_case "handle memory" `Quick test_handle_memory;
     Alcotest.test_case "handle workspace" `Quick test_handle_workspace;
