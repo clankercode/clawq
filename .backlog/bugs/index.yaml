@@ -286,3 +286,4 @@ bugs:
     - file: B285-zai-coding-json-parse-errors.todo
     - file: B286-handling-sensitive-info-via-cl.todo
     - file: B287-clawq-auth-set-key-should-erro.todo
+    - file: B288-make-some-tool-calls-like-back.todo
