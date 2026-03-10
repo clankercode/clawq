@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-10T01:53:03Z"
+claimed_by: cli-user
+completed_at: "2026-03-10T01:54:03Z"
 complexity: medium
 depends_on: []
+duration_minutes: 1.0064899340833333
 estimate_hours: 1
 id: B265
 priority: high
-status: pending
+started_at: "2026-03-10T01:53:03Z"
+status: done
 tags: []
 title: the compact_history description should mention that it's useful for clearing out old patterns or lots of junk data, and should be done proactively. The description should also mention that the agent will be forked and the clone asked to save everything necessary to memory so compaction can safely be run at any time without fear of losing unremembered things.
 ---

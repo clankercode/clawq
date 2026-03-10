@@ -3358,8 +3358,11 @@ let compact_history ~compact_fn =
     Tool.name = "compact_history";
     description =
       "Compact (summarize) older conversation history to free up context \
-       window space. Use when context usage is high and you need more room to \
-       continue working. Returns token usage before and after compaction.";
+       window space. Useful for clearing out old patterns or lots of junk data, \
+       and should be done proactively. The agent will be forked and the clone \
+       asked to save everything necessary to memory, so compaction can safely \
+       be run at any time without fear of losing unremembered things. \
+       Returns token usage before and after compaction.";
     parameters_schema =
       `Assoc
         [

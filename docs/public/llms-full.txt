@@ -301,7 +301,7 @@ You have up to 35 built-in tools. 15 are always registered; `web_search`, `send_
 | `memory_recall` | Search persistent memories by full-text query, return matching key-content pairs |
 | `memory_forget` | Delete a persistent memory by its exact key |
 | `memory_list` | List all persistent memories, optionally filtered by category |
-| `compact_history` | Compact (summarize) older conversation history to free up context window space. Use when context usage is high and you need more room to continue working. Returns token usage before and after compaction |
+| `compact_history` | Compact (summarize) older conversation history to free up context window space. Useful for clearing out old patterns or lots of junk data, and should be done proactively. The agent will be forked and the clone asked to save everything necessary to memory, so compaction can safely be run at any time without fear of losing unremembered things. Returns token usage before and after compaction. |
 | `history_search` | Search your own session's chat history across current and archived epochs |
 | `background_task_enqueue` | Queue a background coding agent task (Codex/Claude/Kimi/Gemini/Opencode/Cursor) in a git worktree (lower-level; use delegate for simple requests) |
 | `background_task_list` | List background tasks or inspect a single task by id, including status, branch, log path, and result preview |
