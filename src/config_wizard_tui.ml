@@ -266,7 +266,10 @@ let load_initial_model mode =
   in
   if Sys.file_exists config_path then
     try
-      let config = Config_loader.load () in
+      (* Load without resolving secrets so $ENC:/env-var references are
+         preserved verbatim and not decrypted-then-saved-as-plaintext. *)
+      let json = Yojson.Safe.from_file config_path in
+      let config = Config_loader.parse_config ~resolve_secrets:false json in
       model_from_config mode config
     with _ -> initial_model mode
   else initial_model mode

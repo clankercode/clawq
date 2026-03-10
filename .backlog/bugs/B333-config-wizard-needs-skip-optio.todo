@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-10T11:47:25Z"
+claimed_by: cli-user
+completed_at: "2026-03-10T11:55:25Z"
 complexity: medium
 depends_on: []
+duration_minutes: 8.0014506082
 estimate_hours: 1
 id: B333
 priority: high
-status: pending
+started_at: "2026-03-10T11:47:25Z"
+status: done
 tags: []
 title: config wizard needs skip options esp when we already have settings. also, i had to select a provider and chose groq which i have configured already. the api key got replaced with abc123 which shouldn't happen because i already had an api key.
 ---

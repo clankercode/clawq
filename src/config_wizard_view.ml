@@ -251,8 +251,12 @@ let render_existing_config_note (m : model) =
       String.concat ", "
         (List.map (fun (p : provider_draft) -> p.name) m.providers)
     in
-    Printf.sprintf "\n  %s%sExisting config detected%s %s(providers: %s)%s\n"
-      fg_amber bold reset dim names reset
+    Printf.sprintf
+      "\n\
+      \  %s%sExisting config detected%s %s(providers: %s)\n\
+      \  Tip: select %s\"skip (keep existing)\"%s at provider selection to \
+       skip straight to review.%s\n"
+      fg_amber bold reset dim names fg_teal dim reset
   else ""
 
 let view (m : model) =

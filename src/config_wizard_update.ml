@@ -87,9 +87,14 @@ let confirm_update msg (ci : confirm_input) : confirm_input =
   | KeyUp | KeyDown | KeyTab -> { ci with value = not ci.value }
   | _ -> ci
 
+let skip_option = "skip (keep existing)"
+
+let provider_select_options m =
+  if m.providers <> [] then skip_option :: provider_names else provider_names
+
 let transition_from_welcome m =
-  let providers = provider_names in
-  goto ProviderSelect (make_select "Choose a provider" providers) m
+  let options = provider_select_options m in
+  goto ProviderSelect (make_select "Choose a provider" options) m
 
 let preset_url name =
   match List.assoc_opt name provider_presets with Some url -> url | None -> ""
@@ -100,41 +105,44 @@ let transition_from_provider_select m (si : select_input) =
     | Some n -> n
     | None -> "custom"
   in
-  let existing =
-    List.find_opt (fun (p : provider_draft) -> p.name = name) m.providers
-  in
-  let cp =
-    match existing with
-    | Some p -> p
-    | None ->
-        {
-          empty_provider with
-          name;
-          kind =
-            (match name with
-            | "openai-codex" -> Some "openai-codex"
-            | _ -> None);
-          default_model =
-            (match name with
-            | "openai-codex" -> Openai_codex_oauth.default_model
-            | _ -> "");
-        }
-  in
-  let m = { m with current_provider = cp } in
-  if name = "openai-codex" then
-    let url = if cp.base_url <> "" then cp.base_url else preset_url name in
-    goto ProviderBaseUrl
-      (make_text_input ~value:url ~placeholder:"https://..." "Base URL")
-      m
-  else if name = "custom" then
-    goto ProviderApiKey
-      (make_text_input ~placeholder:"provider-name" "Provider name")
-      m
+  if name = skip_option then
+    goto Review (make_confirm ~value:true "Save this configuration?") m
   else
-    goto ProviderApiKey
-      (make_text_input ~secret:true ~value:cp.api_key ~placeholder:"sk-..."
-         "API key")
-      m
+    let existing =
+      List.find_opt (fun (p : provider_draft) -> p.name = name) m.providers
+    in
+    let cp =
+      match existing with
+      | Some p -> p
+      | None ->
+          {
+            empty_provider with
+            name;
+            kind =
+              (match name with
+              | "openai-codex" -> Some "openai-codex"
+              | _ -> None);
+            default_model =
+              (match name with
+              | "openai-codex" -> Openai_codex_oauth.default_model
+              | _ -> "");
+          }
+    in
+    let m = { m with current_provider = cp } in
+    if name = "openai-codex" then
+      let url = if cp.base_url <> "" then cp.base_url else preset_url name in
+      goto ProviderBaseUrl
+        (make_text_input ~value:url ~placeholder:"https://..." "Base URL")
+        m
+    else if name = "custom" then
+      goto ProviderApiKey
+        (make_text_input ~placeholder:"provider-name" "Provider name")
+        m
+    else
+      goto ProviderApiKey
+        (make_text_input ~secret:true ~value:cp.api_key ~placeholder:"sk-..."
+           "API key")
+        m
 
 let transition_from_api_key m (ti : text_input) =
   let cp = m.current_provider in
@@ -317,7 +325,8 @@ let go_back m =
       let widget =
         match prev with
         | Welcome -> make_confirm "Ready to begin?"
-        | ProviderSelect -> make_select "Choose a provider" provider_names
+        | ProviderSelect ->
+            make_select "Choose a provider" (provider_select_options m)
         | ProviderApiKey ->
             make_text_input ~secret:true ~placeholder:"sk-..." "API key"
         | ProviderBaseUrl ->

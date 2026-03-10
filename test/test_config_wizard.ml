@@ -241,7 +241,9 @@ let test_prepopulated_existing_provider_prefills_api_key () =
   in
   let m = { (initial_model Onboard) with providers = [ existing_provider ] } in
   let m, _ = update KeyEnter m in
-  (* Select openrouter (second option) *)
+  (* Select openrouter — skip "skip (keep existing)" at index 0, "openai-codex"
+     at index 1, then "openrouter" at index 2 *)
+  let m, _ = update KeyDown m in
   let m, _ = update KeyDown m in
   let m, _ = update KeyEnter m in
   Alcotest.check check_step "api key" ProviderApiKey m.step;
@@ -262,7 +264,8 @@ let test_prepopulated_provider_replaces_not_duplicates () =
   in
   let m = { (initial_model Onboard) with providers = [ existing_provider ] } in
   let m, _ = update KeyEnter m in
-  (* Select openrouter *)
+  (* Select openrouter — skip past "skip (keep existing)" and "openai-codex" *)
+  let m, _ = update KeyDown m in
   let m, _ = update KeyDown m in
   let m, _ = update KeyEnter m in
   (* Clear and type new key *)
@@ -445,6 +448,38 @@ let test_wizard_empty_providers_does_not_overwrite_existing () =
       (try Unix.rmdir (Filename.concat dir ".clawq") with _ -> ());
       try Unix.rmdir dir with _ -> ())
 
+let test_skip_option_goes_to_review () =
+  let existing_provider =
+    {
+      name = "groq";
+      kind = None;
+      api_key = "sk-groq-key";
+      base_url = "https://api.groq.com/openai/v1";
+      default_model = "";
+    }
+  in
+  let m = { (initial_model Onboard) with providers = [ existing_provider ] } in
+  let m, _ = update KeyEnter m in
+  (* "skip (keep existing)" is first option — just press Enter *)
+  let m, _ = update KeyEnter m in
+  Alcotest.check check_step "goes to review" Review m.step;
+  (* Provider list unchanged *)
+  Alcotest.(check int) "provider count" 1 (List.length m.providers);
+  let p = List.hd m.providers in
+  Alcotest.(check string) "api key preserved" "sk-groq-key" p.api_key
+
+let test_skip_option_absent_without_providers () =
+  let m = initial_model Onboard in
+  let m, _ = update KeyEnter m in
+  (* No skip option — first option should be "openai-codex" *)
+  Alcotest.check check_step "provider select" ProviderSelect m.step;
+  match m.widget with
+  | Select si ->
+      let first = List.nth_opt si.options 0 in
+      Alcotest.(check (option string))
+        "first option is not skip" (Some "openai-codex") first
+  | _ -> Alcotest.fail "expected Select widget"
+
 let suite =
   [
     Alcotest.test_case "welcome -> provider select" `Quick
@@ -476,4 +511,8 @@ let suite =
       test_wizard_merge_preserves_codex_oauth;
     Alcotest.test_case "wizard empty providers does not overwrite existing"
       `Quick test_wizard_empty_providers_does_not_overwrite_existing;
+    Alcotest.test_case "skip option goes to review when config exists" `Quick
+      test_skip_option_goes_to_review;
+    Alcotest.test_case "skip option absent without providers" `Quick
+      test_skip_option_absent_without_providers;
   ]
