@@ -1,9 +1,14 @@
 ---
+claimed_at: "2026-03-10T04:41:26Z"
+claimed_by: cli-user
+completed_at: "2026-03-10T05:05:09Z"
 complexity: medium
 depends_on: []
+duration_minutes: 23.730603711933334
 estimate_hours: 1
 id: B289
 priority: high
+started_at: "2026-03-10T04:41:26Z"
 status: done
 tags: []
 title: background_task_wait and background_task_logs should be structured to be more token friendly. Eg _logs by default tails the last 20 lines. as for _wait, well IDK what it's doing sending 300 tokens so i might have to see that to know what to do. Oh and of course _logs takes arguments so that the agent can choose how mcuh to recieve. Particularly we should support psuedo pagination with a line number offset and when we return logs we should include surrounding metadata about where it starts in line count and ends, etc.

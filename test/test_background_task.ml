@@ -776,6 +776,195 @@ let test_logs_tool_lines_backward_compat () =
          with Not_found -> true);
       Sys.remove log_path)
 
+let test_wait_tool_compact_omits_verbose_fields () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"implement feature" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      ignore
+        (Background_task.mark_cancelled ~db ~id
+           ~result_preview:"Cancelled before execution started");
+      let tool = Background_task.wait_tool ~db in
+      let result =
+        Lwt_main.run
+          (tool.Tool.invoke
+             (`Assoc [ ("id", `Int id); ("timeout_seconds", `Float 0.1) ]))
+      in
+      Alcotest.(check bool)
+        "compact output contains status" true
+        (try
+           ignore
+             (Str.search_forward
+                (Str.regexp_string "status: cancelled")
+                result 0);
+           true
+         with Not_found -> false);
+      Alcotest.(check bool)
+        "compact output contains runtime" true
+        (try
+           ignore (Str.search_forward (Str.regexp_string "runtime:") result 0);
+           true
+         with Not_found -> false);
+      Alcotest.(check bool)
+        "compact output omits repo" true
+        (not
+           (try
+              ignore (Str.search_forward (Str.regexp_string "repo:") result 0);
+              true
+            with Not_found -> false));
+      Alcotest.(check bool)
+        "compact output omits branch" true
+        (not
+           (try
+              ignore (Str.search_forward (Str.regexp_string "branch:") result 0);
+              true
+            with Not_found -> false));
+      Alcotest.(check bool)
+        "compact output omits worktree" true
+        (not
+           (try
+              ignore
+                (Str.search_forward (Str.regexp_string "worktree:") result 0);
+              true
+            with Not_found -> false));
+      Alcotest.(check bool)
+        "compact output omits created_at" true
+        (not
+           (try
+              ignore
+                (Str.search_forward (Str.regexp_string "created_at:") result 0);
+              true
+            with Not_found -> false)))
+
+let test_wait_tool_compact_truncates_previews () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:(String.make 300 'p') ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      Background_task.finish ~db ~id ~status:Background_task.Succeeded
+        ~result_preview:(String.make 300 'r');
+      let tool = Background_task.wait_tool ~db in
+      let result =
+        Lwt_main.run
+          (tool.Tool.invoke
+             (`Assoc [ ("id", `Int id); ("timeout_seconds", `Float 0.1) ]))
+      in
+      (* result preview should be 200 chars + "..." = 203, not 300 chars *)
+      Alcotest.(check bool)
+        "result preview truncated to compact limit" true
+        (not
+           (try
+              ignore
+                (Str.search_forward
+                   (Str.regexp_string (String.make 201 'r'))
+                   result 0);
+              true
+            with Not_found -> false));
+      (* prompt preview should be 200 chars + "..." = 203, not 300 chars *)
+      Alcotest.(check bool)
+        "prompt preview truncated to compact limit" true
+        (not
+           (try
+              ignore
+                (Str.search_forward
+                   (Str.regexp_string (String.make 201 'p'))
+                   result 0);
+              true
+            with Not_found -> false)))
+
+let test_logs_tool_tail_includes_line_metadata () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"test tail metadata" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      let log_path = Filename.temp_file "clawq-bg" ".log" in
+      let oc = open_out log_path in
+      for i = 1 to 25 do
+        Printf.fprintf oc "line %d\n" i
+      done;
+      close_out oc;
+      ignore
+        (Background_task.set_running ~db ~id ~branch:"clawq-bg-1"
+           ~worktree_path:"/tmp/worktree" ~log_path ~pid:12345);
+      Background_task.finish ~db ~id ~status:Background_task.Succeeded
+        ~result_preview:"ok";
+      let tool = Background_task.logs_tool ~db in
+      let result =
+        Lwt_main.run
+          (tool.Tool.invoke (`Assoc [ ("id", `Int id); ("limit", `Int 5) ]))
+      in
+      Alcotest.(check bool)
+        "tail includes line number prefix for line 21" true
+        (try
+           ignore (Str.search_forward (Str.regexp_string "21: ") result 0);
+           true
+         with Not_found -> false);
+      Alcotest.(check bool)
+        "tail includes position metadata footer" true
+        (try
+           ignore
+             (Str.search_forward
+                (Str.regexp_string "(Showing last 5 lines, lines 21-25 of 25.)")
+                result 0);
+           true
+         with Not_found -> false);
+      Sys.remove log_path)
+
+let test_logs_tool_tail_empty_file () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"test empty log" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      let log_path = Filename.temp_file "clawq-bg" ".log" in
+      (* leave file empty *)
+      ignore
+        (Background_task.set_running ~db ~id ~branch:"clawq-bg-1"
+           ~worktree_path:"/tmp/worktree" ~log_path ~pid:12345);
+      Background_task.finish ~db ~id ~status:Background_task.Succeeded
+        ~result_preview:"ok";
+      let tool = Background_task.logs_tool ~db in
+      let result =
+        Lwt_main.run (tool.Tool.invoke (`Assoc [ ("id", `Int id) ]))
+      in
+      Alcotest.(check bool)
+        "empty log reports empty" true
+        (try
+           ignore
+             (Str.search_forward
+                (Str.regexp_string "(log file is empty)")
+                result 0);
+           true
+         with Not_found -> false);
+      Sys.remove log_path)
+
 let test_start_queued_spawns_queued_tasks () =
   with_temp_git_repo (fun repo_path ->
       let db = Memory.init ~db_path:":memory:" () in
@@ -2171,6 +2360,14 @@ let suite =
       test_logs_tool_offset_past_end;
     Alcotest.test_case "logs tool lines backward compat" `Quick
       test_logs_tool_lines_backward_compat;
+    Alcotest.test_case "wait tool compact omits verbose fields" `Quick
+      test_wait_tool_compact_omits_verbose_fields;
+    Alcotest.test_case "wait tool compact truncates previews" `Quick
+      test_wait_tool_compact_truncates_previews;
+    Alcotest.test_case "logs tool tail includes line metadata" `Quick
+      test_logs_tool_tail_includes_line_metadata;
+    Alcotest.test_case "logs tool tail empty file" `Quick
+      test_logs_tool_tail_empty_file;
     Alcotest.test_case "start queued spawns queued tasks" `Quick
       test_start_queued_spawns_queued_tasks;
     Alcotest.test_case "spawn task marks failed when worktree creation fails"

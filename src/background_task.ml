@@ -151,11 +151,17 @@ let task_log_path id =
   Filename.concat (log_root ()) (Printf.sprintf "task-%d.log" id)
 
 let preview_limit = 500
+let compact_preview_limit = 200
 
 let preview_text s =
   let trimmed = String.trim s in
   if String.length trimmed <= preview_limit then trimmed
   else String.sub trimmed 0 preview_limit ^ "..."
+
+let preview_text_n limit s =
+  let trimmed = String.trim s in
+  if String.length trimmed <= limit then trimmed
+  else String.sub trimmed 0 limit ^ "..."
 
 let status_summary = function
   | Queued -> "queued"
@@ -254,7 +260,7 @@ let runtime_string (task : task) =
         in
         format_elapsed_seconds (end_time -. start_time)
 
-let format_task_summary ?(full = false) (task : task) =
+let format_task_summary ?(full = false) ?(compact = false) (task : task) =
   let branch = if task.branch = "" then "(auto)" else task.branch in
   let lines = ref [] in
   let add line = lines := line :: !lines in
@@ -270,28 +276,32 @@ let format_task_summary ?(full = false) (task : task) =
   | Not_applicable -> ()
   | _ -> add (Printf.sprintf "health: %s" (string_of_health health)));
   add (Printf.sprintf "runtime: %s" (runtime_string task));
-  add (Printf.sprintf "repo: %s" task.repo_path);
-  add (Printf.sprintf "branch: %s" branch);
-  add (Printf.sprintf "created_at: %s" task.created_at);
-  (match task.started_at with
-  | Some value -> add (Printf.sprintf "started_at: %s" value)
-  | None -> ());
-  (match task.finished_at with
-  | Some value -> add (Printf.sprintf "finished_at: %s" value)
-  | None -> ());
-  (match task.worktree_path with
-  | Some value -> add (Printf.sprintf "worktree: %s" value)
-  | None -> ());
+  if not compact then add (Printf.sprintf "repo: %s" task.repo_path);
+  if not compact then add (Printf.sprintf "branch: %s" branch);
+  if not compact then add (Printf.sprintf "created_at: %s" task.created_at);
+  (if not compact then
+     match task.started_at with
+     | Some value -> add (Printf.sprintf "started_at: %s" value)
+     | None -> ());
+  (if not compact then
+     match task.finished_at with
+     | Some value -> add (Printf.sprintf "finished_at: %s" value)
+     | None -> ());
+  (if not compact then
+     match task.worktree_path with
+     | Some value -> add (Printf.sprintf "worktree: %s" value)
+     | None -> ());
   (match task.log_path with
   | Some value -> add (Printf.sprintf "log: %s" value)
   | None -> ());
+  let plimit = if compact then compact_preview_limit else preview_limit in
   (match task.result_preview with
   | Some text when String.trim text <> "" ->
-      add (Printf.sprintf "result: %s" (preview_text text))
+      add (Printf.sprintf "result: %s" (preview_text_n plimit text))
   | _ -> ());
   add
     (Printf.sprintf "prompt: %s"
-       (if full then task.prompt else preview_text task.prompt));
+       (if full then task.prompt else preview_text_n plimit task.prompt));
   String.concat "\n" (List.rev !lines)
 
 let max_inactive_shown = 3
@@ -574,6 +584,22 @@ let read_lines_window path ~offset ~limit =
           loop 1 [] 0)
     with Sys_error msg -> Error msg
 
+let count_lines path =
+  try
+    let ic = open_in path in
+    Fun.protect
+      ~finally:(fun () -> close_in_noerr ic)
+      (fun () ->
+        let count = ref 0 in
+        (try
+           while true do
+             ignore (input_line ic);
+             incr count
+           done
+         with End_of_file -> ());
+        !count)
+  with Sys_error _ -> 0
+
 let log_excerpt ?(offset = 0) ?(lines = 20) task =
   match task.log_path with
   | None -> Error (Printf.sprintf "Task %d has no log file yet" task.id)
@@ -617,23 +643,20 @@ let log_excerpt ?(offset = 0) ?(lines = 20) task =
                 path
             in
             if chunks = [] then header ^ "\n\n(log file is empty)"
-            else header ^ "\n\n" ^ String.concat "\n" chunks)
-
-let count_lines path =
-  try
-    let ic = open_in path in
-    Fun.protect
-      ~finally:(fun () -> close_in_noerr ic)
-      (fun () ->
-        let count = ref 0 in
-        (try
-           while true do
-             ignore (input_line ic);
-             incr count
-           done
-         with End_of_file -> ());
-        !count)
-  with Sys_error _ -> 0
+            else
+              let total = count_lines path in
+              let n_returned = List.length chunks in
+              let start_num = max 1 (total - n_returned + 1) in
+              let numbered =
+                List.mapi
+                  (fun i line -> Printf.sprintf "%d: %s" (start_num + i) line)
+                  chunks
+              in
+              let footer =
+                Printf.sprintf "\n\n(Showing last %d lines, lines %d-%d of %d.)"
+                  n_returned start_num total total
+              in
+              header ^ "\n\n" ^ String.concat "\n" numbered ^ footer)
 
 let read_lines_range path ~offset ~lines =
   if lines <= 0 then Ok ([], 0)
@@ -1633,7 +1656,7 @@ let wait_tool ~db =
             wait_until_terminal ~timeout_seconds ?interrupt_check ~db ~id ()
           in
           match result with
-          | Finished task -> Lwt.return (format_task_summary task)
+          | Finished task -> Lwt.return (format_task_summary ~compact:true task)
           | Timeout task ->
               Lwt.return
                 (Printf.sprintf
