@@ -26,6 +26,7 @@ type task = {
   status : status;
   note : string option;
   sort_order : int;
+  deleted_at : string option;
 }
 
 let max_active_tasks = 50
@@ -44,6 +45,7 @@ let init_schema db =
     \  status TEXT NOT NULL DEFAULT 'pending',\n\
     \  note TEXT,\n\
     \  sort_order INTEGER NOT NULL DEFAULT 0,\n\
+    \  deleted_at TEXT,\n\
     \  created_at TEXT NOT NULL DEFAULT (datetime('now')),\n\
     \  updated_at TEXT NOT NULL DEFAULT (datetime('now')),\n\
     \  PRIMARY KEY (session_key, id)\n\
@@ -69,10 +71,16 @@ let init_schema db =
     "CREATE INDEX IF NOT EXISTS idx_task_tree_archive_session ON \
      task_tree_archive (session_key)"
 
-let load_tasks ~db ~session_key =
+let load_tasks ?(include_deleted = false) ~db ~session_key () =
+  let deleted_filter =
+    if include_deleted then "" else " AND deleted_at IS NULL"
+  in
   let sql =
-    "SELECT id, session_key, parent_id, title, status, note, sort_order FROM \
-     task_tree WHERE session_key = ? ORDER BY sort_order ASC, id ASC"
+    Printf.sprintf
+      "SELECT id, session_key, parent_id, title, status, note, sort_order, \
+       deleted_at FROM task_tree WHERE session_key = ?%s ORDER BY sort_order \
+       ASC, id ASC"
+      deleted_filter
   in
   let stmt = Sqlite3.prepare db sql in
   Fun.protect
@@ -112,15 +120,31 @@ let load_tasks ~db ~session_key =
           | Sqlite3.Data.INT n -> Int64.to_int n
           | _ -> 0
         in
+        let deleted_at =
+          match Sqlite3.column stmt 7 with
+          | Sqlite3.Data.TEXT s -> Some s
+          | _ -> None
+        in
         results :=
-          { id; session_key = sk; parent_id; title; status; note; sort_order }
+          {
+            id;
+            session_key = sk;
+            parent_id;
+            title;
+            status;
+            note;
+            sort_order;
+            deleted_at;
+          }
           :: !results
       done;
       List.rev !results)
 
 let count_tasks ~db ~session_key =
   Memory.query_single_int db
-    (Printf.sprintf "SELECT COUNT(*) FROM task_tree WHERE session_key = '%s'"
+    (Printf.sprintf
+       "SELECT COUNT(*) FROM task_tree WHERE session_key = '%s' AND deleted_at \
+        IS NULL"
        (String.concat "''" (String.split_on_char '\'' session_key)))
 
 let find_active_session_key ~db ~preferred =
@@ -128,7 +152,8 @@ let find_active_session_key ~db ~preferred =
   else
     let sql =
       "SELECT session_key FROM task_tree WHERE status IN ('pending', \
-       'in_progress') GROUP BY session_key ORDER BY COUNT(*) DESC LIMIT 1"
+       'in_progress') AND deleted_at IS NULL GROUP BY session_key ORDER BY \
+       COUNT(*) DESC LIMIT 1"
     in
     let stmt = Sqlite3.prepare db sql in
     Fun.protect
@@ -198,7 +223,7 @@ let count_in_progress ~db ~session_key =
   Memory.query_single_int db
     (Printf.sprintf
        "SELECT COUNT(*) FROM task_tree WHERE session_key = '%s' AND status = \
-        'in_progress'"
+        'in_progress' AND deleted_at IS NULL"
        (String.concat "''" (String.split_on_char '\'' session_key)))
 
 let get_ancestors ~tasks ~id =
@@ -321,6 +346,25 @@ let delete_task ~db ~session_key ~id =
             (Printf.sprintf "SQLite error deleting task: %s"
                (Sqlite3.Rc.to_string rc)))
 
+let soft_delete_task ~db ~session_key ~id =
+  let sql =
+    "UPDATE task_tree SET deleted_at = datetime('now'), updated_at = \
+     datetime('now') WHERE session_key = ? AND id = ? AND deleted_at IS NULL"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore
+        (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT session_key) : Sqlite3.Rc.t);
+      ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT id) : Sqlite3.Rc.t);
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.DONE -> Ok ()
+      | rc ->
+          Error
+            (Printf.sprintf "SQLite error soft-deleting task: %s"
+               (Sqlite3.Rc.to_string rc)))
+
 let update_sort_order ~db ~session_key ~id ~sort_order =
   let sql =
     "UPDATE task_tree SET sort_order = ?, updated_at = datetime('now') WHERE \
@@ -351,7 +395,7 @@ let status_icon = function
   | Cancelled -> "[-]"
 
 let render_tree ~db ~session_key =
-  let tasks = load_tasks ~db ~session_key in
+  let tasks = load_tasks ~db ~session_key () in
   if tasks = [] then
     "No tasks tracked. Use the task_tree tool to plan and track your work.\n\
      Breaking complex goals into subtasks helps maintain focus across long \
@@ -407,7 +451,7 @@ let render_tree_with_legend ~db ~session_key =
     ^ warning
 
 let render_compact ~db ~session_key =
-  let tasks = load_tasks ~db ~session_key in
+  let tasks = load_tasks ~db ~session_key () in
   if tasks = [] then
     "No tasks tracked. Use the task_tree tool to plan and track your work.\n\
      Breaking complex goals into subtasks helps maintain focus across long \
@@ -539,6 +583,7 @@ let format_notification ~connector ~db ~session_key (ops : Yojson.Safe.t list) =
           let note =
             try Some (op_json |> member "note" |> to_string) with _ -> None
           in
+          (* TODO: show recursive count in notification when recursive=true *)
           let detail =
             match (status, note) with
             | Some s, Some n ->
@@ -556,11 +601,11 @@ let format_notification ~connector ~db ~session_key (ops : Yojson.Safe.t list) =
           meaningful := true;
           let id = try op_json |> member "id" |> to_string with _ -> "?" in
           Buffer.add_string lines
-            (Printf.sprintf "- Removed %s\n"
+            (Printf.sprintf "- Soft-deleted %s\n"
                (Format_adapter.code connector ("#" ^ id)))
       | "clear" ->
           meaningful := true;
-          Buffer.add_string lines "Cleared completed tasks\n"
+          Buffer.add_string lines "Soft-deleted completed tasks\n"
       | "archive" -> (
           meaningful := true;
           let id =
@@ -572,11 +617,17 @@ let format_notification ~connector ~db ~session_key (ops : Yojson.Safe.t list) =
                 (Printf.sprintf "Archived %s\n"
                    (Format_adapter.code connector ("#" ^ id)))
           | None -> Buffer.add_string lines "Archived completed trees\n")
+      | "restore" ->
+          meaningful := true;
+          let id = try op_json |> member "id" |> to_string with _ -> "?" in
+          Buffer.add_string lines
+            (Printf.sprintf "Restored %s\n"
+               (Format_adapter.code connector ("#" ^ id)))
       | "reorder" | _ -> ())
     ops;
   if not !meaningful then None
   else begin
-    let tasks = load_tasks ~db ~session_key in
+    let tasks = load_tasks ~db ~session_key () in
     let in_progress = List.filter (fun t -> t.status = In_progress) tasks in
     (match in_progress with
     | [ t ] ->
@@ -621,7 +672,7 @@ let do_add ~db ~session_key ~id ~parent_id ~title ~status ~note =
             for auto-assignment."
            actual_id)
     else
-      let tasks = load_tasks ~db ~session_key in
+      let tasks = load_tasks ~db ~session_key () in
       let parent_depth =
         match parent_id with
         | None -> 0
@@ -661,7 +712,7 @@ let do_add ~db ~session_key ~id ~parent_id ~title ~status ~note =
 
 (* Validate and execute update operation *)
 let do_update ~db ~session_key ~id ~status ~note =
-  let tasks = load_tasks ~db ~session_key in
+  let tasks = load_tasks ~db ~session_key () in
   match List.find_opt (fun t -> t.id = id) tasks with
   | None ->
       Error
@@ -726,9 +777,9 @@ let do_update ~db ~session_key ~id ~status ~note =
           | Error _, _ -> ());
           !result)
 
-(* Validate and execute remove operation *)
-let do_remove ~db ~session_key ~id =
-  let tasks = load_tasks ~db ~session_key in
+(* Validate and execute remove operation — soft-deletes instead of hard-deletes *)
+let do_remove ~db ~session_key ~id ?(recursive = false) () =
+  let tasks = load_tasks ~db ~session_key () in
   match List.find_opt (fun t -> t.id = id) tasks with
   | None ->
       Error
@@ -738,39 +789,54 @@ let do_remove ~db ~session_key ~id =
            id)
   | Some _ ->
       let subtree_ids = get_subtree_ids ~tasks ~id in
-      let has_in_progress =
-        List.exists
-          (fun sid ->
-            match List.find_opt (fun t -> t.id = sid) tasks with
-            | Some t -> t.status = In_progress
-            | None -> false)
-          subtree_ids
-      in
-      if has_in_progress then
-        Error
-          (Printf.sprintf
-             "Cannot remove #%s — subtree contains in_progress tasks" id)
+      if not recursive then begin
+        let has_in_progress =
+          List.exists
+            (fun sid ->
+              match List.find_opt (fun t -> t.id = sid) tasks with
+              | Some t -> t.status = In_progress
+              | None -> false)
+            subtree_ids
+        in
+        if has_in_progress then
+          Error
+            (Printf.sprintf
+               "Cannot remove #%s — subtree contains in_progress tasks. Use \
+                recursive=true to force-remove the entire subtree."
+               id)
+        else begin
+          let ids_reversed = List.rev subtree_ids in
+          List.iter
+            (fun sid -> ignore (soft_delete_task ~db ~session_key ~id:sid))
+            ids_reversed;
+          Ok (List.length subtree_ids)
+        end
+      end
       else begin
-        (* Delete in reverse order (children first) *)
+        (* recursive=true: soft-delete all, no in_progress guard *)
         let ids_reversed = List.rev subtree_ids in
         List.iter
-          (fun sid -> ignore (delete_task ~db ~session_key ~id:sid))
+          (fun sid -> ignore (soft_delete_task ~db ~session_key ~id:sid))
           ids_reversed;
-        Ok ()
+        Ok (List.length subtree_ids)
       end
 
-(* Clear all done/cancelled tasks *)
+(* Soft-delete all done/cancelled tasks; returns the count affected *)
 let do_clear ~db ~session_key =
+  let escaped_key =
+    String.concat "''" (String.split_on_char '\'' session_key)
+  in
   Memory.exec_exn db
     (Printf.sprintf
-       "DELETE FROM task_tree WHERE session_key = '%s' AND status IN ('done', \
-        'cancelled')"
-       (String.concat "''" (String.split_on_char '\'' session_key)));
-  Ok ()
+       "UPDATE task_tree SET deleted_at = datetime('now'), updated_at = \
+        datetime('now') WHERE session_key = '%s' AND status IN ('done', \
+        'cancelled') AND deleted_at IS NULL"
+       escaped_key);
+  Ok (Sqlite3.changes db)
 
 (* Archive completed subtrees *)
 let do_archive ~db ~session_key ~id =
-  let tasks = load_tasks ~db ~session_key in
+  let tasks = load_tasks ~db ~session_key () in
   let next_archive_group () =
     Memory.query_single_int db
       (Printf.sprintf
@@ -841,10 +907,10 @@ let do_archive ~db ~session_key ~id =
                     (Sqlite3.bind stmt 8 (Sqlite3.Data.INT (Int64.of_int group))
                       : Sqlite3.Rc.t);
                   ignore (Sqlite3.step stmt : Sqlite3.Rc.t));
-              ignore (delete_task ~db ~session_key ~id:sid)
+              ignore (soft_delete_task ~db ~session_key ~id:sid)
           | None -> ())
         subtree_ids;
-      Ok ()
+      Ok (List.length subtree_ids)
     end
   in
   match id with
@@ -875,13 +941,76 @@ let do_archive ~db ~session_key ~id =
       if completed_roots = [] then
         Error "No fully completed root trees to archive"
       else begin
-        List.iter (fun root -> ignore (archive_subtree root.id)) completed_roots;
-        Ok ()
+        let total = ref 0 in
+        List.iter
+          (fun root ->
+            match archive_subtree root.id with
+            | Ok n -> total := !total + n
+            | Error _ -> ())
+          completed_roots;
+        Ok !total
       end
+
+(* Restore a soft-deleted task and its soft-deleted descendants *)
+let do_restore ~db ~session_key ~id =
+  let all_tasks = load_tasks ~include_deleted:true ~db ~session_key () in
+  match List.find_opt (fun t -> t.id = id) all_tasks with
+  | None ->
+      Error
+        (Printf.sprintf
+           "Task '%s' not found (including deleted). Check the ID or use \
+            op=list include_deleted=true to see deleted tasks."
+           id)
+  | Some task ->
+      if task.deleted_at = None then
+        Error
+          (Printf.sprintf
+             "Task '%s' is not deleted — nothing to restore. Use op=update to \
+              change its status."
+             id)
+      else begin
+        let subtree_ids = get_subtree_ids ~tasks:all_tasks ~id in
+        let deleted_ids =
+          List.filter
+            (fun sid ->
+              match List.find_opt (fun t -> t.id = sid) all_tasks with
+              | Some t -> t.deleted_at <> None
+              | None -> false)
+            subtree_ids
+        in
+        let sql =
+          "UPDATE task_tree SET deleted_at = NULL, updated_at = \
+           datetime('now') WHERE session_key = ? AND id = ?"
+        in
+        List.iter
+          (fun sid ->
+            let stmt = Sqlite3.prepare db sql in
+            Fun.protect
+              ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+              (fun () ->
+                ignore
+                  (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT session_key)
+                    : Sqlite3.Rc.t);
+                ignore
+                  (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT sid) : Sqlite3.Rc.t);
+                ignore (Sqlite3.step stmt : Sqlite3.Rc.t)))
+          deleted_ids;
+        Ok (List.length deleted_ids)
+      end
+
+(* Hard-purge soft-deleted rows older than configured threshold *)
+let maybe_purge_deleted_tasks ~db ~config =
+  let days = config.Runtime_config.memory.task_tree_purge_after_days in
+  if days > 0 then
+    Memory.exec_exn db
+      (Printf.sprintf
+         "DELETE FROM task_tree WHERE deleted_at IS NOT NULL AND \
+          datetime(deleted_at, '+%d days') < datetime('now')"
+         days)
 
 (* Reorder a task among its siblings *)
 let do_reorder ~db ~session_key ~id ~position =
-  let tasks = load_tasks ~db ~session_key in
+  let tasks = load_tasks ~db ~session_key () in
   match List.find_opt (fun t -> t.id = id) tasks with
   | None ->
       Error
@@ -1377,7 +1506,9 @@ let process_operations ~db ~session_key (ops : Yojson.Safe.t list) =
                                 | None ->
                                     if explicit_parent = None then 0
                                     else
-                                      let tasks = load_tasks ~db ~session_key in
+                                      let tasks =
+                                        load_tasks ~db ~session_key ()
+                                      in
                                       task_depth ~tasks ~id:actual_id
                               in
                               (* Update depth stack: truncate to depth d, push new *)
@@ -1424,51 +1555,107 @@ let process_operations ~db ~session_key (ops : Yojson.Safe.t list) =
                         try Some (op_json |> member "note" |> to_string)
                         with _ -> None
                       in
+                      let recursive =
+                        try op_json |> member "recursive" |> to_bool
+                        with _ -> false
+                      in
                       match id_str with
                       | None ->
                           Error
                             "ID is required for update. Provide an 'id' field \
                              with an existing task ID."
-                      | Some id_str -> (
-                          (* Support comma-separated IDs *)
+                      | Some id_str ->
                           let ids =
                             String.split_on_char ',' id_str
                             |> List.map String.trim
                             |> List.filter (fun s -> s <> "")
                           in
-                          let err = ref None in
-                          List.iter
-                            (fun single_id ->
-                              if !err = None then
-                                match
-                                  do_update ~db ~session_key ~id:single_id
-                                    ~status ~note
-                                with
-                                | Ok () ->
-                                    let parts = ref [] in
-                                    (match status with
-                                    | Some s ->
-                                        parts :=
-                                          Printf.sprintf "status=%s"
-                                            (string_of_status s)
-                                          :: !parts
-                                    | None -> ());
-                                    (match note with
-                                    | Some n ->
-                                        parts :=
-                                          Printf.sprintf "note=%s" n :: !parts
-                                    | None -> ());
+                          if recursive then begin
+                            match status with
+                            | None ->
+                                Error
+                                  "recursive=true requires a 'status' field. \
+                                   Supported statuses: done, cancelled."
+                            | Some new_status
+                              when new_status <> Done && new_status <> Cancelled
+                              ->
+                                Error
+                                  (Printf.sprintf
+                                     "recursive=true is only supported for \
+                                      status=done or status=cancelled, not \
+                                      '%s'. To set other statuses, use \
+                                      recursive=false or omit it."
+                                     (string_of_status new_status))
+                            | Some new_status -> (
+                                let tasks = load_tasks ~db ~session_key () in
+                                let all_ids =
+                                  List.concat_map
+                                    (fun single_id ->
+                                      get_subtree_ids ~tasks ~id:single_id)
+                                    ids
+                                in
+                                let err = ref None in
+                                List.iter
+                                  (fun sid ->
+                                    if !err = None then
+                                      match
+                                        update_task_status ~db ~session_key
+                                          ~id:sid ~status:new_status
+                                      with
+                                      | Ok () -> ()
+                                      | Error e -> err := Some e)
+                                  all_ids;
+                                match !err with
+                                | Some e -> Error e
+                                | None ->
+                                    let total = List.length all_ids in
                                     Buffer.add_string results
-                                      (Printf.sprintf "Updated #%s: %s\n"
-                                         single_id
-                                         (String.concat ", " (List.rev !parts)))
-                                | Error e -> err := Some e)
-                            ids;
-                          match !err with Some e -> Error e | None -> Ok ()))
+                                      (Printf.sprintf
+                                         "Updated %d task(s) recursively \
+                                          (status=%s)\n"
+                                         total
+                                         (string_of_status new_status));
+                                    Ok ())
+                          end
+                          else begin
+                            let err = ref None in
+                            List.iter
+                              (fun single_id ->
+                                if !err = None then
+                                  match
+                                    do_update ~db ~session_key ~id:single_id
+                                      ~status ~note
+                                  with
+                                  | Ok () ->
+                                      let parts = ref [] in
+                                      (match status with
+                                      | Some s ->
+                                          parts :=
+                                            Printf.sprintf "status=%s"
+                                              (string_of_status s)
+                                            :: !parts
+                                      | None -> ());
+                                      (match note with
+                                      | Some n ->
+                                          parts :=
+                                            Printf.sprintf "note=%s" n :: !parts
+                                      | None -> ());
+                                      Buffer.add_string results
+                                        (Printf.sprintf "Updated #%s: %s\n"
+                                           single_id
+                                           (String.concat ", " (List.rev !parts)))
+                                  | Error e -> err := Some e)
+                              ids;
+                            match !err with Some e -> Error e | None -> Ok ()
+                          end)
                   | "remove" -> (
                       let id =
                         try Some (op_json |> member "id" |> to_string)
                         with _ -> None
+                      in
+                      let recursive =
+                        try op_json |> member "recursive" |> to_bool
+                        with _ -> false
                       in
                       match id with
                       | None ->
@@ -1476,18 +1663,27 @@ let process_operations ~db ~session_key (ops : Yojson.Safe.t list) =
                             "ID is required for remove. Provide an 'id' field \
                              with an existing task ID."
                       | Some id -> (
-                          match do_remove ~db ~session_key ~id with
-                          | Ok () ->
+                          match
+                            do_remove ~db ~session_key ~id ~recursive ()
+                          with
+                          | Ok count ->
                               Buffer.add_string results
-                                (Printf.sprintf "Removed #%s and descendants\n"
-                                   id);
+                                (Printf.sprintf
+                                   "Soft-deleted #%s (%d task(s)). Restore \
+                                    with: op=restore id=%s\n"
+                                   id count id);
                               Ok ()
                           | Error e -> Error e))
                   | "clear" -> (
                       match do_clear ~db ~session_key with
-                      | Ok () ->
+                      | Ok count ->
                           Buffer.add_string results
-                            "Cleared all done/cancelled tasks\n";
+                            (Printf.sprintf
+                               "Soft-deleted %d done/cancelled task(s). \
+                                Restore individual tasks with: op=restore \
+                                id=<id>. View deleted with: op=list \
+                                include_deleted=true\n"
+                               count);
                           Ok ()
                       | Error e -> Error e)
                   | "archive" -> (
@@ -1496,12 +1692,20 @@ let process_operations ~db ~session_key (ops : Yojson.Safe.t list) =
                         with _ -> None
                       in
                       match do_archive ~db ~session_key ~id with
-                      | Ok () ->
+                      | Ok count ->
                           Buffer.add_string results
                             (match id with
                             | Some id ->
-                                Printf.sprintf "Archived subtree #%s\n" id
-                            | None -> "Archived all completed root trees\n");
+                                Printf.sprintf
+                                  "Archived subtree #%s (%d task(s)). Restore \
+                                   with: op=restore id=%s\n"
+                                  id count id
+                            | None ->
+                                Printf.sprintf
+                                  "Archived all completed root trees (%d \
+                                   task(s)). View with: op=list \
+                                   include_deleted=true\n"
+                                  count);
                           Ok ()
                       | Error e -> Error e)
                   | "reorder" -> (
@@ -1599,13 +1803,86 @@ let process_operations ~db ~session_key (ops : Yojson.Safe.t list) =
                                 (Printf.sprintf "Deleted template '%s'\n" name);
                               Ok ()
                           | Error e -> Error e))
+                  | "restore" -> (
+                      let id =
+                        try Some (op_json |> member "id" |> to_string)
+                        with _ -> None
+                      in
+                      match id with
+                      | None ->
+                          Error
+                            "ID is required for restore. Provide the 'id' of \
+                             the soft-deleted task to recover. Use op=list \
+                             include_deleted=true to find deleted task IDs."
+                      | Some id -> (
+                          match do_restore ~db ~session_key ~id with
+                          | Ok count ->
+                              Buffer.add_string results
+                                (Printf.sprintf "Restored #%s (%d task(s))\n" id
+                                   count);
+                              Ok ()
+                          | Error e -> Error e))
+                  | "list" ->
+                      let include_deleted =
+                        try op_json |> member "include_deleted" |> to_bool
+                        with _ -> false
+                      in
+                      let tasks =
+                        load_tasks ~include_deleted ~db ~session_key ()
+                      in
+                      if tasks = [] then
+                        Buffer.add_string results
+                          (if include_deleted then
+                             "No tasks found (including deleted).\n"
+                           else
+                             "No active tasks. Use op=list \
+                              include_deleted=true to show deleted tasks.\n")
+                      else begin
+                        let buf = Buffer.create 256 in
+                        let rec render_children ~parent_id ~prefix =
+                          let children =
+                            List.filter (fun t -> t.parent_id = parent_id) tasks
+                            |> List.sort (fun a b ->
+                                compare a.sort_order b.sort_order)
+                          in
+                          let n = ref 0 in
+                          List.iter
+                            (fun t ->
+                              incr n;
+                              let number =
+                                match prefix with
+                                | "" -> string_of_int !n
+                                | p -> p ^ "." ^ string_of_int !n
+                              in
+                              let note_str =
+                                match t.note with
+                                | Some n -> " (" ^ n ^ ")"
+                                | None -> ""
+                              in
+                              let del_str =
+                                if t.deleted_at <> None then " [deleted]"
+                                else ""
+                              in
+                              Buffer.add_string buf
+                                (Printf.sprintf "%s. %s %s%s%s\n" number
+                                   (status_icon t.status) t.title note_str
+                                   del_str);
+                              render_children ~parent_id:(Some t.id)
+                                ~prefix:number)
+                            children
+                        in
+                        render_children ~parent_id:None ~prefix:"";
+                        Buffer.add_string results (Buffer.contents buf)
+                      end;
+                      Ok ()
                   | "" -> Error "Operation 'op' field is required"
                   | other ->
                       Error
                         (Printf.sprintf
                            "Unknown operation '%s'. Valid operations: add, \
-                            update, remove, clear, archive, reorder, seed, \
-                            save_template, list_templates, delete_template."
+                            update, remove, clear, archive, restore, list, \
+                            reorder, seed, save_template, list_templates, \
+                            delete_template."
                            other)
                 with Failure msg -> Error msg
               in
@@ -1646,13 +1923,19 @@ let tool ~db ?notify () : Tool.t =
     description =
       "Persistent hierarchical task tree. Survives context compaction, visible \
        every turn.\n\n\
-       Ops: add, update, remove, clear, archive, reorder, seed, save_template, \
-       list_templates, delete_template.\n\
+       Ops: add, update, remove, clear, archive, restore, list, reorder, seed, \
+       save_template, list_templates, delete_template.\n\
        Statuses: pending, in_progress, done, error, cancelled.\n\n\
        Rules:\n\
        - Parent cannot be done until all children are done/cancelled.\n\
-       - In-progress tasks cannot be removed.\n\
-       - Setting in_progress promotes pending ancestors.\n\n\
+       - In-progress tasks cannot be removed without recursive=true.\n\
+       - Setting in_progress promotes pending ancestors.\n\
+       - remove/clear/archive soft-delete (recoverable via restore).\n\n\
+       Bulk ops:\n\
+       - update recursive=true status=done|cancelled: marks full subtree.\n\
+       - remove recursive=true: force-removes entire subtree incl. in_progress.\n\
+       - restore id=X: recovers soft-deleted task and all its deleted children.\n\
+       - list include_deleted=true: shows all tasks including deleted ones.\n\n\
        Tips:\n\
        - Let IDs auto-assign (omit 'id' on add). Use 'depth' for tree building.\n\
        - Keep titles <60 chars; put details in 'note'.\n\
@@ -1688,6 +1971,8 @@ let tool ~db ?notify () : Tool.t =
                                               `String "remove";
                                               `String "clear";
                                               `String "archive";
+                                              `String "restore";
+                                              `String "list";
                                               `String "reorder";
                                               `String "seed";
                                               `String "save_template";
@@ -1717,6 +2002,10 @@ let tool ~db ?notify () : Tool.t =
                                             ] );
                                       ] );
                                   ("note", `Assoc [ ("type", `String "string") ]);
+                                  ( "recursive",
+                                    `Assoc [ ("type", `String "boolean") ] );
+                                  ( "include_deleted",
+                                    `Assoc [ ("type", `String "boolean") ] );
                                   ( "position",
                                     `Assoc [ ("type", `String "string") ] );
                                   ( "template",

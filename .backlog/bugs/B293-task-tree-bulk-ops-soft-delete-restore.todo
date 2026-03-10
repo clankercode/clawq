@@ -1,3 +1,19 @@
+---
+claimed_at: "2026-03-10T04:00:00Z"
+claimed_by: cli-user
+completed_at: "2026-03-10T05:37:12Z"
+complexity: high
+depends_on: []
+duration_minutes: 97.21588775925
+estimate_hours: 4
+id: B293
+priority: high
+started_at: "2026-03-10T04:00:00Z"
+status: done
+tags: []
+title: task_tree bulk ops, soft delete, and restore
+---
+
 # B293: task_tree — recursive/bulk status ops, soft delete, and restore
 
 ## Summary

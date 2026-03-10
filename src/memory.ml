@@ -1,4 +1,4 @@
-let schema_version = 7
+let schema_version = 8
 
 type session_activity = Active | Inactive | Any
 
@@ -220,6 +220,10 @@ let migrate_schema db current_version =
       init_session_schema db;
       init_epoch_schema db;
       init_inbound_queue_schema db;
+      (try
+         exec_exn db
+           "ALTER TABLE task_tree ADD COLUMN deleted_at TEXT DEFAULT NULL"
+       with _ -> ());
       exec_exn db
         (Printf.sprintf "INSERT INTO schema_version (version) VALUES (%d)"
            schema_version)
@@ -229,6 +233,10 @@ let migrate_schema db current_version =
       init_inbound_queue_schema db;
       exec_exn db
         "ALTER TABLE messages ADD COLUMN provider_response_items_json TEXT";
+      (try
+         exec_exn db
+           "ALTER TABLE task_tree ADD COLUMN deleted_at TEXT DEFAULT NULL"
+       with _ -> ());
       set_schema_version db schema_version
   | 2 ->
       init_session_schema db;
@@ -236,17 +244,29 @@ let migrate_schema db current_version =
       init_inbound_queue_schema db;
       exec_exn db
         "ALTER TABLE messages ADD COLUMN provider_response_items_json TEXT";
+      (try
+         exec_exn db
+           "ALTER TABLE task_tree ADD COLUMN deleted_at TEXT DEFAULT NULL"
+       with _ -> ());
       set_schema_version db schema_version
   | 3 ->
       init_session_schema db;
       init_epoch_schema db;
       init_inbound_queue_schema db;
+      (try
+         exec_exn db
+           "ALTER TABLE task_tree ADD COLUMN deleted_at TEXT DEFAULT NULL"
+       with _ -> ());
       set_schema_version db schema_version
   | 4 ->
       init_session_schema db;
       init_inbound_queue_schema db;
       init_models_cache_schema db;
       init_request_stats_schema db;
+      (try
+         exec_exn db
+           "ALTER TABLE task_tree ADD COLUMN deleted_at TEXT DEFAULT NULL"
+       with _ -> ());
       set_schema_version db schema_version
   | 5 ->
       init_session_schema db;
@@ -256,6 +276,10 @@ let migrate_schema db current_version =
       exec_exn db
         "ALTER TABLE session_state ADD COLUMN keepalive_enabled INTEGER NOT \
          NULL DEFAULT 0";
+      (try
+         exec_exn db
+           "ALTER TABLE task_tree ADD COLUMN deleted_at TEXT DEFAULT NULL"
+       with _ -> ());
       set_schema_version db schema_version
   | 6 ->
       init_session_schema db;
@@ -265,6 +289,20 @@ let migrate_schema db current_version =
       exec_exn db
         "ALTER TABLE session_state ADD COLUMN keepalive_enabled INTEGER NOT \
          NULL DEFAULT 0";
+      (try
+         exec_exn db
+           "ALTER TABLE task_tree ADD COLUMN deleted_at TEXT DEFAULT NULL"
+       with _ -> ());
+      set_schema_version db schema_version
+  | 7 ->
+      init_session_schema db;
+      init_inbound_queue_schema db;
+      init_models_cache_schema db;
+      init_request_stats_schema db;
+      (try
+         exec_exn db
+           "ALTER TABLE task_tree ADD COLUMN deleted_at TEXT DEFAULT NULL"
+       with _ -> ());
       set_schema_version db schema_version
   | n when n = schema_version ->
       init_session_schema db;

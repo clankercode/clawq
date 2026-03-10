@@ -25,7 +25,7 @@ let test_add_root_task () =
            true
          with Not_found -> false)
   | Error e -> Alcotest.fail ("Expected Ok, got Error: " ^ e));
-  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
   Alcotest.(check int) "one task" 1 (List.length tasks);
   Alcotest.(check string) "id is 1" "1" (List.hd tasks).id;
   Alcotest.(check string) "title" "Root task" (List.hd tasks).title
@@ -43,7 +43,7 @@ let test_add_custom_string_id () =
           ];
       ]
   in
-  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
   Alcotest.(check int) "one task" 1 (List.length tasks);
   Alcotest.(check string) "custom id" "auth" (List.hd tasks).id
 
@@ -69,7 +69,7 @@ let test_add_depth_auto_nesting () =
       ]
   in
   (match result with Ok _ -> () | Error e -> Alcotest.fail e);
-  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
   Alcotest.(check int) "three tasks" 3 (List.length tasks);
   let child = List.find (fun t -> t.Task_tree.title = "Child") tasks in
   Alcotest.(check (option string)) "child parent" (Some "1") child.parent_id;
@@ -95,7 +95,7 @@ let test_add_explicit_parent () =
           ];
       ]
   in
-  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
   let child = List.find (fun t -> t.Task_tree.title = "Child") tasks in
   Alcotest.(check (option string))
     "explicit parent" (Some "root") child.parent_id
@@ -144,7 +144,7 @@ let test_update_status_lifecycle () =
           ];
       ]
   in
-  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
   Alcotest.(check string)
     "in_progress" "in_progress"
     (Task_tree.string_of_status (List.hd tasks).status);
@@ -159,7 +159,7 @@ let test_update_status_lifecycle () =
           ];
       ]
   in
-  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
   Alcotest.(check string)
     "done" "done"
     (Task_tree.string_of_status (List.hd tasks).status)
@@ -368,7 +368,7 @@ let test_in_progress_propagation () =
           ];
       ]
   in
-  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
   let root = List.find (fun t -> t.Task_tree.id = "1") tasks in
   Alcotest.(check string)
     "root promoted to in_progress" "in_progress"
@@ -397,7 +397,7 @@ let test_remove_task_and_subtree () =
     Task_tree.process_operations ~db ~session_key:"s1"
       [ `Assoc [ ("op", `String "remove"); ("id", `String "1") ] ]
   in
-  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
   Alcotest.(check int) "only Other remains" 1 (List.length tasks);
   Alcotest.(check string) "remaining is Other" "Other" (List.hd tasks).title
 
@@ -463,7 +463,7 @@ let test_clear_only_done_cancelled () =
     Task_tree.process_operations ~db ~session_key:"s1"
       [ `Assoc [ ("op", `String "clear") ] ]
   in
-  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
   Alcotest.(check int) "pending + error remain" 2 (List.length tasks);
   let titles = List.map (fun t -> t.Task_tree.title) tasks in
   Alcotest.(check bool) "has Pending" true (List.mem "Pending" titles);
@@ -488,7 +488,7 @@ let test_archive_completed_subtree () =
       [ `Assoc [ ("op", `String "archive"); ("id", `String "1") ] ]
   in
   (match result with Ok _ -> () | Error e -> Alcotest.fail e);
-  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
   Alcotest.(check int) "only pending remains" 1 (List.length tasks);
   Alcotest.(check string)
     "remaining is pending" "Still pending" (List.hd tasks).title;
@@ -515,10 +515,12 @@ let test_archive_resets_auto_id () =
     Task_tree.process_operations ~db ~session_key:"s1"
       [ `Assoc [ ("op", `String "archive") ] ]
   in
-  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
   Alcotest.(check int) "empty after archive" 0 (List.length tasks);
+  (* Soft-delete preserves the row; next_auto_id still sees the max id=1,
+     so the next auto-id is 2 (avoids collision on potential restore). *)
   let next_id = Task_tree.next_auto_id ~db ~session_key:"s1" in
-  Alcotest.(check string) "reset to 1" "1" next_id
+  Alcotest.(check string) "next id after soft-delete" "2" next_id
 
 let test_archive_blocked_by_incomplete () =
   let db = fresh_db () in
@@ -559,8 +561,8 @@ let test_session_isolation () =
     Task_tree.process_operations ~db ~session_key:"s2"
       [ `Assoc [ ("op", `String "add"); ("title", `String "Session 2") ] ]
   in
-  let s1_tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
-  let s2_tasks = Task_tree.load_tasks ~db ~session_key:"s2" in
+  let s1_tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
+  let s2_tasks = Task_tree.load_tasks ~db ~session_key:"s2" () in
   Alcotest.(check int) "s1 has one" 1 (List.length s1_tasks);
   Alcotest.(check int) "s2 has one" 1 (List.length s2_tasks);
   Alcotest.(check string) "s1 title" "Session 1" (List.hd s1_tasks).title;
@@ -638,7 +640,7 @@ let test_batch_operations () =
       ]
   in
   (match result with Ok _ -> () | Error e -> Alcotest.fail e);
-  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
   Alcotest.(check int) "two tasks" 2 (List.length tasks);
   let t1 = List.find (fun t -> t.Task_tree.id = "1") tasks in
   Alcotest.(check string)
@@ -737,7 +739,7 @@ let test_auto_id_skips_agent_chosen () =
     Task_tree.process_operations ~db ~session_key:"s1"
       [ `Assoc [ ("op", `String "add"); ("title", `String "Auto next") ] ]
   in
-  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
   let last = List.find (fun t -> t.Task_tree.title = "Auto next") tasks in
   Alcotest.(check string) "auto-id skipped to 4" "4" last.id
 
@@ -766,7 +768,7 @@ let test_reopen_task () =
       ]
   in
   (match result with Ok _ -> () | Error e -> Alcotest.fail e);
-  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
   Alcotest.(check string)
     "reopened to pending" "pending"
     (Task_tree.string_of_status (List.hd tasks).status)
@@ -940,7 +942,7 @@ let test_batch_transaction_rollback () =
          with Not_found -> false)
   | Ok _ -> Alcotest.fail "Expected batch error");
   (* Verify rollback: New task should NOT exist *)
-  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
   Alcotest.(check int) "still 2 tasks (rollback)" 2 (List.length tasks)
 
 let test_render_with_legend () =
@@ -975,7 +977,7 @@ let test_note_only_update () =
       ]
   in
   (match result with Ok _ -> () | Error e -> Alcotest.fail e);
-  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
   let t = List.hd tasks in
   Alcotest.(check (option string)) "note persisted" (Some "my note") t.note;
   Alcotest.(check string)
@@ -1004,7 +1006,7 @@ let test_comma_separated_id_update () =
       ]
   in
   (match result with Ok _ -> () | Error e -> Alcotest.fail e);
-  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
   List.iter
     (fun t ->
       Alcotest.(check string)
@@ -1037,7 +1039,7 @@ let test_archive_all_completed_roots () =
       [ `Assoc [ ("op", `String "archive") ] ]
   in
   (match result with Ok _ -> () | Error e -> Alcotest.fail e);
-  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
   Alcotest.(check int) "no active tasks" 0 (List.length tasks);
   let archived =
     Memory.query_single_int db
@@ -1067,7 +1069,7 @@ let test_reorder_move_to_first () =
       ]
   in
   (match result with Ok _ -> () | Error e -> Alcotest.fail e);
-  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
   let titles = List.map (fun t -> t.Task_tree.title) tasks in
   Alcotest.(check (list string)) "C is first" [ "C"; "A"; "B" ] titles
 
@@ -1093,7 +1095,7 @@ let test_reorder_move_to_last () =
       ]
   in
   (match result with Ok _ -> () | Error e -> Alcotest.fail e);
-  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
   let titles = List.map (fun t -> t.Task_tree.title) tasks in
   Alcotest.(check (list string)) "A is last" [ "B"; "C"; "A" ] titles
 
@@ -1119,7 +1121,7 @@ let test_reorder_after_sibling () =
       ]
   in
   (match result with Ok _ -> () | Error e -> Alcotest.fail e);
-  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
   let titles = List.map (fun t -> t.Task_tree.title) tasks in
   Alcotest.(check (list string)) "A after B" [ "B"; "A"; "C" ] titles
 
@@ -1145,7 +1147,7 @@ let test_reorder_before_sibling () =
       ]
   in
   (match result with Ok _ -> () | Error e -> Alcotest.fail e);
-  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
   let titles = List.map (fun t -> t.Task_tree.title) tasks in
   Alcotest.(check (list string)) "C before A" [ "C"; "A"; "B" ] titles
 
@@ -1311,7 +1313,7 @@ let test_reorder_preserves_children () =
       ]
   in
   (match result with Ok _ -> () | Error e -> Alcotest.fail e);
-  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
   let child = List.find (fun t -> t.Task_tree.title = "Child of Root1") tasks in
   Alcotest.(check (option string))
     "child still parented to Root1" (Some "1") child.parent_id;
@@ -1341,7 +1343,7 @@ let test_add_empty_parent_normalized_to_root () =
       ]
   in
   (match result with Ok _ -> () | Error e -> Alcotest.fail e);
-  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
   Alcotest.(check int) "one task" 1 (List.length tasks);
   Alcotest.(check (option string))
     "root (no parent)" None (List.hd tasks).parent_id
@@ -1360,7 +1362,7 @@ let test_add_whitespace_parent_normalized () =
       ]
   in
   (match result with Ok _ -> () | Error e -> Alcotest.fail e);
-  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
   Alcotest.(check int) "one task" 1 (List.length tasks);
   Alcotest.(check (option string))
     "root (no parent)" None (List.hd tasks).parent_id
@@ -1380,7 +1382,7 @@ let test_add_depth_overrides_invalid_parent () =
       ]
   in
   (match result with Ok _ -> () | Error e -> Alcotest.fail e);
-  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
   Alcotest.(check int) "one task" 1 (List.length tasks);
   Alcotest.(check (option string))
     "root (depth 0 wins)" None (List.hd tasks).parent_id
@@ -1433,7 +1435,7 @@ let test_add_batch_b237_scenario () =
       ]
   in
   (match result with Ok _ -> () | Error e -> Alcotest.fail e);
-  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
   Alcotest.(check int) "five tasks" 5 (List.length tasks);
   let plan = List.find (fun t -> t.Task_tree.id = "plan") tasks in
   let step1 = List.find (fun t -> t.Task_tree.id = "step1") tasks in
@@ -1478,7 +1480,7 @@ let test_add_depth_and_valid_parent_uses_depth () =
       ]
   in
   (match result with Ok _ -> () | Error e -> Alcotest.fail e);
-  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
   let new_task = List.find (fun t -> t.Task_tree.id <> "root") tasks in
   Alcotest.(check (option string))
     "depth 0 wins over valid parent" None new_task.parent_id
@@ -1817,7 +1819,7 @@ let test_seed_inline_basic () =
       ]
   in
   (match result with Ok _ -> () | Error e -> Alcotest.fail e);
-  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
   Alcotest.(check int) "three tasks" 3 (List.length tasks);
   let root = List.find (fun t -> t.Task_tree.title = "Root") tasks in
   let child_a = List.find (fun t -> t.Task_tree.title = "Child A") tasks in
@@ -1854,7 +1856,7 @@ let test_seed_with_vars () =
       ]
   in
   (match result with Ok _ -> () | Error e -> Alcotest.fail e);
-  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
   let root = List.find (fun t -> t.Task_tree.id = "1") tasks in
   Alcotest.(check string)
     "title substituted" "Review PR #42 in clawq" root.title;
@@ -1886,7 +1888,7 @@ let test_seed_unresolved_vars () =
       ]
   in
   (match result with Ok _ -> () | Error e -> Alcotest.fail e);
-  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
   Alcotest.(check string)
     "unresolved left as-is" "yes and {{unknown}}" (List.hd tasks).title
 
@@ -1931,7 +1933,7 @@ let test_seed_mixed_with_other_ops () =
       ]
   in
   (match result with Ok _ -> () | Error e -> Alcotest.fail e);
-  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
   Alcotest.(check int) "one task" 1 (List.length tasks);
   Alcotest.(check string)
     "task is in_progress" "in_progress"
@@ -2029,7 +2031,7 @@ let test_save_template_and_seed_round_trip () =
   (match seed_result with
   | Ok _ -> ()
   | Error e -> Alcotest.fail ("seed failed: " ^ e));
-  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" in
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
   Alcotest.(check int) "three tasks seeded" 3 (List.length tasks);
   let root = List.find (fun t -> t.Task_tree.title = "Review PR #99") tasks in
   Alcotest.(check (option string)) "root is root" None root.parent_id;
@@ -2448,6 +2450,473 @@ let test_process_operations_compact_output () =
          with Not_found -> false)
   | Error e -> Alcotest.fail ("Expected Ok, got Error: " ^ e)
 
+(* ── B293: bulk ops, soft delete, restore ── *)
+
+let test_recursive_update_cancelled () =
+  let db = fresh_db () in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "add"); ("title", `String "Root"); ("depth", `Int 0);
+          ];
+        `Assoc
+          [
+            ("op", `String "add");
+            ("title", `String "Child A");
+            ("depth", `Int 1);
+          ];
+        `Assoc
+          [
+            ("op", `String "add");
+            ("title", `String "Child B");
+            ("depth", `Int 1);
+          ];
+      ]
+  in
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "update");
+            ("id", `String "1");
+            ("status", `String "cancelled");
+            ("recursive", `Bool true);
+          ];
+      ]
+  in
+  (match result with
+  | Ok _ -> ()
+  | Error e -> Alcotest.fail ("Expected Ok, got Error: " ^ e));
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
+  Alcotest.(check int) "all 3 tasks still visible" 3 (List.length tasks);
+  List.iter
+    (fun t ->
+      Alcotest.(check string)
+        (Printf.sprintf "#%s is cancelled" t.Task_tree.id)
+        "cancelled"
+        (Task_tree.string_of_status t.status))
+    tasks
+
+let test_recursive_update_done () =
+  let db = fresh_db () in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "add"); ("title", `String "Root"); ("depth", `Int 0);
+          ];
+        `Assoc
+          [
+            ("op", `String "add"); ("title", `String "Child"); ("depth", `Int 1);
+          ];
+      ]
+  in
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "update");
+            ("id", `String "1");
+            ("status", `String "done");
+            ("recursive", `Bool true);
+          ];
+      ]
+  in
+  (match result with
+  | Ok output ->
+      Alcotest.(check bool)
+        "contains recursively" true
+        (try
+           ignore
+             (Str.search_forward (Str.regexp_string "recursively") output 0);
+           true
+         with Not_found -> false)
+  | Error e -> Alcotest.fail ("Expected Ok, got Error: " ^ e));
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
+  List.iter
+    (fun t ->
+      Alcotest.(check string)
+        (Printf.sprintf "#%s is done" t.Task_tree.id)
+        "done"
+        (Task_tree.string_of_status t.status))
+    tasks
+
+let test_recursive_update_invalid_status () =
+  let db = fresh_db () in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [ `Assoc [ ("op", `String "add"); ("title", `String "Root") ] ]
+  in
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "update");
+            ("id", `String "1");
+            ("status", `String "pending");
+            ("recursive", `Bool true);
+          ];
+      ]
+  in
+  match result with
+  | Error _ -> ()
+  | Ok _ ->
+      Alcotest.fail "Expected Error for recursive=true with status=pending"
+
+let test_recursive_update_missing_status () =
+  let db = fresh_db () in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [ `Assoc [ ("op", `String "add"); ("title", `String "Root") ] ]
+  in
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "update");
+            ("id", `String "1");
+            ("recursive", `Bool true);
+          ];
+      ]
+  in
+  match result with
+  | Error msg ->
+      Alcotest.(check bool)
+        "mentions status required" true
+        (try
+           ignore (Str.search_forward (Str.regexp_string "status") msg 0);
+           true
+         with Not_found -> false)
+  | Ok _ ->
+      Alcotest.fail "Expected Error for recursive=true without status field"
+
+let test_remove_soft_deletes () =
+  let db = fresh_db () in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [ `Assoc [ ("op", `String "add"); ("title", `String "Task") ] ]
+  in
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [ `Assoc [ ("op", `String "remove"); ("id", `String "1") ] ]
+  in
+  (match result with
+  | Ok output ->
+      Alcotest.(check bool)
+        "contains restore hint" true
+        (try
+           ignore
+             (Str.search_forward (Str.regexp_string "Restore with") output 0);
+           true
+         with Not_found -> false)
+  | Error e -> Alcotest.fail ("Expected Ok, got Error: " ^ e));
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
+  Alcotest.(check int) "no active tasks" 0 (List.length tasks);
+  let all_tasks =
+    Task_tree.load_tasks ~include_deleted:true ~db ~session_key:"s1" ()
+  in
+  Alcotest.(check int) "one deleted task" 1 (List.length all_tasks);
+  Alcotest.(check bool)
+    "deleted_at is set" true
+    ((List.hd all_tasks).Task_tree.deleted_at <> None)
+
+let test_remove_recursive_bypasses_in_progress () =
+  let db = fresh_db () in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "add"); ("title", `String "Root"); ("depth", `Int 0);
+          ];
+        `Assoc
+          [
+            ("op", `String "add");
+            ("title", `String "Child");
+            ("depth", `Int 1);
+            ("status", `String "in_progress");
+          ];
+      ]
+  in
+  let r1 =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [ `Assoc [ ("op", `String "remove"); ("id", `String "1") ] ]
+  in
+  (match r1 with
+  | Error _ -> ()
+  | Ok _ -> Alcotest.fail "Expected error for remove with in_progress subtree");
+  let r2 =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "remove");
+            ("id", `String "1");
+            ("recursive", `Bool true);
+          ];
+      ]
+  in
+  (match r2 with
+  | Ok _ -> ()
+  | Error e -> Alcotest.fail ("Expected Ok with recursive=true, got: " ^ e));
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
+  Alcotest.(check int) "all removed" 0 (List.length tasks)
+
+let test_clear_soft_deletes () =
+  let db = fresh_db () in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "add");
+            ("title", `String "Done task");
+            ("status", `String "done");
+          ];
+        `Assoc [ ("op", `String "add"); ("title", `String "Pending task") ];
+      ]
+  in
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [ `Assoc [ ("op", `String "clear") ] ]
+  in
+  (match result with
+  | Ok output ->
+      Alcotest.(check bool)
+        "mentions soft-deleted" true
+        (try
+           ignore
+             (Str.search_forward (Str.regexp_string "Soft-deleted") output 0);
+           true
+         with Not_found -> false)
+  | Error e -> Alcotest.fail ("Expected Ok, got Error: " ^ e));
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
+  Alcotest.(check int) "only pending task remains active" 1 (List.length tasks);
+  Alcotest.(check string)
+    "remaining task is pending" "Pending task" (List.hd tasks).title
+
+let test_restore_task () =
+  let db = fresh_db () in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "add"); ("title", `String "Root"); ("depth", `Int 0);
+          ];
+        `Assoc
+          [
+            ("op", `String "add"); ("title", `String "Child"); ("depth", `Int 1);
+          ];
+      ]
+  in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "remove");
+            ("id", `String "1");
+            ("recursive", `Bool true);
+          ];
+      ]
+  in
+  let active_before = Task_tree.load_tasks ~db ~session_key:"s1" () in
+  Alcotest.(check int)
+    "no active tasks after remove" 0
+    (List.length active_before);
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [ `Assoc [ ("op", `String "restore"); ("id", `String "1") ] ]
+  in
+  (match result with
+  | Ok output ->
+      Alcotest.(check bool)
+        "contains Restored" true
+        (try
+           ignore (Str.search_forward (Str.regexp_string "Restored") output 0);
+           true
+         with Not_found -> false)
+  | Error e -> Alcotest.fail ("Expected Ok, got Error: " ^ e));
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
+  Alcotest.(check int) "both tasks restored" 2 (List.length tasks);
+  List.iter
+    (fun t ->
+      Alcotest.(check bool)
+        (Printf.sprintf "#%s deleted_at is None" t.Task_tree.id)
+        true
+        (t.Task_tree.deleted_at = None))
+    tasks
+
+let test_restore_not_deleted () =
+  let db = fresh_db () in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [ `Assoc [ ("op", `String "add"); ("title", `String "Task") ] ]
+  in
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [ `Assoc [ ("op", `String "restore"); ("id", `String "1") ] ]
+  in
+  match result with
+  | Error _ -> ()
+  | Ok _ ->
+      Alcotest.fail "Expected Error when restoring an active (non-deleted) task"
+
+let test_restore_not_found () =
+  let db = fresh_db () in
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [ `Assoc [ ("op", `String "restore"); ("id", `String "999") ] ]
+  in
+  match result with
+  | Error _ -> ()
+  | Ok _ -> Alcotest.fail "Expected Error when restoring nonexistent task"
+
+let test_list_include_deleted () =
+  let db = fresh_db () in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc [ ("op", `String "add"); ("title", `String "Active task") ];
+        `Assoc
+          [
+            ("op", `String "add");
+            ("title", `String "Deleted task");
+            ("status", `String "done");
+          ];
+      ]
+  in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [ `Assoc [ ("op", `String "remove"); ("id", `String "2") ] ]
+  in
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [ `Assoc [ ("op", `String "list"); ("include_deleted", `Bool true) ] ]
+  in
+  match result with
+  | Ok output ->
+      Alcotest.(check bool)
+        "lists active task" true
+        (try
+           ignore
+             (Str.search_forward (Str.regexp_string "Active task") output 0);
+           true
+         with Not_found -> false);
+      Alcotest.(check bool)
+        "lists deleted task" true
+        (try
+           ignore
+             (Str.search_forward (Str.regexp_string "Deleted task") output 0);
+           true
+         with Not_found -> false);
+      Alcotest.(check bool)
+        "marks deleted" true
+        (try
+           ignore (Str.search_forward (Str.regexp_string "[deleted]") output 0);
+           true
+         with Not_found -> false)
+  | Error e -> Alcotest.fail ("Expected Ok, got Error: " ^ e)
+
+let test_list_excludes_deleted_by_default () =
+  let db = fresh_db () in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc [ ("op", `String "add"); ("title", `String "Active") ];
+        `Assoc
+          [
+            ("op", `String "add");
+            ("title", `String "Deleted");
+            ("status", `String "done");
+          ];
+      ]
+  in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [ `Assoc [ ("op", `String "remove"); ("id", `String "2") ] ]
+  in
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [ `Assoc [ ("op", `String "list") ] ]
+  in
+  match result with
+  | Ok output ->
+      Alcotest.(check bool)
+        "shows active" true
+        (try
+           ignore (Str.search_forward (Str.regexp_string "Active") output 0);
+           true
+         with Not_found -> false);
+      Alcotest.(check bool)
+        "hides deleted" false
+        (try
+           ignore (Str.search_forward (Str.regexp_string "Deleted") output 0);
+           true
+         with Not_found -> false)
+  | Error e -> Alcotest.fail ("Expected Ok, got Error: " ^ e)
+
+let test_purge_disabled_by_default () =
+  let db = fresh_db () in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "add");
+            ("title", `String "Task");
+            ("status", `String "done");
+          ];
+      ]
+  in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [ `Assoc [ ("op", `String "remove"); ("id", `String "1") ] ]
+  in
+  Task_tree.maybe_purge_deleted_tasks ~db ~config:Runtime_config.default;
+  let all =
+    Task_tree.load_tasks ~include_deleted:true ~db ~session_key:"s1" ()
+  in
+  Alcotest.(check int)
+    "soft-deleted row survives when purge disabled" 1 (List.length all)
+
+let test_purge_removes_old_rows () =
+  let db = fresh_db () in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "add");
+            ("title", `String "Task");
+            ("status", `String "done");
+          ];
+      ]
+  in
+  Memory.exec_exn db
+    "UPDATE task_tree SET deleted_at = datetime('now', '-2 days') WHERE id = \
+     '1'";
+  let config =
+    {
+      Runtime_config.default with
+      memory =
+        { Runtime_config.default.memory with task_tree_purge_after_days = 1 };
+    }
+  in
+  Task_tree.maybe_purge_deleted_tasks ~db ~config;
+  let all =
+    Task_tree.load_tasks ~include_deleted:true ~db ~session_key:"s1" ()
+  in
+  Alcotest.(check int) "old soft-deleted row hard-purged" 0 (List.length all)
+
 let suite =
   [
     Alcotest.test_case "init_schema idempotent" `Quick
@@ -2588,4 +3057,26 @@ let suite =
       test_render_compact_archive_nudge;
     Alcotest.test_case "process_operations compact output" `Quick
       test_process_operations_compact_output;
+    (* B293: bulk ops, soft delete, restore *)
+    Alcotest.test_case "recursive update cancelled" `Quick
+      test_recursive_update_cancelled;
+    Alcotest.test_case "recursive update done" `Quick test_recursive_update_done;
+    Alcotest.test_case "recursive update invalid status" `Quick
+      test_recursive_update_invalid_status;
+    Alcotest.test_case "recursive update missing status" `Quick
+      test_recursive_update_missing_status;
+    Alcotest.test_case "remove soft-deletes" `Quick test_remove_soft_deletes;
+    Alcotest.test_case "remove recursive bypasses in_progress" `Quick
+      test_remove_recursive_bypasses_in_progress;
+    Alcotest.test_case "clear soft-deletes" `Quick test_clear_soft_deletes;
+    Alcotest.test_case "restore task" `Quick test_restore_task;
+    Alcotest.test_case "restore not deleted" `Quick test_restore_not_deleted;
+    Alcotest.test_case "restore not found" `Quick test_restore_not_found;
+    Alcotest.test_case "list include_deleted" `Quick test_list_include_deleted;
+    Alcotest.test_case "list excludes deleted by default" `Quick
+      test_list_excludes_deleted_by_default;
+    Alcotest.test_case "purge disabled by default" `Quick
+      test_purge_disabled_by_default;
+    Alcotest.test_case "purge removes old rows" `Quick
+      test_purge_removes_old_rows;
   ]

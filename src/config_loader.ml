@@ -943,6 +943,10 @@ let parse_config ?(resolve_secrets = true) json =
         try m |> member "pre_compaction_flush" |> to_bool
         with _ -> default.memory.pre_compaction_flush
       in
+      let task_tree_purge_after_days =
+        try m |> member "task_tree_purge_after_days" |> to_int
+        with _ -> default.memory.task_tree_purge_after_days
+      in
       ({
          backend;
          search_enabled;
@@ -955,6 +959,7 @@ let parse_config ?(resolve_secrets = true) json =
          max_messages_per_session;
          max_message_age_days;
          pre_compaction_flush;
+         task_tree_purge_after_days;
        }
         : Runtime_config.memory_config)
     with _ -> default.memory

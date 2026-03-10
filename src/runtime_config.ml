@@ -267,6 +267,9 @@ type memory_config = {
   max_messages_per_session : int;
   max_message_age_days : int;
   pre_compaction_flush : bool;
+  task_tree_purge_after_days : int;
+      (** Hard-purge soft-deleted task_tree rows after this many days. Set to <=
+          0 to disable auto-purge (default: -1). *)
 }
 
 type rate_limit_config = {
@@ -497,6 +500,7 @@ let default =
         max_messages_per_session = 500;
         max_message_age_days = 30;
         pre_compaction_flush = true;
+        task_tree_purge_after_days = -1;
       };
     security =
       {

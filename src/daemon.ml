@@ -1914,7 +1914,8 @@ let run ~(config : Runtime_config.t) =
                   Logs.info (fun m -> m "Running periodic memory cleanup");
                   Memory.cleanup_all ~db
                     ~max_messages:mem.max_messages_per_session
-                    ~max_age_days:mem.max_message_age_days
+                    ~max_age_days:mem.max_message_age_days;
+                  Task_tree.maybe_purge_deleted_tasks ~db ~config:cur_config
                 end;
                 if
                   cur_config.security.audit_enabled
