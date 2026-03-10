@@ -1716,6 +1716,51 @@ let test_shell_exec_cd_prefix_optimization () =
         "exit code 0" true
         (has_substr result "exit_code: 0"))
 
+let test_git_operations_repo_path_relative_rejected () =
+  with_temp_workspace (fun workspace ->
+      let tool = Tools_builtin.git_operations ~workspace in
+      let result =
+        Lwt_main.run
+          (tool.Tool.invoke
+             (`Assoc
+                [
+                  ("operation", `String "status");
+                  ("repo_path", `String "relative/path");
+                ]))
+      in
+      Alcotest.(check bool)
+        "relative repo_path returns error" true
+        (contains result "Error:"))
+
+let test_git_operations_repo_path_absolute_used_as_cwd () =
+  with_temp_workspace (fun workspace ->
+      let repo = Filename.concat workspace "repo" in
+      Unix.mkdir repo 0o755;
+      let real_git =
+        read_process_output_or_fail ~label:"which git" "which git"
+      in
+      run_command_or_fail ~label:"git init"
+        (Printf.sprintf "%s -C %s init -q" real_git (Filename.quote repo));
+      run_command_or_fail ~label:"git config user.email"
+        (Printf.sprintf "%s -C %s config user.email test@example.com" real_git
+           (Filename.quote repo));
+      run_command_or_fail ~label:"git config user.name"
+        (Printf.sprintf "%s -C %s config user.name 'Test User'" real_git
+           (Filename.quote repo));
+      let tool = Tools_builtin.git_operations ~workspace in
+      let result =
+        Lwt_main.run
+          (tool.Tool.invoke
+             (`Assoc
+                [
+                  ("operation", `String "status");
+                  ("repo_path", `String repo);
+                ]))
+      in
+      Alcotest.(check bool)
+        "status in explicit repo succeeds (no fatal error)" true
+        (not (contains result "fatal:")))
+
 let suite =
   [
     Alcotest.test_case "normalize absolute" `Quick test_normalize_absolute;
@@ -1848,4 +1893,8 @@ let suite =
       test_shell_exec_cd_prefix_optimization;
     Alcotest.test_case "shell_exec injects CLAWQ_SESSION_ID env" `Quick
       test_shell_exec_injects_session_id_env;
+    Alcotest.test_case "git_operations relative repo_path rejected" `Quick
+      test_git_operations_repo_path_relative_rejected;
+    Alcotest.test_case "git_operations absolute repo_path used as cwd" `Quick
+      test_git_operations_repo_path_absolute_used_as_cwd;
   ]

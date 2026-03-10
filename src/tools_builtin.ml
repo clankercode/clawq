@@ -3362,6 +3362,18 @@ let git_operations ~workspace =
                       ("type", `String "integer");
                       ("description", `String "Log entry count (default 10)");
                     ] );
+                ( "repo_path",
+                  `Assoc
+                    [
+                      ("type", `String "string");
+                      ( "description",
+                        `String
+                          "Absolute path to the git repo or worktree root. \
+                           When omitted, defaults to the workspace directory. \
+                           Use this when operating on a repo outside the \
+                           workspace (e.g. ~/src/myproject or a git worktree)."
+                      );
+                    ] );
               ] );
           ("required", `List [ `String "operation" ]);
         ];
@@ -3380,6 +3392,13 @@ let git_operations ~workspace =
         let branch = try args |> member "branch" |> to_string with _ -> "" in
         let cached = try args |> member "cached" |> to_bool with _ -> false in
         let limit = try args |> member "limit" |> to_int with _ -> 10 in
+        let repo_path =
+          try
+            match args |> member "repo_path" with
+            | `String s when s <> "" -> Some s
+            | _ -> None
+          with _ -> None
+        in
         let paths =
           try
             match args |> member "paths" with
@@ -3393,6 +3412,22 @@ let git_operations ~workspace =
         in
         if operation = "" then Lwt.return "Error: operation is required"
         else
+          let cwd_result =
+            match repo_path with
+            | None -> Ok workspace
+            | Some p when not (Filename.is_relative p) -> Ok p
+            | Some p ->
+                Error
+                  (Printf.sprintf
+                     "Error: repo_path must be an absolute path starting with \
+                      \"/\". Received: %S. Provide an absolute path like \
+                      \"/home/user/src/myproject\" or omit repo_path to use \
+                      the default workspace."
+                     p)
+          in
+          match cwd_result with
+          | Error err -> Lwt.return err
+          | Ok cwd ->
           let build_argv () =
             match operation with
             | "status" -> Ok [ "git"; "status"; "--short" ]
@@ -3450,7 +3485,7 @@ let git_operations ~workspace =
                   |]
                 in
                 let proc =
-                  Process_group.start ~cwd:workspace ~env
+                  Process_group.start ~cwd ~env
                     (Process_group.Exec (Array.of_list argv))
                 in
                 let runner_result, runner_wakener = Lwt.wait () in
