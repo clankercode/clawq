@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-10T01:17:38Z"
+claimed_by: cli-user
+completed_at: "2026-03-10T01:21:52Z"
 complexity: medium
 depends_on: []
+duration_minutes: 4.2456405514
 estimate_hours: 1
 id: B276
 priority: high
-status: pending
+started_at: "2026-03-10T01:17:38Z"
+status: done
 tags: []
 title: calling `/model glm-5` in telegram should work the same as `/model set glm-5`. So the set is optional and assumed default if we don't have set|fav|unfav|list|usage etc
 ---

@@ -15,7 +15,17 @@ let result_to_string = function
   | Slash_commands.ForkAnd s -> "ForkAnd(" ^ s ^ ")"
   | Slash_commands.Tools -> "Tools"
   | Slash_commands.Tasks -> "Tasks"
-  | Slash_commands.Model _ -> "Model"
+  | Slash_commands.Model Slash_commands.ModelShow -> "Model(Show)"
+  | Slash_commands.Model (Slash_commands.ModelSet name) ->
+      "Model(Set " ^ name ^ ")"
+  | Slash_commands.Model (Slash_commands.ModelFav name) ->
+      "Model(Fav " ^ name ^ ")"
+  | Slash_commands.Model (Slash_commands.ModelUnfav name) ->
+      "Model(Unfav " ^ name ^ ")"
+  | Slash_commands.Model (Slash_commands.ModelList None) -> "Model(List)"
+  | Slash_commands.Model (Slash_commands.ModelList (Some p)) ->
+      "Model(List " ^ p ^ ")"
+  | Slash_commands.Model Slash_commands.ModelUsage -> "Model(Usage)"
   | Slash_commands.NotACommand -> "NotACommand"
 
 let result_eq a b =
@@ -483,6 +493,39 @@ let test_format_tools_telegram () =
     "contains required markers" true
     (contains_str output "key* value*")
 
+let test_model_bare_name () =
+  match Slash_commands.handle "/model glm-5" with
+  | Slash_commands.Model (Slash_commands.ModelSet "glm-5") -> ()
+  | other ->
+      Alcotest.fail
+        (Printf.sprintf "expected Model(Set glm-5), got %s"
+           (result_to_string other))
+
+let test_model_bare_name_provider_prefix () =
+  match Slash_commands.handle "/model google/gemini-1.5-pro" with
+  | Slash_commands.Model (Slash_commands.ModelSet "google/gemini-1.5-pro") -> ()
+  | other ->
+      Alcotest.fail
+        (Printf.sprintf "expected Model(Set google/gemini-1.5-pro), got %s"
+           (result_to_string other))
+
+let test_model_set_explicit_unchanged () =
+  match Slash_commands.handle "/model set glm-5" with
+  | Slash_commands.Model (Slash_commands.ModelSet "glm-5") -> ()
+  | other ->
+      Alcotest.fail
+        (Printf.sprintf "expected Model(Set glm-5), got %s"
+           (result_to_string other))
+
+let test_model_bare_set_keyword_still_error () =
+  (* "/model set" with no name: first token is "set" (known), so falls to usage *)
+  match Slash_commands.handle "/model set" with
+  | Slash_commands.Reply s ->
+      Alcotest.(check bool) "mentions Usage" true (contains_str s "Usage")
+  | other ->
+      Alcotest.fail
+        (Printf.sprintf "expected Reply(Usage), got %s" (result_to_string other))
+
 let test_is_secret_path () =
   Alcotest.(check bool)
     "api_key is secret" true
@@ -555,4 +598,11 @@ let suite =
     Alcotest.test_case "/tasks returns Tasks" `Quick test_tasks_command;
     Alcotest.test_case "format_tools_plain" `Quick test_format_tools_plain;
     Alcotest.test_case "format_tools_telegram" `Quick test_format_tools_telegram;
+    Alcotest.test_case "/model bare name sets model" `Quick test_model_bare_name;
+    Alcotest.test_case "/model provider/name sets model" `Quick
+      test_model_bare_name_provider_prefix;
+    Alcotest.test_case "/model set name still works" `Quick
+      test_model_set_explicit_unchanged;
+    Alcotest.test_case "/model set with no name shows usage" `Quick
+      test_model_bare_set_keyword_still_error;
   ]

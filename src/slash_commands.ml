@@ -232,6 +232,9 @@ let handle text =
         | "tools" -> Tools
         | "tasks" -> Tasks
         | "model" -> (
+            let known_subcommands =
+              [ "set"; "fav"; "unfav"; "list"; "usage" ]
+            in
             match args with
             | [] -> Model ModelShow
             | [ "set"; name ] -> Model (ModelSet name)
@@ -241,6 +244,11 @@ let handle text =
                 let provider = match rest with [ p ] -> Some p | _ -> None in
                 Model (ModelList provider)
             | [ "usage" ] -> Model ModelUsage
+            | first :: _
+              when not
+                     (List.mem (String.lowercase_ascii first) known_subcommands)
+              ->
+                Model (ModelSet (String.concat " " args))
             | _ ->
                 Reply
                   "Usage: /model [set|fav|unfav|list|usage] [args]\n\
