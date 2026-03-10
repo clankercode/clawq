@@ -343,3 +343,4 @@ bugs:
     - file: B342-setup-wizard-for-telegram-conf.todo
     - file: B343-setup-wizard-for-cloudflare-tu.todo
     - file: B344-setup-wizard-for-ms-teams.todo
+    - file: B345-setup-wizard-for-github-webhoo.todo

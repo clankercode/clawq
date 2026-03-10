@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B345
+priority: high
+status: pending
+tags: []
+title: Setup wizard for GitHub webhooks
+---
+
+Setup wizard for GitHub webhooks
