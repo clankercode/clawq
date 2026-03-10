@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B356
+priority: high
+status: pending
+tags: []
+title: /config (via telegram) will redact a field called 'webhook_secret' but not a field called 'token'. The redaction should be general and broader
+---
+
+/config (via telegram) will redact a field called 'webhook_secret' but not a field called 'token'. The redaction should be general and broader
