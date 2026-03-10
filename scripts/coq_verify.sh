@@ -28,6 +28,7 @@ ${COQC} -R coq/theories Clawq coq/theories/Clawq/AuditRetention.v
 ${COQC} -R coq/theories Clawq coq/theories/Clawq/AgentLoop.v
 ${COQC} -R coq/theories Clawq coq/theories/Clawq/SessionIsolation.v
 ${COQC} -R coq/theories Clawq coq/theories/Clawq/LandlockPolicy.v
+${COQC} -R coq/theories Clawq coq/theories/Clawq/ToolSafety.v
 
 echo "Compiling Coq proofs..."
 ${COQC} -R coq/theories Clawq coq/theories/Clawq/ConfigProofs.v

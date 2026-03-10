@@ -13,6 +13,7 @@ Require Import Clawq.AuditChain.
 Require Import Clawq.AuditChainConcrete.
 Require Import Clawq.AgentLoop.
 Require Import Clawq.RateLimiter.
+Require Import Clawq.ToolSafety.
 
 Extraction Language OCaml.
 
@@ -122,6 +123,22 @@ Extraction "src/extracted/clawq_core.ml"
   RateLimiter.one_token
   RateLimiter.refill
   RateLimiter.try_consume
+  (* Tool safety *)
+  ToolSafety.risk_gte
+  ToolSafety.risk_lte
+  ToolSafety.is_high_risk
+  ToolSafety.is_medium_risk
+  ToolSafety.is_low_risk
+  ToolSafety.requires_authorization
+  ToolSafety.is_authorized
+  ToolSafety.tool_in_allowlist
+  ToolSafety.invocation_safe
+  ToolSafety.valid_tool_config
+  ToolSafety.all_tools_safe
+  ToolSafety.shell_exec_tool
+  ToolSafety.file_read_tool
+  ToolSafety.file_write_tool
+  ToolSafety.file_append_tool
   (* AgentLoop history helpers (F10 partial) *)
   AgentLoop.string_in
   AgentLoop.trim_history

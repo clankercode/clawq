@@ -200,6 +200,12 @@ let rec existsb f = function
 | [] -> false
 | a :: l0 -> (||) (f a) (existsb f l0)
 
+(** val forallb : ('a1 -> bool) -> 'a1 list -> bool **)
+
+let rec forallb f = function
+| [] -> true
+| a :: l0 -> (&&) (f a) (forallb f l0)
+
 (** val filter : ('a1 -> bool) -> 'a1 list -> 'a1 list **)
 
 let rec filter f = function
@@ -761,7 +767,7 @@ let compute_prev_hash = function
     string -> string -> string -> string -> string option -> string -> string
     option -> string option -> string **)
 
-let compute_signature key prev_hash timestamp event_type session_key details tool_name risk_level =
+let compute_signature key prev_hash timestamp event_type session_key details tool_name0 risk_level0 =
   hmac0 key
     ((^) (encode_signed_field0 prev_hash)
       ((^) "|"
@@ -773,20 +779,20 @@ let compute_signature key prev_hash timestamp event_type session_key details too
                   ((^) "|"
                     ((^) (encode_signed_field0 details)
                       ((^) "|"
-                        ((^) (encode_signed_field0 (field_text tool_name))
+                        ((^) (encode_signed_field0 (field_text tool_name0))
                           ((^) "|"
-                            (encode_signed_field0 (field_text risk_level))))))))))))))
+                            (encode_signed_field0 (field_text risk_level0))))))))))))))
 
 (** val make_entry :
     string -> string option -> string -> string -> string option -> string ->
     string option -> string option -> audit_entry **)
 
-let make_entry key prev_sig ts et session_key det tool_name risk_level =
+let make_entry key prev_sig ts et session_key det tool_name0 risk_level0 =
   let ph = compute_prev_hash prev_sig in
   { ae_timestamp = ts; ae_event_type = et; ae_session_key = session_key;
-  ae_details = det; ae_tool_name = tool_name; ae_risk_level = risk_level;
+  ae_details = det; ae_tool_name = tool_name0; ae_risk_level = risk_level0;
   ae_signature =
-  (compute_signature key ph ts et session_key det tool_name risk_level);
+  (compute_signature key ph ts et session_key det tool_name0 risk_level0);
   ae_prev_hash = ph }
 
 (** val verify_link : string -> string option -> audit_entry -> bool **)
@@ -967,3 +973,102 @@ module RateLimiter =
            b'.last_refill })
     else (false, b')
  end
+
+type risk_level =
+| Low
+| Medium
+| High
+
+(** val risk_gte : risk_level -> risk_level -> bool **)
+
+let risk_gte r1 r2 =
+  match r1 with
+  | Low -> (match r2 with
+            | Low -> true
+            | _ -> false)
+  | Medium -> (match r2 with
+               | High -> false
+               | _ -> true)
+  | High -> true
+
+(** val risk_lte : risk_level -> risk_level -> bool **)
+
+let risk_lte r1 r2 =
+  risk_gte r2 r1
+
+type tool_spec = { tool_name : string; tool_risk : risk_level }
+
+(** val is_high_risk : risk_level -> bool **)
+
+let is_high_risk = function
+| High -> true
+| _ -> false
+
+(** val is_medium_risk : risk_level -> bool **)
+
+let is_medium_risk = function
+| Medium -> true
+| _ -> false
+
+(** val is_low_risk : risk_level -> bool **)
+
+let is_low_risk = function
+| Low -> true
+| _ -> false
+
+(** val requires_authorization : tool_spec -> bool **)
+
+let requires_authorization t =
+  match t.tool_risk with
+  | Low -> false
+  | _ -> true
+
+(** val is_authorized : string -> string list -> bool **)
+
+let is_authorized tool authorized =
+  existsb ((=) tool) authorized
+
+(** val tool_in_allowlist : string -> string list -> bool **)
+
+let tool_in_allowlist tool allowlist =
+  existsb ((=) tool) allowlist
+
+(** val invocation_safe : tool_spec -> string list -> string list -> bool **)
+
+let invocation_safe t allowlist authorized =
+  (&&) (tool_in_allowlist t.tool_name allowlist)
+    (if requires_authorization t
+     then is_authorized t.tool_name authorized
+     else true)
+
+(** val shell_exec_tool : tool_spec **)
+
+let shell_exec_tool =
+  { tool_name = "shell_exec"; tool_risk = High }
+
+(** val file_read_tool : tool_spec **)
+
+let file_read_tool =
+  { tool_name = "file_read"; tool_risk = Low }
+
+(** val file_write_tool : tool_spec **)
+
+let file_write_tool =
+  { tool_name = "file_write"; tool_risk = Medium }
+
+(** val file_append_tool : tool_spec **)
+
+let file_append_tool =
+  { tool_name = "file_append"; tool_risk = Medium }
+
+(** val valid_tool_config :
+    tool_spec -> string list -> string list -> bool **)
+
+let valid_tool_config =
+  invocation_safe
+
+(** val all_tools_safe :
+    tool_spec list -> string list -> string list -> bool **)
+
+let all_tools_safe tools allowlist authorized =
+  forallb (fun t -> valid_tool_config t allowlist authorized) tools

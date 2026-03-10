@@ -47,6 +47,8 @@ val rev : 'a1 list -> 'a1 list
 
 val existsb : ('a1 -> bool) -> 'a1 list -> bool
 
+val forallb : ('a1 -> bool) -> 'a1 list -> bool
+
 val filter : ('a1 -> bool) -> 'a1 list -> 'a1 list
 
 module Z :
@@ -273,3 +275,40 @@ module RateLimiter :
 
   val try_consume : limiter_config -> bucket -> int -> bool * bucket
  end
+
+type risk_level =
+| Low
+| Medium
+| High
+
+val risk_gte : risk_level -> risk_level -> bool
+
+val risk_lte : risk_level -> risk_level -> bool
+
+type tool_spec = { tool_name : string; tool_risk : risk_level }
+
+val is_high_risk : risk_level -> bool
+
+val is_medium_risk : risk_level -> bool
+
+val is_low_risk : risk_level -> bool
+
+val requires_authorization : tool_spec -> bool
+
+val is_authorized : string -> string list -> bool
+
+val tool_in_allowlist : string -> string list -> bool
+
+val invocation_safe : tool_spec -> string list -> string list -> bool
+
+val shell_exec_tool : tool_spec
+
+val file_read_tool : tool_spec
+
+val file_write_tool : tool_spec
+
+val file_append_tool : tool_spec
+
+val valid_tool_config : tool_spec -> string list -> string list -> bool
+
+val all_tools_safe : tool_spec list -> string list -> string list -> bool
