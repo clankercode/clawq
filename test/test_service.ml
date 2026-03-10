@@ -149,23 +149,43 @@ let test_run_nofork_start_prefers_reexec_env () =
                 !called)))
 
 let test_cmd_signal_restart_reports_missing_daemon () =
-  let result = Service.cmd_signal_restart ~read_pid:(fun () -> None) () in
-  Alcotest.(check string) "missing daemon" "Daemon is not running" result
+  Test_helpers.with_temp_home (fun _home ->
+      let result = Service.cmd_signal_restart ~read_pid:(fun () -> None) () in
+      Alcotest.(check string) "missing daemon" "Daemon is not running" result)
 
 let test_cmd_signal_restart_signals_running_daemon () =
-  let signaled = ref None in
-  let result =
-    Service.cmd_signal_restart
-      ~read_pid:(fun () -> Some 1234)
-      ~send_signal:(fun pid signal -> signaled := Some (pid, signal))
-      ()
-  in
-  Alcotest.(check string)
-    "signal restart response" "Restart signal sent to daemon (PID 1234)" result;
-  Alcotest.(check (option (pair int int)))
-    "sigusr1 sent"
-    (Some (1234, Sys.sigusr1))
-    !signaled
+  Test_helpers.with_temp_home (fun _home ->
+      let signaled = ref None in
+      let result =
+        Service.cmd_signal_restart
+          ~read_pid:(fun () -> Some 1234)
+          ~send_signal:(fun pid signal -> signaled := Some (pid, signal))
+          ()
+      in
+      Alcotest.(check string)
+        "signal restart response"
+        "Restart signal sent to daemon (PID 1234)" result;
+      Alcotest.(check (option (pair int int)))
+        "sigusr1 sent"
+        (Some (1234, Sys.sigusr1))
+        !signaled)
+
+let test_cmd_signal_restart_refuses_live_signal_outside_temp_home () =
+  with_env Service.test_disable_live_signal_restart_env (Some "1") (fun () ->
+      with_env "HOME" (Some "/workspaces/clawq-real-home") (fun () ->
+          let signaled = ref false in
+          let result =
+            Service.cmd_signal_restart
+              ~read_pid:(fun () -> Some 1234)
+              ~send_signal:(fun _ _ -> signaled := true)
+              ()
+          in
+          Alcotest.(check string)
+            "guard refusal"
+            "Refusing to signal daemon during tests outside a temp HOME. Wrap \
+             the test in with_temp_home."
+            result;
+          Alcotest.(check bool) "signal blocked" false !signaled))
 
 let test_handle_daemon_exit_restart_chmod_fixes_eacces () =
   let call_count = ref 0 in
@@ -239,19 +259,21 @@ let test_validate_and_fix_passes_through_enoent () =
     "Ok path for non-existent" (Ok path) result
 
 let test_cmd_signal_restart_reports_signal_failure () =
-  let result =
-    Service.cmd_signal_restart
-      ~read_pid:(fun () -> Some 1234)
-      ~send_signal:(fun _ _ -> raise (Unix.Unix_error (Unix.ESRCH, "kill", "")))
-      ()
-  in
-  Alcotest.(check bool)
-    "signal failure reported" true
-    (String.length result > 0
-    &&
-    let prefix = "Failed to signal daemon pid 1234:" in
-    String.length result >= String.length prefix
-    && String.sub result 0 (String.length prefix) = prefix)
+  Test_helpers.with_temp_home (fun _home ->
+      let result =
+        Service.cmd_signal_restart
+          ~read_pid:(fun () -> Some 1234)
+          ~send_signal:(fun _ _ ->
+            raise (Unix.Unix_error (Unix.ESRCH, "kill", "")))
+          ()
+      in
+      Alcotest.(check bool)
+        "signal failure reported" true
+        (String.length result > 0
+        &&
+        let prefix = "Failed to signal daemon pid 1234:" in
+        String.length result >= String.length prefix
+        && String.sub result 0 (String.length prefix) = prefix))
 
 let suite =
   [
@@ -279,6 +301,9 @@ let suite =
       test_cmd_signal_restart_reports_missing_daemon;
     Alcotest.test_case "cmd signal restart signals running daemon" `Quick
       test_cmd_signal_restart_signals_running_daemon;
+    Alcotest.test_case
+      "cmd signal restart refuses live signal outside temp home" `Quick
+      test_cmd_signal_restart_refuses_live_signal_outside_temp_home;
     Alcotest.test_case "cmd signal restart reports signal failure" `Quick
       test_cmd_signal_restart_reports_signal_failure;
     Alcotest.test_case "validate_and_fix ok for executable" `Quick

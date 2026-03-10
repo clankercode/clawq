@@ -2,9 +2,41 @@ let clawq_dir () =
   let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
   Filename.concat home ".clawq"
 
+let test_disable_live_signal_restart_env =
+  "CLAWQ_TEST_DISABLE_LIVE_SIGNAL_RESTART"
+
 let pid_path () = Filename.concat (clawq_dir ()) "daemon.pid"
 let pid_meta_path () = Filename.concat (clawq_dir ()) "daemon.pid.meta"
 let log_path () = Filename.concat (clawq_dir ()) "daemon.log"
+
+let has_prefix ~prefix s =
+  let plen = String.length prefix in
+  String.length s >= plen && String.sub s 0 plen = prefix
+
+let env_truthy name =
+  match Sys.getenv_opt name with
+  | Some ("" | "0" | "false" | "False" | "FALSE" | "no" | "No" | "NO") ->
+      false
+  | Some _ -> true
+  | None -> false
+
+let normalize_path path =
+  let path =
+    if Filename.is_relative path then Filename.concat (Sys.getcwd ()) path
+    else path
+  in
+  try Unix.realpath path with _ -> path
+
+let path_is_under ~parent path =
+  let parent = normalize_path parent in
+  let path = normalize_path path in
+  path = parent || has_prefix ~prefix:(parent ^ Filename.dir_sep) path
+
+let should_block_live_signal_restart () =
+  if not (env_truthy test_disable_live_signal_restart_env) then false
+  else
+    let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
+    not (path_is_under ~parent:(Filename.get_temp_dir_name ()) home)
 
 let read_file path =
   try
@@ -335,7 +367,11 @@ let cmd_status () =
   List.rev !lines |> String.concat "\n"
 
 let cmd_signal_restart ?(read_pid = read_pid) ?(send_signal = Unix.kill) () =
-  match read_pid () with
+  if should_block_live_signal_restart () then
+    "Refusing to signal daemon during tests outside a temp HOME. Wrap the test \
+     in with_temp_home."
+  else
+    match read_pid () with
   | None -> "Daemon is not running"
   | Some pid -> (
       try

@@ -65,6 +65,47 @@ let test_chat_rejects_missing_auth_token () =
 
 let body_string body = Lwt_main.run (Cohttp_lwt.Body.to_string body)
 
+let contains_str haystack needle =
+  try
+    ignore (Str.search_forward (Str.regexp_string needle) haystack 0);
+    true
+  with Not_found -> false
+
+let with_env key value f =
+  let previous = Sys.getenv_opt key in
+  (match value with Some v -> Unix.putenv key v | None -> Unix.putenv key "");
+  Fun.protect f ~finally:(fun () ->
+      match previous with
+      | Some v -> Unix.putenv key v
+      | None -> Unix.putenv key "")
+
+let free_port () =
+  let sock = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
+  Fun.protect
+    ~finally:(fun () -> Unix.close sock)
+    (fun () ->
+      Unix.setsockopt sock Unix.SO_REUSEADDR true;
+      Unix.bind sock (Unix.ADDR_INET (Unix.inet_addr_loopback, 0));
+      match Unix.getsockname sock with
+      | Unix.ADDR_INET (_, port) -> port
+      | Unix.ADDR_UNIX _ -> Alcotest.fail "expected inet socket")
+
+let compute_github_signature ~secret ~body =
+  "sha256=" ^ Digestif.SHA256.(hmac_string ~key:secret body |> to_hex)
+
+let with_fake_github_api callback f =
+  let port = free_port () in
+  let stop, stopper = Lwt.wait () in
+  let server =
+    Cohttp_lwt_unix.Server.create
+      ~mode:(`TCP (`Port port))
+      (Cohttp_lwt_unix.Server.make ~callback ())
+  in
+  Lwt.async (fun () -> Lwt.pick [ server; stop ]);
+  Fun.protect
+    ~finally:(fun () -> Lwt.wakeup_later stopper ())
+    (fun () -> f (Printf.sprintf "http://127.0.0.1:%d" port))
+
 let test_chat_runtime_ctx_returns_runtime_context () =
   let config =
     {
@@ -90,16 +131,12 @@ let test_chat_runtime_ctx_returns_runtime_context () =
   let payload = Yojson.Safe.from_string (body_string body) in
   let open Yojson.Safe.Util in
   let response = payload |> member "response" |> to_string in
-  let contains needle =
-    try
-      ignore (Str.search_forward (Str.regexp_string needle) response 0);
-      true
-    with Not_found -> false
-  in
   Alcotest.(check bool)
     "runtime header present" true
-    (contains "[Runtime context for this turn only]");
-  Alcotest.(check bool) "session id present" true (contains "Session id: web:s")
+    (contains_str response "[Runtime context for this turn only]");
+  Alcotest.(check bool)
+    "session id present" true
+    (contains_str response "Session id: web:s")
 
 let test_session_inject_rejects_missing_auth_token () =
   let config = Runtime_config.default in
@@ -294,11 +331,7 @@ let test_chat_stream_error_marks_response_sent () =
   let payload = body_string body in
   Alcotest.(check bool)
     "sse contains error" true
-    (try
-       ignore
-         (Str.search_forward (Str.regexp_string {|"type":"error"|}) payload 0);
-       true
-     with Not_found -> false);
+    (contains_str payload {|"type":"error"|});
   Alcotest.(check (option string))
     "pending stream turn cleared" (Some "user")
     (query_single_text_option db
@@ -374,6 +407,108 @@ let test_json_of_stream_event_variants () =
     "tool result success" false
     (tool_result_json |> member "is_error" |> to_bool)
 
+let test_github_webhook_routes_to_session_and_posts_reply () =
+  let webhook_secret = "webhook-secret" in
+  let payload =
+    {|{"action":"created","issue":{"number":42,"title":"Webhook test","pull_request":{"url":"https://api.github.com/repos/acme/backend/pulls/42"}},"comment":{"id":9001,"user":{"login":"octocat"},"body":"/clawq review routing","html_url":"https://github.com/acme/backend/pull/42#issuecomment-9001"},"repository":{"name":"backend","owner":{"login":"acme"}}}|}
+  in
+  let signature = compute_github_signature ~secret:webhook_secret ~body:payload in
+  let seen_key = ref None in
+  let seen_message = ref None in
+  let seen_post_path = ref None in
+  let seen_post_body = ref None in
+  let callback _conn req body =
+    let open Lwt.Syntax in
+    let* body_text = Cohttp_lwt.Body.to_string body in
+    seen_post_path := Some (Uri.path (Cohttp.Request.uri req));
+    seen_post_body := Some body_text;
+    Cohttp_lwt_unix.Server.respond_string ~status:`Created ~body:"{}" ()
+  in
+  with_fake_github_api callback (fun github_api_base ->
+      with_env "CLAWQ_GITHUB_API_BASE" (Some github_api_base) (fun () ->
+          let db = Memory.init ~db_path:":memory:" () in
+          let config = Runtime_config.default in
+          let session_manager = Session.create ~config ~db () in
+          Session.set_special_command_handler session_manager
+            (fun ~key ~message ~send_progress:_ ~interrupt_check:_ ->
+              seen_key := Some key;
+              seen_message := Some message;
+              Lwt.return_some "stubbed GitHub reply");
+          let github_config : Runtime_config.github_config =
+            {
+              auth = Runtime_config.GithubPat "ghp_test12345";
+              repos =
+                [
+                  {
+                    Runtime_config.name = "acme/backend";
+                    webhook_secret;
+                    webhook_path = "/github/webhook/backend";
+                    agent_name = None;
+                    allow_users = [ "octocat" ];
+                    react_to = [ "issue_comment" ];
+                    include_pr_files = false;
+                  };
+                ];
+            }
+          in
+          let headers =
+            Cohttp.Header.of_list
+              [
+                ("X-GitHub-Event", "issue_comment");
+                ("X-Hub-Signature-256", signature);
+              ]
+          in
+          let req =
+            Cohttp.Request.make ~headers ~meth:`POST
+              (Uri.of_string "http://127.0.0.1/github/webhook/backend")
+          in
+          let resp, body =
+            Lwt_main.run
+              (Http_server.handler ~session_manager ~require_pairing:false
+                 ~auth_token:None ~github_config
+                 ~github_api_limiter:
+                   (Rate_limiter.create ~rate_per_minute:60
+                      ~burst_multiplier:1.0)
+                 (Obj.magic ()) req (Cohttp_lwt.Body.of_string payload))
+          in
+          Alcotest.(check int)
+            "ok" 200
+            (Cohttp.Code.code_of_status (Cohttp.Response.status resp));
+          let json = Yojson.Safe.from_string (body_string body) in
+          let open Yojson.Safe.Util in
+          Alcotest.(check string)
+            "status" "replied"
+            (json |> member "status" |> to_string);
+          Alcotest.(check (option string))
+            "session key"
+            (Some "github:acme/backend:pr:42")
+            !seen_key;
+          Alcotest.(check bool)
+            "message includes github context" true
+            (match !seen_message with
+            | Some message -> contains_str message "## GitHub Context"
+            | None -> false);
+          Alcotest.(check bool)
+            "message includes command" true
+            (match !seen_message with
+            | Some message -> contains_str message "review routing"
+            | None -> false);
+          (* Github.handle_webhook reports reply status synchronously, but the
+             outbound GitHub comment POST is spawned asynchronously. Give the
+             fake API server a brief chance to observe it before asserting. *)
+          Lwt_main.run (Lwt_unix.sleep 0.05);
+          Alcotest.(check (option string))
+            "comment endpoint"
+            (Some "/repos/acme/backend/issues/42/comments")
+            !seen_post_path;
+          Alcotest.(check bool)
+            "reply body formatted for github" true
+            (match !seen_post_body with
+            | Some body ->
+                contains_str body "> /clawq review routing"
+                && contains_str body "stubbed GitHub reply"
+            | None -> false)))
+
 let suite =
   [
     Alcotest.test_case "require_pairing blocks /chat" `Quick
@@ -402,4 +537,6 @@ let suite =
     Alcotest.test_case "ui-version route" `Quick test_ui_version_route;
     Alcotest.test_case "json of stream event variants" `Quick
       test_json_of_stream_event_variants;
+    Alcotest.test_case "github webhook routes to session and posts reply" `Quick
+      test_github_webhook_routes_to_session_and_posts_reply;
   ]

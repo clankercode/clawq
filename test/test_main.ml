@@ -29,6 +29,7 @@ let check_config_not_modified () =
       | None -> "absent")
 
 let () =
+  Unix.putenv Service.test_disable_live_signal_restart_env "1";
   Alcotest.run "clawq"
     ([
        ("clawq_core", Test_clawq_core.suite);

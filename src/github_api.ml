@@ -1,4 +1,9 @@
-let github_api_base = "https://api.github.com"
+let default_github_api_base = "https://api.github.com"
+
+let github_api_base () =
+  match Sys.getenv_opt "CLAWQ_GITHUB_API_BASE" with
+  | Some base when String.trim base <> "" -> String.trim base
+  | _ -> default_github_api_base
 
 let redact_token token =
   let len = String.length token in
@@ -17,8 +22,8 @@ let auth_headers (auth : Runtime_config.github_auth) =
 let post_comment ~auth ~owner ~repo ~issue_number ~body =
   let open Lwt.Syntax in
   let uri =
-    Printf.sprintf "%s/repos/%s/%s/issues/%d/comments" github_api_base owner
-      repo issue_number
+    Printf.sprintf "%s/repos/%s/%s/issues/%d/comments" (github_api_base ())
+      owner repo issue_number
   in
   let headers = auth_headers auth in
   let req_body = `Assoc [ ("body", `String body) ] |> Yojson.Safe.to_string in
@@ -32,7 +37,7 @@ let post_comment ~auth ~owner ~repo ~issue_number ~body =
 let reply_to_review_comment ~auth ~owner ~repo ~pull_number ~comment_id ~body =
   let open Lwt.Syntax in
   let uri =
-    Printf.sprintf "%s/repos/%s/%s/pulls/%d/comments/%d/replies" github_api_base
+    Printf.sprintf "%s/repos/%s/%s/pulls/%d/comments/%d/replies" (github_api_base ())
       owner repo pull_number comment_id
   in
   let headers = auth_headers auth in
@@ -52,7 +57,7 @@ let get_pr_files ~auth ~owner ~repo ~pull_number =
     else
       let uri =
         Printf.sprintf "%s/repos/%s/%s/pulls/%d/files?per_page=100&page=%d"
-          github_api_base owner repo pull_number page
+          (github_api_base ()) owner repo pull_number page
       in
       let* status, body = Http_client.get ~uri ~headers in
       if status <> 200 then begin

@@ -609,6 +609,20 @@ let count_lines path =
         !count)
   with Sys_error _ -> 0
 
+let trim_rendered_lines ~max_chars lines =
+  let budget = max 0 max_chars in
+  let rec take acc used remaining =
+    match remaining with
+    | [] -> (List.rev acc, false)
+    | line :: rest ->
+        let line_len = String.length line in
+        let sep_len = if acc = [] then 0 else 1 in
+        if used + sep_len + line_len <= budget then
+          take (line :: acc) (used + sep_len + line_len) rest
+        else (List.rev acc, true)
+  in
+  take [] 0 lines
+
 let log_excerpt ?(offset = 0) ?(lines = 20) task =
   match task.log_path with
   | None -> Error (Printf.sprintf "Task %d has no log file yet" task.id)
@@ -628,14 +642,23 @@ let log_excerpt ?(offset = 0) ?(lines = 20) task =
               ^ Printf.sprintf
                   "\n\n(No lines in requested range. Log has %d lines.)" total
             else
-              let rendered =
+              let numbered_lines =
                 indexed_lines
                 |> List.map (fun (n, line) -> Printf.sprintf "%d: %s" n line)
-                |> String.concat "\n"
               in
+              let rendered_lines, truncated =
+                trim_rendered_lines ~max_chars:6000 numbered_lines
+              in
+              let rendered = String.concat "\n" rendered_lines in
               let last_line = fst (List.hd (List.rev indexed_lines)) in
               let suffix =
-                if last_line < total then
+                if truncated then
+                  let next_offset = offset + List.length rendered_lines in
+                  Printf.sprintf
+                    "\n\n(Output truncated by size budget. Showing lines %d-%d of %d. Use offset=%d to continue.)"
+                    offset (offset + List.length rendered_lines - 1) total
+                    next_offset
+                else if last_line < total then
                   Printf.sprintf
                     "\n\n\
                      (Showing lines %d-%d of %d. Use offset=%d to continue.)"
@@ -661,11 +684,24 @@ let log_excerpt ?(offset = 0) ?(lines = 20) task =
                   (fun i line -> Printf.sprintf "%d: %s" (start_num + i) line)
                   chunks
               in
-              let footer =
-                Printf.sprintf "\n\n(Showing last %d lines, lines %d-%d of %d.)"
-                  n_returned start_num total total
+              let rendered_lines, truncated =
+                trim_rendered_lines ~max_chars:6000 numbered
               in
-              header ^ "\n\n" ^ String.concat "\n" numbered ^ footer)
+              let rendered = String.concat "\n" rendered_lines in
+              let shown = List.length rendered_lines in
+              let shown_start = start_num in
+              let shown_end = start_num + shown - 1 in
+              let footer =
+                if truncated then
+                  Printf.sprintf
+                    "\n\n(Output truncated by size budget. Showing lines %d-%d of %d. Use offset=%d to continue.)"
+                    shown_start shown_end total (shown_end + 1)
+                else
+                  Printf.sprintf
+                    "\n\n(Showing last %d lines, lines %d-%d of %d.)" shown
+                    shown_start shown_end total
+              in
+              header ^ "\n\n" ^ rendered ^ footer)
 
 let read_lines_range path ~offset ~lines =
   if lines <= 0 then Ok ([], 0)
