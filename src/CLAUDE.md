@@ -19,3 +19,15 @@ Error: parameter "path" must be an absolute path starting with "/". Received: "f
 ```
 
 This applies to all tool implementations in `tools_builtin.ml`, `skills.ml`, and any tools exposed via `mcp_server.ml`.
+
+## Provider API Requirements
+
+When working on provider implementations, consult the relevant requirements docs:
+- **OpenAI Responses API** (used by `provider_openai_codex.ml`): See `src/RESPONSES_API_REQUIREMENTS.md`
+- **Anthropic Messages API** (used by `provider_anthropic.ml`): See `src/ANTHROPIC_API_REQUIREMENTS.md` (when created)
+
+## Database Location
+
+- Main database: `~/.clawq/memory.db` (contains `messages`, `session_state`, `models_cache`, `request_stats`, `task_tree`, `cron_jobs`, `inbound_queue`, etc.)
+- Config: `~/.clawq/config.json`
+- Daemon state: `~/.clawq/daemon_state.json`

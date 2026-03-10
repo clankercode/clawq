@@ -293,6 +293,99 @@ let extract_instructions messages =
   let instructions = String.concat "\n\n" system_parts in
   (instructions, non_system)
 
+let item_type_str item =
+  match item with
+  | `Assoc fields -> (
+      match List.assoc_opt "type" fields with
+      | Some (`String t) -> t
+      | _ -> (
+          match List.assoc_opt "role" fields with
+          | Some (`String r) -> r
+          | _ -> "unknown"))
+  | _ -> "unknown"
+
+let is_user_item item =
+  match item with
+  | `Assoc fields -> (
+      match List.assoc_opt "role" fields with
+      | Some (`String "user") -> true
+      | _ -> false)
+  | _ -> false
+
+let is_assistant_item item =
+  match item with
+  | `Assoc fields -> (
+      match List.assoc_opt "role" fields with
+      | Some (`String "assistant") -> true
+      | _ -> (
+          match List.assoc_opt "type" fields with
+          | Some (`String "function_call") -> true
+          | _ -> false))
+  | _ -> false
+
+let synthetic_assistant_msg text =
+  `Assoc
+    [
+      ("role", `String "assistant");
+      ( "content",
+        `List
+          [ `Assoc [ ("type", `String "output_text"); ("text", `String text) ] ]
+      );
+    ]
+
+(* Insert synthetic assistant turns where the Responses API requires them:
+   - After function_call_output items before user messages
+   - Before the first item if it is not a user message *)
+let fixup_input_item_ordering items =
+  let rec loop acc prev_type = function
+    | [] -> List.rev acc
+    | item :: rest ->
+        let cur_type = item_type_str item in
+        let needs_synthetic =
+          prev_type = "function_call_output" && is_user_item item
+        in
+        if needs_synthetic then begin
+          Logs.info (fun m ->
+              m
+                "Codex: inserting synthetic assistant turn between \
+                 function_call_output and user message");
+          loop
+            (item :: synthetic_assistant_msg "(continued)" :: acc)
+            cur_type rest
+        end
+        else loop (item :: acc) cur_type rest
+  in
+  let items =
+    match items with
+    | first :: _
+      when (not (is_user_item first)) && not (is_assistant_item first) ->
+        (* Unusual: first item is not user or assistant *)
+        items
+    | first :: rest when not (is_user_item first) ->
+        (* First item is assistant — prepend a synthetic user greeting so the
+           API sees a user turn first *)
+        Logs.info (fun m ->
+            m
+              "Codex: prepending synthetic user turn before initial assistant \
+               item");
+        `Assoc
+          [
+            ("role", `String "user");
+            ( "content",
+              `List
+                [
+                  `Assoc
+                    [
+                      ("type", `String "input_text");
+                      ("text", `String "(session resumed)");
+                    ];
+                ] );
+          ]
+        :: first :: rest
+    | _ -> items
+  in
+  loop [] "" items
+
 let build_body ~model ~messages tools =
   let instructions, non_system_messages = extract_instructions messages in
   let non_system_messages =
@@ -301,6 +394,7 @@ let build_body ~model ~messages tools =
   let input_items =
     validate_codex_input_items (messages_to_input non_system_messages)
   in
+  let input_items = fixup_input_item_ordering input_items in
   let input_items =
     if input_items = [] then begin
       Logs.warn (fun m ->

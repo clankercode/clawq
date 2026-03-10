@@ -209,6 +209,112 @@ let test_sanitize_unknown_type_strips_id () =
     (not (List.mem_assoc "id" fields));
   Alcotest.(check bool) "type field kept" true (List.mem_assoc "type" fields)
 
+let mk_user text =
+  `Assoc
+    [
+      ("role", `String "user");
+      ( "content",
+        `List
+          [ `Assoc [ ("type", `String "input_text"); ("text", `String text) ] ]
+      );
+    ]
+
+let mk_assistant text =
+  `Assoc
+    [
+      ("role", `String "assistant");
+      ( "content",
+        `List
+          [ `Assoc [ ("type", `String "output_text"); ("text", `String text) ] ]
+      );
+    ]
+
+let mk_function_call name call_id =
+  `Assoc
+    [
+      ("type", `String "function_call");
+      ("call_id", `String call_id);
+      ("name", `String name);
+      ("arguments", `String "{}");
+    ]
+
+let mk_function_call_output call_id output =
+  `Assoc
+    [
+      ("type", `String "function_call_output");
+      ("call_id", `String call_id);
+      ("output", `String output);
+    ]
+
+let test_fixup_inserts_assistant_after_tool_output () =
+  (* function_call_output followed by user message should get a synthetic
+     assistant turn inserted between them *)
+  let items =
+    [
+      mk_user "hello";
+      mk_function_call "shell_exec" "c1";
+      mk_function_call_output "c1" "ok";
+      mk_user "continue";
+    ]
+  in
+  let result = Provider_openai_codex.fixup_input_item_ordering items in
+  Alcotest.(check int) "5 items after fixup" 5 (List.length result);
+  (* item 3 should be the synthetic assistant *)
+  let item3 = List.nth result 3 in
+  match item3 with
+  | `Assoc fields ->
+      Alcotest.(check bool)
+        "synthetic is assistant" true
+        (match List.assoc_opt "role" fields with
+        | Some (`String "assistant") -> true
+        | _ -> false)
+  | _ -> Alcotest.fail "expected Assoc"
+
+let test_fixup_no_change_when_assistant_present () =
+  (* function_call_output followed by assistant then user — no change needed *)
+  let items =
+    [
+      mk_user "hello";
+      mk_function_call "shell_exec" "c1";
+      mk_function_call_output "c1" "ok";
+      mk_assistant "done";
+      mk_user "thanks";
+    ]
+  in
+  let result = Provider_openai_codex.fixup_input_item_ordering items in
+  Alcotest.(check int) "still 5 items" 5 (List.length result)
+
+let test_fixup_prepends_user_when_starts_with_assistant () =
+  (* first item is assistant — should prepend a synthetic user turn *)
+  let items = [ mk_assistant "compacted history"; mk_user "hello" ] in
+  let result = Provider_openai_codex.fixup_input_item_ordering items in
+  Alcotest.(check int) "3 items after prepend" 3 (List.length result);
+  let first = List.nth result 0 in
+  match first with
+  | `Assoc fields ->
+      Alcotest.(check bool)
+        "first is user" true
+        (match List.assoc_opt "role" fields with
+        | Some (`String "user") -> true
+        | _ -> false)
+  | _ -> Alcotest.fail "expected Assoc"
+
+let test_fixup_multiple_tool_outputs_before_user () =
+  (* multiple function_call_outputs then user — only one synthetic inserted *)
+  let items =
+    [
+      mk_user "go";
+      mk_function_call "a" "c1";
+      mk_function_call "b" "c2";
+      mk_function_call_output "c1" "r1";
+      mk_function_call_output "c2" "r2";
+      mk_user "next";
+    ]
+  in
+  let result = Provider_openai_codex.fixup_input_item_ordering items in
+  (* should insert one synthetic between last output and user *)
+  Alcotest.(check int) "7 items" 7 (List.length result)
+
 let test_force_compress_history_fallback_nonempty () =
   (* When force_compress_history is called and the entire history consists of
      orphaned tool results (no matching assistant tool_calls message anywhere),
@@ -266,4 +372,12 @@ let suite =
       test_sanitize_unknown_type_strips_id;
     Alcotest.test_case "force_compress_history fallback nonempty" `Quick
       test_force_compress_history_fallback_nonempty;
+    Alcotest.test_case "fixup inserts assistant after tool output" `Quick
+      test_fixup_inserts_assistant_after_tool_output;
+    Alcotest.test_case "fixup no change when assistant present" `Quick
+      test_fixup_no_change_when_assistant_present;
+    Alcotest.test_case "fixup prepends user when starts with assistant" `Quick
+      test_fixup_prepends_user_when_starts_with_assistant;
+    Alcotest.test_case "fixup multiple tool outputs before user" `Quick
+      test_fixup_multiple_tool_outputs_before_user;
   ]
