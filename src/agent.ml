@@ -245,7 +245,18 @@ let force_compress_history agent =
             })
         to_keep
     in
-    agent.history <- List.rev (ensure_tool_group_integrity bounded);
+    let compressed = ensure_tool_group_integrity bounded in
+    let compressed =
+      if compressed = [] then begin
+        Logs.warn (fun m ->
+            m
+              "force_compress_history: integrity check emptied history; \
+               keeping raw slice");
+        bounded
+      end
+      else compressed
+    in
+    agent.history <- List.rev compressed;
     assert_history_bound ~where:"force_compress_history" agent;
     true
   end

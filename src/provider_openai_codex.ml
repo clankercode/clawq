@@ -18,6 +18,11 @@ let strip_provider_prefix model =
     | Some idx when idx + 1 < String.length model ->
         String.sub model (idx + 1) (String.length model - idx - 1)
     | _ -> model
+  else if string_contains model ":" then
+    match String.index_opt model ':' with
+    | Some idx when idx + 1 < String.length model ->
+        String.sub model (idx + 1) (String.length model - idx - 1)
+    | _ -> model
   else model
 
 let restore_provider_response_items msg =
@@ -139,6 +144,84 @@ let tools_to_responses_tools = function
       `List mapped
   | Some _ -> `List []
 
+let collect_call_ids items =
+  List.filter_map
+    (fun item ->
+      match item with
+      | `Assoc fields
+        when match List.assoc_opt "type" fields with
+             | Some (`String "function_call") -> true
+             | _ -> false -> (
+          match List.assoc_opt "call_id" fields with
+          | Some (`String id) -> Some id
+          | _ -> (
+              match List.assoc_opt "id" fields with
+              | Some (`String id) -> Some id
+              | _ -> None))
+      | _ -> None)
+    items
+
+let collect_output_ids items =
+  List.filter_map
+    (fun item ->
+      match item with
+      | `Assoc fields
+        when match List.assoc_opt "type" fields with
+             | Some (`String "function_call_output") -> true
+             | _ -> false -> (
+          match List.assoc_opt "call_id" fields with
+          | Some (`String id) -> Some id
+          | _ -> None)
+      | _ -> None)
+    items
+
+let validate_codex_input_items items =
+  let call_ids = collect_call_ids items in
+  let output_ids = collect_output_ids items in
+  List.filter
+    (fun item ->
+      match item with
+      | `Assoc fields -> (
+          match List.assoc_opt "type" fields with
+          | Some (`String "function_call") ->
+              let id =
+                Option.value ~default:""
+                  (match List.assoc_opt "call_id" fields with
+                  | Some (`String id) -> Some id
+                  | _ -> (
+                      match List.assoc_opt "id" fields with
+                      | Some (`String id) -> Some id
+                      | _ -> None))
+              in
+              if not (List.mem id output_ids) then begin
+                Logs.warn (fun m ->
+                    m
+                      "Codex: dropping orphaned function_call call_id=%s (no \
+                       output)"
+                      id);
+                false
+              end
+              else true
+          | Some (`String "function_call_output") ->
+              let id =
+                Option.value ~default:""
+                  (match List.assoc_opt "call_id" fields with
+                  | Some (`String id) -> Some id
+                  | _ -> None)
+              in
+              if not (List.mem id call_ids) then begin
+                Logs.warn (fun m ->
+                    m
+                      "Codex: dropping orphaned function_call_output \
+                       call_id=%s (no call)"
+                      id);
+                false
+              end
+              else true
+          | _ -> true)
+      | _ -> true)
+    items
+
 let extract_instructions messages =
   let system_parts =
     List.filter_map
@@ -158,10 +241,35 @@ let build_body ~model ~messages tools =
   let non_system_messages =
     Message_history.ensure_tool_group_integrity non_system_messages
   in
+  let input_items =
+    validate_codex_input_items (messages_to_input non_system_messages)
+  in
+  let input_items =
+    if input_items = [] then begin
+      Logs.warn (fun m ->
+          m "Codex: no input items after serialization; inserting placeholder");
+      [
+        `Assoc
+          [
+            ("role", `String "user");
+            ( "content",
+              `List
+                [
+                  `Assoc
+                    [
+                      ("type", `String "input_text");
+                      ("text", `String "(no history)");
+                    ];
+                ] );
+          ];
+      ]
+    end
+    else input_items
+  in
   `Assoc
     ([
        ("model", `String (strip_provider_prefix model));
-       ("input", `List (messages_to_input non_system_messages));
+       ("input", `List input_items);
        ("instructions", `String instructions);
        ("stream", `Bool true);
        ("store", `Bool false);

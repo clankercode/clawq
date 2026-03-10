@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-10T00:09:03Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B268
 priority: high
-status: pending
+started_at: "2026-03-10T00:09:03Z"
+status: in_progress
 tags: []
 title: For the OpenAI 400 errors in the logs, it's likely something to do with our request payload and likely changed recetnyl. Investigate by comparing git commit timestamps to our logs (look for the earliest 'OpenAI Codex error (HTTP 400)' message')
 ---
