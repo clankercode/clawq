@@ -980,7 +980,20 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
                 agent;
             set_response_deferred mgr ~key;
             Lwt.return draining_message
-        | exn -> Lwt.fail exn)
+        | exn ->
+            (* Persist whatever state we have before propagating the error.
+               If compact_history ran mid-turn, the tool result is already in
+               agent.history but the DB still has the pre-result snapshot that
+               compact_fn wrote.  Overwrite it now so we don't leave an
+               orphaned tool call that breaks every subsequent LLM call. *)
+            if agent.Agent.compacted_mid_turn then begin
+              persist_compacted_history mgr ~key agent;
+              agent.Agent.compacted_mid_turn <- false
+            end
+            else
+              persist_new_messages mgr ~key ~history_before:!persisted_up_to
+                agent;
+            Lwt.fail exn)
   in
   (match notify with
   | Some _
@@ -1370,7 +1383,15 @@ let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
                               in
                               let* () = on_chunk Provider.Done in
                               Lwt.return draining_message
-                          | exn -> Lwt.fail exn)
+                          | exn ->
+                              if agent.Agent.compacted_mid_turn then begin
+                                persist_compacted_history mgr ~key agent;
+                                agent.Agent.compacted_mid_turn <- false
+                              end
+                              else
+                                persist_new_messages mgr ~key
+                                  ~history_before:!persisted_up_to agent;
+                              Lwt.fail exn)
                     in
                     if not (response_deferred mgr ~key) then begin
                       if agent.Agent.compacted_mid_turn then begin

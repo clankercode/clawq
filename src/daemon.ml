@@ -1176,9 +1176,14 @@ let run ~(config : Runtime_config.t) =
                  in
                  match info with
                  | Some info ->
+                     (* Set the flag so session.ml persists the full compacted
+                        state (including the compact_history tool result that
+                        hasn't been appended yet) at turn completion.  Do NOT
+                        call persist_compacted_history here — that would write
+                        history before the tool result is in agent.history,
+                        leaving an orphaned tool call in the DB if the
+                        subsequent LLM call fails. *)
                      agent.Agent.compacted_mid_turn <- true;
-                     Session.persist_compacted_history session_manager
-                       ~key:session_key agent;
                      Lwt.return
                        (Printf.sprintf
                           "Compacted: %dk -> %dk tokens (context window: %dk)"

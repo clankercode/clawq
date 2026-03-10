@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-10T00:10:25Z"
+claimed_by: cli-user
+completed_at: "2026-03-10T00:11:52Z"
 complexity: medium
 depends_on: []
+duration_minutes: 1.4616000912
 estimate_hours: 1
 id: B269
 priority: high
-status: pending
+started_at: "2026-03-10T00:10:25Z"
+status: done
 tags: []
 title: compact_history tool leaves orphaned tool call in DB when next LLM call fails
 ---

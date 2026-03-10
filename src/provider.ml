@@ -148,6 +148,18 @@ let message_to_json m =
 
 let messages_to_json messages = `List (List.map message_to_json messages)
 
+let estimate_messages_tokens messages =
+  List.fold_left
+    (fun acc (m : message) ->
+      let cc = String.length m.content in
+      let tc =
+        List.fold_left
+          (fun a (tc : tool_call) -> a + String.length tc.arguments)
+          0 m.tool_calls
+      in
+      acc + (cc + tc + 3) / 4)
+    0 messages
+
 type stream_event =
   | Delta of string
   | ThinkingDelta of string
@@ -574,8 +586,9 @@ let complete ~(config : Runtime_config.t) ~messages ?tools ?session_key
   match List.assoc_opt kind !native_complete with
   | Some fn ->
       Logs.info (fun m ->
-          m "%sLLM native dispatch provider=%s model=%s msgs=%d" sk_tag
-            provider_name model (List.length messages));
+          m "%s-> LLM provider=%s model=%s msgs=%d ~%dk tok" sk_tag
+            provider_name model (List.length messages)
+            (estimate_messages_tokens messages / 1000));
       fn ~config ~provider ~model ~messages ?tools ()
   | None -> (
       let base_url =
@@ -604,8 +617,9 @@ let complete ~(config : Runtime_config.t) ~messages ?tools ?session_key
       let body = `Assoc body_fields |> Yojson.Safe.to_string in
       let headers = [ ("Authorization", "Bearer " ^ provider.api_key) ] in
       Logs.info (fun m ->
-          m "%sLLM request to %s provider=%s model=%s msgs=%d" sk_tag uri
-            provider_name model (List.length messages));
+          m "%s-> LLM provider=%s model=%s msgs=%d ~%dk tok" sk_tag
+            provider_name model (List.length messages)
+            (estimate_messages_tokens messages / 1000));
       let* status, response_body = Http_client.post_json ~uri ~headers ~body in
       if status < 200 || status >= 300 then begin
         if status = 400 then
@@ -939,8 +953,9 @@ let complete_stream ~(config : Runtime_config.t) ~messages ?tools ?session_key
   match List.assoc_opt kind !native_stream with
   | Some fn ->
       Logs.info (fun m ->
-          m "%sLLM native stream dispatch provider=%s model=%s msgs=%d" sk_tag
-            provider_name model (List.length messages));
+          m "%s-> LLM provider=%s model=%s msgs=%d ~%dk tok" sk_tag
+            provider_name model (List.length messages)
+            (estimate_messages_tokens messages / 1000));
       fn ~config ~provider ~model ~messages ?tools ~on_chunk ()
   | None ->
       let base_url =
@@ -970,8 +985,9 @@ let complete_stream ~(config : Runtime_config.t) ~messages ?tools ?session_key
       let body = `Assoc body_fields |> Yojson.Safe.to_string in
       let headers = [ ("Authorization", "Bearer " ^ provider.api_key) ] in
       Logs.info (fun m ->
-          m "%sLLM stream request to %s provider=%s model=%s msgs=%d" sk_tag uri
-            provider_name model (List.length messages));
+          m "%s-> LLM provider=%s model=%s msgs=%d ~%dk tok" sk_tag
+            provider_name model (List.length messages)
+            (estimate_messages_tokens messages / 1000));
       let* status, stream = Http_client.post_stream ~uri ~headers ~body in
       if status < 200 || status >= 300 then begin
         (* collect error body from stream *)
