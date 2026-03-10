@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B364
+priority: high
+status: pending
+tags: []
+title: Tests *still* trigger SIGUSR1 signal for main daemon. Must be investigated and mitigated.
+---
+
+Tests *still* trigger SIGUSR1 signal for main daemon. Must be investigated and mitigated.
