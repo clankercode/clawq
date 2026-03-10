@@ -1,27 +1,29 @@
 (* config_show.ml — Display current config with secret redaction *)
 
-let secret_patterns =
-  [
-    "api_key";
-    "bot_token";
-    "signing_secret";
-    "app_token";
-    "access_token";
-    "refresh_token";
-    "private_key";
-    "password";
-    "app_secret";
-    "webhook_secret";
-    "verify_token";
-    "verification_token";
-    "channel_secret";
-    "channel_access_token";
-    "totp_secret";
-    "auth_token";
-    "tunnel_name";
-  ]
+(* Substrings that mark a config key as sensitive.  Any key whose name
+   contains one of these substrings is redacted.  E.g. "token" catches
+   "bot_token", "access_token", bare "token", etc.  "secret" catches
+   "signing_secret", "webhook_secret", "app_secret", etc. *)
+let sensitive_substrings =
+  [ "token"; "secret"; "password"; "api_key"; "private_key" ]
 
-let is_secret_key k = List.exists (fun pat -> k = pat) secret_patterns
+(* Keys that are sensitive but don't contain any sensitive substring. *)
+let extra_redact_keys = [ "tunnel_name" ]
+
+let contains_sub s sub =
+  let n = String.length s and m = String.length sub in
+  if m = 0 || m > n then m = 0
+  else
+    try
+      for i = 0 to n - m do
+        if String.sub s i m = sub then raise Exit
+      done;
+      false
+    with Exit -> true
+
+let is_secret_key k =
+  List.mem k extra_redact_keys
+  || List.exists (contains_sub k) sensitive_substrings
 
 let rec redact_json = function
   | `Assoc fields ->

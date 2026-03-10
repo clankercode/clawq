@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-10T14:41:29Z"
+claimed_by: cli-user
+completed_at: "2026-03-10T14:45:06Z"
 complexity: medium
 depends_on: []
+duration_minutes: 3.6179013992833333
 estimate_hours: 1
 id: B356
 priority: high
-status: pending
+started_at: "2026-03-10T14:41:29Z"
+status: done
 tags: []
 title: /config (via telegram) will redact a field called 'webhook_secret' but not a field called 'token'. The redaction should be general and broader
 ---

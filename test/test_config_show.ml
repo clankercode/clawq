@@ -50,6 +50,33 @@ let test_redact_empty_string () =
       Alcotest.(check string) "empty preserved" "" s
   | _ -> Alcotest.fail "unexpected structure"
 
+let test_redact_bare_token () =
+  (* A key named exactly "token" must be redacted — substring match on "token" *)
+  let json = `Assoc [ ("token", `String "gh-pat-abc123") ] in
+  let redacted = Config_show.redact_json json in
+  match redacted with
+  | `Assoc [ ("token", `String s) ] ->
+      Alcotest.(check string) "bare token redacted" "***" s
+  | _ -> Alcotest.fail "unexpected structure"
+
+let test_redact_arbitrary_token_suffix () =
+  (* Any key that contains "token" is redacted, e.g. "client_token" *)
+  let json = `Assoc [ ("client_token", `String "some-value") ] in
+  let redacted = Config_show.redact_json json in
+  match redacted with
+  | `Assoc [ ("client_token", `String s) ] ->
+      Alcotest.(check string) "client_token redacted" "***" s
+  | _ -> Alcotest.fail "unexpected structure"
+
+let test_redact_arbitrary_secret_suffix () =
+  (* Any key containing "secret" is redacted, e.g. "my_secret" *)
+  let json = `Assoc [ ("my_secret", `String "hunter2") ] in
+  let redacted = Config_show.redact_json json in
+  match redacted with
+  | `Assoc [ ("my_secret", `String s) ] ->
+      Alcotest.(check string) "my_secret redacted" "***" s
+  | _ -> Alcotest.fail "unexpected structure"
+
 let test_redact_nested () =
   let json =
     `Assoc
@@ -216,6 +243,11 @@ let suite =
     Alcotest.test_case "preserve non-secrets" `Quick
       test_redact_preserves_non_secret;
     Alcotest.test_case "preserve empty secrets" `Quick test_redact_empty_string;
+    Alcotest.test_case "redact bare token" `Quick test_redact_bare_token;
+    Alcotest.test_case "redact arbitrary token suffix" `Quick
+      test_redact_arbitrary_token_suffix;
+    Alcotest.test_case "redact arbitrary secret suffix" `Quick
+      test_redact_arbitrary_secret_suffix;
     Alcotest.test_case "redact nested" `Quick test_redact_nested;
     Alcotest.test_case "smart_render small passthrough" `Quick
       test_smart_render_small_passthrough;

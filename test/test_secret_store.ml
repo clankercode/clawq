@@ -223,6 +223,32 @@ let test_empty_plaintext () =
   | Ok decrypted -> Alcotest.(check string) "empty roundtrip" "" decrypted
   | Error msg -> Alcotest.fail (Printf.sprintf "empty decrypt failed: %s" msg)
 
+let test_is_secret_key_bare_token () =
+  (* Substring matching: bare "token" key must be treated as secret *)
+  let key = Secret_store.derive_key ~iterations:1 ~passphrase:"test" () in
+  let json = `Assoc [ ("token", `String "gh-pat-abc123") ] in
+  match Secret_store.encrypt_config_secrets ~key json with
+  | Error msg -> Alcotest.fail msg
+  | Ok new_json ->
+      let open Yojson.Safe.Util in
+      let v = new_json |> member "token" |> to_string in
+      Alcotest.(check bool)
+        "bare token key encrypted" true
+        (Secret_store.is_encrypted v)
+
+let test_is_secret_key_suffix_token () =
+  (* Any key containing "token" is encrypted, e.g. "client_token" *)
+  let key = Secret_store.derive_key ~iterations:1 ~passphrase:"test" () in
+  let json = `Assoc [ ("client_token", `String "some-client-tok") ] in
+  match Secret_store.encrypt_config_secrets ~key json with
+  | Error msg -> Alcotest.fail msg
+  | Ok new_json ->
+      let open Yojson.Safe.Util in
+      let v = new_json |> member "client_token" |> to_string in
+      Alcotest.(check bool)
+        "client_token encrypted" true
+        (Secret_store.is_encrypted v)
+
 let test_encrypt_config_codex_oauth_secrets () =
   let key = Secret_store.derive_key ~iterations:1 ~passphrase:"test" () in
   let json =
@@ -294,4 +320,8 @@ let suite =
     Alcotest.test_case "empty plaintext" `Quick test_empty_plaintext;
     Alcotest.test_case "encrypt config codex oauth secrets" `Quick
       test_encrypt_config_codex_oauth_secrets;
+    Alcotest.test_case "bare token key is encrypted" `Quick
+      test_is_secret_key_bare_token;
+    Alcotest.test_case "client_token key is encrypted" `Quick
+      test_is_secret_key_suffix_token;
   ]

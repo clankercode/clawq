@@ -98,27 +98,24 @@ let resolve_secret ~encrypt_secrets value =
   end
   else value
 
-let secret_keys =
-  [
-    "api_key";
-    "bot_token";
-    "signing_secret";
-    "app_token";
-    "access_token";
-    "refresh_token";
-    "private_key";
-    "password";
-    "app_secret";
-    "webhook_secret";
-    "verify_token";
-    "verification_token";
-    "channel_secret";
-    "channel_access_token";
-    "totp_secret";
-    "auth_token";
-  ]
+(* Any config key whose name contains one of these substrings is treated as a
+   secret (encrypted at rest, not logged).  Substring matching is intentionally
+   broad: "token" catches "bot_token", "access_token", bare "token", etc. *)
+let sensitive_substrings =
+  [ "token"; "secret"; "password"; "api_key"; "private_key" ]
 
-let is_secret_key key = List.exists (( = ) key) secret_keys
+let contains_sub s sub =
+  let n = String.length s and m = String.length sub in
+  if m = 0 || m > n then m = 0
+  else
+    try
+      for i = 0 to n - m do
+        if String.sub s i m = sub then raise Exit
+      done;
+      false
+    with Exit -> true
+
+let is_secret_key key = List.exists (contains_sub key) sensitive_substrings
 
 let maybe_encrypt_string ~key value =
   if
