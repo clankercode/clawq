@@ -1,4 +1,4 @@
-# B290: Add list subcommand to task_tree tool; default to list
+# B310: Add list subcommand to task_tree tool; default to list
 
 ## Summary
 The task_tree tool should have an explicit `list` operation, and calling task_tree with no arguments should also list (show all tasks). Currently the tool requires explicit ops; making list the default improves discoverability and matches user expectations.

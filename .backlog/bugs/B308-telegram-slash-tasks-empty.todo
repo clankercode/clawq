@@ -1,4 +1,4 @@
-# B288: /tasks in Telegram returns nothing
+# B308: /tasks in Telegram returns nothing
 
 ## Summary
 The `/tasks` slash command in Telegram does not return anything (empty or no response).

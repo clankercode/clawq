@@ -26,8 +26,8 @@ locked: false
 name: Durable Queue Foundations
 stats:
     blocked: 0
-    done: 0
+    done: 6
     in_progress: 0
-    pending: 6
+    pending: 0
     total_tasks: 6
 status: done

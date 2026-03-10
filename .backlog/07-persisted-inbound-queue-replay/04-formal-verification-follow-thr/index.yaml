@@ -18,8 +18,8 @@ locked: false
 name: Formal Verification Follow-through
 stats:
     blocked: 0
-    done: 0
+    done: 1
     in_progress: 0
-    pending: 1
+    pending: 0
     total_tasks: 1
 status: done

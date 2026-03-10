@@ -47,9 +47,9 @@ milestones:
 name: Persisted Inbound Queue & Replay
 stats:
     blocked: 0
-    done: 0
-    in_progress: 0
-    pending: 17
+    done: 11
+    in_progress: 6
+    pending: 0
     total_tasks: 17
 status: pending
 weeks: 3

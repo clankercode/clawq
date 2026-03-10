@@ -28,7 +28,7 @@ name: Startup Replay Engine
 stats:
     blocked: 0
     done: 0
-    in_progress: 0
-    pending: 6
+    in_progress: 6
+    pending: 0
     total_tasks: 6
 status: pending

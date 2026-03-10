@@ -1,4 +1,4 @@
-# B289: Add /runtime-ctx slash command
+# B309: Add /runtime-ctx slash command
 
 ## Summary
 Add a `/runtime-ctx` (or `/runtime_ctx`) slash command that shows the user their current runtime context in full — the same information injected into the system prompt (session id, main session, workspace, git branch, timezone, shell policy, etc).

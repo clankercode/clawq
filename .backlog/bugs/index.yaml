@@ -289,13 +289,9 @@ bugs:
     - file: B288-make-some-tool-calls-like-back.todo
     - file: B289-background-task-wait-and-backg.todo
     - file: B290-in-telegram-when-we-have-a-too.todo
-    - file: B290-task-tree-list-subcommand.todo
     - file: B291-git-operations-worktree-support.todo
-    - file: B291-set-max-background-task-wait-t.todo
     - file: B292-does-not-exist-clawq-usage-ref.todo
-    - file: B292-task-tree-cannot-mark-done-with-cancelled-children.todo
     - file: B293-background-task-wait-silently.todo
-    - file: B293-task-tree-bulk-ops-soft-delete-restore.todo
     - file: B294-cohttp-body-stream-not-consume.todo
     - file: B295-telegram-409-conflict-race-dur.todo
     - file: B296-drain-timeout-forces-restart-w.todo
@@ -308,6 +304,12 @@ bugs:
     - file: B303-add-costs-for-zai-coding-model.todo
     - file: B304-ensure-that-no-tests-overwrite.todo
     - file: B305-add-to-config-a-search-subcomm.todo
-    - file: B305-clawq-auth-should-print-what-i.todo
     - file: B306-add-z-ai-mcp-websearch-and-web.todo
     - file: B307-telegram-doesn-t-show-tool-cal.todo
+    - file: B308-telegram-slash-tasks-empty.todo
+    - file: B309-runtime-ctx-slash-command.todo
+    - file: B310-task-tree-list-subcommand.todo
+    - file: B311-set-max-background-task-wait-t.todo
+    - file: B312-task-tree-cannot-mark-done-with-cancelled-children.todo
+    - file: B313-task-tree-bulk-ops-soft-delete-restore.todo
+    - file: B314-clawq-auth-should-print-what-i.todo
