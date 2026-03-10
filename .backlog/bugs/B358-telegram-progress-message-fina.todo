@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B358
+priority: high
+status: pending
+tags: []
+title: 'Telegram progress message finalization on user interrupt: capture state at user message time, finalize old progress, start new one below user message'
+---
+
+Telegram progress message finalization on user interrupt: capture state at user message time, finalize old progress, start new one below user message
