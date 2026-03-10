@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B291
+priority: high
+status: pending
+tags: []
+title: set max background_task_wait timeout to 110 seconds
+---
+
+set max background_task_wait timeout to 110 seconds

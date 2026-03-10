@@ -289,3 +289,4 @@ bugs:
     - file: B288-make-some-tool-calls-like-back.todo
     - file: B289-background-task-wait-and-backg.todo
     - file: B290-in-telegram-when-we-have-a-too.todo
+    - file: B291-set-max-background-task-wait-t.todo
