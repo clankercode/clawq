@@ -80,7 +80,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
         Lwt.return_unit
       in
       if Option.is_none (Session.find_registered_notifier session_mgr ~key) then begin
-        Session.register_channel_notifier session_mgr ~key (send_to_chat);
+        Session.register_channel_notifier session_mgr ~key send_to_chat;
         Session.register_silent_channel_notifier session_mgr ~key
           (send_to_chat ~disable_notification:true);
         Session.register_status_message_factory session_mgr ~key (fun () ->

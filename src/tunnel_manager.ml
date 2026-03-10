@@ -68,7 +68,7 @@ let start_cf_managed ~(config : Runtime_config.tunnel_config)
   let open Lwt.Syntax in
   if config.tunnel_name = "" then begin
     Logs.err (fun m ->
-        m "Tunnel managed=true but tunnel_name is empty; skipping subprocess");
+        m "[Tunnel] managed=true but tunnel_name is empty; skipping subprocess");
     Lwt.return_unit
   end
   else
@@ -112,12 +112,13 @@ let start_cf_managed ~(config : Runtime_config.tunnel_config)
         else args
       in
       let redacted_args =
-        Array.map
-          (fun s ->
-            if String.length s >= 3 && String.sub s 0 3 = "eyJ" then
-              String.sub s 0 (min 8 (String.length s)) ^ "..."
-            else s)
-          args
+        let arr = Array.copy args in
+        let len = Array.length arr in
+        for i = 0 to len - 2 do
+          if arr.(i) = "--token" then
+            arr.(i + 1) <- Tui_input.redact arr.(i + 1)
+        done;
+        arr
       in
       Logs.info (fun m ->
           m "[Tunnel] Starting cloudflared: %s"
@@ -159,8 +160,8 @@ let start_cf_managed ~(config : Runtime_config.tunnel_config)
                 | None ->
                     Logs.warn (fun m ->
                         m
-                          "[Tunnel] Ready but no URL configured; set tunnel.url \
-                           in config")
+                          "[Tunnel] Ready but no URL configured; set \
+                           tunnel.url in config")
               end
             end;
             read_stderr ())
@@ -265,7 +266,7 @@ let start_oneshot_provider ~(config : Runtime_config.tunnel_config) ~port
         in
         if custom_command = "" then begin
           Logs.err (fun m ->
-              m "Custom tunnel requires CLAWQ_TUNNEL_COMMAND env var");
+              m "[Tunnel] Custom tunnel requires CLAWQ_TUNNEL_COMMAND env var");
           Lwt.return (None, None, fun () -> Lwt.return_unit)
         end
         else
@@ -278,7 +279,7 @@ let start_oneshot_provider ~(config : Runtime_config.tunnel_config) ~port
               Tunnel_custom.get_pid t,
               fun () -> Tunnel_custom.stop t )
     | _ ->
-        Logs.err (fun m -> m "Unknown tunnel provider: %s" provider);
+        Logs.err (fun m -> m "[Tunnel] Unknown tunnel provider: %s" provider);
         Lwt.return (None, None, fun () -> Lwt.return_unit)
   in
   let* url_opt, pid_opt, stop_fn = start_and_get () in
@@ -331,7 +332,7 @@ let start_and_activate t ~(config : Runtime_config.tunnel_config) ~port ~on_url
         (fun () -> supervisor)
         (fun exn ->
           Logs.err (fun m ->
-              m "Tunnel supervisor error: %s" (Printexc.to_string exn));
+              m "[Tunnel] Supervisor error: %s" (Printexc.to_string exn));
           Lwt.return_unit));
   t.state <-
     Active
@@ -351,7 +352,7 @@ let apply_config t ~(config : Runtime_config.tunnel_config) ~port ~on_url =
       match (config.enabled, t.state) with
       | false, Idle -> Lwt.return_unit
       | false, Active _ ->
-          Logs.info (fun m -> m "Tunnel disabled, stopping...");
+          Logs.info (fun m -> m "[Tunnel] Disabled, stopping...");
           let* () = stop_active t.state in
           t.state <- Idle;
           on_url None;
@@ -359,13 +360,13 @@ let apply_config t ~(config : Runtime_config.tunnel_config) ~port ~on_url =
       | true, Active s when tunnel_config_equal config s.config ->
           Lwt.return_unit
       | true, Active _ ->
-          Logs.info (fun m -> m "Tunnel config changed, restarting tunnel...");
+          Logs.info (fun m -> m "[Tunnel] Config changed, restarting...");
           let* () = stop_active t.state in
           t.state <- Idle;
           start_and_activate t ~config ~port ~on_url
       | true, Idle ->
           Logs.info (fun m ->
-              m "Starting tunnel (provider=%s)..." config.provider);
+              m "[Tunnel] Starting (provider=%s)..." config.provider);
           start_and_activate t ~config ~port ~on_url)
 
 let stop t =
@@ -388,7 +389,7 @@ let restart t ~(config : Runtime_config.tunnel_config) ~port ~on_url =
       end
       else begin
         Logs.info (fun m ->
-            m "Restarting tunnel (provider=%s)..." config.provider);
+            m "[Tunnel] Restarting (provider=%s)..." config.provider);
         start_and_activate t ~config ~port ~on_url
       end)
 

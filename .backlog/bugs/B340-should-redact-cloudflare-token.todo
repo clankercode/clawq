@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-10T13:23:35Z"
+claimed_by: cli-user
+completed_at: "2026-03-10T13:29:30Z"
 complexity: medium
 depends_on: []
+duration_minutes: 5.917027971116667
 estimate_hours: 1
 id: B340
 priority: high
-status: pending
+started_at: "2026-03-10T13:23:35Z"
+status: done
 tags: []
 title: should redact cloudflare token in Starting cloudflared log line; also should have a [Tunnel] log prefix or something
 ---
