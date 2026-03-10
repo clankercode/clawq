@@ -1,0 +1,31 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 0.5
+id: B339
+priority: medium
+status: pending
+tags: []
+title: Double persist_new_messages creates duplicate DB rows on workspace refresh
+---
+In `run_locked_turn` (session.ml:972-976), when `refresh_messages <> []`, `persist_new_messages` is called twice with the same `history_before` index:
+
+```ocaml
+  if compacted then persist_compacted_history mgr ~key agent
+  else begin
+    if refresh_messages <> [] then
+      persist_new_messages mgr ~key ~history_before agent;  (* 1st call *)
+    persist_new_messages mgr ~key ~history_before agent      (* 2nd call *)
+  end;
+```
+
+Both calls persist the identical range of messages (workspace refresh event + user message + search context). Since `Memory.store_message` uses plain `INSERT INTO` (not INSERT OR IGNORE), this creates duplicate rows.
+
+## Impact
+- Duplicate messages in DB `messages` table
+- On session restore, duplicated messages inflate the agent's history
+- Leads to faster context exhaustion and unnecessary compaction cycles
+- Happens semi-regularly — any turn where active workspace files changed since last turn
+
+## Fix
+Remove line 974 (the conditional call). The unconditional call at line 975 already persists everything from `history_before` onwards. The conditional was either a copy-paste error or an earlier version that should have used a different base index.
