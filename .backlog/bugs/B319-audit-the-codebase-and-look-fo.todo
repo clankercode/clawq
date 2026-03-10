@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-10T08:24:08Z"
+claimed_by: cli-user
+completed_at: "2026-03-10T08:38:05Z"
 complexity: medium
 depends_on: []
+duration_minutes: 13.959084361533334
 estimate_hours: 1
 id: B319
 priority: high
-status: pending
+started_at: "2026-03-10T08:24:08Z"
+status: done
 tags: []
 title: audit the codebase and look for places that could overwrite providers with an empty object in config. We must never do this.
 ---

@@ -399,6 +399,52 @@ let test_wizard_merge_preserves_codex_oauth () =
       (try Unix.rmdir (Filename.concat dir ".clawq") with _ -> ());
       try Unix.rmdir dir with _ -> ())
 
+let test_wizard_empty_providers_does_not_overwrite_existing () =
+  let base = Filename.get_temp_dir_name () in
+  let dir =
+    Filename.concat base ("clawq_wiz_ep_" ^ string_of_int (Random.bits ()))
+  in
+  Unix.mkdir dir 0o755;
+  let old_home = Sys.getenv_opt "HOME" in
+  Unix.putenv "HOME" dir;
+  Fun.protect
+    (fun () ->
+      let clawq_dir = Filename.concat dir ".clawq" in
+      Unix.mkdir clawq_dir 0o755;
+      let config_path = Filename.concat clawq_dir "config.json" in
+      let oc = open_out config_path in
+      output_string oc
+        {|{
+  "providers": {
+    "openai": {"api_key": "sk-existing"},
+    "groq": {"api_key": "sk-groq"}
+  }
+}|};
+      close_out oc;
+      (* Write wizard config with empty providers — must not overwrite existing *)
+      let m = Config_wizard_model.initial_model Config_wizard_model.Onboard in
+      let _path = Config_wizard_tui.write_wizard_config m in
+      let json = Yojson.Safe.from_file config_path in
+      let open Yojson.Safe.Util in
+      Alcotest.(check string)
+        "openai api_key preserved" "sk-existing"
+        (json |> member "providers" |> member "openai" |> member "api_key"
+       |> to_string);
+      Alcotest.(check string)
+        "groq api_key preserved" "sk-groq"
+        (json |> member "providers" |> member "groq" |> member "api_key"
+       |> to_string))
+    ~finally:(fun () ->
+      (match old_home with
+      | Some v -> Unix.putenv "HOME" v
+      | None -> Unix.putenv "HOME" "");
+      (try
+         Unix.unlink
+           (Filename.concat (Filename.concat dir ".clawq") "config.json")
+       with _ -> ());
+      (try Unix.rmdir (Filename.concat dir ".clawq") with _ -> ());
+      try Unix.rmdir dir with _ -> ())
+
 let suite =
   [
     Alcotest.test_case "welcome -> provider select" `Quick
@@ -428,4 +474,6 @@ let suite =
       test_prepopulated_channel_token_prefills;
     Alcotest.test_case "wizard merge preserves codex_oauth" `Quick
       test_wizard_merge_preserves_codex_oauth;
+    Alcotest.test_case "wizard empty providers does not overwrite existing"
+      `Quick test_wizard_empty_providers_does_not_overwrite_existing;
   ]

@@ -278,6 +278,13 @@ let test_parse_model_context_limits () =
     [ ("openai-codex/gpt-5.4", 272000); ("custom/model-x", 64000) ]
     cfg.model_context_limits
 
+let test_to_json_omits_empty_providers () =
+  let json = Runtime_config.to_json Runtime_config.default in
+  let open Yojson.Safe.Util in
+  Alcotest.(check bool)
+    "empty providers omitted from to_json" true
+    (json |> member "providers" = `Null)
+
 let test_to_json_omits_empty_model_context_limits () =
   let json = Runtime_config.to_json Runtime_config.default in
   let open Yojson.Safe.Util in
@@ -442,6 +449,28 @@ let test_to_json_preserves_codex_oauth_provider () =
     (json |> member "providers" |> member "openai-codex" |> member "codex_oauth"
    |> member "access_token" |> to_string)
 
+let test_backfill_preserves_existing_providers () =
+  let json =
+    {|{
+      "providers": {
+        "openai": {"api_key": "sk-test"},
+        "anthropic": {"api_key": "sk-ant"}
+      }
+    }|}
+  in
+  with_temp_file json (fun path ->
+      let _cfg = Config_loader.load ~path () in
+      let out = Yojson.Safe.from_file path in
+      let open Yojson.Safe.Util in
+      Alcotest.(check string)
+        "openai api_key preserved" "sk-test"
+        (out |> member "providers" |> member "openai" |> member "api_key"
+       |> to_string);
+      Alcotest.(check string)
+        "anthropic api_key preserved" "sk-ant"
+        (out |> member "providers" |> member "anthropic" |> member "api_key"
+       |> to_string))
+
 let test_parse_provider_thinking_fields () =
   let json =
     Yojson.Safe.from_string
@@ -501,6 +530,8 @@ let suite =
       test_parse_invalid_memory_compaction_threshold_percent_uses_default;
     Alcotest.test_case "parse model context limits" `Quick
       test_parse_model_context_limits;
+    Alcotest.test_case "to_json omits empty providers" `Quick
+      test_to_json_omits_empty_providers;
     Alcotest.test_case "to_json omits empty model context limits" `Quick
       test_to_json_omits_empty_model_context_limits;
     Alcotest.test_case "to_json preserves model context limits" `Quick
@@ -517,6 +548,8 @@ let suite =
       test_parse_codex_oauth_provider;
     Alcotest.test_case "to_json preserves codex oauth provider" `Quick
       test_to_json_preserves_codex_oauth_provider;
+    Alcotest.test_case "backfill preserves existing providers" `Quick
+      test_backfill_preserves_existing_providers;
     Alcotest.test_case "parse provider thinking fields" `Quick
       test_parse_provider_thinking_fields;
     Alcotest.test_case "default_path returns config.json path" `Quick (fun () ->

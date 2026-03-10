@@ -875,13 +875,16 @@ let to_json (cfg : t) : Yojson.Safe.t =
     | None -> fields
   in
   let fields =
-    fields
-    @ [
-        ( "providers",
-          `Assoc
-            (List.map (fun (name, p) -> (name, provider_json p)) cfg.providers)
-        );
-      ]
+    if cfg.providers = [] then fields
+    else
+      fields
+      @ [
+          ( "providers",
+            `Assoc
+              (List.map
+                 (fun (name, p) -> (name, provider_json p))
+                 cfg.providers) );
+        ]
   in
   let fields =
     if cfg.model_context_limits = [] then fields

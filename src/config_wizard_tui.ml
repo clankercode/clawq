@@ -143,10 +143,12 @@ let build_config_json (m : model) : Yojson.Safe.t =
       [ ("gateway", `Assoc fields) ]
     else []
   in
+  let providers_entry =
+    match providers with `Assoc [] -> [] | _ -> [ ("providers", providers) ]
+  in
   `Assoc
     ([ ("default_temperature", `Float 0.7) ]
-    @ default_provider
-    @ [ ("providers", providers) ]
+    @ default_provider @ providers_entry
     @ [ ("agent_defaults", agent_defaults) ]
     @ [ ("security", security) ]
     @ channels @ gateway)
