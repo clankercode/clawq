@@ -68,10 +68,10 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
       let refresh_typing () = typing_watcher.refresh () in
       (* Register a persistent channel notifier so autonomous continuation
          responses can reach the Telegram chat *)
-      let send_to_chat text =
+      let send_to_chat ?(disable_notification = false) text =
         let open Lwt.Syntax in
         let* () =
-          send_chunked ~parse_mode:"MarkdownV2" ~bot_token
+          send_chunked ~disable_notification ~parse_mode:"MarkdownV2" ~bot_token
             ~chat_id:update.chat_id
             ~text:(Telegram_format.markdown_to_mdv2 text)
             ()
@@ -80,7 +80,9 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
         Lwt.return_unit
       in
       if Option.is_none (Session.find_registered_notifier session_mgr ~key) then begin
-        Session.register_channel_notifier session_mgr ~key send_to_chat;
+        Session.register_channel_notifier session_mgr ~key (send_to_chat);
+        Session.register_silent_channel_notifier session_mgr ~key
+          (send_to_chat ~disable_notification:true);
         Session.register_status_message_factory session_mgr ~key (fun () ->
             Status_message.create
               ~notifier:

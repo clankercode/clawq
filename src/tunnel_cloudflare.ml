@@ -72,13 +72,16 @@ let start t =
   if t.process <> None then Lwt.return_unit
   else begin
     t.status <- Starting;
-    Logs.info (fun m -> m "Starting Cloudflare tunnel on port %d" t.port);
+    Logs.info (fun m ->
+        m "[Tunnel] Starting Cloudflare tunnel on port %d" t.port);
     let cfg = t.config in
     if cfg.managed then begin
       if String.trim cfg.tunnel_name = "" then begin
         t.status <- Error "managed tunnel requires tunnel_name";
         Logs.err (fun m ->
-            m "Cloudflare tunnel: managed=true but tunnel_name is empty");
+            m
+              "[Tunnel] Cloudflare tunnel: managed=true but tunnel_name is \
+               empty");
         Lwt.return_unit
       end
       else begin
@@ -140,19 +143,25 @@ let start t =
             match static_url cfg with
             | Some u -> u
             | None ->
-                "https://" ^ cfg.tunnel_name
-                ^ ".<configure-dns-hostname-for-named-tunnel>"
+                let is_token =
+                  let n = String.trim cfg.tunnel_name in
+                  String.length n >= 3 && String.sub n 0 3 = "eyJ"
+                in
+                if is_token then "https://<token-tunnel>.<configure tunnel.url>"
+                else
+                  "https://" ^ cfg.tunnel_name
+                  ^ ".<configure-dns-hostname-for-named-tunnel>"
           in
           t.url <- Some managed_url;
           t.status <- Running managed_url;
           Logs.info (fun m ->
-              m "Cloudflare named tunnel started: %s" managed_url)
+              m "[Tunnel] Cloudflare named tunnel started: %s" managed_url)
         end
         else begin
           t.url <- None;
           t.status <- Error "cloudflared did not become ready in time";
           Logs.warn (fun m ->
-              m "Cloudflare named tunnel failed readiness check");
+              m "[Tunnel] Cloudflare named tunnel failed readiness check");
           (match t.process with
           | Some p -> ( try p#terminate with _ -> ())
           | None -> ());
@@ -167,7 +176,7 @@ let start t =
           t.url <- Some url;
           t.status <- Running url;
           Logs.info (fun m ->
-              m "Cloudflare tunnel using configured URL: %s" url);
+              m "[Tunnel] Cloudflare tunnel using configured URL: %s" url);
           Lwt.return_unit
       | None ->
           let stderr_file = Filename.temp_file "cloudflared" ".log" in
@@ -207,12 +216,13 @@ let start t =
           | Some url ->
               t.url <- Some url;
               t.status <- Running url;
-              Logs.info (fun m -> m "Cloudflare tunnel started: %s" url)
+              Logs.info (fun m ->
+                  m "[Tunnel] Cloudflare tunnel started: %s" url)
           | None ->
               t.url <- None;
               t.status <- Error "Could not extract tunnel URL";
               Logs.warn (fun m ->
-                  m "Cloudflare tunnel started but URL not found"));
+                  m "[Tunnel] Cloudflare tunnel started but URL not found"));
           Lwt.return_unit
   end
 
@@ -223,11 +233,12 @@ let stop t =
       try proc#terminate
       with exn ->
         Logs.warn (fun m ->
-            m "Error terminating cloudflared: %s" (Printexc.to_string exn))));
+            m "[Tunnel] Error terminating cloudflared: %s"
+              (Printexc.to_string exn))));
   t.process <- None;
   t.status <- Stopped;
   t.url <- None;
-  Logs.info (fun m -> m "Cloudflare tunnel stopped");
+  Logs.info (fun m -> m "[Tunnel] Cloudflare tunnel stopped");
   Lwt.return_unit
 
 let get_status t = t.status

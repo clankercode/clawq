@@ -1019,201 +1019,205 @@ let shell_exec_with_hooks ~workspace ~workspace_only ~allowed_commands
         "Error: shell_exec requires a non-empty 'command' parameter. The \
          'command' field is required in the tool call arguments."
     else
-    let cwd_arg =
-      try
-        match args |> member "cwd" with
-        | `Null -> None
-        | json -> Some (to_string json)
-      with _ -> Some ""
-    in
-    let timeout_secs =
-      try
-        let v = args |> member "timeout" |> to_number in
-        if v <= 0.0 then default_timeout else Float.min v max_timeout
-      with _ -> default_timeout
-    in
-    match
-      ( parse_optional_int_field args "head",
-        parse_optional_int_field args "tail" )
-    with
-    | Error msg, _ | _, Error msg -> Lwt.return msg
-    | Ok head_lines, Ok tail_lines -> (
-        match
-          ( validate_positive_optional_int ~field_name:"head" head_lines,
-            validate_positive_optional_int ~field_name:"tail" tail_lines )
-        with
-        | Error msg, _ | _, Error msg -> Lwt.return msg
-        | Ok (), Ok () -> (
-            if command = "" then Lwt.return "Error: command is required"
-            else if workspace_only && has_unsafe_shell_syntax command then
-              Lwt.return
-                "Error: command contains unsafe shell syntax in workspace_only \
-                 mode"
-            else if
-              workspace_only
-              && not (is_command_allowed ~allowed_commands command)
-            then
-              Lwt.return
-                (Printf.sprintf
-                   "Error: command '%s' is not in the allowlist. Allowed: %s"
-                   (extract_command command)
-                   (String.concat ", " allowed_commands))
-            else
-              let open Lwt.Syntax in
-              let cwd_result =
-                match cwd_arg with
-                | None -> Ok (if workspace_only then Some workspace else None)
-                | Some cwd ->
-                    Result.map
-                      (fun resolved -> Some resolved)
-                      (resolve_shell_cwd ~workspace ~workspace_only
-                         ~extra_allowed_paths cwd)
-              in
-              match cwd_result with
-              | Error msg -> Lwt.return msg
-              | Ok cwd -> (
-                  let base_env =
+      let cwd_arg =
+        try
+          match args |> member "cwd" with
+          | `Null -> None
+          | json -> Some (to_string json)
+        with _ -> Some ""
+      in
+      let timeout_secs =
+        try
+          let v = args |> member "timeout" |> to_number in
+          if v <= 0.0 then default_timeout else Float.min v max_timeout
+        with _ -> default_timeout
+      in
+      match
+        ( parse_optional_int_field args "head",
+          parse_optional_int_field args "tail" )
+      with
+      | Error msg, _ | _, Error msg -> Lwt.return msg
+      | Ok head_lines, Ok tail_lines -> (
+          match
+            ( validate_positive_optional_int ~field_name:"head" head_lines,
+              validate_positive_optional_int ~field_name:"tail" tail_lines )
+          with
+          | Error msg, _ | _, Error msg -> Lwt.return msg
+          | Ok (), Ok () -> (
+              if command = "" then Lwt.return "Error: command is required"
+              else if workspace_only && has_unsafe_shell_syntax command then
+                Lwt.return
+                  "Error: command contains unsafe shell syntax in \
+                   workspace_only mode"
+              else if
+                workspace_only
+                && not (is_command_allowed ~allowed_commands command)
+              then
+                Lwt.return
+                  (Printf.sprintf
+                     "Error: command '%s' is not in the allowlist. Allowed: %s"
+                     (extract_command command)
+                     (String.concat ", " allowed_commands))
+              else
+                let open Lwt.Syntax in
+                let cwd_result =
+                  match cwd_arg with
+                  | None -> Ok (if workspace_only then Some workspace else None)
+                  | Some cwd ->
+                      Result.map
+                        (fun resolved -> Some resolved)
+                        (resolve_shell_cwd ~workspace ~workspace_only
+                           ~extra_allowed_paths cwd)
+                in
+                match cwd_result with
+                | Error msg -> Lwt.return msg
+                | Ok cwd -> (
+                    let base_env =
+                      if workspace_only then
+                        [|
+                          ("HOME="
+                          ^ try Sys.getenv "HOME" with Not_found -> "/tmp");
+                          ("PATH="
+                          ^
+                            try Sys.getenv "PATH"
+                            with Not_found -> "/usr/bin:/bin");
+                        |]
+                      else Unix.environment ()
+                    in
+                    let env =
+                      match context with
+                      | Some c -> (
+                          match c.Tool.session_key with
+                          | Some sk ->
+                              let prefix = "CLAWQ_SESSION_ID=" in
+                              let var = prefix ^ sk in
+                              let replaced = ref false in
+                              let updated =
+                                Array.map
+                                  (fun entry ->
+                                    if String.starts_with ~prefix entry then begin
+                                      replaced := true;
+                                      var
+                                    end
+                                    else entry)
+                                  base_env
+                              in
+                              if !replaced then updated
+                              else Array.append base_env [| var |]
+                          | None -> base_env)
+                      | None -> base_env
+                    in
+                    let session_key =
+                      match context with
+                      | Some c -> c.Tool.session_key
+                      | None -> None
+                    in
+                    let original_command = command in
+                    let should_watch_ci_after_push =
+                      Option.is_some
+                        (git_push_command_info ~command:original_command)
+                    in
+                    let optimized_cd_prefix =
+                      if workspace_only then None
+                      else
+                        match extract_cd_prefix original_command with
+                        | Some (dir, rest)
+                          when Sys.file_exists dir && Sys.is_directory dir ->
+                            Some (dir, rest)
+                        | _ -> None
+                    in
+                    let repo_path =
+                      match (optimized_cd_prefix, cwd) with
+                      | Some (dir, _), _ -> dir
+                      | None, Some dir -> dir
+                      | None, None -> workspace
+                    in
+                    let* captured_head_sha =
+                      match
+                        (session_mgr, session_key, should_watch_ci_after_push)
+                      with
+                      | Some _mgr, Some _sk, true -> (
+                          let* result =
+                            exec_command ~cwd:repo_path "git"
+                              [ "rev-parse"; "HEAD" ]
+                          in
+                          match result with
+                          | Ok sha -> Lwt.return (Some (String.trim sha))
+                          | Error err ->
+                              Logs.info (fun m ->
+                                  m
+                                    "CI watch could not capture pre-push HEAD \
+                                     in %s: %s"
+                                    repo_path err);
+                              Lwt.return_none)
+                      | _ -> Lwt.return_none
+                    in
+                    let command =
+                      Sandbox.wrap_command sandbox original_command
+                    in
+                    let run_proc cmd =
+                      run_process_with_timeout ?interrupt_check ?on_output_chunk
+                        ~cwd ~env ~cmd ~timeout_secs ~head_lines ~tail_lines ()
+                    in
+                    let maybe_watch_ci_after_push result =
+                      match
+                        (session_mgr, session_key, should_watch_ci_after_push)
+                      with
+                      | Some mgr, Some sk, true
+                        when String.starts_with ~prefix:"exit_code: 0\n" result
+                        ->
+                          spawn_background (fun () ->
+                              match captured_head_sha with
+                              | Some head_sha when head_sha <> "" ->
+                                  watch_ci_after_push
+                                    ~resolve_head_sha:(fun ~repo_path:_ ->
+                                      Lwt.return (Ok head_sha))
+                                    ~session_mgr:mgr ~session_key:sk ~repo_path
+                                    ()
+                              | _ ->
+                                  watch_ci_after_push ~session_mgr:mgr
+                                    ~session_key:sk ~repo_path ())
+                      | _ -> ()
+                    in
+                    let run_and_maybe_watch cmd =
+                      let* result = run_proc cmd in
+                      maybe_watch_ci_after_push result;
+                      Lwt.return result
+                    in
                     if workspace_only then
-                      [|
-                        ("HOME="
-                        ^ try Sys.getenv "HOME" with Not_found -> "/tmp");
-                        ("PATH="
-                        ^
-                          try Sys.getenv "PATH"
-                          with Not_found -> "/usr/bin:/bin");
-                      |]
-                    else Unix.environment ()
-                  in
-                  let env =
-                    match context with
-                    | Some c -> (
-                        match c.Tool.session_key with
-                        | Some sk ->
-                            let prefix = "CLAWQ_SESSION_ID=" in
-                            let var = prefix ^ sk in
-                            let replaced = ref false in
-                            let updated =
-                              Array.map
-                                (fun entry ->
-                                  if String.starts_with ~prefix entry then begin
-                                    replaced := true;
-                                    var
-                                  end
-                                  else entry)
-                                base_env
-                            in
-                            if !replaced then updated
-                            else Array.append base_env [| var |]
-                        | None -> base_env)
-                    | None -> base_env
-                  in
-                  let session_key =
-                    match context with
-                    | Some c -> c.Tool.session_key
-                    | None -> None
-                  in
-                  let original_command = command in
-                  let should_watch_ci_after_push =
-                    Option.is_some
-                      (git_push_command_info ~command:original_command)
-                  in
-                  let optimized_cd_prefix =
-                    if workspace_only then None
+                      match split_command_words command with
+                      | Error msg -> Lwt.return ("Error: " ^ msg)
+                      | Ok argv -> (
+                          let argv = List.map expand_home_in_arg argv in
+                          match argv with
+                          | [] -> Lwt.return "Error: command is required"
+                          | cmd :: _
+                            when not (is_workspace_safe_command_token cmd) ->
+                              Lwt.return
+                                "Error: command binary path is disallowed in \
+                                 workspace_only mode"
+                          | _
+                            when has_workspace_unsafe_args ~workspace
+                                   ~extra_allowed_paths argv ->
+                              Lwt.return
+                                "Error: command contains paths/targets \
+                                 disallowed in workspace_only mode"
+                          | _ -> run_and_maybe_watch ("", Array.of_list argv))
                     else
-                      match extract_cd_prefix original_command with
-                      | Some (dir, rest)
-                        when Sys.file_exists dir && Sys.is_directory dir ->
-                          Some (dir, rest)
-                      | _ -> None
-                  in
-                  let repo_path =
-                    match (optimized_cd_prefix, cwd) with
-                    | Some (dir, _), _ -> dir
-                    | None, Some dir -> dir
-                    | None, None -> workspace
-                  in
-                  let* captured_head_sha =
-                    match
-                      (session_mgr, session_key, should_watch_ci_after_push)
-                    with
-                    | Some _mgr, Some _sk, true -> (
-                        let* result =
-                          exec_command ~cwd:repo_path "git"
-                            [ "rev-parse"; "HEAD" ]
-                        in
-                        match result with
-                        | Ok sha -> Lwt.return (Some (String.trim sha))
-                        | Error err ->
-                            Logs.info (fun m ->
-                                m
-                                  "CI watch could not capture pre-push HEAD in \
-                                   %s: %s"
-                                  repo_path err);
-                            Lwt.return_none)
-                    | _ -> Lwt.return_none
-                  in
-                  let command = Sandbox.wrap_command sandbox original_command in
-                  let run_proc cmd =
-                    run_process_with_timeout ?interrupt_check ?on_output_chunk
-                      ~cwd ~env ~cmd ~timeout_secs ~head_lines ~tail_lines ()
-                  in
-                  let maybe_watch_ci_after_push result =
-                    match
-                      (session_mgr, session_key, should_watch_ci_after_push)
-                    with
-                    | Some mgr, Some sk, true
-                      when String.starts_with ~prefix:"exit_code: 0\n" result ->
-                        spawn_background (fun () ->
-                            match captured_head_sha with
-                            | Some head_sha when head_sha <> "" ->
-                                watch_ci_after_push
-                                  ~resolve_head_sha:(fun ~repo_path:_ ->
-                                    Lwt.return (Ok head_sha))
-                                  ~session_mgr:mgr ~session_key:sk ~repo_path ()
-                            | _ ->
-                                watch_ci_after_push ~session_mgr:mgr
-                                  ~session_key:sk ~repo_path ())
-                    | _ -> ()
-                  in
-                  let run_and_maybe_watch cmd =
-                    let* result = run_proc cmd in
-                    maybe_watch_ci_after_push result;
-                    Lwt.return result
-                  in
-                  if workspace_only then
-                    match split_command_words command with
-                    | Error msg -> Lwt.return ("Error: " ^ msg)
-                    | Ok argv -> (
-                        let argv = List.map expand_home_in_arg argv in
-                        match argv with
-                        | [] -> Lwt.return "Error: command is required"
-                        | cmd :: _
-                          when not (is_workspace_safe_command_token cmd) ->
-                            Lwt.return
-                              "Error: command binary path is disallowed in \
-                               workspace_only mode"
-                        | _
-                          when has_workspace_unsafe_args ~workspace
-                                 ~extra_allowed_paths argv ->
-                            Lwt.return
-                              "Error: command contains paths/targets \
-                               disallowed in workspace_only mode"
-                        | _ -> run_and_maybe_watch ("", Array.of_list argv))
-                  else
-                    match optimized_cd_prefix with
-                    | Some (dir, rest) ->
-                        let cwd = Some dir in
-                        let* result =
-                          run_process_with_timeout ?interrupt_check
-                            ?on_output_chunk ~cwd ~env
-                            ~cmd:("", [| "/bin/sh"; "-c"; rest |])
-                            ~timeout_secs ~head_lines ~tail_lines ()
-                        in
-                        maybe_watch_ci_after_push result;
-                        Lwt.return result
-                    | _ ->
-                        run_and_maybe_watch ("", [| "/bin/sh"; "-c"; command |])
-                  )))
+                      match optimized_cd_prefix with
+                      | Some (dir, rest) ->
+                          let cwd = Some dir in
+                          let* result =
+                            run_process_with_timeout ?interrupt_check
+                              ?on_output_chunk ~cwd ~env
+                              ~cmd:("", [| "/bin/sh"; "-c"; rest |])
+                              ~timeout_secs ~head_lines ~tail_lines ()
+                          in
+                          maybe_watch_ci_after_push result;
+                          Lwt.return result
+                      | _ ->
+                          run_and_maybe_watch
+                            ("", [| "/bin/sh"; "-c"; command |]))))
   in
   {
     Tool.name = "shell_exec";

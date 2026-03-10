@@ -45,6 +45,7 @@ type t = {
   mutable draining : bool;
   in_flight_count : int ref;
   channel_notifiers : (string, string -> unit Lwt.t) Hashtbl.t;
+  silent_channel_notifiers : (string, string -> unit Lwt.t) Hashtbl.t;
   status_message_factories : (string, unit -> Status_message.t) Hashtbl.t;
   rich_notifiers :
     (string, Rich_message.t -> Rich_message.send_result Lwt.t) Hashtbl.t;
@@ -209,6 +210,7 @@ let create ~config ?tool_registry ?sandbox ?(landlock_enabled = false) ?db () =
     draining = false;
     in_flight_count = ref 0;
     channel_notifiers = Hashtbl.create 16;
+    silent_channel_notifiers = Hashtbl.create 16;
     status_message_factories = Hashtbl.create 16;
     rich_notifiers = Hashtbl.create 16;
     deferred_responses = Hashtbl.create 16;
@@ -247,7 +249,14 @@ let register_channel_notifier mgr ~key notify =
 
 let unregister_channel_notifier mgr ~key =
   Hashtbl.remove mgr.channel_notifiers key;
+  Hashtbl.remove mgr.silent_channel_notifiers key;
   Hashtbl.remove mgr.status_message_factories key
+
+let register_silent_channel_notifier mgr ~key notify =
+  Hashtbl.replace mgr.silent_channel_notifiers key notify
+
+let find_silent_channel_notifier mgr ~key =
+  Hashtbl.find_opt mgr.silent_channel_notifiers key
 
 let register_status_message_factory mgr ~key factory =
   Hashtbl.replace mgr.status_message_factories key factory
@@ -1912,7 +1921,12 @@ let rec schedule_autonomous_continuation ?delay ?(around_turn = fun f -> f ())
           in
           let* () =
             if mgr.config.agent_defaults.send_continuation_checkin then
-              match find_registered_notifier mgr ~key with
+              let notify_opt =
+                match find_silent_channel_notifier mgr ~key with
+                | Some _ as s -> s
+                | None -> find_registered_notifier mgr ~key
+              in
+              match notify_opt with
               | Some notify ->
                   let labeled =
                     "[automatic continuation check-in]\n"

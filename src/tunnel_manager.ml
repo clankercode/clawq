@@ -115,7 +115,7 @@ let start_cf_managed ~(config : Runtime_config.tunnel_config)
         Array.map
           (fun s ->
             if String.length s >= 3 && String.sub s 0 3 = "eyJ" then
-              String.sub s 0 8 ^ "..."
+              String.sub s 0 (min 8 (String.length s)) ^ "..."
             else s)
           args
       in
@@ -129,7 +129,7 @@ let start_cf_managed ~(config : Runtime_config.tunnel_config)
         Lwt.catch
           (fun () ->
             let* line = Lwt_io.read_line proc#stderr in
-            Logs.debug (fun m -> m "cloudflared: %s" line);
+            Logs.debug (fun m -> m "[Tunnel] cloudflared: %s" line);
             if
               (not !url_notified)
               &&
@@ -143,7 +143,8 @@ let start_cf_managed ~(config : Runtime_config.tunnel_config)
             then begin
               incr conn_count;
               Logs.info (fun m ->
-                  m "[Tunnel] cloudflared connection %d/4 registered" !conn_count);
+                  m "[Tunnel] cloudflared connection %d/4 registered"
+                    !conn_count);
               if !conn_count >= 4 then begin
                 url_notified := true;
                 let static =
@@ -158,7 +159,7 @@ let start_cf_managed ~(config : Runtime_config.tunnel_config)
                 | None ->
                     Logs.warn (fun m ->
                         m
-                          "Tunnel ready but no URL configured; set tunnel.url \
+                          "[Tunnel] Ready but no URL configured; set tunnel.url \
                            in config")
               end
             end;
@@ -177,13 +178,13 @@ let start_cf_managed ~(config : Runtime_config.tunnel_config)
                     (match status with
                     | Unix.WEXITED code ->
                         Logs.warn (fun m ->
-                            m "cloudflared exited with code %d" code)
+                            m "[Tunnel] cloudflared exited with code %d" code)
                     | Unix.WSIGNALED sig_n ->
                         Logs.warn (fun m ->
-                            m "cloudflared killed by signal %d" sig_n)
+                            m "[Tunnel] cloudflared killed by signal %d" sig_n)
                     | Unix.WSTOPPED sig_n ->
                         Logs.warn (fun m ->
-                            m "cloudflared stopped by signal %d" sig_n));
+                            m "[Tunnel] cloudflared stopped by signal %d" sig_n));
                     Lwt.return_unit);
                  ]
              in

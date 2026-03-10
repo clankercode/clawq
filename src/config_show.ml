@@ -18,6 +18,7 @@ let secret_patterns =
     "channel_access_token";
     "totp_secret";
     "auth_token";
+    "tunnel_name";
   ]
 
 let is_secret_key k = List.exists (fun pat -> k = pat) secret_patterns
