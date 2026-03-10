@@ -1155,10 +1155,10 @@ let test_handle_service () =
     && String.sub result 0 (String.length prefix) = prefix)
 
 let test_handle_service_signal_restart () =
-  let result = Command_bridge.handle [ "service"; "signal-restart" ] in
-  Alcotest.(check bool)
-    "service signal restart returns output" true
-    (result = "Daemon is not running" || String.length result > 0)
+  with_temp_home (fun _home ->
+      let result = Command_bridge.handle [ "service"; "signal-restart" ] in
+      Alcotest.(check string)
+        "service signal restart with no daemon" "Daemon is not running" result)
 
 let test_handle_update_without_live_daemon_reports_stub () =
   with_temp_home (fun _home ->
