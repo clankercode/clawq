@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B351
+priority: high
+status: pending
+tags: []
+title: Investigate minimum ~3s latency on all tool calls
+---
+
+Investigate minimum ~3s latency on all tool calls
