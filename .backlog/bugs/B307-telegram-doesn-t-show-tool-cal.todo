@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B307
+priority: high
+status: pending
+tags: []
+title: Telegram doesn't show tool calls anymore, or they can drop off or something and not update. Makes it hard to tell what's going on.
+---
+
+Telegram doesn't show tool calls anymore, or they can drop off or something and not update. Makes it hard to tell what's going on.

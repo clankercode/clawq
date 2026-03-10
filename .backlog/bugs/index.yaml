@@ -309,3 +309,4 @@ bugs:
     - file: B304-ensure-that-no-tests-overwrite.todo
     - file: B305-add-to-config-a-search-subcomm.todo
     - file: B306-add-z-ai-mcp-websearch-and-web.todo
+    - file: B307-telegram-doesn-t-show-tool-cal.todo
