@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-10T08:34:06Z"
+claimed_by: cli-user
+completed_at: "2026-03-10T08:34:28Z"
 complexity: medium
 depends_on: []
+duration_minutes: 0.3788875949666667
 estimate_hours: 0
 id: B312
 priority: medium
-status: pending
+started_at: "2026-03-10T08:34:06Z"
+status: done
 tags: []
 title: task_tree cannot mark parent done when children are cancelled
 ---
