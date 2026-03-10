@@ -282,3 +282,4 @@ bugs:
     - file: B281-clawq-session-list-active-or-a.todo
     - file: B282-if-the-user-tries-to-set-an-un.todo
     - file: B283-uncaught-exception-eaccess-exe.todo
+    - file: B284-add-support-for-kimi-coding-su.todo

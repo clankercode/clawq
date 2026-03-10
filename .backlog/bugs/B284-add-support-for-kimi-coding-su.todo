@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B284
+priority: high
+status: pending
+tags: []
+title: 'Add support for kimi coding subscription auth and endpoints. (Note: these are different from the moonshot endpoints)'
+---
+
+Add support for kimi coding subscription auth and endpoints. (Note: these are different from the moonshot endpoints)
