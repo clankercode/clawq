@@ -498,9 +498,9 @@ type wait_result =
   | Interrupted of task
   | Not_found
 
-let max_wait_seconds = 180.0
+let max_wait_seconds = 110.0
 
-let rec wait_until_terminal ?(timeout_seconds = 180.0) ?(poll_seconds = 1.0)
+let rec wait_until_terminal ?(timeout_seconds = 110.0) ?(poll_seconds = 1.0)
     ?interrupt_check ~db ~id () =
   let open Lwt.Syntax in
   match get_task ~db ~id with
@@ -1580,7 +1580,7 @@ let wait_tool ~db =
   {
     Tool.name = "background_task_wait";
     description =
-      "Wait for a background coding task to finish (max 3 minutes). If the \
+      "Wait for a background coding task to finish (max 110 seconds). If the \
        task is still running when the timeout is reached, call this tool again \
        to continue waiting.";
     parameters_schema =

@@ -1720,9 +1720,9 @@ let test_wait_until_terminal_timeout () =
       | Background_task.Interrupted _ ->
           Alcotest.fail "expected Timeout, got Interrupted")
 
-let test_max_wait_seconds_is_180 () =
+let test_max_wait_seconds_is_110 () =
   Alcotest.(check (float 0.0))
-    "max_wait_seconds is 180" 180.0 Background_task.max_wait_seconds
+    "max_wait_seconds is 110" 110.0 Background_task.max_wait_seconds
 
 let test_start_to_file () =
   let log_path = Filename.temp_file "clawq-bg-file" ".log" in
@@ -2220,8 +2220,8 @@ let suite =
       test_wait_until_terminal_not_found;
     Alcotest.test_case "wait_until_terminal timeout" `Quick
       test_wait_until_terminal_timeout;
-    Alcotest.test_case "max_wait_seconds is 180" `Quick
-      test_max_wait_seconds_is_180;
+    Alcotest.test_case "max_wait_seconds is 110" `Quick
+      test_max_wait_seconds_is_110;
     Alcotest.test_case "start_to_file writes output to log" `Quick
       test_start_to_file;
     Alcotest.test_case "readopt re-adopts alive running task" `Quick
