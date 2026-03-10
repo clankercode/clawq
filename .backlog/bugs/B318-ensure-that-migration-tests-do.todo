@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B318
+priority: high
+status: pending
+tags: []
+title: ensure that migration tests do not migrate the production db. They must set up their own (temporary) home directory if need be.
+---
+
+ensure that migration tests do not migrate the production db. They must set up their own (temporary) home directory if need be.
