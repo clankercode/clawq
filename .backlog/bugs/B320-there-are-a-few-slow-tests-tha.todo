@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B320
+priority: high
+status: pending
+tags: []
+title: There are a few slow tests that take the majority of the testing time. Investigate and optimize these as best you can. If there are common pitfalls that can be avoided, make sure test/CLAUDE.md is updated with info about how to avoid them
+---
+
+There are a few slow tests that take the majority of the testing time. Investigate and optimize these as best you can. If there are common pitfalls that can be avoided, make sure test/CLAUDE.md is updated with info about how to avoid them
