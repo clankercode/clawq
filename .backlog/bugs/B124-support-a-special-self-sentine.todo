@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-10T03:34:56Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B124
 priority: high
-status: pending
+started_at: "2026-03-10T03:34:56Z"
+status: in_progress
 tags: []
 title: Support a special self-sentinel mode where a second agent is used to look for errors in the main agent's log. This should allow me to interact with the main agent over telegram, and if something goes wrong that causes a fatal issue, the sentinel agent can detect this and implement a fix and restart the main agent. Once the main agent restarts successfully, the sentinel agent can restart.
 ---
