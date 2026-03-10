@@ -1,0 +1,29 @@
+---
+complexity: medium
+depends_on:
+    - 'Observed in Telegram DM: model was changed to glm-5'
+    - but after restart/runtime re-entry the session is back on gpt-5.4. Current implementation shows `models set/get` tool and `/model set` as session-scoped only
+    - while persistence requires `set-default` or `/model set-default`. This is worth tracking as either a persistence defect
+    - a misleading UX defect
+    - |-
+      or both.
+
+      Acceptance criteria:
+      - Reproduce the exact session/restart path that loses the model choice.
+      - Decide intended semantics for tool `models set` and connector `/model set` versus `set-default`.
+      - If session-only semantics are intended
+    - |-
+      make that unambiguous in user-facing confirmations/help and ensure restart behavior is documented consistently.
+      - If persistence across restart is intended for resumed sessions
+    - |-
+      implement and test it.
+      - Add regression coverage for the chosen behavior across restart/new-session boundaries.
+estimate_hours: 1
+id: B297
+priority: high
+status: pending
+tags: []
+title: Session model changes do not persist across restarts and UX implies they might
+---
+
+Session model changes do not persist across restarts and UX implies they might
