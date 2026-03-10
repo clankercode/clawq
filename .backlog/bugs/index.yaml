@@ -335,3 +335,4 @@ bugs:
     - file: B334-error-on-startup-should-go-in.todo
     - file: B335-automatic-restart-resume-messa.todo
     - file: B336-in-memory-queued-messages-lost.todo
+    - file: B337-restart-resume-agent-runs-inde.todo

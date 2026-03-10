@@ -1,0 +1,28 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 3
+id: B337
+priority: high
+status: pending
+tags: []
+title: Restart-resume agent runs indefinitely, blocking session queue drain
+---
+On daemon restart, the restart-resume prompt fires a full agent turn for any pending session. With large contexts (80k+ tokens) and glm-5 as provider, this turn runs many tool-call iterations (up to max_tool_iterations=10) without producing a final text response. During this time:
+
+1. New inbound messages are queued in memory but cannot drain until the turn ends
+2. If another restart happens mid-turn, the queue is wiped (see B336)
+3. The restart-resume work is not persisted (turn never completes cleanly), so every restart restarts from the same DB checkpoint and re-runs the same research loop
+
+Observed: session telegram:58495225:58495225 ran the same restart-resume loop 3+ times in a row (434 messages restored each time), investigating B230/GitHub webhooks via shell_exec calls, never concluding. Each restart replays the same loop.
+
+## Contributing factors
+- `queued_message_interrupt_token` does not interrupt the agent loop (agent.ml:1711-1712 just calls `loop (iteration + 1)`)
+- No mechanism to detect 'agent has been running restart-resume for too long' and abort
+- glm-5 struggles with 80k+ token contexts, causing 90-120s per LLM call and timeout cascades
+
+## Fix options
+1. Skip restart-resume for sessions where context exceeds a configurable token threshold (they'll timeout anyway)
+2. Make the restart-resume prompt explicitly instruct the model to conclude in 1-2 turns maximum
+3. Add a restart-resume-specific max_iters cap (e.g. 3 iterations) separate from the normal agent max
+4. On `queued_message_interrupt_token`, actually interrupt and complete the turn early with a summary
