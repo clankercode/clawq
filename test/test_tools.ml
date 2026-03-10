@@ -938,6 +938,222 @@ let test_zai_websearch_requires_api_key () =
      / providers.zai_coding.api_key."
     out
 
+let test_zai_websearch_success_invokes_mcp () =
+  let request = ref None in
+  let http_post ~uri ~headers ~body =
+    request := Some (uri, headers, Yojson.Safe.from_string body);
+    let multiline_payload =
+      "event: ping\n" ^ "data: {\"kind\":\"ping\"}\n\n" ^ "data: {\"result\":\n"
+      ^ "data:   {\"content\": [{\"type\":\"text\",\"text\":\"first\"}, \
+         {\"type\":\"text\",\"text\":\"second\"}]}}\n\n"
+    in
+    Lwt.return (200, multiline_payload, "text/event-stream")
+  in
+  let config =
+    {
+      Runtime_config.default with
+      zai_mcp =
+        Some
+          {
+            Runtime_config.key = "sk-zai";
+            websearch_enabled = true;
+            webfetch_enabled = true;
+          };
+    }
+  in
+  let tool = Tools_builtin.zai_websearch_with_post ~http_post ~config in
+  let out =
+    Lwt_main.run (tool.Tool.invoke (`Assoc [ ("query", `String "clawq") ]))
+  in
+  Alcotest.(check string) "response text" "first\nsecond" out;
+  let uri, headers, body = Option.get !request in
+  Alcotest.(check string)
+    "endpoint" "https://api.z.ai/api/mcp/web_search_prime/mcp" uri;
+  Alcotest.(check (list (pair string string)))
+    "auth header"
+    [ ("Authorization", "Bearer sk-zai") ]
+    headers;
+  let open Yojson.Safe.Util in
+  Alcotest.(check string)
+    "rpc method" "tools/call"
+    (body |> member "method" |> to_string);
+  Alcotest.(check string)
+    "tool name" "webSearchPrime"
+    (body |> member "params" |> member "name" |> to_string);
+  Alcotest.(check string)
+    "query argument" "clawq"
+    (body |> member "params" |> member "arguments" |> member "query"
+   |> to_string)
+
+let test_zai_webfetch_success_invokes_mcp () =
+  let request = ref None in
+  let http_post ~uri ~headers ~body =
+    request := Some (uri, headers, Yojson.Safe.from_string body);
+    Lwt.return
+      ( 200,
+        Yojson.Safe.to_string
+          (`Assoc
+             [
+               ( "result",
+                 `Assoc
+                   [
+                     ( "content",
+                       `List
+                         [
+                           `Assoc
+                             [
+                               ("type", `String "text");
+                               ("text", `String "page text");
+                             ];
+                         ] );
+                   ] );
+             ]),
+        "application/json" )
+  in
+  let config =
+    {
+      Runtime_config.default with
+      zai_mcp =
+        Some
+          {
+            Runtime_config.key = "sk-zai";
+            websearch_enabled = true;
+            webfetch_enabled = true;
+          };
+    }
+  in
+  let tool = Tools_builtin.zai_webfetch_with_post ~http_post ~config in
+  let out =
+    Lwt_main.run
+      (tool.Tool.invoke (`Assoc [ ("url", `String "https://example.com") ]))
+  in
+  Alcotest.(check string) "response text" "page text" out;
+  let uri, headers, body = Option.get !request in
+  Alcotest.(check string)
+    "endpoint" "https://api.z.ai/api/mcp/web_reader/mcp" uri;
+  Alcotest.(check (list (pair string string)))
+    "auth header"
+    [ ("Authorization", "Bearer sk-zai") ]
+    headers;
+  let open Yojson.Safe.Util in
+  Alcotest.(check string)
+    "rpc method" "tools/call"
+    (body |> member "method" |> to_string);
+  Alcotest.(check string)
+    "tool name" "webReader"
+    (body |> member "params" |> member "name" |> to_string);
+  Alcotest.(check string)
+    "url argument" "https://example.com"
+    (body |> member "params" |> member "arguments" |> member "url" |> to_string)
+
+let test_zai_websearch_negative_paths () =
+  let config =
+    {
+      Runtime_config.default with
+      zai_mcp =
+        Some
+          {
+            Runtime_config.key = "sk-zai";
+            websearch_enabled = true;
+            webfetch_enabled = true;
+          };
+    }
+  in
+  let invoke_with status resp_body content_type =
+    let http_post ~uri:_ ~headers:_ ~body:_ =
+      Lwt.return (status, resp_body, content_type)
+    in
+    let tool = Tools_builtin.zai_websearch_with_post ~http_post ~config in
+    Lwt_main.run (tool.Tool.invoke (`Assoc [ ("query", `String "clawq") ]))
+  in
+  Alcotest.(check string)
+    "http non-2xx surfaces status and body"
+    "Error: Z.ai MCP returned HTTP 502: upstream down"
+    (invoke_with 502 "upstream down" "text/plain");
+  Alcotest.(check string)
+    "http redirect is not treated as success"
+    "Error: Z.ai MCP returned HTTP 302: moved"
+    (invoke_with 302 "moved" "text/plain");
+  Alcotest.(check string)
+    "malformed json is actionable" "Error: Z.ai MCP returned malformed JSON."
+    (invoke_with 200 "{not json" "application/json");
+  Alcotest.(check string)
+    "empty response is actionable"
+    "Error: Z.ai MCP returned an empty response body."
+    (invoke_with 200 "" "application/json");
+  Alcotest.(check string)
+    "rpc error message is surfaced" "Error: Z.ai MCP error: quota exceeded"
+    (invoke_with 200
+       (Yojson.Safe.to_string
+          (`Assoc
+             [
+               ( "error",
+                 `Assoc
+                   [
+                     ("code", `Int (-32001));
+                     ("message", `String "quota exceeded");
+                   ] );
+             ]))
+       "application/json");
+  Alcotest.(check string)
+    "sse without payload is actionable"
+    "Error: Z.ai MCP returned an SSE response without a JSON payload."
+    (invoke_with 200 "event: ping\n\n" "text/event-stream")
+
+let test_zai_webfetch_negative_paths () =
+  let config =
+    {
+      Runtime_config.default with
+      zai_mcp =
+        Some
+          {
+            Runtime_config.key = "sk-zai";
+            websearch_enabled = true;
+            webfetch_enabled = true;
+          };
+    }
+  in
+  let invoke_with status resp_body content_type =
+    let http_post ~uri:_ ~headers:_ ~body:_ =
+      Lwt.return (status, resp_body, content_type)
+    in
+    let tool = Tools_builtin.zai_webfetch_with_post ~http_post ~config in
+    Lwt_main.run
+      (tool.Tool.invoke (`Assoc [ ("url", `String "https://example.com") ]))
+  in
+  Alcotest.(check string)
+    "http non-2xx surfaces status and body"
+    "Error: Z.ai MCP returned HTTP 503: service unavailable"
+    (invoke_with 503 "service unavailable" "text/plain");
+  Alcotest.(check string)
+    "http redirect is not treated as success"
+    "Error: Z.ai MCP returned HTTP 301: moved"
+    (invoke_with 301 "moved" "text/plain");
+  Alcotest.(check string)
+    "malformed json is actionable" "Error: Z.ai MCP returned malformed JSON."
+    (invoke_with 200 "{broken" "application/json");
+  Alcotest.(check string)
+    "empty response is actionable"
+    "Error: Z.ai MCP returned an empty response body."
+    (invoke_with 200 "" "application/json");
+  Alcotest.(check string)
+    "rpc error message is surfaced" "Error: Z.ai MCP error: url blocked"
+    (invoke_with 200
+       (Yojson.Safe.to_string
+          (`Assoc
+             [
+               ( "error",
+                 `Assoc
+                   [
+                     ("code", `Int (-32002)); ("message", `String "url blocked");
+                   ] );
+             ]))
+       "application/json");
+  Alcotest.(check string)
+    "sse without payload is actionable"
+    "Error: Z.ai MCP returned an SSE response without a JSON payload."
+    (invoke_with 200 "event: ping\n\n" "text/event-stream")
+
 let test_register_builtin_tools_includes_enabled_zai_tools () =
   let registry = Tool_registry.create () in
   let sandbox =
@@ -1797,6 +2013,14 @@ let suite =
       test_registry_remove_drops_tool;
     Alcotest.test_case "zai websearch requires api key" `Quick
       test_zai_websearch_requires_api_key;
+    Alcotest.test_case "zai websearch success invokes mcp" `Quick
+      test_zai_websearch_success_invokes_mcp;
+    Alcotest.test_case "zai webfetch success invokes mcp" `Quick
+      test_zai_webfetch_success_invokes_mcp;
+    Alcotest.test_case "zai websearch negative paths" `Quick
+      test_zai_websearch_negative_paths;
+    Alcotest.test_case "zai webfetch negative paths" `Quick
+      test_zai_webfetch_negative_paths;
     Alcotest.test_case "register builtin tools includes enabled zai tools"
       `Quick test_register_builtin_tools_includes_enabled_zai_tools;
     Alcotest.test_case "refresh replaces config-bound tools" `Quick

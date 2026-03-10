@@ -366,7 +366,7 @@ let test_disconnect_cleanup_is_bounded () =
 
 let test_remote_http_sse_response () =
   (* Simulate a Streamable HTTP server that responds with text/event-stream
-     (as z.ai MCP endpoints do). The client must parse SSE data: lines. *)
+     using multiple events and multi-line data framing. *)
   let sse_post ~url:_ ~headers:_ ~body =
     let open Yojson.Safe.Util in
     let json = Yojson.Safe.from_string body in
@@ -374,42 +374,30 @@ let test_remote_http_sse_response () =
     let id_opt = try Some (json |> member "id" |> to_int) with _ -> None in
     match method_ with
     | "initialize" ->
+        let id = Option.value ~default:1 id_opt in
         let resp =
-          Yojson.Safe.to_string
-            (`Assoc
-               [
-                 ("jsonrpc", `String "2.0");
-                 ("id", `Int (Option.value ~default:1 id_opt));
-                 ("result", `Assoc [ ("protocolVersion", `String "2024-11-05") ]);
-               ])
+          "event: ping\n" ^ "data: {\"kind\":\"ping\"}\n\n"
+          ^ Printf.sprintf
+              "data: {\"jsonrpc\":\"2.0\",\n\
+              \ data: \"id\":%d,\n\
+              \ data: \"result\":{\"protocolVersion\":\"2024-11-05\"}}\n\n"
+              id
         in
-        Lwt.return (200, "data: " ^ resp ^ "\n\n", "text/event-stream")
+        Lwt.return (200, resp, "text/event-stream")
     | "notifications/initialized" -> Lwt.return (202, "", "application/json")
     | "tools/list" ->
+        let id = Option.value ~default:2 id_opt in
         let resp =
-          Yojson.Safe.to_string
-            (`Assoc
-               [
-                 ("jsonrpc", `String "2.0");
-                 ("id", `Int (Option.value ~default:2 id_opt));
-                 ( "result",
-                   `Assoc
-                     [
-                       ( "tools",
-                         `List
-                           [
-                             `Assoc
-                               [
-                                 ("name", `String "sse_tool");
-                                 ("description", `String "SSE tool");
-                                 ( "inputSchema",
-                                   `Assoc [ ("type", `String "object") ] );
-                               ];
-                           ] );
-                     ] );
-               ])
+          "event: ping\n" ^ "data: {\"kind\":\"ping\"}\n\n"
+          ^ Printf.sprintf
+              "data: {\"jsonrpc\":\"2.0\",\n\
+              \ data: \"id\":%d,\n\
+              \ data: \
+               \"result\":{\"tools\":[{\"name\":\"sse_tool\",\"description\":\"SSE \
+               tool\",\"inputSchema\":{\"type\":\"object\"}}]}}\n\n"
+              id
         in
-        Lwt.return (200, "data: " ^ resp ^ "\n\n", "text/event-stream")
+        Lwt.return (200, resp, "text/event-stream")
     | other -> Alcotest.failf "unexpected method %s" other
   in
   let cfg =
@@ -426,6 +414,33 @@ let test_remote_http_sse_response () =
   let tool = List.hd tools in
   Alcotest.(check string) "sse tool name" "sse_tool" tool.Tool.name
 
+let test_remote_http_redirect_fails () =
+  let redirect_post ~url:_ ~headers:_ ~body:_ =
+    Lwt.return (302, "moved", "text/plain")
+  in
+  let cfg =
+    {
+      Mcp_client.name = "redirect";
+      command = "https://api.example.test/mcp";
+      args = [];
+      env = [];
+    }
+  in
+  match
+    Lwt.catch
+      (fun () ->
+        let open Lwt.Syntax in
+        let* _ = Mcp_client.connect ~http_post:redirect_post cfg in
+        Lwt.return (Ok ()))
+      (fun exn -> Lwt.return (Error (Printexc.to_string exn)))
+    |> Lwt_main.run
+  with
+  | Ok () -> Alcotest.fail "expected redirect failure"
+  | Error msg ->
+      Alcotest.(check bool)
+        "redirect mentions HTTP status" true
+        (String.starts_with ~prefix:"Failure(\"MCP client: HTTP 302" msg)
+
 let suite =
   [
     Alcotest.test_case "initialize" `Quick test_initialize;
@@ -438,6 +453,8 @@ let suite =
     Alcotest.test_case "remote http requests" `Quick test_remote_http_requests;
     Alcotest.test_case "remote http sse response" `Quick
       test_remote_http_sse_response;
+    Alcotest.test_case "remote http redirect fails" `Quick
+      test_remote_http_redirect_fails;
     Alcotest.test_case "startup timeout" `Quick test_startup_timeout;
     Alcotest.test_case "stdio startup timeout cleanup bounded" `Quick
       test_stdio_startup_timeout_cleanup_is_bounded;

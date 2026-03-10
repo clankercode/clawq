@@ -165,6 +165,62 @@ let test_boot_stage_message_helpers () =
     (Daemon.boot_stage_done_message ~detail:"replayed=2 failed=1"
        ~elapsed_s:0.125 "durable-replay")
 
+let make_now times =
+  let remaining = ref times in
+  fun () ->
+    match !remaining with
+    | value :: rest ->
+        remaining := rest;
+        value
+    | [] -> failwith "test now exhausted"
+
+let test_with_boot_stage_logging_success () =
+  let messages = ref [] in
+  let now = make_now [ 100.0; 100.125 ] in
+  let result =
+    Lwt_main.run
+      (Daemon.with_boot_stage_logging ~now
+         ~log_message:(fun msg -> messages := !messages @ [ msg ])
+         ~detail_of_result:(fun count -> Printf.sprintf "count=%d" count)
+         "sample-stage"
+         (fun () -> Lwt.return 3))
+  in
+  Alcotest.(check int) "result propagated" 3 result;
+  Alcotest.(check (list string))
+    "messages emitted"
+    [
+      "Boot: sample-stage start";
+      "Boot: sample-stage done elapsed=0.125s count=3";
+    ]
+    !messages
+
+let test_with_boot_stage_logging_error () =
+  let messages = ref [] in
+  let now = make_now [ 200.0; 200.050 ] in
+  let result =
+    Lwt.catch
+      (fun () ->
+        let open Lwt.Syntax in
+        let* () =
+          Daemon.with_boot_stage_logging ~now
+            ~log_message:(fun msg -> messages := !messages @ [ msg ])
+            "sample-stage"
+            (fun () -> Lwt.fail (Failure "boom"))
+        in
+        Lwt.return "ok")
+      (fun exn -> Lwt.return (Printexc.to_string exn))
+    |> Lwt_main.run
+  in
+  Alcotest.(check string) "error reraised" "Failure(\"boom\")" result;
+  Alcotest.(check (list string))
+    "messages emitted"
+    [
+      "Boot: sample-stage start";
+      "Boot: sample-stage done elapsed=0.050s status=error \
+       error=Failure(\"boom\")";
+    ]
+    !messages
+
 let test_setup_mcp_clients_loads_configs_and_registers_tools () =
   Test_helpers.with_temp_home (fun home ->
       let clawq_dir = Filename.concat home ".clawq" in
@@ -249,6 +305,206 @@ let test_setup_mcp_clients_loads_configs_and_registers_tools () =
         [ "local_tool"; "remote_tool" ]
         (Tool_registry.list registry |> List.map (fun t -> t.Tool.name));
       Alcotest.(check int) "clients tracked" 2 (List.length !mcp_clients))
+
+let test_boot_startup_stage_sequence_without_full_daemon () =
+  Test_helpers.with_temp_home (fun home ->
+      let clawq_dir = Filename.concat home ".clawq" in
+      Unix.mkdir clawq_dir 0o755;
+      write_file
+        (Filename.concat clawq_dir "mcp_servers.json")
+        {|
+[
+  {
+    "name": "remote",
+    "url": "https://mcp.example.test/rpc",
+    "headers": {"Authorization": "Bearer token"}
+  }
+]
+|};
+      let db = Memory.init ~db_path:":memory:" () in
+      let config = Runtime_config.default in
+      let session_manager = Session.create ~config ~db () in
+      Session.record_agent_turn session_manager ~key:"resume:ok"
+        ~channel:"slack" ~channel_id:"C1" ();
+      ignore
+        (Memory.queue_enqueue ~db ~session_key:"slack:C2:user" ~source:"cli"
+           ~payload_json:
+             (Yojson.Safe.to_string
+                (`Assoc [ ("message", `String "queued"); ("bang", `Bool false) ])));
+      let registry = Tool_registry.create () in
+      let mcp_clients = ref [] in
+      let connected = ref [] in
+      let resumed = ref [] in
+      let replayed = ref [] in
+      let messages = ref [] in
+      let now = make_now [ 10.0; 10.100; 20.0; 20.125; 30.0; 30.250 ] in
+      let log_message msg = messages := !messages @ [ msg ] in
+      let connect_client ?startup_timeout_s:_ ?http_post:_ cfg =
+        connected := cfg :: !connected;
+        let tool =
+          {
+            Tool.name = "remote_tool";
+            description = "fake MCP tool";
+            parameters_schema = `Assoc [ ("type", `String "object") ];
+            invoke = (fun ?context:_ _args -> Lwt.return "remote_tool");
+            invoke_stream = None;
+            risk_level = Tool.Low;
+            deferred = false;
+          }
+        in
+        let client =
+          {
+            Mcp_client.config = cfg;
+            transport =
+              Mcp_client.Http
+                {
+                  url = "https://unused.example.test/rpc";
+                  headers = [];
+                  post =
+                    (fun ~url:_ ~headers:_ ~body:_ ->
+                      Lwt.return (200, "{}", "application/json"));
+                };
+            next_id = 1;
+            discovered = [ tool ];
+          }
+        in
+        Lwt.return client
+      in
+      let resume_one ~session_key ~channel ~channel_id =
+        resumed := (session_key, channel, channel_id) :: !resumed;
+        Lwt.return_unit
+      in
+      let replay_turn _mgr ~key ~message () =
+        replayed := (key, message) :: !replayed;
+        Lwt.return "ok"
+      in
+      let open Lwt.Syntax in
+      Lwt_main.run
+        (let* () =
+           Daemon.run_mcp_setup_stage ~now ~log_message ~connect_client
+             ~tool_registry:(Some registry) ~config ~mcp_clients ()
+         in
+         let* _resume_summary =
+           Daemon.run_pending_session_resume_stage ~now ~log_message ~resume_one
+             ~session_manager ~config ()
+         in
+         let* _replay_summary =
+           Daemon.run_durable_replay_stage ~now ~log_message ~replay_turn
+             ~session_manager ~config ()
+         in
+         Lwt.return_unit);
+      Alcotest.(check int) "one mcp config connected" 1 (List.length !connected);
+      Alcotest.(check (list string))
+        "mcp tool registered" [ "remote_tool" ]
+        (Tool_registry.list registry |> List.map (fun t -> t.Tool.name));
+      Alcotest.(check int) "one mcp client tracked" 1 (List.length !mcp_clients);
+      Alcotest.(check (list (triple string string string)))
+        "pending session resumed"
+        [ ("resume:ok", "slack", "C1") ]
+        !resumed;
+      Alcotest.(check (list (pair string string)))
+        "durable queue replayed"
+        [ ("slack:C2:user", "queued") ]
+        !replayed;
+      Alcotest.(check int)
+        "durable queue drained" 0
+        (Memory.queue_count ~db ~session_key:"slack:C2:user");
+      Alcotest.(check (list string))
+        "boot stage logs"
+        [
+          "Boot: mcp-setup start";
+          "Boot: mcp-setup done elapsed=0.100s";
+          "Boot: pending-session-resume start";
+          "Boot: pending-session-resume done elapsed=0.125s pending=1 \
+           resumed=1 missing_channel=0 failed=0";
+          "Boot: durable-replay start";
+          "Boot: durable-replay done elapsed=0.250s sessions=1 rows=1 \
+           reclaimed_stale=0 reclaimed_failed=0 replayed=1 failed=0";
+        ]
+        !messages)
+
+let test_boot_startup_stage_sequence_continues_after_mcp_failure () =
+  Test_helpers.with_temp_home (fun home ->
+      let clawq_dir = Filename.concat home ".clawq" in
+      Unix.mkdir clawq_dir 0o755;
+      write_file
+        (Filename.concat clawq_dir "mcp_servers.json")
+        {|
+[
+  {
+    "name": "remote",
+    "url": "https://mcp.example.test/rpc"
+  }
+]
+|};
+      let db = Memory.init ~db_path:":memory:" () in
+      let config = Runtime_config.default in
+      let session_manager = Session.create ~config ~db () in
+      Session.record_agent_turn session_manager ~key:"resume:ok"
+        ~channel:"slack" ~channel_id:"C1" ();
+      ignore
+        (Memory.queue_enqueue ~db ~session_key:"slack:C2:user" ~source:"cli"
+           ~payload_json:
+             (Yojson.Safe.to_string
+                (`Assoc [ ("message", `String "queued"); ("bang", `Bool false) ])));
+      let registry = Tool_registry.create () in
+      let mcp_clients = ref [] in
+      let resumed = ref [] in
+      let replayed = ref [] in
+      let messages = ref [] in
+      let now = make_now [ 10.0; 10.100; 20.0; 20.125; 30.0; 30.250 ] in
+      let log_message msg = messages := !messages @ [ msg ] in
+      let connect_client ?startup_timeout_s:_ ?http_post:_ _cfg =
+        Lwt.fail_with "boom"
+      in
+      let resume_one ~session_key ~channel ~channel_id =
+        resumed := (session_key, channel, channel_id) :: !resumed;
+        Lwt.return_unit
+      in
+      let replay_turn _mgr ~key ~message () =
+        replayed := (key, message) :: !replayed;
+        Lwt.return "ok"
+      in
+      let open Lwt.Syntax in
+      Lwt_main.run
+        (let* () =
+           Daemon.run_mcp_setup_stage ~now ~log_message ~connect_client
+             ~tool_registry:(Some registry) ~config ~mcp_clients ()
+         in
+         let* _resume_summary =
+           Daemon.run_pending_session_resume_stage ~now ~log_message ~resume_one
+             ~session_manager ~config ()
+         in
+         let* _replay_summary =
+           Daemon.run_durable_replay_stage ~now ~log_message ~replay_turn
+             ~session_manager ~config ()
+         in
+         Lwt.return_unit);
+      Alcotest.(check int) "no mcp clients tracked" 0 (List.length !mcp_clients);
+      Alcotest.(check (list string))
+        "no mcp tools registered" []
+        (Tool_registry.list registry |> List.map (fun t -> t.Tool.name));
+      Alcotest.(check (list (triple string string string)))
+        "pending session still resumed"
+        [ ("resume:ok", "slack", "C1") ]
+        !resumed;
+      Alcotest.(check (list (pair string string)))
+        "durable queue still replayed"
+        [ ("slack:C2:user", "queued") ]
+        !replayed;
+      Alcotest.(check (list string))
+        "boot stages still complete"
+        [
+          "Boot: mcp-setup start";
+          "Boot: mcp-setup done elapsed=0.100s";
+          "Boot: pending-session-resume start";
+          "Boot: pending-session-resume done elapsed=0.125s pending=1 \
+           resumed=1 missing_channel=0 failed=0";
+          "Boot: durable-replay start";
+          "Boot: durable-replay done elapsed=0.250s sessions=1 rows=1 \
+           reclaimed_stale=0 reclaimed_failed=0 replayed=1 failed=0";
+        ]
+        !messages)
 
 let test_dispatch_resumed_message_routes_telegram () =
   let called = ref None in
@@ -1611,6 +1867,14 @@ let suite =
   [
     Alcotest.test_case "boot stage message helpers" `Quick
       test_boot_stage_message_helpers;
+    Alcotest.test_case "with boot stage logging success" `Quick
+      test_with_boot_stage_logging_success;
+    Alcotest.test_case "with boot stage logging error" `Quick
+      test_with_boot_stage_logging_error;
+    Alcotest.test_case "boot startup stage sequence without full daemon" `Quick
+      test_boot_startup_stage_sequence_without_full_daemon;
+    Alcotest.test_case "boot startup stage sequence continues after mcp failure"
+      `Quick test_boot_startup_stage_sequence_continues_after_mcp_failure;
     Alcotest.test_case "setup MCP clients loads configs and registers tools"
       `Quick test_setup_mcp_clients_loads_configs_and_registers_tools;
     Alcotest.test_case "dispatch resumed message routes telegram" `Quick

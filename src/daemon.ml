@@ -90,23 +90,30 @@ let log_boot_stage_done ?detail ~started_at stage =
   let elapsed_s = max 0.0 (Unix.gettimeofday () -. started_at) in
   Logs.info (fun m -> m "%s" (boot_stage_done_message ?detail ~elapsed_s stage))
 
-let with_boot_stage_logging ?detail_of_result stage f =
+let boot_stage_error_detail exn =
+  Printf.sprintf "status=error error=%s" (Printexc.to_string exn)
+
+let with_boot_stage_logging ?(now = Unix.gettimeofday)
+    ?(log_message = fun msg -> Logs.info (fun m -> m "%s" msg))
+    ?detail_of_result stage f =
   let open Lwt.Syntax in
-  let started_at = Unix.gettimeofday () in
-  log_boot_stage_start stage;
+  let started_at = now () in
+  log_message (boot_stage_start_message stage);
   Lwt.catch
     (fun () ->
       let* result = f () in
       let detail =
         Option.map (fun detail_fn -> detail_fn result) detail_of_result
       in
-      log_boot_stage_done ?detail ~started_at stage;
+      let elapsed_s = max 0.0 (now () -. started_at) in
+      log_message (boot_stage_done_message ?detail ~elapsed_s stage);
       Lwt.return result)
     (fun exn ->
-      let detail =
-        Printf.sprintf "status=error error=%s" (Printexc.to_string exn)
-      in
-      log_boot_stage_done ~detail ~started_at stage;
+      let elapsed_s = max 0.0 (now () -. started_at) in
+      log_message
+        (boot_stage_done_message
+           ~detail:(boot_stage_error_detail exn)
+           ~elapsed_s stage);
       Lwt.fail exn)
 
 let boot_resume_summary_message (summary : boot_resume_summary) =
@@ -637,6 +644,23 @@ let setup_mcp_clients ?(connect_client = Mcp_client.connect) ~registry
             Lwt.return_unit))
       servers
 
+let run_mcp_setup_stage ?(now = Unix.gettimeofday)
+    ?(log_message = fun msg -> Logs.info (fun m -> m "%s" msg))
+    ?(connect_client = Mcp_client.connect) ~tool_registry ~config ~mcp_clients
+    () =
+  with_boot_stage_logging ~now ~log_message "mcp-setup" (fun () ->
+      match (tool_registry, config.Runtime_config.mcp.enabled) with
+      | Some registry, true ->
+          Lwt.catch
+            (fun () ->
+              setup_mcp_clients ~connect_client ~registry ~mcp_clients ())
+            (fun exn ->
+              Logs.warn (fun m ->
+                  m "Failed to load MCP servers config: %s"
+                    (Printexc.to_string exn));
+              Lwt.return_unit)
+      | _ -> Lwt.return_unit)
+
 let resume_pending_agent_sessions ?(senders = default_resume_senders)
     ?resume_one ~(session_manager : Session.t) ~(config : Runtime_config.t) () =
   let resume_one =
@@ -1001,6 +1025,32 @@ let replay_durable_inbound_queue
         Lwt.return !summary
       end
 
+let resume_sessions_after_channels ?(senders = default_resume_senders)
+    ?resume_one ~(session_manager : Session.t) ~(config : Runtime_config.t) () =
+  Logs.info (fun m ->
+      m
+        "Boot: resuming pending routed sessions after channel listeners \
+         spawned; outbound resume delivery uses direct Telegram/Discord/Slack \
+         send APIs and does not wait for polling or gateway readiness");
+  resume_pending_agent_sessions ~senders ?resume_one ~session_manager ~config ()
+
+let run_pending_session_resume_stage ?(now = Unix.gettimeofday)
+    ?(log_message = fun msg -> Logs.info (fun m -> m "%s" msg))
+    ?(senders = default_resume_senders) ?resume_one ~session_manager ~config ()
+    =
+  with_boot_stage_logging ~now ~log_message
+    ~detail_of_result:boot_resume_summary_message "pending-session-resume"
+    (fun () ->
+      resume_sessions_after_channels ~senders ?resume_one ~session_manager
+        ~config ())
+
+let run_durable_replay_stage ?(now = Unix.gettimeofday)
+    ?(log_message = fun msg -> Logs.info (fun m -> m "%s" msg)) ?replay_turn
+    ~session_manager ~config () =
+  with_boot_stage_logging ~now ~log_message
+    ~detail_of_result:boot_replay_summary_message "durable-replay" (fun () ->
+      replay_durable_inbound_queue ?replay_turn ~session_manager ~config ())
+
 let run ~(config : Runtime_config.t) =
   let current_config = ref config in
   let open Lwt.Syntax in
@@ -1214,19 +1264,7 @@ let run ~(config : Runtime_config.t) =
   in
   (* Connect configured MCP clients and register their tools *)
   let mcp_clients = ref [] in
-  let* () =
-    with_boot_stage_logging "mcp-setup" (fun () ->
-        match (tool_registry, config.mcp.enabled) with
-        | Some registry, true ->
-            Lwt.catch
-              (fun () -> setup_mcp_clients ~registry ~mcp_clients ())
-              (fun exn ->
-                Logs.warn (fun m ->
-                    m "Failed to load MCP servers config: %s"
-                      (Printexc.to_string exn));
-                Lwt.return_unit)
-        | _ -> Lwt.return_unit)
-  in
+  let* () = run_mcp_setup_stage ~tool_registry ~config ~mcp_clients () in
   (* Auto-hydrate core memories from snapshot if db is empty *)
   (match db with
   | Some db ->
@@ -1487,15 +1525,6 @@ let run ~(config : Runtime_config.t) =
           run_update ~prepare_restart ~send_progress ~interrupt_check ()
         in
         Lwt.return_some response);
-  let resume_sessions_after_channels () =
-    Logs.info (fun m ->
-        m
-          "Boot: resuming pending routed sessions after channel listeners \
-           spawned; outbound resume delivery uses direct \
-           Telegram/Discord/Slack send APIs and does not wait for polling or \
-           gateway readiness");
-    resume_pending_agent_sessions ~session_manager ~config ()
-  in
   let* () =
     Lwt.catch
       (fun () ->
@@ -1917,14 +1946,9 @@ let run ~(config : Runtime_config.t) =
               Lwt.return_unit))
   | Some _ | None -> ());
   let* _resume_summary =
-    with_boot_stage_logging ~detail_of_result:boot_resume_summary_message
-      "pending-session-resume" resume_sessions_after_channels
+    run_pending_session_resume_stage ~session_manager ~config ()
   in
-  let* _replay_summary =
-    with_boot_stage_logging ~detail_of_result:boot_replay_summary_message
-      "durable-replay" (fun () ->
-        replay_durable_inbound_queue ~session_manager ~config ())
-  in
+  let* _replay_summary = run_durable_replay_stage ~session_manager ~config () in
   (* Keepalive periodic loop: nudges idle keepalive-enabled sessions every 15m *)
   (match db with
   | Some db ->
