@@ -1645,8 +1645,7 @@ let wait_tool ~db =
                    (string_of_status task.status)
                    id
                    (string_of_runner task.runner)
-                   (runtime_string task)
-                   task.repo_path)
+                   (runtime_string task) task.repo_path)
           | Interrupted task ->
               Lwt.return
                 (Printf.sprintf
@@ -1659,8 +1658,7 @@ let wait_tool ~db =
                    (string_of_status task.status)
                    id
                    (string_of_runner task.runner)
-                   (runtime_string task)
-                   task.repo_path)
+                   (runtime_string task) task.repo_path)
           | Not_found ->
               Lwt.return
                 (Printf.sprintf "Error: No background task found with id %d" id));

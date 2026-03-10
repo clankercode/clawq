@@ -133,8 +133,8 @@ let test_consume_decreases_tokens_by_one () =
 let test_refill_matches_extracted_oracle () =
   let entry = Rate_limiter.{ tokens = 1.5; last_refill = 10.000 } in
   let _coq, _native, equal =
-    Rate_limiter.conformance_refill ~rate_per_minute:120 ~max_tokens:10.0
-      entry ~now:10.250
+    Rate_limiter.conformance_refill ~rate_per_minute:120 ~max_tokens:10.0 entry
+      ~now:10.250
   in
   Alcotest.(check bool) "refill matches extracted oracle" true equal
 

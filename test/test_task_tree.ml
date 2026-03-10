@@ -253,7 +253,9 @@ let test_update_done_with_cancelled_child () =
           ];
         `Assoc
           [
-            ("op", `String "add"); ("title", `String "Cancelled child"); ("depth", `Int 1);
+            ("op", `String "add");
+            ("title", `String "Cancelled child");
+            ("depth", `Int 1);
           ];
       ]
   in
@@ -281,7 +283,8 @@ let test_update_done_with_cancelled_child () =
   in
   match result with
   | Ok _ -> ()
-  | Error e -> Alcotest.fail ("Expected Ok with cancelled child, got Error: " ^ e)
+  | Error e ->
+      Alcotest.fail ("Expected Ok with cancelled child, got Error: " ^ e)
 
 let test_update_done_with_mixed_children () =
   (* B292: Parent with both done and cancelled children should be markable done *)
@@ -295,11 +298,15 @@ let test_update_done_with_mixed_children () =
           ];
         `Assoc
           [
-            ("op", `String "add"); ("title", `String "Done child"); ("depth", `Int 1);
+            ("op", `String "add");
+            ("title", `String "Done child");
+            ("depth", `Int 1);
           ];
         `Assoc
           [
-            ("op", `String "add"); ("title", `String "Cancelled child"); ("depth", `Int 1);
+            ("op", `String "add");
+            ("title", `String "Cancelled child");
+            ("depth", `Int 1);
           ];
       ]
   in

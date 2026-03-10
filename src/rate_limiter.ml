@@ -16,7 +16,6 @@ let create ~rate_per_minute ~burst_multiplier =
   }
 
 let now () = Unix.gettimeofday ()
-
 let coq_token_scale = float_of_int Clawq_core.RateLimiter.token_scale
 let coq_token_tolerance = (0.5 /. coq_token_scale) +. 1e-9
 let coq_time_tolerance = 0.0005 +. 1e-12
@@ -30,8 +29,7 @@ let try_consume_at ~rate_per_minute ~max_tokens entry ~now =
   let refilled = refill_at ~rate_per_minute ~max_tokens entry ~now in
   if refilled.tokens >= 1.0 then
     (true, { refilled with tokens = refilled.tokens -. 1.0 })
-  else
-    (false, refilled)
+  else (false, refilled)
 
 let write_entry entry updated =
   entry.tokens <- updated.tokens;
@@ -53,8 +51,7 @@ let coq_config ~rate_per_minute ~max_tokens :
 let coq_bucket_of_entry (entry : entry) : Clawq_core.RateLimiter.bucket =
   {
     Clawq_core.RateLimiter.tokens = coq_tokens_of_float entry.tokens;
-    Clawq_core.RateLimiter.last_refill =
-      coq_millis_of_seconds entry.last_refill;
+    Clawq_core.RateLimiter.last_refill = coq_millis_of_seconds entry.last_refill;
   }
 
 let entry_of_coq_bucket (bucket : Clawq_core.RateLimiter.bucket) : entry =
@@ -84,8 +81,9 @@ let coq_try_consume_oracle ~rate_per_minute ~max_tokens entry ~now =
 
 let conformance_refill ~rate_per_minute ~max_tokens entry ~now =
   let native_result =
-    refill_at ~rate_per_minute:(float_of_int rate_per_minute) ~max_tokens entry
-      ~now
+    refill_at
+      ~rate_per_minute:(float_of_int rate_per_minute)
+      ~max_tokens entry ~now
   in
   let coq_result = coq_refill_oracle ~rate_per_minute ~max_tokens entry ~now in
   let equal = entry_close native_result coq_result in
@@ -93,8 +91,9 @@ let conformance_refill ~rate_per_minute ~max_tokens entry ~now =
 
 let conformance_try_consume ~rate_per_minute ~max_tokens entry ~now =
   let native_result =
-    try_consume_at ~rate_per_minute:(float_of_int rate_per_minute) ~max_tokens
-      entry ~now
+    try_consume_at
+      ~rate_per_minute:(float_of_int rate_per_minute)
+      ~max_tokens entry ~now
   in
   let coq_result =
     coq_try_consume_oracle ~rate_per_minute ~max_tokens entry ~now
