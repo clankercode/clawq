@@ -25,6 +25,17 @@ let make_tool_result id content =
     Provider.provider_response_items_json = None;
   }
 
+let make_tool_result_with_name id name content =
+  {
+    Provider.role = "tool";
+    Provider.content;
+    Provider.content_parts = [];
+    Provider.tool_calls = [];
+    Provider.tool_call_id = Some id;
+    Provider.name = Some name;
+    Provider.provider_response_items_json = None;
+  }
+
 let make_tool_call id name =
   { Provider.id; Provider.function_name = name; Provider.arguments = "{}" }
 
@@ -180,6 +191,67 @@ let test_complex_orphan_scenario () =
   Alcotest.(check int) "coq result length" 6 (List.length coq);
   Alcotest.(check int) "native result length" 6 (List.length native)
 
+(* Test: tool names are preserved through Coq roundtrip (B363 fix) *)
+
+let test_tool_name_preservation () =
+  let messages =
+    [
+      make_user "hello";
+      make_assistant_with_calls [ make_tool_call "call_1" "test_function" ];
+      make_tool_result "call_1" "result";
+      make_assistant_with_calls
+        [
+          make_tool_call "call_2" "another_tool";
+          make_tool_call "call_3" "third";
+        ];
+      make_tool_result "call_2" "r2";
+      make_tool_result "call_3" "r3";
+    ]
+  in
+  let coq_input = Agent_loop_conformance.provider_to_coq_history messages in
+  let coq_output = Clawq_core.AgentLoop.ensure_tool_group_integrity coq_input in
+  let result =
+    Agent_loop_conformance.coq_to_provider_history_with_names
+      ~original_messages:messages coq_output
+  in
+  let tool_results = List.filter (fun m -> m.Provider.role = "tool") result in
+  let get_name m = m.Provider.name in
+  let names = List.filter_map get_name tool_results in
+  Alcotest.(check int) "3 tool results" 3 (List.length tool_results);
+  Alcotest.(check int) "3 tool names preserved" 3 (List.length names);
+  Alcotest.(check bool)
+    "name 'test_function' preserved" true
+    (List.mem "test_function" names);
+  Alcotest.(check bool)
+    "name 'another_tool' preserved" true
+    (List.mem "another_tool" names);
+  Alcotest.(check bool) "name 'third' preserved" true (List.mem "third" names)
+
+(* Test: tool names preserved through force_compress_history *)
+
+let test_tool_name_preservation_compress () =
+  let messages =
+    [
+      make_user "1";
+      make_assistant_with_calls [ make_tool_call "c1" "tool_one" ];
+      make_tool_result "c1" "r1";
+      make_user "2";
+      make_assistant_with_calls [ make_tool_call "c2" "tool_two" ];
+      make_tool_result "c2" "r2";
+      make_user "3";
+    ]
+  in
+  let coq, _native, _equal =
+    Agent_loop_conformance.conformance_force_compress_history 4 messages
+  in
+  let tool_results = List.filter (fun m -> m.Provider.role = "tool") coq in
+  let names = List.filter_map (fun m -> m.Provider.name) tool_results in
+  Alcotest.(check int) "1 tool result preserved" 1 (List.length tool_results);
+  Alcotest.(check int) "1 tool name preserved" 1 (List.length names);
+  Alcotest.(check bool)
+    "name 'tool_one' preserved" true
+    (List.mem "tool_one" names)
+
 (* Test suite *)
 
 let suite =
@@ -199,4 +271,8 @@ let suite =
       test_force_compress_history_basic;
     Alcotest.test_case "complex orphan scenario" `Quick
       test_complex_orphan_scenario;
+    Alcotest.test_case "tool name preservation" `Quick
+      test_tool_name_preservation;
+    Alcotest.test_case "tool name preservation compress" `Quick
+      test_tool_name_preservation_compress;
   ]

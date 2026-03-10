@@ -214,7 +214,9 @@ let trim_history agent =
   let coq_output =
     Clawq_core.AgentLoop.ensure_tool_group_integrity coq_trimmed
   in
-  agent.history <- Agent_loop_conformance.coq_to_provider_history coq_output;
+  agent.history <-
+    Agent_loop_conformance.coq_to_provider_history_with_names
+      ~original_messages:agent.history coq_output;
   assert_history_bound ~where:"trim_history" agent
 
 let force_compress_history agent =
@@ -229,7 +231,10 @@ let force_compress_history agent =
     let coq_output =
       Clawq_core.AgentLoop.ensure_tool_group_integrity coq_compressed
     in
-    let result = Agent_loop_conformance.coq_to_provider_history coq_output in
+    let result =
+      Agent_loop_conformance.coq_to_provider_history_with_names
+        ~original_messages:agent.history coq_output
+    in
     let bounded =
       List.map
         (fun (m : Provider.message) ->
@@ -250,7 +255,8 @@ let force_compress_history agent =
               "force_compress_history: integrity check emptied history; \
                keeping raw compressed slice");
         let raw_result =
-          Agent_loop_conformance.coq_to_provider_history coq_compressed
+          Agent_loop_conformance.coq_to_provider_history_with_names
+            ~original_messages:agent.history coq_compressed
         in
         if raw_result = [] then result else raw_result
       end
