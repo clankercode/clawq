@@ -1645,6 +1645,7 @@ let wait_tool ~db =
         let timeout_seconds =
           Float.min (Float.max raw_timeout 0.0) max_wait_seconds
         in
+        let was_clamped = raw_timeout > max_wait_seconds in
         let interrupt_check =
           Option.bind context (fun c -> c.Tool.interrupt_check)
         in
@@ -1658,14 +1659,21 @@ let wait_tool ~db =
           match result with
           | Finished task -> Lwt.return (format_task_summary ~compact:true task)
           | Timeout task ->
+              let clamp_note =
+                if was_clamped then
+                  Printf.sprintf " (requested %.0fs clamped to max %.0fs)"
+                    raw_timeout max_wait_seconds
+                else ""
+              in
               Lwt.return
                 (Printf.sprintf
-                   "Task %d is still %s after waiting. To continue waiting, \
+                   "Task %d is still %s after waiting%s. To continue waiting, \
                     call background_task_wait again with {\"id\": %d}. You can \
                     also check progress with background_task_logs.\n\
                     runner: %s | runtime: %s | repo: %s"
                    id
                    (string_of_status task.status)
+                   clamp_note
                    id
                    (string_of_runner task.runner)
                    (runtime_string task) task.repo_path)
