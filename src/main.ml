@@ -832,7 +832,9 @@ let help_env var = match var with "MANPAGER" -> None | _ -> Sys.getenv_opt var
 let () =
   let argv =
     let args = Array.to_list Sys.argv in
-    match args with [ prog; "-v" ] -> [| prog; "--version" |] | _ -> Sys.argv
+    match args with
+    | [ prog; "-v" ] -> [| prog; "--version" |]
+    | _ -> Array.map (fun arg -> if arg = "-h" then "--help" else arg) Sys.argv
   in
   let cmds =
     [
