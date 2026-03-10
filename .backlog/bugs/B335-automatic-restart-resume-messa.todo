@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-10T11:59:06Z"
+claimed_by: cli-user
+completed_at: "2026-03-10T12:04:01Z"
 complexity: medium
 depends_on: []
+duration_minutes: 4.930611015
 estimate_hours: 1
 id: B335
 priority: high
-status: pending
+started_at: "2026-03-10T11:59:06Z"
+status: done
 tags: []
 title: automatic restart-resume messages over telegram should have notification off (silent). we might also want to make other automated types silent
 ---
