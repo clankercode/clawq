@@ -609,6 +609,8 @@ let count_lines path =
         !count)
   with Sys_error _ -> 0
 
+let background_task_logs_max_chars = 3000
+
 let trim_rendered_lines ~max_chars lines =
   let budget = max 0 max_chars in
   let rec take acc used remaining =
@@ -647,7 +649,7 @@ let log_excerpt ?(offset = 0) ?(lines = 20) task =
                 |> List.map (fun (n, line) -> Printf.sprintf "%d: %s" n line)
               in
               let rendered_lines, truncated =
-                trim_rendered_lines ~max_chars:6000 numbered_lines
+                trim_rendered_lines ~max_chars:background_task_logs_max_chars numbered_lines
               in
               let rendered = String.concat "\n" rendered_lines in
               let last_line = fst (List.hd (List.rev indexed_lines)) in
@@ -685,7 +687,7 @@ let log_excerpt ?(offset = 0) ?(lines = 20) task =
                   chunks
               in
               let rendered_lines, truncated =
-                trim_rendered_lines ~max_chars:6000 numbered
+                trim_rendered_lines ~max_chars:background_task_logs_max_chars numbered
               in
               let rendered = String.concat "\n" rendered_lines in
               let shown = List.length rendered_lines in

@@ -1355,6 +1355,56 @@ let test_shell_exec_head_or_tail_only_window_output () =
         "tail-only marker visible" true
         (contains tail_result "omitted 2 leading lines; showing last 2 of 4"))
 
+let test_background_task_logs_truncates_large_output () =
+  with_temp_workspace (fun workspace ->
+      let task =
+        {
+          Background_task.id = 1;
+          runner = Background_task.Codex;
+          model = None;
+          repo_path = workspace;
+          prompt = "test";
+          branch = "clawq-bg-test";
+          worktree_path = None;
+          log_path = Some (Filename.concat workspace "large-task.log");
+          status = Background_task.Succeeded;
+          session_key = None;
+          channel = None;
+          channel_id = None;
+          pid = None;
+          result_preview = None;
+          created_at = "2026-03-11 00:00:00";
+          started_at = None;
+          finished_at = None;
+        }
+      in
+      let oc = open_out (Option.get task.log_path) in
+      for i = 1 to 200 do
+        Printf.fprintf oc "line-%03d %s\n" i (String.make 80 'x')
+      done;
+      close_out oc;
+      let result =
+        match Background_task.log_excerpt task ~lines:200 with
+        | Ok text -> text
+        | Error msg -> failwith msg
+      in
+      Alcotest.(check bool)
+        "truncated marker visible" true
+        (contains result "Output truncated by size budget");
+      Alcotest.(check bool)
+        "continuation hint visible" true
+        (contains result "Use offset=");
+      Alcotest.(check bool)
+        "keeps early lines" true
+        (contains result "1: line-001");
+      Alcotest.(check bool)
+        "drops later lines once truncated" false
+        (contains result "200: line-200");
+      Alcotest.(check bool)
+        "stays under tightened budget" true
+        (String.length result < 3800);
+      () )
+
 let test_shell_exec_saves_full_output_when_windowed () =
   with_temp_workspace (fun workspace ->
       let sandbox =
@@ -2089,6 +2139,8 @@ let suite =
       test_shell_exec_head_tail_window_handles_trailing_newline;
     Alcotest.test_case "shell_exec head or tail only window output" `Quick
       test_shell_exec_head_or_tail_only_window_output;
+    Alcotest.test_case "background_task_logs truncates large output" `Quick
+      test_background_task_logs_truncates_large_output;
     Alcotest.test_case "shell_exec saves full output when windowed" `Quick
       test_shell_exec_saves_full_output_when_windowed;
     Alcotest.test_case "shell_exec validates head and tail" `Quick
