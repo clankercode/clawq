@@ -121,7 +121,7 @@ Available in chat-integrated channels that support slash commands.
 - Example: `!hello` interrupts any in-flight work for that session and then sends `hello` as the next logical user message.
 - A bare `!` becomes the normalized user message `[interrupted]`.
 - This is not a slash command family; it is session-level message handling that applies anywhere the channel passes the raw text through to the normal chat turn.
-- In practice this works for the web chat/gateway and normal text channels such as Telegram, Discord, Slack, WhatsApp, LINE, Signal, IRC, Nostr, Lark, Matrix, OneBot, and WebChannel.
+- In practice this works for the web chat/gateway and normal text channels such as Telegram, Discord, Slack, WhatsApp, LINE, Signal, IRC, Nostr, Lark, Matrix, OneBot, Teams, and WebChannel.
 
 ## Configuring Yourself
 
@@ -237,6 +237,8 @@ clawq config show security
 **channels.imessage** — `poll_interval_s`, `allow_from`.
 
 **channels.onebot** — `ws_url`, `http_url`, `access_token`, `allow_from`, `allow_groups`.
+
+**channels.teams** — `app_id`, `app_secret`, `tenant_id`, `webhook_path` (default `/teams/webhook`), `service_url` (default `https://smba.trafficmanager.net/amer`), `allow_teams` (default `["*"]`), `allow_users` (default `["*"]`).
 
 **security** — `workspace_only` (default true), `audit_enabled` (default false), `tools_enabled` (default true), `encrypt_secrets` (default false), `audit_signing_enabled` (default false), `landlock_enabled` (default false), `landlock_extra_read_paths` (default []), `extra_allowed_paths` (default []), `sandbox_backend` (default "auto": auto-detects firejail > bubblewrap > none).
 
@@ -505,6 +507,7 @@ current queue state for a given session; `session list` appends
 | DingTalk | DingTalk bot integration | Implemented |
 | iMessage | Local Messages database polling on macOS | Implemented |
 | OneBot | OneBot websocket/HTTP integration | Implemented |
+| MS Teams | Bot Framework webhook at configurable path (default /teams/webhook) | Implemented |
 
 ### Setting up Telegram
 1. User creates a bot with @BotFather on Telegram
@@ -539,6 +542,26 @@ current queue state for a given session; `session list` appends
 6. Set Slack Event Subscription URL to `https://your-domain/slack/events`
 7. `clawq agent` to start
 
+### Setting up MS Teams
+0. Start clawq with a tunnel first to get a public HTTPS URL: `clawq config set tunnel.enabled true && clawq agent`
+1. Register an app in Azure Active Directory; note Application (client) ID → app_id, Directory (tenant) ID → tenant_id
+2. Create a client secret → app_secret (expires in 12-24 months; rotate before expiry)
+3. Register a Bot in Azure Bot Service; set Messaging Endpoint to `https://your-tunnel-url/teams/webhook` (must be HTTPS)
+4. Set Microsoft App ID on the bot to the AAD app_id
+5. Add Microsoft Teams channel in Azure Bot Service Channels blade
+6. **Go to Teams Developer Portal (dev.teams.microsoft.com) → create app manifest → add bot using app_id → publish/install to tenant** — required; without this the bot is invisible in Teams
+7. `clawq config set channels.teams.app_id "your-app-id"`
+8. `clawq config set channels.teams.app_secret "your-secret"`
+9. `clawq config set channels.teams.tenant_id "your-tenant-id"`
+10. `clawq channel test teams` — verifies OAuth credentials live
+11. `clawq agent` to start
+
+**channels.teams** config fields: `app_id`, `app_secret`, `tenant_id`, `webhook_path` (default `/teams/webhook`), `service_url` (default `https://smba.trafficmanager.net/amer`), `allow_teams` (default `["*"]`), `allow_users` (default `["*"]`).
+
+Session key format: `teams:<team_id_or_personal>:<conversation_id>:<user_id>`
+
+Note: JWT RS256 signature verification is not implemented (no RSA lib available). Claim-only validation (`aud`, `iss`, `exp`, `nbf`) is performed.
+
 ## Gateway and Web UI
 
 The daemon serves the web UI and JSON/SSE gateway at `http://host:port/`. Main routes:
@@ -560,6 +583,7 @@ The daemon serves the web UI and JSON/SSE gateway at `http://host:port/`. Main r
 | `/whatsapp/webhook` | GET/POST | WhatsApp webhook (verification + messages) |
 | `/line/webhook` | POST | LINE webhook |
 | `/lark/webhook` | POST | Lark webhook |
+| `/teams/webhook` (configurable) | POST | MS Teams Bot Framework webhook |
 | GitHub repo paths | POST | GitHub webhooks (paths configured per repo) |
 | `web_channel.path_prefix...` | GET/POST/etc. | Optional WebChannel routes when `web_channel.enabled = true` |
 
@@ -572,7 +596,8 @@ Gateway auth behavior:
 - `GET /pair` exposes pairing status only when pairing is configured.
 - `POST /pair` exchanges a valid code for a bearer token.
 - `POST /pair/regenerate` requires existing auth and is unavailable if pairing is disabled.
-- Slack, LINE, Lark, GitHub, and WhatsApp webhook routes have their own signature/verification handling in addition to normal gateway auth decisions.
+- Slack, LINE, Lark, GitHub, WhatsApp, and Teams webhook routes have their own signature/verification handling in addition to normal gateway auth decisions.
+- GET {teams.webhook_path} returns a JSON status document when Teams is configured: {"status":"ready","channel":"teams","webhook_path":"...","app_id_prefix":"..."}
 - Unknown routes return `404 {"error":"not found"}`.
 
 ## First-Time Setup Guide

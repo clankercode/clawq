@@ -498,6 +498,32 @@ let cmd_doctor () =
              (Printf.sprintf
                 "WARNING: tunnel provider '%s' requires '%s' in PATH"
                 cfg.tunnel.provider bin));
+  (* Teams channel checks *)
+  (match cfg.channels.teams with
+  | None -> (
+      let raw_path =
+        Filename.concat
+          (try Sys.getenv "HOME" with Not_found -> "/tmp")
+          ".clawq/config.json"
+      in
+      if Sys.file_exists raw_path then
+        try
+          let raw = Yojson.Safe.from_file raw_path in
+          let open Yojson.Safe.Util in
+          let tm =
+            try raw |> member "channels" |> member "teams" with _ -> `Null
+          in
+          if tm <> `Null then
+            add
+              "WARNING: channels.teams is present in config but failed to load \
+               (check that app_id, app_secret, and tenant_id are all set)"
+        with _ -> ())
+  | Some t ->
+      if t.app_id = "" then add "WARNING: channels.teams.app_id is empty"
+      else if t.tenant_id = "" then
+        add "WARNING: channels.teams.tenant_id is empty"
+      else if t.webhook_path = "" then
+        add "WARNING: channels.teams.webhook_path is empty");
   let result =
     match List.rev !issues with
     | [] -> "doctor: all checks passed"
@@ -781,6 +807,18 @@ let cmd_provider args =
       Printf.sprintf
         "Unknown provider subcommand: %s\nUsage: provider quota [NAME]" unknown
 
+let cmd_channel_test_teams () =
+  let cfg = get_config () in
+  match cfg.channels.teams with
+  | None ->
+      "Teams channel is not configured.\n\
+       Set channels.teams.app_id, app_secret, and tenant_id in config.\n\
+       Run: clawq config set channels.teams.app_id \"your-app-id\""
+  | Some tc -> (
+      match Lwt_main.run (Teams.test_connection ~config:tc) with
+      | Ok msg -> msg
+      | Error msg -> "Teams connection FAILED\n" ^ msg)
+
 let cmd_channel () =
   let cfg = get_config () in
   let lines = ref [] in
@@ -819,6 +857,17 @@ let cmd_channel () =
            s.events_path s.socket_mode
            (String.concat ", " s.allow_channels)
            (String.concat ", " s.allow_users)));
+  (match cfg.channels.teams with
+  | None -> add "  teams: not configured"
+  | Some t ->
+      add
+        (Printf.sprintf
+           "  teams: configured (app_id: %s...; webhook_path: %s; allow_teams: \
+            %s; allow_users: %s)"
+           (String.sub t.app_id 0 (min 8 (String.length t.app_id)))
+           t.webhook_path
+           (String.concat ", " t.allow_teams)
+           (String.concat ", " t.allow_users)));
   List.rev !lines |> String.concat "\n"
 
 let cmd_memory args =
@@ -3580,6 +3629,7 @@ let handle args =
       let refresh = List.mem "--refresh" rest || List.mem "-r" rest in
       cmd_usage refresh
   | "provider" :: rest -> cmd_provider rest
+  | "channel" :: "test" :: "teams" :: _ -> cmd_channel_test_teams ()
   | "channel" :: _ -> cmd_channel ()
   | "memory" :: rest -> cmd_memory rest
   | "session" :: rest -> cmd_session rest

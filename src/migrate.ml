@@ -99,6 +99,7 @@ let convert (json : Yojson.Safe.t) =
          lark = None;
          line = None;
          onebot = None;
+         teams = None;
        }
         : Runtime_config.channel_config)
     with _ -> default.channels

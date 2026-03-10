@@ -11,6 +11,10 @@
 - [Channels](https://clawq.org/channels): Telegram, Discord, Slack, WhatsApp, LINE, Lark, GitHub setup and Channel.S interface
 - [Architecture](https://clawq.org/architecture): Coq-to-OCaml build pipeline, runtime module map, library dependency structure
 
+## Integrations
+
+- [MS Teams](https://clawq.org/integrations/teams/llms.txt): MS Teams Bot Framework channel setup, config reference, auth details, and troubleshooting
+
 ## Optional
 
 - [Development Guide](https://clawq.org/development): Build, test, format, extraction workflow, code style, contributing

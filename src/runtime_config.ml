@@ -198,6 +198,16 @@ type onebot_config = {
   allow_groups : string list;
 }
 
+type teams_config = {
+  app_id : string;
+  app_secret : string;
+  tenant_id : string;
+  webhook_path : string;
+  service_url : string;
+  allow_teams : string list;
+  allow_users : string list;
+}
+
 type channel_config = {
   cli : bool;
   telegram : telegram_config option;
@@ -216,6 +226,7 @@ type channel_config = {
   lark : lark_config option;
   line : line_config option;
   onebot : onebot_config option;
+  teams : teams_config option;
 }
 
 type prompt_config = {
@@ -462,6 +473,7 @@ let default =
         lark = None;
         line = None;
         onebot = None;
+        teams = None;
       };
     gateway =
       {
@@ -1174,7 +1186,7 @@ let to_json (cfg : t) : Yojson.Safe.t =
             @
             match cfg.channels.onebot with
             | None -> []
-            | Some ob ->
+            | Some ob -> (
                 [
                   ( "onebot",
                     `Assoc
@@ -1192,7 +1204,30 @@ let to_json (cfg : t) : Yojson.Safe.t =
                       match ob.access_token with
                       | Some tok -> [ ("access_token", `String tok) ]
                       | None -> []) );
-                ]) );
+                ]
+                @
+                match cfg.channels.teams with
+                | None -> []
+                | Some tm ->
+                    [
+                      ( "teams",
+                        `Assoc
+                          [
+                            ("app_id", `String tm.app_id);
+                            ("app_secret", `String tm.app_secret);
+                            ("tenant_id", `String tm.tenant_id);
+                            ("webhook_path", `String tm.webhook_path);
+                            ("service_url", `String tm.service_url);
+                            ( "allow_teams",
+                              `List
+                                (List.map (fun s -> `String s) tm.allow_teams)
+                            );
+                            ( "allow_users",
+                              `List
+                                (List.map (fun s -> `String s) tm.allow_users)
+                            );
+                          ] );
+                    ])) );
         ("gateway", `Assoc gateway_fields);
         ( "runtime",
           `Assoc

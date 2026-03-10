@@ -118,7 +118,14 @@ ideas:
       status: done
       tags: []
       title: Add tab-completions for bash/zsh/fish via `clawq completions` (the shell is autodetected, or --shell <bash|zsh|fish>). Also `clawq completions` should print a nice message about how to use it. `clawq completions install` should install the completions in typical places for bash/zsh/fish, and `clawq completions print` should print out for that shell. the `--shell` cli arg should work with all those subcommands.
-    - file: I015-add-support-for-ms-teams-integ.todo
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 10
+      file: I015-add-support-for-ms-teams-integ.todo
       id: I015
+      priority: medium
+      status: in_progress
+      tags: []
+      title: Add support for MS Teams integration. See ~/src/pag-server which has it, and otherwise search online for docs on how to integrate. Add something to the human readable docs, and also add docs near llms.txt but don't put it in llms-full.txt. like at integrations/teams/llms.txt or something.
     - file: I016-observation-correction-loops-h.todo
       id: I016

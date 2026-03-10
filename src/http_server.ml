@@ -193,8 +193,8 @@ let sse_reply text =
 let handler ~session_manager ~require_pairing ~auth_token
     ?daemon_run_update_command ?slack_config ?github_config ?github_api_limiter
     ?ip_limiter ?session_limiter ?slack_event_limiter ?slack_run_update_command
-    ?web_channel ?whatsapp_config ?line_config ?lark_config ?pairing ?ui_server
-    _conn req body =
+    ?web_channel ?whatsapp_config ?line_config ?lark_config ?teams_config
+    ?pairing ?ui_server _conn req body =
   let open Lwt.Syntax in
   let uri = Cohttp.Request.uri req in
   let path = Uri.path uri in
@@ -1354,6 +1354,52 @@ let handler ~session_manager ~require_pairing ~auth_token
             Cohttp_lwt_unix.Server.respond_string ~status:`OK
               ~headers:json_headers ~body ()
           end)
+  | `POST, path
+    when match teams_config with
+         | Some tc -> path = tc.Runtime_config.webhook_path
+         | None -> false -> (
+      match teams_config with
+      | None ->
+          let* _ = Cohttp_lwt.Body.drain_body body in
+          Cohttp_lwt_unix.Server.respond_string ~status:`Not_found
+            ~headers:json_headers ~body:{|{"error":"not configured"}|} ()
+      | Some tc ->
+          let* body_str = Cohttp_lwt.Body.to_string body in
+          let headers = Cohttp.Request.headers req in
+          let auth_header =
+            Cohttp.Header.get headers "authorization"
+            |> Option.value ~default:""
+          in
+          (* Respond 202 immediately, process asynchronously *)
+          Lwt.async (fun () ->
+              Lwt.catch
+                (fun () ->
+                  Teams.handle_webhook ~config:tc ~session_manager ~auth_header
+                    body_str)
+                (fun exn ->
+                  Logs.err (fun m ->
+                      m "Teams webhook handler error: %s"
+                        (Printexc.to_string exn));
+                  Lwt.return_unit));
+          Cohttp_lwt_unix.Server.respond_string ~status:`Accepted
+            ~headers:json_headers ~body:{|{"status":"accepted"}|} ())
+  | `GET, path
+    when match teams_config with
+         | Some tc -> path = tc.Runtime_config.webhook_path
+         | None -> false ->
+      let* _ = Cohttp_lwt.Body.drain_body body in
+      let body_str =
+        match teams_config with
+        | None -> {|{"error":"not configured"}|}
+        | Some tc ->
+            Printf.sprintf
+              {|{"status":"ready","channel":"teams","webhook_path":"%s","app_id_prefix":"%s"}|}
+              tc.Runtime_config.webhook_path
+              (String.sub tc.Runtime_config.app_id 0
+                 (min 8 (String.length tc.Runtime_config.app_id)))
+      in
+      Cohttp_lwt_unix.Server.respond_string ~status:`OK ~headers:json_headers
+        ~body:body_str ()
   | `POST, "/lark/webhook" -> (
       match lark_config with
       | None ->
@@ -1405,15 +1451,15 @@ let handler ~session_manager ~require_pairing ~auth_token
 let start ~port ~host ~require_pairing ~auth_token ~session_manager
     ?daemon_run_update_command ?slack_config ?github_config ?github_api_limiter
     ?ip_limiter ?session_limiter ?slack_event_limiter ?slack_run_update_command
-    ?web_channel ?whatsapp_config ?line_config ?lark_config ?pairing ?ui_server
-    ?stop () =
+    ?web_channel ?whatsapp_config ?line_config ?lark_config ?teams_config
+    ?pairing ?ui_server ?stop () =
   let open Lwt.Syntax in
   let callback =
     handler ~session_manager ~require_pairing ~auth_token
       ?daemon_run_update_command ?slack_config ?github_config
       ?github_api_limiter ?ip_limiter ?session_limiter ?slack_event_limiter
       ?slack_run_update_command ?web_channel ?whatsapp_config ?line_config
-      ?lark_config ?pairing ?ui_server
+      ?lark_config ?teams_config ?pairing ?ui_server
   in
   let* ctx = Conduit_lwt_unix.init ~src:host () in
   let ctx = Cohttp_lwt_unix.Net.init ~ctx () in

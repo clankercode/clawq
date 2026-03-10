@@ -1,0 +1,219 @@
+# Clawq MS Teams Integration
+
+> Self-knowledge reference for the MS Teams channel in clawq. Use this to configure, troubleshoot, and understand the Teams Bot Framework integration.
+
+## Overview
+
+Clawq connects to Microsoft Teams via the **Microsoft Bot Framework** webhook protocol. Teams POSTs JSON activity payloads to your configured webhook URL; clawq processes the message asynchronously and replies via the Bot Framework REST API using an OAuth 2.0 bearer token obtained from Azure AD.
+
+No long-polling or persistent WebSocket is needed — the channel is fully webhook-driven.
+
+## Configuration
+
+Add to `~/.clawq/config.json`:
+
+```json
+{
+  "channels": {
+    "teams": {
+      "app_id": "your-azure-application-id",
+      "app_secret": "your-azure-client-secret",
+      "tenant_id": "your-azure-directory-tenant-id",
+      "webhook_path": "/teams/webhook",
+      "service_url": "https://smba.trafficmanager.net/amer",
+      "allow_teams": ["*"],
+      "allow_users": ["*"]
+    }
+  }
+}
+```
+
+Or via CLI:
+
+```bash
+clawq config set channels.teams.app_id "your-app-id"
+clawq config set channels.teams.app_secret "your-secret"
+clawq config set channels.teams.tenant_id "your-tenant-id"
+```
+
+### Config Fields and Defaults
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `app_id` | (required) | Azure AD Application (client) ID |
+| `app_secret` | (required) | Azure AD client secret |
+| `tenant_id` | (required) | Azure AD Directory (tenant) ID |
+| `webhook_path` | `/teams/webhook` | Inbound webhook path on the clawq gateway |
+| `service_url` | `https://smba.trafficmanager.net/amer` | Bot Framework service base URL (per-activity `serviceUrl` takes precedence at runtime) |
+| `allow_teams` | `["*"]` | Allowed team IDs; `["*"]` allows all teams |
+| `allow_users` | `["*"]` | Allowed user AAD object IDs; `["*"]` allows all users |
+
+`app_id`, `app_secret`, and `tenant_id` are required; the channel is disabled if any of these are missing.
+
+## Azure Setup Steps
+
+### Step 0 — Get your public HTTPS URL first
+
+You need an HTTPS URL before setting up Azure. Azure rejects HTTP.
+
+Start clawq with a tunnel to get a URL:
+  clawq config set tunnel.enabled true && clawq agent
+Note the tunnel URL (e.g. https://abc123.trycloudflare.com).
+
+### Step 1 — Register an Azure AD application
+
+Docs: https://learn.microsoft.com/en-us/azure/active-directory/develop/quickstart-register-app
+
+1. Azure Portal → App registrations → New registration.
+2. Note Application (client) ID → app_id.
+3. Note Directory (tenant) ID → tenant_id.
+4. Certificates & secrets → New client secret → app_secret.
+   Copy the value immediately; it is only shown once.
+
+Warning: Client secrets expire (12–24 months default). Rotate before expiry.
+When expired, clawq logs "Teams: token fetch failed" and replies stop.
+
+### Step 2 — Create an Azure Bot
+
+Docs: https://learn.microsoft.com/en-us/azure/bot-service/bot-service-quickstart-registration
+
+1. Azure Bot Service → Create Bot resource.
+2. Set Messaging Endpoint: https://your-tunnel-url/teams/webhook (MUST be HTTPS).
+3. Under Microsoft App ID: use existing app registration from Step 1.
+4. In the Bot resource, Channels blade → Add Microsoft Teams.
+
+### Step 3 — Create a Teams App Manifest (REQUIRED — most common missed step)
+
+Docs: https://learn.microsoft.com/en-us/microsoftteams/platform/bots/how-to/create-a-bot-for-teams
+
+Without this step, the bot is registered in Azure but completely invisible
+inside Teams. You cannot message a bot that has no Teams app.
+
+1. Go to Teams Developer Portal: https://dev.teams.microsoft.com
+2. Apps → New app. Fill in name and description.
+3. App features → Bot → Enter a bot ID (your Application client ID from Step 1).
+4. Set scope: Personal and/or Team.
+5. Publish to your org or sideload for testing.
+6. In Teams: Apps → find your app → Add.
+
+### Step 4 — Configure clawq
+
+  clawq config set channels.teams.app_id "your-app-id"
+  clawq config set channels.teams.app_secret "your-secret"
+  clawq config set channels.teams.tenant_id "your-tenant-id"
+
+### Step 5 — Verify
+
+  clawq channel test teams   # live OAuth round-trip to Azure AD
+  clawq agent
+
+## Session Key Format
+
+```
+teams:<team_id>:<conversation_id>:<user_id>
+```
+
+- Personal chats and group chats without a Teams channel context: `team_id` = `"personal"` (used when `channelData.team` is absent from the activity).
+- Team channel messages: `team_id` = the `channelData.team.id` value from the activity.
+
+Each unique `(team_id, conversation_id, user_id)` tuple gets a separate clawq session.
+
+## Authentication Details
+
+### Inbound: JWT Claim Validation
+
+Teams sends `Authorization: Bearer <jwt>` on every webhook POST.
+
+Clawq validates:
+- `aud` == your `app_id`
+- `iss` == `"https://api.botframework.com"` or `"https://sts.windows.net/{tenant_id}/"`
+- `exp` > current UTC time (not expired)
+- `nbf` <= current UTC time + 5 min grace (not before)
+
+**Known limitation**: RS256 signature verification (against Microsoft's JWKS) is not implemented — no RSA crypto library is available in clawq's dependency set. Claim-only validation is performed. This means a forged token with correct claims would pass. For higher-assurance deployments, put clawq behind a reverse proxy that performs full JWT signature verification.
+
+### Outbound: OAuth 2.0 Client Credentials
+
+Clawq fetches a bearer token before each reply batch:
+
+```
+POST https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=client_credentials
+&client_id={app_id}
+&client_secret={app_secret}
+&scope=https://api.botframework.com/.default
+```
+
+The token is cached until 60 seconds before its expiry (`expires_in - 60`).
+
+## Message Size and Splitting
+
+Maximum message size: **28,672 characters** per activity.
+
+Replies longer than this limit are split at whitespace boundaries and sent as multiple sequential activities to the same conversation.
+
+## How It Works (Request Flow)
+
+1. Teams POSTs a JSON `Activity` to your webhook path.
+2. Clawq's HTTP server returns **202 Accepted** immediately.
+3. Asynchronously:
+   a. JWT claims are verified.
+   b. The activity is parsed: `type` must be `"message"`, `text` is extracted and stripped of `<at>BotName</at>` mention tags.
+   c. `allow_teams` and `allow_users` filters are applied.
+   d. Session key is constructed and the agent turn is dispatched via `Session.turn`.
+   e. The reply is POSTed to `{serviceUrl}/v3/conversations/{conversation_id}/activities/{activity_id}`.
+
+## Verifying the Integration
+
+```bash
+# Check channel config is loaded
+clawq channel
+
+# Verify daemon sees Teams
+clawq agent &
+# Should log: "Teams: webhook channel ready (handled via gateway HTTP server)"
+
+# Smoke test with curl (replace with your actual values):
+curl -X POST https://your-domain/teams/webhook \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer FAKE.JWT.TOKEN" \
+  -d '{
+    "type": "message",
+    "id": "test-activity-id",
+    "text": "Hello",
+    "from": {"id": "user-aad-id", "name": "Test User"},
+    "conversation": {"id": "conv-id", "isGroup": false},
+    "serviceUrl": "https://smba.trafficmanager.net/amer/",
+    "channelId": "msteams"
+  }'
+# Should return HTTP 202 {"status":"accepted"}
+# (The JWT will fail claim validation — that is expected for fake tokens)
+```
+
+## Common Mistakes
+
+- **Forgot the Teams App Manifest (Step 3)**: The bot exists in Azure but is invisible in Teams. This is the most common reason setup appears to work but the bot cannot be found.
+- **Used http:// instead of https://**: Azure rejects non-HTTPS Messaging Endpoints.
+- **Entered Messaging Endpoint before getting tunnel URL**: Update the endpoint in the Azure Bot resource after getting your real URL.
+- **Copied app_id into app_secret**: The client secret is the value under Certificates & secrets, not the Application ID.
+- **Client secret expired**: Rotate via Azure Portal → Certificates & secrets → New client secret.
+- **Bot added to Teams channel in Azure but not installed in Teams**: The Teams channel in the Azure Bot Channels blade connects Azure to Teams, but you still need a Teams App Manifest to make the bot findable and installable.
+
+## Troubleshooting
+
+- **Auth failed** in logs: Check that `app_id` and `tenant_id` in config match your Azure app registration exactly.
+- **Token fetch failed**: Verify `app_secret` is correct and not expired; check that the Azure AD app has the `https://api.botframework.com/.default` scope accessible.
+- **No messages processed**: Ensure the webhook path is publicly reachable and the Messaging Endpoint in Azure Bot Service matches exactly (including path and https).
+- **Reply not sent**: Check that `serviceUrl` in the activity is reachable from your server. The Bot Framework `serviceUrl` is region-specific and is provided per-activity; clawq uses the per-activity value if present.
+
+## External References
+
+- Bot Framework Activity schema: https://learn.microsoft.com/en-us/azure/bot-service/rest-api/bot-framework-rest-connector-api-reference
+- Bot Framework authentication: https://learn.microsoft.com/en-us/azure/bot-service/rest-api/bot-framework-rest-connector-authentication
+- Teams bot overview: https://learn.microsoft.com/en-us/microsoftteams/platform/bots/what-are-bots
+- Create a Teams bot: https://learn.microsoft.com/en-us/microsoftteams/platform/bots/how-to/create-a-bot-for-teams
+- Register an AAD app: https://learn.microsoft.com/en-us/azure/active-directory/develop/quickstart-register-app
+- Azure Bot Service registration: https://learn.microsoft.com/en-us/azure/bot-service/bot-service-quickstart-registration
+- OAuth 2.0 client credentials (Microsoft identity): https://learn.microsoft.com/en-us/azure/active-directory/develop/v2-oauth2-client-creds-grant-flow

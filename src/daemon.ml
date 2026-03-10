@@ -17,6 +17,7 @@ let write_state ~pairing_code ~(tunnel_json : Yojson.Safe.t option)
       ("discord_enabled", `Bool (config.channels.discord <> None));
       ("slack_enabled", `Bool (config.channels.slack <> None));
       ("github_enabled", `Bool (config.channels.github <> None));
+      ("teams_enabled", `Bool (config.channels.teams <> None));
       ("pid", `Int (Unix.getpid ()));
     ]
   in
@@ -1498,6 +1499,7 @@ let run ~(config : Runtime_config.t) =
         ("dingtalk", "starting");
         ("onebot", "starting");
         ("lark", "starting");
+        ("teams", "starting");
       ];
   let gateway_stop, stop_gateway = Lwt.wait () in
   let gateway =
@@ -1518,7 +1520,8 @@ let run ~(config : Runtime_config.t) =
             (match config.channels.lark with
             | Some lc when lc.enabled && lc.mode = "webhook" -> Some lc
             | _ -> None)
-          ?pairing ~ui_server ~stop:gateway_stop ())
+          ?teams_config:config.channels.teams ?pairing ~ui_server
+          ~stop:gateway_stop ())
       (fun exn ->
         Logs.err (fun m ->
             m "Gateway server error: %s" (Printexc.to_string exn));
@@ -1638,6 +1641,7 @@ let run ~(config : Runtime_config.t) =
          ("dingtalk", "running");
          ("onebot", "running");
          ("lark", "running");
+         ("teams", "running");
        ]
       @ if slack_socket_enabled then [ ("slack_socket", "running") ] else []);
   (match db with

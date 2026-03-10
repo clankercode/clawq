@@ -141,6 +141,7 @@
   nostr
   line_channel
   onebot
+  teams
   provider_anthropic
   provider_openai_codex
   provider_cohere

@@ -770,6 +770,52 @@ let parse_config ?(resolve_secrets = true) json =
               : Runtime_config.onebot_config)
         with _ -> None
       in
+      let teams =
+        try
+          let tm = ch |> member "teams" in
+          let app_id =
+            try tm |> member "app_id" |> to_string |> resolve_secret
+            with _ -> ""
+          in
+          let app_secret =
+            try tm |> member "app_secret" |> to_string |> resolve_secret
+            with _ -> ""
+          in
+          let tenant_id =
+            try tm |> member "tenant_id" |> to_string |> resolve_secret
+            with _ -> ""
+          in
+          let webhook_path =
+            try tm |> member "webhook_path" |> to_string
+            with _ -> "/teams/webhook"
+          in
+          let service_url =
+            try tm |> member "service_url" |> to_string
+            with _ -> "https://smba.trafficmanager.net/amer"
+          in
+          let allow_teams =
+            try tm |> member "allow_teams" |> to_list |> List.map to_string
+            with _ -> [ "*" ]
+          in
+          let allow_users =
+            try tm |> member "allow_users" |> to_list |> List.map to_string
+            with _ -> [ "*" ]
+          in
+          if app_id = "" || app_secret = "" || tenant_id = "" then None
+          else
+            Some
+              ({
+                 app_id;
+                 app_secret;
+                 tenant_id;
+                 webhook_path;
+                 service_url;
+                 allow_teams;
+                 allow_users;
+               }
+                : Runtime_config.teams_config)
+        with _ -> None
+      in
       ({
          cli;
          telegram;
@@ -788,6 +834,7 @@ let parse_config ?(resolve_secrets = true) json =
          lark;
          line;
          onebot;
+         teams;
        }
         : Runtime_config.channel_config)
     with _ -> default.channels

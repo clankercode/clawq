@@ -1,13 +1,15 @@
 ---
+claimed_at: "2026-03-10T05:49:45Z"
+claimed_by: cli-user
+completed_at: "2026-03-10T06:30:00Z"
 complexity: medium
 depends_on: []
 estimate_hours: 10
 id: I015
 priority: medium
-status: pending
-tags:
-    - idea
-    - planning
+started_at: "2026-03-10T05:49:45Z"
+status: done
+tags: []
 title: Add support for MS Teams integration. See ~/src/pag-server which has it, and otherwise search online for docs on how to integrate. Add something to the human readable docs, and also add docs near llms.txt but don't put it in llms-full.txt. like at integrations/teams/llms.txt or something.
 ---
 
