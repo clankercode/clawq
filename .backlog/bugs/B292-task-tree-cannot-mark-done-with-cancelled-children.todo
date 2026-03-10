@@ -1,5 +1,23 @@
 # B292: task_tree cannot mark parent done when children are cancelled
 
+## Status: VERIFIED WORKING
+
+The code already correctly implements this. The `is_terminal` function at line 19 of `src/task_tree.ml` returns true for both `Done` and `Cancelled`:
+
+```ocaml
+let is_terminal = function Done | Cancelled -> true | _ -> false
+```
+
+The child completion check (lines 682-686) uses `is_terminal`, so cancelled children already satisfy the completion constraint.
+
+Tests added to verify this behavior:
+- `test_update_done_with_cancelled_child` 
+- `test_update_done_with_mixed_children`
+
+The original report was likely due to a child being `pending` or `in_progress`, not cancelled.
+
+---
+
 ## Summary
 A parent task with all children cancelled should be markable as done. Currently the tool rejects `update status=done` when children are not done/cancelled, but cancelled children should satisfy the completion constraint.
 
