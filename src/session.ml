@@ -388,7 +388,9 @@ let enqueue_message_if_busy mgr ~key queued_message =
             let msg = { queued_message with inbound_queue_id } in
             Hashtbl.replace mgr.queued_messages key (existing @ [ msg ]);
             Logs.info (fun m ->
-                m "[%s] Queued inbound message for busy session (queue depth: %d)"
+                m
+                  "[%s] Queued inbound message for busy session (queue depth: \
+                   %d)"
                   key
                   (List.length existing + 1));
             (* NOTE: queued_message_interrupt_token does not interrupt the
