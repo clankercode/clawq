@@ -15,10 +15,10 @@ let skip_kinds =
   ]
 
 let default_base_url_for_kind = function
-  | "groq" -> "https://api.groq.com/openai"
-  | "openrouter" -> "https://openrouter.ai/api"
+  | "groq" -> "https://api.groq.com/openai/v1"
+  | "openrouter" -> "https://openrouter.ai/api/v1"
   | "ollama" -> "http://localhost:11434"
-  | _ -> "https://api.openai.com"
+  | _ -> "https://api.openai.com/v1"
 
 let should_skip_provider (pc : Runtime_config.provider_config) =
   match pc.kind with Some k -> List.mem k skip_kinds | None -> pc.api_key = ""
@@ -32,7 +32,7 @@ let get_base_url (pc : Runtime_config.provider_config) =
   | None -> (
       match pc.kind with
       | Some k -> default_base_url_for_kind k
-      | None -> "https://api.openai.com")
+      | None -> "https://api.openai.com/v1")
 
 let check_ttl_hours ~db ~provider ~hours =
   let sql =
@@ -131,7 +131,7 @@ let upsert_models ~db ~provider models =
 
 let fetch_openai_models ~base_url ~api_key =
   let open Lwt.Syntax in
-  let uri = base_url ^ "/v1/models" in
+  let uri = base_url ^ "/models" in
   let headers = [ ("Authorization", "Bearer " ^ api_key) ] in
   let* status, body = Http_client.get ~uri ~headers in
   if status = 200 then
