@@ -1,11 +1,15 @@
 ---
+claimed_at: "2026-03-11T04:37:15Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 2
 id: B351
 priority: high
-status: pending
-tags: [performance, observability]
+started_at: "2026-03-11T04:37:15Z"
+status: in_progress
+tags: []
 title: Investigate minimum ~3s latency on all tool calls
 ---
 

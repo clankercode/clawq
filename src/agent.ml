@@ -1035,6 +1035,15 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
     ?interrupt_check ~on_chunk calls =
   let open Lwt.Syntax in
   let sk_tag = match session_key with Some s -> "[" ^ s ^ "] " | None -> "" in
+  let notification_promises = ref [] in
+  let notify_async thunk =
+    notification_promises :=
+      Lwt.catch thunk (fun exn ->
+          Logs.warn (fun m ->
+              m "Notification error: %s" (Printexc.to_string exn));
+          Lwt.return_unit)
+      :: !notification_promises
+  in
   let interrupted = ref false in
   let check_interrupt () =
     if !interrupted then true
@@ -1074,11 +1083,14 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
                    args_preview = tc.arguments;
                  })
         | _ -> ());
-        let* () =
-          on_chunk
-            (Provider.ToolStart
-               { id = tc.id; name = tc.function_name; arguments = tc.arguments })
-        in
+        notify_async (fun () ->
+            on_chunk
+              (Provider.ToolStart
+                 {
+                   id = tc.id;
+                   name = tc.function_name;
+                   arguments = tc.arguments;
+                 }));
         if check_interrupt () then begin
           Logs.info (fun m ->
               m "%sSkipping tool %s (interrupted)" sk_tag tc.function_name);
@@ -1096,16 +1108,15 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
             Provider.make_tool_result ~tool_call_id:tc.id ~name:tc.function_name
               ~content:"[skipped: interrupted by user]"
           in
-          let* () =
-            on_chunk
-              (Provider.ToolResult
-                 {
-                   id = tc.id;
-                   name = tc.function_name;
-                   result = "[skipped: interrupted by user]";
-                   is_error = false;
-                 })
-          in
+          notify_async (fun () ->
+              on_chunk
+                (Provider.ToolResult
+                   {
+                     id = tc.id;
+                     name = tc.function_name;
+                     result = "[skipped: interrupted by user]";
+                     is_error = false;
+                   }));
           Lwt.return (tc, result_msg, None)
         end
         else
@@ -1114,6 +1125,7 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
           in
           let is_tool_search = tc.function_name = "tool_search" in
           let streamed_output = ref false in
+          let t0 = Unix.gettimeofday () in
           let* result_msg, result_for_event =
             if is_tool_search then
               let msg = resolve_tool_search agent tc in
@@ -1180,6 +1192,10 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
                     ~name:tc.function_name ~content:result_for_history,
                   result_for_event )
           in
+          let invoke_duration = Unix.gettimeofday () -. t0 in
+          Logs.info (fun m ->
+              m "%sTool %s completed in %.3fs" sk_tag tc.function_name
+                invoke_duration);
           let result = result_msg.Provider.content in
           let success =
             not (String.starts_with ~prefix:"Error:" result_for_event)
@@ -1202,16 +1218,15 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
           else
             Logs.warn (fun m ->
                 m "%sTool error: %s -> %s" sk_tag tc.function_name preview);
-          let* () =
-            on_chunk
-              (Provider.ToolResult
-                 {
-                   id = tc.id;
-                   name = tc.function_name;
-                   result = result_for_event;
-                   is_error = not success;
-                 })
-          in
+          notify_async (fun () ->
+              on_chunk
+                (Provider.ToolResult
+                   {
+                     id = tc.id;
+                     name = tc.function_name;
+                     result = result_for_event;
+                     is_error = not success;
+                   }));
           let refresh =
             observe_workspace_refresh agent tc result
               ~before_active_workspace_files
@@ -1225,6 +1240,7 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
     (fun ((_tc : Provider.tool_call), tool_msg, refresh_msg) ->
       append_tool_history agent tool_msg refresh_msg)
     results;
+  let* () = Lwt.join !notification_promises in
   Lwt.return_unit
 
 let execute_tool_calls agent ~db ~audit_enabled ~session_key ?interrupt_check
