@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B378
+priority: high
+status: pending
+tags: []
+title: Use git CLI to get all commits for inspection
+---
+
+Use git CLI to get all commits for inspection

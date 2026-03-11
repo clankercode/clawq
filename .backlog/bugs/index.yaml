@@ -376,3 +376,4 @@ bugs:
     - file: B375-thinking-data-sent-to-telegram.todo
     - file: B376-optimize-claude-md.todo
     - file: B377-clawq-sometimes-runs-bg-tasks.todo
+    - file: B378-use-git-cli-to-get-all-commits.todo
