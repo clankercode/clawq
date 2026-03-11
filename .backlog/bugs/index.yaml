@@ -385,3 +385,4 @@ bugs:
     - file: B384-groq-models-can-be-fetched-via.todo
     - file: B385-tool-calls-no-longer-being-sen.todo
     - file: B386-deadlock-when-manually-compact.todo
+    - file: B387-tasks-on-telegram-does-nothing.todo
