@@ -138,3 +138,5 @@ ideas:
       title: 'Observation + correction loops: have a cheap observer watch the main chat for when it might be getting stuck. If it gets stuck, then we trigger a workflow to look for solutions and update workspace files. Postmortems. criticalfallibilism.com'
     - file: I017-summarize-and-unsummarize-tool.todo
       id: I017
+    - file: I018-investigate-the-idea-of-adding.todo
+      id: I018

@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 10
+id: I018
+priority: medium
+status: pending
+tags: []
+title: 'investigate the idea of adding a question tool to ask the user questions via the various connectors, particulalry telegram (but also teams, github, discord, etc). The agent should only have access to it when we are using a supported channel/session. background research: claude code question tool, opencode question tool, codex question tool, roocode question tool, crush question tool.'
+---
+
+investigate the idea of adding a question tool to ask the user questions via the various connectors, particulalry telegram (but also teams, github, discord, etc). The agent should only have access to it when we are using a supported channel/session. background research: claude code question tool, opencode question tool, codex question tool, roocode question tool, crush question tool.
