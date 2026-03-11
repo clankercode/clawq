@@ -70,7 +70,7 @@ let parse_event ~event_type ~body =
     | "pull_request" -> (
         let action = try json |> member "action" |> to_string with _ -> "" in
         match action with
-        | "opened" | "edited" | "reopened" ->
+        | "opened" | "edited" | "reopened" | "synchronize" ->
             let pr = json |> member "pull_request" in
             let pr_number = try pr |> member "number" |> to_int with _ -> 0 in
             let pr_title =

@@ -509,6 +509,101 @@ let test_github_webhook_routes_to_session_and_posts_reply () =
                 && contains_str body "stubbed GitHub reply"
             | None -> false)))
 
+let test_github_pr_synchronize_reuses_pr_session () =
+  let webhook_secret = "webhook-secret" in
+  let payload =
+    {|{"action":"synchronize","number":42,"pull_request":{"number":42,"title":"Webhook test","body":"/clawq review latest push","state":"open","html_url":"https://github.com/acme/backend/pull/42","user":{"login":"alice"},"base":{"ref":"main"},"head":{"ref":"feature"}},"repository":{"name":"backend","owner":{"login":"acme"}}}|}
+  in
+  let signature = compute_github_signature ~secret:webhook_secret ~body:payload in
+  let seen_key = ref None in
+  let seen_message = ref None in
+  let seen_post_path = ref None in
+  let seen_post_body = ref None in
+  let callback _conn req body =
+    let open Lwt.Syntax in
+    let* body_text = Cohttp_lwt.Body.to_string body in
+    seen_post_path := Some (Uri.path (Cohttp.Request.uri req));
+    seen_post_body := Some body_text;
+    Cohttp_lwt_unix.Server.respond_string ~status:`Created ~body:"{}" ()
+  in
+  with_fake_github_api callback (fun github_api_base ->
+      with_env "CLAWQ_GITHUB_API_BASE" (Some github_api_base) (fun () ->
+          let db = Memory.init ~db_path:":memory:" () in
+          let config = Runtime_config.default in
+          let session_manager = Session.create ~config ~db () in
+          Session.set_special_command_handler session_manager
+            (fun ~key ~message ~send_progress:_ ~interrupt_check:_ ->
+              seen_key := Some key;
+              seen_message := Some message;
+              Lwt.return_some "sync reply");
+          let github_config : Runtime_config.github_config =
+            {
+              auth = Runtime_config.GithubPat "ghp_test12345";
+              repos =
+                [
+                  {
+                    Runtime_config.name = "acme/backend";
+                    webhook_secret;
+                    webhook_path = "/github/webhook/backend";
+                    agent_name = None;
+                    allow_users = [ "alice" ];
+                    react_to = [ "pull_request" ];
+                    include_pr_files = false;
+                  };
+                ];
+            }
+          in
+          let headers =
+            Cohttp.Header.of_list
+              [
+                ("X-GitHub-Event", "pull_request");
+                ("X-Hub-Signature-256", signature);
+              ]
+          in
+          let req =
+            Cohttp.Request.make ~headers ~meth:`POST
+              (Uri.of_string "http://127.0.0.1/github/webhook/backend")
+          in
+          let resp, body =
+            Lwt_main.run
+              (Http_server.handler ~session_manager ~require_pairing:false
+                 ~auth_token:None ~github_config
+                 ~github_api_limiter:
+                   (Rate_limiter.create ~rate_per_minute:60
+                      ~burst_multiplier:1.0)
+                 (Obj.magic ()) req (Cohttp_lwt.Body.of_string payload))
+          in
+          Alcotest.(check int)
+            "ok" 200
+            (Cohttp.Code.code_of_status (Cohttp.Response.status resp));
+          let json = Yojson.Safe.from_string (body_string body) in
+          let open Yojson.Safe.Util in
+          Alcotest.(check string)
+            "status" "replied"
+            (json |> member "status" |> to_string);
+          Alcotest.(check (option string))
+            "session key"
+            (Some "github:acme/backend:pr:42")
+            !seen_key;
+          Alcotest.(check bool)
+            "message includes github context" true
+            (match !seen_message with
+            | Some message ->
+                contains_str message "## GitHub Context"
+                && contains_str message "review latest push"
+            | None -> false);
+          Alcotest.(check (option string))
+            "comment endpoint"
+            (Some "/repos/acme/backend/issues/42/comments")
+            !seen_post_path;
+          Alcotest.(check bool)
+            "reply body formatted for github" true
+            (match !seen_post_body with
+            | Some body ->
+                contains_str body "> /clawq review latest push"
+                && contains_str body "sync reply"
+            | None -> false)))
+
 let suite =
   [
     Alcotest.test_case "require_pairing blocks /chat" `Quick
@@ -539,4 +634,6 @@ let suite =
       test_json_of_stream_event_variants;
     Alcotest.test_case "github webhook routes to session and posts reply" `Quick
       test_github_webhook_routes_to_session_and_posts_reply;
+    Alcotest.test_case "github pull_request synchronize reuses PR session"
+      `Quick test_github_pr_synchronize_reuses_pr_session;
   ]

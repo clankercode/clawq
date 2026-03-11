@@ -82,8 +82,16 @@ let parse_pr_synchronize () =
   match
     Github_webhook.parse_event ~event_type:"pull_request" ~body:pr_sync_json
   with
-  | Github_webhook.Ignored -> ()
-  | _ -> Alcotest.fail "expected Ignored for synchronize action"
+  | Github_webhook.PullRequest e ->
+      Alcotest.(check string) "action" "synchronize" e.action;
+      Alcotest.(check string) "owner" "x" e.owner;
+      Alcotest.(check string) "repo" "y" e.repo;
+      Alcotest.(check int) "pr_number" 2 e.pr_number;
+      Alcotest.(check string) "title" "Update" e.pr_title;
+      Alcotest.(check string) "author" "x" e.pr_author;
+      Alcotest.(check string) "base" "main" e.base_branch;
+      Alcotest.(check string) "head" "fix" e.head_branch
+  | _ -> Alcotest.fail "expected PullRequest for synchronize action"
 
 let parse_issue_comment () =
   match
@@ -429,7 +437,7 @@ let sig_suite =
 let parse_suite =
   [
     Alcotest.test_case "PR opened" `Quick parse_pr_opened;
-    Alcotest.test_case "PR synchronize ignored" `Quick parse_pr_synchronize;
+    Alcotest.test_case "PR synchronize" `Quick parse_pr_synchronize;
     Alcotest.test_case "issue comment" `Quick parse_issue_comment;
     Alcotest.test_case "issue comment non-PR" `Quick parse_issue_comment_non_pr;
     Alcotest.test_case "review comment" `Quick parse_review_comment;
