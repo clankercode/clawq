@@ -25,20 +25,13 @@ let lock_with_timeout ~label ?(warn_timeout = default_warn_timeout)
     ?(fatal_timeout = default_fatal_timeout) mutex =
   let open Lwt.Syntax in
   let try_acquire timeout_s =
-    let lock_p = Lwt_mutex.lock mutex in
-    let timeout_p =
-      let* () = Lwt_unix.sleep timeout_s in
-      Lwt.return_false
-    in
     Lwt.pick
       [
-        (let* () = lock_p in
+        (let* () = Lwt_mutex.lock mutex in
          Lwt.return_true);
-        timeout_p;
+        (let* () = Lwt_unix.sleep timeout_s in
+         Lwt.return_false);
       ]
-    |> Lwt.map (fun acquired ->
-           if not acquired && Lwt.is_sleeping lock_p then Lwt.cancel lock_p;
-           acquired)
   in
   let log_diagnostics level =
     let locked = Lwt_mutex.is_locked mutex in

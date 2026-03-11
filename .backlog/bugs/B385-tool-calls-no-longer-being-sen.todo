@@ -1,14 +1,14 @@
 ---
-claimed_at: "2026-03-11T23:17:29Z"
+claimed_at: "2026-03-11T23:28:42Z"
 claimed_by: cli-user
-completed_at: "2026-03-11T23:23:15Z"
+completed_at: "2026-03-11T23:28:42Z"
 complexity: medium
 depends_on: []
-duration_minutes: 5.768995478266667
+duration_minutes: 0.006508393366666667
 estimate_hours: 1
 id: B385
 priority: high
-started_at: "2026-03-11T23:17:29Z"
+started_at: "2026-03-11T23:28:42Z"
 status: done
 tags: []
 title: Tool calls no longer being sent to Telegram

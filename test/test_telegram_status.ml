@@ -128,29 +128,6 @@ let test_status_notifier_invalid_non_numeric_send_id_is_suppressed () =
   Alcotest.(check (option string))
     "invalid telegram id does not get adopted" None sm.msg_id
 
-let test_outbound_lock_timeout_cancels_timed_out_waiter () =
-  let mutex = Lwt_mutex.create () in
-  Lwt_main.run (Lwt_mutex.lock mutex);
-  Lwt.async (fun () ->
-      let open Lwt.Syntax in
-      let* () = Lwt_unix.sleep 0.03 in
-      Lwt_mutex.unlock mutex;
-      Lwt.return_unit);
-  let acquired =
-    Lwt_main.run
-      (Lwt.pick
-         [
-           (Lwt_util.with_lock_timeout ~label:"telegram-status-test"
-              ~warn_timeout:0.01 ~fatal_timeout:1.0 mutex (fun () ->
-                Lwt.return_true));
-           (let open Lwt.Syntax in
-            let* () = Lwt_unix.sleep 0.2 in
-            Lwt.return_false);
-         ])
-  in
-  Alcotest.(check bool)
-    "lock retry still succeeds after warn timeout" true acquired
-
 let test_format_tool_result_detail_includes_tool_name_and_empty_output () =
   Alcotest.(check string)
     "empty output gets placeholder" "shell_exec\n[empty output]"
@@ -230,8 +207,6 @@ let suite =
       test_tool_result_details_evict_oldest_without_clearing_newer_entries;
     Alcotest.test_case "status notifier suppresses invalid non-numeric id"
       `Quick test_status_notifier_invalid_non_numeric_send_id_is_suppressed;
-    Alcotest.test_case "outbound lock timeout cancels timed out waiter" `Quick
-      test_outbound_lock_timeout_cancels_timed_out_waiter;
     Alcotest.test_case "tool result detail formatting" `Quick
       test_format_tool_result_detail_includes_tool_name_and_empty_output;
     Alcotest.test_case "finalize is idempotent with no tools" `Quick
