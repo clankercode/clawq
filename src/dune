@@ -25,6 +25,7 @@
   reaction_tracker
   status_message
   workspace_scaffold
+  string_util
   path_util
   agent
   session

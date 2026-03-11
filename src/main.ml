@@ -1,23 +1,9 @@
 open Cmdliner
 
-let unescape_newlines s =
-  let len = String.length s in
-  let buf = Buffer.create len in
-  let i = ref 0 in
-  while !i < len do
-    if !i + 1 < len && s.[!i] = '\\' && s.[!i + 1] = 'n' then begin
-      Buffer.add_char buf '\n';
-      i := !i + 2
-    end
-    else begin
-      Buffer.add_char buf s.[!i];
-      i := !i + 1
-    end
-  done;
-  Buffer.contents buf
-
 let run name args =
-  let result = unescape_newlines (Command_bridge.handle (name :: args)) in
+  let result =
+    String_util.unescape_newlines (Command_bridge.handle (name :: args))
+  in
   if Cli_exit.should_error ~name ~args ~result then `Error (false, result)
   else begin
     print_string result;

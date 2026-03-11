@@ -152,6 +152,7 @@ let draw_dashboard ~(sc : Runtime_config.summarizer_config) =
   draw_box ~width:w
     [
       bold " Autosummarizer Configuration ";
+      dim "  Automatically summarizes large tool results to reduce context usage.";
       "";
       Printf.sprintf "  Enabled:           %s" enabled_str;
       Printf.sprintf "  Model:             %s" (cyan model_str);
@@ -441,20 +442,88 @@ let run () =
             in
             get_days ()
         | "v" ->
-            let s =
-              Setup_common.prompt_string
-                ~prompt:"Envelope template (empty to clear)"
-                ~default:
-                  (match !sc.envelope_template with None -> "" | Some t -> t)
-                ()
+            let open Setup_common in
+            let placeholders =
+              [
+                ("{summary}", "The summary text");
+                ("{sum_id}", "Summary ID (for unsummarize)");
+                ("{tool_name}", "Tool that produced the result");
+                ("{model}", "Model used for summarization");
+                ("{orig_lines}", "Original line count");
+                ("{orig_bytes}", "Original byte count");
+                ("{orig_tokens}", "Original token estimate");
+                ("{sum_lines}", "Summary line count");
+                ("{sum_bytes}", "Summary byte count");
+                ("{sum_tokens}", "Summary token estimate");
+                ("{timestamp}", "When summarization occurred");
+              ]
             in
-            let trimmed = String.trim s in
-            sc :=
-              {
-                !sc with
-                envelope_template =
-                  (if trimmed = "" then None else Some trimmed);
-              };
+            Printf.printf "\n";
+            Printf.printf "  %s\n" (bold "Current envelope template:");
+            (match !sc.envelope_template with
+            | None -> Printf.printf "    %s\n" (dim "(using built-in default)")
+            | Some t ->
+                let lines = String.split_on_char '\n' t in
+                List.iter
+                  (fun line -> Printf.printf "    %s\n" (cyan line))
+                  lines);
+            Printf.printf "\n";
+            Printf.printf "  %s\n"
+              (bold "The envelope template wraps each summarized tool result.");
+            Printf.printf
+              "  Use %s for newlines. Leave empty to use the built-in \
+               default.\n\n"
+              (cyan "\\n");
+            Printf.printf "  %s\n" (bold "Available placeholders:");
+            let max_ph_len =
+              List.fold_left
+                (fun acc (ph, _) -> max acc (String.length ph))
+                0 placeholders
+            in
+            List.iter
+              (fun (ph, desc) ->
+                let pad =
+                  String.make (max_ph_len - String.length ph) ' '
+                in
+                Printf.printf "    %s%s  %s\n" (green ph) pad (dim desc))
+              placeholders;
+            Printf.printf "\n  %s\n" (bold "Default (when not set):");
+            List.iter
+              (fun line -> Printf.printf "    %s\n" (dim line))
+              [
+                "[Auto-summarized: id={sum_id}, tool={tool_name}, \
+                 model={model}";
+                " original: {orig_lines} lines / {orig_bytes} bytes / \
+                 ~{orig_tokens} tokens";
+                " summary: {sum_lines} lines / {sum_bytes} bytes / \
+                 ~{sum_tokens} tokens";
+                " at: {timestamp}]";
+                "{summary}";
+                "[Use unsummarize(summary_id=\"{sum_id}\") to retrieve \
+                 original]";
+              ];
+            Printf.printf "\n";
+            let current_default =
+              match !sc.envelope_template with
+              | None -> ""
+              | Some t -> String_util.escape_newlines t
+            in
+            let rec get_template default =
+              let s =
+                Setup_common.prompt_string
+                  ~prompt:"Envelope template (empty to clear)" ~default ()
+              in
+              let trimmed = String.trim s in
+              if trimmed = "" then None
+              else if not (String_util.contains trimmed "{summary}") then begin
+                Setup_common.print_error
+                  "Template must contain {summary} placeholder.";
+                get_template trimmed
+              end
+              else Some (String_util.unescape_newlines trimmed)
+            in
+            let value = get_template current_default in
+            sc := { !sc with envelope_template = value };
             dirty := true
         | "i" ->
             let instructions = post_setup_instructions ~sc:!sc in

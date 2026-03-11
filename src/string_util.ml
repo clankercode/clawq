@@ -1,0 +1,36 @@
+let escape_newlines s =
+  let buf = Buffer.create (String.length s) in
+  String.iter
+    (fun c ->
+      if c = '\n' then Buffer.add_string buf "\\n" else Buffer.add_char buf c)
+    s;
+  Buffer.contents buf
+
+let contains haystack needle =
+  let nlen = String.length needle in
+  let hlen = String.length haystack in
+  if nlen = 0 then true
+  else if nlen > hlen then false
+  else
+    let found = ref false in
+    let i = ref 0 in
+    while !i <= hlen - nlen && not !found do
+      if String.sub haystack !i nlen = needle then found := true else incr i
+    done;
+    !found
+
+let unescape_newlines s =
+  let len = String.length s in
+  let buf = Buffer.create len in
+  let i = ref 0 in
+  while !i < len do
+    if !i + 1 < len && s.[!i] = '\\' && s.[!i + 1] = 'n' then begin
+      Buffer.add_char buf '\n';
+      i := !i + 2
+    end
+    else begin
+      Buffer.add_char buf s.[!i];
+      i := !i + 1
+    end
+  done;
+  Buffer.contents buf

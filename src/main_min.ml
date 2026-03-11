@@ -1,23 +1,8 @@
 open Cmdliner
 
-let unescape_newlines s =
-  let len = String.length s in
-  let buf = Buffer.create len in
-  let i = ref 0 in
-  while !i < len do
-    if !i + 1 < len && s.[!i] = '\\' && s.[!i + 1] = 'n' then begin
-      Buffer.add_char buf '\n';
-      i := !i + 2
-    end
-    else begin
-      Buffer.add_char buf s.[!i];
-      i := !i + 1
-    end
-  done;
-  Buffer.contents buf
-
 let run name args =
-  print_string (unescape_newlines (Command_bridge_min.handle (name :: args)));
+  print_string
+    (String_util.unescape_newlines (Command_bridge_min.handle (name :: args)));
   `Ok ()
 
 let rest_args docv = Arg.(value & pos_all string [] & info [] ~docv)
