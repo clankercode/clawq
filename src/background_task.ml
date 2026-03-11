@@ -1336,22 +1336,49 @@ let spawn_task ?(on_task_started = fun _ -> Lwt.return_unit)
 let default_spawn_task ~on_task_started ~on_task_finished ~db task =
   spawn_task ~on_task_started ~on_task_finished ~db task
 
-let start_queued_with_callback_impl ~spawn_task ~on_task_started
-    ~on_task_finished ~db =
+let rec take n = function
+  | [] -> []
+  | _ when n <= 0 -> []
+  | x :: xs -> x :: take (n - 1) xs
+
+let available_worker_slots ?max_running_tasks tasks =
+  match max_running_tasks with
+  | None -> None
+  | Some max_running_tasks ->
+      let running_count =
+        List.fold_left
+          (fun acc (task : task) ->
+            if task.status = Running then acc + 1 else acc)
+          0 tasks
+      in
+      Some (max 0 (max max_running_tasks 0 - running_count))
+
+let queued_tasks_ready_to_start ?max_running_tasks tasks =
   let queued =
     List.filter
-      (fun t -> t.status = Queued && not (Hashtbl.mem running t.id))
-      (list_tasks ~db)
+      (fun (task : task) ->
+        task.status = Queued && not (Hashtbl.mem running task.id))
+      tasks
+  in
+  match available_worker_slots ?max_running_tasks tasks with
+  | None -> queued
+  | Some slots -> take slots queued
+
+let start_queued_with_callback_impl ?max_running_tasks ~spawn_task
+    ~on_task_started ~on_task_finished ~db () =
+  let queued =
+    queued_tasks_ready_to_start ?max_running_tasks (list_tasks ~db)
   in
   List.iter (spawn_task ~on_task_started ~on_task_finished ~db) queued
 
-let start_queued_with_callback ~on_task_finished ~db
+let start_queued_with_callback ?max_running_tasks ~on_task_finished ~db
     ?(on_task_started = fun _ -> Lwt.return_unit) () =
-  start_queued_with_callback_impl ~spawn_task:default_spawn_task
-    ~on_task_started ~on_task_finished ~db
+  start_queued_with_callback_impl ?max_running_tasks
+    ~spawn_task:default_spawn_task ~on_task_started ~on_task_finished ~db ()
 
-let start_queued ~db =
-  start_queued_with_callback ~on_task_finished:(fun _ -> Lwt.return_unit) ~db ()
+let start_queued ?max_running_tasks ~db () =
+  start_queued_with_callback ?max_running_tasks
+    ~on_task_finished:(fun _ -> Lwt.return_unit) ~db ()
 
 let is_tracked_locally id = Hashtbl.mem running id
 let clear_all_tracked () = Hashtbl.clear running

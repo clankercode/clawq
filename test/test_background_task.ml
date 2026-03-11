@@ -22,6 +22,27 @@ let process_exists pid =
     true
   with Unix.Unix_error _ -> false
 
+let fake_task ?(status = Background_task.Queued) id =
+  {
+    Background_task.id;
+    runner = Background_task.Codex;
+    model = None;
+    repo_path = "/tmp/repo";
+    prompt = "test prompt";
+    branch = "";
+    worktree_path = None;
+    log_path = None;
+    status;
+    session_key = None;
+    channel = None;
+    channel_id = None;
+    pid = None;
+    result_preview = None;
+    created_at = "2026-03-11 00:00:00";
+    started_at = None;
+    finished_at = None;
+  }
+
 let test_enqueue_and_list_tasks () =
   with_temp_git_repo (fun repo_path ->
       let db = Memory.init ~db_path:":memory:" () in
@@ -986,9 +1007,74 @@ let test_start_queued_spawns_queued_tasks () =
         ~spawn_task:(fun ~on_task_started:_ ~on_task_finished:_ ~db:_ task ->
           spawned := task.id :: !spawned)
         ~on_task_started:(fun _ -> Lwt.return_unit)
-        ~on_task_finished:(fun _ -> Lwt.return_unit);
+        ~on_task_finished:(fun _ -> Lwt.return_unit) ();
       Alcotest.(check (list int))
         "queued task spawned" [ id ] (List.rev !spawned))
+
+let test_available_worker_slots_respects_running_tasks () =
+  let tasks =
+    [
+      fake_task ~status:Background_task.Running 1;
+      fake_task 2;
+      fake_task 3;
+    ]
+  in
+  Alcotest.(check (option int))
+    "one slot remains" (Some 1)
+    (Background_task.available_worker_slots ~max_running_tasks:2 tasks)
+
+let test_queued_tasks_ready_to_start_respects_capacity () =
+  let tasks =
+    [
+      fake_task ~status:Background_task.Running 1;
+      fake_task 2;
+      fake_task 3;
+    ]
+  in
+  let ready =
+    Background_task.queued_tasks_ready_to_start ~max_running_tasks:2 tasks
+  in
+  Alcotest.(check (list int))
+    "only one queued task fits" [ 2 ]
+    (List.map (fun task -> task.Background_task.id) ready)
+
+let test_start_queued_respects_max_running_tasks () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let running_id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"already running" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      let queued_id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"queued work" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      ignore
+        (Background_task.set_running ~db ~id:running_id ~branch:"clawq-bg-1"
+           ~worktree_path:"/tmp/worktree" ~log_path:"/tmp/task.log" ~pid:12345);
+      let spawned = ref [] in
+      Background_task.start_queued_with_callback_impl ~max_running_tasks:1 ~db
+        ~spawn_task:(fun ~on_task_started:_ ~on_task_finished:_ ~db:_ task ->
+          spawned := task.id :: !spawned)
+        ~on_task_started:(fun _ -> Lwt.return_unit)
+        ~on_task_finished:(fun _ -> Lwt.return_unit) ();
+      Alcotest.(check (list int))
+        "queued task blocked at cap" [] (List.rev !spawned);
+      match Background_task.get_task ~db ~id:queued_id with
+      | None -> Alcotest.fail "expected queued task"
+      | Some task ->
+          Alcotest.(check string)
+            "queued task stays queued" "queued"
+            (Background_task.string_of_status task.status))
 
 let test_spawn_task_marks_failed_when_worktree_creation_fails () =
   with_temp_git_repo (fun repo_path ->
@@ -2382,6 +2468,12 @@ let suite =
       test_logs_tool_tail_empty_file;
     Alcotest.test_case "start queued spawns queued tasks" `Quick
       test_start_queued_spawns_queued_tasks;
+    Alcotest.test_case "available worker slots respects running tasks" `Quick
+      test_available_worker_slots_respects_running_tasks;
+    Alcotest.test_case "queued tasks ready to start respects capacity" `Quick
+      test_queued_tasks_ready_to_start_respects_capacity;
+    Alcotest.test_case "start queued respects max running tasks" `Quick
+      test_start_queued_respects_max_running_tasks;
     Alcotest.test_case "spawn task marks failed when worktree creation fails"
       `Quick test_spawn_task_marks_failed_when_worktree_creation_fails;
     Alcotest.test_case "delegate tool queues task" `Quick
