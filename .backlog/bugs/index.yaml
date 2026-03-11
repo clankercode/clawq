@@ -369,3 +369,4 @@ bugs:
     - file: B368-background-tasks-should-persis.todo
     - file: B369-model-usage-stats-should-count.todo
     - file: B370-telegram-notifications-should.todo
+    - file: B371-setup-wizards-like-clawq-setup.todo

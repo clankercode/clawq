@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B371
+priority: high
+status: pending
+tags: []
+title: Setup wizards like ./clawq setup teams should link to the relevant https://clawq.org pages (which are built from docs/). Also add for the other setup wizards.
+---
+
+Setup wizards like ./clawq setup teams should link to the relevant https://clawq.org pages (which are built from docs/). Also add for the other setup wizards.
