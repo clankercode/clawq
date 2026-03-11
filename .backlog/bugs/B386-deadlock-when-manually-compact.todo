@@ -1,0 +1,26 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B386
+priority: high
+status: pending
+tags: []
+title: deadlock when manually compacting history
+---
+
+[08:40:04.632] INFO  -> LLM provider=groq model=openai/gpt-oss-120b msgs=9 ~1k tok
+[08:41:19.117] INFO  /compact requested for session telegram:58495225:58495225 — starting compaction
+[08:41:20.568] INFO  Force-compacting history: 318 messages -> summarise 298, keep 20 recent
+[08:41:22.004] INFO  Pre-compaction memory flush: processing 301 messages
+[08:41:22.005] INFO  -> LLM provider=openai-codex model=gpt-5.4 msgs=303 ~124k tok
+[08:41:33.180] INFO  -> LLM provider=openai-codex model=gpt-5.4 msgs=306 ~133k tok
+[08:41:46.074] WARN  [session_mutex/with_session_lock_unless_draining[telegram:58495225:58495225]] Mutex acquisition slow (>10s), retrying with 50s timeout
+[08:41:46.074] WARN  [session_mutex/with_session_lock_unless_draining[telegram:58495225:58495225]] mutex diagnostics: is_locked=true has_no_waiters=true time=1773265306.075 pid=3643399
+[08:41:52.833] INFO  -> LLM provider=openai-codex model=gpt-5.4 msgs=314 ~134k tok
+[08:42:01.676] INFO  Pre-compaction memory flush: stored 7, forgotten 0 memories
+[08:42:04.634] INFO  -> LLM provider=openai-codex model=gpt-5.4 msgs=2 ~21k tok
+[08:42:24.543] INFO  Quota refresh: zaisession=0%  monthly=2% | kimi | groqUnknown (no_api) | openai-codexsession=2% (4h49m left)  weekly=3% (6d19h left)
+[08:42:30.039] INFO  -> LLM provider=openai-codex model=gpt-5.4 msgs=2 ~23k tok
+[08:42:36.075] ERROR [session_mutex/with_session_lock_unless_draining[telegram:58495225:58495225]] FATAL: Mutex deadlock detected (>60s total wait). Aborting process.
+[08:42:36.075] ERROR [session_mutex/with_session_lock_unless_draining[telegram:58495225:58495225]] mutex diagnostics: is_locked=true has_no_waiters=true time=1773265356.075 pid=3643399
