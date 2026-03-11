@@ -45,60 +45,70 @@ let serialize_context_messages (history : Provider.message list) ~max_msgs =
     chronological
   |> String.concat "\n"
 
+let default_envelope_template_lines =
+  [
+    "[Auto-summarized: id={sum_id}, tool={tool_name}, model={model}, original: \
+     {orig_lines} lines / {orig_bytes} bytes / ~{orig_tokens} tokens, summary: \
+     {sum_lines} lines / {sum_bytes} bytes / ~{sum_tokens} tokens, at: \
+     {timestamp}]";
+    "";
+    "{summary}";
+    "";
+    "[Use unsummarize(summary_id=\"{sum_id}\") to retrieve original content]";
+    "[Use unsummarize(summary_id=\"{sum_id}\", head_and_tail=true) for \
+     first+last 100 lines]";
+  ]
+
+let default_envelope_template =
+  String.concat "\n" default_envelope_template_lines
+
+let render_envelope_template ~summary_id ~tool_name ~model ~orig_lines
+    ~orig_bytes ~orig_tokens ~sum_lines ~sum_bytes ~sum_tokens ~timestamp
+    ~summary ~template =
+  let replacements =
+    [
+      ("{sum_id}", summary_id);
+      ("{tool_name}", tool_name);
+      ("{model}", model);
+      ("{orig_lines}", string_of_int orig_lines);
+      ("{orig_bytes}", string_of_int orig_bytes);
+      ("{orig_tokens}", string_of_int orig_tokens);
+      ("{sum_lines}", string_of_int sum_lines);
+      ("{sum_bytes}", string_of_int sum_bytes);
+      ("{sum_tokens}", string_of_int sum_tokens);
+      ("{timestamp}", timestamp);
+      ("{summary}", summary);
+    ]
+  in
+  let replace_placeholder acc (k, v) =
+    let buf = Buffer.create (String.length acc) in
+    let klen = String.length k in
+    let slen = String.length acc in
+    let i = ref 0 in
+    while !i <= slen - klen do
+      if String.sub acc !i klen = k then begin
+        Buffer.add_string buf v;
+        i := !i + klen
+      end
+      else begin
+        Buffer.add_char buf acc.[!i];
+        incr i
+      end
+    done;
+    while !i < slen do
+      Buffer.add_char buf acc.[!i];
+      incr i
+    done;
+    Buffer.contents buf
+  in
+  List.fold_left replace_placeholder template replacements
+
 let build_envelope ~summary_id ~tool_name ~model ~orig_lines ~orig_bytes
     ~orig_tokens ~sum_lines ~sum_bytes ~sum_tokens ~timestamp ~summary ~template
     =
-  match template with
-  | Some tmpl ->
-      let replacements =
-        [
-          ("{sum_id}", summary_id);
-          ("{tool_name}", tool_name);
-          ("{model}", model);
-          ("{orig_lines}", string_of_int orig_lines);
-          ("{orig_bytes}", string_of_int orig_bytes);
-          ("{orig_tokens}", string_of_int orig_tokens);
-          ("{sum_lines}", string_of_int sum_lines);
-          ("{sum_bytes}", string_of_int sum_bytes);
-          ("{sum_tokens}", string_of_int sum_tokens);
-          ("{timestamp}", timestamp);
-          ("{summary}", summary);
-        ]
-      in
-      let replace_placeholder acc (k, v) =
-        let buf = Buffer.create (String.length acc) in
-        let klen = String.length k in
-        let slen = String.length acc in
-        let i = ref 0 in
-        while !i <= slen - klen do
-          if String.sub acc !i klen = k then begin
-            Buffer.add_string buf v;
-            i := !i + klen
-          end
-          else begin
-            Buffer.add_char buf acc.[!i];
-            incr i
-          end
-        done;
-        while !i < slen do
-          Buffer.add_char buf acc.[!i];
-          incr i
-        done;
-        Buffer.contents buf
-      in
-      List.fold_left replace_placeholder tmpl replacements
-  | None ->
-      Printf.sprintf
-        "[Auto-summarized: id=%s, tool=%s, model=%s\n\
-        \ original: %d lines / %d bytes / ~%d tokens\n\
-        \ summary: %d lines / %d bytes / ~%d tokens\n\
-        \ at: %s]\n\n\
-         %s\n\n\
-         [Use unsummarize(summary_id=%S) to retrieve original content]\n\
-         [Use unsummarize(summary_id=%S, head_and_tail=true) for first+last \
-         100 lines]"
-        summary_id tool_name model orig_lines orig_bytes orig_tokens sum_lines
-        sum_bytes sum_tokens timestamp summary summary_id summary_id
+  render_envelope_template ~summary_id ~tool_name ~model ~orig_lines ~orig_bytes
+    ~orig_tokens ~sum_lines ~sum_bytes ~sum_tokens ~timestamp ~summary
+    ~template:(Option.value template ~default:default_envelope_template)
 
 let summarizer_config_for ~(config : Runtime_config.t) (pm : Pmodel.t) =
   {

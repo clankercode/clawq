@@ -488,17 +488,7 @@ let run () =
             Printf.printf "\n  %s\n" (bold "Default (when not set):");
             List.iter
               (fun line -> Printf.printf "    %s\n" (dim line))
-              [
-                "[Auto-summarized: id={sum_id}, tool={tool_name}, model={model}";
-                " original: {orig_lines} lines / {orig_bytes} bytes / \
-                 ~{orig_tokens} tokens";
-                " summary: {sum_lines} lines / {sum_bytes} bytes / \
-                 ~{sum_tokens} tokens";
-                " at: {timestamp}]";
-                "{summary}";
-                "[Use unsummarize(summary_id=\"{sum_id}\") to retrieve \
-                 original]";
-              ];
+              Summarizer.default_envelope_template_lines;
             Printf.printf "\n";
             let current_default =
               match !sc.envelope_template with
