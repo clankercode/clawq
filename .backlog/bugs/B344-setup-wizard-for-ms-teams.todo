@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-11T08:39:41Z"
+claimed_by: cli-user
+completed_at: "2026-03-11T08:42:11Z"
 complexity: medium
 depends_on: []
+duration_minutes: 2.507061038883333
 estimate_hours: 1
 id: B344
 priority: high
-status: pending
+started_at: "2026-03-11T08:39:41Z"
+status: done
 tags: []
 title: Setup wizard for MS Teams
 ---
