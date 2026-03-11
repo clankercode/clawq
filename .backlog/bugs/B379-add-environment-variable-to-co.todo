@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B379
+priority: high
+status: pending
+tags: []
+title: Add environment variable to control dot-directory (default ~/.clawq). Must work with the service and daemon and update/restarts.
+---
+
+Add environment variable to control dot-directory (default ~/.clawq). Must work with the service and daemon and update/restarts.

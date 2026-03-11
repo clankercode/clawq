@@ -377,3 +377,4 @@ bugs:
     - file: B376-optimize-claude-md.todo
     - file: B377-clawq-sometimes-runs-bg-tasks.todo
     - file: B378-use-git-cli-to-get-all-commits.todo
+    - file: B379-add-environment-variable-to-co.todo
