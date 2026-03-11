@@ -1132,15 +1132,17 @@ let cmd_setup args =
   | [ "teams" ] -> Setup_teams.run ()
   | [ "telegram" ] -> Setup_telegram.run ()
   | [ "tunnel" ] -> Setup_tunnel.run ()
+  | [ "summarizer" ] -> Setup_summarizer.run ()
   | _ ->
       "Usage: clawq setup <channel>\n\n\
        Available channels:\n\
-      \  discord   Configure Discord bot integration\n\
-      \  github    Configure GitHub webhook integration\n\
-      \  slack     Configure Slack integration\n\
-      \  teams     Configure MS Teams bot integration\n\
-      \  telegram  Configure Telegram bot integration\n\
-      \  tunnel    Configure Cloudflare tunnel\n\n\
+      \  discord     Configure Discord bot integration\n\
+      \  github      Configure GitHub webhook integration\n\
+      \  slack       Configure Slack integration\n\
+      \  summarizer  Configure autosummarizer settings\n\
+      \  teams       Configure MS Teams bot integration\n\
+      \  telegram    Configure Telegram bot integration\n\
+      \  tunnel      Configure Cloudflare tunnel\n\n\
        Documentation: https://clawq.org/channels/\n"
 
 let handle args =

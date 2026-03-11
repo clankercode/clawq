@@ -1045,7 +1045,13 @@ let run ~(config : Runtime_config.t) =
                   Memory.cleanup_all ~db
                     ~max_messages:mem.max_messages_per_session
                     ~max_age_days:mem.max_message_age_days;
-                  Task_tree.maybe_purge_deleted_tasks ~db ~config:cur_config
+                  Task_tree.maybe_purge_deleted_tasks ~db ~config:cur_config;
+                  let purged =
+                    Summary_store.purge_older_than ~db
+                      ~max_age_days:cur_config.summarizer.max_age_days
+                  in
+                  if purged > 0 then
+                    Logs.info (fun m -> m "Purged %d expired summaries" purged)
                 end;
                 if
                   cur_config.security.audit_enabled

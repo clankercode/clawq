@@ -1,4 +1,4 @@
-let schema_version = 12
+let schema_version = 13
 
 type session_activity = Active | Inactive | Any
 
@@ -366,6 +366,17 @@ let migrate_schema db current_version =
       init_quota_cache_schema db;
       init_postmortems_schema db;
       init_model_discovery_state_schema db;
+      Summary_store.init_schema db;
+      set_schema_version db schema_version
+  | 12 ->
+      init_session_schema db;
+      init_inbound_queue_schema db;
+      init_models_cache_schema db;
+      init_request_stats_schema db;
+      init_quota_cache_schema db;
+      init_postmortems_schema db;
+      init_model_discovery_state_schema db;
+      Summary_store.init_schema db;
       set_schema_version db schema_version
   | n when n = schema_version ->
       init_session_schema db;
@@ -374,7 +385,8 @@ let migrate_schema db current_version =
       init_request_stats_schema db;
       init_quota_cache_schema db;
       init_postmortems_schema db;
-      init_model_discovery_state_schema db
+      init_model_discovery_state_schema db;
+      Summary_store.init_schema db
   | n ->
       failwith
         (Printf.sprintf "DB uses future schema version %d (current=%d)" n
@@ -455,6 +467,7 @@ let init ~db_path ?(search_enabled = false) () =
   init_request_stats_schema db;
   init_quota_cache_schema db;
   init_postmortems_schema db;
+  Summary_store.init_schema db;
   db
 
 let store_message ~db ~session_key (msg : Provider.message) =
@@ -744,7 +757,8 @@ let clear_session ~db ~session_key =
   clear "DELETE FROM messages WHERE session_key = ?";
   clear "DELETE FROM session_state WHERE session_key = ?";
   clear "DELETE FROM session_workspace_state WHERE session_key = ?";
-  clear "DELETE FROM inbound_queue WHERE session_key = ?"
+  clear "DELETE FROM inbound_queue WHERE session_key = ?";
+  Summary_store.delete_for_session ~db ~session_key
 
 let store_session_workspace_state ~db ~session_key
     ~observed_active_workspace_files =

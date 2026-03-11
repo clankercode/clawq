@@ -82,7 +82,12 @@
   completions
   stuck_detector
   session_observer
-  postmortem)
+  postmortem
+  pmodel
+  agent_prompt_loader
+  summary_store
+  summarizer
+  tool_postprocess)
  (foreign_stubs
   (language c)
   (names landlock_stubs))
@@ -168,7 +173,8 @@
   setup_slack
   setup_teams
   setup_telegram
-  setup_tunnel)
+  setup_tunnel
+  setup_summarizer)
  (wrapped false)
  (libraries
   clawq_runtime_core

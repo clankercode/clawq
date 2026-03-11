@@ -724,6 +724,7 @@ let register_all ~(config : Runtime_config.t) ~sandbox ?(db = None)
       Tool_registry.register registry (memory_list ~db);
       Tool_registry.register registry (history_search ~db);
       Tool_registry.register registry (thread_summary ~db ~config);
+      Tool_registry.register registry (unsummarize ~db);
       Background_task.init_schema db;
       Task_tree.init_schema db;
       Plan_pipeline.init_schema db;

@@ -55,7 +55,10 @@ let observer_config_for ~(config : Runtime_config.t) =
     config with
     default_provider = None;
     agent_defaults =
-      { config.agent_defaults with primary_model = config.observer.model };
+      {
+        config.agent_defaults with
+        primary_model = Pmodel.to_string config.observer.model;
+      };
   }
 
 let take_last n lst =

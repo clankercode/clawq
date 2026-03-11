@@ -1181,8 +1181,10 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
                               ("Error invoking tool: " ^ Printexc.to_string exn))
                     )
               in
-              let result_for_history =
-                truncate_for_history result ~max_chars:max_tool_result_chars
+              let* result_for_history =
+                Tool_postprocess.process_tool_result ~config:agent.config ~db
+                  ~session_key ~tool_name:tc.function_name
+                  ~history:agent.history ~raw_result:result
               in
               let result_for_event =
                 if !streamed_output then result_for_history else result
@@ -1348,8 +1350,10 @@ let execute_tool_calls agent ~db ~audit_enabled ~session_key ?interrupt_check
                               ("Error invoking tool: " ^ Printexc.to_string exn))
                     )
               in
-              let result_for_history =
-                truncate_for_history result ~max_chars:max_tool_result_chars
+              let* result_for_history =
+                Tool_postprocess.process_tool_result ~config:agent.config ~db
+                  ~session_key ~tool_name:tc.function_name
+                  ~history:agent.history ~raw_result:result
               in
               Lwt.return
                 (Provider.make_tool_result ~tool_call_id:tc.id

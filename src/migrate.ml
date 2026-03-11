@@ -185,6 +185,7 @@ let convert (json : Yojson.Safe.t) =
       zai_mcp = None;
       quota_cache_ttl_s = default.quota_cache_ttl_s;
       observer = default.observer;
+      summarizer = default.summarizer;
     }
   in
   (config, List.rev !warnings)

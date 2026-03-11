@@ -1332,7 +1332,7 @@ let parse_config ?(resolve_secrets = true) json =
         with _ -> Runtime_config.default_observer_config.enabled
       in
       let model =
-        try o |> member "model" |> to_string
+        try Pmodel.parse_exn (o |> member "model" |> to_string)
         with _ -> Runtime_config.default_observer_config.model
       in
       let check_every_n_messages =
@@ -1374,6 +1374,67 @@ let parse_config ?(resolve_secrets = true) json =
        }
         : Runtime_config.observer_config)
     with _ -> Runtime_config.default_observer_config
+  in
+  let summarizer =
+    try
+      let s = json |> member "summarizer" in
+      let def = Runtime_config.default_summarizer_config in
+      let summarizer_enabled =
+        try s |> member "enabled" |> to_bool with _ -> def.summarizer_enabled
+      in
+      let summarizer_model =
+        try Pmodel.parse_exn (s |> member "model" |> to_string)
+        with _ -> def.summarizer_model
+      in
+      let escalation_model =
+        try
+          let v = s |> member "escalation_model" in
+          match v with
+          | `Null -> None
+          | _ -> Some (Pmodel.parse_exn (to_string v))
+        with _ -> def.escalation_model
+      in
+      let threshold_chars =
+        try s |> member "threshold_chars" |> to_int
+        with _ -> def.threshold_chars
+      in
+      let p1_max_chars =
+        try s |> member "p1_max_chars" |> to_int with _ -> def.p1_max_chars
+      in
+      let p2_max_chars =
+        try s |> member "p2_max_chars" |> to_int with _ -> def.p2_max_chars
+      in
+      let context_window_messages =
+        try s |> member "context_window_messages" |> to_int
+        with _ -> def.context_window_messages
+      in
+      let excluded_tools =
+        try s |> member "excluded_tools" |> to_list |> List.map to_string
+        with _ -> def.excluded_tools
+      in
+      let max_age_days =
+        try s |> member "max_age_days" |> to_int with _ -> def.max_age_days
+      in
+      let envelope_template =
+        try
+          let v = s |> member "envelope_template" in
+          match v with `Null -> None | _ -> Some (to_string v)
+        with _ -> def.envelope_template
+      in
+      ({
+         summarizer_enabled;
+         summarizer_model;
+         escalation_model;
+         threshold_chars;
+         p1_max_chars;
+         p2_max_chars;
+         context_window_messages;
+         excluded_tools;
+         max_age_days;
+         envelope_template;
+       }
+        : Runtime_config.summarizer_config)
+    with _ -> Runtime_config.default_summarizer_config
   in
   {
     workspace;
@@ -1459,6 +1520,7 @@ let parse_config ?(resolve_secrets = true) json =
       (try json |> member "quota_cache_ttl_s" |> to_int
        with _ -> Runtime_config.default.quota_cache_ttl_s);
     observer;
+    summarizer;
   }
 
 let rec merge_json (original : Yojson.Safe.t) (complete : Yojson.Safe.t) :

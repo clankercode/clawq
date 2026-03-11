@@ -123,6 +123,7 @@ let () =
        ("session_keepalive", Test_keepalive.suite);
        ("completions", Test_completions.suite);
        ("session_model_override", Test_session_model_override.suite);
+       ("summarizer", Test_summarizer.suite);
      ]
     @ [ ("setup_github", Test_setup_github.suite) ]
     @ [ ("setup_discord", Test_setup_discord.suite) ]
@@ -130,6 +131,7 @@ let () =
     @ [ ("setup_teams", Test_setup_teams.suite) ]
     @ [ ("setup_telegram", Test_setup_telegram.suite) ]
     @ [ ("setup_tunnel", Test_setup_tunnel.suite) ]
+    @ [ ("setup_summarizer", Test_setup_summarizer.suite) ]
     @ Test_github.suites
     @ [
         ( "config_isolation",

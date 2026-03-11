@@ -383,13 +383,26 @@ type zai_mcp_config = {
 
 type observer_config = {
   enabled : bool;
-  model : string;
+  model : Pmodel.t;
   check_every_n_messages : int;
   round1_window : int;
   round2_window : int;
   thinking_token_threshold : int;
   consecutive_errors_threshold : int;
   repeat_call_threshold : int;
+}
+
+type summarizer_config = {
+  summarizer_enabled : bool;
+  summarizer_model : Pmodel.t;
+  escalation_model : Pmodel.t option;
+  threshold_chars : int;
+  p1_max_chars : int;
+  p2_max_chars : int;
+  context_window_messages : int;
+  excluded_tools : string list;
+  max_age_days : int;
+  envelope_template : string option;
 }
 
 type t = {
@@ -419,18 +432,34 @@ type t = {
   zai_mcp : zai_mcp_config option;
   quota_cache_ttl_s : int;
   observer : observer_config;
+  summarizer : summarizer_config;
 }
 
 let default_observer_config : observer_config =
   {
     enabled = true;
-    model = "groq:openai/gpt-oss-120b";
+    model = Pmodel.parse_exn "groq:openai/gpt-oss-120b";
     check_every_n_messages = 5;
     round1_window = 8;
     round2_window = 30;
     thinking_token_threshold = 5000;
     consecutive_errors_threshold = 3;
     repeat_call_threshold = 2;
+  }
+
+let default_summarizer_config : summarizer_config =
+  {
+    summarizer_enabled = true;
+    summarizer_model = Pmodel.parse_exn "groq:openai/gpt-oss-120b";
+    escalation_model = None;
+    threshold_chars = 1500;
+    p1_max_chars = 200_000;
+    p2_max_chars = 12_000;
+    context_window_messages = 4;
+    excluded_tools =
+      [ "tool_search"; "unsummarize"; "summarize_thread"; "thread_summary" ];
+    max_age_days = 30;
+    envelope_template = None;
   }
 
 let default_workspace_files =
@@ -600,6 +629,7 @@ let default =
     zai_mcp = None;
     quota_cache_ttl_s = 300;
     observer = default_observer_config;
+    summarizer = default_summarizer_config;
   }
 
 let is_key_set key =
@@ -1464,7 +1494,7 @@ let to_json (cfg : t) : Yojson.Safe.t =
           `Assoc
             [
               ("enabled", `Bool obs.enabled);
-              ("model", `String obs.model);
+              ("model", `String (Pmodel.to_string obs.model));
               ("check_every_n_messages", `Int obs.check_every_n_messages);
               ("round1_window", `Int obs.round1_window);
               ("round2_window", `Int obs.round2_window);
@@ -1473,6 +1503,34 @@ let to_json (cfg : t) : Yojson.Safe.t =
                 `Int obs.consecutive_errors_threshold );
               ("repeat_call_threshold", `Int obs.repeat_call_threshold);
             ] );
+      ]
+  in
+  let sum = cfg.summarizer in
+  let fields =
+    fields
+    @ [
+        ( "summarizer",
+          `Assoc
+            ([
+               ("summarizer_enabled", `Bool sum.summarizer_enabled);
+               ( "summarizer_model",
+                 `String (Pmodel.to_string sum.summarizer_model) );
+               ("threshold_chars", `Int sum.threshold_chars);
+               ("p1_max_chars", `Int sum.p1_max_chars);
+               ("p2_max_chars", `Int sum.p2_max_chars);
+               ("context_window_messages", `Int sum.context_window_messages);
+               ( "excluded_tools",
+                 `List (List.map (fun s -> `String s) sum.excluded_tools) );
+               ("max_age_days", `Int sum.max_age_days);
+             ]
+            @ (match sum.escalation_model with
+              | Some pm ->
+                  [ ("escalation_model", `String (Pmodel.to_string pm)) ]
+              | None -> [])
+            @
+            match sum.envelope_template with
+            | Some tmpl -> [ ("envelope_template", `String tmpl) ]
+            | None -> []) );
       ]
   in
   `Assoc fields

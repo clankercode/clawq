@@ -101,7 +101,9 @@
   test_setup_slack
   test_setup_teams
   test_setup_telegram
-  test_setup_tunnel)
+  test_setup_tunnel
+  test_setup_summarizer
+  test_summarizer)
  (libraries
   clawq_extracted
   clawq_runtime_core

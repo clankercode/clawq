@@ -136,7 +136,14 @@ ideas:
       status: done
       tags: []
       title: 'Observation + correction loops: have a cheap observer watch the main chat for when it might be getting stuck. If it gets stuck, then we trigger a workflow to look for solutions and update workspace files. Postmortems. criticalfallibilism.com'
-    - file: I017-summarize-and-unsummarize-tool.todo
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 10
+      file: I017-summarize-and-unsummarize-tool.todo
       id: I017
+      priority: medium
+      status: done
+      tags: []
+      title: Summarize and unsummarize tool results and automation outputs with an automatic summarization layer that preserves structure/IDs, passes through short content, can escalate to a bigger model, stores original/context/summary metadata in the DB with summary IDs, and exposes unsummarize pagination/head-tail retrieval for large outputs like background task logs, task_tree, long file reads, and similar high-volume tool results.
     - file: I018-investigate-the-idea-of-adding.todo
       id: I018

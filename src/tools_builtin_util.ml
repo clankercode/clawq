@@ -1379,3 +1379,149 @@ let thread_summary ~db ~(config : Runtime_config.t) =
     risk_level = Tool.Low;
     deferred = false;
   }
+
+let unsummarize ~db =
+  {
+    Tool.name = "unsummarize";
+    description =
+      "Retrieve the original (unsummarized) content of a previously summarized \
+       tool result. Use this when you need the full output that was \
+       automatically summarized. Usually the summary is sufficient — only call \
+       this when you need exact text, specific line ranges, or data the \
+       summary explicitly notes was omitted.";
+    parameters_schema =
+      `Assoc
+        [
+          ("type", `String "object");
+          ( "properties",
+            `Assoc
+              [
+                ( "summary_id",
+                  `Assoc
+                    [
+                      ("type", `String "string");
+                      ( "description",
+                        `String "The summary ID (e.g., sum_abc123def456)" );
+                    ] );
+                ( "lines",
+                  `Assoc
+                    [
+                      ("type", `String "integer");
+                      ( "description",
+                        `String "Max lines to return (default: 100)" );
+                    ] );
+                ( "offset",
+                  `Assoc
+                    [
+                      ("type", `String "integer");
+                      ( "description",
+                        `String
+                          "Line offset to start from (default: 0). Ignored \
+                           when head_and_tail=true." );
+                    ] );
+                ( "with_context",
+                  `Assoc
+                    [
+                      ("type", `String "boolean");
+                      ( "description",
+                        `String
+                          "Include context available during summarization \
+                           (default: false)" );
+                    ] );
+                ( "head_and_tail",
+                  `Assoc
+                    [
+                      ("type", `String "boolean");
+                      ( "description",
+                        `String
+                          "Return first and last N lines instead of contiguous \
+                           slice (default: false)" );
+                    ] );
+              ] );
+          ("required", `List [ `String "summary_id" ]);
+        ];
+    invoke =
+      (fun ?context:_ args ->
+        let open Yojson.Safe.Util in
+        let summary_id =
+          try args |> member "summary_id" |> to_string with _ -> ""
+        in
+        if summary_id = "" then
+          Lwt.return
+            "Error: parameter \"summary_id\" is required. Provide the summary \
+             ID from the [Auto-summarized] header (e.g., sum_abc123def456)."
+        else
+          let lines = try args |> member "lines" |> to_int with _ -> 100 in
+          let offset = try args |> member "offset" |> to_int with _ -> 0 in
+          let with_context =
+            try args |> member "with_context" |> to_bool with _ -> false
+          in
+          let head_and_tail =
+            try args |> member "head_and_tail" |> to_bool with _ -> false
+          in
+          match Summary_store.find ~db ~summary_id with
+          | None ->
+              Lwt.return
+                (Printf.sprintf
+                   "Error: summary ID %S not found. The original content may \
+                    have been purged (TTL expired) or the ID may be incorrect. \
+                    Check the summary_id from the [Auto-summarized] header."
+                   summary_id)
+          | Some record ->
+              let all_lines =
+                String.split_on_char '\n' record.original_content
+                |> Array.of_list
+              in
+              let total_lines = Array.length all_lines in
+              let lines = max 1 (min lines total_lines) in
+              let result_text =
+                if head_and_tail then
+                  if total_lines <= lines * 2 then
+                    (* Content fits — return all *)
+                    record.original_content
+                  else
+                    let head =
+                      Array.sub all_lines 0 lines
+                      |> Array.to_list |> String.concat "\n"
+                    in
+                    let tail =
+                      Array.sub all_lines (total_lines - lines) lines
+                      |> Array.to_list |> String.concat "\n"
+                    in
+                    let skipped = total_lines - (lines * 2) in
+                    Printf.sprintf "%s\n--- (skipped %d lines) ---\n%s" head
+                      skipped tail
+                else
+                  let offset = max 0 (min offset (total_lines - 1)) in
+                  let avail = total_lines - offset in
+                  let n = min lines avail in
+                  Array.sub all_lines offset n
+                  |> Array.to_list |> String.concat "\n"
+              in
+              let from_line, to_line =
+                if head_and_tail then
+                  if total_lines <= lines * 2 then (0, total_lines - 1)
+                  else (0, total_lines - 1)
+                else
+                  let offset = max 0 (min offset (total_lines - 1)) in
+                  let avail = total_lines - offset in
+                  let n = min lines avail in
+                  (offset, offset + n - 1)
+              in
+              let header =
+                Printf.sprintf
+                  "[Original for %s: %d lines, %d bytes, showing lines %d-%d]"
+                  summary_id total_lines record.original_bytes from_line to_line
+              in
+              let context_section =
+                if with_context && record.context_snippet <> "" then
+                  Printf.sprintf "\n\n[Context at summarization time:]\n%s"
+                    record.context_snippet
+                else ""
+              in
+              Lwt.return
+                (Printf.sprintf "%s\n%s%s" header result_text context_section));
+    invoke_stream = None;
+    risk_level = Tool.Low;
+    deferred = false;
+  }
