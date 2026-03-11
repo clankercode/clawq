@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B389
+priority: high
+status: pending
+tags: []
+title: Tool call summary token counts wrong for workspace file edits; audit all token-count calculations
+---
+User reports token count is often wrong when editing workspace files in tool call summaries, with inconsistent correctness across turns. Investigate the token-count calculations deeply across tool call summaries and related visibility/reporting paths, not just the workspace-file edit seam. Acceptance criteria: identify the faulty counting path(s); fix incorrect token counts for workspace file edit summaries; audit adjacent token-count calculations for similar bugs; add focused regression coverage; document any known approximation boundaries explicitly where exact counting is impossible.
