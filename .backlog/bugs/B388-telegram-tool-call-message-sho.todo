@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B388
+priority: high
+status: pending
+tags: []
+title: telegram tool call message shows formatting like '<b>' sometimes (usually after a tool is done but before the next one)
+---
+
+telegram tool call message shows formatting like '<b>' sometimes (usually after a tool is done but before the next one)

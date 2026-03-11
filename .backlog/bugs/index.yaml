@@ -386,3 +386,4 @@ bugs:
     - file: B385-tool-calls-no-longer-being-sen.todo
     - file: B386-deadlock-when-manually-compact.todo
     - file: B387-tasks-on-telegram-does-nothing.todo
+    - file: B388-telegram-tool-call-message-sho.todo
