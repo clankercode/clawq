@@ -10,3 +10,4 @@ title: Add environment variable to control dot-directory (default ~/.clawq). Mus
 ---
 
 Add environment variable to control dot-directory (default ~/.clawq). Must work with the service and daemon and update/restarts.
+Note: there might already be one -- if there is find it and return that since no implementation is necessary.
