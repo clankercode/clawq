@@ -216,14 +216,15 @@ let test_receive_loop_jsonrpc_allows_delayed_sse_body () =
                  (Signal.receive_loop_jsonrpc ~cfg ~on_message:(fun ~from ~group_id_opt:_ ~text ->
                       seen := Some (from, text);
                       if Lwt.is_sleeping stop then Lwt.wakeup_later stopper ();
-                      Lwt.return_unit));
+                      Lwt.return_unit)
+                    ());
                  stop;
                  (let open Lwt.Syntax in
                   let* () = Lwt_unix.sleep 1.0 in
                   Alcotest.fail "timed out waiting for SSE message");
                ]);
           match !seen with
-          | Some (from, _ts, text) ->
+          | Some (from, text) ->
               Alcotest.(check string) "from" "+1234" from;
               Alcotest.(check string) "text" "hello from stream" text
           | None -> Alcotest.fail "expected SSE-delivered message"))

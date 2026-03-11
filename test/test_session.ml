@@ -3203,7 +3203,7 @@ let test_drain_queued_messages_deletes_sqlite_row () =
 
 
 let test_with_session_lock_warns_on_slow_mutex_acquisition () =
-  let mgr = Session.create_manager () in
+  let mgr = Session.create ~config:Runtime_config.default ~db:(Memory.init ~db_path:":memory:" ()) () in
   let key = "web:slow-lock" in
   let agent = Agent.create ~config:Runtime_config.default () in
   let mutex = Lwt_mutex.create () in
