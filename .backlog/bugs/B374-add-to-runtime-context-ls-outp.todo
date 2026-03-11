@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B374
+priority: high
+status: pending
+tags: []
+title: 'Add to runtime context: `ls .` output (files and directores in the cwd)'
+---
+
+Add to runtime context: `ls .` output (files and directores in the cwd)
