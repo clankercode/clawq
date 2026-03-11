@@ -421,6 +421,11 @@ let cmd_status () =
   let add s = lines := s :: !lines in
   add "clawq status";
   add (Printf.sprintf "  model: %s" cfg.agent_defaults.primary_model);
+  (match
+     Runtime_config.primary_model_deprecation_warning cfg.agent_defaults
+   with
+  | Some warn -> add ("  " ^ warn)
+  | None -> ());
   add (Printf.sprintf "  temperature: %.2f" cfg.default_temperature);
   add (Printf.sprintf "  gateway: %s:%d" cfg.gateway.host cfg.gateway.port);
   add
@@ -597,7 +602,7 @@ let cmd_onboard () =
     }
   },
   "agent_defaults": {
-    "primary_model": "openai/gpt-5.4"
+    "primary_model": "openai-codex:gpt-5.4"
   },
   "security": {
     "workspace_only": true,
@@ -623,9 +628,17 @@ let cmd_config args =
       ""
   | "set" :: key :: value :: _ ->
       let result = Config_set.set_value key value in
-      if Config_set.is_secret_path key then
-        Printf.sprintf "Set %s = %s" key (redact_key value)
-      else result
+      let base =
+        if Config_set.is_secret_path key then
+          Printf.sprintf "Set %s = %s" key (redact_key value)
+        else result
+      in
+      if key = "agent_defaults.primary_model" then
+        let pf = Pmodel.parse_flexible value in
+        match Pmodel.deprecation_warning pf with
+        | Some warn -> base ^ "\n" ^ warn
+        | None -> base
+      else base
   | [ "set"; key ] when Config_set.is_secret_path key -> (
       let prompt = Printf.sprintf "Enter value for '%s': " key in
       match Tui_input.read_secret prompt with
@@ -689,34 +702,51 @@ let cmd_models args =
            to set an unknown model."
           model
       else
-        let hint =
+        (* Auto-normalize legacy provider/model to canonical provider:model *)
+        let canonical_value, hint =
           match fmt with
           | Models_catalog.Legacy ->
-              Printf.sprintf "\nHint: use %s:%s format instead of %s/%s."
-                provider model_id provider model_id
-          | _ -> ""
-        in
-        let set_result =
-          Config_set.set_value "agent_defaults.primary_model" model
-        in
-        let confirm =
-          match fmt with
-          | Models_catalog.Canonical | Models_catalog.Legacy ->
-              Printf.sprintf "Default model set to: %s (provider: %s)%s\n%s"
-                model_id provider hint set_result
+              let canonical = provider ^ ":" ^ model_id in
+              ( canonical,
+                Printf.sprintf
+                  "\nNote: normalized \"%s\" to canonical format \"%s\"." model
+                  canonical )
           | Models_catalog.Plain -> (
               match Models_catalog.find_by_full_name model with
-              | None ->
-                  (* unreachable: guarded above *)
-                  Printf.sprintf "Error: model '%s' not found in catalog." model
-              | Some m ->
-                  let display =
-                    if m.Models_catalog.provider <> "" then
-                      Printf.sprintf "Default model set to: %s (provider: %s)"
-                        m.Models_catalog.id m.Models_catalog.provider
-                    else Printf.sprintf "Default model set to: %s" model
+              | Some m when m.Models_catalog.provider <> "" ->
+                  let canonical =
+                    m.Models_catalog.provider ^ ":" ^ m.Models_catalog.id
                   in
-                  Printf.sprintf "%s\n%s" display set_result)
+                  ( canonical,
+                    Printf.sprintf "\nNote: resolved bare model name to \"%s\"."
+                      canonical )
+              | _ -> (model, ""))
+          | Models_catalog.Canonical -> (model, "")
+        in
+        let set_result =
+          Config_set.set_value "agent_defaults.primary_model" canonical_value
+        in
+        let display_provider =
+          match fmt with
+          | Models_catalog.Canonical | Models_catalog.Legacy -> provider
+          | Models_catalog.Plain -> (
+              match Models_catalog.find_by_full_name model with
+              | Some m when m.Models_catalog.provider <> "" ->
+                  m.Models_catalog.provider
+              | _ -> "")
+        in
+        let display_model =
+          match fmt with
+          | Models_catalog.Canonical | Models_catalog.Legacy -> model_id
+          | Models_catalog.Plain -> model
+        in
+        let confirm =
+          if display_provider <> "" then
+            Printf.sprintf "Default model set to: %s (provider: %s)%s\n%s"
+              display_model display_provider hint set_result
+          else
+            Printf.sprintf "Default model set to: %s%s\n%s" display_model hint
+              set_result
         in
         confirm
   | [ "refresh" ] ->

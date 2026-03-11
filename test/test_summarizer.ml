@@ -53,6 +53,105 @@ let test_pmodel_parse_exn_invalid () =
     Alcotest.fail "expected Invalid_argument"
   with Invalid_argument _ -> ()
 
+(* -- Pmodel.parse_flexible tests -- *)
+
+let test_pmodel_flexible_canonical () =
+  let f = Pmodel.parse_flexible "openai:gpt-5.4" in
+  Alcotest.(check (option string))
+    "provider" (Some "openai") f.Pmodel.f_provider;
+  Alcotest.(check string) "model" "gpt-5.4" f.f_model;
+  Alcotest.(check string) "raw" "openai:gpt-5.4" f.f_raw;
+  (match f.f_format with
+  | Pmodel.Canonical -> ()
+  | _ -> Alcotest.fail "expected Canonical format");
+  Alcotest.(check (option string))
+    "no deprecation warning" None
+    (Pmodel.deprecation_warning f)
+
+let test_pmodel_flexible_legacy () =
+  let f = Pmodel.parse_flexible "openai/gpt-5.4" in
+  Alcotest.(check (option string))
+    "provider" (Some "openai") f.Pmodel.f_provider;
+  Alcotest.(check string) "model" "gpt-5.4" f.f_model;
+  (match f.f_format with
+  | Pmodel.Legacy -> ()
+  | _ -> Alcotest.fail "expected Legacy format");
+  match Pmodel.deprecation_warning f with
+  | Some w ->
+      Alcotest.(check bool)
+        "contains deprecated" true
+        (String.length w > 0
+        &&
+          try
+            ignore (Str.search_forward (Str.regexp_string "deprecated") w 0);
+            true
+          with Not_found -> false)
+  | None -> Alcotest.fail "expected deprecation warning for legacy format"
+
+let test_pmodel_flexible_bare () =
+  let f = Pmodel.parse_flexible "gpt-5.4" in
+  Alcotest.(check (option string)) "provider" None f.Pmodel.f_provider;
+  Alcotest.(check string) "model" "gpt-5.4" f.f_model;
+  (match f.f_format with
+  | Pmodel.Bare -> ()
+  | _ -> Alcotest.fail "expected Bare format");
+  match Pmodel.deprecation_warning f with
+  | Some w ->
+      Alcotest.(check bool) "contains no provider" true (String.length w > 0)
+  | None -> Alcotest.fail "expected deprecation warning for bare format"
+
+let test_pmodel_flexible_trims () =
+  let f = Pmodel.parse_flexible "  openai:gpt-5.4  " in
+  Alcotest.(check string) "raw" "openai:gpt-5.4" f.Pmodel.f_raw;
+  match f.f_format with
+  | Pmodel.Canonical -> ()
+  | _ -> Alcotest.fail "expected Canonical format after trim"
+
+let test_pmodel_flexible_to_canonical () =
+  let legacy = Pmodel.parse_flexible "openai/gpt-5.4" in
+  (match Pmodel.flexible_to_canonical legacy ~default_provider:None with
+  | Some t ->
+      Alcotest.(check string)
+        "canonical raw" "openai:gpt-5.4" (Pmodel.to_string t);
+      Alcotest.(check string) "provider" "openai" (Pmodel.provider t);
+      Alcotest.(check string) "model" "gpt-5.4" (Pmodel.model t)
+  | None -> Alcotest.fail "expected Some for legacy format");
+  let bare = Pmodel.parse_flexible "gpt-5.4" in
+  (match Pmodel.flexible_to_canonical bare ~default_provider:None with
+  | Some _ -> Alcotest.fail "expected None for bare with no default_provider"
+  | None -> ());
+  match Pmodel.flexible_to_canonical bare ~default_provider:(Some "openai") with
+  | Some t ->
+      Alcotest.(check string)
+        "canonical raw" "openai:gpt-5.4" (Pmodel.to_string t)
+  | None -> Alcotest.fail "expected Some for bare with default_provider"
+
+let test_pmodel_deprecation_warning_primary_model () =
+  let ad_canonical =
+    {
+      Runtime_config.default.agent_defaults with
+      primary_model = "openai:gpt-5.4";
+    }
+  in
+  Alcotest.(check (option string))
+    "no warning for canonical" None
+    (Runtime_config.primary_model_deprecation_warning ad_canonical);
+  let ad_legacy =
+    {
+      Runtime_config.default.agent_defaults with
+      primary_model = "openai/gpt-5.4";
+    }
+  in
+  (match Runtime_config.primary_model_deprecation_warning ad_legacy with
+  | Some _ -> ()
+  | None -> Alcotest.fail "expected warning for legacy format");
+  let ad_bare =
+    { Runtime_config.default.agent_defaults with primary_model = "gpt-5.4" }
+  in
+  match Runtime_config.primary_model_deprecation_warning ad_bare with
+  | Some _ -> ()
+  | None -> Alcotest.fail "expected warning for bare format"
+
 (* -- Summary_store tests -- *)
 
 let make_record ?(summary_id = "sum_test123456") ?(session_key = "test_session")
@@ -652,6 +751,17 @@ let suite =
     Alcotest.test_case "pmodel: parse_exn valid" `Quick test_pmodel_parse_exn;
     Alcotest.test_case "pmodel: parse_exn invalid" `Quick
       test_pmodel_parse_exn_invalid;
+    Alcotest.test_case "pmodel: flexible canonical" `Quick
+      test_pmodel_flexible_canonical;
+    Alcotest.test_case "pmodel: flexible legacy" `Quick
+      test_pmodel_flexible_legacy;
+    Alcotest.test_case "pmodel: flexible bare" `Quick test_pmodel_flexible_bare;
+    Alcotest.test_case "pmodel: flexible trims whitespace" `Quick
+      test_pmodel_flexible_trims;
+    Alcotest.test_case "pmodel: flexible to canonical" `Quick
+      test_pmodel_flexible_to_canonical;
+    Alcotest.test_case "pmodel: deprecation warning primary_model" `Quick
+      test_pmodel_deprecation_warning_primary_model;
     Alcotest.test_case "store: round-trip" `Quick test_store_and_find;
     Alcotest.test_case "store: not found" `Quick test_find_not_found;
     Alcotest.test_case "store: delete for session" `Quick

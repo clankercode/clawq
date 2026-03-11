@@ -171,6 +171,19 @@ Comments:
 - Prefer fully completed behavior plus tests over partial scaffolding, even when the user asked in shorthand.
 - In handoff, call out any deliberate gaps that remain; do not silently leave known functional mismatches.
 
+## Model Format Convention (pmodel)
+
+- Canonical format: `provider:model` (colon separator), e.g. `openai:gpt-5.4`, `anthropic:claude-sonnet-4-5`.
+- Legacy format `provider/model` (slash) and bare `model` (no provider) are accepted but deprecated. Deprecation warnings are shown at config load, status, config set, and `models set-default`.
+- `models set-default` auto-normalizes legacy formats to canonical.
+- The `Pmodel` module (`src/pmodel.ml`) provides:
+  - `parse` / `parse_exn` — strict canonical-only parsing (`provider:model`).
+  - `parse_flexible` — accepts canonical, legacy (`/`), and bare formats, returning a `flexible` record with detected `format`.
+  - `flexible_to_canonical` — converts any `flexible` to canonical `t`, using `~default_provider` for bare models.
+  - `deprecation_warning` — returns a warning string for non-canonical formats.
+  - `format_to_string` — human-readable format label.
+- Default `primary_model` in `Runtime_config.default`: `"openai-codex:gpt-5.4"`.
+
 ## Quick File Map
 
 - Build/test orchestration: `Makefile`
@@ -178,6 +191,7 @@ Comments:
 - Dune project config: `dune-project`, `dune-workspace`, `src/dune`, `test/dune`
 - CLI entrypoints: `src/main.ml`, `src/main_min.ml`
 - Process spawning: `src/process_group.ml` (fork+setsid+execve, signal group lifecycle)
+- Model format parsing: `src/pmodel.ml` (canonical `provider:model` format, flexible parsing, deprecation warnings)
 - Command routing: `src/command_bridge.ml`, `src/command_bridge_min.ml`
 - Web UI serving/assets: `src/ui_server.ml`, `src/chat_ui_assets.ml`
 - Tests: `test/test_main.ml` and `test/test_*.ml`

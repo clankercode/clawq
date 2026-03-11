@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-11T06:50:14Z"
+claimed_by: cli-user
+completed_at: "2026-03-11T07:03:46Z"
 complexity: medium
 depends_on: []
+duration_minutes: 13.539788388766667
 estimate_hours: 1
 id: B373
 priority: high
-status: pending
+started_at: "2026-03-11T06:50:14Z"
+status: done
 tags: []
 title: 'consider new pmodel field(s), we may want to migrate existing config fields from model to pmodel. In doing so, we should consider this and support: migration of deprecated fields, loading config files with the old fields nondestructively, warnings to show (especially via interfaces like `/config set` or `/model set` or cli, etc), how we resolve the default provider and making sure this is consistent and obvious to the user.'
 ---

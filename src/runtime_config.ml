@@ -507,7 +507,7 @@ let default =
     model_context_limits = [];
     agent_defaults =
       {
-        primary_model = "openai/gpt-5.4";
+        primary_model = "openai-codex:gpt-5.4";
         system_prompt = "";
         max_tool_iterations = 10;
         tool_search_enabled = false;
@@ -777,6 +777,9 @@ let effective_primary_model (ad : agent_defaults) =
 
 let effective_primary_provider (ad : agent_defaults) =
   (effective_primary_target ad).provider
+
+let primary_model_deprecation_warning (ad : agent_defaults) =
+  Pmodel.deprecation_warning (Pmodel.parse_flexible ad.primary_model)
 
 let expand_home path =
   if String.length path >= 2 && String.sub path 0 2 = "~/" then

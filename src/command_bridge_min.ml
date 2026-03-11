@@ -7,6 +7,11 @@ let cmd_status () =
   let add s = lines := s :: !lines in
   add "clawq-min status";
   add (Printf.sprintf "  model: %s" cfg.agent_defaults.primary_model);
+  (match
+     Runtime_config.primary_model_deprecation_warning cfg.agent_defaults
+   with
+  | Some warn -> add ("  " ^ warn)
+  | None -> ());
   add (Printf.sprintf "  temperature: %.2f" cfg.default_temperature);
   add
     (Printf.sprintf "  cli channel: %s"
@@ -84,7 +89,7 @@ let cmd_onboard () =
     }
   },
   "agent_defaults": {
-    "primary_model": "openai/gpt-5.4"
+    "primary_model": "openai-codex:gpt-5.4"
   },
   "security": {
     "workspace_only": true,

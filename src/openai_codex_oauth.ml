@@ -11,6 +11,7 @@ let scopes = "openid profile email offline_access"
 let codex_base_url = "https://chatgpt.com/backend-api/codex"
 let default_provider_name = "openai-codex"
 let default_model = "openai-codex/gpt-5.3-codex"
+let default_primary_model = "openai-codex:gpt-5.3-codex"
 
 type token_bundle = Runtime_config.codex_oauth_config
 

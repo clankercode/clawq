@@ -1700,6 +1700,12 @@ let load ?(path = "") () : Runtime_config.t =
         let parsed_issues = config_validation_issues parsed_validation_cfg in
         warn_invalid_config ~config_path
           (unique_issues (raw_issues @ parsed_issues));
+        (match
+           Runtime_config.primary_model_deprecation_warning
+             config.agent_defaults
+         with
+        | Some warn -> Printf.eprintf "%s\n%!" warn
+        | None -> ());
         ignore (Clawq_core.validate_config_full parsed_validation_cfg);
         backfill_config ~path:config_path ~original_json:json
           ~config:backfill_cfg;

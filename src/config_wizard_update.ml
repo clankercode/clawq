@@ -25,12 +25,12 @@ let provider_names =
 
 let model_presets =
   [
-    Openai_codex_oauth.default_model;
-    "openai/gpt-5.4";
-    "anthropic/claude-sonnet-4-6";
-    "anthropic/claude-haiku-4-5";
-    "groq/llama-3.3-70b";
-    "openai/o3-mini";
+    Openai_codex_oauth.default_primary_model;
+    "openai-codex:gpt-5.4";
+    "anthropic:claude-sonnet-4-6";
+    "anthropic:claude-haiku-4-5";
+    "groq:llama-3.3-70b";
+    "openai:o3-mini";
     "custom";
   ]
 
@@ -217,7 +217,7 @@ let transition_from_model_select m (si : select_input) =
   let m = if model = "custom" then m else { m with primary_model = model } in
   if model = "custom" then
     goto ModelSelect
-      (make_text_input ~value:m.primary_model ~placeholder:"provider/model"
+      (make_text_input ~value:m.primary_model ~placeholder:"provider:model"
          "Model name")
       m
   else
