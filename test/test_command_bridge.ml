@@ -162,6 +162,33 @@ let test_handle_doctor_flags_expired_refreshable_codex_oauth () =
         "mentions refresh possible" true
         (contains result "refresh token is present, so clawq should refresh on next use"))
 
+let test_handle_doctor_distinguishes_refresh_window_from_expired () =
+  with_temp_home (fun home ->
+      let expires_at_ms = Openai_codex_oauth.now_ms () + 240000 in
+      write_config_json home
+        (Yojson.Safe.from_string
+           (Printf.sprintf
+              {|{
+  "providers": {
+    "openai-codex": {
+      "kind": "openai-codex",
+      "codex_oauth": {
+        "access_token": "tok",
+        "refresh_token": "ref",
+        "expires_at_ms": %d
+      }
+    }
+  }
+}|}
+              expires_at_ms));
+      let result = Command_bridge.handle [ "doctor" ] in
+      Alcotest.(check bool)
+        "mentions refresh window" true
+        (contains result "inside clawq's 5 min refresh window");
+      Alcotest.(check bool)
+        "does not mislabel refresh-window token as expired" false
+        (contains result "Codex OAuth access token is expired"))
+
 let with_fake_gateway_server ~port ~callback f =
   let stop, stopper = Lwt.wait () in
   let server =
@@ -2391,6 +2418,8 @@ let suite =
       test_handle_doctor_flags_codex_provider_with_api_key_only;
     Alcotest.test_case "handle doctor flags expired refreshable codex oauth"
       `Quick test_handle_doctor_flags_expired_refreshable_codex_oauth;
+    Alcotest.test_case "handle doctor distinguishes refresh window from expired"
+      `Quick test_handle_doctor_distinguishes_refresh_window_from_expired;
     Alcotest.test_case "handle models" `Quick test_handle_models;
     Alcotest.test_case "models set-default rejects unknown plain model" `Quick
       test_models_set_default_rejects_unknown_plain;

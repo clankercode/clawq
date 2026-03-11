@@ -252,8 +252,10 @@ let describe_duration_ms ms =
     if hours < 48 then Printf.sprintf "%d h" hours
     else Printf.sprintf "%d d" (hours / 24)
 
+let refresh_window_ms = 300000
+
 let is_expired_at ~now_ms (creds : token_bundle) =
-  now_ms >= creds.Runtime_config.expires_at_ms - 300000
+  now_ms >= creds.Runtime_config.expires_at_ms - refresh_window_ms
 
 let inspect_credentials ?(now_ms = now_ms ()) (creds : token_bundle) =
   let has_access_token =
@@ -270,6 +272,33 @@ let inspect_credentials ?(now_ms = now_ms ()) (creds : token_bundle) =
     expires_in_ms = creds.Runtime_config.expires_at_ms - now_ms;
     expired = is_expired_at ~now_ms creds;
   }
+
+let doctor_refresh_followup health =
+  if health.refresh_possible then
+    "a refresh token is present, so clawq should refresh on next use"
+  else "no refresh token is stored, so clawq cannot refresh it automatically"
+
+let status_refresh_followup health =
+  if health.refresh_possible then "will refresh on use"
+  else "no refresh token stored"
+
+let status_health_suffix health =
+  if not health.has_access_token then
+    Printf.sprintf " (access token missing; %s)"
+      (status_refresh_followup health)
+  else if health.expired then
+    if health.expires_in_ms < 0 then
+      Printf.sprintf " (token expired %s ago; %s)"
+        (describe_duration_ms health.expires_in_ms)
+        (status_refresh_followup health)
+    else
+      Printf.sprintf " (token expires in %s; inside refresh window, %s)"
+        (describe_duration_ms health.expires_in_ms)
+        (status_refresh_followup health)
+  else if not health.refresh_possible then
+    Printf.sprintf " (token expires in %s; no refresh token stored)"
+      (describe_duration_ms health.expires_in_ms)
+  else ""
 
 let doctor_warnings ?(now_ms = now_ms ()) ~provider_name
     (provider : Runtime_config.provider_config) =
@@ -315,18 +344,23 @@ let doctor_warnings ?(now_ms = now_ms ()) ~provider_name
                 else
                   " and no refresh token is stored"));
         if health.has_access_token && health.expired then
-          add
-            (Printf.sprintf
-               "WARNING: Provider '%s' Codex OAuth access token is expired (%s \
-                ago); %s."
-               provider_name
-               (describe_duration_ms health.expires_in_ms)
-               (if health.refresh_possible then
-                  "a refresh token is present, so clawq should refresh on next \
-                   use"
-                else
-                  "no refresh token is stored, so clawq cannot refresh it \
-                   automatically"));
+          if health.expires_in_ms < 0 then
+            add
+              (Printf.sprintf
+                 "WARNING: Provider '%s' Codex OAuth access token is expired \
+                  (%s ago); %s."
+                 provider_name
+                 (describe_duration_ms health.expires_in_ms)
+                 (doctor_refresh_followup health))
+          else
+            add
+              (Printf.sprintf
+                 "WARNING: Provider '%s' Codex OAuth access token expires in %s \
+                  and is inside clawq's %s refresh window; %s."
+                 provider_name
+                 (describe_duration_ms health.expires_in_ms)
+                 (describe_duration_ms refresh_window_ms)
+                 (doctor_refresh_followup health));
         if health.has_access_token && (not health.expired)
            && not health.refresh_possible
         then
@@ -802,12 +836,12 @@ let status ?(provider_name = default_provider_name) () =
   match provider.Runtime_config.codex_oauth with
   | None -> Printf.sprintf "%s: not logged in" provider_name
   | Some creds ->
+      let health = inspect_credentials creds in
       Printf.sprintf "%s: logged in%s%s%s" provider_name
         (match creds.email with
         | Some email -> Printf.sprintf " as %s" email
         | None -> "")
-        (if is_expired creds then " (token expired; will refresh on use)"
-         else "")
+        (status_health_suffix health)
         (match creds.account_id with
         | Some _ -> " [account id present]"
         | None -> "")

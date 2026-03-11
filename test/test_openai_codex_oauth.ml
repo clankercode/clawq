@@ -26,6 +26,17 @@ let with_temp_home ?master_key f =
       (try Unix.rmdir (Filename.concat dir ".clawq") with _ -> ());
       try Unix.rmdir dir with _ -> ())
 
+let contains s sub =
+  let sl = String.length s and subl = String.length sub in
+  if subl > sl then false
+  else if subl = 0 then true
+  else
+    let found = ref false in
+    for i = 0 to sl - subl do
+      if String.sub s i subl = sub then found := true
+    done;
+    !found
+
 let test_parse_callback_input_url () =
   match
     Openai_codex_oauth.parse_callback_input ~expected_state:"abc"
@@ -76,6 +87,37 @@ let test_inspect_credentials_expired_refreshable () =
   Alcotest.(check bool) "refresh possible" true health.refresh_possible;
   Alcotest.(check bool) "expired" true health.expired;
   Alcotest.(check int) "expires in ms" (-399_000) health.expires_in_ms
+
+let test_status_reports_refresh_window_without_expired_label () =
+  with_temp_home (fun home ->
+      let clawq_dir = Filename.concat home ".clawq" in
+      Unix.mkdir clawq_dir 0o755;
+      let config_path = Filename.concat clawq_dir "config.json" in
+      let oc = open_out config_path in
+      output_string oc
+        (Printf.sprintf
+           {|{
+  "providers": {
+    "openai-codex": {
+      "kind": "openai-codex",
+      "codex_oauth": {
+        "access_token": "tok",
+        "refresh_token": "ref",
+        "expires_at_ms": %d,
+        "email": "user@example.com"
+      }
+    }
+  }
+}|}
+           (Openai_codex_oauth.now_ms () + 240000));
+      close_out oc;
+      let status = Openai_codex_oauth.status ~provider_name:"openai-codex" () in
+      Alcotest.(check bool)
+        "mentions refresh window" true
+        (contains status "inside refresh window, will refresh on use");
+      Alcotest.(check bool)
+        "does not say token expired" false
+        (contains status "token expired"))
 
 let test_validate_provider_name_rejects_non_codex_provider () =
   with_temp_home (fun home ->
@@ -301,6 +343,9 @@ let suite =
       test_extract_account_id_from_access_token;
     Alcotest.test_case "inspect credentials expired refreshable" `Quick
       test_inspect_credentials_expired_refreshable;
+    Alcotest.test_case
+      "status reports refresh window without expired label" `Quick
+      test_status_reports_refresh_window_without_expired_label;
     Alcotest.test_case "validate provider name rejects non-codex provider"
       `Quick test_validate_provider_name_rejects_non_codex_provider;
     Alcotest.test_case "save provider credentials encrypts when enabled" `Quick
