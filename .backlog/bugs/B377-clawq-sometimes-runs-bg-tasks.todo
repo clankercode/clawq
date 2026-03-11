@@ -10,3 +10,10 @@ title: Clawq sometimes runs bg tasks and forgets about them or doesn't merge stu
 ---
 
 Clawq sometimes runs bg tasks and forgets about them or doesn't merge stuff in. Clawq should be supported both by prompts and by programmatic workflow features to automatically handle labor around git worktree management and agent completion, verification, review, merging, etc. Also the cli cmd `wt` has a very nice interface and workflow. Mostly it's just easy creation and easy merging, and occasionally handling rebase conflicts. We should do the same -- mostly the clawq agent shoulnd just need to start it. then we code it, review it, etc, and rebase it to handle conflicts early. We should have an automerge=boolean setting when starting delegates/bg tasks, and if that's true then we should merge it back and clean up the worktree (like `wt merge`). then the clawq agent gets a notification that the task is done and whether it was automerged. If it isn't merged, we tell clawq to finalize it by calling a merge-and-cleanup command/tool (if we don't already have that) -- it should be the same thing that gets run as automerge except that we need to have an LLM to handle merge conflicts and continue the rebase. It might be good to always do `git rebase master` (or whatever branch) first to make handling conflicts more straight forward. and separate from the merge into master itself + cleanup worktree. Similar to `wt` we should prefer git rebasing.
+
+## 2026-03-11 investigation slice
+- Added actionable completion guidance to `Background_task.status_message` for succeeded worktree-backed tasks.
+- Successful task notifications now say `next: merge/review <branch> into <repo> when ready` instead of the vaguer `ready to finalize ... from worktree ...` wording.
+- Added regression coverage in `test/test_background_task.ml`.
+- Verified with: `dune exec test/test_main.exe -- test background_task`
+- This is only the first slice. Explicit automerge/finalize/rebase workflow commands and cleanup automation remain outstanding.
