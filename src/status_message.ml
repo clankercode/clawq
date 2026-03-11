@@ -466,34 +466,39 @@ let update_thinking t text =
   else Lwt.return_unit
 
 let finalize t =
-  let open Lwt.Syntax in
-  let total = Hashtbl.length t.tools in
-  if total = 0 then
-    match t.msg_id with
-    | Some id ->
-        let* () = t.notifier.delete id in
-        t.msg_id <- None;
-        Lwt.return_unit
-    | None -> Lwt.return_unit
-  else if total >= 4 then (
-    t.finalized <- true;
-    let text = render t in
-    match t.msg_id with
-    | Some id ->
-        let* new_id_opt =
-          t.notifier.edit id
-            ~parse_mode:(Format_adapter.parse_mode_string t.connector)
-            text
-        in
-        (match new_id_opt with
-        | Some new_id when is_valid_notifier_message_id new_id ->
-            t.msg_id <- Some new_id
-        | Some _ -> ()
-        | None -> ());
-        Lwt.return_unit
-    | None -> Lwt.return_unit)
-  else (
-    t.finalized <- true;
-    Lwt.return_unit)
+  if t.finalized then Lwt.return_unit
+  else
+    let open Lwt.Syntax in
+    let total = Hashtbl.length t.tools in
+    if total = 0 then (
+      match t.msg_id with
+      | Some id ->
+          t.finalized <- true;
+          let* () = t.notifier.delete id in
+          t.msg_id <- None;
+          Lwt.return_unit
+      | None ->
+          t.finalized <- true;
+          Lwt.return_unit)
+    else if total >= 4 then (
+      t.finalized <- true;
+      let text = render t in
+      match t.msg_id with
+      | Some id ->
+          let* new_id_opt =
+            t.notifier.edit id
+              ~parse_mode:(Format_adapter.parse_mode_string t.connector)
+              text
+          in
+          (match new_id_opt with
+          | Some new_id when is_valid_notifier_message_id new_id ->
+              t.msg_id <- Some new_id
+          | Some _ -> ()
+          | None -> ());
+          Lwt.return_unit
+      | None -> Lwt.return_unit)
+    else (
+      t.finalized <- true;
+      Lwt.return_unit)
 
 let get_tool_info t ~id = Hashtbl.find_opt t.tools id

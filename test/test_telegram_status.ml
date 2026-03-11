@@ -136,6 +136,64 @@ let test_format_tool_result_detail_includes_tool_name_and_empty_output () =
     "tool name prefixes detail" "file_read\nhello"
     (Telegram.format_tool_result_detail ~name:"file_read" ~result:"hello")
 
+let make_notifier () =
+  let sent = ref 0 in
+  let edited = ref 0 in
+  let deleted = ref 0 in
+  let notifier : Status_message.notifier =
+    {
+      send =
+        (fun ?parse_mode:_ _text ->
+          incr sent;
+          Lwt.return "42");
+      edit =
+        (fun _id ?parse_mode:_ _text ->
+          incr edited;
+          Lwt.return None);
+      delete =
+        (fun _id ->
+          incr deleted;
+          Lwt.return_unit);
+    }
+  in
+  (notifier, sent, edited, deleted)
+
+let test_finalize_idempotent_no_tools () =
+  let notifier, sent, _edited, deleted = make_notifier () in
+  let sm =
+    Status_message.create ~debounce_interval:0.0 ~notifier ~parse_mode:"HTML" ()
+  in
+  (* Force a msg_id by simulating a send - set it directly *)
+  sm.msg_id <- Some "77";
+  Lwt_main.run (Status_message.finalize sm);
+  Alcotest.(check int) "first finalize: deletes message" 1 !deleted;
+  Alcotest.(check int) "first finalize: no sends" 0 !sent;
+  Lwt_main.run (Status_message.finalize sm);
+  Alcotest.(check int) "second finalize: no additional delete" 1 !deleted
+
+let test_finalize_idempotent_with_tools () =
+  let notifier, _sent, edited, _deleted = make_notifier () in
+  let sm =
+    Status_message.create ~debounce_interval:0.0 ~notifier ~parse_mode:"HTML" ()
+  in
+  Lwt_main.run
+    (Status_message.tool_start sm ~id:"t1" ~name:"file_read" ~summary:None);
+  Lwt_main.run
+    (Status_message.tool_start sm ~id:"t2" ~name:"file_write" ~summary:None);
+  Lwt_main.run
+    (Status_message.tool_start sm ~id:"t3" ~name:"shell_exec" ~summary:None);
+  Lwt_main.run
+    (Status_message.tool_start sm ~id:"t4" ~name:"http_get" ~summary:None);
+  let edits_before = !edited in
+  Lwt_main.run (Status_message.finalize sm);
+  let edits_after_first = !edited in
+  Alcotest.(check bool)
+    "first finalize triggers edit" true
+    (edits_after_first > edits_before);
+  Lwt_main.run (Status_message.finalize sm);
+  Alcotest.(check int)
+    "second finalize triggers no additional edit" edits_after_first !edited
+
 let suite =
   [
     Alcotest.test_case "status notifier edits in place without reanchoring"
@@ -151,4 +209,8 @@ let suite =
       `Quick test_status_notifier_invalid_non_numeric_send_id_is_suppressed;
     Alcotest.test_case "tool result detail formatting" `Quick
       test_format_tool_result_detail_includes_tool_name_and_empty_output;
+    Alcotest.test_case "finalize is idempotent with no tools" `Quick
+      test_finalize_idempotent_no_tools;
+    Alcotest.test_case "finalize is idempotent with tools" `Quick
+      test_finalize_idempotent_with_tools;
   ]

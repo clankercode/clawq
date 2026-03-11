@@ -645,6 +645,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                   (fun _exn -> Lwt.return_unit)
               in
               let thinking_buf = Buffer.create 256 in
+              let drain_progress_msg_id = ref None in
               let status_msg =
                 if use_consolidated then
                   let status_notifier =
@@ -655,6 +656,27 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                        ~parse_mode:"HTML" ())
                 else None
               in
+              (match status_msg with
+              | Some sm ->
+                  Session.register_interrupt_finalizer session_mgr ~key
+                    (fun () ->
+                      let open Lwt.Syntax in
+                      let* () = Status_message.finalize sm in
+                      let* mid =
+                        Lwt.catch
+                          (fun () ->
+                            send_message_with_id ~disable_notification:true
+                              ~bot_token ~chat_id:update.chat_id
+                              ~text:
+                                "\xe2\x8f\xb3 Processing new \
+                                 message\xe2\x80\xa6"
+                              ())
+                          (fun _ -> Lwt.return "0")
+                      in
+                      if mid <> "0" && mid <> "" then
+                        drain_progress_msg_id := Some mid;
+                      Lwt.return_unit)
+              | None -> ());
               let visibility = Stream_visibility.create () in
               let tool_start_times : (string, float * string option) Hashtbl.t =
                 Hashtbl.create 8
@@ -846,7 +868,6 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                   Lwt.catch
                     (fun () -> set_reaction reaction_emoji_received)
                     (fun _exn -> Lwt.return_unit));
-              let drain_progress_msg_id = ref None in
               let on_drain_progress : Session.drain_progress =
                 {
                   before_turn =
@@ -922,95 +943,106 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                     refresh_typing ();
                     Lwt.return_unit)
                   (fun () ->
-                    Lwt.catch
+                    Lwt.finalize
                       (fun () ->
-                        let before_drain response =
-                          if Session.is_queued_message_response response then
-                            Lwt.return_unit
-                          else
-                            let open Lwt.Syntax in
-                            let* () =
-                              match status_msg with
-                              | Some sm -> Status_message.finalize sm
-                              | None -> Lwt.return_unit
-                            in
-                            let* () =
-                              if status_msg <> None && !current_turn_has_tools
-                              then (
-                                let details_text =
-                                  List.rev !current_turn_tool_details
-                                  |> String.concat "\n---\n"
-                                in
-                                let details_callback =
-                                  register_tool_result_details
-                                    ~chat_id:update.chat_id
-                                    ~user_id:update.user_id details_text
-                                in
-                                let* _msg_id =
-                                  send_message_with_keyboard
-                                    ~disable_notification:true ~bot_token
-                                    ~chat_id:update.chat_id
-                                    ~text:
-                                      "\xF0\x9F\x93\x8B Tool output available"
-                                    ~buttons:
-                                      [ ("Show Details", details_callback) ]
-                                    ()
-                                in
-                                refresh_typing ();
-                                Lwt.return_unit)
-                              else Lwt.return_unit
-                            in
-                            let thinking =
-                              match status_msg with
-                              | Some _ -> Buffer.contents thinking_buf
-                              | None ->
-                                  Stream_visibility.thinking_text visibility
-                            in
-                            let* () =
-                              if thinking <> "" then (
+                        Lwt.catch
+                          (fun () ->
+                            let before_drain response =
+                              if Session.is_queued_message_response response
+                              then Lwt.return_unit
+                              else
+                                let open Lwt.Syntax in
                                 let* () =
-                                  send_chunked ~parse_mode:"MarkdownV2"
-                                    ~bot_token ~chat_id:update.chat_id
-                                    ~text:
-                                      ("_"
-                                      ^ Telegram_format.escape_mdv2 thinking
-                                      ^ "_")
-                                    ()
+                                  match status_msg with
+                                  | Some sm -> Status_message.finalize sm
+                                  | None -> Lwt.return_unit
                                 in
-                                refresh_typing ();
-                                Lwt.return_unit)
-                              else Lwt.return_unit
+                                let* () =
+                                  if
+                                    status_msg <> None
+                                    && !current_turn_has_tools
+                                  then (
+                                    let details_text =
+                                      List.rev !current_turn_tool_details
+                                      |> String.concat "\n---\n"
+                                    in
+                                    let details_callback =
+                                      register_tool_result_details
+                                        ~chat_id:update.chat_id
+                                        ~user_id:update.user_id details_text
+                                    in
+                                    let* _msg_id =
+                                      send_message_with_keyboard
+                                        ~disable_notification:true ~bot_token
+                                        ~chat_id:update.chat_id
+                                        ~text:
+                                          "\xF0\x9F\x93\x8B Tool output \
+                                           available"
+                                        ~buttons:
+                                          [ ("Show Details", details_callback) ]
+                                        ()
+                                    in
+                                    refresh_typing ();
+                                    Lwt.return_unit)
+                                  else Lwt.return_unit
+                                in
+                                let thinking =
+                                  match status_msg with
+                                  | Some _ -> Buffer.contents thinking_buf
+                                  | None ->
+                                      Stream_visibility.thinking_text visibility
+                                in
+                                let* () =
+                                  if thinking <> "" then (
+                                    let* () =
+                                      send_chunked ~parse_mode:"MarkdownV2"
+                                        ~bot_token ~chat_id:update.chat_id
+                                        ~text:
+                                          ("_"
+                                          ^ Telegram_format.escape_mdv2 thinking
+                                          ^ "_")
+                                        ()
+                                    in
+                                    refresh_typing ();
+                                    Lwt.return_unit)
+                                  else Lwt.return_unit
+                                in
+                                let* () =
+                                  let* () =
+                                    send_chunked ~parse_mode:"MarkdownV2"
+                                      ~bot_token ~chat_id:update.chat_id
+                                      ~text:
+                                        (Telegram_format.markdown_to_mdv2
+                                           response)
+                                      ()
+                                  in
+                                  refresh_typing ();
+                                  Lwt.return_unit
+                                in
+                                let* () = set_reaction reaction_emoji_done in
+                                if
+                                  not
+                                    (Session.take_response_deferred session_mgr
+                                       ~key)
+                                then Session.mark_response_sent session_mgr ~key;
+                                response_sent := true;
+                                Lwt.return_unit
                             in
-                            let* () =
-                              let* () =
-                                send_chunked ~parse_mode:"MarkdownV2" ~bot_token
-                                  ~chat_id:update.chat_id
-                                  ~text:
-                                    (Telegram_format.markdown_to_mdv2 response)
-                                  ()
-                              in
-                              refresh_typing ();
-                              Lwt.return_unit
+                            let turn_p =
+                              Session.turn_stream session_mgr ~key ~message:msg
+                                ~content_parts:!image_content_parts
+                                ~channel_name:"telegram" ~channel_type:"dm"
+                                ~channel:"telegram" ~channel_id:update.chat_id
+                                ~message_id:(string_of_int update.message_id)
+                                ~on_drain_progress ~before_drain ~on_chunk ()
                             in
-                            let* () = set_reaction reaction_emoji_done in
-                            if
-                              not
-                                (Session.take_response_deferred session_mgr ~key)
-                            then Session.mark_response_sent session_mgr ~key;
-                            response_sent := true;
-                            Lwt.return_unit
-                        in
-                        let turn_p =
-                          Session.turn_stream session_mgr ~key ~message:msg
-                            ~content_parts:!image_content_parts
-                            ~channel_name:"telegram" ~channel_type:"dm"
-                            ~channel:"telegram" ~channel_id:update.chat_id
-                            ~message_id:(string_of_int update.message_id)
-                            ~on_drain_progress ~before_drain ~on_chunk ()
-                        in
-                        let* response = turn_p in
-                        Lwt.return (Ok response))
-                      (fun exn -> Lwt.return (Error (Printexc.to_string exn))))
+                            let* response = turn_p in
+                            Lwt.return (Ok response))
+                          (fun exn ->
+                            Lwt.return (Error (Printexc.to_string exn))))
+                      (fun () ->
+                        Session.unregister_interrupt_finalizer session_mgr ~key;
+                        Lwt.return_unit))
               in
               match result with
               | Ok response ->
