@@ -86,6 +86,7 @@ let runner_binary = function
   | Opencode -> "opencode"
   | Cursor -> "cursor-agent"
 
+
 let command_exists command =
   Sys.command
     (Printf.sprintf "command -v %s >/dev/null 2>&1" (Filename.quote command))
@@ -555,15 +556,48 @@ let read_last_lines path ~lines =
             match input_line ic with
             | line ->
                 let acc =
-                  if count < lines then acc @ [ line ]
-                  else List.tl acc @ [ line ]
+                  if count >= lines then List.tl acc @ [ line ] else acc @ [ line ]
                 in
-                let count = Int.min lines (count + 1) in
-                loop acc count
+                loop acc (min lines (count + 1))
             | exception End_of_file -> Ok acc
           in
           loop [] 0)
     with Sys_error msg -> Error msg
+
+let permission_rejection_markers =
+  [
+    "permission requested:";
+    "auto-rejecting";
+    "The user rejected permission";
+  ]
+
+let contains_substring ~needle haystack =
+  let needle_len = String.length needle in
+  let hay_len = String.length haystack in
+  let rec loop i =
+    if i + needle_len > hay_len then false
+    else if String.sub haystack i needle_len = needle then true
+    else loop (i + 1)
+  in
+  needle_len > 0 && hay_len >= needle_len && loop 0
+
+let looks_like_permission_rejection output =
+  List.exists (fun needle -> contains_substring ~needle output)
+    permission_rejection_markers
+
+let classify_task_result ~exit_code ~output =
+  if exit_code <> 0 then Failed
+  else if looks_like_permission_rejection output then Failed
+  else Succeeded
+
+let result_preview_of_output ~exit_code ~output =
+  if output = "" then Printf.sprintf "Process exited with code %d" exit_code
+  else Printf.sprintf "exit %d: %s" exit_code output
+
+let final_status_for_completion ~db ~id ~exit_code ~output =
+  match get_task ~db ~id with
+  | Some { status = Cancelled; _ } -> Cancelled
+  | _ -> classify_task_result ~exit_code ~output
 
 let read_lines_window path ~offset ~limit =
   if limit <= 0 then Ok ([], 0)
@@ -579,7 +613,6 @@ let read_lines_window path ~offset ~limit =
                 if line_num >= offset && collected < limit then
                   loop (line_num + 1) ((line_num, line) :: acc) (collected + 1)
                 else if collected >= limit then
-                  (* count remaining lines *)
                   let rec count n =
                     match input_line ic with
                     | _ -> count (n + 1)
@@ -921,6 +954,12 @@ let finish ~db ~id ~status ~result_preview =
       ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT preview));
       ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.INT (Int64.of_int id)));
       ignore (Sqlite3.step stmt))
+
+let finalize_completed_task ~db ~id ~exit_code ~output =
+  let final_status = final_status_for_completion ~db ~id ~exit_code ~output in
+  let result_preview = result_preview_of_output ~exit_code ~output in
+  finish ~db ~id ~status:final_status ~result_preview;
+  final_status
 
 let mark_cancelled ~db ~id ~result_preview =
   let sql =
@@ -1348,17 +1387,8 @@ let spawn_task ?(on_task_started = fun _ -> Lwt.return_unit)
                     Lwt.return_unit);
                 let output = read_log_tail log_path preview_limit in
                 let exit_code = exit_code_of_status status in
-                let final_status =
-                  match get_task ~db ~id:task.id with
-                  | Some { status = Cancelled; _ } -> Cancelled
-                  | _ -> if exit_code = 0 then Succeeded else Failed
-                in
-                let result_preview =
-                  if output = "" then
-                    Printf.sprintf "Process exited with code %d" exit_code
-                  else Printf.sprintf "exit %d: %s" exit_code output
-                in
-                finish ~db ~id:task.id ~status:final_status ~result_preview;
+                ignore
+                  (finalize_completed_task ~db ~id:task.id ~exit_code ~output);
                 let* () =
                   match get_task ~db ~id:task.id with
                   | Some finished_task -> on_task_finished finished_task
@@ -1506,22 +1536,13 @@ let readopt_running_tasks ~db ~on_task_finished =
                       let* () = Lwt_unix.sleep 2.0 in
                       Process_group.signal_group pid Sys.sigkill;
                       Lwt.return_unit);
-                  let final_status =
-                    match get_task ~db ~id:task.id with
-                    | Some { status = Cancelled; _ } -> Cancelled
-                    | _ -> if exit_code = 0 then Succeeded else Failed
-                  in
                   let output =
                     match task.log_path with
                     | Some path -> read_log_tail path preview_limit
                     | None -> ""
                   in
-                  let result_preview =
-                    if output = "" then
-                      Printf.sprintf "Process exited with code %d" exit_code
-                    else Printf.sprintf "exit %d: %s" exit_code output
-                  in
-                  finish ~db ~id:task.id ~status:final_status ~result_preview;
+                  ignore
+                    (finalize_completed_task ~db ~id:task.id ~exit_code ~output);
                   match get_task ~db ~id:task.id with
                   | Some t -> on_task_finished t
                   | None -> Lwt.return_unit)
