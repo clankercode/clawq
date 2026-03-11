@@ -1,0 +1,24 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B369
+priority: high
+status: pending
+tags: []
+title: Model usage stats should count completed requests, not model selections
+---
+
+# Model usage stats should count completed requests, not model selections
+
+## Steps to Reproduce
+
+1. TODO: Add steps
+
+## Expected Behavior
+
+TODO: Describe expected behavior
+
+## Actual Behavior
+
+TODO: Describe actual behavior
