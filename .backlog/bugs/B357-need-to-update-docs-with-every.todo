@@ -10,3 +10,5 @@ title: Need to update docs with everything from last like 30 commits. setup wiza
 ---
 
 Need to update docs with everything from last like 30 commits. setup wizards, config stuff, etc
+
+Note: maybe you need to look at when this document was added to git, but also it might be worth just doing a general audit of all the things mentioned.
