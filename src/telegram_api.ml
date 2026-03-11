@@ -113,7 +113,9 @@ let get_outbound_mutex chat_id =
 
 let with_outbound_lock ~chat_id f =
   let mutex = get_outbound_mutex chat_id in
-  Lwt_mutex.with_lock mutex f
+  Lwt_util.with_lock_timeout
+    ~label:(Printf.sprintf "tg_outbound[%s]" chat_id)
+    mutex f
 
 let is_valid_message_id message_id =
   match int_of_string_opt message_id with
@@ -1095,7 +1097,9 @@ let send_message ?(disable_notification = true) ?parse_mode ~bot_token ~chat_id
     ~text () =
   let open Lwt.Syntax in
   let mutex = get_outbound_mutex chat_id in
-  Lwt_mutex.with_lock mutex (fun () ->
+  Lwt_util.with_lock_timeout
+    ~label:(Printf.sprintf "tg_outbound/sendMessage[%s]" chat_id) mutex
+    (fun () ->
       let uri = Printf.sprintf "%s%s/sendMessage" api_base bot_token in
       let base_fields =
         [

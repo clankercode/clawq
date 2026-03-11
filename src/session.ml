@@ -147,7 +147,7 @@ let clear_pending_continuation state =
   | None -> ()
 
 let with_continuation_state mgr ~key f =
-  Lwt_mutex.with_lock mgr.sessions_lock (fun () ->
+  Lwt_util.with_lock_timeout ~label:"sessions_lock" mgr.sessions_lock (fun () ->
       f (continuation_state mgr ~key))
 
 let cancel_autonomous_continuation mgr ~key =
@@ -162,14 +162,15 @@ let mark_autonomous_activity_started mgr ~key =
       Lwt.return_unit)
 
 let current_live_activity mgr ~key =
-  Lwt_mutex.with_lock mgr.sessions_lock (fun () ->
+  Lwt_util.with_lock_timeout ~label:"sessions_lock" mgr.sessions_lock (fun () ->
       let state = live_activity_state mgr ~key in
       Lwt.return (snapshot_live_activity state))
 
 let rec wait_for_live_activity_change mgr ~key ~after_generation =
   let open Lwt.Syntax in
   let* snapshot, changed =
-    Lwt_mutex.with_lock mgr.sessions_lock (fun () ->
+    Lwt_util.with_lock_timeout ~label:"sessions_lock" mgr.sessions_lock
+      (fun () ->
         let state = live_activity_state mgr ~key in
         Lwt.return (snapshot_live_activity state, state.changed))
   in
@@ -179,7 +180,7 @@ let rec wait_for_live_activity_change mgr ~key ~after_generation =
     wait_for_live_activity_change mgr ~key ~after_generation
 
 let start_live_activity mgr ~key =
-  Lwt_mutex.with_lock mgr.sessions_lock (fun () ->
+  Lwt_util.with_lock_timeout ~label:"sessions_lock" mgr.sessions_lock (fun () ->
       let state = live_activity_state mgr ~key in
       let was_inactive = state.active_scopes = 0 in
       state.active_scopes <- state.active_scopes + 1;
@@ -187,7 +188,7 @@ let start_live_activity mgr ~key =
       Lwt.return_unit)
 
 let stop_live_activity mgr ~key =
-  Lwt_mutex.with_lock mgr.sessions_lock (fun () ->
+  Lwt_util.with_lock_timeout ~label:"sessions_lock" mgr.sessions_lock (fun () ->
       let state = live_activity_state mgr ~key in
       if state.active_scopes > 0 then begin
         state.active_scopes <- state.active_scopes - 1;
@@ -231,12 +232,12 @@ let set_special_command_handler mgr handler =
   mgr.special_command_handler <- Some handler
 
 let start_draining mgr =
-  Lwt_mutex.with_lock mgr.sessions_lock (fun () ->
+  Lwt_util.with_lock_timeout ~label:"sessions_lock" mgr.sessions_lock (fun () ->
       mgr.draining <- true;
       Lwt.return_unit)
 
 let stop_draining mgr =
-  Lwt_mutex.with_lock mgr.sessions_lock (fun () ->
+  Lwt_util.with_lock_timeout ~label:"sessions_lock" mgr.sessions_lock (fun () ->
       mgr.draining <- false;
       Lwt.return_unit)
 
@@ -332,12 +333,12 @@ let cancel_pending_question mgr ~key =
 let has_pending_question mgr ~key = Hashtbl.mem mgr.pending_questions key
 
 let enqueue_message_if_busy mgr ~key queued_message =
-  Lwt_mutex.with_lock mgr.sessions_lock (fun () ->
+  Lwt_util.with_lock_timeout ~label:"sessions_lock" mgr.sessions_lock (fun () ->
       let is_bang =
         String.length queued_message.message > 0
         && queued_message.message.[0] = '!'
       in
-      (* If a pending question is waiting, intercept the reply *)
+      (* If a pending question is waiting, intercept the reply. *)
       let consumed_by_question =
         match Hashtbl.find_opt mgr.pending_questions key with
         | Some resolver when not is_bang ->
@@ -346,7 +347,7 @@ let enqueue_message_if_busy mgr ~key queued_message =
             true
         | Some _ when is_bang ->
             (* Bang cancels the pending question AND falls through to set
-               interrupt token via normal queuing path *)
+               interrupt token via normal queuing path. *)
             cancel_pending_question mgr ~key;
             false
         | _ -> false
@@ -387,9 +388,7 @@ let enqueue_message_if_busy mgr ~key queued_message =
             let msg = { queued_message with inbound_queue_id } in
             Hashtbl.replace mgr.queued_messages key (existing @ [ msg ]);
             Logs.info (fun m ->
-                m
-                  "[%s] Queued inbound message for busy session (queue depth: \
-                   %d)"
+                m "[%s] Queued inbound message for busy session (queue depth: %d)"
                   key
                   (List.length existing + 1));
             (* NOTE: queued_message_interrupt_token does not interrupt the
@@ -455,7 +454,7 @@ let resumable_channel = function
   | _ -> false
 
 let interrupt_resumable_channel_sessions mgr =
-  Lwt_mutex.with_lock mgr.sessions_lock (fun () ->
+  Lwt_util.with_lock_timeout ~label:"sessions_lock" mgr.sessions_lock (fun () ->
       Hashtbl.iter
         (fun key _ ->
           match
@@ -619,11 +618,17 @@ let with_session_lock mgr ~key f =
      sessions_lock; holding it while waiting for a busy session's mutex would
      block everything. *)
   let* agent, mutex, interrupt =
-    Lwt_mutex.with_lock mgr.sessions_lock (fun () ->
+    Lwt_util.with_lock_timeout
+      ~label:(Printf.sprintf "sessions_lock/with_session_lock[%s]" key)
+      mgr.sessions_lock (fun () ->
         let agent, mutex, interrupt = get_or_create_locked mgr ~key in
         Lwt.return (agent, mutex, interrupt))
   in
-  let* () = Lwt_mutex.lock mutex in
+  let* () =
+    Lwt_util.lock_with_timeout
+      ~label:(Printf.sprintf "session_mutex/with_session_lock[%s]" key)
+      mutex
+  in
   Lwt.finalize
     (fun () -> f agent interrupt)
     (fun () ->
@@ -637,7 +642,9 @@ let try_session_lock mgr ~key f =
      per-session mutex, but we still release sessions_lock first to stay
      consistent with the deadlock-avoidance pattern. *)
   let* agent, mutex, interrupt =
-    Lwt_mutex.with_lock mgr.sessions_lock (fun () ->
+    Lwt_util.with_lock_timeout
+      ~label:(Printf.sprintf "sessions_lock/try_session_lock[%s]" key)
+      mgr.sessions_lock (fun () ->
         let agent, mutex, interrupt = get_or_create_locked mgr ~key in
         Lwt.return (agent, mutex, interrupt))
   in
@@ -659,7 +666,10 @@ let with_session_lock_unless_draining mgr ~key ~on_draining f =
      need sessions_lock; if a session is busy with an LLM call, holding
      sessions_lock while waiting for the per-session mutex would block them. *)
   let* state =
-    Lwt_mutex.with_lock mgr.sessions_lock (fun () ->
+    Lwt_util.with_lock_timeout
+      ~label:
+        (Printf.sprintf "sessions_lock/with_session_lock_unless_draining[%s]"
+           key) mgr.sessions_lock (fun () ->
         if mgr.draining then Lwt.return_none
         else
           let agent, mutex, interrupt = get_or_create_locked mgr ~key in
@@ -668,7 +678,13 @@ let with_session_lock_unless_draining mgr ~key ~on_draining f =
   match state with
   | None -> on_draining ()
   | Some (agent, mutex, interrupt) ->
-      let* () = Lwt_mutex.lock mutex in
+      let* () =
+        Lwt_util.lock_with_timeout
+          ~label:
+            (Printf.sprintf
+               "session_mutex/with_session_lock_unless_draining[%s]" key)
+          mutex
+      in
       Lwt.finalize
         (fun () -> f agent interrupt)
         (fun () ->
@@ -676,7 +692,7 @@ let with_session_lock_unless_draining mgr ~key ~on_draining f =
           Lwt.return_unit)
 
 let set_interrupt_if_present mgr ~key message =
-  Lwt_mutex.with_lock mgr.sessions_lock (fun () ->
+  Lwt_util.with_lock_timeout ~label:"sessions_lock" mgr.sessions_lock (fun () ->
       (match Hashtbl.find_opt mgr.sessions key with
       | Some (_, _, interrupt) -> interrupt := Some message
       | None -> ());
@@ -1438,7 +1454,7 @@ let delegate_turn mgr ~prompt ~send_reply =
                   (fun _ -> Lwt.return_unit))))
 
 let snapshot_history mgr ~key =
-  Lwt_mutex.with_lock mgr.sessions_lock (fun () ->
+  Lwt_util.with_lock_timeout ~label:"sessions_lock" mgr.sessions_lock (fun () ->
       match Hashtbl.find_opt mgr.sessions key with
       | Some (agent, _, _) ->
           let history = List.rev agent.Agent.history in
@@ -1731,7 +1747,9 @@ let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
 let reset mgr ~key =
   let open Lwt.Syntax in
   let* held_mutex =
-    Lwt_mutex.with_lock mgr.sessions_lock (fun () ->
+    Lwt_util.with_lock_timeout
+      ~label:(Printf.sprintf "sessions_lock/reset[%s]" key) mgr.sessions_lock
+      (fun () ->
         let clear_db () =
           match mgr.db with
           | Some db ->
@@ -1747,7 +1765,11 @@ let reset mgr ~key =
         in
         match Hashtbl.find_opt mgr.sessions key with
         | Some (_, mutex, _) ->
-            let* () = Lwt_mutex.lock mutex in
+            let* () =
+              Lwt_util.lock_with_timeout
+                ~label:(Printf.sprintf "session_mutex/reset[%s]" key)
+                mutex
+            in
             clear_db ();
             Hashtbl.remove mgr.deferred_responses key;
             Hashtbl.remove mgr.queued_messages key;
