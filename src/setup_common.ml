@@ -43,7 +43,8 @@ let pad_right s width =
   if vis >= width then s else s ^ String.make (width - vis) ' '
 
 let box_line left mid right width content =
-  let inner = width - 2 in
+  let mid_vis = visible_length mid in
+  let inner = width - 2 - (2 * mid_vis) in
   let padded = pad_right content inner in
   Printf.sprintf "%s%s%s%s%s" left mid padded mid right
 

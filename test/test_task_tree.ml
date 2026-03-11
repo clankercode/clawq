@@ -813,8 +813,8 @@ let test_in_progress_adds_can_exceed_old_live_cap () =
        true
      with Not_found -> false);
   let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
-  Alcotest.(check int) "51 live in_progress tasks allowed" 51
-    (List.length tasks)
+  Alcotest.(check int)
+    "51 live in_progress tasks allowed" 51 (List.length tasks)
 
 let test_max_depth_guardrail () =
   let db = fresh_db () in

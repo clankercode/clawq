@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-11T04:22:27Z"
+claimed_by: cli-user
+completed_at: "2026-03-11T04:23:53Z"
 complexity: medium
 depends_on: []
+duration_minutes: 1.4370298475333334
 estimate_hours: 1
 id: B359
 priority: high
-status: pending
+started_at: "2026-03-11T04:22:27Z"
+status: done
 tags: []
 title: The new setup wizard for github, teams, tunnel, etc, the far right wall of the header box has one too many spaces on the left between the text and it.
 ---

@@ -314,63 +314,63 @@ let doctor_warnings ?(now_ms = now_ms ()) ~provider_name
             configured as kind='openai-codex'; Codex auth may be ignored."
            provider_name)
   | _ -> ());
-  if is_codex_provider then (
-    match provider.codex_oauth with
-    | None ->
-        if has_api_key then
-          add
-            (Printf.sprintf
-               "WARNING: Provider '%s' is configured for OpenAI Codex but only \
-                has an API key. Codex providers require Codex OAuth; API key \
-                auth alone is insufficient."
-               provider_name)
-        else
-          add
-            (Printf.sprintf
-               "WARNING: Provider '%s' is configured for OpenAI Codex but has \
-                no Codex OAuth credentials. Run 'clawq auth codex-login %s'."
-               provider_name provider_name)
-    | Some creds ->
-        let health = inspect_credentials ~now_ms creds in
-        if not health.has_access_token then
-          add
-            (Printf.sprintf
-               "WARNING: Provider '%s' is configured for Codex OAuth but has \
-                no access token%s."
-               provider_name
-               (if health.refresh_possible then
-                  "; a refresh token is present, so clawq should refresh on \
-                   next use"
-                else
-                  " and no refresh token is stored"));
-        if health.has_access_token && health.expired then
-          if health.expires_in_ms < 0 then
-            add
-              (Printf.sprintf
-                 "WARNING: Provider '%s' Codex OAuth access token is expired \
-                  (%s ago); %s."
-                 provider_name
-                 (describe_duration_ms health.expires_in_ms)
-                 (doctor_refresh_followup health))
-          else
-            add
-              (Printf.sprintf
-                 "WARNING: Provider '%s' Codex OAuth access token expires in %s \
-                  and is inside clawq's %s refresh window; %s."
-                 provider_name
-                 (describe_duration_ms health.expires_in_ms)
-                 (describe_duration_ms refresh_window_ms)
-                 (doctor_refresh_followup health));
-        if health.has_access_token && (not health.expired)
+  (if is_codex_provider then
+     match provider.codex_oauth with
+     | None ->
+         if has_api_key then
+           add
+             (Printf.sprintf
+                "WARNING: Provider '%s' is configured for OpenAI Codex but \
+                 only has an API key. Codex providers require Codex OAuth; API \
+                 key auth alone is insufficient."
+                provider_name)
+         else
+           add
+             (Printf.sprintf
+                "WARNING: Provider '%s' is configured for OpenAI Codex but has \
+                 no Codex OAuth credentials. Run 'clawq auth codex-login %s'."
+                provider_name provider_name)
+     | Some creds ->
+         let health = inspect_credentials ~now_ms creds in
+         if not health.has_access_token then
+           add
+             (Printf.sprintf
+                "WARNING: Provider '%s' is configured for Codex OAuth but has \
+                 no access token%s."
+                provider_name
+                (if health.refresh_possible then
+                   "; a refresh token is present, so clawq should refresh on \
+                    next use"
+                 else " and no refresh token is stored"));
+         if health.has_access_token && health.expired then
+           if health.expires_in_ms < 0 then
+             add
+               (Printf.sprintf
+                  "WARNING: Provider '%s' Codex OAuth access token is expired \
+                   (%s ago); %s."
+                  provider_name
+                  (describe_duration_ms health.expires_in_ms)
+                  (doctor_refresh_followup health))
+           else
+             add
+               (Printf.sprintf
+                  "WARNING: Provider '%s' Codex OAuth access token expires in \
+                   %s and is inside clawq's %s refresh window; %s."
+                  provider_name
+                  (describe_duration_ms health.expires_in_ms)
+                  (describe_duration_ms refresh_window_ms)
+                  (doctor_refresh_followup health));
+         if
+           health.has_access_token && (not health.expired)
            && not health.refresh_possible
-        then
-          add
-            (Printf.sprintf
-               "WARNING: Provider '%s' Codex OAuth access token expires in %s \
-                and no refresh token is stored; refresh will not be possible \
-                after expiry."
-               provider_name
-               (describe_duration_ms health.expires_in_ms)));
+         then
+           add
+             (Printf.sprintf
+                "WARNING: Provider '%s' Codex OAuth access token expires in %s \
+                 and no refresh token is stored; refresh will not be possible \
+                 after expiry."
+                provider_name
+                (describe_duration_ms health.expires_in_ms)));
   List.rev !warnings
 
 let validate_provider_name ~provider_name =

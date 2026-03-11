@@ -567,8 +567,7 @@ let select_provider ~(config : Runtime_config.t) ?preferred_provider
     match config.default_provider with
     | Some name -> (
         match find_named name with
-        | Some (n, p) when provider_has_routable_auth ~name:n p ->
-            Some (n, p)
+        | Some (n, p) when provider_has_routable_auth ~name:n p -> Some (n, p)
         | _ -> None)
     | None -> None
   in
@@ -583,8 +582,7 @@ let select_provider ~(config : Runtime_config.t) ?preferred_provider
     match preferred_provider with
     | Some name -> (
         match find_named name with
-        | Some (n, p) when provider_has_routable_auth ~name:n p ->
-            Some (n, p)
+        | Some (n, p) when provider_has_routable_auth ~name:n p -> Some (n, p)
         | _ -> None)
     | None -> None
   in

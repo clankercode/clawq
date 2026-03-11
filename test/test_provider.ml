@@ -327,15 +327,13 @@ let test_find_provider_ignores_expired_unrefreshable_codex_oauth () =
           base_url = Some "https://chatgpt.com/backend-api/codex";
           default_model = Some "openai-codex/gpt-5-codex";
           codex_oauth =
-            Some
-              (make_codex_oauth ~refresh_token:"" ~expires_at_ms:0 ());
+            Some (make_codex_oauth ~refresh_token:"" ~expires_at_ms:0 ());
         } );
     ]
   in
   match Provider.find_provider_for_model ~providers ~model_name:"gpt-5.4" with
   | Some _ ->
-      Alcotest.fail
-        "did not expect match for expired unrefreshable codex oauth"
+      Alcotest.fail "did not expect match for expired unrefreshable codex oauth"
   | None -> ()
 
 let test_find_provider_accepts_expired_refreshable_codex_oauth () =
@@ -356,7 +354,8 @@ let test_find_provider_accepts_expired_refreshable_codex_oauth () =
       Alcotest.(check string)
         "refreshable expired codex oauth remains routable" "openai-codex" name
   | None ->
-      Alcotest.fail "expected refreshable expired codex oauth to remain routable"
+      Alcotest.fail
+        "expected refreshable expired codex oauth to remain routable"
 
 let test_find_provider_ignores_empty_codex_oauth_tokens () =
   let providers =
@@ -595,8 +594,8 @@ let test_select_provider_preferred_provider_forces_failover_route () =
     }
   in
   let primary_name, _, primary_model = Provider.select_provider ~config () in
-  Alcotest.(check string) "primary route uses openrouter" "openrouter"
-    primary_name;
+  Alcotest.(check string)
+    "primary route uses openrouter" "openrouter" primary_name;
   Alcotest.(check string)
     "primary keeps explicit provider-prefixed model" "openai/gpt-4o"
     primary_model;
@@ -849,11 +848,9 @@ let suite =
       test_find_provider_codex_associated_models;
     Alcotest.test_case "find provider ignores codex api key only auth" `Quick
       test_find_provider_ignores_codex_api_key_only_auth;
-    Alcotest.test_case
-      "find provider ignores expired unrefreshable codex oauth"
+    Alcotest.test_case "find provider ignores expired unrefreshable codex oauth"
       `Quick test_find_provider_ignores_expired_unrefreshable_codex_oauth;
-    Alcotest.test_case
-      "find provider accepts expired refreshable codex oauth"
+    Alcotest.test_case "find provider accepts expired refreshable codex oauth"
       `Quick test_find_provider_accepts_expired_refreshable_codex_oauth;
     Alcotest.test_case "find provider ignores empty codex oauth tokens" `Quick
       test_find_provider_ignores_empty_codex_oauth_tokens;
@@ -875,14 +872,14 @@ let suite =
       test_default_base_url_kimi_coding;
     Alcotest.test_case "select_provider bare model overrides default" `Quick
       test_select_provider_bare_model_overrides_default;
-    Alcotest.test_case "select_provider skips codex api key only default"
-      `Quick test_select_provider_skips_codex_api_key_only_default;
+    Alcotest.test_case "select_provider skips codex api key only default" `Quick
+      test_select_provider_skips_codex_api_key_only_default;
     Alcotest.test_case "select_provider quota fallback respects user model"
       `Quick test_select_provider_quota_fallback_respects_user_model;
     Alcotest.test_case "select_provider preferred provider forces failover"
       `Quick test_select_provider_preferred_provider_forces_failover_route;
-    Alcotest.test_case "select_provider preferred provider requires auth"
-      `Quick test_select_provider_preferred_provider_requires_auth;
+    Alcotest.test_case "select_provider preferred provider requires auth" `Quick
+      test_select_provider_preferred_provider_requires_auth;
     Alcotest.test_case "sanitize_utf8 valid ascii" `Quick
       test_sanitize_utf8_valid_ascii;
     Alcotest.test_case "sanitize_utf8 valid multibyte" `Quick

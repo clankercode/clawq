@@ -160,7 +160,8 @@ let test_handle_doctor_flags_expired_refreshable_codex_oauth () =
         (contains result "Codex OAuth access token is expired");
       Alcotest.(check bool)
         "mentions refresh possible" true
-        (contains result "refresh token is present, so clawq should refresh on next use"))
+        (contains result
+           "refresh token is present, so clawq should refresh on next use"))
 
 let test_handle_doctor_distinguishes_refresh_window_from_expired () =
   with_temp_home (fun home ->
@@ -1404,7 +1405,7 @@ let test_handle_update_without_live_daemon_reports_stub () =
         (contains result "Running: make build");
       Alcotest.(check bool)
         "reports build completion" true
-        (contains result "Build complete. Sending restart signal...") )
+        (contains result "Build complete. Sending restart signal..."))
 
 let test_handle_update_auto_pairs_with_live_gateway () =
   with_temp_home (fun home ->

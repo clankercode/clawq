@@ -86,7 +86,6 @@ let runner_binary = function
   | Opencode -> "opencode"
   | Cursor -> "cursor-agent"
 
-
 let command_exists command =
   Sys.command
     (Printf.sprintf "command -v %s >/dev/null 2>&1" (Filename.quote command))
@@ -556,7 +555,8 @@ let read_last_lines path ~lines =
             match input_line ic with
             | line ->
                 let acc =
-                  if count >= lines then List.tl acc @ [ line ] else acc @ [ line ]
+                  if count >= lines then List.tl acc @ [ line ]
+                  else acc @ [ line ]
                 in
                 loop acc (min lines (count + 1))
             | exception End_of_file -> Ok acc
@@ -565,11 +565,7 @@ let read_last_lines path ~lines =
     with Sys_error msg -> Error msg
 
 let permission_rejection_markers =
-  [
-    "permission requested:";
-    "auto-rejecting";
-    "The user rejected permission";
-  ]
+  [ "permission requested:"; "auto-rejecting"; "The user rejected permission" ]
 
 let contains_substring ~needle haystack =
   let needle_len = String.length needle in
@@ -582,7 +578,8 @@ let contains_substring ~needle haystack =
   needle_len > 0 && hay_len >= needle_len && loop 0
 
 let looks_like_permission_rejection output =
-  List.exists (fun needle -> contains_substring ~needle output)
+  List.exists
+    (fun needle -> contains_substring ~needle output)
     permission_rejection_markers
 
 let classify_task_result ~exit_code ~output =
@@ -643,7 +640,6 @@ let count_lines path =
   with Sys_error _ -> 0
 
 let background_task_logs_max_chars = 3000
-
 let background_task_logs_max_line_chars = 1200
 
 let truncate_background_task_log_line line =
@@ -673,9 +669,9 @@ let render_background_task_log_lines indexed_lines =
   let numbered_lines =
     indexed_lines
     |> List.map (fun (n, line) ->
-           let line, truncated = truncate_background_task_log_line line in
-           if truncated then truncated_any_line := true;
-           Printf.sprintf "%d: %s" n line)
+        let line, truncated = truncate_background_task_log_line line in
+        if truncated then truncated_any_line := true;
+        Printf.sprintf "%d: %s" n line)
   in
   let rendered_lines, truncated_by_budget =
     trim_rendered_lines ~max_chars:background_task_logs_max_chars numbered_lines
@@ -710,9 +706,12 @@ let log_excerpt ?(offset = 0) ?(lines = 20) task =
                 if truncated then
                   let next_offset = offset + List.length rendered_lines in
                   Printf.sprintf
-                    "\n\n(Output truncated by size budget. Showing lines %d-%d of %d. Use offset=%d to continue.)"
-                    offset (offset + List.length rendered_lines - 1) total
-                    next_offset
+                    "\n\n\
+                     (Output truncated by size budget. Showing lines %d-%d of \
+                     %d. Use offset=%d to continue.)"
+                    offset
+                    (offset + List.length rendered_lines - 1)
+                    total next_offset
                 else if last_line < total then
                   Printf.sprintf
                     "\n\n\
@@ -754,7 +753,9 @@ let log_excerpt ?(offset = 0) ?(lines = 20) task =
               let footer =
                 if truncated then
                   Printf.sprintf
-                    "\n\n(Output truncated by size budget. Showing lines %d-%d of %d. Use offset=%d to continue.)"
+                    "\n\n\
+                     (Output truncated by size budget. Showing lines %d-%d of \
+                     %d. Use offset=%d to continue.)"
                     shown_start shown_end total (shown_end + 1)
                 else
                   Printf.sprintf
@@ -1442,7 +1443,8 @@ let start_queued_with_callback ?max_running_tasks ~on_task_finished ~db
 
 let start_queued ?max_running_tasks ~db () =
   start_queued_with_callback ?max_running_tasks
-    ~on_task_finished:(fun _ -> Lwt.return_unit) ~db ()
+    ~on_task_finished:(fun _ -> Lwt.return_unit)
+    ~db ()
 
 let is_tracked_locally id = Hashtbl.mem running id
 let clear_all_tracked () = Hashtbl.clear running

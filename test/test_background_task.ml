@@ -1007,17 +1007,14 @@ let test_start_queued_spawns_queued_tasks () =
         ~spawn_task:(fun ~on_task_started:_ ~on_task_finished:_ ~db:_ task ->
           spawned := task.id :: !spawned)
         ~on_task_started:(fun _ -> Lwt.return_unit)
-        ~on_task_finished:(fun _ -> Lwt.return_unit) ();
+        ~on_task_finished:(fun _ -> Lwt.return_unit)
+        ();
       Alcotest.(check (list int))
         "queued task spawned" [ id ] (List.rev !spawned))
 
 let test_available_worker_slots_respects_running_tasks () =
   let tasks =
-    [
-      fake_task ~status:Background_task.Running 1;
-      fake_task 2;
-      fake_task 3;
-    ]
+    [ fake_task ~status:Background_task.Running 1; fake_task 2; fake_task 3 ]
   in
   Alcotest.(check (option int))
     "one slot remains" (Some 1)
@@ -1025,11 +1022,7 @@ let test_available_worker_slots_respects_running_tasks () =
 
 let test_queued_tasks_ready_to_start_respects_capacity () =
   let tasks =
-    [
-      fake_task ~status:Background_task.Running 1;
-      fake_task 2;
-      fake_task 3;
-    ]
+    [ fake_task ~status:Background_task.Running 1; fake_task 2; fake_task 3 ]
   in
   let ready =
     Background_task.queued_tasks_ready_to_start ~max_running_tasks:2 tasks
@@ -1066,7 +1059,8 @@ let test_start_queued_respects_max_running_tasks () =
         ~spawn_task:(fun ~on_task_started:_ ~on_task_finished:_ ~db:_ task ->
           spawned := task.id :: !spawned)
         ~on_task_started:(fun _ -> Lwt.return_unit)
-        ~on_task_finished:(fun _ -> Lwt.return_unit) ();
+        ~on_task_finished:(fun _ -> Lwt.return_unit)
+        ();
       Alcotest.(check (list int))
         "queued task blocked at cap" [] (List.rev !spawned);
       match Background_task.get_task ~db ~id:queued_id with

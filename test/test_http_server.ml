@@ -412,7 +412,9 @@ let test_github_webhook_routes_to_session_and_posts_reply () =
   let payload =
     {|{"action":"created","issue":{"number":42,"title":"Webhook test","pull_request":{"url":"https://api.github.com/repos/acme/backend/pulls/42"}},"comment":{"id":9001,"user":{"login":"octocat"},"body":"/clawq review routing","html_url":"https://github.com/acme/backend/pull/42#issuecomment-9001"},"repository":{"name":"backend","owner":{"login":"acme"}}}|}
   in
-  let signature = compute_github_signature ~secret:webhook_secret ~body:payload in
+  let signature =
+    compute_github_signature ~secret:webhook_secret ~body:payload
+  in
   let seen_key = ref None in
   let seen_message = ref None in
   let seen_post_path = ref None in
@@ -469,7 +471,8 @@ let test_github_webhook_routes_to_session_and_posts_reply () =
                  ~github_api_limiter:
                    (Rate_limiter.create ~rate_per_minute:60
                       ~burst_multiplier:1.0)
-                 (Obj.magic ()) req (Cohttp_lwt.Body.of_string payload))
+                 (Obj.magic ()) req
+                 (Cohttp_lwt.Body.of_string payload))
           in
           Alcotest.(check int)
             "ok" 200
@@ -480,9 +483,7 @@ let test_github_webhook_routes_to_session_and_posts_reply () =
             "status" "replied"
             (json |> member "status" |> to_string);
           Alcotest.(check (option string))
-            "session key"
-            (Some "github:acme/backend:pr:42")
-            !seen_key;
+            "session key" (Some "github:acme/backend:pr:42") !seen_key;
           Alcotest.(check bool)
             "message includes github context" true
             (match !seen_message with
@@ -498,8 +499,7 @@ let test_github_webhook_routes_to_session_and_posts_reply () =
              fake API server a brief chance to observe it before asserting. *)
           Lwt_main.run (Lwt_unix.sleep 0.05);
           Alcotest.(check (option string))
-            "comment endpoint"
-            (Some "/repos/acme/backend/issues/42/comments")
+            "comment endpoint" (Some "/repos/acme/backend/issues/42/comments")
             !seen_post_path;
           Alcotest.(check bool)
             "reply body formatted for github" true
@@ -514,7 +514,9 @@ let test_github_pr_synchronize_reuses_pr_session () =
   let payload =
     {|{"action":"synchronize","number":42,"pull_request":{"number":42,"title":"Webhook test","body":"/clawq review latest push","state":"open","html_url":"https://github.com/acme/backend/pull/42","user":{"login":"alice"},"base":{"ref":"main"},"head":{"ref":"feature"}},"repository":{"name":"backend","owner":{"login":"acme"}}}|}
   in
-  let signature = compute_github_signature ~secret:webhook_secret ~body:payload in
+  let signature =
+    compute_github_signature ~secret:webhook_secret ~body:payload
+  in
   let seen_key = ref None in
   let seen_message = ref None in
   let seen_post_path = ref None in
@@ -571,7 +573,8 @@ let test_github_pr_synchronize_reuses_pr_session () =
                  ~github_api_limiter:
                    (Rate_limiter.create ~rate_per_minute:60
                       ~burst_multiplier:1.0)
-                 (Obj.magic ()) req (Cohttp_lwt.Body.of_string payload))
+                 (Obj.magic ()) req
+                 (Cohttp_lwt.Body.of_string payload))
           in
           Alcotest.(check int)
             "ok" 200
@@ -582,9 +585,7 @@ let test_github_pr_synchronize_reuses_pr_session () =
             "status" "replied"
             (json |> member "status" |> to_string);
           Alcotest.(check (option string))
-            "session key"
-            (Some "github:acme/backend:pr:42")
-            !seen_key;
+            "session key" (Some "github:acme/backend:pr:42") !seen_key;
           Alcotest.(check bool)
             "message includes github context" true
             (match !seen_message with
@@ -593,8 +594,7 @@ let test_github_pr_synchronize_reuses_pr_session () =
                 && contains_str message "review latest push"
             | None -> false);
           Alcotest.(check (option string))
-            "comment endpoint"
-            (Some "/repos/acme/backend/issues/42/comments")
+            "comment endpoint" (Some "/repos/acme/backend/issues/42/comments")
             !seen_post_path;
           Alcotest.(check bool)
             "reply body formatted for github" true

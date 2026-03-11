@@ -163,8 +163,8 @@ let test_cmd_signal_restart_signals_running_daemon () =
           ()
       in
       Alcotest.(check string)
-        "signal restart response"
-        "Restart signal sent to daemon (PID 1234)" result;
+        "signal restart response" "Restart signal sent to daemon (PID 1234)"
+        result;
       Alcotest.(check (option (pair int int)))
         "sigusr1 sent"
         (Some (1234, Sys.sigusr1))

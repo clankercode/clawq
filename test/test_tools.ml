@@ -1403,7 +1403,7 @@ let test_background_task_logs_truncates_large_output () =
       Alcotest.(check bool)
         "stays under tightened budget" true
         (String.length result < 3800);
-      () )
+      ())
 
 let test_background_task_logs_truncates_pathological_long_line () =
   with_temp_workspace (fun workspace ->
@@ -1445,19 +1445,23 @@ let test_background_task_logs_truncates_pathological_long_line () =
         (fun (label, result) ->
           Alcotest.(check bool)
             (label ^ " keeps a visible numbered line")
-            true (contains result "1: xxxxx");
+            true
+            (contains result "1: xxxxx");
           Alcotest.(check bool)
             (label ^ " marks truncated line")
-            true (contains result "(truncated");
+            true
+            (contains result "(truncated");
           Alcotest.(check bool)
             (label ^ " mentions long-line clipping")
-            true (contains result "long log lines are truncated");
+            true
+            (contains result "long log lines are truncated");
           Alcotest.(check bool)
             (label ^ " avoids invalid empty range")
-            false (contains result "lines 1-0");
+            false
+            (contains result "lines 1-0");
           Alcotest.(check bool)
-            (label ^ " stays bounded")
-            true (String.length result < 2500))
+            (label ^ " stays bounded") true
+            (String.length result < 2500))
         [ ("tail", tail_result); ("paged", paged_result) ])
 
 let test_shell_exec_saves_full_output_when_windowed () =

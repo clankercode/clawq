@@ -15,8 +15,7 @@ let has_prefix ~prefix s =
 
 let env_truthy name =
   match Sys.getenv_opt name with
-  | Some ("" | "0" | "false" | "False" | "FALSE" | "no" | "No" | "NO") ->
-      false
+  | Some ("" | "0" | "false" | "False" | "FALSE" | "no" | "No" | "NO") -> false
   | Some _ -> true
   | None -> false
 
@@ -372,19 +371,19 @@ let cmd_signal_restart ?(read_pid = read_pid) ?(send_signal = Unix.kill) () =
      in with_temp_home."
   else
     match read_pid () with
-  | None -> "Daemon is not running"
-  | Some pid -> (
-      try
-        Logs.info (fun m ->
-            m
-              "Sending SIGUSR1 to daemon pid %d (source: clawq service \
-               signal-restart)"
-              pid);
-        send_signal pid Sys.sigusr1;
-        Printf.sprintf "Restart signal sent to daemon (PID %d)" pid
-      with Unix.Unix_error (err, _, _) ->
-        Printf.sprintf "Failed to signal daemon pid %d: %s" pid
-          (Unix.error_message err))
+    | None -> "Daemon is not running"
+    | Some pid -> (
+        try
+          Logs.info (fun m ->
+              m
+                "Sending SIGUSR1 to daemon pid %d (source: clawq service \
+                 signal-restart)"
+                pid);
+          send_signal pid Sys.sigusr1;
+          Printf.sprintf "Restart signal sent to daemon (PID %d)" pid
+        with Unix.Unix_error (err, _, _) ->
+          Printf.sprintf "Failed to signal daemon pid %d: %s" pid
+            (Unix.error_message err))
 
 let cmd_restart ~config =
   let stop_msg = cmd_stop () in

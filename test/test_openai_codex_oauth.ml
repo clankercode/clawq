@@ -343,9 +343,8 @@ let suite =
       test_extract_account_id_from_access_token;
     Alcotest.test_case "inspect credentials expired refreshable" `Quick
       test_inspect_credentials_expired_refreshable;
-    Alcotest.test_case
-      "status reports refresh window without expired label" `Quick
-      test_status_reports_refresh_window_without_expired_label;
+    Alcotest.test_case "status reports refresh window without expired label"
+      `Quick test_status_reports_refresh_window_without_expired_label;
     Alcotest.test_case "validate provider name rejects non-codex provider"
       `Quick test_validate_provider_name_rejects_non_codex_provider;
     Alcotest.test_case "save provider credentials encrypts when enabled" `Quick

@@ -90,12 +90,15 @@ let cron_history_cmd =
 let cron_runs_cmd =
   let name = Arg.(value & pos 0 (some string) None & info [] ~docv:"NAME") in
   Cmd.v
-    (Cmd.info "runs" ~doc:"Show recent cron run history for all jobs or one job.")
-    Term.(ret (const (fun name ->
+    (Cmd.info "runs"
+       ~doc:"Show recent cron run history for all jobs or one job.")
+    Term.(
+      ret
+        (const (fun name ->
              match name with
              | Some value -> run "cron" [ "runs"; value ]
              | None -> run "cron" [ "runs" ])
-         $ name))
+        $ name))
 
 let cron_cmd =
   Cmd.group

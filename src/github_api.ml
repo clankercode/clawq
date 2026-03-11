@@ -37,8 +37,8 @@ let post_comment ~auth ~owner ~repo ~issue_number ~body =
 let reply_to_review_comment ~auth ~owner ~repo ~pull_number ~comment_id ~body =
   let open Lwt.Syntax in
   let uri =
-    Printf.sprintf "%s/repos/%s/%s/pulls/%d/comments/%d/replies" (github_api_base ())
-      owner repo pull_number comment_id
+    Printf.sprintf "%s/repos/%s/%s/pulls/%d/comments/%d/replies"
+      (github_api_base ()) owner repo pull_number comment_id
   in
   let headers = auth_headers auth in
   let req_body = `Assoc [ ("body", `String body) ] |> Yojson.Safe.to_string in
