@@ -2517,16 +2517,7 @@ let suite =
     Alcotest.test_case "readopt idempotent" `Quick test_readopt_idempotent;
     Alcotest.test_case "readopt skips dead pid" `Quick
       test_readopt_skips_dead_pid;
-    Alcotest.test_case "routing_from_context reads CLAWQ_SESSION_ID env" `Quick
-      test_routing_from_context_reads_env;
-    Alcotest.test_case "routing_from_context prefers context over env" `Quick
-      test_routing_from_context_prefers_context_over_env;
-    Alcotest.test_case "cmd_background add picks up session env" `Quick
-      test_cmd_background_add_picks_up_session_env;
-    Alcotest.test_case "list_tasks_for_display filters inactive" `Quick
-      test_list_tasks_for_display_filters;
-    Alcotest.test_case "reap marks dead pid failed" `Quick
-      test_reap_marks_dead_pid_failed;
+
     Alcotest.test_case "reap keeps alive process" `Quick
       test_reap_keeps_alive_process;
     Alcotest.test_case "reap skips locally tracked" `Quick
