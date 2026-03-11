@@ -389,3 +389,4 @@ bugs:
     - file: B388-telegram-tool-call-message-sho.todo
     - file: B389-tool-call-summary-token-counts.todo
     - file: B390-implement-usage-slash-command.todo
+    - file: B391-test-delegate-plan-pipeline-in.todo

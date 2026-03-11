@@ -1,0 +1,14 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B391
+priority: high
+status: pending
+tags:
+    - testing
+    - delegates
+    - pipeline
+title: Test delegate + plan pipeline integration
+---
+We have a planning pipeline and delegate workflow, but the combined delegate + plan pipeline path has not been explicitly tested. Investigate how delegates should use the plan pipeline (if at all), add focused coverage or a tested workflow, document the intended contract, and fix any issues found. Acceptance criteria: identify supported workflow; add tests or harness coverage where practical; verify delegate/plan interactions are not silently broken; update docs/tooling guidance.
