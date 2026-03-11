@@ -1,0 +1,14 @@
+---
+complexity: medium
+depends_on:
+    - P8.M2.E2.T002
+estimate_hours: 2
+id: P8.M2.E2.T003
+priority: medium
+status: pending
+tags:
+    - idea
+    - planning
+title: Log-session correlation and context formatting
+---
+Implement log+session correlation in ec_process.ml: match daemon.log entries with session DB messages by timestamp + session_key. format_correlated_context produces interleaved chronological output showing both daemon log lines and DB messages. Example: [10:15:30.123] ERROR [telegram:123:456] Provider timeout / [10:15:31.000] DB: session telegram:123:456 tool_result: Error: connection timed out. AC: Given daemon.log entries and DB messages from same time window, produces merged chronological display. Tests with mock data pass.

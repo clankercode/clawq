@@ -1,0 +1,15 @@
+---
+complexity: medium
+depends_on:
+    - P8.M2.E1.T002
+    - P8.M2.E3.T003
+estimate_hours: 4
+id: P8.M2.E4.T001
+priority: medium
+status: pending
+tags:
+    - idea
+    - planning
+title: Watcher CLI commands, ec-run subcommand, and comprehensive tests
+---
+Add watcher_cmd to main.ml (clawq watcher [status|enable|disable|reports|report ID]). Add ec_run_cmd (clawq ec-run --daemon-mode, internal). Add cmd_watcher to command_bridge.ml: status shows config+EC process status, enable/disable toggles via config_set, reports lists from ec_reports DB table, report ID shows specific report. Add stub to command_bridge_min.ml. Comprehensive tests in test_error_watcher.ml: ANSI stripping, log line parsing, error classification, dedup, dev build detection, config defaults, log rotation offset, ignore patterns, session key exclusion, correlated context formatting, JSON round-trip, full scan cycle with temp DB + mock daemon.log. AC: clawq watcher status shows config. enable/disable toggles. reports queries DB. make test passes with all new tests.

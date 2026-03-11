@@ -1,0 +1,35 @@
+complexity: medium
+depends_on: []
+estimate_hours: 8
+id: P8.M2.E3
+locked: false
+name: Multi-Model Diagnosis and Voting Pipeline
+status: pending
+tasks:
+    - complexity: medium
+      depends_on:
+        - P8.M2.E2.T003
+      estimate_hours: 4
+      file: T001-multi-model-query-helper-and-d.todo
+      id: T001
+      priority: high
+      status: pending
+      title: Multi-model query helper and diagnosis phase
+    - complexity: medium
+      depends_on:
+        - P8.M2.E3.T001
+      estimate_hours: 4
+      file: T002-solution-proposals-and-voting.todo
+      id: T002
+      priority: high
+      status: pending
+      title: Solution proposals and voting pipeline
+    - complexity: medium
+      depends_on:
+        - P8.M2.E3.T002
+      estimate_hours: 3
+      file: T003-planning-synthesis-fix-spawnin.todo
+      id: T003
+      priority: high
+      status: pending
+      title: Planning synthesis, fix spawning, and EC reports

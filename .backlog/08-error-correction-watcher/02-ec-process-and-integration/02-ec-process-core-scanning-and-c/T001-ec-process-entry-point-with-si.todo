@@ -1,0 +1,14 @@
+---
+complexity: medium
+depends_on:
+    - P8.M1.E1.T003
+estimate_hours: 3
+id: P8.M2.E2.T001
+priority: high
+status: pending
+tags:
+    - idea
+    - planning
+title: EC process entry point with signal handling and DB
+---
+Create src/ec_process.ml with run_daemon_mode: own DB connection (Memory.open_db), config loading (Config_loader.load), signal handlers (SIGUSR2->pause+exit, SIGTERM->graceful shutdown, SIGINT->immediate exit), atomic PID file write (.pid.new then rename), flock lock file acquisition, main scan loop skeleton. Add to clawq_runtime_integrations in src/dune. AC: clawq ec-run --daemon-mode starts, writes PID file, responds to SIGTERM cleanly, exits on SIGUSR2 after pause.

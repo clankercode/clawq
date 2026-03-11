@@ -1,0 +1,14 @@
+---
+complexity: medium
+depends_on:
+    - P8.M2.E2.T001
+estimate_hours: 3
+id: P8.M2.E2.T002
+priority: high
+status: pending
+tags:
+    - idea
+    - planning
+title: 'Error scanners: daemon log, session DB, background tasks'
+---
+Implement scan loop in ec_process.ml: (1) daemon.log scanner with byte offset tracking, ANSI strip via Error_watcher.strip_ansi, log rotation handling (file shrunk -> reset offset), parse [ERROR]/[WARN] lines. (2) Session DB scanner: query messages where role=tool AND content LIKE Error:% AND created_at > last_scan, exclude __error_correction__% and __postmortem_% keys. (3) Background task failure scanner: query failed tasks since last scan, read log tail. (4) Deduplication by normalized first-line within cooldown window. (5) Classification: transient (connection refused, timeout, 429, ECONNRESET) vs actionable. AC: Scanner detects ERROR lines in daemon.log. Finds tool errors in DB. Dedup suppresses repeats. Classification marks timeouts as transient.

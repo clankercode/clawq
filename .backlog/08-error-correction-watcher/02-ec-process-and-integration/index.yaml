@@ -1,0 +1,45 @@
+complexity: medium
+depends_on:
+    - P8.M1
+epics:
+    - complexity: medium
+      depends_on: []
+      description: 'Daemon-side EC process management: start, stop, health check, graceful handoff (SIGUSR2), daemon integration'
+      estimate_hours: 6
+      id: E1
+      locked: false
+      name: EC Process Lifecycle Management
+      path: 01-ec-process-lifecycle-managemen
+      status: pending
+    - complexity: medium
+      depends_on: []
+      description: 'Standalone EC process: own DB/config/Lwt loop, signal handlers, log+session scanning, dedup, classification, correlation'
+      estimate_hours: 6
+      id: E2
+      locked: false
+      name: EC Process Core - Scanning and Correlation
+      path: 02-ec-process-core-scanning-and-c
+      status: pending
+    - complexity: medium
+      depends_on: []
+      description: Parallel model querying, fallback models, diagnosis merging, solution proposals, voting, planning synthesis, fix spawning, EC reports (DB-backed)
+      estimate_hours: 8
+      id: E3
+      locked: false
+      name: Multi-Model Diagnosis and Voting Pipeline
+      path: 03-multi-model-diagnosis-and-voti
+      status: pending
+    - complexity: medium
+      depends_on: []
+      description: watcher CLI commands (status/enable/disable/reports), ec-run subcommand, comprehensive unit tests
+      estimate_hours: 4
+      id: E4
+      locked: false
+      name: CLI Commands and Tests
+      path: 04-cli-commands-and-tests
+      status: pending
+estimate_hours: 24
+id: P8.M2
+locked: false
+name: EC Process and Integration
+status: pending

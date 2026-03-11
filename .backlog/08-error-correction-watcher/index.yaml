@@ -1,0 +1,27 @@
+complexity: medium
+depends_on: []
+estimate_hours: 30
+id: P8
+locked: false
+milestones:
+    - complexity: medium
+      depends_on: []
+      description: Config types, shared types, build wiring — foundational layer everything depends on
+      estimate_hours: 6
+      id: M1
+      locked: false
+      name: EC Foundation
+      path: 01-ec-foundation
+      status: pending
+    - complexity: medium
+      depends_on: []
+      description: EC process core (scanning, correlation, multi-model pipeline), daemon integration, CLI commands, tests
+      estimate_hours: 24
+      id: M2
+      locked: false
+      name: EC Process and Integration
+      path: 02-ec-process-and-integration
+      status: pending
+name: Error Correction Watcher
+status: pending
+weeks: 3

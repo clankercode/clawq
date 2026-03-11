@@ -1,0 +1,26 @@
+complexity: medium
+depends_on: []
+estimate_hours: 6
+id: P8.M2.E1
+locked: false
+name: EC Process Lifecycle Management
+status: pending
+tasks:
+    - complexity: medium
+      depends_on:
+        - P8.M1.E1.T002
+      estimate_hours: 3
+      file: T001-ec-process-lifecycle-start-sto.todo
+      id: T001
+      priority: high
+      status: pending
+      title: 'EC process lifecycle: start, stop, health check'
+    - complexity: medium
+      depends_on:
+        - P8.M2.E1.T001
+      estimate_hours: 3
+      file: T002-graceful-handoff-and-daemon-in.todo
+      id: T002
+      priority: high
+      status: pending
+      title: Graceful handoff and daemon integration

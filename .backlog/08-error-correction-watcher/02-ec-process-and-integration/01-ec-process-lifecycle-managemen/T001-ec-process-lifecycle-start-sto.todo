@@ -1,0 +1,14 @@
+---
+complexity: medium
+depends_on:
+    - P8.M1.E1.T002
+estimate_hours: 3
+id: P8.M2.E1.T001
+priority: high
+status: pending
+tags:
+    - idea
+    - planning
+title: 'EC process lifecycle: start, stop, health check'
+---
+Add to error_watcher.ml: create_state, start_ec_process (spawns clawq ec-run --daemon-mode via Process_group.start_to_file, writes PID file), stop_ec_process (SIGTERM, wait 30s), check_ec_health (PID liveness check, restart if crashed). AC: start_ec_process spawns process and writes PID file. stop sends SIGTERM. Health check detects crashed process and restarts.

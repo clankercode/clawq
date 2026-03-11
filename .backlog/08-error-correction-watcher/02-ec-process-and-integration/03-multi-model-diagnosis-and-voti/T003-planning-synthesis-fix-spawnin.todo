@@ -1,0 +1,14 @@
+---
+complexity: medium
+depends_on:
+    - P8.M2.E3.T002
+estimate_hours: 3
+id: P8.M2.E3.T003
+priority: high
+status: pending
+tags:
+    - idea
+    - planning
+title: Planning synthesis, fix spawning, and EC reports
+---
+Implement Phase 4 (Planning): top 2 models each plan winning solution in detail, synthesize best-of-both plan (merge complementary details, resolve conflicts by preferring more thorough approach). Implement Phase 5 (Implementation): if auto_fix_enabled, enqueue Background_task with use_worktree=true, automerge=false, branch ec/fix-{error_hash}-{timestamp}, [INTERNAL_EC] commit tag requirement in prompt, idempotent branch check. Add ec_reports table to memory.ml schema (id, timestamp, error_hash, error_context, diagnoses_json, voting_json, winning_plan, fix_task_id, status). Write EC reports to DB. AC: Planning produces synthesized plan. Fix task enqueued with correct branch/tag. Report written to DB and queryable.

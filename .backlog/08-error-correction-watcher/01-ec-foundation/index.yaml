@@ -1,0 +1,17 @@
+complexity: medium
+depends_on: []
+epics:
+    - complexity: medium
+      depends_on: []
+      description: error_watcher_config type, defaults, JSON parsing, config_set schema, shared types (error_source, error_entry, strip_ansi, parse_log_line), build wiring
+      estimate_hours: 6
+      id: E1
+      locked: false
+      name: Configuration and Shared Types
+      path: 01-configuration-and-shared-types
+      status: pending
+estimate_hours: 6
+id: P8.M1
+locked: false
+name: EC Foundation
+status: pending
