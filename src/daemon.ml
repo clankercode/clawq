@@ -385,6 +385,7 @@ let run ~(config : Runtime_config.t) =
                         compacted)")))
   | None -> ());
   (* Register ask_user_question with ask_fn closure *)
+  let ask_fn_ref = ref None in
   (match tool_registry with
   | Some registry ->
       let notes_enabled = !current_config.interactive.enable_question_notes in
@@ -458,66 +459,75 @@ let run ~(config : Runtime_config.t) =
               qi.question ^ hint
         in
         let total = List.length questions in
-        let* results =
-          Lwt_list.mapi_s
-            (fun i qi ->
-              (match db with
-              | Some db -> (
-                  try
-                    Memory.pending_question_upsert ~db ~session_key
-                      ~questions_json:
-                        (Tools_builtin.question_items_to_json questions)
-                      ~question_index:i
-                  with exn ->
-                    Logs.warn (fun m ->
-                        m "[%s] Failed to persist pending question: %s"
-                          session_key (Printexc.to_string exn)))
-              | None -> ());
-              let msg = format_question qi in
-              let labeled =
-                if total > 1 then
-                  Printf.sprintf "[Question %d/%d] %s" (i + 1) total msg
-                else msg
-              in
-              let* () = notify labeled in
-              let promise, _resolver =
-                Session.register_pending_question session_manager
-                  ~key:session_key
-              in
-              let* raw = promise in
-              if raw = Session.question_cancelled_sentinel then
-                Lwt.fail (Failure "Question cancelled by user interrupt")
-              else
-                let* notes =
-                  if notes_enabled && notes_eligible qi.qtype then begin
-                    let* () = notify "Add notes? (reply or 'skip')" in
-                    let notes_promise, _resolver =
-                      Session.register_pending_question session_manager
-                        ~key:session_key
-                    in
-                    let* notes_raw = notes_promise in
-                    if
-                      notes_raw = Session.question_cancelled_sentinel
-                      || String.lowercase_ascii (String.trim notes_raw) = "skip"
-                    then Lwt.return_none
-                    else Lwt.return_some notes_raw
-                  end
-                  else Lwt.return_none
-                in
-                Lwt.return
-                  Tools_builtin.{ question = qi.question; answer = raw; notes })
-            questions
+        let cleanup_db () =
+          (match db with
+          | Some db -> (
+              try Memory.pending_question_delete ~db ~session_key
+              with exn ->
+                Logs.warn (fun m ->
+                    m "[%s] Failed to clean pending question from DB: %s"
+                      session_key (Printexc.to_string exn)))
+          | None -> ());
+          Lwt.return_unit
         in
-        (match db with
-        | Some db -> (
-            try Memory.pending_question_delete ~db ~session_key
-            with exn ->
-              Logs.warn (fun m ->
-                  m "[%s] Failed to clean pending question from DB: %s"
-                    session_key (Printexc.to_string exn)))
-        | None -> ());
-        Lwt.return results
+        Lwt.finalize
+          (fun () ->
+            let* results =
+              Lwt_list.mapi_s
+                (fun i qi ->
+                  (match db with
+                  | Some db -> (
+                      try
+                        Memory.pending_question_upsert ~db ~session_key
+                          ~questions_json:
+                            (Tools_builtin.question_items_to_json questions)
+                          ~question_index:i
+                      with exn ->
+                        Logs.warn (fun m ->
+                            m "[%s] Failed to persist pending question: %s"
+                              session_key (Printexc.to_string exn)))
+                  | None -> ());
+                  let msg = format_question qi in
+                  let labeled =
+                    if total > 1 then
+                      Printf.sprintf "[Question %d/%d] %s" (i + 1) total msg
+                    else msg
+                  in
+                  let* () = notify labeled in
+                  let promise, _resolver =
+                    Session.register_pending_question session_manager
+                      ~key:session_key
+                  in
+                  let* raw = promise in
+                  if raw = Session.question_cancelled_sentinel then
+                    Lwt.fail (Failure "Question cancelled by user interrupt")
+                  else
+                    let* notes =
+                      if notes_enabled && notes_eligible qi.qtype then begin
+                        let* () = notify "Add notes? (reply or 'skip')" in
+                        let notes_promise, _resolver =
+                          Session.register_pending_question session_manager
+                            ~key:session_key
+                        in
+                        let* notes_raw = notes_promise in
+                        if
+                          notes_raw = Session.question_cancelled_sentinel
+                          || String.lowercase_ascii (String.trim notes_raw)
+                             = "skip"
+                        then Lwt.return_none
+                        else Lwt.return_some notes_raw
+                      end
+                      else Lwt.return_none
+                    in
+                    Lwt.return
+                      Tools_builtin.
+                        { question = qi.question; answer = raw; notes })
+                questions
+            in
+            Lwt.return results)
+          cleanup_db
       in
+      ask_fn_ref := Some ask_fn;
       Tool_registry.register registry
         (Tools_builtin.ask_user_question ~ask_fn:(Some ask_fn))
   | None -> ());
@@ -1028,6 +1038,10 @@ let run ~(config : Runtime_config.t) =
     run_pending_session_resume_stage ~session_manager ~config ()
   in
   let* _replay_summary = run_durable_replay_stage ~session_manager ~config () in
+  (* Replay any pending questions that survived a restart *)
+  (match !ask_fn_ref with
+  | Some ask_fn -> replay_pending_questions ~session_manager ~ask_fn ()
+  | None -> ());
   (* Keepalive periodic loop: nudges idle keepalive-enabled sessions every 15m *)
   (match db with
   | Some db ->
