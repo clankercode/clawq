@@ -388,3 +388,4 @@ bugs:
     - file: B387-tasks-on-telegram-does-nothing.todo
     - file: B388-telegram-tool-call-message-sho.todo
     - file: B389-tool-call-summary-token-counts.todo
+    - file: B390-implement-usage-slash-command.todo

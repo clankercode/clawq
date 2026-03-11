@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B390
+priority: high
+status: pending
+tags: []
+title: implement /usage slash command that allows viewing usage from telegram and other connectors
+---
+
+implement /usage slash command that allows viewing usage from telegram and other connectors
