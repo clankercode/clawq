@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B372
+priority: high
+status: pending
+tags: []
+title: setup wizard TUI inputs and ctrl chars (pressing up/down makes ^B and ^A ctrl chars show up for example)
+---
+
+setup wizard TUI inputs and ctrl chars (pressing up/down makes ^B and ^A ctrl chars show up for example)

@@ -370,3 +370,4 @@ bugs:
     - file: B369-model-usage-stats-should-count.todo
     - file: B370-telegram-notifications-should.todo
     - file: B371-setup-wizards-like-clawq-setup.todo
+    - file: B372-setup-wizard-tui-inputs-and-ct.todo
