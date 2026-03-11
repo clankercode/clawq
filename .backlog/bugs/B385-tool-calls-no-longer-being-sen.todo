@@ -1,14 +1,16 @@
 ---
+claimed_at: "2026-03-11T23:17:29Z"
+claimed_by: cli-user
+completed_at: "2026-03-11T23:23:15Z"
 complexity: medium
 depends_on: []
+duration_minutes: 5.768995478266667
 estimate_hours: 1
 id: B385
 priority: high
-status: pending
-tags:
-    - telegram
-    - tool-calls
-    - regression
+started_at: "2026-03-11T23:17:29Z"
+status: done
+tags: []
 title: Tool calls no longer being sent to Telegram
 ---
 User reports tool calls are no longer being sent to Telegram. Investigate recent changes affecting Telegram tool/progress delivery, channel formatting, silent-vs-alert policy, progress/finalization paths, and interruption/restart behavior. Acceptance criteria: reproduce the missing tool-call delivery if present; identify the responsible seam/commit; restore expected Telegram tool-call/progress visibility without regressing silent notification policy; add focused regression coverage.
