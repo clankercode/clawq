@@ -119,7 +119,8 @@ This selects which key from `providers` is used when a request does not choose a
 
 ### channels
 
-Channel configurations for Telegram, Discord, and Slack.
+Channel configurations for Telegram, Discord, Slack, GitHub, and other runtime
+integrations.
 
 ```json
 {
@@ -147,6 +148,22 @@ Channel configurations for Telegram, Discord, and Slack.
       "bot_token": "xoxb-...",
       "app_token": "xapp-...",
       "signing_secret": "abc123..."
+    },
+    "github": {
+      "auth": {
+        "type": "pat",
+        "token": "ghp_..."
+      },
+      "repos": [
+        {
+          "name": "acme/backend",
+          "webhook_secret": "super-secret-value",
+          "webhook_path": "/github/webhook/backend",
+          "allow_users": ["octocat"],
+          "react_to": ["issue_comment", "workflow_job"],
+          "include_pr_files": true
+        }
+      ]
     }
   }
 }
@@ -180,6 +197,24 @@ Telegram supports multiple named accounts under `channels.telegram.accounts`.
 | `bot_token` | Bot token (`xoxb-...`) |
 | `app_token` | App-level token (`xapp-...`) for Socket Mode |
 | `signing_secret` | Signing secret for Events API HMAC verification |
+
+**GitHub fields:**
+
+| Field | Description |
+|-------|-------------|
+| `auth.type` | Authentication type, currently `pat` |
+| `auth.token` | GitHub Personal Access Token used for API replies and PR file fetches |
+| `repos[].name` | Required canonical `owner/repo` identity for that webhook path |
+| `repos[].webhook_secret` | Shared secret used for GitHub HMAC verification |
+| `repos[].webhook_path` | Inbound webhook path; must be unique across configured repos |
+| `repos[].agent_name` | Optional named agent override |
+| `repos[].allow_users` | GitHub usernames allowed for user-generated or arbitrary-content events |
+| `repos[].react_to` | Event allowlist for that repo path; empty means accept all delivered events |
+| `repos[].include_pr_files` | Fetch changed file lists for supported PR/comment flows |
+
+GitHub hook files live under `~/.clawq/workspace/gh-hooks/`, and verified
+payload snapshots are written to `~/.clawq/workspace/tmp/github-deliveries/`.
+See the Channels page for a hook file example and event trust model details.
 
 ### security
 

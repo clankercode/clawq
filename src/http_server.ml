@@ -166,10 +166,20 @@ let is_github_webhook_path path = function
         (fun (r : Runtime_config.github_repo_config) -> r.webhook_path = path)
         gc.repos
 
+type github_repo_lookup =
+  | Missing_github_repo
+  | Ambiguous_github_repo
+  | Found_github_repo of Runtime_config.github_repo_config
+
 let lookup_github_repo path (gc : Runtime_config.github_config) =
-  List.find_opt
-    (fun (r : Runtime_config.github_repo_config) -> r.webhook_path = path)
-    gc.repos
+  match
+    List.filter
+      (fun (r : Runtime_config.github_repo_config) -> r.webhook_path = path)
+      gc.repos
+  with
+  | [] -> Missing_github_repo
+  | [ repo_config ] -> Found_github_repo repo_config
+  | _ -> Ambiguous_github_repo
 
 let sse_headers =
   Cohttp.Header.of_list
@@ -1197,10 +1207,21 @@ let handler ~session_manager ~require_pairing ~auth_token
             event_type_hdr (client_ip req));
       let* body_str = Cohttp_lwt.Body.to_string body in
       match lookup_github_repo path gc with
-      | None ->
+      | Missing_github_repo ->
           Cohttp_lwt_unix.Server.respond_string ~status:`Not_found
             ~headers:json_headers ~body:{|{"error":"not found"}|} ()
-      | Some repo_config -> (
+      | Ambiguous_github_repo ->
+          Logs.err (fun m ->
+              m
+                "Incoming webhook: github path=%s matched multiple repos; \
+                 webhook_path values must be unique"
+                path);
+          Cohttp_lwt_unix.Server.respond_string ~status:`Conflict
+            ~headers:json_headers
+            ~body:
+              {|{"error":"github webhook path is ambiguous; make webhook_path values unique"}|}
+            ()
+      | Found_github_repo repo_config -> (
           let event_type =
             match
               Cohttp.Header.get (Cohttp.Request.headers req) "x-github-event"

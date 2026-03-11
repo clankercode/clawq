@@ -63,6 +63,26 @@ let issue_comment_non_pr_json =
 let review_comment_json =
   {|{"action":"created","comment":{"id":284312630,"user":{"login":"Codertocat"},"body":"Maybe you should use more emoji.\n/clawq what do you think?","diff_hunk":"@@ -1 +1 @@\n-# Hello-World","path":"README.md","html_url":"https://github.com/Codertocat/Hello-World/pull/2#discussion_r284312630"},"pull_request":{"number":2,"title":"Update the README","body":"Simple change","state":"open","html_url":"https://github.com/Codertocat/Hello-World/pull/2","user":{"login":"Codertocat"},"base":{"ref":"master"},"head":{"ref":"changes"}},"repository":{"name":"Hello-World","owner":{"login":"Codertocat"}}}|}
 
+let workflow_job_failed_json =
+  {|{"action":"completed","workflow_job":{"id":77,"run_id":55,"name":"test","status":"completed","conclusion":"failure","head_branch":"main","head_sha":"abc123","html_url":"https://github.com/acme/backend/actions/runs/55/job/77"},"repository":{"name":"backend","owner":{"login":"acme"},"full_name":"acme/backend"},"sender":{"login":"github-actions[bot]"}}|}
+
+let push_json =
+  {|{"ref":"refs/heads/main","head_commit":{"id":"abc123","message":"user supplied push text"},"repository":{"name":"backend","owner":{"login":"acme"},"full_name":"acme/backend"},"sender":{"login":"mallory"}}|}
+
+let with_temp_clawq_home f =
+  let base = Filename.temp_file "clawq-home" ".tmp" in
+  Sys.remove base;
+  Unix.mkdir base 0o755;
+  let previous = Sys.getenv_opt "CLAWQ_HOME" in
+  Unix.putenv "CLAWQ_HOME" base;
+  Fun.protect
+    ~finally:(fun () ->
+      (match previous with
+      | Some v -> Unix.putenv "CLAWQ_HOME" v
+      | None -> Unix.putenv "CLAWQ_HOME" "");
+      ignore (Sys.command (Printf.sprintf "rm -rf %S" base)))
+    (fun () -> f base)
+
 let parse_pr_opened () =
   match
     Github_webhook.parse_event ~event_type:"pull_request" ~body:pr_opened_json
@@ -332,6 +352,137 @@ let format_reply_empty_command () =
   let result = Github.format_reply ~command:"" ~response:"world" in
   Alcotest.(check string) "format empty" "world" result
 
+let github_hook_load_and_render () =
+  with_temp_clawq_home (fun home ->
+      let hooks_dir = Filename.concat home "workspace/gh-hooks" in
+      Workspace_scaffold.ensure_dir hooks_dir;
+      let hook_path = Filename.concat hooks_dir "workflow_job.md" in
+      let hook =
+        {|---
+name: investigate-failed-job
+repo: acme/backend
+event: workflow_job
+match:
+  status: completed
+  conclusion: failure
+---
+Investigate {{repo}} on {{branch}}.
+Payload file: {{payload_path}}
+Job JSON:
+{{json raw.workflow_job}}
+|}
+      in
+      let oc = open_out hook_path in
+      output_string oc hook;
+      close_out oc;
+      let prepared =
+        Github_hooks.prepare_event ~event_name:"workflow_job"
+          ~headers:(Cohttp.Header.of_list [ ("X-GitHub-Delivery", "abc-123") ])
+          ~raw_body:workflow_job_failed_json
+      in
+      let hooks =
+        Github_hooks.load_hooks ~repo_full_name:"acme/backend"
+          ~event_name:"workflow_job"
+      in
+      Alcotest.(check int) "loaded hooks" 1 (List.length hooks);
+      let hook = List.hd hooks in
+      match prepared.context_json with
+      | None -> Alcotest.fail "expected parsed context"
+      | Some context ->
+          Alcotest.(check bool)
+            "hook matches" true
+            (Github_hooks.hook_matches hook context);
+          let rendered =
+            Github_hooks.build_prompt ~hook ~prepared ~context_json:context
+          in
+          Alcotest.(check bool)
+            "includes repo" true
+            (String.contains rendered 'a');
+          Alcotest.(check bool)
+            "mentions payload file" true
+            (try
+               ignore
+                 (Str.search_forward
+                    (Str.regexp_string "Payload file:")
+                    rendered 0);
+               true
+             with Not_found -> false);
+          Alcotest.(check bool)
+            "includes inline raw payload" true
+            (try
+               ignore
+                 (Str.search_forward
+                    (Str.regexp_string "Raw Webhook Payload")
+                    rendered 0);
+               true
+             with Not_found -> false))
+
+let github_hook_snapshot_cleanup () =
+  with_temp_clawq_home (fun home ->
+      let deliveries_dir =
+        Filename.concat home "workspace/tmp/github-deliveries"
+      in
+      Workspace_scaffold.ensure_dir deliveries_dir;
+      let stale = Filename.concat deliveries_dir "stale.json" in
+      let oc = open_out stale in
+      output_string oc "{}";
+      close_out oc;
+      let old = Unix.gettimeofday () -. (49. *. 3600.) in
+      Unix.utimes stale old old;
+      let prepared =
+        Github_hooks.prepare_event ~event_name:"workflow_job"
+          ~headers:
+            (Cohttp.Header.of_list [ ("X-GitHub-Delivery", "cleanup-test") ])
+          ~raw_body:workflow_job_failed_json
+      in
+      Alcotest.(check bool) "stale deleted" false (Sys.file_exists stale);
+      Alcotest.(check bool)
+        "new snapshot exists" true
+        (match prepared.snapshot_path with
+        | Some path -> Sys.file_exists path
+        | None -> false))
+
+let github_hook_context_normalizes_pr_flag_and_workflow_fields () =
+  let pr_payload =
+    {|{"action":"opened","pull_request":{"number":42,"title":"Fix bug"},"repository":{"name":"backend","owner":{"login":"acme"},"full_name":"acme/backend"},"sender":{"login":"alice"}}|}
+  in
+  let prepared_pr =
+    Github_hooks.prepare_event ~event_name:"pull_request"
+      ~headers:(Cohttp.Header.of_list [ ("X-GitHub-Delivery", "pr-delivery") ])
+      ~raw_body:pr_payload
+  in
+  (match prepared_pr.context_json with
+  | Some context -> (
+      match Github_hooks.lookup_json_path context "is_pull_request" with
+      | Some (`Bool value) -> Alcotest.(check bool) "pr flag" true value
+      | _ -> Alcotest.fail "expected is_pull_request bool")
+  | None -> Alcotest.fail "expected PR context");
+  let prepared_workflow =
+    Github_hooks.prepare_event ~event_name:"workflow_job"
+      ~headers:
+        (Cohttp.Header.of_list [ ("X-GitHub-Delivery", "workflow-delivery") ])
+      ~raw_body:workflow_job_failed_json
+  in
+  match prepared_workflow.context_json with
+  | Some context -> (
+      (match Github_hooks.lookup_json_path context "workflow_run_id" with
+      | Some (`Int value) -> Alcotest.(check int) "workflow run id" 55 value
+      | _ -> Alcotest.fail "expected workflow_run_id int");
+      match Github_hooks.lookup_json_path context "title" with
+      | Some (`String value) ->
+          Alcotest.(check string) "workflow title" "test" value
+      | _ -> Alcotest.fail "expected workflow title")
+  | None -> Alcotest.fail "expected workflow context"
+
+let github_hook_push_events_require_allowlist () =
+  let prepared =
+    Github_hooks.prepare_event ~event_name:"push"
+      ~headers:
+        (Cohttp.Header.of_list [ ("X-GitHub-Delivery", "push-delivery") ])
+      ~raw_body:push_json
+  in
+  Alcotest.(check bool) "push is gated" true prepared.is_user_generated
+
 let config_github_roundtrip () =
   let json =
     Yojson.Safe.from_string
@@ -477,6 +628,18 @@ let format_suite =
     Alcotest.test_case "empty command" `Quick format_reply_empty_command;
   ]
 
+let hooks_suite =
+  [
+    Alcotest.test_case "load and render workflow hook" `Quick
+      github_hook_load_and_render;
+    Alcotest.test_case "cleanup stale delivery snapshots" `Quick
+      github_hook_snapshot_cleanup;
+    Alcotest.test_case "context normalizes PR and workflow fields" `Quick
+      github_hook_context_normalizes_pr_flag_and_workflow_fields;
+    Alcotest.test_case "push events require allowlist" `Quick
+      github_hook_push_events_require_allowlist;
+  ]
+
 let config_suite =
   [
     Alcotest.test_case "github config roundtrip" `Quick config_github_roundtrip;
@@ -497,6 +660,7 @@ let suites =
     ("github_webhook_extract", extract_suite);
     ("github_session_key", session_key_suite);
     ("github_format", format_suite);
+    ("github_hooks", hooks_suite);
     ("github_config", config_suite);
     ("cf_tunnel", tunnel_suite);
   ]

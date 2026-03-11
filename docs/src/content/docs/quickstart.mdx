@@ -14,7 +14,7 @@ The quickest path from zero to a running clawq instance takes about five minutes
 - **opam** -- the OCaml package manager
 - **libsqlite3-dev** (Debian/Ubuntu) or equivalent for your distribution
 - **An LLM API key** from OpenRouter, OpenAI, or any OpenAI-compatible provider
-- **Optional channel credentials** -- Telegram bot token (from @BotFather), Discord bot token, or Slack app token if you want chat integrations beyond the browser UI
+- **Optional channel credentials** -- Telegram bot token (from @BotFather), Discord bot token, Slack app token, or a GitHub PAT plus webhook secret if you want channel integrations beyond the browser UI
 
 ## 1. Bootstrap and Build
 
@@ -115,6 +115,7 @@ Minimal working configuration:
 - `base_url`: Use `https://api.openai.com/v1` for OpenAI directly, or any compatible endpoint.
 - `default_model`: Default model for this provider. Can be overridden per-request.
 - `default_provider`: Selects which provider name is used by default.
+- For GitHub webhook automation, add `channels.github` config plus a public webhook URL; see the Channels page for the full setup and hook file format.
 
 ## 4. Validate
 

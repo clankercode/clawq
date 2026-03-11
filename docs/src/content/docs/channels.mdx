@@ -8,9 +8,9 @@ order: 3
 import Callout from '../../components/Callout.astro';
 
 Clawq communicates with the outside world through *channels* --- modular
-communication backends that implement a common interface. Three channels ship
-with full implementations today (Telegram, Discord, Slack), and the architecture
-is designed so additional channels can be added with minimal ceremony.
+communication backends that implement a common interface. Several integrations
+ship today, including chat channels such as Telegram, Discord, and Slack plus
+webhook-driven integrations such as GitHub and MS Teams.
 
 <Callout type="tip" title="Interrupting a running turn">
   In chat channels, prefix a message with <code>!</code> to interrupt the
@@ -47,6 +47,7 @@ monitors them for failures.
 | **Discord** | Gateway v10 (WebSocket) | WSS + REST | Implemented |
 | **Slack** | Socket Mode | WSS | Implemented |
 | **Slack** (Events API) | HTTP push | HTTPS | Implemented |
+| **GitHub** | Webhooks + API replies | HTTPS | Implemented |
 | **Web** | HTTP gateway | REST | Implemented |
 | **CLI** | stdin/stdout | Local | Implemented |
 | **MS Teams** | Bot Framework webhook | HTTPS | Implemented |
@@ -245,6 +246,87 @@ timestamp window.
   cryptographically verified.
 - **Envelope acknowledgement** (Socket Mode) --- ensures Slack does not
   redeliver events.
+
+## GitHub
+
+GitHub uses per-repo webhook endpoints on the clawq gateway. It supports both
+the original `/clawq` comment flow for pull requests and a generalized hook
+system for broader automation such as failed CI investigation.
+
+### Configuration
+
+```json
+{
+  "channels": {
+    "github": {
+      "auth": {
+        "type": "pat",
+        "token": "ghp_..."
+      },
+      "repos": [
+        {
+          "name": "acme/backend",
+          "webhook_secret": "super-secret-value",
+          "webhook_path": "/github/webhook/backend",
+          "allow_users": ["octocat"],
+          "react_to": ["issue_comment", "pull_request", "workflow_job"],
+          "include_pr_files": true
+        }
+      ]
+    }
+  }
+}
+```
+
+### Hook Files
+
+Generalized automations are loaded from `~/.clawq/workspace/gh-hooks/`.
+
+```md
+---
+name: investigate-ci-failure
+repo: acme/backend
+event: workflow_job
+match:
+  status: completed
+  conclusion: failure
+---
+Investigate the failed CI job for {{repo}} on {{branch}}.
+Payload snapshot: {{payload_path}}
+```
+
+Verified webhook deliveries are snapshotted under
+`~/.clawq/workspace/tmp/github-deliveries/`, and old snapshots are cleaned up
+opportunistically when new deliveries arrive.
+
+### Setup
+
+1. Create a GitHub Personal Access Token and store it under
+   `channels.github.auth.token`.
+2. Configure one repo entry per GitHub repository with a unique
+   `webhook_path`, a `webhook_secret`, and the canonical `owner/repo` in
+   `name`.
+3. In GitHub, create a webhook pointing at your public clawq URL plus that
+   path, for example `https://your-host/github/webhook/backend`.
+4. Subscribe the webhook to the events you want clawq to process.
+5. Add any hook files to `~/.clawq/workspace/gh-hooks/` and start
+   `clawq agent`.
+
+### Key Features
+
+- **Signature verification** --- deliveries must pass GitHub HMAC validation
+  with the configured `webhook_secret`.
+- **Repo identity enforcement** --- the payload repo must match the configured
+  `channels.github.repos[].name` for that webhook path.
+- **Unique webhook paths** --- duplicate `webhook_path` bindings are rejected
+  as ambiguous.
+- **Legacy `/clawq` support** --- PR comments, review comments, and supported
+  PR events can still trigger conversational agent replies.
+- **File-backed hooks** --- non-comment events such as `workflow_job` can route
+  prompts into sessions using repo-scoped markdown hook files.
+- **Trust gating** --- `allow_users` gates arbitrary-content events such as
+  `push`; only a small system-event subset (`workflow_job`, `workflow_run`,
+  `check_run`, `check_suite`, `ping`) bypasses that allowlist.
 
 ## MS Teams
 

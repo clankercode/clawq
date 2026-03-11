@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-11T15:50:05Z"
+claimed_by: cli-user
+completed_at: "2026-03-11T17:09:28Z"
 complexity: medium
 depends_on: []
+duration_minutes: 79.39322793331667
 estimate_hours: 1
 id: B381
 priority: high
-status: pending
+started_at: "2026-03-11T15:50:05Z"
+status: done
 tags: []
 title: Enhance github integraiton and responses, eg to workflow_job so that it can investigate failed runs (no point notifying on successful runs, but we can put that in a github section of the config if we want.)
 ---

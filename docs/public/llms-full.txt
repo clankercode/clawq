@@ -522,7 +522,7 @@ current queue state for a given session; `session list` appends
 | WhatsApp | Cloud API webhook at /whatsapp/webhook | Implemented |
 | LINE | Messaging API webhook at /line/webhook | Implemented |
 | Lark/Feishu | Bot webhook at /lark/webhook | Implemented |
-| GitHub | Webhook at configurable paths per repo | Implemented |
+| GitHub | Webhook at configurable paths per repo, plus hook files under `~/.clawq/workspace/gh-hooks/` | Implemented |
 | Mattermost | API polling / HTTP API integration | Implemented |
 | Signal | signal-cli-rest-api compatible polling/HTTP integration | Implemented |
 | Matrix | Matrix client sync/send integration | Implemented |
@@ -609,7 +609,7 @@ The daemon serves the web UI and JSON/SSE gateway at `http://host:port/`. Main r
 | `/line/webhook` | POST | LINE webhook |
 | `/lark/webhook` | POST | Lark webhook |
 | `/teams/webhook` (configurable) | POST | MS Teams Bot Framework webhook |
-| GitHub repo paths | POST | GitHub webhooks (paths configured per repo) |
+| GitHub repo paths | POST | GitHub webhooks (paths configured per repo); hook payload snapshots written under `~/.clawq/workspace/tmp/github-deliveries/` |
 | `web_channel.path_prefix...` | GET/POST/etc. | Optional WebChannel routes when `web_channel.enabled = true` |
 
 Gateway auth behavior:
@@ -622,6 +622,11 @@ Gateway auth behavior:
 - `POST /pair` exchanges a valid code for a bearer token.
 - `POST /pair/regenerate` requires existing auth and is unavailable if pairing is disabled.
 - Slack, LINE, Lark, GitHub, WhatsApp, and Teams webhook routes have their own signature/verification handling in addition to normal gateway auth decisions.
+- GitHub webhook delivery also enforces that the payload repo identity matches the configured `channels.github.repos[].name` for that webhook path.
+- GitHub rejects ambiguous webhook path bindings with `409`, so `channels.github.repos[].webhook_path` values must be unique.
+- GitHub also supports file-backed event hooks from `~/.clawq/workspace/gh-hooks/`; hooks require explicit `repo` and `event` frontmatter and currently use exact-match `match:` fields.
+- GitHub hook payload snapshots are written on every verified webhook delivery, cleaned up opportunistically on new deliveries, and exposed to the agent via `payload_path` plus inline fallback JSON in the rendered prompt.
+- `channels.github.repos[].allow_users` gates all GitHub webhook events except a small explicit system-event subset (`workflow_job`, `workflow_run`, `check_run`, `check_suite`, `ping`), so events with arbitrary user-controlled text such as `push` remain allowlisted.
 - GET {teams.webhook_path} returns a JSON status document when Teams is configured: {"status":"ready","channel":"teams","webhook_path":"...","app_id_prefix":"..."}
 - Unknown routes return `404 {"error":"not found"}`.
 

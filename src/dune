@@ -143,6 +143,7 @@
   ws_client
   discord_gateway
   slack_socket
+  github_hooks
   github
   github_webhook
   github_api
