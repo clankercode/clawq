@@ -380,3 +380,4 @@ bugs:
     - file: B379-add-environment-variable-to-co.todo
     - file: B380-when-a-connector-is-missing-an.todo
     - file: B381-enhance-github-integraiton-and.todo
+    - file: B382-website-formatting-issues.todo
