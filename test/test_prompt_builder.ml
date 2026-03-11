@@ -577,6 +577,40 @@ let test_background_tasks_appear_after_context_usage () =
       Alcotest.(check bool)
         "background tasks before task tree" true (bg_pos < tree_pos))
 
+let test_runtime_context_includes_directory_contents () =
+  with_temp_workspace (fun workspace ->
+      write_file (Filename.concat workspace "README.md") "hello";
+      Unix.mkdir (Filename.concat workspace "src") 0o755;
+      let prompt_cfg =
+        {
+          Runtime_config.default.prompt with
+          dynamic_enabled = true;
+          include_runtime_section = true;
+          include_datetime_section = false;
+        }
+      in
+      let cfg =
+        { Runtime_config.default with workspace; prompt = prompt_cfg }
+      in
+      let cwd_before = Sys.getcwd () in
+      Fun.protect
+        (fun () ->
+          Sys.chdir workspace;
+          let runtime =
+            Prompt_builder.build_runtime_context ~config:cfg ()
+            |> Option.value ~default:""
+          in
+          Alcotest.(check bool)
+            "includes directory contents label" true
+            (contains runtime "- Directory contents:");
+          Alcotest.(check bool)
+            "includes README.md file" true
+            (contains runtime "README.md");
+          Alcotest.(check bool)
+            "includes src/ directory with trailing slash" true
+            (contains runtime "src/"))
+        ~finally:(fun () -> Sys.chdir cwd_before))
+
 let suite =
   [
     Alcotest.test_case "dynamic prompt disabled uses base prompt" `Quick
@@ -611,4 +645,6 @@ let suite =
       test_tools_block_sorted_alphabetically;
     Alcotest.test_case "background tasks appear after context usage" `Quick
       test_background_tasks_appear_after_context_usage;
+    Alcotest.test_case "runtime context includes directory contents" `Quick
+      test_runtime_context_includes_directory_contents;
   ]

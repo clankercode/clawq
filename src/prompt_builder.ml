@@ -82,6 +82,26 @@ let detected_os_label =
     | s when String.trim s <> "" -> s
     | _ -> Sys.os_type)
 
+let list_cwd_entries () =
+  let cwd = Sys.getcwd () in
+  try
+    let entries = Sys.readdir cwd |> Array.to_list in
+    let entries = List.sort String.compare entries in
+    let classify name =
+      let path = Filename.concat cwd name in
+      if try Sys.is_directory path with _ -> false then name ^ "/" else name
+    in
+    let classified = List.map classify entries in
+    let max_entries = 200 in
+    let len = List.length classified in
+    if len = 0 then "(empty directory)"
+    else if len <= max_entries then String.concat "  " classified
+    else
+      let taken = List.filteri (fun i _ -> i < max_entries) classified in
+      String.concat "  " taken
+      ^ Printf.sprintf "  ...(%d more)" (len - max_entries)
+  with _ -> "(unable to list)"
+
 type context_usage = {
   history_messages : int;
   estimated_history_tokens : int;
@@ -198,6 +218,7 @@ let build_runtime_context ~(config : Runtime_config.t) ?(force_full = false)
     end;
     if force_full || config.prompt.include_runtime_section then begin
       add ("- Current working directory: " ^ Sys.getcwd ());
+      add ("- Directory contents: " ^ list_cwd_entries ());
       add ("- Workspace root: " ^ Runtime_config.effective_workspace config);
       (match find_git_root_and_dir (Sys.getcwd ()) with
       | Some (repo_root, git_dir) -> (

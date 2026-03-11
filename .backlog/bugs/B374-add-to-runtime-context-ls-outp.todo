@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-11T06:15:38Z"
+claimed_by: cli-user
+completed_at: "2026-03-11T06:18:01Z"
 complexity: medium
 depends_on: []
+duration_minutes: 2.3960879651166667
 estimate_hours: 1
 id: B374
 priority: high
-status: pending
+started_at: "2026-03-11T06:15:38Z"
+status: done
 tags: []
 title: 'Add to runtime context: `ls .` output (files and directores in the cwd)'
 ---
