@@ -796,7 +796,7 @@ let ensure_session_typing_watcher ~(session_mgr : Session.t) ~key ~bot_token
               Lwt.return_unit));
       watcher
 
-let send_message_with_id ?(disable_notification = false) ?parse_mode ~bot_token
+let send_message_with_id ?(disable_notification = true) ?parse_mode ~bot_token
     ~chat_id ~text () =
   let open Lwt.Syntax in
   with_outbound_lock ~chat_id (fun () ->
@@ -852,7 +852,7 @@ let send_message_with_id ?(disable_notification = false) ?parse_mode ~bot_token
       | None -> ());
       Lwt.return msg_id)
 
-let send_message_with_keyboard ?(disable_notification = false) ?parse_mode
+let send_message_with_keyboard ?(disable_notification = true) ?parse_mode
     ~bot_token ~chat_id ~text ~buttons () =
   let open Lwt.Syntax in
   with_outbound_lock ~chat_id (fun () ->
@@ -1072,7 +1072,7 @@ let set_message_reaction ~bot_token ~chat_id ~message_id ~emoji () =
           status chat_id message_id);
   Lwt.return_unit
 
-let send_message ?(disable_notification = false) ?parse_mode ~bot_token ~chat_id
+let send_message ?(disable_notification = true) ?parse_mode ~bot_token ~chat_id
     ~text () =
   let open Lwt.Syntax in
   let mutex = get_outbound_mutex chat_id in
@@ -1100,7 +1100,7 @@ let send_message ?(disable_notification = false) ?parse_mode ~bot_token ~chat_id
         Lwt.return_unit
       else Lwt.return_unit)
 
-let send_chunked ?(disable_notification = false) ?parse_mode ~bot_token ~chat_id
+let send_chunked ?(disable_notification = true) ?parse_mode ~bot_token ~chat_id
     ~text () =
   let open Lwt.Syntax in
   Lwt_list.iter_s
@@ -1109,15 +1109,18 @@ let send_chunked ?(disable_notification = false) ?parse_mode ~bot_token ~chat_id
         ~text:chunk ())
     (chunk_text text)
 
-let send_chunked_html_with_fallback ~bot_token ~chat_id ~text () =
+let send_chunked_html_with_fallback ?(disable_notification = true) ~bot_token
+    ~chat_id ~text () =
   let open Lwt.Syntax in
   let chunks = chunk_text text in
   Lwt_list.iter_s
     (fun chunk ->
       Lwt.catch
         (fun () ->
-          send_message ~parse_mode:"HTML" ~bot_token ~chat_id ~text:chunk ())
-        (fun _exn -> send_message ~bot_token ~chat_id ~text:chunk ()))
+          send_message ~disable_notification ~parse_mode:"HTML" ~bot_token
+            ~chat_id ~text:chunk ())
+        (fun _exn ->
+          send_message ~disable_notification ~bot_token ~chat_id ~text:chunk ()))
     chunks
 
 type chunk_sender =
@@ -1133,7 +1136,8 @@ let send_silent_chunked (send_chunked : chunk_sender) ~bot_token ~chat_id ~text
     =
   send_chunked ~disable_notification:true ~bot_token ~chat_id ~text ()
 
-let send_poll_api ~bot_token ~chat_id ~question ~options ~allows_multiple () =
+let send_poll_api ?(disable_notification = true) ~bot_token ~chat_id ~question
+    ~options ~allows_multiple () =
   let open Lwt.Syntax in
   let uri = Printf.sprintf "%s%s/sendPoll" api_base bot_token in
   let body =
@@ -1145,6 +1149,7 @@ let send_poll_api ~bot_token ~chat_id ~question ~options ~allows_multiple () =
           `List (List.map (fun o -> `Assoc [ ("text", `String o) ]) options) );
         ("is_anonymous", `Bool false);
         ("allows_multiple_answers", `Bool allows_multiple);
+        ("disable_notification", `Bool disable_notification);
       ]
     |> Yojson.Safe.to_string
   in

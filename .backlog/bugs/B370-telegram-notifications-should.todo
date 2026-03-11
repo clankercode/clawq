@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-11T06:50:24Z"
+claimed_by: cli-user
+completed_at: "2026-03-11T06:55:00Z"
 complexity: medium
 depends_on: []
+duration_minutes: 4.61494001135
 estimate_hours: 1
 id: B370
 priority: high
-status: pending
+started_at: "2026-03-11T06:50:24Z"
+status: done
 tags: []
 title: Telegram notifications should default silent; only direct replies / explicit notify requests / blocking questions should alert
 ---

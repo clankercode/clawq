@@ -122,15 +122,16 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                     buttons
                 in
                 let* msg_id =
-                  send_message_with_keyboard ~bot_token ~chat_id:update.chat_id
-                    ~text ~buttons ()
+                  send_message_with_keyboard ~disable_notification:false
+                    ~bot_token ~chat_id:update.chat_id ~text ~buttons ()
                 in
                 refresh_typing ();
                 Lwt.return Rich_message.{ message_id = msg_id; callback_ids }
             | Rich_message.Poll { question; options; allows_multiple } ->
                 let* msg_id, poll_id =
-                  send_poll_api ~bot_token ~chat_id:update.chat_id ~question
-                    ~options ~allows_multiple ()
+                  send_poll_api ~disable_notification:false ~bot_token
+                    ~chat_id:update.chat_id ~question ~options ~allows_multiple
+                    ()
                 in
                 Hashtbl.replace poll_routing poll_id
                   (key, update.chat_id, bot_token, options, Unix.gettimeofday ());
@@ -362,8 +363,8 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
             let tg_prompt = telegram_delegate_prompt ~user_prompt:prompt in
             Session.delegate_turn session_mgr ~prompt:tg_prompt
               ~send_reply:(fun text ->
-                send_chunked_html_with_fallback ~bot_token
-                  ~chat_id:update.chat_id ~text ());
+                send_chunked_html_with_fallback ~disable_notification:false
+                  ~bot_token ~chat_id:update.chat_id ~text ());
             Lwt.return_unit
         | Tools ->
             let text =
@@ -569,8 +570,8 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
             let tg_prompt = telegram_delegate_prompt ~user_prompt:prompt in
             Session.fork_and_run session_mgr ~parent_key:key ~prompt:tg_prompt
               ~send_reply:(fun text ->
-                send_chunked_html_with_fallback ~bot_token
-                  ~chat_id:update.chat_id ~text ());
+                send_chunked_html_with_fallback ~disable_notification:false
+                  ~bot_token ~chat_id:update.chat_id ~text ());
             Lwt.return_unit
         | NotACommand -> (
             let msg = user_text in
@@ -1005,8 +1006,9 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                                 in
                                 let* () =
                                   let* () =
-                                    send_chunked ~parse_mode:"MarkdownV2"
-                                      ~bot_token ~chat_id:update.chat_id
+                                    send_chunked ~disable_notification:false
+                                      ~parse_mode:"MarkdownV2" ~bot_token
+                                      ~chat_id:update.chat_id
                                       ~text:
                                         (Telegram_format.markdown_to_mdv2
                                            response)
@@ -1096,7 +1098,8 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                       else Lwt.return_unit
                     in
                     let* () =
-                      send_chunked ~parse_mode:"MarkdownV2" ~bot_token
+                      send_chunked ~disable_notification:false
+                        ~parse_mode:"MarkdownV2" ~bot_token
                         ~chat_id:update.chat_id
                         ~text:(Telegram_format.markdown_to_mdv2 response)
                         ()
@@ -1118,7 +1121,8 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                     | None -> Lwt.return_unit
                   in
                   let* () =
-                    send_message ~bot_token ~chat_id:update.chat_id
+                    send_message ~disable_notification:false ~bot_token
+                      ~chat_id:update.chat_id
                       ~text:
                         (Printf.sprintf
                            "Sorry, an error occurred processing your message: \
@@ -1357,8 +1361,9 @@ let poll_account ~bot_token ~(account : Runtime_config.telegram_account) ~name
                                       (Session.is_queued_message_response
                                          response)
                                   then
-                                    send_chunked ~parse_mode:"MarkdownV2"
-                                      ~bot_token ~chat_id:cb.cb_chat_id
+                                    send_chunked ~disable_notification:false
+                                      ~parse_mode:"MarkdownV2" ~bot_token
+                                      ~chat_id:cb.cb_chat_id
                                       ~text:
                                         (Telegram_format.markdown_to_mdv2
                                            response)
@@ -1419,8 +1424,9 @@ let poll_account ~bot_token ~(account : Runtime_config.telegram_account) ~name
                           in
                           if not (Session.is_queued_message_response response)
                           then
-                            send_chunked ~bot_token:poll_bot_token ~chat_id
-                              ~text:response ()
+                            send_chunked ~disable_notification:false
+                              ~bot_token:poll_bot_token ~chat_id ~text:response
+                              ()
                           else Lwt.return_unit)
                         (fun exn ->
                           Logs.err (fun m ->
