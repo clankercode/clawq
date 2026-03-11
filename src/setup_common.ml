@@ -102,11 +102,12 @@ let check_tty () =
        Please run it directly in a terminal (not piped or redirected)."
 
 let prompt_string ~prompt ?default () =
-  (match default with
-  | Some d -> Printf.printf "  %s %s[%s]%s: " (cyan ">") prompt (dim d) ""
-  | None -> Printf.printf "  %s %s: " (cyan ">") prompt);
-  flush stdout;
-  let line = input_line stdin in
+  let p =
+    match default with
+    | Some d -> Printf.sprintf "  %s %s[%s]%s: " (cyan ">") prompt (dim d) ""
+    | None -> Printf.sprintf "  %s %s: " (cyan ">") prompt
+  in
+  let line = Tui_input.read_line_clean p in
   let trimmed = String.trim line in
   match (trimmed, default) with
   | "", Some d -> d
@@ -120,9 +121,8 @@ let prompt_yn ~prompt ~default () =
   let hint =
     if default then green "Y" ^ "/" ^ dim "n" else dim "y" ^ "/" ^ green "N"
   in
-  Printf.printf "  %s %s [%s]: " (cyan "?") prompt hint;
-  flush stdout;
-  let line = String.trim (input_line stdin) in
+  let p = Printf.sprintf "  %s %s [%s]: " (cyan "?") prompt hint in
+  let line = String.trim (Tui_input.read_line_clean p) in
   match String.lowercase_ascii line with
   | "y" | "yes" -> true
   | "n" | "no" -> false
@@ -141,9 +141,8 @@ let prompt_menu ~title ~options ~shortcut_exit () =
   Printf.printf "\n";
   Printf.printf "    %s  %s\n" (dim shortcut_exit) (dim "Back / Done");
   Printf.printf "\n";
-  Printf.printf "  %s Choice: " (cyan ">");
-  flush stdout;
-  String.trim (input_line stdin)
+  let p = Printf.sprintf "  %s Choice: " (cyan ">") in
+  String.trim (Tui_input.read_line_clean p)
 
 (* ── Data helpers ────────────────────────────────────────────────── *)
 
@@ -240,6 +239,5 @@ let print_kv ?(indent = 4) key value =
   Printf.printf "%s%s  %s\n" pad (dim (pad_right (key ^ ":") 20)) value
 
 let press_enter_to_continue () =
-  Printf.printf "\n  %s" (dim "Press Enter to continue...");
-  flush stdout;
-  ignore (try input_line stdin with End_of_file -> "")
+  let p = Printf.sprintf "\n  %s" (dim "Press Enter to continue...") in
+  ignore (Tui_input.read_line_clean p)

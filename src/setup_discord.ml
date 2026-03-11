@@ -153,9 +153,10 @@ let prompt_toggle_intents ~current_intents =
         marker name)
     intent_flags;
   Printf.printf "\n";
-  Printf.printf "  %s Toggle by number (or Enter to finish): " (cyan ">");
-  flush stdout;
-  let line = String.trim (input_line stdin) in
+  let p =
+    Printf.sprintf "  %s Toggle by number (or Enter to finish): " (cyan ">")
+  in
+  let line = String.trim (Tui_input.read_line_clean p) in
   match int_of_string_opt line with
   | Some idx when idx >= 1 && idx <= List.length intent_flags ->
       let _, bit = List.nth intent_flags (idx - 1) in

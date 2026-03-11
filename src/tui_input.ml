@@ -58,6 +58,75 @@ let read_secret prompt =
           if s = "" then Error "No value entered." else Ok s)
   end
 
+let read_line_clean prompt =
+  if not (Unix.isatty Unix.stdin) then input_line stdin
+  else begin
+    Printf.printf "%s" prompt;
+    flush stdout;
+    let attr = Unix.tcgetattr Unix.stdin in
+    let raw =
+      {
+        attr with
+        Unix.c_echo = false;
+        c_icanon = false;
+        c_vmin = 1;
+        c_vtime = 0;
+      }
+    in
+    Unix.tcsetattr Unix.stdin Unix.TCSAFLUSH raw;
+    let restore () =
+      Unix.tcsetattr Unix.stdin Unix.TCSAFLUSH attr;
+      Printf.printf "\n";
+      flush stdout
+    in
+    let buf = Buffer.create 64 in
+    let byte = Bytes.create 1 in
+    Fun.protect ~finally:restore (fun () ->
+        let read_byte () =
+          let _ = Unix.read Unix.stdin byte 0 1 in
+          Bytes.get byte 0
+        in
+        let consume_escape () =
+          (* After ESC, read next byte *)
+          let c2 = read_byte () in
+          if c2 = '[' then begin
+            (* CSI sequence: read until final byte (0x40-0x7E) *)
+            let rec eat () =
+              let c3 = read_byte () in
+              let code = Char.code c3 in
+              if code >= 0x40 && code <= 0x7E then () else eat ()
+            in
+            eat ()
+          end
+          (* else: ESC followed by non-[, just discard both *)
+        in
+        (try
+           while true do
+             let c = read_byte () in
+             if c = '\n' || c = '\r' then raise Exit
+             else if c = '\027' then consume_escape ()
+             else if (c = '\127' || c = '\b') && Buffer.length buf > 0 then begin
+               let len = Buffer.length buf in
+               let contents = Buffer.contents buf in
+               Buffer.clear buf;
+               Buffer.add_string buf (String.sub contents 0 (len - 1));
+               Printf.printf "\b \b";
+               flush stdout
+             end
+             else if c = '\003' then begin
+               (* Ctrl-C *)
+               raise Exit
+             end
+             else if c >= ' ' then begin
+               Buffer.add_char buf c;
+               Printf.printf "%c" c;
+               flush stdout
+             end
+           done
+         with Exit -> ());
+        Buffer.contents buf)
+  end
+
 let redact s =
   let len = String.length s in
   if len <= 8 then String.make len '*'

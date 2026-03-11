@@ -421,9 +421,8 @@ let run () =
             Setup_common.print_success (Printf.sprintf "Added %s" repo.name);
             Setup_common.press_enter_to_continue ()
         | "e" when n_repos > 0 -> (
-            Printf.printf "\n  Which repo to edit? (1-%d): " n_repos;
-            flush stdout;
-            let idx_str = String.trim (input_line stdin) in
+            let p = Printf.sprintf "\n  Which repo to edit? (1-%d): " n_repos in
+            let idx_str = String.trim (Tui_input.read_line_clean p) in
             match int_of_string_opt idx_str with
             | Some idx when idx >= 1 && idx <= n_repos ->
                 let existing_repo = List.nth !repos (idx - 1) in
@@ -443,9 +442,10 @@ let run () =
                 Setup_common.print_warning "Invalid selection.";
                 Setup_common.press_enter_to_continue ())
         | "r" when n_repos > 0 -> (
-            Printf.printf "\n  Which repo to remove? (1-%d): " n_repos;
-            flush stdout;
-            let idx_str = String.trim (input_line stdin) in
+            let p =
+              Printf.sprintf "\n  Which repo to remove? (1-%d): " n_repos
+            in
+            let idx_str = String.trim (Tui_input.read_line_clean p) in
             match int_of_string_opt idx_str with
             | Some idx when idx >= 1 && idx <= n_repos ->
                 let name = (List.nth !repos (idx - 1)).name in
@@ -464,9 +464,10 @@ let run () =
                 Setup_common.print_warning "Invalid selection.";
                 Setup_common.press_enter_to_continue ())
         | "i" when n_repos > 0 -> (
-            Printf.printf "\n  Show instructions for repo (1-%d): " n_repos;
-            flush stdout;
-            let idx_str = String.trim (input_line stdin) in
+            let p =
+              Printf.sprintf "\n  Show instructions for repo (1-%d): " n_repos
+            in
+            let idx_str = String.trim (Tui_input.read_line_clean p) in
             match int_of_string_opt idx_str with
             | Some idx when idx >= 1 && idx <= n_repos ->
                 let r = List.nth !repos (idx - 1) in

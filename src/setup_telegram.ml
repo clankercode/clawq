@@ -306,9 +306,10 @@ let run () =
               (Printf.sprintf "Added account '%s'" name);
             Setup_common.press_enter_to_continue ()
         | "e" when n_accounts > 0 -> (
-            Printf.printf "\n  Which account to edit? (1-%d): " n_accounts;
-            flush stdout;
-            let idx_str = String.trim (input_line stdin) in
+            let p =
+              Printf.sprintf "\n  Which account to edit? (1-%d): " n_accounts
+            in
+            let idx_str = String.trim (Tui_input.read_line_clean p) in
             match int_of_string_opt idx_str with
             | Some idx when idx >= 1 && idx <= n_accounts ->
                 let existing_pair = List.nth !accounts (idx - 1) in
@@ -331,9 +332,10 @@ let run () =
                 Setup_common.print_warning "Invalid selection.";
                 Setup_common.press_enter_to_continue ())
         | "r" when n_accounts > 0 -> (
-            Printf.printf "\n  Which account to remove? (1-%d): " n_accounts;
-            flush stdout;
-            let idx_str = String.trim (input_line stdin) in
+            let p =
+              Printf.sprintf "\n  Which account to remove? (1-%d): " n_accounts
+            in
+            let idx_str = String.trim (Tui_input.read_line_clean p) in
             match int_of_string_opt idx_str with
             | Some idx when idx >= 1 && idx <= n_accounts ->
                 let name, _ = List.nth !accounts (idx - 1) in
