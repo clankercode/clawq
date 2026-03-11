@@ -1010,7 +1010,9 @@ let build_delegate_prompt ~goal =
       goal;
       "";
       "Execution contract:";
-      "- Work only inside this directory.";
+      "- Work only inside this directory/worktree.";
+      "- Do not inspect or modify the original source repo path directly; use \
+       only the files available in the current worktree.";
       "- Make the smallest focused change that completes the task well.";
       "- Run relevant verification when practical and mention what you ran.";
       "- Summarize the changes, results, and any follow-up concerns at the end.";
