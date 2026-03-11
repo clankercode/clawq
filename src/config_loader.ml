@@ -1535,6 +1535,16 @@ let parse_config ?(resolve_secrets = true) json =
     observer;
     summarizer;
     log;
+    interactive =
+      (try
+         let i = json |> member "interactive" in
+         let enable_question_notes =
+           try i |> member "enable_question_notes" |> to_bool
+           with _ ->
+             Runtime_config.default_interactive_config.enable_question_notes
+         in
+         ({ enable_question_notes } : Runtime_config.interactive_config)
+       with _ -> Runtime_config.default_interactive_config);
   }
 
 let rec merge_json (original : Yojson.Safe.t) (complete : Yojson.Safe.t) :

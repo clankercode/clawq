@@ -57,6 +57,7 @@ type t = {
   mutable special_command_handler : special_command_handler option;
   observer_last_checked : (string, int) Hashtbl.t;
       (** Maps session_key -> history length at last observer check *)
+  pending_questions : (string, string Lwt.u) Hashtbl.t;
 }
 
 type drain_progress = {
@@ -221,6 +222,7 @@ let create ~config ?tool_registry ?sandbox ?(landlock_enabled = false) ?db () =
     continuation_checks = Hashtbl.create 16;
     special_command_handler = None;
     observer_last_checked = Hashtbl.create 8;
+    pending_questions = Hashtbl.create 8;
   }
 
 let is_draining mgr = mgr.draining
@@ -313,68 +315,102 @@ let queueable_channel_key key =
   | Some _ -> true
   | None -> false
 
+let question_cancelled_sentinel = "__clawq_question_cancelled__"
+
+let register_pending_question mgr ~key =
+  let promise, resolver = Lwt.wait () in
+  Hashtbl.replace mgr.pending_questions key resolver;
+  (promise, resolver)
+
+let cancel_pending_question mgr ~key =
+  match Hashtbl.find_opt mgr.pending_questions key with
+  | Some resolver ->
+      Hashtbl.remove mgr.pending_questions key;
+      Lwt.wakeup_later resolver question_cancelled_sentinel
+  | None -> ()
+
+let has_pending_question mgr ~key = Hashtbl.mem mgr.pending_questions key
+
 let enqueue_message_if_busy mgr ~key queued_message =
   Lwt_mutex.with_lock mgr.sessions_lock (fun () ->
-      match Hashtbl.find_opt mgr.sessions key with
-      | Some (_, mutex, interrupt)
-        when Lwt_mutex.is_locked mutex && queueable_channel_key key
-             && Hashtbl.mem mgr.channel_notifiers key ->
-          let existing =
-            match Hashtbl.find_opt mgr.queued_messages key with
-            | Some msgs -> msgs
-            | None -> []
-          in
-          let inbound_queue_id =
-            match mgr.db with
-            | Some db -> (
-                let is_bang =
-                  String.length queued_message.message > 0
-                  && queued_message.message.[0] = '!'
-                in
-                let payload_json =
-                  Yojson.Safe.to_string
-                    (`Assoc
-                       [
-                         ("message", `String queued_message.message);
-                         ("bang", `Bool is_bang);
-                       ])
-                in
-                try
-                  Some
-                    (Memory.queue_enqueue ~db ~session_key:key ~source:"live"
-                       ~payload_json)
-                with exn ->
-                  Logs.warn (fun m ->
-                      m "[%s] Failed to persist queued message to SQLite: %s"
-                        key (Printexc.to_string exn));
-                  None)
-            | None -> None
-          in
-          let msg = { queued_message with inbound_queue_id } in
-          Hashtbl.replace mgr.queued_messages key (existing @ [ msg ]);
-          Logs.info (fun m ->
-              m "[%s] Queued inbound message for busy session (queue depth: %d)"
-                key
-                (List.length existing + 1));
-          (* NOTE: queued_message_interrupt_token does not interrupt the
-             normal agent loop (agent.ml checks it but continues looping).
-             Its effects: (1) inject_messages picks up queued messages
-             between tool-call batches when wired by run_locked_turn, and
-             (2) restart-resume turns remap it to a real stop signal in
-             daemon_util.ml:restart_resume_interrupt_check. *)
-          if !interrupt = None then
-            interrupt := Some Agent.queued_message_interrupt_token;
-          (match Hashtbl.find_opt mgr.interrupt_finalizers key with
-          | Some cb ->
-              Lwt.async (fun () ->
-                  Lwt.catch cb (fun exn ->
-                      Logs.warn (fun m ->
-                          m "[%s] interrupt finalizer error: %s" key
-                            (Printexc.to_string exn));
-                      Lwt.return_unit))
-          | None -> ());
-          Lwt.return_true
-      | _ -> Lwt.return_false)
+      let is_bang =
+        String.length queued_message.message > 0
+        && queued_message.message.[0] = '!'
+      in
+      (* If a pending question is waiting, intercept the reply *)
+      let consumed_by_question =
+        match Hashtbl.find_opt mgr.pending_questions key with
+        | Some resolver when not is_bang ->
+            Hashtbl.remove mgr.pending_questions key;
+            Lwt.wakeup_later resolver queued_message.message;
+            true
+        | Some _ when is_bang ->
+            (* Bang cancels the pending question AND falls through to set
+               interrupt token via normal queuing path *)
+            cancel_pending_question mgr ~key;
+            false
+        | _ -> false
+      in
+      if consumed_by_question then Lwt.return_true
+      else
+        match Hashtbl.find_opt mgr.sessions key with
+        | Some (_, mutex, interrupt)
+          when Lwt_mutex.is_locked mutex && queueable_channel_key key
+               && Hashtbl.mem mgr.channel_notifiers key ->
+            let existing =
+              match Hashtbl.find_opt mgr.queued_messages key with
+              | Some msgs -> msgs
+              | None -> []
+            in
+            let inbound_queue_id =
+              match mgr.db with
+              | Some db -> (
+                  let payload_json =
+                    Yojson.Safe.to_string
+                      (`Assoc
+                         [
+                           ("message", `String queued_message.message);
+                           ("bang", `Bool is_bang);
+                         ])
+                  in
+                  try
+                    Some
+                      (Memory.queue_enqueue ~db ~session_key:key ~source:"live"
+                         ~payload_json)
+                  with exn ->
+                    Logs.warn (fun m ->
+                        m "[%s] Failed to persist queued message to SQLite: %s"
+                          key (Printexc.to_string exn));
+                    None)
+              | None -> None
+            in
+            let msg = { queued_message with inbound_queue_id } in
+            Hashtbl.replace mgr.queued_messages key (existing @ [ msg ]);
+            Logs.info (fun m ->
+                m
+                  "[%s] Queued inbound message for busy session (queue depth: \
+                   %d)"
+                  key
+                  (List.length existing + 1));
+            (* NOTE: queued_message_interrupt_token does not interrupt the
+               normal agent loop (agent.ml checks it but continues looping).
+               Its effects: (1) inject_messages picks up queued messages
+               between tool-call batches when wired by run_locked_turn, and
+               (2) restart-resume turns remap it to a real stop signal in
+               daemon_util.ml:restart_resume_interrupt_check. *)
+            if !interrupt = None then
+              interrupt := Some Agent.queued_message_interrupt_token;
+            (match Hashtbl.find_opt mgr.interrupt_finalizers key with
+            | Some cb ->
+                Lwt.async (fun () ->
+                    Lwt.catch cb (fun exn ->
+                        Logs.warn (fun m ->
+                            m "[%s] interrupt finalizer error: %s" key
+                              (Printexc.to_string exn));
+                        Lwt.return_unit))
+            | None -> ());
+            Lwt.return_true
+        | _ -> Lwt.return_false)
 
 let take_next_queued_message mgr ~key =
   match Hashtbl.find_opt mgr.queued_messages key with

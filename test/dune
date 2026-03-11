@@ -105,6 +105,7 @@
   test_setup_tunnel
   test_setup_summarizer
   test_summarizer
+  test_ask_user_question
   test_log_rotation
   test_worktree_merge)
  (libraries

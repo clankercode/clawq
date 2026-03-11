@@ -1,4 +1,4 @@
-let schema_version = 14
+let schema_version = 15
 
 type session_activity = Active | Inactive | Any
 
@@ -245,12 +245,23 @@ let init_epoch_schema db =
      CASCADE\n\
     \   )"
 
+let init_pending_questions_schema db =
+  exec_exn db
+    "CREATE TABLE IF NOT EXISTS pending_questions (\n\
+    \     id INTEGER PRIMARY KEY AUTOINCREMENT,\n\
+    \     session_key TEXT NOT NULL UNIQUE,\n\
+    \     questions_json TEXT NOT NULL,\n\
+    \     question_index INTEGER NOT NULL DEFAULT 0,\n\
+    \     created_at TEXT NOT NULL DEFAULT (datetime('now'))\n\
+    \   )"
+
 let migrate_schema db current_version =
   match current_version with
   | 0 ->
       init_session_schema db;
       init_epoch_schema db;
       init_inbound_queue_schema db;
+      init_pending_questions_schema db;
       (try
          exec_exn db
            "ALTER TABLE task_tree ADD COLUMN deleted_at TEXT DEFAULT NULL"
@@ -393,6 +404,17 @@ let migrate_schema db current_version =
            "ALTER TABLE request_stats ADD COLUMN added_prompt_tokens INTEGER"
        with _ -> ());
       set_schema_version db schema_version
+  | 14 ->
+      init_session_schema db;
+      init_inbound_queue_schema db;
+      init_models_cache_schema db;
+      init_request_stats_schema db;
+      init_quota_cache_schema db;
+      init_postmortems_schema db;
+      init_model_discovery_state_schema db;
+      Summary_store.init_schema db;
+      init_pending_questions_schema db;
+      set_schema_version db schema_version
   | n when n = schema_version ->
       init_session_schema db;
       init_inbound_queue_schema db;
@@ -401,7 +423,8 @@ let migrate_schema db current_version =
       init_quota_cache_schema db;
       init_postmortems_schema db;
       init_model_discovery_state_schema db;
-      Summary_store.init_schema db
+      Summary_store.init_schema db;
+      init_pending_questions_schema db
   | n ->
       failwith
         (Printf.sprintf "DB uses future schema version %d (current=%d)" n
@@ -1903,3 +1926,56 @@ let update_postmortem_outcome ~db ~id ~outcome =
       ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT outcome));
       ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int id)));
       ignore (Sqlite3.step stmt))
+
+let pending_question_upsert ~db ~session_key ~questions_json ~question_index =
+  let sql =
+    "INSERT INTO pending_questions (session_key, questions_json, \
+     question_index) VALUES (?, ?, ?) ON CONFLICT(session_key) DO UPDATE SET \
+     questions_json = excluded.questions_json, question_index = \
+     excluded.question_index"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT session_key));
+      ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT questions_json));
+      ignore
+        (Sqlite3.bind stmt 3 (Sqlite3.Data.INT (Int64.of_int question_index)));
+      ignore (Sqlite3.step stmt))
+
+let pending_question_delete ~db ~session_key =
+  let sql = "DELETE FROM pending_questions WHERE session_key = ?" in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT session_key));
+      ignore (Sqlite3.step stmt))
+
+let pending_question_list_all ~db =
+  let sql =
+    "SELECT session_key, questions_json, question_index FROM pending_questions"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      let rows = ref [] in
+      while Sqlite3.step stmt = Sqlite3.Rc.ROW do
+        let session_key =
+          match Sqlite3.column stmt 0 with Sqlite3.Data.TEXT s -> s | _ -> ""
+        in
+        let questions_json =
+          match Sqlite3.column stmt 1 with
+          | Sqlite3.Data.TEXT s -> s
+          | _ -> "[]"
+        in
+        let question_index =
+          match Sqlite3.column stmt 2 with
+          | Sqlite3.Data.INT n -> Int64.to_int n
+          | _ -> 0
+        in
+        rows := (session_key, questions_json, question_index) :: !rows
+      done;
+      List.rev !rows)

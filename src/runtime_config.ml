@@ -383,6 +383,8 @@ type zai_mcp_config = {
   webfetch_enabled : bool;
 }
 
+type interactive_config = { enable_question_notes : bool }
+
 type observer_config = {
   enabled : bool;
   model : Pmodel.t;
@@ -436,9 +438,13 @@ type t = {
   observer : observer_config;
   summarizer : summarizer_config;
   log : log_config;
+  interactive : interactive_config;
 }
 
 let default_log_config : log_config = { max_size_mb = 10; max_files = 5 }
+
+let default_interactive_config : interactive_config =
+  { enable_question_notes = true }
 
 let default_observer_config : observer_config =
   {
@@ -636,6 +642,7 @@ let default =
     observer = default_observer_config;
     summarizer = default_summarizer_config;
     log = default_log_config;
+    interactive = default_interactive_config;
   }
 
 let is_key_set key =

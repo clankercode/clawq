@@ -1114,3 +1114,55 @@ let run_durable_replay_stage ?(now = Unix.gettimeofday)
   with_boot_stage_logging ~now ~log_message
     ~detail_of_result:boot_replay_summary_message "durable-replay" (fun () ->
       replay_durable_inbound_queue ?replay_turn ~session_manager ~config ())
+
+let replay_pending_questions ~(session_manager : Session.t)
+    ~(ask_fn :
+       session_key:string ->
+       questions:Tools_builtin.question_item list ->
+       Tools_builtin.question_result list Lwt.t) () =
+  match session_manager.Session.db with
+  | None -> ()
+  | Some db ->
+      let rows = Memory.pending_question_list_all ~db in
+      List.iter
+        (fun (session_key, questions_json, _idx) ->
+          match
+            Session.find_registered_notifier session_manager ~key:session_key
+          with
+          | Some _notifier ->
+              let questions =
+                try
+                  Tools_builtin.parse_questions
+                    (`Assoc
+                       [ ("questions", Yojson.Safe.from_string questions_json) ])
+                with _ -> []
+              in
+              if questions <> [] then
+                Lwt.async (fun () ->
+                    Lwt.catch
+                      (fun () ->
+                        let open Lwt.Syntax in
+                        let* _results = ask_fn ~session_key ~questions in
+                        Lwt.return_unit)
+                      (fun exn ->
+                        Logs.warn (fun m ->
+                            m "[%s] Failed to replay pending question: %s"
+                              session_key (Printexc.to_string exn));
+                        (try Memory.pending_question_delete ~db ~session_key
+                         with _ -> ());
+                        Lwt.return_unit))
+              else begin
+                Logs.warn (fun m ->
+                    m "[%s] Empty questions in pending_questions, cleaning up"
+                      session_key);
+                try Memory.pending_question_delete ~db ~session_key
+                with _ -> ()
+              end
+          | None -> (
+              Logs.info (fun m ->
+                  m
+                    "[%s] No notifier for pending question, injecting \
+                     synthetic result"
+                    session_key);
+              try Memory.pending_question_delete ~db ~session_key with _ -> ()))
+        rows

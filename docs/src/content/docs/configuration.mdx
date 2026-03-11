@@ -322,6 +322,22 @@ The gateway root `/` serves the embedded web UI. Supporting endpoints include `/
 
 **Other providers:** Set `provider` to `tailscale`, `ngrok`, or `custom`. For custom tunnels, set `CLAWQ_TUNNEL_COMMAND` and optionally `CLAWQ_TUNNEL_URL_REGEX` environment variables.
 
+### interactive
+
+```json
+{
+  "interactive": {
+    "enable_question_notes": true
+  }
+}
+```
+
+Controls behavior of the `ask_user_question` tool, which lets the agent ask clarifying questions mid-turn via interactive channels.
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `enable_question_notes` | `true` | After structured answers (select, confirm, rating, number, date), prompt the user with "Add notes? (reply or 'skip')". Set to `false` to skip the notes prompt |
+
 **Live reconfiguration:** The daemon watches for tunnel config changes on SIGHUP and via file-change polling (every 10 seconds). When tunnel settings change, the daemon automatically stops the old tunnel and starts a new one — no daemon restart required. Use `clawq tunnel apply` to trigger reconciliation explicitly, or `clawq tunnel restart` to force a stop-and-restart even without config changes.
 
 ## Full Example

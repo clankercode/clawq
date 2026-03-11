@@ -298,7 +298,7 @@ To encrypt API keys at rest: set `security.encrypt_secrets` to true, set `CLAWQ_
 
 ## Your Tools
 
-You have up to 38 built-in tools. 15 are always registered; `web_search`, `zai_websearch`, `zai_webfetch`, `send_message`, `transcribe`, the four memory tools, `history_search`, `task_tree`, the seven background/delegation tools (including `background_finalize`), and the five `plan_pipeline_*` tools are conditional on runtime configuration/wiring.
+You have up to 39 built-in tools. 15 are always registered; `web_search`, `zai_websearch`, `zai_webfetch`, `send_message`, `ask_user_question`, `transcribe`, the four memory tools, `history_search`, `task_tree`, the seven background/delegation tools (including `background_finalize`), and the five `plan_pipeline_*` tools are conditional on runtime configuration/wiring.
 
 | Tool | Description |
 |------|-------------|
@@ -319,6 +319,8 @@ You have up to 38 built-in tools. 15 are always registered; `web_search`, `zai_w
 | `zai_webfetch` | Fetch a webpage via Z.ai's webReader MCP tool, returning title, main content, and links (conditional: only if zai_mcp config is set and webfetch_enabled) |
 | `git_operations` | Git operations: status, diff, log, branch, add, commit, checkout, stash, show |
 | `send_message` | Send a message to the user via the current session or notification channel. Use when asked to notify/alert the user (conditional: runtime wiring) |
+| `send_poll` | Send a poll with inline buttons (conditional: runtime wiring) |
+| `ask_user_question` | Ask the user one or more clarifying questions and wait for answers. Questions are sent sequentially; each blocks until answered. Supports types: single_select, multi_select, text, number, confirm, rating, file_upload, date. Returns JSON array of {question, answer, notes?}. Only available in interactive channel sessions (Telegram, Discord, Slack, web) (conditional: runtime wiring) |
 | `doc_write` | Write or update a workspace document |
 | `transcribe` | Transcribe an audio file |
 | `memory_store` | Store a persistent key-value memory that survives across sessions (overwrites on key collision) |
@@ -482,7 +484,7 @@ current queue state for a given session; `session list` appends
 - This means settings such as provider defaults, memory limits, heartbeat timing, and `web_search` configuration are intended to apply without a restart.
 - Startup-structural settings still require restart: enabling or disabling channels, changing gateway bind host/port, and similar boot-time wiring.
 - Tool registration itself is not fully rebuilt on each reload. Conditional tools that depend on startup wiring remain governed by how the daemon was initialized.
-- In particular, `send_message` depends on runtime wiring, not config alone.
+- In particular, `send_message` and `ask_user_question` depend on runtime wiring, not config alone.
 
 ## Autonomous Continuation and Proactive Messaging
 

@@ -187,6 +187,7 @@ let convert (json : Yojson.Safe.t) =
       observer = default.observer;
       summarizer = default.summarizer;
       log = default.log;
+      interactive = default.interactive;
     }
   in
   (config, List.rev !warnings)

@@ -391,6 +391,143 @@ let run ~(config : Runtime_config.t) =
                        "Nothing to compact (history too short or already \
                         compacted)")))
   | None -> ());
+  (* Register ask_user_question with ask_fn closure *)
+  (match tool_registry with
+  | Some registry ->
+      let notes_enabled = !current_config.interactive.enable_question_notes in
+      let ask_fn ~session_key ~questions =
+        let open Lwt.Syntax in
+        let notify =
+          match
+            Session.find_registered_notifier session_manager ~key:session_key
+          with
+          | Some n -> n
+          | None ->
+              fun _text ->
+                Lwt.fail_with
+                  (Printf.sprintf "No channel notifier for session %s"
+                     session_key)
+        in
+        let notes_eligible = function
+          | Tools_builtin.Text _ | Tools_builtin.File_upload _ -> false
+          | _ -> true
+        in
+        let format_question (qi : Tools_builtin.question_item) =
+          match qi.qtype with
+          | Tools_builtin.Single_select { options } ->
+              let opts =
+                List.mapi (fun i o -> Printf.sprintf "%d. %s" (i + 1) o) options
+              in
+              Printf.sprintf "%s\n%s\n(Reply with number or text)" qi.question
+                (String.concat "\n" opts)
+          | Tools_builtin.Multi_select { options } ->
+              let opts =
+                List.mapi (fun i o -> Printf.sprintf "%d. %s" (i + 1) o) options
+              in
+              Printf.sprintf
+                "%s\n%s\n(Reply with numbers separated by commas, e.g. 1,3)"
+                qi.question (String.concat "\n" opts)
+          | Tools_builtin.Confirm ->
+              Printf.sprintf "%s\n(Reply yes/no)" qi.question
+          | Tools_builtin.Rating { min; max } ->
+              Printf.sprintf "%s\n(Reply with a number from %d to %d)"
+                qi.question min max
+          | Tools_builtin.Number { min; max } ->
+              let constraint_str =
+                match (min, max) with
+                | Some lo, Some hi ->
+                    Printf.sprintf " (between %d and %d)" lo hi
+                | Some lo, None -> Printf.sprintf " (minimum %d)" lo
+                | None, Some hi -> Printf.sprintf " (maximum %d)" hi
+                | None, None -> ""
+              in
+              Printf.sprintf "%s\n(Reply with a number%s)" qi.question
+                constraint_str
+          | Tools_builtin.File_upload { accept } ->
+              let hint =
+                match accept with
+                | Some mime -> Printf.sprintf " (%s)" mime
+                | None -> ""
+              in
+              Printf.sprintf "%s\n(Upload a file%s)" qi.question hint
+          | Tools_builtin.Date { include_time } ->
+              let fmt =
+                if include_time then "YYYY-MM-DD HH:MM" else "YYYY-MM-DD"
+              in
+              Printf.sprintf "%s\n(Reply with a date in %s format)" qi.question
+                fmt
+          | Tools_builtin.Text { placeholder } ->
+              let hint =
+                match placeholder with
+                | Some p -> Printf.sprintf "\n(Hint: %s)" p
+                | None -> ""
+              in
+              qi.question ^ hint
+        in
+        let total = List.length questions in
+        let* results =
+          Lwt_list.mapi_s
+            (fun i qi ->
+              (match db with
+              | Some db -> (
+                  try
+                    Memory.pending_question_upsert ~db ~session_key
+                      ~questions_json:
+                        (Tools_builtin.question_items_to_json questions)
+                      ~question_index:i
+                  with exn ->
+                    Logs.warn (fun m ->
+                        m "[%s] Failed to persist pending question: %s"
+                          session_key (Printexc.to_string exn)))
+              | None -> ());
+              let msg = format_question qi in
+              let labeled =
+                if total > 1 then
+                  Printf.sprintf "[Question %d/%d] %s" (i + 1) total msg
+                else msg
+              in
+              let* () = notify labeled in
+              let promise, _resolver =
+                Session.register_pending_question session_manager
+                  ~key:session_key
+              in
+              let* raw = promise in
+              if raw = Session.question_cancelled_sentinel then
+                Lwt.fail (Failure "Question cancelled by user interrupt")
+              else
+                let* notes =
+                  if notes_enabled && notes_eligible qi.qtype then begin
+                    let* () = notify "Add notes? (reply or 'skip')" in
+                    let notes_promise, _resolver =
+                      Session.register_pending_question session_manager
+                        ~key:session_key
+                    in
+                    let* notes_raw = notes_promise in
+                    if
+                      notes_raw = Session.question_cancelled_sentinel
+                      || String.lowercase_ascii (String.trim notes_raw) = "skip"
+                    then Lwt.return_none
+                    else Lwt.return_some notes_raw
+                  end
+                  else Lwt.return_none
+                in
+                Lwt.return
+                  Tools_builtin.{ question = qi.question; answer = raw; notes })
+            questions
+        in
+        (match db with
+        | Some db -> (
+            try Memory.pending_question_delete ~db ~session_key
+            with exn ->
+              Logs.warn (fun m ->
+                  m "[%s] Failed to clean pending question from DB: %s"
+                    session_key (Printexc.to_string exn)))
+        | None -> ());
+        Lwt.return results
+      in
+      Tool_registry.register registry
+        (Tools_builtin.ask_user_question ~ask_fn:(Some ask_fn))
+  | None -> ());
   (* Re-register task_tree with channel notification support *)
   (if !current_config.agent_defaults.task_tree_notifications then
      match (tool_registry, db) with

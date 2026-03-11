@@ -1411,7 +1411,6 @@ let test_status_message_includes_finalize_hint_for_succeeded_worktree () =
        true
      with Not_found -> false)
 
-
 let test_enqueue_rejects_non_git_repo () =
   let db = Memory.init ~db_path:":memory:" () in
   Background_task.init_schema db;
@@ -1435,7 +1434,6 @@ let test_enqueue_rejects_non_git_repo () =
                 msg 0);
            true
          with Not_found -> false)
-
 
 let test_command_of_task_codex_with_model () =
   let task =
@@ -2559,7 +2557,6 @@ let suite =
     Alcotest.test_case "readopt idempotent" `Quick test_readopt_idempotent;
     Alcotest.test_case "readopt skips dead pid" `Quick
       test_readopt_skips_dead_pid;
-
     Alcotest.test_case "reap keeps alive process" `Quick
       test_reap_keeps_alive_process;
     Alcotest.test_case "reap skips locally tracked" `Quick
