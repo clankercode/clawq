@@ -611,6 +611,16 @@ let count_lines path =
 
 let background_task_logs_max_chars = 3000
 
+let background_task_logs_max_line_chars = 1200
+
+let truncate_background_task_log_line line =
+  if String.length line <= background_task_logs_max_line_chars then (line, false)
+  else
+    ( String.sub line 0 background_task_logs_max_line_chars
+      ^ Printf.sprintf " ...(truncated %d chars)"
+          (String.length line - background_task_logs_max_line_chars),
+      true )
+
 let trim_rendered_lines ~max_chars lines =
   let budget = max 0 max_chars in
   let rec take acc used remaining =
@@ -624,6 +634,20 @@ let trim_rendered_lines ~max_chars lines =
         else (List.rev acc, true)
   in
   take [] 0 lines
+
+let render_background_task_log_lines indexed_lines =
+  let truncated_any_line = ref false in
+  let numbered_lines =
+    indexed_lines
+    |> List.map (fun (n, line) ->
+           let line, truncated = truncate_background_task_log_line line in
+           if truncated then truncated_any_line := true;
+           Printf.sprintf "%d: %s" n line)
+  in
+  let rendered_lines, truncated_by_budget =
+    trim_rendered_lines ~max_chars:background_task_logs_max_chars numbered_lines
+  in
+  (rendered_lines, truncated_by_budget, !truncated_any_line)
 
 let log_excerpt ?(offset = 0) ?(lines = 20) task =
   match task.log_path with
@@ -644,12 +668,8 @@ let log_excerpt ?(offset = 0) ?(lines = 20) task =
               ^ Printf.sprintf
                   "\n\n(No lines in requested range. Log has %d lines.)" total
             else
-              let numbered_lines =
-                indexed_lines
-                |> List.map (fun (n, line) -> Printf.sprintf "%d: %s" n line)
-              in
-              let rendered_lines, truncated =
-                trim_rendered_lines ~max_chars:background_task_logs_max_chars numbered_lines
+              let rendered_lines, truncated, truncated_any_line =
+                render_background_task_log_lines indexed_lines
               in
               let rendered = String.concat "\n" rendered_lines in
               let last_line = fst (List.hd (List.rev indexed_lines)) in
@@ -667,7 +687,14 @@ let log_excerpt ?(offset = 0) ?(lines = 20) task =
                     offset last_line total (last_line + 1)
                 else Printf.sprintf "\n\n(End of log - total %d lines)" total
               in
-              header ^ "\n\n" ^ rendered ^ suffix)
+              let trunc_suffix =
+                if truncated_any_line then
+                  Printf.sprintf
+                    "\n\n(Note: long log lines are truncated to %d chars.)"
+                    background_task_logs_max_line_chars
+                else ""
+              in
+              header ^ "\n\n" ^ rendered ^ suffix ^ trunc_suffix)
       else
         read_last_lines path ~lines
         |> Result.map (fun chunks ->
@@ -681,13 +708,11 @@ let log_excerpt ?(offset = 0) ?(lines = 20) task =
               let total = count_lines path in
               let n_returned = List.length chunks in
               let start_num = max 1 (total - n_returned + 1) in
-              let numbered =
-                List.mapi
-                  (fun i line -> Printf.sprintf "%d: %s" (start_num + i) line)
-                  chunks
+              let indexed_lines =
+                List.mapi (fun i line -> (start_num + i, line)) chunks
               in
-              let rendered_lines, truncated =
-                trim_rendered_lines ~max_chars:background_task_logs_max_chars numbered
+              let rendered_lines, truncated, truncated_any_line =
+                render_background_task_log_lines indexed_lines
               in
               let rendered = String.concat "\n" rendered_lines in
               let shown = List.length rendered_lines in
@@ -703,7 +728,14 @@ let log_excerpt ?(offset = 0) ?(lines = 20) task =
                     "\n\n(Showing last %d lines, lines %d-%d of %d.)" shown
                     shown_start shown_end total
               in
-              header ^ "\n\n" ^ rendered ^ footer)
+              let trunc_suffix =
+                if truncated_any_line then
+                  Printf.sprintf
+                    "\n\n(Note: long log lines are truncated to %d chars.)"
+                    background_task_logs_max_line_chars
+                else ""
+              in
+              header ^ "\n\n" ^ rendered ^ footer ^ trunc_suffix)
 
 let read_lines_range path ~offset ~lines =
   if lines <= 0 then Ok ([], 0)
