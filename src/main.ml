@@ -1118,6 +1118,11 @@ let setup_tunnel_cmd =
     (Cmd.info "tunnel" ~doc:"Configure Cloudflare tunnel.")
     Term.(ret (const (run "setup") $ const [ "tunnel" ]))
 
+let setup_summarizer_cmd =
+  Cmd.v
+    (Cmd.info "summarizer" ~doc:"Configure autosummarizer settings.")
+    Term.(ret (const (run "setup") $ const [ "summarizer" ]))
+
 let setup_cmd =
   Cmd.group
     ~default:Term.(ret (const (run "setup") $ const []))
@@ -1126,6 +1131,7 @@ let setup_cmd =
       setup_discord_cmd;
       setup_github_cmd;
       setup_slack_cmd;
+      setup_summarizer_cmd;
       setup_teams_cmd;
       setup_telegram_cmd;
       setup_tunnel_cmd;
