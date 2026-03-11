@@ -375,3 +375,4 @@ bugs:
     - file: B374-add-to-runtime-context-ls-outp.todo
     - file: B375-thinking-data-sent-to-telegram.todo
     - file: B376-optimize-claude-md.todo
+    - file: B377-clawq-sometimes-runs-bg-tasks.todo
