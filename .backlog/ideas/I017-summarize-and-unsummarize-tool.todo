@@ -1,0 +1,38 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 10
+id: I017
+priority: medium
+status: pending
+tags:
+    - idea
+    - planning
+title: Summarize and unsummarize tool results and automation outputs with an automatic summarization layer that preserves structure/IDs, passes through short content, can escalate to a bigger model, stores original/context/summary metadata in the DB with summary IDs, and exposes unsummarize pagination/head-tail retrieval for large outputs like background task logs, task_tree, long file reads, and similar high-volume tool results.
+---
+
+# Original Idea
+
+Summarize and unsummarize tool results and automation outputs with an automatic summarization layer that preserves structure/IDs, passes through short content, can escalate to a bigger model, stores original/context/summary metadata in the DB with summary IDs, and exposes unsummarize pagination/head-tail retrieval for large outputs like background task logs, task_tree, long file reads, and similar high-volume tool results.
+
+## Planning Task (Equivalent of /plan-task)
+
+- Run `/plan-task I017` to decompose this idea into actionable work.
+- Confirm placement in the current backlog hierarchy before creating work items.
+
+## Ingest Plan Into backlog
+
+- Create implementation items with `backlog add` and related hierarchy commands (`backlog add-epic`, `backlog add-milestone`, `backlog add-phase`) as needed.
+- Create follow-up defects with `backlog bug` when bug-style work is identified.
+- Record all created IDs below and wire dependencies.
+
+## Created Work Items
+
+- Add created task IDs
+- Add created bug IDs (if any)
+
+## Completion Criteria
+
+- Idea has been decomposed into concrete backlog work items.
+- New items include clear acceptance criteria and dependencies.
+- This idea intake is updated with created IDs and marked done.
