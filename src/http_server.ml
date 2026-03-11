@@ -1157,6 +1157,8 @@ let handler ~session_manager ~require_pairing ~auth_token
          | Some sc -> path = sc.Runtime_config.events_path
          | None -> false ->
       let sc = Option.get slack_config in
+      Logs.info (fun m ->
+          m "Incoming webhook: slack path=%s ip=%s" path (client_ip req));
       let* body_str = Cohttp_lwt.Body.to_string body in
       let headers = Cohttp.Request.headers req in
       let signature =
@@ -1186,6 +1188,13 @@ let handler ~session_manager ~require_pairing ~auth_token
           ~body:result ()
   | `POST, path when is_github_webhook_path path github_config -> (
       let gc = Option.get github_config in
+      let event_type_hdr =
+        Cohttp.Header.get (Cohttp.Request.headers req) "x-github-event"
+        |> Option.value ~default:"unknown"
+      in
+      Logs.info (fun m ->
+          m "Incoming webhook: github path=%s event=%s ip=%s" path
+            event_type_hdr (client_ip req));
       let* body_str = Cohttp_lwt.Body.to_string body in
       match lookup_github_repo path gc with
       | None ->
@@ -1227,6 +1236,9 @@ let handler ~session_manager ~require_pairing ~auth_token
       let* body_str = Cohttp_lwt.Body.to_string body in
       Web_channel.handle_request wc path meth req body_str
   | `GET, "/whatsapp/webhook" -> (
+      Logs.info (fun m ->
+          m "Incoming webhook: whatsapp method=GET path=/whatsapp/webhook ip=%s"
+            (client_ip req));
       let* _ = Cohttp_lwt.Body.drain_body body in
       match whatsapp_config with
       | None ->
@@ -1243,6 +1255,11 @@ let handler ~session_manager ~require_pairing ~auth_token
                 ~headers:json_headers ~body:{|{"error":"verification failed"}|}
                 ()))
   | `POST, "/whatsapp/webhook" -> (
+      Logs.info (fun m ->
+          m
+            "Incoming webhook: whatsapp method=POST path=/whatsapp/webhook \
+             ip=%s"
+            (client_ip req));
       match whatsapp_config with
       | None ->
           let* _ = Cohttp_lwt.Body.drain_body body in
@@ -1257,6 +1274,9 @@ let handler ~session_manager ~require_pairing ~auth_token
           Cohttp_lwt_unix.Server.respond_string ~status:`OK
             ~headers:json_headers ~body:{|{"status":"ok"}|} ())
   | `POST, "/line/webhook" -> (
+      Logs.info (fun m ->
+          m "Incoming webhook: line method=POST path=/line/webhook ip=%s"
+            (client_ip req));
       match line_config with
       | None ->
           let* _ = Cohttp_lwt.Body.drain_body body in
@@ -1374,6 +1394,9 @@ let handler ~session_manager ~require_pairing ~auth_token
           Cohttp_lwt_unix.Server.respond_string ~status:`Not_found
             ~headers:json_headers ~body:{|{"error":"not configured"}|} ()
       | Some tc ->
+          Logs.info (fun m ->
+              m "Incoming webhook: teams method=POST path=%s ip=%s" path
+                (client_ip req));
           let* body_str = Cohttp_lwt.Body.to_string body in
           let headers = Cohttp.Request.headers req in
           let auth_header =
@@ -1397,6 +1420,9 @@ let handler ~session_manager ~require_pairing ~auth_token
     when match teams_config with
          | Some tc -> path = tc.Runtime_config.webhook_path
          | None -> false ->
+      Logs.info (fun m ->
+          m "Incoming webhook: teams method=GET path=%s ip=%s" path
+            (client_ip req));
       let* _ = Cohttp_lwt.Body.drain_body body in
       let body_str =
         match teams_config with
@@ -1411,6 +1437,9 @@ let handler ~session_manager ~require_pairing ~auth_token
       Cohttp_lwt_unix.Server.respond_string ~status:`OK ~headers:json_headers
         ~body:body_str ()
   | `POST, "/lark/webhook" -> (
+      Logs.info (fun m ->
+          m "Incoming webhook: lark method=POST path=/lark/webhook ip=%s"
+            (client_ip req));
       match lark_config with
       | None ->
           let* _ = Cohttp_lwt.Body.drain_body body in

@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-11T07:15:28Z"
+claimed_by: cli-user
+completed_at: "2026-03-11T07:19:27Z"
 complexity: medium
 depends_on: []
+duration_minutes: 3.9995603553
 estimate_hours: 1
 id: B362
 priority: high
-status: pending
+started_at: "2026-03-11T07:15:28Z"
+status: done
 tags: []
 title: Incoming webhooks should be logged (not the whole webhook, just a line describing major details)
 ---
