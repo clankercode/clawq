@@ -382,3 +382,4 @@ bugs:
     - file: B381-enhance-github-integraiton-and.todo
     - file: B382-website-formatting-issues.todo
     - file: B383-b382-connector-timeout-deadloc.todo
+    - file: B384-groq-models-can-be-fetched-via.todo

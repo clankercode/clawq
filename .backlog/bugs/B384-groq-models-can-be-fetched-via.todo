@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B384
+priority: high
+status: pending
+tags: []
+title: groq models can be fetched via https://console.groq.com/docs/models
+---
+
+groq models can be fetched via https://console.groq.com/docs/models
