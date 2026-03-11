@@ -1555,15 +1555,8 @@ let test_resume_agent_session_sends_visible_injection_prompt () =
   Alcotest.(check bool)
     "first message is labeled injection" true
     (String.starts_with ~prefix:"[automatic restart-resume]" first);
-  Alcotest.(check bool)
-    "injection contains resume prompt" true
-    (try
-       ignore
-         (Str.search_forward
-            (Str.regexp_string "Automatic restart-resume")
-            first 0);
-       true
-     with Not_found -> false);
+  Alcotest.(check string)
+    "injection is user-facing notice" Daemon.resume_user_notice first;
   let second = List.nth sent_rev 1 in
   Alcotest.(check string) "second message is response" "ok" second
 

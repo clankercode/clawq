@@ -520,6 +520,10 @@ let notify_background_task_started ~(session_manager : Session.t)
       Lwt.return_unit
   | None -> Lwt.return_unit
 
+let resume_user_notice =
+  "[automatic restart-resume] The daemon restarted while this session had \
+   active work in progress. Resuming now..."
+
 let resume_turn_prompt =
   "Automatic restart-resume: the daemon restarted while autonomous work was "
   ^ "actively in progress in this session. Resume the interrupted work now "
@@ -610,8 +614,7 @@ let resume_agent_session ?(senders = default_resume_senders) ?run_turn
         (resumed_dispatch_target ~session_key ~channel ~channel_id));
   let* () =
     notify_resumed_session ~senders ~session_manager ~config ~session_key
-      ~channel ~channel_id
-      ("[automatic restart-resume]\n" ^ resume_turn_prompt)
+      ~channel ~channel_id resume_user_notice
   in
   Session.with_session_lock session_manager ~key:session_key
     (fun agent interrupt ->
