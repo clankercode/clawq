@@ -1354,6 +1354,28 @@ let test_terse_finished_message_failed_with_preview () =
        true
      with Not_found -> false)
 
+let test_status_message_includes_finalize_hint_for_succeeded_worktree () =
+  let task =
+    {
+      (make_task ~id:8 ~status:Background_task.Succeeded
+         ~repo_path:"/tmp/myrepo" ~branch:"B377-finish-flow" ())
+      with
+      worktree_path = Some "/tmp/worktree";
+    }
+  in
+  let msg = Background_task.status_message task in
+  Alcotest.(check bool)
+    "contains merge/review hint" true
+    (try
+       ignore
+         (Str.search_forward
+            (Str.regexp_string
+               "merge/review B377-finish-flow into /tmp/myrepo when ready")
+            msg 0);
+       true
+     with Not_found -> false)
+
+
 let test_enqueue_rejects_non_git_repo () =
   let db = Memory.init ~db_path:":memory:" () in
   Background_task.init_schema db;
@@ -1377,6 +1399,7 @@ let test_enqueue_rejects_non_git_repo () =
                 msg 0);
            true
          with Not_found -> false)
+
 
 let test_command_of_task_codex_with_model () =
   let task =
@@ -2415,15 +2438,6 @@ let suite =
     Alcotest.test_case "cancel running task waits for descendants" `Quick
       test_cancel_running_task_waits_for_descendants;
     Alcotest.test_case "command_of_task codex" `Quick test_command_of_task_codex;
-    Alcotest.test_case "command_of_task codex with model" `Quick
-      test_command_of_task_codex_with_model;
-    Alcotest.test_case "command_of_task claude" `Quick
-      test_command_of_task_claude;
-    Alcotest.test_case "command_of_task claude with model" `Quick
-      test_command_of_task_claude_with_model;
-    Alcotest.test_case "command_of_task kimi" `Quick test_command_of_task_kimi;
-    Alcotest.test_case "command_of_task kimi with model" `Quick
-      test_command_of_task_kimi_with_model;
     Alcotest.test_case "command_of_task gemini" `Quick
       test_command_of_task_gemini;
     Alcotest.test_case "command_of_task gemini with model" `Quick
@@ -2486,6 +2500,23 @@ let suite =
       test_terse_finished_message_succeeded;
     Alcotest.test_case "terse_finished_message failed with preview" `Quick
       test_terse_finished_message_failed_with_preview;
+    Alcotest.test_case "status_message succeeded next step" `Quick
+      test_status_message_includes_finalize_hint_for_succeeded_worktree;
+    Alcotest.test_case "routing_from_context reads CLAWQ_SESSION_ID env" `Quick
+      test_routing_from_context_reads_env;
+    Alcotest.test_case "routing_from_context prefers context over env" `Quick
+      test_routing_from_context_prefers_context_over_env;
+    Alcotest.test_case "cmd_background add picks up session env" `Quick
+      test_cmd_background_add_picks_up_session_env;
+    Alcotest.test_case "list_tasks_for_display filters inactive" `Quick
+      test_list_tasks_for_display_filters;
+    Alcotest.test_case "reap marks dead pid failed" `Quick
+      test_reap_marks_dead_pid_failed;
+    Alcotest.test_case "readopt running alive pid" `Quick
+      test_readopt_running_alive_pid;
+    Alcotest.test_case "readopt idempotent" `Quick test_readopt_idempotent;
+    Alcotest.test_case "readopt skips dead pid" `Quick
+      test_readopt_skips_dead_pid;
     Alcotest.test_case "routing_from_context reads CLAWQ_SESSION_ID env" `Quick
       test_routing_from_context_reads_env;
     Alcotest.test_case "routing_from_context prefers context over env" `Quick

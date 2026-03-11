@@ -1184,6 +1184,14 @@ let terse_finished_message (task : task) =
       base ^ " -- " ^ short ^ "]"
   | _ -> base ^ "]"
 
+let finalize_hint (task : task) =
+  match (task.status, task.branch, task.worktree_path) with
+  | Succeeded, branch, Some _ when String.trim branch <> "" ->
+      Some
+        (Printf.sprintf "next: merge/review %s into %s when ready" branch
+           task.repo_path)
+  | _ -> None
+
 let status_message (task : task) =
   let headline =
     Printf.sprintf "Background task %d finished: %s (%s)" task.id
@@ -1203,6 +1211,7 @@ let status_message (task : task) =
       Option.map
         (fun text -> Printf.sprintf "result: %s" (preview_text text))
         task.result_preview;
+      finalize_hint task;
     ]
     |> List.filter_map (fun x -> x)
   in
