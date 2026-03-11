@@ -1470,6 +1470,51 @@ let test_background_task_logs_truncates_pathological_long_line () =
             (String.length result < 2500))
         [ ("tail", tail_result); ("paged", paged_result) ])
 
+let test_background_task_logs_clamps_excessive_lines () =
+  with_temp_workspace (fun workspace ->
+      let task =
+        {
+          Background_task.id = 1;
+          runner = Background_task.Codex;
+          model = None;
+          repo_path = workspace;
+          prompt = "test";
+          branch = "clawq-bg-test";
+          worktree_path = None;
+          log_path = Some (Filename.concat workspace "many-lines.log");
+          status = Background_task.Succeeded;
+          session_key = None;
+          channel = None;
+          channel_id = None;
+          pid = None;
+          result_preview = None;
+          created_at = "2026-03-11 00:00:00";
+          started_at = None;
+          finished_at = None;
+          automerge = false;
+          use_worktree = true;
+          merge_status = None;
+        }
+      in
+      let oc = open_out (Option.get task.log_path) in
+      for i = 1 to 1000 do
+        Printf.fprintf oc "line-%04d short content\n" i
+      done;
+      close_out oc;
+      let result =
+        match Background_task.log_excerpt task ~lines:1000 with
+        | Ok text -> text
+        | Error msg -> failwith msg
+      in
+      Alcotest.(check bool)
+        "stays under budget" true
+        (String.length result < 3800);
+      Alcotest.(check bool)
+        "truncation hint present" true
+        (contains result "Output truncated by size budget"
+        || contains result "Use offset=");
+      ())
+
 let test_shell_exec_saves_full_output_when_windowed () =
   with_temp_workspace (fun workspace ->
       let sandbox =
@@ -2208,6 +2253,8 @@ let suite =
       test_background_task_logs_truncates_large_output;
     Alcotest.test_case "background_task_logs truncates long line" `Quick
       test_background_task_logs_truncates_pathological_long_line;
+    Alcotest.test_case "background_task_logs clamps excessive lines" `Quick
+      test_background_task_logs_clamps_excessive_lines;
     Alcotest.test_case "shell_exec saves full output when windowed" `Quick
       test_shell_exec_saves_full_output_when_windowed;
     Alcotest.test_case "shell_exec validates head and tail" `Quick

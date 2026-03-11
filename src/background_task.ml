@@ -667,6 +667,7 @@ let count_lines path =
 
 let background_task_logs_max_chars = 3000
 let background_task_logs_max_line_chars = 1200
+let background_task_logs_max_lines = 200
 
 let truncate_background_task_log_line line =
   if String.length line <= background_task_logs_max_line_chars then (line, false)
@@ -2005,6 +2006,7 @@ let logs_tool ~db =
           | None, Some l -> l
           | None, None -> 20
         in
+        let lines = min lines background_task_logs_max_lines in
         if id < 0 then Lwt.return "Error: id is required"
         else if offset < 0 then Lwt.return "Error: offset must be >= 1"
         else
