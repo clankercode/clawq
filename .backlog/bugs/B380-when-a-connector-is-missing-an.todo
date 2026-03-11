@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B380
+priority: high
+status: pending
+tags: []
+title: When a connector is missing an API key (or it has length <= 6 (because we have a placeholder value of abc123)) it should be counted as disabled and reported as such. It should only report enabled if it has proper credentials AND .enabled is true (if it has a .enabled or equivalent)
+---
+
+When a connector is missing an API key (or it has length <= 6 (because we have a placeholder value of abc123)) it should be counted as disabled and reported as such. It should only report enabled if it has proper credentials AND .enabled is true (if it has a .enabled or equivalent)

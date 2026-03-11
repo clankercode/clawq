@@ -378,3 +378,4 @@ bugs:
     - file: B377-clawq-sometimes-runs-bg-tasks.todo
     - file: B378-use-git-cli-to-get-all-commits.todo
     - file: B379-add-environment-variable-to-co.todo
+    - file: B380-when-a-connector-is-missing-an.todo
