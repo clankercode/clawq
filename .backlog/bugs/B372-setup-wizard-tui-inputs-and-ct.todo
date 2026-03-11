@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-11T04:26:07Z"
+claimed_by: cli-user
+completed_at: "2026-03-11T04:28:49Z"
 complexity: medium
 depends_on: []
+duration_minutes: 2.7033590587500003
 estimate_hours: 1
 id: B372
 priority: high
-status: pending
+started_at: "2026-03-11T04:26:07Z"
+status: done
 tags: []
 title: setup wizard TUI inputs and ctrl chars (pressing up/down makes ^B and ^A ctrl chars show up for example)
 ---
