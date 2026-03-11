@@ -1011,7 +1011,7 @@ let run ~(config : Runtime_config.t) =
       let recovered =
         Background_task.reap_dead_running_tasks ~db
           ~on_task_finished:
-            (notify_background_task_finished ~session_manager ~config)
+            (notify_background_task_finished ~session_manager ~config ~db)
       in
       if recovered > 0 then
         Logs.warn (fun m ->
@@ -1022,7 +1022,7 @@ let run ~(config : Runtime_config.t) =
       let readopted =
         Background_task.readopt_running_tasks ~db
           ~on_task_finished:
-            (notify_background_task_finished ~session_manager ~config)
+            (notify_background_task_finished ~session_manager ~config ~db)
       in
       if readopted > 0 then
         Logs.info (fun m ->
@@ -1118,15 +1118,18 @@ let run ~(config : Runtime_config.t) =
                 ignore
                   (Background_task.reap_dead_running_tasks ~db
                      ~on_task_finished:
-                       (notify_background_task_finished ~session_manager ~config));
+                       (notify_background_task_finished ~session_manager ~config
+                          ~db));
                 ignore
                   (Background_task.readopt_running_tasks ~db
                      ~on_task_finished:
-                       (notify_background_task_finished ~session_manager ~config));
+                       (notify_background_task_finished ~session_manager ~config
+                          ~db));
                 let () =
                   Background_task.start_queued_with_callback ~db
                     ~on_task_finished:
-                      (notify_background_task_finished ~session_manager ~config)
+                      (notify_background_task_finished ~session_manager ~config
+                         ~db)
                     ~on_task_started:
                       (notify_background_task_started ~session_manager ~config)
                     ()

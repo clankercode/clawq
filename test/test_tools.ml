@@ -1376,6 +1376,9 @@ let test_background_task_logs_truncates_large_output () =
           created_at = "2026-03-11 00:00:00";
           started_at = None;
           finished_at = None;
+          automerge = false;
+          use_worktree = true;
+          merge_status = None;
         }
       in
       let oc = open_out (Option.get task.log_path) in
@@ -1426,6 +1429,9 @@ let test_background_task_logs_truncates_pathological_long_line () =
           created_at = "2026-03-11 00:00:00";
           started_at = None;
           finished_at = None;
+          automerge = false;
+          use_worktree = true;
+          merge_status = None;
         }
       in
       let oc = open_out (Option.get task.log_path) in

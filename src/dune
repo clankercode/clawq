@@ -41,6 +41,7 @@
   rate_limiter
   scheduler
   background_task
+  worktree_merge
   plan_pipeline
   task_tree
   migrate

@@ -1281,6 +1281,9 @@ let make_test_task ?(id = 9) ?(session_key = Some "telegram:42:user")
     created_at = "2026-03-09 00:00:00";
     started_at = Some "2026-03-09 00:00:01";
     finished_at = Some "2026-03-09 00:00:02";
+    automerge = false;
+    use_worktree = true;
+    merge_status = None;
   }
 
 let test_notify_background_task_finished_dispatches_and_injects_wakeup () =

@@ -134,6 +134,7 @@ let () =
     @ [ ("setup_tunnel", Test_setup_tunnel.suite) ]
     @ [ ("setup_summarizer", Test_setup_summarizer.suite) ]
     @ [ ("log_rotation", Test_log_rotation.suite) ]
+    @ [ ("worktree_merge", Test_worktree_merge.suite) ]
     @ Test_github.suites
     @ [
         ( "config_isolation",

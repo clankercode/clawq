@@ -41,6 +41,9 @@ let fake_task ?(status = Background_task.Queued) id =
     created_at = "2026-03-11 00:00:00";
     started_at = None;
     finished_at = None;
+    automerge = false;
+    use_worktree = true;
+    merge_status = None;
   }
 
 let test_enqueue_and_list_tasks () =
@@ -231,6 +234,9 @@ let test_command_of_task_codex () =
       created_at = "";
       started_at = None;
       finished_at = None;
+      automerge = false;
+      use_worktree = true;
+      merge_status = None;
     }
   in
   Alcotest.(check (array string))
@@ -260,6 +266,9 @@ let test_command_of_task_claude () =
       created_at = "";
       started_at = None;
       finished_at = None;
+      automerge = false;
+      use_worktree = true;
+      merge_status = None;
     }
   in
   Alcotest.(check (array string))
@@ -287,6 +296,9 @@ let test_command_of_task_kimi () =
       created_at = "";
       started_at = None;
       finished_at = None;
+      automerge = false;
+      use_worktree = true;
+      merge_status = None;
     }
   in
   Alcotest.(check (array string))
@@ -314,6 +326,9 @@ let test_command_of_task_kimi_with_model () =
       created_at = "";
       started_at = None;
       finished_at = None;
+      automerge = false;
+      use_worktree = true;
+      merge_status = None;
     }
   in
   Alcotest.(check (array string))
@@ -341,6 +356,9 @@ let test_command_of_task_gemini () =
       created_at = "";
       started_at = None;
       finished_at = None;
+      automerge = false;
+      use_worktree = true;
+      merge_status = None;
     }
   in
   Alcotest.(check (array string))
@@ -368,6 +386,9 @@ let test_command_of_task_gemini_with_model () =
       created_at = "";
       started_at = None;
       finished_at = None;
+      automerge = false;
+      use_worktree = true;
+      merge_status = None;
     }
   in
   Alcotest.(check (array string))
@@ -395,6 +416,9 @@ let test_command_of_task_opencode () =
       created_at = "";
       started_at = None;
       finished_at = None;
+      automerge = false;
+      use_worktree = true;
+      merge_status = None;
     }
   in
   Alcotest.(check (array string))
@@ -422,6 +446,9 @@ let test_command_of_task_opencode_with_model () =
       created_at = "";
       started_at = None;
       finished_at = None;
+      automerge = false;
+      use_worktree = true;
+      merge_status = None;
     }
   in
   Alcotest.(check (array string))
@@ -449,6 +476,9 @@ let test_command_of_task_cursor () =
       created_at = "";
       started_at = None;
       finished_at = None;
+      automerge = false;
+      use_worktree = true;
+      merge_status = None;
     }
   in
   Alcotest.(check (array string))
@@ -476,6 +506,9 @@ let test_command_of_task_cursor_with_model () =
       created_at = "";
       started_at = None;
       finished_at = None;
+      automerge = false;
+      use_worktree = true;
+      merge_status = None;
     }
   in
   Alcotest.(check (array string))
@@ -1255,6 +1288,9 @@ let make_task ?(id = 1) ?(runner = Background_task.Claude)
     created_at;
     started_at;
     finished_at;
+    automerge = false;
+    use_worktree = true;
+    merge_status = None;
   }
 
 let test_elapsed_string_recent () =
@@ -1421,6 +1457,9 @@ let test_command_of_task_codex_with_model () =
       created_at = "";
       started_at = None;
       finished_at = None;
+      automerge = false;
+      use_worktree = true;
+      merge_status = None;
     }
   in
   Alcotest.(check (array string))
@@ -1455,6 +1494,9 @@ let test_command_of_task_claude_with_model () =
       created_at = "";
       started_at = None;
       finished_at = None;
+      automerge = false;
+      use_worktree = true;
+      merge_status = None;
     }
   in
   Alcotest.(check (array string))

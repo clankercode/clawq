@@ -24,6 +24,7 @@ Every clawq command is listed below. Run `clawq COMMAND --help` for per-command 
 | `clawq background wait ID [--timeout SECONDS]` | Block until a background task finishes, then print the final summary |
 | `clawq background logs ID [--lines COUNT]` | Show the captured log for a background task |
 | `clawq background cancel ID` | Cancel a queued or running background task |
+| `clawq background finalize ID` | Rebase, fast-forward merge, and clean up a completed task's worktree |
 | `clawq channel` | List configured channels |
 | `clawq config` | Manage configuration (wizard, get/set/show) |
 | `clawq cron` | Manage cron jobs for scheduled agent messages |
@@ -134,11 +135,14 @@ clawq background show 1
 clawq background wait 1
 clawq background logs 1
 clawq background cancel 1
+clawq background finalize 1
 ```
 
 `clawq delegate` is the high-level handoff command for this flow. The `background` subcommands are the more explicit control surface when you want to inspect queue state, wait for completion in the terminal, or read the saved task log.
 
 Background tasks are daemon-owned. The full `clawq agent` process polls the queue, creates a fresh git worktree for each task under `~/.clawq/background-worktrees/`, runs the selected CLI non-interactively, and stores the task log under `~/.clawq/background-logs/`.
+
+Tasks with `automerge` enabled will automatically rebase onto the target branch and fast-forward merge on success. If a conflict occurs, the parent agent is notified and can use `background finalize <id>` to retry the merge after resolving conflicts.
 
 ### Security and auditing
 

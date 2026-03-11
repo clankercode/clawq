@@ -187,7 +187,9 @@ let cmd_background args =
         \  background logs <id> [--lines N] [--offset N] [--follow] - Show \
          task logs\n\
         \  background cancel <id>                                  - Cancel a \
-         task"
+         task\n\
+        \  background finalize <id>                                - Rebase, \
+         merge and clean up worktree"
   | [ "show"; id_s ] -> (
       let db = get_db () in
       Background_task.init_schema db;
@@ -296,8 +298,22 @@ let cmd_background args =
         match Background_task.cancel ~db ~id with
         | Ok msg -> msg
         | Error msg -> "Error: " ^ msg)
+  | [ "finalize"; id_s ] | "finalize" :: id_s :: _ -> (
+      let db = get_db () in
+      Background_task.init_schema db;
+      let id = try int_of_string id_s with _ -> -1 in
+      if id < 0 then "Error: background task id must be an integer"
+      else
+        match Background_task.get_task ~db ~id with
+        | None -> Printf.sprintf "Error: no background task found with id %d" id
+        | Some task when task.worktree_path = None ->
+            Printf.sprintf
+              "Error: task %d has no worktree — nothing to finalize" id
+        | Some task ->
+            let result = Lwt_main.run (Worktree_merge.finalize_task ~db task) in
+            Worktree_merge.format_result result)
   | _ ->
-      "Usage: clawq background <list|show|add|wait|logs|cancel>\n\
+      "Usage: clawq background <list|show|add|wait|logs|cancel|finalize>\n\
       \  background list                                         - List queued \
        and completed tasks\n\
       \  background show <id>                                    - Show task \
@@ -309,7 +325,9 @@ let cmd_background args =
       \  background logs <id> [--lines N] [--offset N] [--follow] - Show task \
        log lines\n\
       \  background cancel <id>                                  - Cancel a \
-       queued/running task"
+       queued/running task\n\
+      \  background finalize <id>                                - Rebase, \
+       merge and clean up a task's worktree"
 
 let cmd_delegate args =
   let cfg = get_config () in

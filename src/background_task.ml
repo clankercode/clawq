@@ -28,6 +28,9 @@ type task = {
   created_at : string;
   started_at : string option;
   finished_at : string option;
+  automerge : bool;
+  use_worktree : bool;
+  merge_status : string option;
 }
 
 let string_of_runner = function
@@ -351,6 +354,11 @@ and format_task_list_with_hidden tasks hidden_count =
 let sql_text = function Sqlite3.Data.TEXT s -> Some s | _ -> None
 let sql_int = function Sqlite3.Data.INT i -> Some (Int64.to_int i) | _ -> None
 
+let sql_bool stmt i =
+  match Sqlite3.column stmt i with
+  | Sqlite3.Data.INT n -> Int64.to_int n <> 0
+  | _ -> false
+
 let task_of_stmt stmt =
   {
     id = Option.value (sql_int (Sqlite3.column stmt 0)) ~default:0;
@@ -377,6 +385,9 @@ let task_of_stmt stmt =
     created_at = Sqlite3.column stmt 14 |> sql_text |> Option.value ~default:"";
     started_at = Sqlite3.column stmt 15 |> sql_text;
     finished_at = Sqlite3.column stmt 16 |> sql_text;
+    automerge = sql_bool stmt 17;
+    use_worktree = sql_bool stmt 18;
+    merge_status = Sqlite3.column stmt 19 |> sql_text;
   }
 
 let init_schema db =
@@ -411,25 +422,33 @@ let init_schema db =
   exec
     "CREATE INDEX IF NOT EXISTS idx_background_tasks_status ON \
      background_tasks (status)";
-  match
-    Sqlite3.exec db "ALTER TABLE background_tasks ADD COLUMN model TEXT"
-  with
-  | Sqlite3.Rc.OK -> ()
-  | Sqlite3.Rc.ERROR -> ()
-  | rc ->
-      failwith
-        (Printf.sprintf "SQLite error: %s (sql: %s)" (Sqlite3.Rc.to_string rc)
-           "ALTER TABLE background_tasks ADD COLUMN model TEXT")
+  let try_alter sql =
+    match Sqlite3.exec db sql with
+    | Sqlite3.Rc.OK | Sqlite3.Rc.ERROR -> ()
+    | rc ->
+        failwith
+          (Printf.sprintf "SQLite error: %s (sql: %s)" (Sqlite3.Rc.to_string rc)
+             sql)
+  in
+  try_alter "ALTER TABLE background_tasks ADD COLUMN model TEXT";
+  try_alter
+    "ALTER TABLE background_tasks ADD COLUMN automerge INTEGER NOT NULL \
+     DEFAULT 0";
+  try_alter
+    "ALTER TABLE background_tasks ADD COLUMN use_worktree INTEGER NOT NULL \
+     DEFAULT 1";
+  try_alter "ALTER TABLE background_tasks ADD COLUMN merge_status TEXT"
 
-let enqueue ~db ~runner ?model ?(require_git = true) ~repo_path ~prompt ?branch
-    ?session_key ?channel ?channel_id () =
+let enqueue ~db ~runner ?model ?(require_git = true) ?(automerge = false)
+    ?(use_worktree = true) ~repo_path ~prompt ?branch ?session_key ?channel
+    ?channel_id () =
   match validate_repo_path ~require_git repo_path with
   | Error _ as err -> err
   | Ok () ->
       let sql =
         "INSERT INTO background_tasks (runner, model, repo_path, prompt, \
-         branch, session_key, channel, channel_id) VALUES (?, ?, ?, ?, ?, ?, \
-         ?, ?)"
+         branch, session_key, channel, channel_id, automerge, use_worktree) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
       in
       let stmt = Sqlite3.prepare db sql in
       Fun.protect
@@ -449,6 +468,12 @@ let enqueue ~db ~runner ?model ?(require_git = true) ~repo_path ~prompt ?branch
           bind_opt 6 session_key;
           bind_opt 7 channel;
           bind_opt 8 channel_id;
+          ignore
+            (Sqlite3.bind stmt 9
+               (Sqlite3.Data.INT (if automerge then 1L else 0L)));
+          ignore
+            (Sqlite3.bind stmt 10
+               (Sqlite3.Data.INT (if use_worktree then 1L else 0L)));
           match Sqlite3.step stmt with
           | Sqlite3.Rc.DONE -> Ok (Int64.to_int (Sqlite3.last_insert_rowid db))
           | rc ->
@@ -456,12 +481,16 @@ let enqueue ~db ~runner ?model ?(require_git = true) ~repo_path ~prompt ?branch
                 (Printf.sprintf "Failed to enqueue background task: %s"
                    (Sqlite3.Rc.to_string rc)))
 
+let select_columns =
+  "id, runner, model, repo_path, prompt, COALESCE(branch, ''), worktree_path, \
+   log_path, status, session_key, channel, channel_id, pid, result_preview, \
+   created_at, started_at, finished_at, COALESCE(automerge, 0), \
+   COALESCE(use_worktree, 1), merge_status"
+
 let list_tasks ~db =
   let sql =
-    "SELECT id, runner, model, repo_path, prompt, COALESCE(branch, ''), \
-     worktree_path, log_path, status, session_key, channel, channel_id, pid, \
-     result_preview, created_at, started_at, finished_at FROM background_tasks \
-     ORDER BY id DESC"
+    Printf.sprintf "SELECT %s FROM background_tasks ORDER BY id DESC"
+      select_columns
   in
   let stmt = Sqlite3.prepare db sql in
   Fun.protect
@@ -497,10 +526,7 @@ let list_tasks_for_display ~db =
 
 let get_task ~db ~id =
   let sql =
-    "SELECT id, runner, model, repo_path, prompt, COALESCE(branch, ''), \
-     worktree_path, log_path, status, session_key, channel, channel_id, pid, \
-     result_preview, created_at, started_at, finished_at FROM background_tasks \
-     WHERE id = ?"
+    Printf.sprintf "SELECT %s FROM background_tasks WHERE id = ?" select_columns
   in
   let stmt = Sqlite3.prepare db sql in
   Fun.protect
@@ -962,6 +988,16 @@ let finalize_completed_task ~db ~id ~exit_code ~output =
   finish ~db ~id ~status:final_status ~result_preview;
   final_status
 
+let set_merge_status ~db ~id ~merge_status =
+  let sql = "UPDATE background_tasks SET merge_status = ? WHERE id = ?" in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT merge_status));
+      ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int id)));
+      ignore (Sqlite3.step stmt))
+
 let mark_cancelled ~db ~id ~result_preview =
   let sql =
     "UPDATE background_tasks SET status = 'cancelled', result_preview = ?, pid \
@@ -1040,7 +1076,15 @@ let routing_from_context ?context ?notify_cfg () =
           (None, Some notify.notify_channel, Some notify.notify_target)
       | None -> (None, None, None))
 
-let build_delegate_prompt ~goal =
+let build_delegate_prompt ~automerge ~goal =
+  let commit_line =
+    if automerge then
+      "- Commit your changes with a clear, descriptive commit message when \
+       done. Do not push or perform destructive git history edits."
+    else
+      "- Do not commit, push, or perform destructive git history edits unless \
+       explicitly asked."
+  in
   String.concat "\n"
     [
       "You are a delegated background coding agent running in the target \
@@ -1056,12 +1100,12 @@ let build_delegate_prompt ~goal =
       "- Make the smallest focused change that completes the task well.";
       "- Run relevant verification when practical and mention what you ran.";
       "- Summarize the changes, results, and any follow-up concerns at the end.";
-      "- Do not commit, push, or perform destructive git history edits unless \
-       explicitly asked.";
+      commit_line;
     ]
 
-let delegate_enqueue ?context ?notify_cfg ?(check_available = true) ~db
-    ?preferred_runner ?model ?repo_path ?branch ~default_repo_path ~goal () =
+let delegate_enqueue ?context ?notify_cfg ?(check_available = true)
+    ?(automerge = false) ?(use_worktree = true) ~db ?preferred_runner ?model
+    ?repo_path ?branch ~default_repo_path ~goal () =
   let chosen_repo_path =
     match repo_path with
     | Some path when String.trim path <> "" -> path
@@ -1081,14 +1125,14 @@ let delegate_enqueue ?context ?notify_cfg ?(check_available = true) ~db
             let effective_model =
               match model with Some _ -> model | None -> auto_model
             in
-            let prompt = build_delegate_prompt ~goal in
+            let prompt = build_delegate_prompt ~automerge ~goal in
             let session_key, channel, channel_id =
               routing_from_context ?context ?notify_cfg ()
             in
             match
               enqueue ~db ~runner ?model:effective_model ~require_git:false
-                ~repo_path:chosen_repo_path ~prompt ?branch ?session_key
-                ?channel ?channel_id ()
+                ~automerge ~use_worktree ~repo_path:chosen_repo_path ~prompt
+                ?branch ?session_key ?channel ?channel_id ()
             with
             | Ok id -> Ok (id, runner, chosen_repo_path)
             | Error _ as err -> err))
@@ -1161,6 +1205,14 @@ let task_label (task : task) =
 let terse_started_message (task : task) =
   Printf.sprintf "[bg #%d started: %s]" task.id (task_label task)
 
+let merge_status_suffix (task : task) =
+  match task.merge_status with
+  | Some "merged" -> " (automerged)"
+  | Some "conflict" ->
+      Printf.sprintf " (merge conflict — use `background finalize %d`)" task.id
+  | Some s -> Printf.sprintf " (merge: %s)" s
+  | None -> ""
+
 let terse_finished_message (task : task) =
   let elapsed = elapsed_string task in
   let status_word =
@@ -1175,14 +1227,15 @@ let terse_finished_message (task : task) =
     Printf.sprintf "[bg #%d %s: %s (%s)" task.id status_word (task_label task)
       elapsed
   in
+  let merge_suffix = merge_status_suffix task in
   match (task.status, task.result_preview) with
   | Failed, Some preview ->
       let short =
         if String.length preview > 80 then String.sub preview 0 80 ^ "..."
         else preview
       in
-      base ^ " -- " ^ short ^ "]"
-  | _ -> base ^ "]"
+      base ^ merge_suffix ^ " -- " ^ short ^ "]"
+  | _ -> base ^ merge_suffix ^ "]"
 
 let finalize_hint (task : task) =
   match (task.status, task.branch, task.worktree_path) with
@@ -1193,10 +1246,12 @@ let finalize_hint (task : task) =
   | _ -> None
 
 let status_message (task : task) =
+  let merge_suffix = merge_status_suffix task in
   let headline =
-    Printf.sprintf "Background task %d finished: %s (%s)" task.id
+    Printf.sprintf "Background task %d finished: %s (%s)%s" task.id
       (status_summary task.status)
       (string_of_runner task.runner)
+      merge_suffix
   in
   let details =
     [
@@ -1297,9 +1352,9 @@ let prepare_worktree ?(run_simple_command = run_simple_command) task =
   ensure_roots ();
   ensure_parent_dir log_path;
   let open Lwt.Syntax in
-  if not (path_is_git_repo task.repo_path) then
-    (* Non-git directory: run agent directly in the path without worktree
-       isolation (B349). *)
+  if (not task.use_worktree) || not (path_is_git_repo task.repo_path) then
+    (* Non-git directory or use_worktree=false: run agent directly in the path
+       without worktree isolation. *)
     Lwt.return (Ok ("", task.repo_path, log_path))
   else
     let branch =
@@ -1634,6 +1689,24 @@ let enqueue_tool_with_notify ~notify_cfg ~db =
                           "Optional explicit model for the external runner, \
                            e.g. gpt-5.4 or claude-sonnet-4-6." );
                     ] );
+                ( "automerge",
+                  `Assoc
+                    [
+                      ("type", `String "boolean");
+                      ( "description",
+                        `String
+                          "Auto-rebase and merge task branch on success. \
+                           Default: false. Ignored if use_worktree is false." );
+                    ] );
+                ( "use_worktree",
+                  `Assoc
+                    [
+                      ("type", `String "boolean");
+                      ( "description",
+                        `String
+                          "Run in a git worktree (default: true). Set false to \
+                           run directly in the repo directory." );
+                    ] );
               ] );
           ( "required",
             `List [ `String "runner"; `String "repo_path"; `String "prompt" ] );
@@ -1663,6 +1736,18 @@ let enqueue_tool_with_notify ~notify_cfg ~db =
             | _ -> None
           with _ -> None
         in
+        let automerge =
+          try
+            args |> member "automerge" |> to_bool_option
+            |> Option.value ~default:false
+          with _ -> false
+        in
+        let use_worktree =
+          try
+            args |> member "use_worktree" |> to_bool_option
+            |> Option.value ~default:true
+          with _ -> true
+        in
         match runner_of_string runner_s with
         | None ->
             Lwt.return
@@ -1677,8 +1762,8 @@ let enqueue_tool_with_notify ~notify_cfg ~db =
               routing_from_context ?context ?notify_cfg ()
             in
             match
-              enqueue ~db ~runner ?model ~repo_path ~prompt ?branch ?session_key
-                ?channel ?channel_id ()
+              enqueue ~db ~runner ?model ~automerge ~use_worktree ~repo_path
+                ~prompt ?branch ?session_key ?channel ?channel_id ()
             with
             | Ok id ->
                 Lwt.return
@@ -2010,6 +2095,24 @@ let delegate_tool_with_notify ?(check_available = true) ~db ~default_repo_path
                           "Optional explicit model for the external runner, \
                            e.g. gpt-5.4 or claude-sonnet-4-6." );
                     ] );
+                ( "automerge",
+                  `Assoc
+                    [
+                      ("type", `String "boolean");
+                      ( "description",
+                        `String
+                          "Auto-rebase and merge task branch on success. \
+                           Default: false. Ignored if use_worktree is false." );
+                    ] );
+                ( "use_worktree",
+                  `Assoc
+                    [
+                      ("type", `String "boolean");
+                      ( "description",
+                        `String
+                          "Run in a git worktree (default: true). Set false to \
+                           run directly in the repo directory." );
+                    ] );
               ] );
           ("required", `List [ `String "goal" ]);
           ("additionalProperties", `Bool false);
@@ -2054,14 +2157,26 @@ let delegate_tool_with_notify ?(check_available = true) ~db ~default_repo_path
             | _ -> None
           with _ -> None
         in
+        let automerge =
+          try
+            args |> member "automerge" |> to_bool_option
+            |> Option.value ~default:false
+          with _ -> false
+        in
+        let use_worktree =
+          try
+            args |> member "use_worktree" |> to_bool_option
+            |> Option.value ~default:true
+          with _ -> true
+        in
         if String.trim goal = "" then Lwt.return "Error: goal is required"
         else if runner_error <> None then
           Lwt.return ("Error: " ^ Option.get runner_error)
         else
           match
             delegate_enqueue ?context ?notify_cfg ~check_available ~db
-              ?preferred_runner:runner_pref ?model ?repo_path ?branch
-              ~default_repo_path ~goal ()
+              ~automerge ~use_worktree ?preferred_runner:runner_pref ?model
+              ?repo_path ?branch ~default_repo_path ~goal ()
           with
           | Ok (id, runner, repo) ->
               Lwt.return

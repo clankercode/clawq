@@ -445,7 +445,32 @@ let inject_background_task_completion
 
 let notify_background_task_finished ?continuation_delay
     ?(senders = default_resume_senders) ~(session_manager : Session.t) ~config
-    task =
+    ?db task =
+  let open Lwt.Syntax in
+  let* task =
+    match db with
+    | Some db
+      when task.Background_task.automerge && task.Background_task.use_worktree
+           && task.Background_task.status = Background_task.Succeeded ->
+        let* merge_result = Worktree_merge.try_automerge ~db task in
+        let updated_task =
+          match merge_result with
+          | Worktree_merge.Merged _ ->
+              { task with merge_status = Some "merged" }
+          | Worktree_merge.Conflict _ ->
+              { task with merge_status = Some "conflict" }
+          | Worktree_merge.Error _ -> { task with merge_status = Some "error" }
+          | Worktree_merge.No_worktree ->
+              { task with merge_status = Some "error" }
+          | Worktree_merge.Already_merged ->
+              { task with merge_status = Some "merged" }
+        in
+        Logs.info (fun m ->
+            m "Automerge result for task %d: %s" task.id
+              (Worktree_merge.format_result merge_result));
+        Lwt.return updated_task
+    | _ -> Lwt.return task
+  in
   let text = Background_task.status_message task in
   let open Lwt.Syntax in
   let* () =
