@@ -15,6 +15,18 @@ title: Summarize and unsummarize tool results and automation outputs with an aut
 
 Summarize and unsummarize tool results and automation outputs with an automatic summarization layer that preserves structure/IDs, passes through short content, can escalate to a bigger model, stores original/context/summary metadata in the DB with summary IDs, and exposes unsummarize pagination/head-tail retrieval for large outputs like background task logs, task_tree, long file reads, and similar high-volume tool results.
 
+summarize and unsummarize tools and automation. When we run tasks that produce lots of output, it would be nice to avoid bloating context. We already have some features to do summarization with lighter models (gpt-oss-120b for stuck detection and summarize_thread for example).
+- We should support *automatic* summarization of things like: getting bg task logs (both delta and full), task_tree if answer is over 500 chars (note: in these cases, things like IDs and structured data (form) must be preserved), reading long files, etc.
+- This should be designed as a flexible layer that can wrap any tool call.
+- Because we want to do this with minimal API changes, we should pass the summarizer the prior messages in the history, too, so that it is more aware of context.
+- Should give the summarizer a way to say 'this is too hard, use a bigger model'
+- Should pass through short content instantly
+- When summarized content is provided we should save to the DB: the original input, the extra content we passed in, and the summarized output (also stuff like the thread/session id, timestamp, token counts, etc). Each summarization should have an id.
+- We should expose an unsummarize tool to agents which they can call with (id=id) to get the original input. Results for this should be paginated with optional arguments and defaults {lines=100, offset=0, with_context=false, head_and_tail=false}. If head_and_tail is true, then we ignore offset and provide just lines many lines from the start and end of the file (deduplicated if they overlap)
+- When content is summarized, we should tell the LLM: a) that it was summarized, b) the summarized content, c) length of original and length of summary (in lines, bytes, and tokens), d) how to call unsummarized to get first and last 100 lines
+- (Hmm, shoul dwe expose a summarize tool also? Doesn't seem very sensible *unless* it takes something like a filepath, url, etc)
+- Featureset will be expanded and refined upon processing idea
+
 ## Planning Task (Equivalent of /plan-task)
 
 - Run `/plan-task I017` to decompose this idea into actionable work.
