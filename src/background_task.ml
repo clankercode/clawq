@@ -1180,6 +1180,12 @@ let build_delegate_prompt ~automerge ~goal =
       "- Do not inspect or modify the original source repo path directly; use \
        only the files available in the current worktree.";
       "- Make the smallest focused change that completes the task well.";
+      "- `delegate` and the planning pipeline are separate workflows. If you \
+       use `clawq plan start` or `plan_pipeline_start`, treat it as an \
+       explicit foreground/blocking step inside this worktree, not as an \
+       automatic part of delegation.";
+      "- Do not queue nested delegate/background tasks just to create a plan \
+       unless the task explicitly calls for that extra handoff.";
       "- Run relevant verification when practical and mention what you ran.";
       "- Summarize the changes, results, and any follow-up concerns at the end.";
       commit_line;

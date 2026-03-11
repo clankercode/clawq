@@ -346,6 +346,7 @@ You have up to 39 built-in tools. 15 are always registered; `web_search`, `zai_w
 
 Background delegation notes:
 - `delegate` is the high-level user-facing entry point for handing off repository work asynchronously.
+- `plan` / `plan_pipeline_start` is a separate foreground, blocking workflow. A delegated agent can invoke it inside its own worktree when a deliberate plan-first pass is useful, but there is no automatic delegate-to-plan coupling.
 - The `background` command family is the lower-level control surface: queue work, inspect task metadata, wait for completion, read captured logs, cancel a run, or finalize (merge) a completed task.
 - Background task worktrees live under `~/.clawq/background-worktrees/`.
 - Background task logs live under `~/.clawq/background-logs/`.

@@ -205,6 +205,21 @@ let test_delegate_prompt_no_automerge () =
     "no Commit your changes" false
     (contains_substring ~needle:"Commit your changes" prompt)
 
+let test_delegate_prompt_mentions_plan_pipeline_contract () =
+  let prompt =
+    Background_task.build_delegate_prompt ~automerge:false ~goal:"do stuff"
+  in
+  Alcotest.(check bool)
+    "mentions separate workflows" true
+    (contains_substring ~needle:"separate workflows" prompt);
+  Alcotest.(check bool)
+    "mentions foreground blocking pipeline" true
+    (contains_substring ~needle:"foreground/blocking step" prompt);
+  Alcotest.(check bool)
+    "mentions no nested delegate" true
+    (contains_substring ~needle:"Do not queue nested delegate/background tasks"
+       prompt)
+
 let test_finalize_tool_missing_id () =
   let db = Memory.init ~db_path:":memory:" () in
   Background_task.init_schema db;
@@ -388,6 +403,8 @@ let suite =
       test_delegate_prompt_automerge;
     Alcotest.test_case "delegate prompt no automerge" `Quick
       test_delegate_prompt_no_automerge;
+    Alcotest.test_case "delegate prompt mentions plan pipeline contract" `Quick
+      test_delegate_prompt_mentions_plan_pipeline_contract;
     Alcotest.test_case "finalize tool missing id" `Quick
       test_finalize_tool_missing_id;
     Alcotest.test_case "finalize tool no worktree" `Quick
