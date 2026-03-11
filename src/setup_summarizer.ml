@@ -152,7 +152,8 @@ let draw_dashboard ~(sc : Runtime_config.summarizer_config) =
   draw_box ~width:w
     [
       bold " Autosummarizer Configuration ";
-      dim "  Automatically summarizes large tool results to reduce context usage.";
+      dim
+        "  Automatically summarizes large tool results to reduce context usage.";
       "";
       Printf.sprintf "  Enabled:           %s" enabled_str;
       Printf.sprintf "  Model:             %s" (cyan model_str);
@@ -471,8 +472,7 @@ let run () =
             Printf.printf "  %s\n"
               (bold "The envelope template wraps each summarized tool result.");
             Printf.printf
-              "  Use %s for newlines. Leave empty to use the built-in \
-               default.\n\n"
+              "  Use %s for newlines. Leave empty to use the built-in default.\n\n"
               (cyan "\\n");
             Printf.printf "  %s\n" (bold "Available placeholders:");
             let max_ph_len =
@@ -482,17 +482,14 @@ let run () =
             in
             List.iter
               (fun (ph, desc) ->
-                let pad =
-                  String.make (max_ph_len - String.length ph) ' '
-                in
+                let pad = String.make (max_ph_len - String.length ph) ' ' in
                 Printf.printf "    %s%s  %s\n" (green ph) pad (dim desc))
               placeholders;
             Printf.printf "\n  %s\n" (bold "Default (when not set):");
             List.iter
               (fun line -> Printf.printf "    %s\n" (dim line))
               [
-                "[Auto-summarized: id={sum_id}, tool={tool_name}, \
-                 model={model}";
+                "[Auto-summarized: id={sum_id}, tool={tool_name}, model={model}";
                 " original: {orig_lines} lines / {orig_bytes} bytes / \
                  ~{orig_tokens} tokens";
                 " summary: {sum_lines} lines / {sum_bytes} bytes / \

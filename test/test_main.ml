@@ -132,6 +132,7 @@ let () =
     @ [ ("setup_telegram", Test_setup_telegram.suite) ]
     @ [ ("setup_tunnel", Test_setup_tunnel.suite) ]
     @ [ ("setup_summarizer", Test_setup_summarizer.suite) ]
+    @ [ ("log_rotation", Test_log_rotation.suite) ]
     @ Test_github.suites
     @ [
         ( "config_isolation",

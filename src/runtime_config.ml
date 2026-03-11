@@ -251,6 +251,8 @@ type gateway_config = {
   pair_lockout_seconds : int;
 }
 
+type log_config = { max_size_mb : int; max_files : int }
+
 type runtime_config = {
   docker_image : string;
   docker_container_name : string;
@@ -433,7 +435,10 @@ type t = {
   quota_cache_ttl_s : int;
   observer : observer_config;
   summarizer : summarizer_config;
+  log : log_config;
 }
+
+let default_log_config : log_config = { max_size_mb = 10; max_files = 5 }
 
 let default_observer_config : observer_config =
   {
@@ -630,6 +635,7 @@ let default =
     quota_cache_ttl_s = 300;
     observer = default_observer_config;
     summarizer = default_summarizer_config;
+    log = default_log_config;
   }
 
 let is_key_set key =
@@ -1484,6 +1490,19 @@ let to_json (cfg : t) : Yojson.Safe.t =
   let fields =
     if cfg.quota_cache_ttl_s <> default.quota_cache_ttl_s then
       fields @ [ ("quota_cache_ttl_s", `Int cfg.quota_cache_ttl_s) ]
+    else fields
+  in
+  let fields =
+    if cfg.log <> default_log_config then
+      fields
+      @ [
+          ( "log",
+            `Assoc
+              [
+                ("max_size_mb", `Int cfg.log.max_size_mb);
+                ("max_files", `Int cfg.log.max_files);
+              ] );
+        ]
     else fields
   in
   let obs = cfg.observer in

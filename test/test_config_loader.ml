@@ -518,6 +518,21 @@ let test_parse_provider_thinking_fields () =
   Alcotest.(check (option int))
     "thinking budget parsed" (Some 4096) anthropic.thinking_budget_tokens
 
+let test_parse_log_config () =
+  let json =
+    Yojson.Safe.from_string
+      {|{ "log": { "max_size_mb": 50, "max_files": 10 } }|}
+  in
+  let cfg = Config_loader.parse_config json in
+  Alcotest.(check int) "max_size_mb" 50 cfg.log.max_size_mb;
+  Alcotest.(check int) "max_files" 10 cfg.log.max_files
+
+let test_parse_log_config_defaults () =
+  let json = Yojson.Safe.from_string {|{}|} in
+  let cfg = Config_loader.parse_config json in
+  Alcotest.(check int) "default max_size_mb" 10 cfg.log.max_size_mb;
+  Alcotest.(check int) "default max_files" 5 cfg.log.max_files
+
 let suite =
   [
     Alcotest.test_case "load warns on invalid port" `Quick
@@ -577,6 +592,9 @@ let suite =
       test_backfill_preserves_existing_providers;
     Alcotest.test_case "parse provider thinking fields" `Quick
       test_parse_provider_thinking_fields;
+    Alcotest.test_case "parse log config" `Quick test_parse_log_config;
+    Alcotest.test_case "parse log config defaults" `Quick
+      test_parse_log_config_defaults;
     Alcotest.test_case "default_path returns config.json path" `Quick (fun () ->
         let path = Config_loader.default_path () in
         Alcotest.(check bool)

@@ -1060,6 +1060,14 @@ let run ~(config : Runtime_config.t) =
                   last_retention_run := now;
                   ignore (Audit.retention_tick ~db ~config:cur_config)
                 end;
+                (let log_path =
+                   let home =
+                     try Sys.getenv "HOME" with Not_found -> "/tmp"
+                   in
+                   Filename.concat (Filename.concat home ".clawq") "daemon.log"
+                 in
+                 if Log_rotation.maybe_rotate ~log_path ~config:cur_config.log
+                 then Logs.info (fun m -> m "Rotated daemon.log"));
                 let* () =
                   Rate_limiter.cleanup_expired ip_limiter
                     ~max_idle_seconds:300.0

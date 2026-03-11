@@ -103,7 +103,8 @@
   test_setup_telegram
   test_setup_tunnel
   test_setup_summarizer
-  test_summarizer)
+  test_summarizer
+  test_log_rotation)
  (libraries
   clawq_extracted
   clawq_runtime_core

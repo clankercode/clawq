@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-11T07:15:46Z"
+claimed_by: cli-user
+completed_at: "2026-03-11T07:23:55Z"
 complexity: medium
 depends_on: []
+duration_minutes: 8.1582154924
 estimate_hours: 1
 id: B360
 priority: high
-status: pending
+started_at: "2026-03-11T07:15:46Z"
+status: done
 tags: []
 title: need some kind of logs rotation so daemon.log doesn't grow out of control
 ---

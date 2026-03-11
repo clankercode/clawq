@@ -894,6 +894,19 @@ let parse_config ?(resolve_secrets = true) json =
         : Runtime_config.runtime_config)
     with _ -> default.runtime
   in
+  let log =
+    try
+      let l = json |> member "log" in
+      let max_size_mb =
+        try l |> member "max_size_mb" |> to_int
+        with _ -> default.log.max_size_mb
+      in
+      let max_files =
+        try l |> member "max_files" |> to_int with _ -> default.log.max_files
+      in
+      ({ max_size_mb; max_files } : Runtime_config.log_config)
+    with _ -> default.log
+  in
   let tunnel =
     try
       let t = json |> member "tunnel" in
@@ -1521,6 +1534,7 @@ let parse_config ?(resolve_secrets = true) json =
        with _ -> Runtime_config.default.quota_cache_ttl_s);
     observer;
     summarizer;
+    log;
   }
 
 let rec merge_json (original : Yojson.Safe.t) (complete : Yojson.Safe.t) :
