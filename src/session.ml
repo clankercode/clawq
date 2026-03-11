@@ -1789,11 +1789,20 @@ let reset mgr ~key =
             unregister_rich_notifier mgr ~key;
             Lwt.return None)
   in
+  let active_bg_tasks =
+    match mgr.db with
+    | Some db -> (
+        try
+          Background_task.init_schema db;
+          Background_task.count_active_for_session ~db ~session_key:key
+        with _ -> 0)
+    | None -> 0
+  in
   match held_mutex with
   | Some mutex ->
       Lwt_mutex.unlock mutex;
-      Lwt.return_unit
-  | None -> Lwt.return_unit
+      Lwt.return active_bg_tasks
+  | None -> Lwt.return active_bg_tasks
 
 (* Step tuple: (name, emoji, started_at option, done_at option)
    None/None = Pending, Some t0/None = Running, Some t0/Some t1 = Done *)

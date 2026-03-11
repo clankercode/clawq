@@ -283,7 +283,13 @@ let handle text =
         | "" -> NotACommand
         | _ -> NotACommand)
 
-let reset_message = "Session reset. Send a new message to start fresh."
+let reset_message ?(active_bg_tasks = 0) () =
+  if active_bg_tasks > 0 then
+    Printf.sprintf
+      "Session reset. Send a new message to start fresh.\n\
+       Note: %d active background task(s) are still running."
+      active_bg_tasks
+  else "Session reset. Send a new message to start fresh."
 
 let risk_level_string (r : Tool.risk_level) =
   match r with Low -> "Low" | Medium -> "Medium" | High -> "High"

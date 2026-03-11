@@ -727,8 +727,8 @@ let handler ~session_manager ~require_pairing ~auth_token
                 | Slash_commands.Reply text -> sse_reply text
                 | Slash_commands.Reset ->
                     let key = "web:" ^ session_id in
-                    let* () = Session.reset session_manager ~key in
-                    sse_reply Slash_commands.reset_message
+                    let* active_bg_tasks = Session.reset session_manager ~key in
+                    sse_reply (Slash_commands.reset_message ~active_bg_tasks ())
                 | Slash_commands.Compact ->
                     let key = "web:" ^ session_id in
                     let* compact_result =

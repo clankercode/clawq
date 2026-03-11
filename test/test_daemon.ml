@@ -1284,6 +1284,7 @@ let make_test_task ?(id = 9) ?(session_key = Some "telegram:42:user")
     automerge = false;
     use_worktree = true;
     merge_status = None;
+    retry_count = 0;
   }
 
 let test_notify_background_task_finished_dispatches_and_injects_wakeup () =
@@ -1816,7 +1817,7 @@ let test_session_reset_clears_pending_queue () =
   Alcotest.(check int)
     "1 pending before reset" 1
     (Memory.queue_count ~db ~session_key:key);
-  Lwt_main.run (Session.reset session_manager ~key);
+  ignore (Lwt_main.run (Session.reset session_manager ~key));
   Alcotest.(check int)
     "0 pending after reset" 0
     (Memory.queue_count ~db ~session_key:key)

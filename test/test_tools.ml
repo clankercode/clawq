@@ -1379,6 +1379,7 @@ let test_background_task_logs_truncates_large_output () =
           automerge = false;
           use_worktree = true;
           merge_status = None;
+          retry_count = 0;
         }
       in
       let oc = open_out (Option.get task.log_path) in
@@ -1432,6 +1433,7 @@ let test_background_task_logs_truncates_pathological_long_line () =
           automerge = false;
           use_worktree = true;
           merge_status = None;
+          retry_count = 0;
         }
       in
       let oc = open_out (Option.get task.log_path) in

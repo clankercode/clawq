@@ -31,6 +31,7 @@ type task = {
   automerge : bool;
   use_worktree : bool;
   merge_status : string option;
+  retry_count : int;
 }
 
 let string_of_runner = function
@@ -71,6 +72,8 @@ let status_of_string s =
 let is_terminal_status = function
   | Succeeded | Failed | Cancelled -> true
   | Queued | Running -> false
+
+let max_retry_count = 3
 
 let string_of_health = function
   | Active -> "active"
@@ -283,6 +286,8 @@ let format_task_summary ?(full = false) ?(compact = false) (task : task) =
       add (Printf.sprintf "model: %s" model)
   | _ -> ());
   add (Printf.sprintf "status: %s" (status_summary task.status));
+  if task.retry_count > 0 then
+    add (Printf.sprintf "retries: %d/%d" task.retry_count max_retry_count);
   let health = diagnose_health task in
   (match health with
   | Not_applicable -> ()
@@ -388,6 +393,10 @@ let task_of_stmt stmt =
     automerge = sql_bool stmt 17;
     use_worktree = sql_bool stmt 18;
     merge_status = Sqlite3.column stmt 19 |> sql_text;
+    retry_count =
+      (match Sqlite3.column stmt 20 with
+      | Sqlite3.Data.INT i -> Int64.to_int i
+      | _ -> 0);
   }
 
 let init_schema db =
@@ -437,7 +446,10 @@ let init_schema db =
   try_alter
     "ALTER TABLE background_tasks ADD COLUMN use_worktree INTEGER NOT NULL \
      DEFAULT 1";
-  try_alter "ALTER TABLE background_tasks ADD COLUMN merge_status TEXT"
+  try_alter "ALTER TABLE background_tasks ADD COLUMN merge_status TEXT";
+  try_alter
+    "ALTER TABLE background_tasks ADD COLUMN retry_count INTEGER NOT NULL \
+     DEFAULT 0"
 
 let enqueue ~db ~runner ?model ?(require_git = true) ?(automerge = false)
     ?(use_worktree = true) ~repo_path ~prompt ?branch ?session_key ?channel
@@ -485,7 +497,7 @@ let select_columns =
   "id, runner, model, repo_path, prompt, COALESCE(branch, ''), worktree_path, \
    log_path, status, session_key, channel, channel_id, pid, result_preview, \
    created_at, started_at, finished_at, COALESCE(automerge, 0), \
-   COALESCE(use_worktree, 1), merge_status"
+   COALESCE(use_worktree, 1), merge_status, COALESCE(retry_count, 0)"
 
 let list_tasks ~db =
   let sql =
@@ -1047,6 +1059,79 @@ let cancel_with_signal ~send_signal ~db ~id
 
 let cancel ~db ~id = cancel_with_signal ~send_signal:Unix.kill ~db ~id ()
 
+let retry ~db ~id =
+  match get_task ~db ~id with
+  | None -> Error (Printf.sprintf "No background task found with id %d" id)
+  | Some task when task.status <> Failed ->
+      Error
+        (Printf.sprintf
+           "Task %d has status '%s' — only failed tasks can be retried" id
+           (string_of_status task.status))
+  | Some task when task.retry_count >= max_retry_count ->
+      Error
+        (Printf.sprintf
+           "Task %d has already been retried %d/%d times — maximum retries \
+            exceeded"
+           id task.retry_count max_retry_count)
+  | Some task ->
+      let new_retry_count = task.retry_count + 1 in
+      let sql =
+        "UPDATE background_tasks SET status = 'queued', pid = NULL, \
+         result_preview = NULL, started_at = NULL, finished_at = NULL, \
+         worktree_path = NULL, log_path = NULL, branch = '', merge_status = \
+         NULL, retry_count = ? WHERE id = ?"
+      in
+      let stmt = Sqlite3.prepare db sql in
+      Fun.protect
+        ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+        (fun () ->
+          ignore
+            (Sqlite3.bind stmt 1
+               (Sqlite3.Data.INT (Int64.of_int new_retry_count)));
+          ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int id)));
+          match Sqlite3.step stmt with
+          | Sqlite3.Rc.DONE ->
+              Ok
+                (Printf.sprintf "Re-queued task %d (retry %d/%d)" id
+                   new_retry_count max_retry_count)
+          | rc ->
+              Error
+                (Printf.sprintf "Failed to retry task %d: %s" id
+                   (Sqlite3.Rc.to_string rc)))
+
+let count_active ~db =
+  let sql =
+    "SELECT COUNT(*) FROM background_tasks WHERE status IN ('queued', \
+     'running')"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.ROW -> (
+          match Sqlite3.column stmt 0 with
+          | Sqlite3.Data.INT i -> Int64.to_int i
+          | _ -> 0)
+      | _ -> 0)
+
+let count_active_for_session ~db ~session_key =
+  let sql =
+    "SELECT COUNT(*) FROM background_tasks WHERE status IN ('queued', \
+     'running') AND session_key = ?"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT session_key));
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.ROW -> (
+          match Sqlite3.column stmt 0 with
+          | Sqlite3.Data.INT i -> Int64.to_int i
+          | _ -> 0)
+      | _ -> 0)
+
 let ensure_roots () =
   ensure_dir (clawq_dir ());
   ensure_dir (worktree_root ());
@@ -1533,8 +1618,14 @@ let reap_dead_running_tasks ~db ~on_task_finished =
           match task.pid with
           | Some pid ->
               Printf.sprintf
-                "Process group %d no longer alive (orphaned/crashed)" pid
-          | None -> "No PID recorded for running task"
+                "Process group %d no longer alive (orphaned/crashed) — use \
+                 'background retry %d' to re-queue"
+                pid task.id
+          | None ->
+              Printf.sprintf
+                "No PID recorded for running task — use 'background retry %d' \
+                 to re-queue"
+                task.id
         in
         Logs.warn (fun m ->
             m "Reaping stale background task %d: %s" task.id reason);

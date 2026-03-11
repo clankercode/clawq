@@ -420,7 +420,7 @@ let test_reset_clears_active_session_and_history () =
   Hashtbl.replace mgr.sessions "s1" (agent, Lwt_mutex.create (), ref None);
   Memory.store_message ~db ~session_key:"s1"
     (Provider.make_message ~role:"user" ~content:"hello");
-  Lwt_main.run (Session.reset mgr ~key:"s1");
+  ignore (Lwt_main.run (Session.reset mgr ~key:"s1"));
   Alcotest.(check bool)
     "session entry removed" false
     (Hashtbl.mem mgr.sessions "s1");
@@ -437,16 +437,17 @@ let test_reset_waits_for_session_lock () =
   Hashtbl.replace mgr.sessions "s1" (agent, mutex, ref None);
   Memory.store_message ~db ~session_key:"s1"
     (Provider.make_message ~role:"user" ~content:"hello");
-  Lwt_main.run
-    (let open Lwt.Syntax in
-     let* () = Lwt_mutex.lock mutex in
-     let reset_p = Session.reset mgr ~key:"s1" in
-     let* () = Lwt.pause () in
-     Alcotest.(check bool)
-       "session still present while locked" true
-       (Hashtbl.mem mgr.sessions "s1");
-     Lwt_mutex.unlock mutex;
-     reset_p);
+  ignore
+    (Lwt_main.run
+       (let open Lwt.Syntax in
+        let* () = Lwt_mutex.lock mutex in
+        let reset_p = Session.reset mgr ~key:"s1" in
+        let* () = Lwt.pause () in
+        Alcotest.(check bool)
+          "session still present while locked" true
+          (Hashtbl.mem mgr.sessions "s1");
+        Lwt_mutex.unlock mutex;
+        reset_p));
   Alcotest.(check bool)
     "session removed after unlock" false
     (Hashtbl.mem mgr.sessions "s1");
@@ -480,7 +481,7 @@ let test_reset_then_same_key_create_is_fresh () =
     (Provider.make_message ~role:"user" ~content:"hello");
   Lwt_main.run
     (Session.with_session_lock mgr ~key:"s1" (fun _ _ -> Lwt.return_unit));
-  Lwt_main.run (Session.reset mgr ~key:"s1");
+  ignore (Lwt_main.run (Session.reset mgr ~key:"s1"));
   Lwt_main.run
     (Session.with_session_lock mgr ~key:"s1" (fun agent _ ->
          Alcotest.(check int)
@@ -502,7 +503,7 @@ let test_reset_session_idempotent () =
          Session.persist_new_messages mgr ~key:"web:s1" ~history_before agent;
          Lwt.return_unit));
   Session.record_agent_turn mgr ~key:"web:s1" ~channel:"web" ~channel_id:"s1" ();
-  Lwt_main.run (Session.reset mgr ~key:"web:s1");
+  ignore (Lwt_main.run (Session.reset mgr ~key:"web:s1"));
   Alcotest.(check bool)
     "session removed after first reset" false
     (Hashtbl.mem mgr.sessions "web:s1");
@@ -513,7 +514,7 @@ let test_reset_session_idempotent () =
     "pending session state cleared after first reset" 0
     (List.length
        (Session.load_pending_agent_sessions mgr ~max_age_seconds:3600));
-  Lwt_main.run (Session.reset mgr ~key:"web:s1");
+  ignore (Lwt_main.run (Session.reset mgr ~key:"web:s1"));
   Alcotest.(check bool)
     "session still absent after second reset" false
     (Hashtbl.mem mgr.sessions "web:s1");
@@ -537,7 +538,7 @@ let test_reset_clears_pending_session_state () =
   let mgr = Session.create ~config ~db () in
   Session.record_agent_turn mgr ~key:"slack:c1:u1" ~channel:"slack"
     ~channel_id:"c1" ();
-  Lwt_main.run (Session.reset mgr ~key:"slack:c1:u1");
+  ignore (Lwt_main.run (Session.reset mgr ~key:"slack:c1:u1"));
   Alcotest.(check int)
     "pending session state cleared" 0
     (List.length

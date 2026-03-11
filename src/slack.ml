@@ -340,10 +340,10 @@ let handle_event ~(config : Runtime_config.slack_config)
                 in
                 Lwt.return "ok"
             | Reset ->
-                let* () = Session.reset session_manager ~key in
+                let* active_bg_tasks = Session.reset session_manager ~key in
                 let* () =
                   send_message_fn ~bot_token:config.bot_token ~channel_id
-                    ~text:Slash_commands.reset_message
+                    ~text:(Slash_commands.reset_message ~active_bg_tasks ())
                 in
                 Lwt.return "ok"
             | Compact ->

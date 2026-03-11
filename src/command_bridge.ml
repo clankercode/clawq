@@ -298,6 +298,15 @@ let cmd_background args =
         match Background_task.cancel ~db ~id with
         | Ok msg -> msg
         | Error msg -> "Error: " ^ msg)
+  | [ "retry"; id_s ] -> (
+      let db = get_db () in
+      Background_task.init_schema db;
+      let id = try int_of_string id_s with _ -> -1 in
+      if id < 0 then "Error: background task id must be an integer"
+      else
+        match Background_task.retry ~db ~id with
+        | Ok msg -> msg
+        | Error msg -> "Error: " ^ msg)
   | [ "finalize"; id_s ] | "finalize" :: id_s :: _ -> (
       let db = get_db () in
       Background_task.init_schema db;
@@ -313,7 +322,7 @@ let cmd_background args =
             let result = Lwt_main.run (Worktree_merge.finalize_task ~db task) in
             Worktree_merge.format_result result)
   | _ ->
-      "Usage: clawq background <list|show|add|wait|logs|cancel|finalize>\n\
+      "Usage: clawq background <list|show|add|wait|logs|cancel|retry|finalize>\n\
       \  background list                                         - List queued \
        and completed tasks\n\
       \  background show <id>                                    - Show task \
@@ -326,6 +335,8 @@ let cmd_background args =
        log lines\n\
       \  background cancel <id>                                  - Cancel a \
        queued/running task\n\
+      \  background retry <id>                                   - Re-queue a \
+       failed task (max 3 retries)\n\
       \  background finalize <id>                                - Rebase, \
        merge and clean up a task's worktree"
 
@@ -844,6 +855,7 @@ let cmd_reset_agent () =
   print_endline "  This will NOT touch:";
   print_endline (dim "    · config.json");
   print_endline (dim "    · daemon.log  daemon.pid");
+  print_endline (dim "    · background tasks (queued/running/finished)");
   print_endline "";
   print_string "  Type ";
   print_string (bold "RESET");
@@ -869,6 +881,8 @@ let cmd_reset_agent () =
     exec "DELETE FROM embeddings";
     exec "DELETE FROM cron_jobs";
     exec "DELETE FROM cron_runs";
+    Background_task.init_schema db;
+    let active_bg = Background_task.count_active ~db in
     ignore (Sqlite3.db_close db);
     List.iter
       (fun (name, content) ->
@@ -883,6 +897,10 @@ let cmd_reset_agent () =
     print_endline "    · Conversation history cleared";
     print_endline "    · Cron jobs and run logs cleared";
     print_endline "    · Workspace files redeployed from defaults";
+    if active_bg > 0 then
+      print_endline
+        (Printf.sprintf
+           "    · Note: %d active background task(s) continue running" active_bg);
     print_endline "";
     "Agent reset complete."
   end
@@ -920,6 +938,7 @@ let cmd_reset_workspace () =
   print_endline (dim "    · config.json");
   print_endline (dim "    · daemon.log  daemon.pid");
   print_endline (dim "    · cron jobs and run logs");
+  print_endline (dim "    · background tasks (queued/running/finished)");
   print_endline "";
   print_string "  Type ";
   print_string (bold "RESET");
@@ -943,6 +962,8 @@ let cmd_reset_workspace () =
     in
     exec "DELETE FROM messages";
     exec "DELETE FROM embeddings";
+    Background_task.init_schema db;
+    let active_bg = Background_task.count_active ~db in
     ignore (Sqlite3.db_close db);
     List.iter
       (fun (name, content) ->
@@ -956,6 +977,10 @@ let cmd_reset_workspace () =
     print_endline "  Done:";
     print_endline "    · Conversation history cleared";
     print_endline "    · Workspace files redeployed from defaults";
+    if active_bg > 0 then
+      print_endline
+        (Printf.sprintf
+           "    · Note: %d active background task(s) continue running" active_bg);
     print_endline "";
     "Workspace reset complete."
   end

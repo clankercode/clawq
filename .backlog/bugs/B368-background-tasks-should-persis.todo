@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-11T13:43:14Z"
+claimed_by: cli-user
+completed_at: "2026-03-11T14:04:10Z"
 complexity: medium
 depends_on: []
+duration_minutes: 20.940362391566666
 estimate_hours: 1
 id: B368
 priority: high
-status: pending
+started_at: "2026-03-11T13:43:14Z"
+status: done
 tags: []
 title: Background tasks should persist over resets
 ---

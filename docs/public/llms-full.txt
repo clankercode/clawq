@@ -42,6 +42,7 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 | `background wait ID [--timeout SECONDS]` | Wait for a background task to finish, then print its final status/result summary |
 | `background logs ID [--lines COUNT] [--offset LINE] [--follow/-f]` | Print the captured log for a background task; `--offset` reads forward from a line number, `--follow` tails live output (mutually exclusive) |
 | `background cancel ID` | Cancel a queued or running background task |
+| `background retry ID` | Re-queue a failed background task (max 3 retries) |
 | `background finalize ID` | Rebase a completed task's worktree branch onto the target branch, fast-forward merge, and clean up the worktree |
 | `delegate [--runner auto|kimi|opencode|codex|claude|gemini|cursor] [--model MODEL] [--repo PATH] [--branch NAME] GOAL` | High-level shortcut for handing off repository work as a background task with sensible defaults; auto order: kimi → cursor → opencode (zai-coding-plan/glm-5) → claude → codex → gemini |
 | `plan` | Run multi-stage planning pipelines (default: list) |

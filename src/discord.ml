@@ -480,9 +480,10 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
           send_message_fn ~bot_token:discord_config.bot_token
             ~channel_id:msg.channel_id ~text
       | Reset ->
-          let* () = Session.reset session_mgr ~key in
+          let* active_bg_tasks = Session.reset session_mgr ~key in
           send_message_fn ~bot_token:discord_config.bot_token
-            ~channel_id:msg.channel_id ~text:Slash_commands.reset_message
+            ~channel_id:msg.channel_id
+            ~text:(Slash_commands.reset_message ~active_bg_tasks ())
       | Compact -> (
           let notifier =
             make_status_notifier ~bot_token:discord_config.bot_token

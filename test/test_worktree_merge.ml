@@ -62,6 +62,7 @@ let fake_task ?(automerge = false) ?(use_worktree = true) ?(merge_status = None)
     automerge;
     use_worktree;
     merge_status;
+    retry_count = 0;
   }
 
 let test_schema_migration () =

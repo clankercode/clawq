@@ -153,6 +153,7 @@ let test_check_plan_stable_hash_unchanged () =
               automerge = false;
               use_worktree = true;
               merge_status = None;
+              retry_count = 0;
             }
           in
           let stable =
@@ -194,6 +195,7 @@ let test_check_plan_stable_marker () =
               automerge = false;
               use_worktree = true;
               merge_status = None;
+              retry_count = 0;
             }
           in
           let stable =
@@ -233,6 +235,7 @@ let test_stage_transitions () =
       automerge = false;
       use_worktree = true;
       merge_status = None;
+      retry_count = 0;
     }
   in
   with_temp_git_repo (fun repo ->
@@ -307,6 +310,7 @@ let test_stage_force_stop_at_max () =
       automerge = false;
       use_worktree = true;
       merge_status = None;
+      retry_count = 0;
     }
   in
   with_temp_git_repo (fun repo ->

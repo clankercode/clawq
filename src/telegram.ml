@@ -294,9 +294,10 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
         match Slash_commands.handle user_text with
         | Reply text -> send_message ~bot_token ~chat_id:update.chat_id ~text ()
         | Reset ->
-            let* () = Session.reset session_mgr ~key in
+            let* active_bg_tasks = Session.reset session_mgr ~key in
             send_message ~bot_token ~chat_id:update.chat_id
-              ~text:Slash_commands.reset_message ()
+              ~text:(Slash_commands.reset_message ~active_bg_tasks ())
+              ()
         | Compact -> (
             let notifier =
               make_status_notifier ~bot_token ~chat_id:update.chat_id

@@ -24,6 +24,7 @@ Every clawq command is listed below. Run `clawq COMMAND --help` for per-command 
 | `clawq background wait ID [--timeout SECONDS]` | Block until a background task finishes, then print the final summary |
 | `clawq background logs ID [--lines COUNT]` | Show the captured log for a background task |
 | `clawq background cancel ID` | Cancel a queued or running background task |
+| `clawq background retry ID` | Re-queue a failed background task (max 3 retries) |
 | `clawq background finalize ID` | Rebase, fast-forward merge, and clean up a completed task's worktree |
 | `clawq channel` | List configured channels |
 | `clawq config` | Manage configuration (wizard, get/set/show) |
@@ -135,6 +136,7 @@ clawq background show 1
 clawq background wait 1
 clawq background logs 1
 clawq background cancel 1
+clawq background retry 1
 clawq background finalize 1
 ```
 

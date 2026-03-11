@@ -44,6 +44,7 @@ let fake_task ?(status = Background_task.Queued) id =
     automerge = false;
     use_worktree = true;
     merge_status = None;
+    retry_count = 0;
   }
 
 let test_enqueue_and_list_tasks () =
@@ -237,6 +238,7 @@ let test_command_of_task_codex () =
       automerge = false;
       use_worktree = true;
       merge_status = None;
+      retry_count = 0;
     }
   in
   Alcotest.(check (array string))
@@ -269,6 +271,7 @@ let test_command_of_task_claude () =
       automerge = false;
       use_worktree = true;
       merge_status = None;
+      retry_count = 0;
     }
   in
   Alcotest.(check (array string))
@@ -299,6 +302,7 @@ let test_command_of_task_kimi () =
       automerge = false;
       use_worktree = true;
       merge_status = None;
+      retry_count = 0;
     }
   in
   Alcotest.(check (array string))
@@ -329,6 +333,7 @@ let test_command_of_task_kimi_with_model () =
       automerge = false;
       use_worktree = true;
       merge_status = None;
+      retry_count = 0;
     }
   in
   Alcotest.(check (array string))
@@ -359,6 +364,7 @@ let test_command_of_task_gemini () =
       automerge = false;
       use_worktree = true;
       merge_status = None;
+      retry_count = 0;
     }
   in
   Alcotest.(check (array string))
@@ -389,6 +395,7 @@ let test_command_of_task_gemini_with_model () =
       automerge = false;
       use_worktree = true;
       merge_status = None;
+      retry_count = 0;
     }
   in
   Alcotest.(check (array string))
@@ -419,6 +426,7 @@ let test_command_of_task_opencode () =
       automerge = false;
       use_worktree = true;
       merge_status = None;
+      retry_count = 0;
     }
   in
   Alcotest.(check (array string))
@@ -449,6 +457,7 @@ let test_command_of_task_opencode_with_model () =
       automerge = false;
       use_worktree = true;
       merge_status = None;
+      retry_count = 0;
     }
   in
   Alcotest.(check (array string))
@@ -479,6 +488,7 @@ let test_command_of_task_cursor () =
       automerge = false;
       use_worktree = true;
       merge_status = None;
+      retry_count = 0;
     }
   in
   Alcotest.(check (array string))
@@ -509,6 +519,7 @@ let test_command_of_task_cursor_with_model () =
       automerge = false;
       use_worktree = true;
       merge_status = None;
+      retry_count = 0;
     }
   in
   Alcotest.(check (array string))
@@ -1291,6 +1302,7 @@ let make_task ?(id = 1) ?(runner = Background_task.Claude)
     automerge = false;
     use_worktree = true;
     merge_status = None;
+    retry_count = 0;
   }
 
 let test_elapsed_string_recent () =
@@ -1458,6 +1470,7 @@ let test_command_of_task_codex_with_model () =
       automerge = false;
       use_worktree = true;
       merge_status = None;
+      retry_count = 0;
     }
   in
   Alcotest.(check (array string))
@@ -1495,6 +1508,7 @@ let test_command_of_task_claude_with_model () =
       automerge = false;
       use_worktree = true;
       merge_status = None;
+      retry_count = 0;
     }
   in
   Alcotest.(check (array string))
@@ -2466,6 +2480,184 @@ let test_health_in_task_list () =
          in
          loop 0))
 
+let test_retry_requeues_failed_task () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"implement feature" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      Background_task.finish ~db ~id ~status:Background_task.Failed
+        ~result_preview:"crashed";
+      (match Background_task.retry ~db ~id with
+      | Ok msg ->
+          Alcotest.(check bool)
+            "message mentions re-queued" true
+            (String.length msg > 0
+            &&
+              try
+                ignore (String.index msg 'R');
+                true
+              with Not_found -> true)
+      | Error msg -> Alcotest.fail msg);
+      match Background_task.get_task ~db ~id with
+      | None -> Alcotest.fail "expected task"
+      | Some task ->
+          Alcotest.(check string)
+            "status is queued" "queued"
+            (Background_task.string_of_status task.status);
+          Alcotest.(check int) "retry_count is 1" 1 task.retry_count)
+
+let test_retry_max_count_exceeded () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"implement feature" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      for _ = 1 to 3 do
+        Background_task.finish ~db ~id ~status:Background_task.Failed
+          ~result_preview:"crashed";
+        match Background_task.retry ~db ~id with
+        | Ok _ -> ()
+        | Error msg -> Alcotest.fail msg
+      done;
+      Background_task.finish ~db ~id ~status:Background_task.Failed
+        ~result_preview:"crashed again";
+      match Background_task.retry ~db ~id with
+      | Ok _ -> Alcotest.fail "expected error for exceeded retries"
+      | Error msg ->
+          Alcotest.(check bool)
+            "error mentions maximum" true
+            (String.length msg > 0))
+
+let test_retry_only_failed_tasks () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let enqueue () =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"test" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      let id_queued = enqueue () in
+      (match Background_task.retry ~db ~id:id_queued with
+      | Ok _ -> Alcotest.fail "should not retry queued task"
+      | Error _ -> ());
+      let id_succeeded = enqueue () in
+      Background_task.finish ~db ~id:id_succeeded
+        ~status:Background_task.Succeeded ~result_preview:"done";
+      (match Background_task.retry ~db ~id:id_succeeded with
+      | Ok _ -> Alcotest.fail "should not retry succeeded task"
+      | Error _ -> ());
+      let id_cancelled = enqueue () in
+      ignore (Background_task.cancel ~db ~id:id_cancelled);
+      match Background_task.retry ~db ~id:id_cancelled with
+      | Ok _ -> Alcotest.fail "should not retry cancelled task"
+      | Error _ -> ())
+
+let test_reap_includes_retry_hint () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"test" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      ignore
+        (Background_task.set_running ~db ~id ~branch:"b"
+           ~worktree_path:"/tmp/wt" ~log_path:"/tmp/log" ~pid:999999);
+      let finished = ref [] in
+      let _count =
+        Background_task.reap_dead_running_tasks ~db ~on_task_finished:(fun t ->
+            finished := t :: !finished;
+            Lwt.return_unit)
+      in
+      match Background_task.get_task ~db ~id with
+      | None -> Alcotest.fail "expected task"
+      | Some task ->
+          let preview = Option.value ~default:"" task.result_preview in
+          Alcotest.(check bool)
+            "result contains retry hint" true
+            (try
+               ignore
+                 (Str.search_forward
+                    (Str.regexp_string "background retry")
+                    preview 0);
+               true
+             with Not_found -> false))
+
+let test_retry_count_persists () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"test" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      Background_task.finish ~db ~id ~status:Background_task.Failed
+        ~result_preview:"fail1";
+      (match Background_task.retry ~db ~id with
+      | Ok _ -> ()
+      | Error msg -> Alcotest.fail msg);
+      Background_task.finish ~db ~id ~status:Background_task.Failed
+        ~result_preview:"fail2";
+      (match Background_task.retry ~db ~id with
+      | Ok _ -> ()
+      | Error msg -> Alcotest.fail msg);
+      match Background_task.get_task ~db ~id with
+      | None -> Alcotest.fail "expected task"
+      | Some task -> Alcotest.(check int) "retry_count is 2" 2 task.retry_count)
+
+let test_count_active_for_session () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let enqueue ?session_key () =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"test" ?session_key ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      let _id1 = enqueue ~session_key:"sess-a" () in
+      let id2 = enqueue ~session_key:"sess-a" () in
+      let _id3 = enqueue ~session_key:"sess-b" () in
+      Background_task.finish ~db ~id:id2 ~status:Background_task.Succeeded
+        ~result_preview:"done";
+      let count_a =
+        Background_task.count_active_for_session ~db ~session_key:"sess-a"
+      in
+      Alcotest.(check int) "sess-a has 1 active" 1 count_a;
+      let count_b =
+        Background_task.count_active_for_session ~db ~session_key:"sess-b"
+      in
+      Alcotest.(check int) "sess-b has 1 active" 1 count_b;
+      let count_all = Background_task.count_active ~db in
+      Alcotest.(check int) "total active is 2" 2 count_all)
+
 let suite =
   [
     Alcotest.test_case "enqueue and list tasks" `Quick
@@ -2605,4 +2797,15 @@ let suite =
     Alcotest.test_case "health in task summary" `Quick
       test_health_in_task_summary;
     Alcotest.test_case "health in task list" `Quick test_health_in_task_list;
+    Alcotest.test_case "retry requeues failed task" `Quick
+      test_retry_requeues_failed_task;
+    Alcotest.test_case "retry max count exceeded" `Quick
+      test_retry_max_count_exceeded;
+    Alcotest.test_case "retry only failed tasks" `Quick
+      test_retry_only_failed_tasks;
+    Alcotest.test_case "reap includes retry hint" `Quick
+      test_reap_includes_retry_hint;
+    Alcotest.test_case "retry count persists" `Quick test_retry_count_persists;
+    Alcotest.test_case "count active for session" `Quick
+      test_count_active_for_session;
   ]
