@@ -608,7 +608,6 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                     else ""
                   in
                   Session.set_session_model session_mgr ~key ~model:name;
-                  let _ = Model_preferences.increment_usage name in
                   send_message_fn ~bot_token:discord_config.bot_token
                     ~channel_id:msg.channel_id
                     ~text:
@@ -630,12 +629,10 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                           name
                       in
                       Session.set_session_model session_mgr ~key ~model:name;
-                      let _ = Model_preferences.increment_usage name in
                       send_message_fn ~bot_token:discord_config.bot_token
                         ~channel_id:msg.channel_id ~text
                   | Some m ->
                       Session.set_session_model session_mgr ~key ~model:name;
-                      let _ = Model_preferences.increment_usage name in
                       let display =
                         if m.Models_catalog.provider <> "" then
                           Printf.sprintf

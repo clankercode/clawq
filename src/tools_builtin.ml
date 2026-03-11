@@ -424,7 +424,6 @@ let models_tool ~(config : Runtime_config.t) ?session_mgr () =
             match session_key with
             | Some key ->
                 Session.set_session_model mgr ~key ~model;
-                Model_preferences.increment_usage model |> ignore;
                 Printf.sprintf
                   "Model set to: %s (provider: %s)%s%s\n\
                    Persisted for this session across restarts. Use 'models \

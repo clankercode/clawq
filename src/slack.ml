@@ -505,7 +505,6 @@ let handle_event ~(config : Runtime_config.slack_config)
                         in
                         Session.set_session_model session_manager ~key
                           ~model:name;
-                        let _ = Model_preferences.increment_usage name in
                         let* () =
                           send_message_fn ~bot_token:config.bot_token
                             ~channel_id
@@ -535,7 +534,6 @@ let handle_event ~(config : Runtime_config.slack_config)
                             in
                             Session.set_session_model session_manager ~key
                               ~model:name;
-                            let _ = Model_preferences.increment_usage name in
                             let* () =
                               send_message_fn ~bot_token:config.bot_token
                                 ~channel_id ~text
@@ -544,7 +542,6 @@ let handle_event ~(config : Runtime_config.slack_config)
                         | Some m ->
                             Session.set_session_model session_manager ~key
                               ~model:name;
-                            let _ = Model_preferences.increment_usage name in
                             let display =
                               if m.Models_catalog.provider <> "" then
                                 Printf.sprintf

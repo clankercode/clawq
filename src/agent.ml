@@ -1601,6 +1601,7 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
     | Some (pt, ct), Some sid -> (
         Cost_tracker.record_turn ~model ~prompt_tokens:pt ~completion_tokens:ct
           ~session_id:sid;
+        Model_preferences.increment_usage model |> ignore;
         match db with
         | Some db ->
             let pname, _, _ =
@@ -1865,6 +1866,7 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
     | Some (pt, ct), Some sid -> (
         Cost_tracker.record_turn ~model ~prompt_tokens:pt ~completion_tokens:ct
           ~session_id:sid;
+        Model_preferences.increment_usage model |> ignore;
         match db with
         | Some db ->
             let pname, _, _ =

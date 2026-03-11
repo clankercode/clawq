@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-11T06:54:53Z"
+claimed_by: cli-user
+completed_at: "2026-03-11T06:58:14Z"
 complexity: medium
 depends_on: []
+duration_minutes: 3.3638054716333334
 estimate_hours: 1
 id: B369
 priority: high
-status: pending
+started_at: "2026-03-11T06:54:53Z"
+status: done
 tags: []
 title: Model usage stats should count completed requests, not model selections
 ---

@@ -430,7 +430,6 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                       else ""
                     in
                     Session.set_session_model session_mgr ~key ~model:name;
-                    let _ = Model_preferences.increment_usage name in
                     send_message ~bot_token ~chat_id:update.chat_id
                       ~text:
                         (Printf.sprintf
@@ -452,11 +451,9 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                             name
                         in
                         Session.set_session_model session_mgr ~key ~model:name;
-                        let _ = Model_preferences.increment_usage name in
                         send_message ~bot_token ~chat_id:update.chat_id ~text ()
                     | Some m ->
                         Session.set_session_model session_mgr ~key ~model:name;
-                        let _ = Model_preferences.increment_usage name in
                         let display =
                           if m.Models_catalog.provider <> "" then
                             Printf.sprintf

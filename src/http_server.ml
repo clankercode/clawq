@@ -933,7 +933,6 @@ let handler ~session_manager ~require_pairing ~auth_token
                             in
                             Session.set_session_model session_manager ~key
                               ~model:name;
-                            let _ = Model_preferences.increment_usage name in
                             sse_reply
                               (Printf.sprintf
                                  "Model set to: %s (provider: %s)%s%s\n\
@@ -958,16 +957,10 @@ let handler ~session_manager ~require_pairing ~auth_token
                                 in
                                 Session.set_session_model session_manager ~key
                                   ~model:name;
-                                let _ =
-                                  Model_preferences.increment_usage name
-                                in
                                 sse_reply text
                             | Some m ->
                                 Session.set_session_model session_manager ~key
                                   ~model:name;
-                                let _ =
-                                  Model_preferences.increment_usage name
-                                in
                                 let display =
                                   if m.Models_catalog.provider <> "" then
                                     Printf.sprintf
