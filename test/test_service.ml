@@ -251,6 +251,31 @@ let test_validate_and_fix_fixes_non_executable () =
       Unix.access path [ Unix.X_OK ];
       Alcotest.(check pass) "file is now executable" () ())
 
+let test_validate_and_fix_rejects_deleted_suffix () =
+  match Restart_exec.validate_and_fix "/tmp/clawq-dead (deleted)" with
+  | Error msg ->
+      Alcotest.(check bool) "mentions deleted binary" true
+        (String.contains msg 'd' && String.contains msg 'b')
+  | Ok _ -> Alcotest.fail "expected deleted suffix path to be rejected"
+
+let test_validate_and_fix_rejects_deleted_symlink_target () =
+  let dir = Filename.get_temp_dir_name () in
+  let target = Filename.concat dir (Printf.sprintf "clawq-real-%d" (Unix.getpid ())) in
+  let link = Filename.concat dir (Printf.sprintf "clawq-link-%d" (Unix.getpid ())) in
+  let oc = open_out target in
+  output_string oc "#!/bin/sh
+exit 0
+";
+  close_out oc;
+  Unix.chmod target 0o755;
+  (try Sys.remove link with _ -> ());
+  Unix.symlink (target ^ " (deleted)") link;
+  match Restart_exec.validate_and_fix link with
+  | Error msg ->
+      Alcotest.(check bool) "mentions deleted symlink target" true
+        (String.contains msg 'd' && String.contains msg 'b')
+  | Ok _ -> Alcotest.fail "expected deleted symlink target to be rejected"
+
 let test_validate_and_fix_passes_through_enoent () =
   let path = "/tmp/clawq_test_nonexistent_" ^ string_of_int (Unix.getpid ()) in
   (try Sys.remove path with Sys_error _ -> ());
@@ -310,6 +335,10 @@ let suite =
       test_validate_and_fix_ok_for_executable;
     Alcotest.test_case "validate_and_fix fixes non-executable" `Quick
       test_validate_and_fix_fixes_non_executable;
+    Alcotest.test_case "validate_and_fix rejects deleted suffix" `Quick
+      test_validate_and_fix_rejects_deleted_suffix;
+    Alcotest.test_case "validate_and_fix rejects deleted symlink target" `Quick
+      test_validate_and_fix_rejects_deleted_symlink_target;
     Alcotest.test_case "validate_and_fix passes through enoent" `Quick
       test_validate_and_fix_passes_through_enoent;
   ]
