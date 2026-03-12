@@ -938,16 +938,76 @@ let test_zai_websearch_requires_api_key () =
      / providers.zai_coding.api_key."
     out
 
+let zai_mcp_mock_http_post ?(discover_tool_name = "webSearch")
+    ?(call_response =
+      ( 200,
+        "event: ping\n\
+         data: {\"kind\":\"ping\"}\n\n\
+         data: {\"result\":\n\
+         data:   {\"content\": [{\"type\":\"text\",\"text\":\"first\"}, \
+         {\"type\":\"text\",\"text\":\"second\"}]}}\n\n",
+        "text/event-stream" )) ~call_log () ~uri ~headers ~body =
+  let json = Yojson.Safe.from_string body in
+  let method_ =
+    try Yojson.Safe.Util.(json |> member "method" |> to_string) with _ -> ""
+  in
+  match method_ with
+  | "initialize" ->
+      Lwt.return
+        ( 200,
+          Yojson.Safe.to_string
+            (`Assoc
+               [
+                 ( "result",
+                   `Assoc
+                     [
+                       ("protocolVersion", `String "2024-11-05");
+                       ( "serverInfo",
+                         `Assoc
+                           [
+                             ("name", `String "zai-mcp");
+                             ("version", `String "1.0");
+                           ] );
+                       ("capabilities", `Assoc []);
+                     ] );
+               ]),
+          "application/json" )
+  | "notifications/initialized" -> Lwt.return (202, "", "application/json")
+  | "tools/list" ->
+      Lwt.return
+        ( 200,
+          Yojson.Safe.to_string
+            (`Assoc
+               [
+                 ( "result",
+                   `Assoc
+                     [
+                       ( "tools",
+                         `List
+                           [
+                             `Assoc
+                               [
+                                 ("name", `String discover_tool_name);
+                                 ("description", `String "Search the web");
+                                 ("inputSchema", `Assoc []);
+                               ];
+                           ] );
+                     ] );
+               ]),
+          "application/json" )
+  | "tools/call" ->
+      call_log := Some (uri, headers, json);
+      let status, resp_body, ct = call_response in
+      Lwt.return (status, resp_body, ct)
+  | _ ->
+      call_log := Some (uri, headers, json);
+      let status, resp_body, ct = call_response in
+      Lwt.return (status, resp_body, ct)
+
 let test_zai_websearch_success_invokes_mcp () =
-  let request = ref None in
-  let http_post ~uri ~headers ~body =
-    request := Some (uri, headers, Yojson.Safe.from_string body);
-    let multiline_payload =
-      "event: ping\n" ^ "data: {\"kind\":\"ping\"}\n\n" ^ "data: {\"result\":\n"
-      ^ "data:   {\"content\": [{\"type\":\"text\",\"text\":\"first\"}, \
-         {\"type\":\"text\",\"text\":\"second\"}]}}\n\n"
-    in
-    Lwt.return (200, multiline_payload, "text/event-stream")
+  let call_log = ref None in
+  let http_post =
+    zai_mcp_mock_http_post ~discover_tool_name:"webSearch" ~call_log ()
   in
   let config =
     {
@@ -966,7 +1026,7 @@ let test_zai_websearch_success_invokes_mcp () =
     Lwt_main.run (tool.Tool.invoke (`Assoc [ ("query", `String "clawq") ]))
   in
   Alcotest.(check string) "response text" "first\nsecond" out;
-  let uri, headers, body = Option.get !request in
+  let uri, headers, body = Option.get !call_log in
   Alcotest.(check string)
     "endpoint" "https://api.z.ai/api/mcp/web_search_prime/mcp" uri;
   Alcotest.(check (list (pair string string)))
@@ -977,8 +1037,9 @@ let test_zai_websearch_success_invokes_mcp () =
   Alcotest.(check string)
     "rpc method" "tools/call"
     (body |> member "method" |> to_string);
+  (* Tool name comes from discovery, not hardcoded *)
   Alcotest.(check string)
-    "tool name" "webSearchPrime"
+    "tool name" "webSearch"
     (body |> member "params" |> member "name" |> to_string);
   Alcotest.(check string)
     "query argument" "clawq"
@@ -986,29 +1047,31 @@ let test_zai_websearch_success_invokes_mcp () =
    |> to_string)
 
 let test_zai_webfetch_success_invokes_mcp () =
-  let request = ref None in
-  let http_post ~uri ~headers ~body =
-    request := Some (uri, headers, Yojson.Safe.from_string body);
-    Lwt.return
-      ( 200,
-        Yojson.Safe.to_string
-          (`Assoc
-             [
-               ( "result",
-                 `Assoc
-                   [
-                     ( "content",
-                       `List
-                         [
-                           `Assoc
-                             [
-                               ("type", `String "text");
-                               ("text", `String "page text");
-                             ];
-                         ] );
-                   ] );
-             ]),
-        "application/json" )
+  let call_log = ref None in
+  let call_response =
+    ( 200,
+      Yojson.Safe.to_string
+        (`Assoc
+           [
+             ( "result",
+               `Assoc
+                 [
+                   ( "content",
+                     `List
+                       [
+                         `Assoc
+                           [
+                             ("type", `String "text");
+                             ("text", `String "page text");
+                           ];
+                       ] );
+                 ] );
+           ]),
+      "application/json" )
+  in
+  let http_post =
+    zai_mcp_mock_http_post ~discover_tool_name:"webReader" ~call_response
+      ~call_log ()
   in
   let config =
     {
@@ -1028,7 +1091,7 @@ let test_zai_webfetch_success_invokes_mcp () =
       (tool.Tool.invoke (`Assoc [ ("url", `String "https://example.com") ]))
   in
   Alcotest.(check string) "response text" "page text" out;
-  let uri, headers, body = Option.get !request in
+  let uri, headers, body = Option.get !call_log in
   Alcotest.(check string)
     "endpoint" "https://api.z.ai/api/mcp/web_reader/mcp" uri;
   Alcotest.(check (list (pair string string)))
@@ -1039,6 +1102,7 @@ let test_zai_webfetch_success_invokes_mcp () =
   Alcotest.(check string)
     "rpc method" "tools/call"
     (body |> member "method" |> to_string);
+  (* Tool name comes from discovery *)
   Alcotest.(check string)
     "tool name" "webReader"
     (body |> member "params" |> member "name" |> to_string);
@@ -1060,8 +1124,11 @@ let test_zai_websearch_negative_paths () =
     }
   in
   let invoke_with status resp_body content_type =
-    let http_post ~uri:_ ~headers:_ ~body:_ =
-      Lwt.return (status, resp_body, content_type)
+    let call_log = ref None in
+    let http_post =
+      zai_mcp_mock_http_post ~discover_tool_name:"webSearch"
+        ~call_response:(status, resp_body, content_type)
+        ~call_log ()
     in
     let tool = Tools_builtin.zai_websearch_with_post ~http_post ~config in
     Lwt_main.run (tool.Tool.invoke (`Assoc [ ("query", `String "clawq") ]))
@@ -1114,8 +1181,11 @@ let test_zai_webfetch_negative_paths () =
     }
   in
   let invoke_with status resp_body content_type =
-    let http_post ~uri:_ ~headers:_ ~body:_ =
-      Lwt.return (status, resp_body, content_type)
+    let call_log = ref None in
+    let http_post =
+      zai_mcp_mock_http_post ~discover_tool_name:"webReader"
+        ~call_response:(status, resp_body, content_type)
+        ~call_log ()
     in
     let tool = Tools_builtin.zai_webfetch_with_post ~http_post ~config in
     Lwt_main.run
@@ -1153,6 +1223,197 @@ let test_zai_webfetch_negative_paths () =
     "sse without payload is actionable"
     "Error: Z.ai MCP returned an SSE response without a JSON payload."
     (invoke_with 200 "event: ping\n\n" "text/event-stream")
+
+let test_zai_websearch_discovery_failure_falls_back () =
+  let call_log = ref None in
+  let http_post ~uri ~headers ~body =
+    let json = Yojson.Safe.from_string body in
+    let method_ =
+      try Yojson.Safe.Util.(json |> member "method" |> to_string) with _ -> ""
+    in
+    match method_ with
+    | "initialize" ->
+        (* Discovery fails with HTTP 500 *)
+        Lwt.return (500, "internal error", "text/plain")
+    | "tools/call" ->
+        call_log := Some (uri, headers, json);
+        let sse =
+          "data: {\"result\":\n\
+           data:   {\"content\": [{\"type\":\"text\",\"text\":\"fallback \
+           ok\"}]}}\n\n"
+        in
+        Lwt.return (200, sse, "text/event-stream")
+    | _ -> Lwt.return (200, "{}", "application/json")
+  in
+  let config =
+    {
+      Runtime_config.default with
+      zai_mcp =
+        Some
+          {
+            Runtime_config.key = "sk-zai";
+            websearch_enabled = true;
+            webfetch_enabled = true;
+          };
+    }
+  in
+  let tool = Tools_builtin.zai_websearch_with_post ~http_post ~config in
+  let out =
+    Lwt_main.run (tool.Tool.invoke (`Assoc [ ("query", `String "test") ]))
+  in
+  Alcotest.(check string) "fallback works" "fallback ok" out;
+  let _uri, _headers, body = Option.get !call_log in
+  (* Falls back to hardcoded tool name *)
+  Alcotest.(check string)
+    "fallback tool name" "webSearchPrime"
+    Yojson.Safe.Util.(body |> member "params" |> member "name" |> to_string)
+
+let test_zai_websearch_cache_hit () =
+  let init_count = ref 0 in
+  let call_count = ref 0 in
+  let http_post ~uri:_ ~headers:_ ~body =
+    let json = Yojson.Safe.from_string body in
+    let method_ =
+      try Yojson.Safe.Util.(json |> member "method" |> to_string) with _ -> ""
+    in
+    match method_ with
+    | "initialize" ->
+        incr init_count;
+        Lwt.return
+          ( 200,
+            Yojson.Safe.to_string
+              (`Assoc
+                 [
+                   ( "result",
+                     `Assoc
+                       [
+                         ("protocolVersion", `String "2024-11-05");
+                         ( "serverInfo",
+                           `Assoc
+                             [
+                               ("name", `String "zai");
+                               ("version", `String "1.0");
+                             ] );
+                         ("capabilities", `Assoc []);
+                       ] );
+                 ]),
+            "application/json" )
+    | "notifications/initialized" -> Lwt.return (202, "", "application/json")
+    | "tools/list" ->
+        Lwt.return
+          ( 200,
+            Yojson.Safe.to_string
+              (`Assoc
+                 [
+                   ( "result",
+                     `Assoc
+                       [
+                         ( "tools",
+                           `List
+                             [
+                               `Assoc
+                                 [
+                                   ("name", `String "cachedTool");
+                                   ("description", `String "");
+                                   ("inputSchema", `Assoc []);
+                                 ];
+                             ] );
+                       ] );
+                 ]),
+            "application/json" )
+    | "tools/call" ->
+        incr call_count;
+        Lwt.return
+          ( 200,
+            Yojson.Safe.to_string
+              (`Assoc
+                 [
+                   ( "result",
+                     `Assoc
+                       [
+                         ( "content",
+                           `List
+                             [
+                               `Assoc
+                                 [
+                                   ("type", `String "text");
+                                   ("text", `String "ok");
+                                 ];
+                             ] );
+                       ] );
+                 ]),
+            "application/json" )
+    | _ -> Lwt.return (200, "{}", "application/json")
+  in
+  let config =
+    {
+      Runtime_config.default with
+      zai_mcp =
+        Some
+          {
+            Runtime_config.key = "sk-zai";
+            websearch_enabled = true;
+            webfetch_enabled = true;
+          };
+    }
+  in
+  let tool = Tools_builtin.zai_websearch_with_post ~http_post ~config in
+  let _out1 =
+    Lwt_main.run (tool.Tool.invoke (`Assoc [ ("query", `String "first") ]))
+  in
+  let _out2 =
+    Lwt_main.run (tool.Tool.invoke (`Assoc [ ("query", `String "second") ]))
+  in
+  Alcotest.(check int) "initialize called once" 1 !init_count;
+  Alcotest.(check int) "tools/call called twice" 2 !call_count
+
+let test_zai_websearch_integration () =
+  let config = Config_loader.load () in
+  let api_key =
+    match config.zai_mcp with
+    | Some cfg when Runtime_config.is_key_set cfg.key -> cfg.key
+    | _ -> ""
+  in
+  if not (Runtime_config.is_key_set api_key) then Alcotest.skip ()
+  else
+    let tool = Tools_builtin.zai_websearch ~config in
+    let out =
+      Lwt_main.run
+        (tool.Tool.invoke
+           (`Assoc [ ("query", `String "OCaml programming language") ]))
+    in
+    Alcotest.(check bool) "result is non-empty" true (String.length out > 0);
+    Alcotest.(check bool)
+      "result is not an error" true
+      (not (String.length out >= 6 && String.sub out 0 6 = "Error:"))
+
+let test_zai_webfetch_integration () =
+  let config = Config_loader.load () in
+  let api_key =
+    match config.zai_mcp with
+    | Some cfg when Runtime_config.is_key_set cfg.key -> cfg.key
+    | _ -> ""
+  in
+  if not (Runtime_config.is_key_set api_key) then Alcotest.skip ()
+  else
+    let tool = Tools_builtin.zai_webfetch ~config in
+    let out =
+      Lwt_main.run
+        (tool.Tool.invoke (`Assoc [ ("url", `String "https://example.com") ]))
+    in
+    Alcotest.(check bool) "result is non-empty" true (String.length out > 0);
+    Alcotest.(check bool)
+      "result is not an error" true
+      (not (String.length out >= 6 && String.sub out 0 6 = "Error:"));
+    Alcotest.(check bool)
+      "result contains expected content" true
+      (let low = String.lowercase_ascii out in
+       String.length low > 0
+       &&
+         try
+           ignore (Str.search_forward (Str.regexp_string "example") low 0);
+           true
+         with Not_found -> false)
 
 let test_register_builtin_tools_includes_enabled_zai_tools () =
   let registry = Tool_registry.create () in
@@ -2184,6 +2445,14 @@ let suite =
       test_zai_websearch_negative_paths;
     Alcotest.test_case "zai webfetch negative paths" `Quick
       test_zai_webfetch_negative_paths;
+    Alcotest.test_case "zai websearch discovery failure falls back" `Quick
+      test_zai_websearch_discovery_failure_falls_back;
+    Alcotest.test_case "zai websearch cache hit" `Quick
+      test_zai_websearch_cache_hit;
+    Alcotest.test_case "zai websearch integration" `Slow
+      test_zai_websearch_integration;
+    Alcotest.test_case "zai webfetch integration" `Slow
+      test_zai_webfetch_integration;
     Alcotest.test_case "register builtin tools includes enabled zai tools"
       `Quick test_register_builtin_tools_includes_enabled_zai_tools;
     Alcotest.test_case "refresh replaces config-bound tools" `Quick

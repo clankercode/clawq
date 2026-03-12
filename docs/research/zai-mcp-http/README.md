@@ -61,24 +61,15 @@ Existing repo references were limited to:
 
 - If replacing local `npx` MCP, the config change is from `type: "local"` plus `command: [...]` to `type: "remote"` plus `url` and `headers`.
 - No local server process is started for remote MCP.
-- The official docs describe remote MCP discovery/config, but not raw `tools/call` HTTP bodies. The current clawq implementation already uses the standard JSON-RPC pattern:
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 1,
-  "method": "tools/call",
-  "params": {
-    "name": "webSearchPrime",
-    "arguments": { "query": "..." }
-  }
-}
-```
-
-- Current clawq code posts that JSON-RPC body directly to the remote MCP endpoint, which matches the intended remote MCP model.
+- clawq performs the full MCP lifecycle handshake before invoking tools:
+  1. `initialize` — establishes protocol version and capabilities
+  2. `notifications/initialized` — confirms client readiness
+  3. `tools/list` — discovers available tool names dynamically
+  4. `tools/call` — invokes the discovered tool by name
+- Tool names are discovered from the `tools/list` response, not hardcoded. Discovery results are cached for 1 hour per endpoint. If discovery fails, falls back to known tool names (`webSearchPrime`, `webReader`).
 - Tool names differ from direct REST APIs:
-  - MCP search tool: `webSearchPrime`
-  - MCP reader tool: `webReader`
+  - MCP search tool: discovered via `tools/list` (historically `webSearchPrime`)
+  - MCP reader tool: discovered via `tools/list` (historically `webReader`)
   - Direct REST endpoints: `/paas/v4/web_search` and `/paas/v4/reader`
 - If using OpenCode remote MCP, tool naming will be prefixed by the MCP server name in OpenCode's tool registry.
 - If using direct REST instead of MCP, request/response schemas differ and you lose MCP tool discovery semantics.

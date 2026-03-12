@@ -467,42 +467,44 @@ let web_search ~(config : Runtime_config.t) =
   }
 
 (* ───── Z.ai MCP tools ─────
-   Calls Z.ai's remote MCP servers via HTTP JSON-RPC (streamable-http transport).
+   Implements MCP lifecycle inline (Mcp_client is in clawq_runtime_integrations,
+   unavailable from core). Handshake: initialize → tools/list → tools/call.
+   Falls back to direct tools/call with hardcoded tool names if discovery fails.
    Auth: Bearer token from zai_mcp.api_key (auto-detected from providers if absent).
-   Web Search endpoint: https://api.z.ai/api/mcp/web_search_prime/mcp  tool: webSearchPrime
-   Web Reader endpoint: https://api.z.ai/api/mcp/web_reader/mcp         tool: webReader *)
+   Web Search endpoint: https://api.z.ai/api/mcp/web_search_prime/mcp
+   Web Reader endpoint: https://api.z.ai/api/mcp/web_reader/mcp *)
+
+let zai_starts_with_ci ~prefix s =
+  let p = String.lowercase_ascii prefix in
+  let v = String.lowercase_ascii s in
+  String.length v >= String.length p && String.sub v 0 (String.length p) = p
+
+let zai_parse_sse_body body =
+  let flush_event ~data_lines ~events =
+    match List.rev !data_lines with
+    | [] -> ()
+    | lines -> (
+        data_lines := [];
+        let data = String.concat "\n" lines |> String.trim in
+        if data <> "" && data <> "[DONE]" then
+          match Yojson.Safe.from_string data with
+          | json -> events := json :: !events
+          | exception _ -> ())
+  in
+  let data_lines = ref [] in
+  let events = ref [] in
+  String.split_on_char '\n' body
+  |> List.iter (fun raw_line ->
+      let line = String.trim raw_line in
+      if line = "" then flush_event ~data_lines ~events
+      else if zai_starts_with_ci ~prefix:"data:" line then
+        let data = String.trim (String.sub line 5 (String.length line - 5)) in
+        data_lines := data :: !data_lines);
+  flush_event ~data_lines ~events;
+  match !events with json :: _ -> Some json | [] -> None
 
 let zai_mcp_call ~http_post ~api_key ~endpoint ~tool_name ~arguments =
   let open Lwt.Syntax in
-  let starts_with_ci ~prefix s =
-    let p = String.lowercase_ascii prefix in
-    let v = String.lowercase_ascii s in
-    String.length v >= String.length p && String.sub v 0 (String.length p) = p
-  in
-  let parse_sse_body body =
-    let flush_event ~data_lines ~events =
-      match List.rev !data_lines with
-      | [] -> ()
-      | lines -> (
-          data_lines := [];
-          let data = String.concat "\n" lines |> String.trim in
-          if data <> "" && data <> "[DONE]" then
-            match Yojson.Safe.from_string data with
-            | json -> events := json :: !events
-            | exception _ -> ())
-    in
-    let data_lines = ref [] in
-    let events = ref [] in
-    String.split_on_char '\n' body
-    |> List.iter (fun raw_line ->
-        let line = String.trim raw_line in
-        if line = "" then flush_event ~data_lines ~events
-        else if starts_with_ci ~prefix:"data:" line then
-          let data = String.trim (String.sub line 5 (String.length line - 5)) in
-          data_lines := data :: !data_lines);
-    flush_event ~data_lines ~events;
-    match !events with json :: _ -> Some json | [] -> None
-  in
   let id = Random.bits () land 0xFFFF in
   let body =
     `Assoc
@@ -527,8 +529,8 @@ let zai_mcp_call ~http_post ~api_key ~endpoint ~tool_name ~arguments =
     let open Yojson.Safe.Util in
     let json_result =
       if String.trim resp_body = "" then Ok `Empty_body
-      else if starts_with_ci ~prefix:"text/event-stream" content_type then
-        match parse_sse_body resp_body with
+      else if zai_starts_with_ci ~prefix:"text/event-stream" content_type then
+        match zai_parse_sse_body resp_body with
         | Some json -> Ok (`Json json)
         | None -> Ok `Empty_sse
       else
@@ -593,12 +595,118 @@ let zai_mcp_api_key (config : Runtime_config.t) =
   | Some cfg when Runtime_config.is_key_set cfg.key -> cfg.key
   | _ -> ""
 
+(* MCP lifecycle state: discovered tool name + cache key + timestamp *)
+type zai_discovery_cache = (string * string * float) option ref
+
+let zai_jsonrpc_request ~id ~method_ ~params =
+  `Assoc
+    [
+      ("jsonrpc", `String "2.0");
+      ("id", `Int id);
+      ("method", `String method_);
+      ("params", params);
+    ]
+
+let zai_jsonrpc_notification ~method_ ~params =
+  `Assoc
+    [
+      ("jsonrpc", `String "2.0"); ("method", `String method_); ("params", params);
+    ]
+
+let zai_initialize_params =
+  `Assoc
+    [
+      ("protocolVersion", `String "2024-11-05");
+      ( "clientInfo",
+        `Assoc [ ("name", `String "clawq"); ("version", `String "0.1.0") ] );
+      ("capabilities", `Assoc []);
+    ]
+
+(* Perform MCP initialize → notifications/initialized → tools/list handshake.
+   Returns the name of the first discovered tool, or Error. *)
+let zai_discover_tool ~http_post ~api_key ~endpoint =
+  let open Lwt.Syntax in
+  let headers = [ ("Authorization", "Bearer " ^ api_key) ] in
+  let send_json json =
+    http_post ~uri:endpoint ~headers ~body:(Yojson.Safe.to_string json)
+  in
+  let* status, _body, _ct =
+    send_json
+      (zai_jsonrpc_request ~id:1 ~method_:"initialize"
+         ~params:zai_initialize_params)
+  in
+  if status < 200 || status >= 300 then
+    Lwt.return_error (Printf.sprintf "initialize returned HTTP %d" status)
+  else
+    let* _status, _body, _ct =
+      send_json
+        (zai_jsonrpc_notification ~method_:"notifications/initialized"
+           ~params:(`Assoc []))
+    in
+    let* status, body, content_type =
+      send_json
+        (zai_jsonrpc_request ~id:2 ~method_:"tools/list" ~params:(`Assoc []))
+    in
+    if status < 200 || status >= 300 then
+      Lwt.return_error (Printf.sprintf "tools/list returned HTTP %d" status)
+    else
+      let open Yojson.Safe.Util in
+      let parse_json resp_body ct =
+        if zai_starts_with_ci ~prefix:"text/event-stream" ct then
+          zai_parse_sse_body resp_body
+        else
+          match Yojson.Safe.from_string resp_body with
+          | json -> Some json
+          | exception _ -> None
+      in
+      match parse_json body content_type with
+      | Some json -> (
+          let tools =
+            try json |> member "result" |> member "tools" |> to_list
+            with _ -> []
+          in
+          match tools with
+          | tool_json :: _ -> (
+              try
+                let name = tool_json |> member "name" |> to_string in
+                Lwt.return_ok name
+              with _ -> Lwt.return_error "could not parse tool name")
+          | [] -> Lwt.return_error "tools/list returned empty list")
+      | None -> Lwt.return_error "could not parse tools/list response"
+
+(* Get the discovered tool name, using cache when valid *)
+let zai_get_discovered_tool_name ~http_post ~api_key ~endpoint
+    ~(cache : zai_discovery_cache) =
+  let open Lwt.Syntax in
+  match !cache with
+  | Some (tool_name, cached_key, ts)
+    when cached_key = api_key && Unix.gettimeofday () -. ts < 3600.0 ->
+      Lwt.return_ok tool_name
+  | _ ->
+      Lwt.catch
+        (fun () ->
+          let* result = zai_discover_tool ~http_post ~api_key ~endpoint in
+          match result with
+          | Ok tool_name ->
+              cache := Some (tool_name, api_key, Unix.gettimeofday ());
+              Lwt.return_ok tool_name
+          | Error msg ->
+              Logs.warn (fun m ->
+                  m "Z.ai MCP discovery failed for %s: %s" endpoint msg);
+              Lwt.return_error msg)
+        (fun exn ->
+          Logs.warn (fun m ->
+              m "Z.ai MCP discovery failed for %s: %s" endpoint
+                (Printexc.to_string exn));
+          Lwt.return_error (Printexc.to_string exn))
+
 let zai_websearch_with_post ~http_post ~(config : Runtime_config.t) =
+  let discovery_cache : zai_discovery_cache = ref None in
   {
     Tool.name = "zai_websearch";
     description =
       "Search the web via Z.ai and return results with titles, URLs, and \
-       summaries. Uses Z.ai's webSearchPrime MCP tool.";
+       summaries. Uses Z.ai's web search MCP tool.";
     parameters_schema =
       `Assoc
         [
@@ -631,16 +739,21 @@ let zai_websearch_with_post ~http_post ~(config : Runtime_config.t) =
                to ~/.clawq/config.json with \"enabled\": true, or set \
                providers.zai.api_key / providers.zai_coding.api_key."
           else
+            let open Lwt.Syntax in
+            let endpoint = "https://api.z.ai/api/mcp/web_search_prime/mcp" in
+            let arguments = `Assoc [ ("query", `String query) ] in
+            let* discovered =
+              zai_get_discovered_tool_name ~http_post ~api_key ~endpoint
+                ~cache:discovery_cache
+            in
+            let tool_name =
+              match discovered with
+              | Ok name -> name
+              | Error _ -> "webSearchPrime"
+            in
             Lwt.catch
               (fun () ->
-                let open Lwt.Syntax in
-                let* result =
-                  zai_mcp_call ~http_post ~api_key
-                    ~endpoint:"https://api.z.ai/api/mcp/web_search_prime/mcp"
-                    ~tool_name:"webSearchPrime"
-                    ~arguments:(`Assoc [ ("query", `String query) ])
-                in
-                Lwt.return result)
+                zai_mcp_call ~http_post ~api_key ~endpoint ~tool_name ~arguments)
               (fun exn -> Lwt.return ("Error: " ^ Printexc.to_string exn)));
     invoke_stream = None;
     risk_level = Low;
@@ -651,11 +764,12 @@ let zai_websearch ~(config : Runtime_config.t) =
   zai_websearch_with_post ~http_post:zai_default_http_post ~config
 
 let zai_webfetch_with_post ~http_post ~(config : Runtime_config.t) =
+  let discovery_cache : zai_discovery_cache = ref None in
   {
     Tool.name = "zai_webfetch";
     description =
       "Fetch a webpage and return its content (title, main text, links) via \
-       Z.ai's webReader MCP tool. Better than web_fetch for structured page \
+       Z.ai's web reader MCP tool. Better than web_fetch for structured page \
        extraction.";
     parameters_schema =
       `Assoc
@@ -689,16 +803,19 @@ let zai_webfetch_with_post ~http_post ~(config : Runtime_config.t) =
                to ~/.clawq/config.json with \"enabled\": true, or set \
                providers.zai.api_key / providers.zai_coding.api_key."
           else
+            let open Lwt.Syntax in
+            let endpoint = "https://api.z.ai/api/mcp/web_reader/mcp" in
+            let arguments = `Assoc [ ("url", `String url) ] in
+            let* discovered =
+              zai_get_discovered_tool_name ~http_post ~api_key ~endpoint
+                ~cache:discovery_cache
+            in
+            let tool_name =
+              match discovered with Ok name -> name | Error _ -> "webReader"
+            in
             Lwt.catch
               (fun () ->
-                let open Lwt.Syntax in
-                let* result =
-                  zai_mcp_call ~http_post ~api_key
-                    ~endpoint:"https://api.z.ai/api/mcp/web_reader/mcp"
-                    ~tool_name:"webReader"
-                    ~arguments:(`Assoc [ ("url", `String url) ])
-                in
-                Lwt.return result)
+                zai_mcp_call ~http_post ~api_key ~endpoint ~tool_name ~arguments)
               (fun exn -> Lwt.return ("Error: " ^ Printexc.to_string exn)));
     invoke_stream = None;
     risk_level = Low;
