@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B397
+priority: high
+status: pending
+tags: []
+title: 'Lwt_unix.Timeout should produce a traceback. example: Fatal error: exception Lwt_unix.Timeout'
+---
+
+Lwt_unix.Timeout should produce a traceback. example: Fatal error: exception Lwt_unix.Timeout
