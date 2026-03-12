@@ -396,3 +396,4 @@ bugs:
     - file: B395-postmortems-can-apply-recursiv.todo
     - file: B396-find-telegram-max-message-leng.todo
     - file: B397-lwt-unix-timeout-should-produc.todo
+    - file: B398-should-be-able-to-resume-backg.todo
