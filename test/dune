@@ -70,6 +70,7 @@
   test_secret_store
   test_service
   test_session
+  test_session_observer
   test_session_persistence
   test_signal
   test_http_client
