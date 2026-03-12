@@ -3,6 +3,7 @@ type t = {
   mutable config : Runtime_config.t;
   mutable system_prompt : string;
   mutable observed_active_workspace_files : (string * string option) list;
+  mutable last_request_history_len : int option;
   tool_registry : Tool_registry.t option;
   mutable compacted_mid_turn : bool;
 }
@@ -89,6 +90,7 @@ let create ~config ?tool_registry () =
     system_prompt;
     observed_active_workspace_files =
       capture_active_workspace_file_state_for_config config;
+    last_request_history_len = None;
     tool_registry;
     compacted_mid_turn = false;
   }
@@ -142,6 +144,25 @@ let estimate_history_tokens history =
     (fun acc m -> acc + estimate_message_tokens m)
     0
     (runtime_history_messages history)
+
+let estimate_prev_assistant_tokens_from_history_delta ~history
+    ~previous_request_history_len ~current_request_history_len =
+  match previous_request_history_len with
+  | None -> None
+  | Some prev_len ->
+      let added_messages = max 0 (current_request_history_len - prev_len) in
+      if added_messages = 0 then None
+      else
+        let rec take n acc = function
+          | _ when n <= 0 -> List.rev acc
+          | [] -> List.rev acc
+          | msg :: rest -> take (n - 1) (msg :: acc) rest
+        in
+        history |> take added_messages []
+        |> List.filter (fun (msg : Provider.message) -> msg.role = "assistant")
+        |> List.rev
+        |> List.find_opt (fun _ -> true)
+        |> Option.map estimate_message_tokens
 
 let context_window_for_agent agent =
   let model =
@@ -1757,7 +1778,7 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
     in
     match timed with Ok v -> Lwt.return v | Error e -> Lwt.fail_with e
   in
-  let track_cost response =
+  let track_cost ~current_request_history_len response =
     let usage, model =
       match response with
       | Provider.Text { usage; model; _ } -> (usage, model)
@@ -1776,7 +1797,16 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
             let prev = Request_stats.get_prev_totals ~db ~session_key:sid in
             let added =
               match prev with
-              | Some (prev_pt, prev_ct, _) -> max 0 (pt - (prev_pt + prev_ct))
+              | Some (prev_pt, prev_ct, _) ->
+                  let prev_assistant_tokens =
+                    estimate_prev_assistant_tokens_from_history_delta
+                      ~history:agent.history
+                      ~previous_request_history_len:
+                        agent.last_request_history_len
+                      ~current_request_history_len
+                    |> Option.value ~default:prev_ct
+                  in
+                  max 0 (pt - (prev_pt + prev_assistant_tokens))
               | None -> pt
             in
             let cache_hit =
@@ -1829,6 +1859,7 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
     | None -> Lwt.return_unit
   in
   let rec loop iteration =
+    let current_request_history_len = List.length agent.history in
     let* response =
       Lwt.catch
         (fun () ->
@@ -1848,7 +1879,8 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
           end
           else Lwt.fail exn)
     in
-    track_cost response;
+    track_cost ~current_request_history_len response;
+    agent.last_request_history_len <- Some current_request_history_len;
     match response with
     | Provider.Text { content; provider_response_items_json; _ } ->
         agent.history <-
@@ -2052,7 +2084,7 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
     in
     match timed with Ok v -> Lwt.return v | Error e -> Lwt.fail_with e
   in
-  let track_cost response =
+  let track_cost ~current_request_history_len response =
     let usage, model =
       match response with
       | Provider.Text { usage; model; _ } -> (usage, model)
@@ -2071,7 +2103,16 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
             let prev = Request_stats.get_prev_totals ~db ~session_key:sid in
             let added =
               match prev with
-              | Some (prev_pt, prev_ct, _) -> max 0 (pt - (prev_pt + prev_ct))
+              | Some (prev_pt, prev_ct, _) ->
+                  let prev_assistant_tokens =
+                    estimate_prev_assistant_tokens_from_history_delta
+                      ~history:agent.history
+                      ~previous_request_history_len:
+                        agent.last_request_history_len
+                      ~current_request_history_len
+                    |> Option.value ~default:prev_ct
+                  in
+                  max 0 (pt - (prev_pt + prev_assistant_tokens))
               | None -> pt
             in
             let cache_hit =
@@ -2124,6 +2165,7 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
     | None -> Lwt.return_unit
   in
   let rec loop iteration =
+    let current_request_history_len = List.length agent.history in
     Lwt.catch
       (fun () ->
         let* response =
@@ -2145,7 +2187,8 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
               end
               else Lwt.fail exn)
         in
-        track_cost response;
+        track_cost ~current_request_history_len response;
+        agent.last_request_history_len <- Some current_request_history_len;
         match response with
         | Provider.Text { content; provider_response_items_json; _ } ->
             agent.history <-

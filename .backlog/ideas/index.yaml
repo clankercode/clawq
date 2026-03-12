@@ -163,5 +163,3 @@ ideas:
       status: done
       tags: []
       title: 'optional feature: watcher for recent: errors in log, errors in agent session log. can be toggled on and off. When it is toggled on and an error is spotted, forward it to a dedicated error correction thread/session. This EC (error correction) thread should analyze the problem and figure out how best handle it next (research, coding bg agent, update workspace files, contact user, nothing (eg transient errors or false positives)). The EC agent''s goal is to ensure clawq operates smoothly and bug free. It should automatically fix and commit issues (using worktrees of course to avoid interfering with the master branch). Commits should have a special [INTERNAL_EC] tag.'
-    - file: I020-background-task-coder-agents-s.todo
-      id: I020

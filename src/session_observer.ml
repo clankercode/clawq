@@ -11,6 +11,93 @@ type verdict =
   | Stuck of { reason : string; confidence : [ `High | `Medium ] }
   | Error of string
 
+let observer_log_path () = Dot_dir.sub "observer.log"
+
+let iso8601_now () =
+  let tm = Unix.localtime (Unix.gettimeofday ()) in
+  Printf.sprintf "%04d-%02d-%02dT%02d:%02d:%02d" (tm.Unix.tm_year + 1900)
+    (tm.Unix.tm_mon + 1) tm.Unix.tm_mday tm.Unix.tm_hour tm.Unix.tm_min
+    tm.Unix.tm_sec
+
+let append_observer_log fields =
+  try
+    ignore (Dot_dir.ensure ());
+    let line =
+      Yojson.Safe.to_string
+        (`Assoc (("ts", `String (iso8601_now ())) :: fields))
+      ^ "\n"
+    in
+    let fd =
+      Unix.openfile (observer_log_path ())
+        [ Unix.O_WRONLY; Unix.O_CREAT; Unix.O_APPEND ]
+        0o600
+    in
+    Fun.protect
+      ~finally:(fun () -> Unix.close fd)
+      (fun () ->
+        let rec write_all off remaining =
+          if remaining > 0 then
+            let wrote = Unix.write_substring fd line off remaining in
+            write_all (off + wrote) (remaining - wrote)
+        in
+        write_all 0 (String.length line))
+  with exn ->
+    Logs.warn (fun m ->
+        m "[session_observer] durable log write failed: %s"
+          (Printexc.to_string exn))
+
+let log_stuck_check ~session_key ~round ~message_count ~raw_response ~parsed =
+  let fields =
+    [
+      ("event", `String "stuck_check");
+      ("session_key", `String session_key);
+      ("round", `Int round);
+      ("message_count", `Int message_count);
+      ("raw_response", `String raw_response);
+    ]
+  in
+  let parsed_fields =
+    match parsed with
+    | `Ok -> [ ("verdict", `String "ok") ]
+    | `Need_more -> [ ("verdict", `String "need_more") ]
+    | `Stuck reason ->
+        [ ("verdict", `String "stuck"); ("reason", `String reason) ]
+  in
+  append_observer_log (fields @ parsed_fields)
+
+let log_stuck_check_error ~session_key ~message_count ~error =
+  append_observer_log
+    [
+      ("event", `String "stuck_check_error");
+      ("session_key", `String session_key);
+      ("message_count", `Int message_count);
+      ("error", `String error);
+    ]
+
+let log_thinking_check ~excerpt ~raw_response ~parsed =
+  let fields =
+    [
+      ("event", `String "thinking_check");
+      ("excerpt_chars", `Int (String.length excerpt));
+      ("raw_response", `String raw_response);
+    ]
+  in
+  let parsed_fields =
+    match parsed with
+    | `Sane -> [ ("verdict", `String "sane") ]
+    | `Looping reason ->
+        [ ("verdict", `String "looping"); ("reason", `String reason) ]
+  in
+  append_observer_log (fields @ parsed_fields)
+
+let log_thinking_check_error ~excerpt ~error =
+  append_observer_log
+    [
+      ("event", `String "thinking_check_error");
+      ("excerpt_chars", `Int (String.length excerpt));
+      ("error", `String error);
+    ]
+
 let round1_system_prompt =
   "You are a stuck-state detector for an AI agent system. Your job is to \
    detect if an agent is looping, repeating failed actions, or otherwise \
@@ -206,6 +293,7 @@ let check_stuck ~(config : Runtime_config.t) ~(history : Provider.message list)
   let open Lwt.Syntax in
   (* Round 1 *)
   let round1_msgs = take_last config.observer.round1_window history in
+  let history_len = List.length history in
   Logs.debug (fun m ->
       m "[session_observer] round1: session=%s msgs=%d" stats.session_key
         (List.length round1_msgs));
@@ -216,7 +304,11 @@ let check_stuck ~(config : Runtime_config.t) ~(history : Provider.message list)
           ~messages:round1_msgs
       in
       Logs.debug (fun m -> m "[session_observer] round1 response: %s" r1_text);
-      match parse_verdict r1_text with
+      let round1_verdict = parse_verdict r1_text in
+      log_stuck_check ~session_key:stats.session_key ~round:1
+        ~message_count:(List.length round1_msgs) ~raw_response:r1_text
+        ~parsed:round1_verdict;
+      match round1_verdict with
       | `Ok -> Lwt.return Ok
       | `Stuck reason -> Lwt.return (Stuck { reason; confidence = `High })
       | `Need_more -> (
@@ -232,13 +324,19 @@ let check_stuck ~(config : Runtime_config.t) ~(history : Provider.message list)
           in
           Logs.debug (fun m ->
               m "[session_observer] round2 response: %s" r2_text);
-          match parse_verdict r2_text with
+          let round2_verdict = parse_verdict r2_text in
+          log_stuck_check ~session_key:stats.session_key ~round:2
+            ~message_count:(List.length round2_msgs) ~raw_response:r2_text
+            ~parsed:round2_verdict;
+          match round2_verdict with
           | `Ok | `Need_more -> Lwt.return Ok
           | `Stuck reason -> Lwt.return (Stuck { reason; confidence = `Medium })
           ))
     (fun exn ->
       let msg = Printexc.to_string exn in
       Logs.warn (fun m -> m "[session_observer] LLM call failed: %s" msg);
+      log_stuck_check_error ~session_key:stats.session_key
+        ~message_count:history_len ~error:msg;
       Lwt.return (Error msg))
 
 let check_thinking_excerpt ~(config : Runtime_config.t) ~excerpt () =
@@ -258,13 +356,21 @@ let check_thinking_excerpt ~(config : Runtime_config.t) ~excerpt () =
     (fun () ->
       let* text = call_observer ~config ~system_prompt ~messages in
       let s = String.trim text in
-      if s = "SANE" then Lwt.return `Sane
-      else if String.length s >= 8 && String.sub s 0 8 = "LOOPING:" then
-        let reason = String.trim (String.sub s 8 (String.length s - 8)) in
-        Lwt.return (`Looping reason)
-      else Lwt.return `Sane)
+      let verdict =
+        if s = "SANE" then `Sane
+        else if String.length s >= 8 && String.sub s 0 8 = "LOOPING:" then
+          let reason = String.trim (String.sub s 8 (String.length s - 8)) in
+          `Looping reason
+        else `Sane
+      in
+      log_thinking_check ~excerpt ~raw_response:text ~parsed:verdict;
+      match verdict with
+      | `Sane -> Lwt.return `Sane
+      | `Looping reason -> Lwt.return (`Looping reason)
+    )
     (fun exn ->
+      let msg = Printexc.to_string exn in
       Logs.warn (fun m ->
-          m "[session_observer] check_thinking_excerpt failed: %s"
-            (Printexc.to_string exn));
+          m "[session_observer] check_thinking_excerpt failed: %s" msg);
+      log_thinking_check_error ~excerpt ~error:msg;
       Lwt.return `Sane)

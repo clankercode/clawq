@@ -6,11 +6,20 @@ let init_git_repo path =
   | 0 -> ()
   | code -> Alcotest.failf "git init failed for %s (exit %d)" path code
 
+let git_cmd repo args =
+  let cmd =
+    Printf.sprintf "git -C %s %s >/dev/null 2>&1" (Filename.quote repo) args
+  in
+  match Sys.command cmd with
+  | 0 -> ()
+  | code -> Alcotest.failf "git command failed for %s (exit %d)" args code
+
 let with_temp_git_repo f =
   let repo = Filename.temp_file "clawq-bg-repo" "" in
   Sys.remove repo;
   Unix.mkdir repo 0o755;
   init_git_repo repo;
+  git_cmd repo "commit --allow-empty -m 'initial' -q";
   Fun.protect
     (fun () -> f repo)
     ~finally:(fun () ->
@@ -2119,7 +2128,7 @@ let test_readopt_running_alive_pid () =
       let pid = proc.Process_group.file_pid in
       ignore
         (Background_task.set_running ~db ~id ~branch:"clawq-bg-1"
-           ~worktree_path:"/tmp/worktree" ~log_path ~pid);
+           ~worktree_path:repo_path ~log_path ~pid);
       let callback_fired = ref false in
       let readopted =
         Background_task.readopt_running_tasks ~db ~on_task_finished:(fun _ ->
@@ -2187,7 +2196,7 @@ let test_readopt_idempotent () =
       let pid = proc.Process_group.file_pid in
       ignore
         (Background_task.set_running ~db ~id ~branch:"clawq-bg-1"
-           ~worktree_path:"/tmp/worktree" ~log_path ~pid);
+           ~worktree_path:repo_path ~log_path ~pid);
       let first =
         Background_task.readopt_running_tasks ~db ~on_task_finished:(fun _ ->
             Lwt.return_unit)
@@ -2630,6 +2639,60 @@ let test_retry_count_persists () =
       | None -> Alcotest.fail "expected task"
       | Some task -> Alcotest.(check int) "retry_count is 2" 2 task.retry_count)
 
+let test_finalize_completed_task_fails_for_dirty_worktree () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"implement feature" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      let dirty_file = Filename.concat repo_path "leftover.txt" in
+      let oc = open_out dirty_file in
+      output_string oc "left uncommitted";
+      close_out oc;
+      ignore
+        (Background_task.set_running ~db ~id ~branch:"clawq-bg-1"
+           ~worktree_path:repo_path ~log_path:"/tmp/task.log" ~pid:12345);
+      let status =
+        Background_task.finalize_completed_task ~db ~id ~exit_code:0
+          ~output:"all done"
+      in
+      Alcotest.(check string)
+        "dirty worktree fails"
+        "failed"
+        (Background_task.string_of_status status);
+      match Background_task.get_task ~db ~id with
+      | None -> Alcotest.fail "expected task"
+      | Some task ->
+          Alcotest.(check string)
+            "task stored as failed"
+            "failed"
+            (Background_task.string_of_status task.status);
+          let preview = Option.value ~default:"" task.result_preview in
+          Alcotest.(check bool)
+            "preview mentions uncommitted changes" true
+            (try
+               ignore
+                 (Str.search_forward
+                    (Str.regexp_string "uncommitted worktree changes")
+                    preview 0);
+               true
+             with Not_found -> false);
+          Alcotest.(check bool)
+            "preview includes dirty path" true
+            (try
+               ignore
+                 (Str.search_forward
+                    (Str.regexp_string "leftover.txt")
+                    preview 0);
+               true
+             with Not_found -> false))
+
 let test_count_active_for_session () =
   with_temp_git_repo (fun repo_path ->
       let db = Memory.init ~db_path:":memory:" () in
@@ -2806,6 +2869,8 @@ let suite =
     Alcotest.test_case "reap includes retry hint" `Quick
       test_reap_includes_retry_hint;
     Alcotest.test_case "retry count persists" `Quick test_retry_count_persists;
+    Alcotest.test_case "finalize completed task fails for dirty worktree" `Quick
+      test_finalize_completed_task_fails_for_dirty_worktree;
     Alcotest.test_case "count active for session" `Quick
       test_count_active_for_session;
   ]

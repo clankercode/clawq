@@ -128,6 +128,48 @@ let test_status_notifier_invalid_non_numeric_send_id_is_suppressed () =
   Alcotest.(check (option string))
     "invalid telegram id does not get adopted" None sm.msg_id
 
+let test_status_message_recovers_after_lock_warn_timeout () =
+  let outbound_mutex = Lwt_mutex.create () in
+  let sent = ref [] in
+  let edited = ref [] in
+  Lwt_main.run (Lwt_mutex.lock outbound_mutex);
+  Lwt.async (fun () ->
+      let open Lwt.Syntax in
+      let* () = Lwt_unix.sleep 0.03 in
+      Lwt_mutex.unlock outbound_mutex;
+      Lwt.return_unit);
+  let notifier : Status_message.notifier =
+    {
+      send =
+        (fun ?parse_mode:_ text ->
+          Lwt_util.with_lock_timeout ~label:"telegram-status-test"
+            ~warn_timeout:0.01 ~fatal_timeout:0.2 outbound_mutex (fun () ->
+              sent := text :: !sent;
+              Lwt.return "42"));
+      edit =
+        (fun id ?parse_mode:_ text ->
+          Lwt_util.with_lock_timeout ~label:"telegram-status-test"
+            ~warn_timeout:0.01 ~fatal_timeout:0.2 outbound_mutex (fun () ->
+              edited := (id, text) :: !edited;
+              Lwt.return None));
+      delete = (fun _id -> Lwt.return_unit);
+    }
+  in
+  let sm =
+    Status_message.create ~debounce_interval:0.0 ~notifier ~parse_mode:"HTML" ()
+  in
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () = Status_message.tool_start sm ~id:"t1" ~name:"shell_exec" ~summary:None in
+     Status_message.tool_result sm ~id:"t1" ~name:"shell_exec" ~result:"ok"
+       ~is_error:false);
+  Alcotest.(check int)
+    "initial send still succeeds after warn timeout" 1 (List.length !sent);
+  Alcotest.(check int)
+    "follow-up edit still succeeds after warn timeout" 1 (List.length !edited);
+  Alcotest.(check (option string))
+    "message id adopted after delayed send" (Some "42") sm.msg_id
+
 let test_format_tool_result_detail_includes_tool_name_and_empty_output () =
   Alcotest.(check string)
     "empty output gets placeholder" "shell_exec\n[empty output]"
@@ -194,6 +236,15 @@ let test_finalize_idempotent_with_tools () =
   Alcotest.(check int)
     "second finalize triggers no additional edit" edits_after_first !edited
 
+let test_html_fallback_to_plain_text_strips_markup () =
+  Alcotest.(check string)
+    "fallback removes tags and decodes entities" "tool\nx & y < z"
+    (Telegram.html_fallback_to_plain_text
+       "<b>tool</b><br><code>x &amp; y &lt; z</code>");
+  Alcotest.(check string)
+    "block tags preserve line breaks" "one\ntwo\nthree\n"
+    (Telegram.html_fallback_to_plain_text "<p>one</p><div>two</div><li>three</li>")
+
 let suite =
   [
     Alcotest.test_case "status notifier edits in place without reanchoring"
@@ -207,10 +258,14 @@ let suite =
       test_tool_result_details_evict_oldest_without_clearing_newer_entries;
     Alcotest.test_case "status notifier suppresses invalid non-numeric id"
       `Quick test_status_notifier_invalid_non_numeric_send_id_is_suppressed;
+    Alcotest.test_case "status message recovers after lock warn timeout" `Quick
+      test_status_message_recovers_after_lock_warn_timeout;
     Alcotest.test_case "tool result detail formatting" `Quick
       test_format_tool_result_detail_includes_tool_name_and_empty_output;
     Alcotest.test_case "finalize is idempotent with no tools" `Quick
       test_finalize_idempotent_no_tools;
     Alcotest.test_case "finalize is idempotent with tools" `Quick
       test_finalize_idempotent_with_tools;
+    Alcotest.test_case "html fallback strips markup" `Quick
+      test_html_fallback_to_plain_text_strips_markup;
   ]

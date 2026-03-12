@@ -375,8 +375,8 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                   Slash_commands.format_tools_telegram tools skills
               | None -> "Tools are not enabled."
             in
-            send_message ~bot_token ~chat_id:update.chat_id ~text
-              ~parse_mode:"HTML" ()
+            send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
+              ~text ()
         | Tasks ->
             let text =
               match Session.get_db session_mgr with
@@ -386,6 +386,22 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
               | None -> "Tasks are not available (no database)."
             in
             send_chunked ~bot_token ~chat_id:update.chat_id ~text ()
+        | Costs action ->
+            let text =
+              match Session.get_db session_mgr with
+              | Some db -> Slash_commands.format_costs_telegram ~db action
+              | None -> "Costs are not available (no database)."
+            in
+            send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
+              ~text ()
+        | Usage action ->
+            let text =
+              match Session.get_db session_mgr with
+              | Some db -> Slash_commands.format_usage_telegram ~db action
+              | None -> "Usage is not available (no database)."
+            in
+            send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
+              ~text ()
         | Model action -> (
             let open Slash_commands in
             match action with

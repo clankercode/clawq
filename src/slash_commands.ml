@@ -11,6 +11,20 @@ type model_action =
   | ModelList of string option
   | ModelUsage
 
+type costs_action =
+  | CostsSummary
+  | CostsSessions
+  | CostsSession of string
+  | CostsModel
+  | CostsProvider
+
+type usage_action =
+  | UsageSummary
+  | UsageSessions
+  | UsageSession of string
+  | UsageModel
+  | UsageProvider
+
 type result =
   | Reply of string
   | Reset
@@ -22,6 +36,8 @@ type result =
   | ForkAnd of string
   | Tools
   | Tasks
+  | Costs of costs_action
+  | Usage of usage_action
   | Model of model_action
   | NotACommand
 
@@ -90,6 +106,14 @@ let commands =
       name = "model";
       description = "Manage model: /model [set|fav|unfav|list|usage] [args]";
     };
+    {
+      name = "costs";
+      description = "Show cost breakdowns: /costs [session|model|provider]";
+    };
+    {
+      name = "usage";
+      description = "Show token usage: /usage [session|model|provider]";
+    };
   ]
 
 let help_text =
@@ -100,6 +124,22 @@ let help_text =
   ^ "\n\n\
      Prefix a message with ! to interrupt the current turn in this session and \
      send the rest as a normal message."
+
+let costs_usage =
+  "Usage: /costs [session [KEY]|model|provider]\n\
+  \  /costs                 - Cost summary by time period\n\
+  \  /costs session         - Cost breakdown across sessions\n\
+  \  /costs session <key>   - Cost breakdown for one session\n\
+  \  /costs model           - Cost breakdown by model\n\
+  \  /costs provider        - Cost breakdown by provider"
+
+let usage_usage =
+  "Usage: /usage [session [KEY]|model|provider]\n\
+  \  /usage                 - Usage summary by time period\n\
+  \  /usage session         - Usage breakdown across sessions\n\
+  \  /usage session <key>   - Usage breakdown for one session\n\
+  \  /usage model           - Usage breakdown by model\n\
+  \  /usage provider        - Usage breakdown by provider"
 
 let handle text =
   let trimmed = String.trim text in
@@ -249,6 +289,22 @@ let handle text =
             | _ -> ForkAnd (String.concat " " args))
         | "tools" -> Tools
         | "tasks" -> Tasks
+        | "costs" -> (
+            match args with
+            | [] -> Costs CostsSummary
+            | [ "session" ] -> Costs CostsSessions
+            | [ "session"; key ] -> Costs (CostsSession key)
+            | [ "model" ] -> Costs CostsModel
+            | [ "provider" ] -> Costs CostsProvider
+            | _ -> Reply costs_usage)
+        | "usage" -> (
+            match args with
+            | [] -> Usage UsageSummary
+            | [ "session" ] -> Usage UsageSessions
+            | [ "session"; key ] -> Usage (UsageSession key)
+            | [ "model" ] -> Usage UsageModel
+            | [ "provider" ] -> Usage UsageProvider
+            | _ -> Reply usage_usage)
         | "model" -> (
             let known_subcommands =
               [ "set"; "fav"; "unfav"; "list"; "usage" ]
@@ -447,3 +503,417 @@ let format_model_show_plain ~current ~favorites ~usage_ranked =
       usage_ranked
   end;
   Buffer.contents buf
+
+let format_cost_summary_line label (s : Request_stats.summary) =
+  Printf.sprintf "%s: $%.4f, %d turn%s, %s prompt (%s added), %s completion"
+    label s.total_cost_usd s.total_turns
+    (if s.total_turns = 1 then "" else "s")
+    (Request_stats.format_tokens s.total_prompt_tokens)
+    (Request_stats.format_tokens s.total_added_prompt_tokens)
+    (Request_stats.format_tokens s.total_completion_tokens)
+
+let format_usage_summary_line label (s : Request_stats.summary) =
+  Printf.sprintf "%s: %d turn%s, %s prompt (%s added), %s completion" label
+    s.total_turns (if s.total_turns = 1 then "" else "s")
+    (Request_stats.format_tokens s.total_prompt_tokens)
+    (Request_stats.format_tokens s.total_added_prompt_tokens)
+    (Request_stats.format_tokens s.total_completion_tokens)
+
+let format_costs_plain ~db (action : costs_action) =
+  match action with
+  | CostsSummary ->
+      let today =
+        Request_stats.summary_for_period ~db
+          ~since:"datetime('now', 'start of day')"
+      in
+      let week =
+        Request_stats.summary_for_period ~db ~since:"datetime('now', '-7 days')"
+      in
+      let month =
+        Request_stats.summary_for_period ~db
+          ~since:"datetime('now', '-30 days')"
+      in
+      let all = Request_stats.total_summary ~db in
+      if all.total_turns = 0 then "No cost data recorded yet."
+      else
+        String.concat "\n"
+          [
+            "Cost Summary";
+            "";
+            format_cost_summary_line "Today" today;
+            format_cost_summary_line "Last 7 days" week;
+            format_cost_summary_line "Last 30 days" month;
+            format_cost_summary_line "All time" all;
+          ]
+  | CostsSessions ->
+      let sessions = Request_stats.summary_by_session ~db in
+      if sessions = [] then "No cost data recorded yet."
+      else
+        let rows =
+          List.map
+            (fun (ss : Request_stats.session_summary) ->
+              String.concat "\n"
+                [
+                  ss.session_key;
+                  Printf.sprintf "  $%.4f, %d turn%s" ss.summary.total_cost_usd
+                    ss.summary.total_turns
+                    (if ss.summary.total_turns = 1 then "" else "s");
+                  Printf.sprintf "  %s prompt (%s added), %s completion"
+                    (Request_stats.format_tokens ss.summary.total_prompt_tokens)
+                    (Request_stats.format_tokens
+                       ss.summary.total_added_prompt_tokens)
+                    (Request_stats.format_tokens
+                       ss.summary.total_completion_tokens);
+                ])
+            sessions
+        in
+        String.concat "\n\n" ("Session Costs" :: rows)
+  | CostsSession key ->
+      let s = Request_stats.summary_for_session ~db ~session_key:key in
+      if s.total_turns = 0 then
+        Printf.sprintf "No cost data for session '%s'." key
+      else
+        String.concat "\n"
+          [
+            Printf.sprintf "Costs for %s" key;
+            "";
+            format_cost_summary_line "Total" s;
+          ]
+  | CostsModel ->
+      let models = Request_stats.summary_by_model ~db in
+      if models = [] then "No cost data recorded yet."
+      else
+        let rows =
+          List.map
+            (fun (ms : Request_stats.model_summary) ->
+              Printf.sprintf "%s:%s  $%.4f, %d turn%s" ms.provider ms.model
+                ms.summary.total_cost_usd ms.summary.total_turns
+                (if ms.summary.total_turns = 1 then "" else "s"))
+            models
+        in
+        String.concat "\n" ("Model Costs" :: "" :: rows)
+  | CostsProvider ->
+      let providers = Request_stats.summary_by_provider ~db in
+      if providers = [] then "No cost data recorded yet."
+      else
+        let rows =
+          List.map
+            (fun (provider, (s : Request_stats.summary)) ->
+              Printf.sprintf "%s  $%.4f, %d turn%s" provider s.total_cost_usd
+                s.total_turns
+                (if s.total_turns = 1 then "" else "s"))
+            providers
+        in
+        String.concat "\n" ("Provider Costs" :: "" :: rows)
+
+let format_costs_telegram ~db (action : costs_action) =
+  let esc = Format_adapter.escape Format_adapter.Telegram_html in
+  let heading text = "<b>" ^ esc text ^ "</b>" in
+  let code text = "<code>" ^ esc text ^ "</code>" in
+  match action with
+  | CostsSummary ->
+      let today =
+        Request_stats.summary_for_period ~db
+          ~since:"datetime('now', 'start of day')"
+      in
+      let week =
+        Request_stats.summary_for_period ~db ~since:"datetime('now', '-7 days')"
+      in
+      let month =
+        Request_stats.summary_for_period ~db
+          ~since:"datetime('now', '-30 days')"
+      in
+      let all = Request_stats.total_summary ~db in
+      if all.total_turns = 0 then "No cost data recorded yet."
+      else
+        String.concat "\n"
+          [
+            heading "Cost Summary";
+            "";
+            esc (format_cost_summary_line "Today" today);
+            esc (format_cost_summary_line "Last 7 days" week);
+            esc (format_cost_summary_line "Last 30 days" month);
+            esc (format_cost_summary_line "All time" all);
+          ]
+  | CostsSessions ->
+      let sessions = Request_stats.summary_by_session ~db in
+      if sessions = [] then "No cost data recorded yet."
+      else
+        let buf = Buffer.create 1024 in
+        Buffer.add_string buf (heading "Session Costs");
+        Buffer.add_string buf "\n\n<blockquote expandable>\n";
+        List.iter
+          (fun (ss : Request_stats.session_summary) ->
+            Buffer.add_string buf (code ss.session_key);
+            Buffer.add_char buf '\n';
+            Buffer.add_string buf
+              (esc
+                 (Printf.sprintf "$%.4f, %d turn%s" ss.summary.total_cost_usd
+                    ss.summary.total_turns
+                    (if ss.summary.total_turns = 1 then "" else "s")));
+            Buffer.add_char buf '\n';
+            Buffer.add_string buf
+              (esc
+                 (Printf.sprintf "%s prompt (%s added), %s completion"
+                    (Request_stats.format_tokens ss.summary.total_prompt_tokens)
+                    (Request_stats.format_tokens
+                       ss.summary.total_added_prompt_tokens)
+                    (Request_stats.format_tokens
+                       ss.summary.total_completion_tokens)));
+            Buffer.add_string buf "\n\n")
+          sessions;
+        Buffer.add_string buf "</blockquote>";
+        Buffer.contents buf
+  | CostsSession key ->
+      let s = Request_stats.summary_for_session ~db ~session_key:key in
+      if s.total_turns = 0 then
+        esc (Printf.sprintf "No cost data for session '%s'." key)
+      else
+        String.concat "\n"
+          [
+            heading ("Costs for " ^ key);
+            "";
+            esc (format_cost_summary_line "Total" s);
+          ]
+  | CostsModel ->
+      let models = Request_stats.summary_by_model ~db in
+      if models = [] then "No cost data recorded yet."
+      else
+        let buf = Buffer.create 1024 in
+        Buffer.add_string buf (heading "Model Costs");
+        Buffer.add_string buf "\n\n<blockquote expandable>\n";
+        List.iter
+          (fun (ms : Request_stats.model_summary) ->
+            Buffer.add_string buf (code (ms.provider ^ ":" ^ ms.model));
+            Buffer.add_string buf " ";
+            Buffer.add_string buf
+              (esc
+                 (Printf.sprintf "$%.4f, %d turn%s" ms.summary.total_cost_usd
+                    ms.summary.total_turns
+                    (if ms.summary.total_turns = 1 then "" else "s")));
+            Buffer.add_char buf '\n')
+          models;
+        Buffer.add_string buf "</blockquote>";
+        Buffer.contents buf
+  | CostsProvider ->
+      let providers = Request_stats.summary_by_provider ~db in
+      if providers = [] then "No cost data recorded yet."
+      else
+        let buf = Buffer.create 1024 in
+        Buffer.add_string buf (heading "Provider Costs");
+        Buffer.add_string buf "\n\n<blockquote expandable>\n";
+        List.iter
+          (fun (provider, (s : Request_stats.summary)) ->
+            Buffer.add_string buf (code provider);
+            Buffer.add_string buf " ";
+            Buffer.add_string buf
+              (esc
+                 (Printf.sprintf "$%.4f, %d turn%s" s.total_cost_usd
+                    s.total_turns
+                    (if s.total_turns = 1 then "" else "s")));
+            Buffer.add_char buf '\n')
+          providers;
+        Buffer.add_string buf "</blockquote>";
+        Buffer.contents buf
+
+let format_usage_plain ~db (action : usage_action) =
+  match action with
+  | UsageSummary ->
+      let today =
+        Request_stats.summary_for_period ~db
+          ~since:"datetime('now', 'start of day')"
+      in
+      let week =
+        Request_stats.summary_for_period ~db ~since:"datetime('now', '-7 days')"
+      in
+      let month =
+        Request_stats.summary_for_period ~db
+          ~since:"datetime('now', '-30 days')"
+      in
+      let all = Request_stats.total_summary ~db in
+      if all.total_turns = 0 then "No usage data recorded yet."
+      else
+        String.concat "\n"
+          [
+            "Usage Summary";
+            "";
+            format_usage_summary_line "Today" today;
+            format_usage_summary_line "Last 7 days" week;
+            format_usage_summary_line "Last 30 days" month;
+            format_usage_summary_line "All time" all;
+          ]
+  | UsageSessions ->
+      let sessions = Request_stats.summary_by_session ~db in
+      if sessions = [] then "No usage data recorded yet."
+      else
+        let rows =
+          List.map
+            (fun (ss : Request_stats.session_summary) ->
+              String.concat "\n"
+                [
+                  ss.session_key;
+                  Printf.sprintf "  %d turn%s" ss.summary.total_turns
+                    (if ss.summary.total_turns = 1 then "" else "s");
+                  Printf.sprintf "  %s prompt (%s added), %s completion"
+                    (Request_stats.format_tokens ss.summary.total_prompt_tokens)
+                    (Request_stats.format_tokens
+                       ss.summary.total_added_prompt_tokens)
+                    (Request_stats.format_tokens
+                       ss.summary.total_completion_tokens);
+                ])
+            sessions
+        in
+        String.concat "\n\n" ("Session Usage" :: rows)
+  | UsageSession key ->
+      let s = Request_stats.summary_for_session ~db ~session_key:key in
+      if s.total_turns = 0 then
+        Printf.sprintf "No usage data for session '%s'." key
+      else
+        String.concat "\n"
+          [
+            Printf.sprintf "Usage for %s" key;
+            "";
+            format_usage_summary_line "Total" s;
+          ]
+  | UsageModel ->
+      let models = Request_stats.summary_by_model ~db in
+      if models = [] then "No usage data recorded yet."
+      else
+        let rows =
+          List.map
+            (fun (ms : Request_stats.model_summary) ->
+              Printf.sprintf "%s:%s  %d turn%s, %s prompt, %s completion"
+                ms.provider ms.model ms.summary.total_turns
+                (if ms.summary.total_turns = 1 then "" else "s")
+                (Request_stats.format_tokens ms.summary.total_prompt_tokens)
+                (Request_stats.format_tokens ms.summary.total_completion_tokens))
+            models
+        in
+        String.concat "\n" ("Model Usage" :: "" :: rows)
+  | UsageProvider ->
+      let providers = Request_stats.summary_by_provider ~db in
+      if providers = [] then "No usage data recorded yet."
+      else
+        let rows =
+          List.map
+            (fun (provider, (s : Request_stats.summary)) ->
+              Printf.sprintf "%s  %d turn%s, %s prompt, %s completion" provider
+                s.total_turns (if s.total_turns = 1 then "" else "s")
+                (Request_stats.format_tokens s.total_prompt_tokens)
+                (Request_stats.format_tokens s.total_completion_tokens))
+            providers
+        in
+        String.concat "\n" ("Provider Usage" :: "" :: rows)
+
+let format_usage_telegram ~db (action : usage_action) =
+  let esc = Format_adapter.escape Format_adapter.Telegram_html in
+  let heading text = "<b>" ^ esc text ^ "</b>" in
+  let code text = "<code>" ^ esc text ^ "</code>" in
+  match action with
+  | UsageSummary ->
+      let today =
+        Request_stats.summary_for_period ~db
+          ~since:"datetime('now', 'start of day')"
+      in
+      let week =
+        Request_stats.summary_for_period ~db ~since:"datetime('now', '-7 days')"
+      in
+      let month =
+        Request_stats.summary_for_period ~db
+          ~since:"datetime('now', '-30 days')"
+      in
+      let all = Request_stats.total_summary ~db in
+      if all.total_turns = 0 then "No usage data recorded yet."
+      else
+        String.concat "\n"
+          [
+            heading "Usage Summary";
+            "";
+            esc (format_usage_summary_line "Today" today);
+            esc (format_usage_summary_line "Last 7 days" week);
+            esc (format_usage_summary_line "Last 30 days" month);
+            esc (format_usage_summary_line "All time" all);
+          ]
+  | UsageSessions ->
+      let sessions = Request_stats.summary_by_session ~db in
+      if sessions = [] then "No usage data recorded yet."
+      else
+        let buf = Buffer.create 1024 in
+        Buffer.add_string buf (heading "Session Usage");
+        Buffer.add_string buf "\n\n<blockquote expandable>\n";
+        List.iter
+          (fun (ss : Request_stats.session_summary) ->
+            Buffer.add_string buf (code ss.session_key);
+            Buffer.add_char buf '\n';
+            Buffer.add_string buf
+              (esc
+                 (Printf.sprintf "%d turn%s" ss.summary.total_turns
+                    (if ss.summary.total_turns = 1 then "" else "s")));
+            Buffer.add_char buf '\n';
+            Buffer.add_string buf
+              (esc
+                 (Printf.sprintf "%s prompt (%s added), %s completion"
+                    (Request_stats.format_tokens ss.summary.total_prompt_tokens)
+                    (Request_stats.format_tokens
+                       ss.summary.total_added_prompt_tokens)
+                    (Request_stats.format_tokens
+                       ss.summary.total_completion_tokens)));
+            Buffer.add_string buf "\n\n")
+          sessions;
+        Buffer.add_string buf "</blockquote>";
+        Buffer.contents buf
+  | UsageSession key ->
+      let s = Request_stats.summary_for_session ~db ~session_key:key in
+      if s.total_turns = 0 then
+        esc (Printf.sprintf "No usage data for session '%s'." key)
+      else
+        String.concat "\n"
+          [
+            heading ("Usage for " ^ key);
+            "";
+            esc (format_usage_summary_line "Total" s);
+          ]
+  | UsageModel ->
+      let models = Request_stats.summary_by_model ~db in
+      if models = [] then "No usage data recorded yet."
+      else
+        let buf = Buffer.create 1024 in
+        Buffer.add_string buf (heading "Model Usage");
+        Buffer.add_string buf "\n\n<blockquote expandable>\n";
+        List.iter
+          (fun (ms : Request_stats.model_summary) ->
+            Buffer.add_string buf (code (ms.provider ^ ":" ^ ms.model));
+            Buffer.add_string buf " ";
+            Buffer.add_string buf
+              (esc
+                 (Printf.sprintf "%d turn%s, %s prompt, %s completion"
+                    ms.summary.total_turns
+                    (if ms.summary.total_turns = 1 then "" else "s")
+                    (Request_stats.format_tokens ms.summary.total_prompt_tokens)
+                    (Request_stats.format_tokens
+                       ms.summary.total_completion_tokens)));
+            Buffer.add_char buf '\n')
+          models;
+        Buffer.add_string buf "</blockquote>";
+        Buffer.contents buf
+  | UsageProvider ->
+      let providers = Request_stats.summary_by_provider ~db in
+      if providers = [] then "No usage data recorded yet."
+      else
+        let buf = Buffer.create 1024 in
+        Buffer.add_string buf (heading "Provider Usage");
+        Buffer.add_string buf "\n\n<blockquote expandable>\n";
+        List.iter
+          (fun (provider, (s : Request_stats.summary)) ->
+            Buffer.add_string buf (code provider);
+            Buffer.add_string buf " ";
+            Buffer.add_string buf
+              (esc
+                 (Printf.sprintf "%d turn%s, %s prompt, %s completion"
+                    s.total_turns (if s.total_turns = 1 then "" else "s")
+                    (Request_stats.format_tokens s.total_prompt_tokens)
+                    (Request_stats.format_tokens s.total_completion_tokens)));
+            Buffer.add_char buf '\n')
+          providers;
+        Buffer.add_string buf "</blockquote>";
+        Buffer.contents buf

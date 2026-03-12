@@ -122,6 +122,22 @@ let is_valid_message_id message_id =
   | Some id when id > 0 -> true
   | _ -> false
 
+let html_fallback_to_plain_text text =
+  let with_newlines =
+    text
+    |> Str.global_replace (Str.regexp_case_fold "<br */?>") "\n"
+    |> Str.global_replace (Str.regexp_case_fold "</p>") "\n"
+    |> Str.global_replace (Str.regexp_case_fold "</div>") "\n"
+    |> Str.global_replace (Str.regexp_case_fold "</li>") "\n"
+  in
+  let without_tags = Str.global_replace (Str.regexp {|<[^>]*>|}) "" with_newlines in
+  without_tags
+  |> Str.global_replace (Str.regexp "&lt;") "<"
+  |> Str.global_replace (Str.regexp "&gt;") ">"
+  |> Str.global_replace (Str.regexp "&quot;") "\""
+  |> Str.global_replace (Str.regexp "&#39;") "'"
+  |> Str.global_replace (Str.regexp "&amp;") "&"
+
 let details_callback_prefix = "show_details:"
 
 let fresh_details_callback_data () =
@@ -822,13 +838,25 @@ let send_message_with_id ?(disable_notification = true) ?parse_mode ~bot_token
       let* status, resp_body = Http_client.post_json ~uri ~headers:[] ~body in
       let* status, resp_body =
         if parse_mode <> None && status >= 400 then (
+          let plain_text =
+            match parse_mode with
+            | Some "HTML" -> html_fallback_to_plain_text text
+            | _ -> text
+          in
           Logs.warn (fun m ->
               m
                 "Telegram sendMessage failed (HTTP %d, parse_mode=%s), \
                  retrying without parse_mode"
                 status
                 (Option.value parse_mode ~default:"none"));
-          let plain_body = `Assoc base_fields |> Yojson.Safe.to_string in
+          let plain_fields =
+            [
+              ("chat_id", `String chat_id);
+              ("text", `String plain_text);
+              ("disable_notification", `Bool disable_notification);
+            ]
+          in
+          let plain_body = `Assoc plain_fields |> Yojson.Safe.to_string in
           Http_client.post_json ~uri ~headers:[] ~body:plain_body)
         else Lwt.return (status, resp_body)
       in
@@ -953,7 +981,19 @@ let edit_message ?parse_mode ~bot_token ~chat_id ~message_id ~text () =
         let body = `Assoc fields |> Yojson.Safe.to_string in
         let* status, _body = Http_client.post_json ~uri ~headers:[] ~body in
         if parse_mode <> None && status >= 400 then
-          let plain_body = `Assoc base_fields |> Yojson.Safe.to_string in
+          let plain_text =
+            match parse_mode with
+            | Some "HTML" -> html_fallback_to_plain_text text
+            | _ -> text
+          in
+          let plain_fields =
+            [
+              ("chat_id", `String chat_id);
+              ("message_id", `Int (try int_of_string message_id with _ -> 0));
+              ("text", `String plain_text);
+            ]
+          in
+          let plain_body = `Assoc plain_fields |> Yojson.Safe.to_string in
           let* _status, _body =
             Http_client.post_json ~uri ~headers:[] ~body:plain_body
           in
@@ -1138,19 +1178,31 @@ let send_chunked ?(disable_notification = true) ?parse_mode ~bot_token ~chat_id
         ~text:chunk ())
     (chunk_text text)
 
-let send_chunked_html_with_fallback ?(disable_notification = true) ~bot_token
-    ~chat_id ~text () =
+let send_chunked_html_with_fallback_using
+    (sender :
+      ?disable_notification:bool ->
+      ?parse_mode:string ->
+      bot_token:string ->
+      chat_id:string ->
+      text:string ->
+      unit ->
+      unit Lwt.t)
+    ?(disable_notification = true) ~bot_token ~chat_id ~text () =
   let open Lwt.Syntax in
   let chunks = chunk_text text in
   Lwt_list.iter_s
     (fun chunk ->
       Lwt.catch
         (fun () ->
-          send_message ~disable_notification ~parse_mode:"HTML" ~bot_token
-            ~chat_id ~text:chunk ())
-        (fun _exn ->
-          send_message ~disable_notification ~bot_token ~chat_id ~text:chunk ()))
+          sender ~disable_notification ~parse_mode:"HTML" ~bot_token ~chat_id
+            ~text:chunk ())
+        (fun _exn -> sender ~disable_notification ~bot_token ~chat_id ~text:chunk ()))
     chunks
+
+let send_chunked_html_with_fallback ?(disable_notification = true) ~bot_token
+    ~chat_id ~text () =
+  send_chunked_html_with_fallback_using send_message ~disable_notification
+    ~bot_token ~chat_id ~text ()
 
 type chunk_sender =
   ?disable_notification:bool ->
