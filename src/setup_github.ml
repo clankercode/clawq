@@ -121,11 +121,14 @@ let post_setup_instructions ~repo_name ~webhook_path ~webhook_secret
     Verify locally:
       - `clawq service status` should show the gateway is running
       - `tail -f ~/.clawq/daemon.log` should show GitHub webhook deliveries
+      - Look for /github/webhook/... requests and `GitHub hooks:` log lines
 
     Hook automation:
       - Add markdown hook files under ~/.clawq/workspace/gh-hooks/
       - Match on repo/event and optional fields such as action, status,
         conclusion, branch, head_sha, and workflow_run_id
+      - `workflow_run` failures can match `status: completed` and
+        `conclusion: failure`
 
     Full documentation: https://clawq.org/channels/
 |}
