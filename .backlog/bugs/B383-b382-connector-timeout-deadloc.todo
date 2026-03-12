@@ -1,15 +1,13 @@
 ---
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B383
 priority: high
-status: pending
-tags:
-    - testing
-    - regression
-    - connectors
-    - resilience
+started_at: null
+status: done
+tags: []
 title: 'B382: connector timeout/deadlock changes lack focused end-to-end regression coverage'
 ---
 Recent commits 6b918542d (Fix connector timeout handling for long-lived requests) and d5ddeebae (add HTTP timeouts and mutex deadlock detection) materially change long-lived request behavior and session deadlock handling. Current automated coverage confirms generic resilience helpers, but there is no obvious focused end-to-end test coverage for connector-specific stalled-before-headers / stalled-body / long-lived-allowed request semantics, nor for mutex deadlock detection through the affected session/connector paths. This leaves a real regression seam unguarded in one of the highest-risk recent areas. Acceptance criteria:\n- Add focused tests covering connector/http timeout behavior for stalled connect/header/body cases.\n- Add focused test(s) that verify long-lived requests remain allowed where intended.\n- Add focused test(s) for mutex deadlock detection behavior in the relevant session/connector path, not only helper-level units.\n- Ensure expected diagnostics and recovery/abort behavior are asserted.
