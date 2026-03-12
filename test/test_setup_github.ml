@@ -196,8 +196,12 @@ let instructions_include_verification_and_hook_notes () =
     (contains "GitHub hooks:");
   Alcotest.(check bool) "mentions gh-hooks dir" true
     (contains "~/.clawq/workspace/gh-hooks/");
-  Alcotest.(check bool) "mentions workflow failure match" true
+  Alcotest.(check bool) "mentions workflow event name" true
+    (contains "workflow_run");
+  Alcotest.(check bool) "mentions workflow failure status" true
     (contains "status: completed");
+  Alcotest.(check bool) "mentions workflow failure conclusion" true
+    (contains "conclusion: failure");
   Alcotest.(check bool) "mentions review event" true
     (contains "Pull request reviews")
 
