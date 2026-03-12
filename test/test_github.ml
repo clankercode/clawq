@@ -497,12 +497,18 @@ let github_hook_workflow_events_are_not_user_generated () =
     prepared.is_user_generated
 
 let handle_webhook_non_user_generated_failure_runs_hooks () =
-  Test_helpers.with_temp_home (fun _home ->
-      let hook_dir = Github_hooks.hooks_dir () in
-      let () = Unix.mkdir hook_dir 0o755 in
+  Test_helpers.with_temp_home (fun home ->
+      let ensure_dir path = if not (Sys.file_exists path) then Unix.mkdir path 0o755 in
+      let clawq_dir = Filename.concat home ".clawq" in
+      let workspace_dir = Filename.concat clawq_dir "workspace" in
+      let hook_dir = Filename.concat workspace_dir "gh-hooks" in
+      let () = ensure_dir clawq_dir in
+      let () = ensure_dir workspace_dir in
+      let () = ensure_dir hook_dir in
       let hook_path = Filename.concat hook_dir "workflow_run.md" in
       let hook_body =
-        String.concat "\n"
+        String.concat "
+"
           [
             "---";
             "name: failed-workflow";
@@ -518,9 +524,29 @@ let handle_webhook_non_user_generated_failure_runs_hooks () =
       let oc = open_out hook_path in
       output_string oc hook_body;
       close_out oc;
+      let loaded_hooks =
+        Github_hooks.load_hooks ~repo_full_name:"acme/backend"
+          ~event_name:"workflow_run"
+      in
+      Alcotest.(check int) "loaded workflow hooks" 1 (List.length loaded_hooks);
       let body =
         {|{"action":"completed","workflow_run":{"id":55,"name":"ci","status":"completed","conclusion":"failure","head_branch":"master","head_sha":"abc123","html_url":"https://github.com/acme/backend/actions/runs/55"},"repository":{"name":"backend","owner":{"login":"acme"},"full_name":"acme/backend"},"sender":{"login":"github-actions"}}|}
       in
+      let prepared =
+        Github_hooks.prepare_event ~event_name:"workflow_run"
+          ~headers:
+            (Cohttp.Header.of_list [ ("X-GitHub-Delivery", "workflow-delivery") ])
+          ~raw_body:body
+      in
+      let matched_hooks =
+        match prepared.context_json with
+        | Some context ->
+            List.filter
+              (fun hook -> Github_hooks.hook_matches hook context)
+              loaded_hooks
+        | None -> []
+      in
+      Alcotest.(check int) "matched workflow hooks" 1 (List.length matched_hooks);
       let repo_config : Runtime_config.github_repo_config =
         {
           name = "acme/backend";
@@ -539,6 +565,12 @@ let handle_webhook_non_user_generated_failure_runs_hooks () =
         }
       in
       let session_manager = Session.create ~config:Runtime_config.default () in
+      let called = ref false in
+      session_manager.special_command_handler <-
+        Some
+          (fun ~key:_ ~message:_ ~send_progress:_ ~interrupt_check:_ ->
+            called := true;
+            Lwt.return (Some "hook executed"));
       let api_limiter =
         Rate_limiter.create ~rate_per_minute:600 ~burst_multiplier:1.0
       in
@@ -556,7 +588,9 @@ let handle_webhook_non_user_generated_failure_runs_hooks () =
           (Github.handle_webhook ~repo_config ~github_config ~session_manager
              ~api_limiter ~event_type:"workflow_run" ~body ~headers)
       with
-      | Github.Ok response -> Alcotest.(check string) "hook ran" "hooked:1" response
+      | Github.Ok response ->
+          Alcotest.(check bool) "special command handler called" true !called;
+          Alcotest.(check string) "hook ran" "hooked:1" response
       | Github.BadSignature -> Alcotest.fail "expected valid signature")
 
 let config_github_roundtrip () =
