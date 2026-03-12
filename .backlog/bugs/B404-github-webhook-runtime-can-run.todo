@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B404
+priority: high
+status: pending
+tags: []
+title: GitHub webhook runtime can run stale deleted build
+---
+Observed live daemon process still running /home/xertrov/src/clawq/_build/default/src/main.exe (deleted) while current source/build contains newer GitHub hook observability and repo-case fixes. This leaves runtime behavior inconsistent with source and can invalidate webhook debugging. Acceptance: detect/report stale deleted executable in service status or startup logs, and provide or implement a safe operator workflow so service restart moves onto current built binary without ambiguity.
