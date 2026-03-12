@@ -2629,6 +2629,37 @@ let test_autonomous_continuation_is_cancellable_by_new_turn () =
       Alcotest.(check int)
         "continuation prompt suppressed" 0 !continuation_calls)
 
+
+let test_autonomous_continuation_is_session_scoped () =
+  let continuation_a = ref 0 in
+  let continuation_b = ref 0 in
+  let response_for_user message =
+    if String.starts_with ~prefix:Session.autonomous_continuation_prompt message
+    then if String.contains message 'A' then (
+      incr continuation_a;
+      "STAY_IDLE") else (
+      incr continuation_b;
+      "keep_working")
+    else "reply:" ^ message
+  in
+  with_fake_chat_provider ~response_for_user (fun config ->
+      let mgr = Session.create ~config () in
+      let key_a = "telegram:1:A" in
+      let key_b = "telegram:2:B" in
+      Lwt_main.run
+        (let open Lwt.Syntax in
+         let a = Session.schedule_autonomous_continuation ~delay:0.02 mgr ~key:key_a in
+         let b = Session.schedule_autonomous_continuation ~delay:0.02 mgr ~key:key_b in
+         let* () = a in
+         let* () = Session.cancel_autonomous_continuation mgr ~key:key_b in
+         b);
+      let state_a = Hashtbl.find mgr.Session.continuation_checks key_a in
+      let state_b = Hashtbl.find mgr.Session.continuation_checks key_b in
+      Alcotest.(check int) "session A continuation fired once" 1 !continuation_a;
+      Alcotest.(check int) "session B continuation fired once before cancel" 1 !continuation_b;
+      Alcotest.(check bool) "session A disarmed independently" true state_a.disarmed;
+      Alcotest.(check bool) "session B remains armed" false state_b.disarmed)
+
 let test_autonomous_continuation_sends_visible_injection () =
   let continuation_calls = ref 0 in
   let notified = ref [] in
