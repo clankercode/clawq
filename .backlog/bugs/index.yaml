@@ -392,3 +392,4 @@ bugs:
     - file: B391-test-delegate-plan-pipeline-in.todo
     - file: B392-add-novelty-clock-to-docs-site.todo
     - file: B393-b392-delegate-task-may-report.todo
+    - file: B394-b393-b387-not-fixed-only-diagn.todo
