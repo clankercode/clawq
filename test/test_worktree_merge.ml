@@ -188,8 +188,8 @@ let test_delegate_prompt_automerge () =
     Background_task.build_delegate_prompt ~automerge:true ~goal:"do stuff"
   in
   Alcotest.(check bool)
-    "contains commit instruction" true
-    (contains_substring ~needle:"Commit your changes" prompt);
+    "contains MUST commit" true
+    (contains_substring ~needle:"MUST commit all changes" prompt);
   Alcotest.(check bool)
     "no 'Do not commit'" false
     (contains_substring ~needle:"Do not commit" prompt)
@@ -199,11 +199,11 @@ let test_delegate_prompt_no_automerge () =
     Background_task.build_delegate_prompt ~automerge:false ~goal:"do stuff"
   in
   Alcotest.(check bool)
-    "contains do not commit" true
-    (contains_substring ~needle:"Do not commit" prompt);
+    "contains MUST commit" true
+    (contains_substring ~needle:"MUST commit all changes" prompt);
   Alcotest.(check bool)
-    "no Commit your changes" false
-    (contains_substring ~needle:"Commit your changes" prompt)
+    "no 'Do not commit'" false
+    (contains_substring ~needle:"Do not commit" prompt)
 
 let test_finalize_tool_missing_id () =
   let db = Memory.init ~db_path:":memory:" () in

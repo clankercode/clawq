@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-12T13:04:43Z"
+claimed_by: cli-user
+completed_at: "2026-03-12T13:04:44Z"
 complexity: medium
 depends_on: []
+duration_minutes: 0.016866893466666668
 estimate_hours: 1
 id: B395
 priority: high
-status: pending
+started_at: "2026-03-12T13:04:43Z"
+status: done
 tags: []
 title: postmortems can apply recursively too many times without making progress; need a circuitbreaker
 ---

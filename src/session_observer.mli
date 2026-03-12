@@ -36,3 +36,30 @@ val check_thinking_excerpt :
   [ `Sane | `Looping of string ] Lwt.t
 (** Check if a thinking token excerpt appears to be looping/incoherent. Used
     from streaming path when thinking token count exceeds threshold. *)
+
+val observer_log_path : unit -> string
+(** Path to the durable observer log file (~/.clawq/observer.log). *)
+
+val append_observer_log : (string * Yojson.Safe.t) list -> unit
+(** Append a JSON line to the observer log. Prepends a "ts" field automatically.
+*)
+
+val log_stuck_check :
+  session_key:string ->
+  round:int ->
+  message_count:int ->
+  raw_response:string ->
+  parsed:[< `Ok | `Need_more | `Stuck of string ] ->
+  unit
+
+val log_stuck_check_error :
+  session_key:string -> message_count:int -> error:string -> unit
+
+val log_thinking_check :
+  excerpt:string ->
+  raw_response:string ->
+  parsed:[< `Sane | `Looping of string ] ->
+  unit
+
+val log_thinking_check_error : excerpt:string -> error:string -> unit
+val parse_verdict : string -> [> `Ok | `Need_more | `Stuck of string ]

@@ -62,25 +62,11 @@ let is_queued_message_interrupt = function
   | Some reason when reason = queued_message_interrupt_token -> true
   | _ -> false
 
-let active_workspace_files_for_config (config : Runtime_config.t) =
-  let workspace = Runtime_config.effective_workspace config in
-  let normalize_workspace_path path =
-    let resolved =
-      if Filename.is_relative path then Filename.concat workspace path else path
-    in
-    Path_util.normalize_path resolved
-  in
-  List.map
-    (fun file -> (file, normalize_workspace_path file))
-    config.prompt.workspace_files
+let active_workspace_files_for_config =
+  Agent_tools.active_workspace_files_for_config
 
-let capture_active_workspace_file_state_for_config (config : Runtime_config.t) =
-  active_workspace_files_for_config config
-  |> List.map (fun (file, path) ->
-      let digest =
-        try Some (Digest.to_hex (Digest.file path)) with _ -> None
-      in
-      (file, digest))
+let capture_active_workspace_file_state_for_config =
+  Agent_tools.capture_active_workspace_file_state_for_config
 
 let create ~config ?tool_registry () =
   let system_prompt = Prompt_builder.build ~config ~tool_registry () in
@@ -145,24 +131,8 @@ let estimate_history_tokens history =
     0
     (runtime_history_messages history)
 
-let estimate_prev_assistant_tokens_from_history_delta ~history
-    ~previous_request_history_len ~current_request_history_len =
-  match previous_request_history_len with
-  | None -> None
-  | Some prev_len ->
-      let added_messages = max 0 (current_request_history_len - prev_len) in
-      if added_messages = 0 then None
-      else
-        let rec take n acc = function
-          | _ when n <= 0 -> List.rev acc
-          | [] -> List.rev acc
-          | msg :: rest -> take (n - 1) (msg :: acc) rest
-        in
-        history |> take added_messages []
-        |> List.filter (fun (msg : Provider.message) -> msg.role = "assistant")
-        |> List.rev
-        |> List.find_opt (fun _ -> true)
-        |> Option.map estimate_message_tokens
+let estimate_prev_assistant_tokens_from_history_delta =
+  Agent_cost.estimate_prev_assistant_tokens_from_history_delta
 
 let context_window_for_agent agent =
   let model =
@@ -302,20 +272,9 @@ let force_compress_history agent =
     false
   end
 
-let string_contains_ci s sub =
-  let sl = String.lowercase_ascii s in
-  let subl = String.lowercase_ascii sub in
-  let ls = String.length sl and lsub = String.length subl in
-  if lsub > ls then false
-  else
-    let found = ref false in
-    for i = 0 to ls - lsub do
-      if (not !found) && String.sub sl i lsub = subl then found := true
-    done;
-    !found
-
 let is_context_exhaustion_error msg =
-  List.exists (string_contains_ci msg)
+  List.exists
+    (string_contains_ci_small msg)
     [
       "context length";
       "too long";
@@ -1056,530 +1015,65 @@ let tools_json agent =
       else Some (Tool_registry.to_openai_json r)
   | _ -> None
 
-let risk_level_to_string = function
-  | Tool.Low -> "low"
-  | Tool.Medium -> "medium"
-  | Tool.High -> "high"
-
-let active_workspace_files agent =
-  active_workspace_files_for_config agent.config
-
-let capture_active_workspace_file_state agent =
-  capture_active_workspace_file_state_for_config agent.config
-
-let changed_active_workspace_files before after =
-  List.filter_map
-    (fun (file, before_digest) ->
-      let after_digest =
-        match List.assoc_opt file after with Some d -> d | None -> None
-      in
-      if before_digest <> after_digest then Some file else None)
-    before
-
-let dedup_preserve_order items =
-  let rec loop seen acc = function
-    | [] -> List.rev acc
-    | item :: rest when List.mem item seen -> loop seen acc rest
-    | item :: rest -> loop (item :: seen) (item :: acc) rest
-  in
-  loop [] [] items
-
-let workspace_refresh_event filenames =
-  Provider.make_message ~role:"event"
-    ~content:
-      (Printf.sprintf
-         "[workspace context refreshed after active workspace file update: %s]"
-         (String.concat ", " filenames))
-
-type workspace_refresh_observation = {
+type workspace_refresh_observation =
+      Agent_tools.workspace_refresh_observation = {
   message : Provider.message option;
   after_state : (string * string option) list;
 }
 
-let active_workspace_refresh_targets_from_call agent (tc : Provider.tool_call)
-    result =
-  if String.starts_with ~prefix:"Error:" result then None
-  else
-    let configured = active_workspace_files agent in
-    let find_configured_file resolved_path =
-      List.find_map
-        (fun (file, configured_path) ->
-          if resolved_path = configured_path then Some file else None)
-        configured
-    in
-    try
-      let open Yojson.Safe.Util in
-      let args = Yojson.Safe.from_string tc.arguments in
-      match tc.function_name with
-      | "doc_write" ->
-          let filename = args |> member "filename" |> to_string in
-          if List.mem filename agent.config.prompt.workspace_files then
-            Some [ filename ]
-          else None
-      | "file_write" | "file_append" | "file_edit" | "file_edit_lines" ->
-          let workspace = Runtime_config.effective_workspace agent.config in
-          let normalize_workspace_path path =
-            let resolved =
-              if Filename.is_relative path then Filename.concat workspace path
-              else path
-            in
-            Path_util.normalize_path resolved
-          in
-          let path = args |> member "path" |> to_string in
-          let resolved_path = normalize_workspace_path path in
-          Option.map (fun file -> [ file ]) (find_configured_file resolved_path)
-      | _ -> None
-    with _ -> None
+let active_workspace_files agent =
+  Agent_tools.active_workspace_files agent.config
 
-let observe_workspace_refresh agent tc result ~before_active_workspace_files =
-  let direct_targets =
-    match active_workspace_refresh_targets_from_call agent tc result with
-    | Some files -> files
-    | None -> []
-  in
-  let after_state = capture_active_workspace_file_state agent in
-  let changed_targets =
-    changed_active_workspace_files before_active_workspace_files after_state
-  in
-  let refreshed_files =
-    dedup_preserve_order (direct_targets @ changed_targets)
-  in
-  let message =
-    if String.starts_with ~prefix:"Error:" result then None
-    else
-      match refreshed_files with
-      | [] -> None
-      | filenames -> Some (workspace_refresh_event filenames)
-  in
-  { message; after_state }
+let capture_active_workspace_file_state agent =
+  Agent_tools.capture_active_workspace_file_state agent.config
 
 let sync_observed_active_workspace_files agent =
   agent.observed_active_workspace_files <-
-    capture_active_workspace_file_state agent
+    Agent_tools.capture_active_workspace_file_state agent.config
 
-let restore_observed_active_workspace_files agent
-    observed_active_workspace_files =
-  let current_state = capture_active_workspace_file_state agent in
-  agent.observed_active_workspace_files <-
-    List.map
-      (fun (file, current_digest) ->
-        let restored_digest =
-          match List.assoc_opt file observed_active_workspace_files with
-          | Some digest -> digest
-          | None -> current_digest
-        in
-        (file, restored_digest))
-      current_state
+let restore_observed_active_workspace_files agent saved_state =
+  let observed_ref = ref agent.observed_active_workspace_files in
+  Agent_tools.restore_observed_active_workspace_files ~config:agent.config
+    ~observed_ref saved_state;
+  agent.observed_active_workspace_files <- !observed_ref
 
 let note_external_workspace_refresh_if_needed agent =
-  let before_state = agent.observed_active_workspace_files in
-  let after_state = capture_active_workspace_file_state agent in
-  agent.observed_active_workspace_files <- after_state;
-  match changed_active_workspace_files before_state after_state with
-  | [] -> None
-  | filenames ->
-      let refresh_msg = workspace_refresh_event filenames in
-      agent.history <- refresh_msg :: agent.history;
-      Some refresh_msg
-
-let append_tool_history agent tool_msg refresh_msg_opt =
-  agent.history <- tool_msg :: agent.history;
-  match refresh_msg_opt with
-  | Some refresh_msg ->
-      agent.history <- refresh_msg :: agent.history;
-      agent.observed_active_workspace_files <-
-        capture_active_workspace_file_state agent
-  | None -> ()
-
-(* Handle a tool_search call by searching the registry and returning
-   matching tool definitions as a tool_search_output message. *)
-let resolve_tool_search agent (tc : Provider.tool_call) =
-  let query =
-    try
-      let args = Yojson.Safe.from_string tc.arguments in
-      let open Yojson.Safe.Util in
-      try args |> member "query" |> to_string
-      with _ -> (
-        try args |> member "goal" |> to_string
-        with _ -> Yojson.Safe.to_string args)
-    with _ -> tc.arguments
+  let observed_ref = ref agent.observed_active_workspace_files in
+  let history_ref = ref agent.history in
+  let result =
+    Agent_tools.note_external_workspace_refresh_if_needed ~config:agent.config
+      ~observed_ref ~history_ref
   in
-  match agent.tool_registry with
-  | None ->
-      Provider.make_tool_result ~tool_call_id:tc.id ~name:"tool_search"
-        ~content:"No tool registry available"
-  | Some registry ->
-      let results = Tool_registry.search registry ~query in
-      let top = List.filteri (fun i _ -> i < 10) results in
-      let tools_json = `List (List.map Tool_registry.tool_to_openai_json top) in
-      Logs.info (fun m ->
-          m "Tool search query=%S found=%d tools" query (List.length top));
-      Provider.make_tool_search_result ~tool_call_id:tc.id ~tools_json
+  agent.observed_active_workspace_files <- !observed_ref;
+  agent.history <- !history_ref;
+  result
 
-(* Execute tool calls in order so workspace refresh events can attribute active
-   prompt-file updates to the specific tool call that triggered them. *)
 let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
     ?interrupt_check ~on_chunk calls =
   let open Lwt.Syntax in
-  let sk_tag = match session_key with Some s -> "[" ^ s ^ "] " | None -> "" in
-  let notification_promises = ref [] in
-  let notify_async thunk =
-    notification_promises :=
-      Lwt.catch thunk (fun exn ->
-          Logs.warn (fun m ->
-              m "Notification error: %s" (Printexc.to_string exn));
-          Lwt.return_unit)
-      :: !notification_promises
+  let observed_ref = ref agent.observed_active_workspace_files in
+  let history_ref = ref agent.history in
+  let* () =
+    Agent_tools.execute_tool_calls_stream ~config:agent.config
+      ~tool_registry:agent.tool_registry ~history_ref ~observed_ref ~db
+      ~audit_enabled ~session_key ?interrupt_check ~on_chunk calls
   in
-  let interrupted = ref false in
-  let check_interrupt () =
-    if !interrupted then true
-    else
-      match interrupt_check with
-      | Some check -> (
-          match check () with
-          | Some reason when reason = queued_message_interrupt_token -> false
-          | Some _ ->
-              interrupted := true;
-              true
-          | None -> false)
-      | None -> false
-  in
-  let* results =
-    Lwt_list.map_s
-      (fun (tc : Provider.tool_call) ->
-        Logs.info (fun m ->
-            m "%sTool call: %s (id=%s) args=%s" sk_tag tc.function_name tc.id
-              tc.arguments);
-        (match (db, audit_enabled, session_key) with
-        | Some db, true, Some sk ->
-            let risk =
-              match agent.tool_registry with
-              | Some reg -> (
-                  match Tool_registry.find reg tc.function_name with
-                  | Some t -> risk_level_to_string t.risk_level
-                  | None -> "unknown")
-              | None -> "unknown"
-            in
-            Audit.log ~db
-              (ToolInvocation
-                 {
-                   session_key = sk;
-                   tool_name = tc.function_name;
-                   risk_level = risk;
-                   args_preview = tc.arguments;
-                 })
-        | _ -> ());
-        notify_async (fun () ->
-            on_chunk
-              (Provider.ToolStart
-                 {
-                   id = tc.id;
-                   name = tc.function_name;
-                   arguments = tc.arguments;
-                 }));
-        if check_interrupt () then begin
-          Logs.info (fun m ->
-              m "%sSkipping tool %s (interrupted)" sk_tag tc.function_name);
-          (match (db, audit_enabled, session_key) with
-          | Some db, true, Some sk ->
-              Audit.log ~db
-                (ToolResult
-                   {
-                     session_key = sk;
-                     tool_name = tc.function_name;
-                     success = false;
-                   })
-          | _ -> ());
-          let result_msg =
-            Provider.make_tool_result ~tool_call_id:tc.id ~name:tc.function_name
-              ~content:"[skipped: interrupted by user]"
-          in
-          notify_async (fun () ->
-              on_chunk
-                (Provider.ToolResult
-                   {
-                     id = tc.id;
-                     name = tc.function_name;
-                     result = "[skipped: interrupted by user]";
-                     is_error = false;
-                   }));
-          Lwt.return (tc, result_msg, None)
-        end
-        else
-          let before_active_workspace_files =
-            capture_active_workspace_file_state agent
-          in
-          let is_tool_search = tc.function_name = "tool_search" in
-          let streamed_output = ref false in
-          let t0 = Unix.gettimeofday () in
-          let* result_msg, result_for_event =
-            if is_tool_search then
-              let msg = resolve_tool_search agent tc in
-              Lwt.return (msg, msg.Provider.content)
-            else
-              let* result =
-                match agent.tool_registry with
-                | None -> Lwt.return "Error: no tool registry available"
-                | Some registry -> (
-                    match Tool_registry.find registry tc.function_name with
-                    | None ->
-                        Lwt.return
-                          (Printf.sprintf "Error: unknown tool '%s'"
-                             tc.function_name)
-                    | Some tool ->
-                        Lwt.catch
-                          (fun () ->
-                            let args =
-                              try Yojson.Safe.from_string tc.arguments
-                              with _ ->
-                                Logs.warn (fun m ->
-                                    m
-                                      "Tool call '%s': failed to parse \
-                                       arguments as JSON (raw: %s)"
-                                      tc.function_name tc.arguments);
-                                `Assoc []
-                            in
-                            let context =
-                              {
-                                Tool.session_key;
-                                send_progress =
-                                  Some
-                                    (fun text ->
-                                      streamed_output := true;
-                                      on_chunk
-                                        (Provider.ToolOutputDelta
-                                           { id = tc.id; chunk = text }));
-                                interrupt_check;
-                              }
-                            in
-                            match tool.invoke_stream with
-                            | Some invoke_stream ->
-                                invoke_stream ~context
-                                  ~on_output_chunk:(fun chunk ->
-                                    streamed_output := true;
-                                    on_chunk
-                                      (Provider.ToolOutputDelta
-                                         { id = tc.id; chunk }))
-                                  args
-                            | None -> tool.invoke ~context args)
-                          (fun exn ->
-                            Lwt.return
-                              ("Error invoking tool: " ^ Printexc.to_string exn))
-                    )
-              in
-              let* result_for_history =
-                Tool_postprocess.process_tool_result ~config:agent.config ~db
-                  ~session_key ~tool_name:tc.function_name
-                  ~history:agent.history ~raw_result:result
-              in
-              let result_for_event =
-                if !streamed_output then result_for_history else result
-              in
-              Lwt.return
-                ( Provider.make_tool_result ~tool_call_id:tc.id
-                    ~name:tc.function_name ~content:result_for_history,
-                  result_for_event )
-          in
-          let invoke_duration = Unix.gettimeofday () -. t0 in
-          Logs.info (fun m ->
-              m "%sTool %s completed in %.3fs" sk_tag tc.function_name
-                invoke_duration);
-          let result = result_msg.Provider.content in
-          let success =
-            not (String.starts_with ~prefix:"Error:" result_for_event)
-          in
-          (match (db, audit_enabled, session_key) with
-          | Some db, true, Some sk ->
-              Audit.log ~db
-                (ToolResult
-                   { session_key = sk; tool_name = tc.function_name; success })
-          | _ -> ());
-          let preview =
-            let limit = if success then 200 else 1000 in
-            if String.length result > limit then
-              String.sub result 0 limit ^ "..."
-            else result
-          in
-          if success then
-            Logs.info (fun m ->
-                m "%sTool result: %s -> %s" sk_tag tc.function_name preview)
-          else
-            Logs.warn (fun m ->
-                m "%sTool error: %s -> %s" sk_tag tc.function_name preview);
-          notify_async (fun () ->
-              on_chunk
-                (Provider.ToolResult
-                   {
-                     id = tc.id;
-                     name = tc.function_name;
-                     result = result_for_event;
-                     is_error = not success;
-                   }));
-          let refresh =
-            observe_workspace_refresh agent tc result
-              ~before_active_workspace_files
-          in
-          if Option.is_some refresh.message then
-            agent.observed_active_workspace_files <- refresh.after_state;
-          Lwt.return (tc, result_msg, refresh.message))
-      calls
-  in
-  List.iter
-    (fun ((_tc : Provider.tool_call), tool_msg, refresh_msg) ->
-      append_tool_history agent tool_msg refresh_msg)
-    results;
-  let* () = Lwt.join !notification_promises in
+  agent.observed_active_workspace_files <- !observed_ref;
+  agent.history <- !history_ref;
   Lwt.return_unit
 
 let execute_tool_calls agent ~db ~audit_enabled ~session_key ?interrupt_check
     calls =
   let open Lwt.Syntax in
-  let sk_tag = match session_key with Some s -> "[" ^ s ^ "] " | None -> "" in
-  let interrupted = ref false in
-  let check_interrupt () =
-    if !interrupted then true
-    else
-      match interrupt_check with
-      | Some check -> (
-          match check () with
-          | Some reason when reason = queued_message_interrupt_token -> false
-          | Some _ ->
-              interrupted := true;
-              true
-          | None -> false)
-      | None -> false
+  let observed_ref = ref agent.observed_active_workspace_files in
+  let history_ref = ref agent.history in
+  let* () =
+    Agent_tools.execute_tool_calls ~config:agent.config
+      ~tool_registry:agent.tool_registry ~history_ref ~observed_ref ~db
+      ~audit_enabled ~session_key ?interrupt_check calls
   in
-  let* results =
-    Lwt_list.map_s
-      (fun (tc : Provider.tool_call) ->
-        Logs.info (fun m ->
-            m "%sTool call: %s (id=%s) args=%s" sk_tag tc.function_name tc.id
-              tc.arguments);
-        (match (db, audit_enabled, session_key) with
-        | Some db, true, Some sk ->
-            let risk =
-              match agent.tool_registry with
-              | Some reg -> (
-                  match Tool_registry.find reg tc.function_name with
-                  | Some t -> risk_level_to_string t.risk_level
-                  | None -> "unknown")
-              | None -> "unknown"
-            in
-            Audit.log ~db
-              (ToolInvocation
-                 {
-                   session_key = sk;
-                   tool_name = tc.function_name;
-                   risk_level = risk;
-                   args_preview = tc.arguments;
-                 })
-        | _ -> ());
-        if check_interrupt () then begin
-          Logs.info (fun m ->
-              m "%sSkipping tool %s (interrupted)" sk_tag tc.function_name);
-          (match (db, audit_enabled, session_key) with
-          | Some db, true, Some sk ->
-              Audit.log ~db
-                (ToolResult
-                   {
-                     session_key = sk;
-                     tool_name = tc.function_name;
-                     success = false;
-                   })
-          | _ -> ());
-          Lwt.return
-            ( tc,
-              Provider.make_tool_result ~tool_call_id:tc.id
-                ~name:tc.function_name ~content:"[skipped: interrupted by user]",
-              None )
-        end
-        else
-          let before_active_workspace_files =
-            capture_active_workspace_file_state agent
-          in
-          let is_tool_search = tc.function_name = "tool_search" in
-          let* result_msg =
-            if is_tool_search then Lwt.return (resolve_tool_search agent tc)
-            else
-              let* result =
-                match agent.tool_registry with
-                | None -> Lwt.return "Error: no tool registry available"
-                | Some registry -> (
-                    match Tool_registry.find registry tc.function_name with
-                    | None ->
-                        Lwt.return
-                          (Printf.sprintf "Error: unknown tool '%s'"
-                             tc.function_name)
-                    | Some tool ->
-                        Lwt.catch
-                          (fun () ->
-                            let args =
-                              try Yojson.Safe.from_string tc.arguments
-                              with _ ->
-                                Logs.warn (fun m ->
-                                    m
-                                      "Tool call '%s': failed to parse \
-                                       arguments as JSON (raw: %s)"
-                                      tc.function_name tc.arguments);
-                                `Assoc []
-                            in
-                            let context =
-                              {
-                                Tool.session_key;
-                                send_progress = None;
-                                interrupt_check;
-                              }
-                            in
-                            tool.invoke ~context args)
-                          (fun exn ->
-                            Lwt.return
-                              ("Error invoking tool: " ^ Printexc.to_string exn))
-                    )
-              in
-              let* result_for_history =
-                Tool_postprocess.process_tool_result ~config:agent.config ~db
-                  ~session_key ~tool_name:tc.function_name
-                  ~history:agent.history ~raw_result:result
-              in
-              Lwt.return
-                (Provider.make_tool_result ~tool_call_id:tc.id
-                   ~name:tc.function_name ~content:result_for_history)
-          in
-          let result = result_msg.Provider.content in
-          let success = not (String.starts_with ~prefix:"Error:" result) in
-          (match (db, audit_enabled, session_key) with
-          | Some db, true, Some sk ->
-              Audit.log ~db
-                (ToolResult
-                   { session_key = sk; tool_name = tc.function_name; success })
-          | _ -> ());
-          let truncated =
-            let limit = if success then 200 else 1000 in
-            if String.length result > limit then
-              String.sub result 0 limit ^ "..."
-            else result
-          in
-          if success then
-            Logs.info (fun m ->
-                m "%sTool result: %s -> %s" sk_tag tc.function_name truncated)
-          else
-            Logs.warn (fun m ->
-                m "%sTool error: %s -> %s" sk_tag tc.function_name truncated);
-          let refresh =
-            observe_workspace_refresh agent tc result
-              ~before_active_workspace_files
-          in
-          if Option.is_some refresh.message then
-            agent.observed_active_workspace_files <- refresh.after_state;
-          Lwt.return (tc, result_msg, refresh.message))
-      calls
-  in
-  (* Results already reflect execution order; append deterministically. *)
-  List.iter
-    (fun ((_tc : Provider.tool_call), tool_msg, refresh_msg) ->
-      append_tool_history agent tool_msg refresh_msg)
-    results;
+  agent.observed_active_workspace_files <- !observed_ref;
+  agent.history <- !history_ref;
   Lwt.return_unit
 
 let inject_search_context agent ~db ~user_message =
@@ -1779,72 +1273,9 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
     match timed with Ok v -> Lwt.return v | Error e -> Lwt.fail_with e
   in
   let track_cost ~current_request_history_len response =
-    let usage, model =
-      match response with
-      | Provider.Text { usage; model; _ } -> (usage, model)
-      | Provider.ToolCalls { usage; model; _ } -> (usage, model)
-    in
-    match (usage, session_key) with
-    | Some (pt, ct), Some sid -> (
-        Cost_tracker.record_turn ~model ~prompt_tokens:pt ~completion_tokens:ct
-          ~session_id:sid;
-        Model_preferences.increment_usage model |> ignore;
-        match db with
-        | Some db ->
-            let pname, _, _ =
-              Provider.select_provider ~config:agent.config ()
-            in
-            let prev = Request_stats.get_prev_totals ~db ~session_key:sid in
-            let added =
-              match prev with
-              | Some (prev_pt, prev_ct, _) ->
-                  let prev_assistant_tokens =
-                    estimate_prev_assistant_tokens_from_history_delta
-                      ~history:agent.history
-                      ~previous_request_history_len:
-                        agent.last_request_history_len
-                      ~current_request_history_len
-                    |> Option.value ~default:prev_ct
-                  in
-                  max 0 (pt - (prev_pt + prev_assistant_tokens))
-              | None -> pt
-            in
-            let cache_hit =
-              match prev with
-              | Some (_, _, ts) when ts <> "" -> (
-                  try
-                    let stmt =
-                      Sqlite3.prepare db
-                        "SELECT (strftime('%s', 'now') - strftime('%s', ?1)) < \
-                         300"
-                    in
-                    ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT ts));
-                    Fun.protect
-                      ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
-                      (fun () ->
-                        match Sqlite3.step stmt with
-                        | Sqlite3.Rc.ROW -> (
-                            match Sqlite3.column stmt 0 with
-                            | Sqlite3.Data.INT 1L -> true
-                            | _ -> false)
-                        | _ -> false)
-                  with _ -> false)
-              | _ -> false
-            in
-            let cost_usd_opt =
-              match Cost_tracker.lookup_pricing model with
-              | None -> None
-              | Some _ ->
-                  Some
-                    (Cost_tracker.calculate_cost_with_cache ~model
-                       ~prompt_tokens:pt ~completion_tokens:ct
-                       ~added_prompt_tokens:added ~cache_hit)
-            in
-            Request_stats.record ~db ~session_key:sid ~provider:pname ~model
-              ~prompt_tokens:pt ~completion_tokens:ct ?cost_usd:cost_usd_opt
-              ~added_prompt_tokens:added ()
-        | None -> ())
-    | _ -> ()
+    Agent_cost.track_cost ~config:agent.config ~history:agent.history
+      ~last_request_history_len:agent.last_request_history_len ~session_key ~db
+      ~current_request_history_len response
   in
   let fire_history_update len_before =
     match on_history_update with
@@ -2085,72 +1516,9 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
     match timed with Ok v -> Lwt.return v | Error e -> Lwt.fail_with e
   in
   let track_cost ~current_request_history_len response =
-    let usage, model =
-      match response with
-      | Provider.Text { usage; model; _ } -> (usage, model)
-      | Provider.ToolCalls { usage; model; _ } -> (usage, model)
-    in
-    match (usage, session_key) with
-    | Some (pt, ct), Some sid -> (
-        Cost_tracker.record_turn ~model ~prompt_tokens:pt ~completion_tokens:ct
-          ~session_id:sid;
-        Model_preferences.increment_usage model |> ignore;
-        match db with
-        | Some db ->
-            let pname, _, _ =
-              Provider.select_provider ~config:agent.config ()
-            in
-            let prev = Request_stats.get_prev_totals ~db ~session_key:sid in
-            let added =
-              match prev with
-              | Some (prev_pt, prev_ct, _) ->
-                  let prev_assistant_tokens =
-                    estimate_prev_assistant_tokens_from_history_delta
-                      ~history:agent.history
-                      ~previous_request_history_len:
-                        agent.last_request_history_len
-                      ~current_request_history_len
-                    |> Option.value ~default:prev_ct
-                  in
-                  max 0 (pt - (prev_pt + prev_assistant_tokens))
-              | None -> pt
-            in
-            let cache_hit =
-              match prev with
-              | Some (_, _, ts) when ts <> "" -> (
-                  try
-                    let stmt =
-                      Sqlite3.prepare db
-                        "SELECT (strftime('%s', 'now') - strftime('%s', ?1)) < \
-                         300"
-                    in
-                    ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT ts));
-                    Fun.protect
-                      ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
-                      (fun () ->
-                        match Sqlite3.step stmt with
-                        | Sqlite3.Rc.ROW -> (
-                            match Sqlite3.column stmt 0 with
-                            | Sqlite3.Data.INT 1L -> true
-                            | _ -> false)
-                        | _ -> false)
-                  with _ -> false)
-              | _ -> false
-            in
-            let cost_usd_opt =
-              match Cost_tracker.lookup_pricing model with
-              | None -> None
-              | Some _ ->
-                  Some
-                    (Cost_tracker.calculate_cost_with_cache ~model
-                       ~prompt_tokens:pt ~completion_tokens:ct
-                       ~added_prompt_tokens:added ~cache_hit)
-            in
-            Request_stats.record ~db ~session_key:sid ~provider:pname ~model
-              ~prompt_tokens:pt ~completion_tokens:ct ?cost_usd:cost_usd_opt
-              ~added_prompt_tokens:added ()
-        | None -> ())
-    | _ -> ()
+    Agent_cost.track_cost ~config:agent.config ~history:agent.history
+      ~last_request_history_len:agent.last_request_history_len ~session_key ~db
+      ~current_request_history_len response
   in
   let fire_history_update len_before =
     match on_history_update with

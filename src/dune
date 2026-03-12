@@ -29,7 +29,12 @@
   workspace_scaffold
   string_util
   path_util
+  agent_cost
+  agent_tools
   agent
+  session_core
+  session_turn
+  session_autonomous
   session
   stt
   tool

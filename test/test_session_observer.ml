@@ -239,6 +239,154 @@ let test_check_thinking_excerpt_logs_looping_verdict () =
             "writes loop reason" true
             (string_contains log_text "\"reason\":\"repeating the same plan\"")))
 
+let test_observer_log_path () =
+  Test_helpers.with_temp_home (fun home ->
+      let path = Session_observer.observer_log_path () in
+      let expected =
+        Filename.concat (Filename.concat home ".clawq") "observer.log"
+      in
+      Alcotest.(check string) "log path" expected path)
+
+let test_append_observer_log_writes_json_line () =
+  Test_helpers.with_temp_home (fun _home ->
+      Session_observer.append_observer_log
+        [ ("event", `String "test_event"); ("value", `Int 42) ];
+      let log_path = Session_observer.observer_log_path () in
+      Alcotest.(check bool) "log file created" true (Sys.file_exists log_path);
+      let content = read_file log_path in
+      let json = Yojson.Safe.from_string (String.trim content) in
+      let open Yojson.Safe.Util in
+      let ts = json |> member "ts" |> to_string in
+      Alcotest.(check bool) "has ts field" true (String.length ts > 0);
+      Alcotest.(check string)
+        "event field" "test_event"
+        (json |> member "event" |> to_string);
+      Alcotest.(check int) "value field" 42 (json |> member "value" |> to_int))
+
+let test_append_observer_log_appends_multiple () =
+  Test_helpers.with_temp_home (fun _home ->
+      Session_observer.append_observer_log [ ("n", `Int 1) ];
+      Session_observer.append_observer_log [ ("n", `Int 2) ];
+      let content = read_file (Session_observer.observer_log_path ()) in
+      let lines =
+        String.split_on_char '\n' content
+        |> List.filter (fun s -> String.trim s <> "")
+      in
+      Alcotest.(check int) "two lines" 2 (List.length lines);
+      let open Yojson.Safe.Util in
+      let j1 = Yojson.Safe.from_string (List.nth lines 0) in
+      let j2 = Yojson.Safe.from_string (List.nth lines 1) in
+      Alcotest.(check int) "first n" 1 (j1 |> member "n" |> to_int);
+      Alcotest.(check int) "second n" 2 (j2 |> member "n" |> to_int))
+
+let test_log_stuck_check_ok () =
+  Test_helpers.with_temp_home (fun _home ->
+      Session_observer.log_stuck_check ~session_key:"s1" ~round:1
+        ~message_count:5 ~raw_response:"OK" ~parsed:`Ok;
+      let content = read_file (Session_observer.observer_log_path ()) in
+      let json = Yojson.Safe.from_string (String.trim content) in
+      let open Yojson.Safe.Util in
+      Alcotest.(check string)
+        "event" "stuck_check"
+        (json |> member "event" |> to_string);
+      Alcotest.(check string)
+        "session_key" "s1"
+        (json |> member "session_key" |> to_string);
+      Alcotest.(check int) "round" 1 (json |> member "round" |> to_int);
+      Alcotest.(check int)
+        "message_count" 5
+        (json |> member "message_count" |> to_int);
+      Alcotest.(check string)
+        "verdict" "ok"
+        (json |> member "verdict" |> to_string))
+
+let test_log_stuck_check_stuck () =
+  Test_helpers.with_temp_home (fun _home ->
+      Session_observer.log_stuck_check ~session_key:"s2" ~round:2
+        ~message_count:10 ~raw_response:"STUCK:looping on file_write"
+        ~parsed:(`Stuck "looping on file_write");
+      let content = read_file (Session_observer.observer_log_path ()) in
+      let json = Yojson.Safe.from_string (String.trim content) in
+      let open Yojson.Safe.Util in
+      Alcotest.(check string)
+        "verdict" "stuck"
+        (json |> member "verdict" |> to_string);
+      Alcotest.(check string)
+        "reason" "looping on file_write"
+        (json |> member "reason" |> to_string))
+
+let test_log_stuck_check_error () =
+  Test_helpers.with_temp_home (fun _home ->
+      Session_observer.log_stuck_check_error ~session_key:"s3" ~message_count:7
+        ~error:"connection refused";
+      let content = read_file (Session_observer.observer_log_path ()) in
+      let json = Yojson.Safe.from_string (String.trim content) in
+      let open Yojson.Safe.Util in
+      Alcotest.(check string)
+        "event" "stuck_check_error"
+        (json |> member "event" |> to_string);
+      Alcotest.(check string)
+        "error" "connection refused"
+        (json |> member "error" |> to_string))
+
+let test_log_thinking_check_sane () =
+  Test_helpers.with_temp_home (fun _home ->
+      Session_observer.log_thinking_check ~excerpt:"reasoning text"
+        ~raw_response:"SANE" ~parsed:`Sane;
+      let content = read_file (Session_observer.observer_log_path ()) in
+      let json = Yojson.Safe.from_string (String.trim content) in
+      let open Yojson.Safe.Util in
+      Alcotest.(check string)
+        "event" "thinking_check"
+        (json |> member "event" |> to_string);
+      Alcotest.(check string)
+        "verdict" "sane"
+        (json |> member "verdict" |> to_string);
+      Alcotest.(check int)
+        "excerpt_chars" 14
+        (json |> member "excerpt_chars" |> to_int))
+
+let test_log_thinking_check_error () =
+  Test_helpers.with_temp_home (fun _home ->
+      Session_observer.log_thinking_check_error ~excerpt:"some text"
+        ~error:"timeout";
+      let content = read_file (Session_observer.observer_log_path ()) in
+      let json = Yojson.Safe.from_string (String.trim content) in
+      let open Yojson.Safe.Util in
+      Alcotest.(check string)
+        "event" "thinking_check_error"
+        (json |> member "event" |> to_string);
+      Alcotest.(check string)
+        "error" "timeout"
+        (json |> member "error" |> to_string))
+
+let test_parse_verdict () =
+  Alcotest.(check string)
+    "OK" "ok"
+    (match Session_observer.parse_verdict "OK" with
+    | `Ok -> "ok"
+    | _ -> "other");
+  Alcotest.(check string)
+    "NEED_MORE" "need_more"
+    (match Session_observer.parse_verdict "NEED_MORE" with
+    | `Need_more -> "need_more"
+    | _ -> "other");
+  Alcotest.(check string)
+    "STUCK:reason" "looping"
+    (match Session_observer.parse_verdict "STUCK:looping" with
+    | `Stuck r -> r
+    | _ -> "other");
+  Alcotest.(check string)
+    "STUCK with whitespace" "trimmed"
+    (match Session_observer.parse_verdict "  STUCK:  trimmed  " with
+    | `Stuck r -> r
+    | _ -> "other");
+  Alcotest.(check string)
+    "unknown defaults to ok" "ok"
+    (match Session_observer.parse_verdict "MAYBE" with
+    | `Ok -> "ok"
+    | _ -> "other")
+
 let suite =
   [
     Alcotest.test_case "check_stuck writes durable observer log" `Quick
@@ -247,4 +395,19 @@ let suite =
       test_check_stuck_logs_failures;
     Alcotest.test_case "thinking excerpt logs looping verdict" `Quick
       test_check_thinking_excerpt_logs_looping_verdict;
+    Alcotest.test_case "observer_log_path" `Quick test_observer_log_path;
+    Alcotest.test_case "append_observer_log writes JSON line" `Quick
+      test_append_observer_log_writes_json_line;
+    Alcotest.test_case "append_observer_log appends multiple" `Quick
+      test_append_observer_log_appends_multiple;
+    Alcotest.test_case "log_stuck_check ok verdict" `Quick
+      test_log_stuck_check_ok;
+    Alcotest.test_case "log_stuck_check stuck verdict" `Quick
+      test_log_stuck_check_stuck;
+    Alcotest.test_case "log_stuck_check_error" `Quick test_log_stuck_check_error;
+    Alcotest.test_case "log_thinking_check sane" `Quick
+      test_log_thinking_check_sane;
+    Alcotest.test_case "log_thinking_check_error" `Quick
+      test_log_thinking_check_error;
+    Alcotest.test_case "parse_verdict" `Quick test_parse_verdict;
   ]

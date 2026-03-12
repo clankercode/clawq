@@ -1006,8 +1006,12 @@ let process_sse_stream ?(thinking_style = NoThinking) stream ~on_chunk =
             process_buffer ())
           stream)
       (fun () ->
-        Lwt_stream.junk_available stream;
-        Lwt.return_unit)
+        let open Lwt.Syntax in
+        let rec drain () =
+          let* chunk = Lwt_stream.get stream in
+          match chunk with None -> Lwt.return_unit | Some _ -> drain ()
+        in
+        drain ())
   in
   (* process any remaining data in buffer *)
   let remaining = Buffer.contents buf in

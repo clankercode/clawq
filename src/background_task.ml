@@ -1394,14 +1394,11 @@ let routing_from_context ?context ?notify_cfg () =
           (None, Some notify.notify_channel, Some notify.notify_target)
       | None -> (None, None, None))
 
-let build_delegate_prompt ~automerge ~goal =
+let build_delegate_prompt ~automerge:_ ~goal =
   let commit_line =
-    if automerge then
-      "- Commit your changes with a clear, descriptive commit message when \
-       done. Do not push or perform destructive git history edits."
-    else
-      "- Do not commit, push, or perform destructive git history edits unless \
-       explicitly asked."
+    "- You MUST commit all changes with a clear, descriptive commit message \
+     before reporting completion. Do not push or perform destructive git \
+     history edits."
   in
   String.concat "\n"
     [

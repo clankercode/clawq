@@ -76,7 +76,7 @@ let test_send_chunked_html_with_fallback_retries_plain_text () =
       Alcotest.(check bool) "first disable_notification" true disable1;
       Alcotest.(check (option string)) "first parse mode" (Some "HTML") mode1;
       Alcotest.(check string) "second chat" "chat-1" chat2;
-      Alcotest.(check string) "second text" "<b>hello</b>" text2;
+      Alcotest.(check string) "second text" "hello" text2;
       Alcotest.(check bool) "second disable_notification" true disable2;
       Alcotest.(check (option string)) "second parse mode" None mode2
   | _ -> Alcotest.fail "expected html attempt followed by plain retry"

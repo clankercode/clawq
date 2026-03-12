@@ -1,0 +1,14 @@
+---
+completed_at: "2026-03-12T13:04:49Z"
+complexity: low
+created_at: "2026-03-12T13:04:49Z"
+depends_on: []
+description: 'B399: /costs slash command implemented (commit d21c018e1)'
+estimate_hours: 0
+id: F003
+priority: low
+status: done
+tags: []
+title: 'B399: /costs slash command implemented (commit d21c018e1)'
+type: fixed
+---

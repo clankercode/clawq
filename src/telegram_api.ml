@@ -1164,7 +1164,19 @@ let send_message ?(disable_notification = true) ?parse_mode ~bot_token ~chat_id
       let body = `Assoc fields |> Yojson.Safe.to_string in
       let* status, _body = Http_client.post_json ~uri ~headers:[] ~body in
       if parse_mode <> None && status >= 400 then
-        let plain_body = `Assoc base_fields |> Yojson.Safe.to_string in
+        let plain_text =
+          match parse_mode with
+          | Some "HTML" -> html_fallback_to_plain_text text
+          | _ -> text
+        in
+        let plain_fields =
+          [
+            ("chat_id", `String chat_id);
+            ("text", `String plain_text);
+            ("disable_notification", `Bool disable_notification);
+          ]
+        in
+        let plain_body = `Assoc plain_fields |> Yojson.Safe.to_string in
         let* _status, _body =
           Http_client.post_json ~uri ~headers:[] ~body:plain_body
         in
@@ -1198,7 +1210,8 @@ let send_chunked_html_with_fallback_using
           sender ~disable_notification ~parse_mode:"HTML" ~bot_token ~chat_id
             ~text:chunk ())
         (fun _exn ->
-          sender ~disable_notification ~bot_token ~chat_id ~text:chunk ()))
+          let plain = html_fallback_to_plain_text chunk in
+          sender ~disable_notification ~bot_token ~chat_id ~text:plain ()))
     chunks
 
 let send_chunked_html_with_fallback ?(disable_notification = true) ~bot_token

@@ -3,3 +3,7 @@ fixes:
       id: F001
     - file: 2026-03/F002-fix-telegram-queued-messages-n.todo
       id: F002
+    - file: 2026-03/F003-b399-costs-slash-command-imple.todo
+      id: F003
+    - file: 2026-03/F004-b400-ec-observer-durable-loggi.todo
+      id: F004
