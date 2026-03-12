@@ -57,6 +57,8 @@ type t = {
   mutable special_command_handler : special_command_handler option;
   observer_last_checked : (string, int) Hashtbl.t;
       (** Maps session_key -> history length at last observer check *)
+  postmortem_circuit_breakers : (string, unit) Hashtbl.t;
+      (** Root sessions that have already launched a postmortem. *)
   pending_questions : (string, string Lwt.u) Hashtbl.t;
 }
 
@@ -82,6 +84,17 @@ let keepalive_nudge_prompt =
    Continue working on your tasks if any remain.\n\n\
    If you have nothing to do and want to remain idle, reply exactly: "
   ^ autonomous_stay_idle_message
+
+let postmortem_session_prefix = "__postmortem_"
+
+let rec root_postmortem_session_key session_key =
+  let prefix_len = String.length postmortem_session_prefix in
+  if String.length session_key >= prefix_len
+     && String.sub session_key 0 prefix_len = postmortem_session_prefix
+  then
+    root_postmortem_session_key
+      (String.sub session_key prefix_len (String.length session_key - prefix_len))
+  else session_key
 
 let get_context_usage_percent mgr ~key =
   match Hashtbl.find_opt mgr.sessions key with
@@ -223,6 +236,7 @@ let create ~config ?tool_registry ?sandbox ?(landlock_enabled = false) ?db () =
     continuation_checks = Hashtbl.create 16;
     special_command_handler = None;
     observer_last_checked = Hashtbl.create 8;
+    postmortem_circuit_breakers = Hashtbl.create 8;
     pending_questions = Hashtbl.create 8;
   }
 
@@ -1061,7 +1075,27 @@ let spawn_postmortem_agent_fn :
       Lwt.return_unit)
 
 let spawn_postmortem_agent mgr ~stuck_history ~session_key ~reason ?db () =
-  !spawn_postmortem_agent_fn mgr ~stuck_history ~session_key ~reason ?db ()
+  let root_key = root_postmortem_session_key session_key in
+  if root_key <> session_key then begin
+    Logs.warn (fun m ->
+        m
+          "Suppressing recursive postmortem launch for session %s (root=%s, \
+           reason=%s)"
+          session_key root_key reason);
+    Lwt.return_unit
+  end
+  else if Hashtbl.mem mgr.postmortem_circuit_breakers root_key then begin
+    Logs.warn (fun m ->
+        m
+          "Postmortem circuit breaker open for session %s; suppressing \
+           additional launch (reason=%s)"
+          root_key reason);
+    Lwt.return_unit
+  end
+  else begin
+    Hashtbl.replace mgr.postmortem_circuit_breakers root_key ();
+    !spawn_postmortem_agent_fn mgr ~stuck_history ~session_key ~reason ?db ()
+  end
 
 let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
     ?(attachments = []) ?channel_name ?channel_type ?sender_id ?sender_name
@@ -1778,6 +1812,8 @@ let reset mgr ~key =
             Hashtbl.remove mgr.queued_messages key;
             Hashtbl.remove mgr.continuation_checks key;
             Hashtbl.remove mgr.observer_last_checked key;
+            Hashtbl.remove mgr.postmortem_circuit_breakers
+              (root_postmortem_session_key key);
             unregister_channel_notifier mgr ~key;
             unregister_rich_notifier mgr ~key;
             Hashtbl.remove mgr.sessions key;
@@ -1788,6 +1824,8 @@ let reset mgr ~key =
             Hashtbl.remove mgr.queued_messages key;
             Hashtbl.remove mgr.continuation_checks key;
             Hashtbl.remove mgr.observer_last_checked key;
+            Hashtbl.remove mgr.postmortem_circuit_breakers
+              (root_postmortem_session_key key);
             unregister_channel_notifier mgr ~key;
             unregister_rich_notifier mgr ~key;
             Lwt.return None)

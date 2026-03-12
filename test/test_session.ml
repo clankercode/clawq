@@ -802,6 +802,50 @@ let test_clear_response_deferred_removes_marker () =
     "marker removed" false
     (Session.take_response_deferred mgr ~key:"telegram:2:u")
 
+let test_spawn_postmortem_agent_circuit_breaker_blocks_duplicates () =
+  let mgr = Session.create ~config:Runtime_config.default () in
+  let launches = ref [] in
+  let prev = !(Session.spawn_postmortem_agent_fn) in
+  Fun.protect
+    ~finally:(fun () -> Session.spawn_postmortem_agent_fn := prev)
+    (fun () ->
+      Session.spawn_postmortem_agent_fn :=
+        (fun _mgr ~stuck_history:_ ~session_key ~reason ?db:_ () ->
+          launches := (session_key, reason) :: !launches;
+          Lwt.return_unit);
+      Lwt_main.run
+        (Session.spawn_postmortem_agent mgr ~stuck_history:[]
+           ~session_key:"web:stuck" ~reason:"loop-1" ());
+      Lwt_main.run
+        (Session.spawn_postmortem_agent mgr ~stuck_history:[]
+           ~session_key:"web:stuck" ~reason:"loop-2" ());
+      Alcotest.(check int)
+        "only one postmortem launched for root session" 1
+        (List.length !launches);
+      Alcotest.(check (list (pair string string)))
+        "first launch preserved"
+        [ ("web:stuck", "loop-1") ]
+        (List.rev !launches))
+
+let test_spawn_postmortem_agent_circuit_breaker_blocks_recursive_postmortems ()
+    =
+  let mgr = Session.create ~config:Runtime_config.default () in
+  let launches = ref [] in
+  let prev = !(Session.spawn_postmortem_agent_fn) in
+  Fun.protect
+    ~finally:(fun () -> Session.spawn_postmortem_agent_fn := prev)
+    (fun () ->
+      Session.spawn_postmortem_agent_fn :=
+        (fun _mgr ~stuck_history:_ ~session_key ~reason ?db:_ () ->
+          launches := (session_key, reason) :: !launches;
+          Lwt.return_unit);
+      Lwt_main.run
+        (Session.spawn_postmortem_agent mgr ~stuck_history:[]
+           ~session_key:"__postmortem_web:stuck" ~reason:"still-looping" ());
+      Alcotest.(check int)
+        "recursive postmortem launch suppressed" 0
+        (List.length !launches))
+
 let test_live_activity_tracks_nested_scopes () =
   let config = Runtime_config.default in
   let mgr = Session.create ~config () in
@@ -3316,6 +3360,12 @@ let suite =
       test_drain_queued_messages_marks_live_activity;
     Alcotest.test_case "clear response deferred removes marker" `Quick
       test_clear_response_deferred_removes_marker;
+    Alcotest.test_case
+      "postmortem circuit breaker suppresses duplicate launches" `Quick
+      test_spawn_postmortem_agent_circuit_breaker_blocks_duplicates;
+    Alcotest.test_case
+      "postmortem circuit breaker suppresses recursive postmortems" `Quick
+      test_spawn_postmortem_agent_circuit_breaker_blocks_recursive_postmortems;
     Alcotest.test_case
       "enqueue message if busy marks interrupt and preserves message" `Quick
       test_enqueue_message_if_busy_marks_interrupt_and_preserves_message;
