@@ -9,8 +9,8 @@ bug-reports: "https://example.invalid/clawq/issues"
 depends: [
   "ocaml" {>= "5.1.0"}
   "dune" {>= "3.21"}
-  "coq" {>= "8.19"}
-  "coq-stdlib"
+  "coq" {>= "8.19" & < "9.0"}
+  "coq-stdlib" {< "9.0"}
   "cmdliner" {>= "2.1.0"}
   "yojson"
   "sqlite3"
