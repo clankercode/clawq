@@ -121,7 +121,9 @@ let handle_webhook ~(repo_config : Runtime_config.github_repo_config)
     let prepared =
       Github_hooks.prepare_event ~event_name:event_type ~headers ~raw_body:body
     in
-    if prepared.repo_full_name <> repo_config.name then begin
+    let payload_repo = String.lowercase_ascii prepared.repo_full_name in
+    let configured_repo = String.lowercase_ascii repo_config.name in
+    if payload_repo <> configured_repo then begin
       Logs.warn (fun m ->
           m
             "GitHub: ignoring webhook on %s because payload repo %S did not \
