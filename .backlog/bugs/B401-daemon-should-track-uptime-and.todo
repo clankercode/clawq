@@ -1,15 +1,12 @@
 ---
-claimed_at: "2026-03-12T17:02:10Z"
-claimed_by: cli-user
-completed_at: "2026-03-12T17:02:11Z"
+completed_at: null
 complexity: medium
 depends_on: []
-duration_minutes: 0.0287558832
 estimate_hours: 1
 id: B401
 priority: high
-started_at: "2026-03-12T17:02:10Z"
-status: done
+started_at: null
+status: pending
 tags: []
 title: daemon should track uptime and inject it into runtime ctx; add /uptime slash command
 ---
