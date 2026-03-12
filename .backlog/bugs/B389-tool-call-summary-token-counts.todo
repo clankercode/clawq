@@ -1,15 +1,18 @@
 ---
 claimed_at: "2026-03-12T21:12:45Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-12T21:13:07Z"
 complexity: medium
 depends_on: []
+duration_minutes: 0.3698599935
 estimate_hours: 1
 id: B389
 priority: high
 started_at: "2026-03-12T21:12:45Z"
-status: in_progress
+status: done
 tags: []
 title: Tool call summary token counts wrong for workspace file edits; audit all token-count calculations
 ---
 User reports token count is often wrong when editing workspace files in tool call summaries, with inconsistent correctness across turns. Investigate the token-count calculations deeply across tool call summaries and related visibility/reporting paths, not just the workspace-file edit seam. Acceptance criteria: identify the faulty counting path(s); fix incorrect token counts for workspace file edit summaries; audit adjacent token-count calculations for similar bugs; add focused regression coverage; document any known approximation boundaries explicitly where exact counting is impossible.
+
+Completion note (2026-03-12): fixed by tracking prior request history length and deriving the previous assistant-token estimate from the history delta, so workspace file-edit tool-call payloads are counted instead of being obscured by later tool-result/workspace-refresh messages. Landed in commit 35efac72e. Focused verification: `dune exec ./test/test_main.exe -- test 'session|request_stats|telegram_typing' --color=never`. Known approximation boundary remains: if the history delta cannot be reconstructed, accounting falls back to provider-reported completion tokens.
