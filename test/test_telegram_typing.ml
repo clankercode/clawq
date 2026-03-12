@@ -8,7 +8,6 @@ let test_typing_loop_calls_send_action () =
   let result_p = Telegram.typing_loop ~send_action ~interval:0.01 p in
   Lwt_main.run
     (let open Lwt.Syntax in
-     (* Let the loop fire a few times *)
      let* () = Lwt_unix.sleep 0.05 in
      Lwt.wakeup resolve "done";
      let* result = result_p in
@@ -31,7 +30,6 @@ let test_typing_loop_stops_when_promise_resolves () =
      Lwt.wakeup resolve "ok";
      let* _result = result_p in
      let count_at_stop = !call_count in
-     (* Wait and verify count hasn't increased (loop was cancelled) *)
      let* () = Lwt_unix.sleep 0.05 in
      Alcotest.(check int)
        "no further calls after stop" count_at_stop !call_count;
@@ -47,7 +45,6 @@ let test_typing_loop_survives_send_failure () =
   let result_p = Telegram.typing_loop ~send_action ~interval:0.01 p in
   Lwt_main.run
     (let open Lwt.Syntax in
-     (* Let the loop fire several times including failures *)
      let* () = Lwt_unix.sleep 0.08 in
      Lwt.wakeup resolve "survived";
      let* result = result_p in
@@ -74,24 +71,94 @@ let test_typing_loop_propagates_promise_rejection () =
      Lwt.return_unit)
 
 let test_chat_action_for_tool () =
-  Alcotest.(check string)
-    "file_write -> upload_document" "upload_document"
+  Alcotest.(check string) "file_write -> upload_document" "upload_document"
     (Telegram.chat_action_for_tool "file_write");
-  Alcotest.(check string)
-    "file_edit -> upload_document" "upload_document"
+  Alcotest.(check string) "file_edit -> upload_document" "upload_document"
     (Telegram.chat_action_for_tool "file_edit");
-  Alcotest.(check string)
-    "web_fetch -> find_location" "find_location"
+  Alcotest.(check string) "web_fetch -> find_location" "find_location"
     (Telegram.chat_action_for_tool "web_fetch");
-  Alcotest.(check string)
-    "transcribe -> record_voice" "record_voice"
+  Alcotest.(check string) "web_search -> find_location" "find_location"
+    (Telegram.chat_action_for_tool "web_search");
+  Alcotest.(check string) "http_get -> find_location" "find_location"
+    (Telegram.chat_action_for_tool "http_get");
+  Alcotest.(check string) "http_request -> find_location" "find_location"
+    (Telegram.chat_action_for_tool "http_request");
+  Alcotest.(check string) "transcribe -> record_voice" "record_voice"
     (Telegram.chat_action_for_tool "transcribe");
-  Alcotest.(check string)
-    "shell_exec -> typing" "typing"
+  Alcotest.(check string) "shell_exec -> typing" "typing"
     (Telegram.chat_action_for_tool "shell_exec");
-  Alcotest.(check string)
-    "unknown -> typing" "typing"
+  Alcotest.(check string) "unknown -> typing" "typing"
     (Telegram.chat_action_for_tool "anything_else")
+
+let test_send_chat_action_is_not_serialized_by_outbound_lock () =
+  let mutex = Telegram.get_outbound_mutex "chat-lock" in
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () = Lwt_mutex.lock mutex in
+     let finished = ref false in
+     let action_p =
+       Lwt.catch
+         (fun () ->
+           let* () =
+             Telegram.send_chat_action ~bot_token:"token" ~chat_id:"chat-lock"
+               ~action:"typing"
+           in
+           finished := true;
+           Lwt.return_unit)
+         (fun _exn ->
+           finished := true;
+           Lwt.return_unit)
+     in
+     let* () = Lwt_unix.sleep 0.02 in
+     Alcotest.(check bool)
+       "send_chat_action completes even while outbound mutex is held" true
+       !finished;
+     Lwt_mutex.unlock mutex;
+     let* () = action_p in
+     Lwt.return_unit)
+
+let test_with_outbound_lock_blocks_until_mutex_released () =
+  let mutex = Telegram.get_outbound_mutex "chat-lock-blocked" in
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () = Lwt_mutex.lock mutex in
+     let finished = ref false in
+     let blocked_p =
+       Telegram.with_outbound_lock ~chat_id:"chat-lock-blocked" (fun () ->
+           finished := true;
+           Lwt.return_unit)
+     in
+     let* () = Lwt_unix.sleep 0.02 in
+     Alcotest.(check bool)
+       "with_outbound_lock remains blocked while mutex held" false !finished;
+     Lwt_mutex.unlock mutex;
+     let* () = blocked_p in
+     Alcotest.(check bool) "with_outbound_lock runs after release" true !finished;
+     Lwt.return_unit)
+
+let test_refreshable_typing_can_overlap_outbound_lock () =
+  let mutex = Telegram.get_outbound_mutex "chat-refresh" in
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let done_p, done_u = Lwt.wait () in
+     let call_count = ref 0 in
+     let loop_p, refresh =
+       Telegram.typing_loop_refreshable
+         ~send_action:(fun () ->
+           incr call_count;
+           Lwt.return_unit)
+         ~interval:10.0 done_p
+     in
+     let* () = Lwt_mutex.lock mutex in
+     refresh ();
+     let* () = Lwt_unix.sleep 0.02 in
+     Alcotest.(check bool)
+       "refresh-driven typing send is not blocked by outbound mutex" true
+       (!call_count > 0);
+     Lwt_mutex.unlock mutex;
+     Lwt.wakeup done_u ();
+     let* () = loop_p in
+     Lwt.return_unit)
 
 let test_refreshable_loop_calls_send_action () =
   let call_count = ref 0 in
@@ -125,15 +192,12 @@ let test_refreshable_loop_refresh_triggers_immediate_send () =
   in
   Lwt_main.run
     (let open Lwt.Syntax in
-     (* Initial send fires immediately *)
      let* () = Lwt_unix.sleep 0.02 in
      let count_before = List.length !call_times in
-     (* Trigger a refresh — should cause an immediate re-send *)
      refresh ();
      let* () = Lwt_unix.sleep 0.02 in
      let count_after = List.length !call_times in
-     Alcotest.(check bool)
-       "refresh caused additional send" true
+     Alcotest.(check bool) "refresh caused additional send" true
        (count_after > count_before);
      Lwt.wakeup resolve "ok";
      let* _result = result_p in
@@ -155,11 +219,9 @@ let test_refreshable_loop_stops_on_resolve () =
      Lwt.wakeup resolve "ok";
      let* _result = result_p in
      let count_at_stop = !call_count in
-     (* Refresh after stop should be harmless *)
      refresh ();
      let* () = Lwt_unix.sleep 0.05 in
-     Alcotest.(check int)
-       "no further calls after stop" count_at_stop !call_count;
+     Alcotest.(check int) "no further calls after stop" count_at_stop !call_count;
      Lwt.return_unit)
 
 let test_deferred_typing_skips_for_fast_promise () =
@@ -168,7 +230,6 @@ let test_deferred_typing_skips_for_fast_promise () =
     incr call_count;
     Lwt.return_unit
   in
-  (* Promise that resolves almost instantly *)
   let p = Lwt.return "fast" in
   Lwt_main.run
     (let open Lwt.Syntax in
@@ -188,11 +249,9 @@ let test_deferred_typing_starts_for_slow_promise () =
   let p, resolve = Lwt.wait () in
   Lwt_main.run
     (let open Lwt.Syntax in
-     (* Start the deferred loop with a short grace period *)
      let result_p =
        Telegram.typing_loop_deferred ~send_action ~interval:0.01 ~grace:0.02 p
      in
-     (* Let the grace period elapse and typing loop fire a few times *)
      let* () = Lwt_unix.sleep 0.08 in
      Lwt.wakeup resolve "slow";
      let* result = result_p in
@@ -225,13 +284,12 @@ let test_live_activity_typing_follows_session_state () =
      let* () =
        Session.with_live_activity mgr ~key (fun () ->
            let* () = Lwt_unix.sleep 0.04 in
-           Alcotest.(check bool)
-             "active session sends typing" true (!call_count >= 2);
+           Alcotest.(check bool) "active session sends typing" true
+             (!call_count >= 2);
            let count_before_refresh = !call_count in
            Lwt_condition.broadcast refresh_trigger ();
            let* () = Lwt_unix.sleep 0.02 in
-           Alcotest.(check bool)
-             "refresh triggers immediate resend" true
+           Alcotest.(check bool) "refresh triggers immediate resend" true
              (!call_count > count_before_refresh);
            Lwt.return_unit)
      in
@@ -254,6 +312,12 @@ let suite =
       test_typing_loop_propagates_promise_rejection;
     Alcotest.test_case "chat_action_for_tool maps tool names" `Quick
       test_chat_action_for_tool;
+    Alcotest.test_case "send_chat_action bypasses outbound lock" `Quick
+      test_send_chat_action_is_not_serialized_by_outbound_lock;
+    Alcotest.test_case "with_outbound_lock blocks until release" `Quick
+      test_with_outbound_lock_blocks_until_mutex_released;
+    Alcotest.test_case "refreshable typing overlaps outbound lock" `Quick
+      test_refreshable_typing_can_overlap_outbound_lock;
     Alcotest.test_case "refreshable loop sends repeatedly" `Quick
       test_refreshable_loop_calls_send_action;
     Alcotest.test_case "refreshable loop refresh triggers immediate send" `Quick

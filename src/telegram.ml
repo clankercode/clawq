@@ -745,14 +745,6 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                         let* () =
                           Status_message.tool_start sm ~id ~name ~summary
                         in
-                        let action = chat_action_for_tool name in
-                        let* () =
-                          Lwt.catch
-                            (fun () ->
-                              send_chat_action ~bot_token
-                                ~chat_id:update.chat_id ~action)
-                            (fun _exn -> Lwt.return_unit)
-                        in
                         refresh_typing ();
                         Lwt.return_unit
                     | Provider.ToolResult { id; name; result; is_error } ->
@@ -826,14 +818,6 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                           in
                           Hashtbl.replace tool_start_times id
                             (Unix.gettimeofday (), summary);
-                          let action = chat_action_for_tool name in
-                          let* () =
-                            Lwt.catch
-                              (fun () ->
-                                send_chat_action ~bot_token
-                                  ~chat_id:update.chat_id ~action)
-                              (fun _exn -> Lwt.return_unit)
-                          in
                           refresh_typing ();
                           Lwt.return_unit
                       | _ -> Lwt.return_unit
