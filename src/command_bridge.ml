@@ -1122,6 +1122,9 @@ let cmd_debug_context args =
       shell_is_sandboxed;
       shell_policy_summary = shell_policy;
       shell_visible_roots_summary = shell_visible_roots_summary cfg;
+      daemon_uptime_line =
+        Daemon_status.daemon_runtime_context_line
+          ~pid:(Daemon_status.read_current_daemon_pid ());
       background_tasks;
       context_usage = None;
       task_tree_summary;

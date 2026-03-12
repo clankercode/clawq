@@ -3426,6 +3426,9 @@ let test_runtime_context_block_ignores_prompt_toggles () =
     "includes shell policy" true
     (string_contains output "Shell policy:");
   Alcotest.(check bool)
+    "includes daemon uptime" true
+    (string_contains output "Daemon uptime:");
+  Alcotest.(check bool)
     "includes context usage" true
     (string_contains output "Context usage:");
   Alcotest.(check bool)

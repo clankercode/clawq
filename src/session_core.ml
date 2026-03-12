@@ -815,6 +815,9 @@ let runtime_context_details mgr ~agent ~key ~compacted_before_turn =
       shell_visible_roots_summary
         ~workspace_only:mgr.config.security.workspace_only ~workspace
         ~extra_allowed_paths;
+    daemon_uptime_line =
+      Daemon_status.daemon_runtime_context_line
+        ~pid:(Daemon_status.read_current_daemon_pid ());
     background_tasks = active_background_task_summaries mgr;
     context_usage =
       Some (Agent.runtime_context_usage agent ~compacted_before_turn);

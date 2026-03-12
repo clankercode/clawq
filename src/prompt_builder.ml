@@ -133,6 +133,7 @@ type runtime_context_details = {
   shell_is_sandboxed : bool;
   shell_policy_summary : string;
   shell_visible_roots_summary : string;
+  daemon_uptime_line : string option;
   background_tasks : background_task_summary list;
   context_usage : context_usage option;
   task_tree_summary : string option;
@@ -157,6 +158,7 @@ let add_runtime_details lines (details : runtime_context_details) =
        details.sandbox_backend_requested details.sandbox_backend_effective);
   add ("- Shell policy: " ^ details.shell_policy_summary);
   add ("- Shell visible roots: " ^ details.shell_visible_roots_summary);
+  (match details.daemon_uptime_line with Some line -> add line | None -> ());
   (match details.context_usage with
   | None -> ()
   | Some usage ->

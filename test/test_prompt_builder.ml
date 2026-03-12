@@ -149,6 +149,7 @@ let test_runtime_context_includes_session_details () =
               shell_policy_summary =
                 "shell allowlist + path checks; bubblewrap workspace isolation";
               shell_visible_roots_summary = workspace ^ ", /tmp/extra";
+              daemon_uptime_line = Some "- Daemon uptime: 1h 23m";
               background_tasks = [];
               context_usage =
                 Some
@@ -175,6 +176,9 @@ let test_runtime_context_includes_session_details () =
         "includes sandbox summary" true
         (contains runtime
            "- Shell sandboxed: yes (requested=auto effective=bubblewrap)");
+      Alcotest.(check bool)
+        "includes daemon uptime" true
+        (contains runtime "- Daemon uptime: 1h 23m");
       Alcotest.(check bool)
         "includes context usage" true
         (contains runtime "- Context usage: 12 messages, ~3456/128000 tokens");
@@ -529,6 +533,7 @@ let test_background_tasks_appear_after_context_usage () =
               shell_is_sandboxed = false;
               shell_policy_summary = "none";
               shell_visible_roots_summary = workspace;
+              daemon_uptime_line = Some "- Daemon uptime: 3m";
               background_tasks =
                 [
                   {

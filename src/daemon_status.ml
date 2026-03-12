@@ -73,10 +73,13 @@ let daemon_uptime_line pid =
   | Some text -> Some ("  uptime: " ^ text)
   | None -> None
 
-let daemon_runtime_context_line pid =
-  match daemon_uptime_suffix pid with
-  | Some text -> Some ("- Daemon uptime: " ^ text)
-  | None -> None
+let daemon_runtime_context_line ~pid =
+  match pid with
+  | Some pid -> (
+      match daemon_uptime_suffix pid with
+      | Some text -> Some ("- Daemon uptime: " ^ text)
+      | None -> None)
+  | None -> Some "- Daemon uptime: not running"
 
 let daemon_uptime_reply ~pid =
   match pid with
