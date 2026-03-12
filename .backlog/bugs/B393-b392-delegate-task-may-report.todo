@@ -1,0 +1,16 @@
+---
+complexity: medium
+depends_on:
+    - 'Background delegate #82 for B387 finished with status=succeeded and a narrative claiming tests passed and a diagnostic fix was added'
+    - 'but the worktree branch head remained on an old unrelated commit and the actual changes were left uncommitted in the worktree. This makes task success misleading and breaks harvest/finalize flows. Acceptance: background/delegate success state must reflect whether requested commit/clean-worktree contract was satisfied; either fail the task'
+    - surface an explicit warning/state
+    - or persist the resulting commit reference correctly.
+estimate_hours: 1
+id: B393
+priority: high
+status: pending
+tags: []
+title: B392 Delegate task may report success without committed changes
+---
+
+B392 Delegate task may report success without committed changes
