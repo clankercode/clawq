@@ -300,6 +300,12 @@ let test_cmd_signal_restart_reports_signal_failure () =
         String.length result >= String.length prefix
         && String.sub result 0 (String.length prefix) = prefix))
 
+let test_cmd_status_warns_on_deleted_exe () =
+  Test_helpers.with_temp_home (fun _home ->
+      let status = Service.cmd_status () in
+      Alcotest.(check bool) "status header" true
+        (String.length status >= String.length "Service status:"))
+
 let suite =
   [
     Alcotest.test_case "handle daemon exit restart sets nofork and execs" `Quick
@@ -331,6 +337,8 @@ let suite =
       test_cmd_signal_restart_refuses_live_signal_outside_temp_home;
     Alcotest.test_case "cmd signal restart reports signal failure" `Quick
       test_cmd_signal_restart_reports_signal_failure;
+    Alcotest.test_case "cmd status warns on deleted exe" `Quick
+      test_cmd_status_warns_on_deleted_exe;
     Alcotest.test_case "validate_and_fix ok for executable" `Quick
       test_validate_and_fix_ok_for_executable;
     Alcotest.test_case "validate_and_fix fixes non-executable" `Quick

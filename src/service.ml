@@ -345,7 +345,20 @@ let cmd_status () =
   add "Service status:";
   (match read_pid () with
   | None -> add "  daemon: not running"
-  | Some pid -> add (Printf.sprintf "  daemon: running (pid %d)" pid));
+  | Some pid ->
+      let exe_note =
+        let exe_link = Printf.sprintf "/proc/%d/exe" pid in
+        try
+          let target = Unix.readlink exe_link in
+          if Restart_exec.path_is_deleted target then Some target else None
+        with _ -> None
+      in
+      add
+        (match exe_note with
+        | Some target ->
+            Printf.sprintf
+              "  daemon: running (pid %d, WARNING deleted exe: %s)" pid target
+        | None -> Printf.sprintf "  daemon: running (pid %d)" pid));
   let state_path = Filename.concat (clawq_dir ()) "daemon_state.json" in
   if Sys.file_exists state_path then begin
     try
