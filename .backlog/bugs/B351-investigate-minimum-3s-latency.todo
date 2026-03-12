@@ -33,13 +33,20 @@ latency floor being introduced somewhere in the execution path.
 - Either fix it or document why it exists and is acceptable
 - Add observability to track tool execution timing breakdown
 
-## Investigation Notes (2026-03-11)
+## Investigation Notes (2026-03-11 to 2026-03-12)
 - Local benchmark command (`clawq benchmark`) shows trivial tools are fast: `shell_exec_true` ~1-2ms, `file_read` ~0ms.
 - No 3s floor appears in core tool invocation path or sandbox/process spawn locally.
 - The strongest candidate in interactive connector UX is status/progress message scheduling rather than tool execution itself.
 - `src/status_message.ml` debounces edits by 0.5s and runs a 5s heartbeat refresh while tools are active; this can affect perceived pacing of visible tool updates, but does not explain a hard 3s execution floor by itself.
-- Current evidence suggests the bug report likely concerns end-to-end visible latency in a connector/session path, not intrinsic tool runtime.
-- Next useful step would be connector-specific timing instrumentation around Provider.ToolStart/ToolResult emission and notifier send/edit timings.
+- Focused Telegram regressions now establish:
+  - first consolidated status-message tool-start send is immediate even with debounce;
+  - consolidated tool start + result reuse a single Telegram status message;
+  - `send_chat_action` is not serialized by Telegram's outbound message mutex;
+  - `with_outbound_lock` does block ordered message/edit work;
+  - refresh-driven typing can overlap an outbound-locked section.
+- This pointed to a split user-visible pipeline: early Telegram typing/chat-action cues could appear before the first substantive ordered status/message update, creating the impression of a fixed latency floor even when tool execution itself was fast.
+- Commit `46e31f626` (`fix(B351): prioritize Telegram status over chat actions`) removed eager Telegram `sendChatAction` calls from `Provider.ToolStart` handling, leaving ordered status/message progress plus the session typing watcher as the main progress signals.
+- Full verification passed after the change: `dune build @runtest --no-buffer --display=short`.
 
 ## Current Disposition
-Needs connector-path observability before a code fix is justified.
+Core hypothesis has been addressed with a code change and regression coverage. Remaining work is live Telegram UX validation; if the perceived latency persists, continue with narrower observability around typing-watcher cadence and real send/edit timing in connector traffic.
