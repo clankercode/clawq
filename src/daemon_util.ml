@@ -596,9 +596,12 @@ let default_resume_turn ~(session_manager : Session.t) ~notify ~session_key
       m "Firing automatic restart-resume prompt for session=%s prompt_len=%d"
         session_key
         (String.length resume_turn_prompt));
+  let history_before_resume_prompt = List.length agent.Agent.history in
   agent.Agent.history <-
     Provider.make_message ~role:"system" ~content:resume_turn_prompt
     :: agent.Agent.history;
+  Session.persist_new_messages session_manager ~key:session_key
+    ~history_before:history_before_resume_prompt agent;
   let runtime_context =
     Prompt_builder.build_runtime_context ~config:session_manager.config
       ~details:
