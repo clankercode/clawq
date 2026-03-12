@@ -148,6 +148,39 @@ let test_chat_runtime_ctx_returns_runtime_context () =
     "session id present" true
     (contains_str response "Session id: web:s")
 
+let test_chat_costs_returns_cost_summary () =
+  Test_helpers.with_memory_db (fun db ->
+      Memory.init_request_stats_schema db;
+      Request_stats.record ~db ~session_key:"web:s" ~provider:"openai"
+        ~model:"gpt-5.4" ~prompt_tokens:1500 ~completion_tokens:250
+        ~cost_usd:0.15 ~added_prompt_tokens:900 ();
+      let session_manager =
+        Session.create ~config:Runtime_config.default ~db ()
+      in
+      let req =
+        Cohttp.Request.make ~meth:`POST (Uri.of_string "http://127.0.0.1/chat")
+      in
+      let body =
+        Cohttp_lwt.Body.of_string {|{"session_id":"s","message":"/costs"}|}
+      in
+      let resp, body =
+        Lwt_main.run
+          (Http_server.handler ~session_manager ~require_pairing:false
+             ~auth_token:None (Obj.magic ()) req body)
+      in
+      Alcotest.(check int)
+        "ok" 200
+        (Cohttp.Code.code_of_status (Cohttp.Response.status resp));
+      let payload = Yojson.Safe.from_string (body_string body) in
+      let open Yojson.Safe.Util in
+      let response = payload |> member "response" |> to_string in
+      Alcotest.(check bool)
+        "has summary heading" true
+        (contains_str response "Cost Summary");
+      Alcotest.(check bool)
+        "has all time row" true
+        (contains_str response "All time:"))
+
 let test_session_inject_rejects_missing_auth_token () =
   let config = Runtime_config.default in
   let session_manager = Session.create ~config () in
@@ -861,6 +894,8 @@ let suite =
       test_chat_rejects_missing_auth_token;
     Alcotest.test_case "chat runtime ctx returns runtime context" `Quick
       test_chat_runtime_ctx_returns_runtime_context;
+    Alcotest.test_case "chat costs returns cost summary" `Quick
+      test_chat_costs_returns_cost_summary;
     Alcotest.test_case "session inject rejects missing auth token" `Quick
       test_session_inject_rejects_missing_auth_token;
     Alcotest.test_case "session inject uses session turn" `Quick
