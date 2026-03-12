@@ -2606,6 +2606,30 @@ let test_autonomous_continuation_delivers_via_on_response () =
         "delivered response content" "I'm still working on things"
         (List.hd !delivered))
 
+let test_autonomous_continuation_rearms_after_side_turn () =
+  let continuation_calls = ref 0 in
+  let response_for_user message =
+    if String.starts_with ~prefix:Session.autonomous_continuation_prompt message
+    then (
+      incr continuation_calls;
+      "STAY_IDLE")
+    else "reply:" ^ message
+  in
+  with_fake_chat_provider ~response_for_user (fun config ->
+      let mgr = Session.create ~config () in
+      let key = "telegram:42:side" in
+      let state = Session.continuation_state mgr ~key in
+      state.Session.disarmed <- true;
+      Lwt_main.run
+        (let open Lwt.Syntax in
+         let* _ = Session.turn mgr ~key ~message:"brief aside about a new bug" () in
+         Session.schedule_autonomous_continuation ~delay:0.02 mgr ~key);
+      let state = Session.continuation_state mgr ~key in
+      Alcotest.(check int)
+        "continuation prompt reran after side turn" 1 !continuation_calls;
+      Alcotest.(check bool)
+        "disarmed again after stay idle response" true state.disarmed)
+
 let test_autonomous_continuation_is_cancellable_by_new_turn () =
   let continuation_calls = ref 0 in
   let response_for_user message =
