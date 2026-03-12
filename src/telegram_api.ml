@@ -843,8 +843,11 @@ let send_message_with_id ?(disable_notification = true) ?parse_mode ~bot_token
           Logs.warn (fun m ->
               m
                 "Telegram sendMessage did not return a message_id (HTTP %d, \
-                 chat_id=%s)"
-                status chat_id);
+                 chat_id=%s, body=%s)"
+                status chat_id
+                (if String.length resp_body > 300 then
+                   String.sub resp_body 0 300 ^ "..."
+                 else resp_body));
           "0"
       in
       (match int_of_string_opt msg_id with
