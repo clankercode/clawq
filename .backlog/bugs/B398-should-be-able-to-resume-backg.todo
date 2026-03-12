@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-12T03:58:03Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B398
 priority: high
-status: pending
+started_at: "2026-03-12T03:58:03Z"
+status: in_progress
 tags: []
 title: Should be able to resume background coding tasks (using the runner's built in support for resuming). Also should be able to send messages to background coding tasks which get injected as a chat message.
 ---

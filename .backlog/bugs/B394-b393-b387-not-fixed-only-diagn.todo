@@ -3,13 +3,7 @@ claimed_at: "2026-03-12T00:45:02Z"
 claimed_by: cli-user
 completed_at: "2026-03-12T01:00:38Z"
 complexity: medium
-depends_on:
-    - 'Delegate #82 investigated B387 (/tasks on Telegram does nothing) and found plausible silent HTTP error swallowing in telegram_api.send_message when parse_mode=None'
-    - but the resulting worktree change only adds diagnostic logging in telegram.ml and telegram_api.ml plus incidental formatting/test churn. No proven root-cause fix for /tasks was implemented
-    - 'and B387 should remain open. Acceptance: identify concrete failure mode for /tasks'
-    - add a targeted fix
-    - add focused regression coverage if practical
-    - and verify without relying solely on diagnostic logging.
+depends_on: []
 duration_minutes: 15.610760521416667
 estimate_hours: 1
 id: B394
@@ -17,7 +11,13 @@ priority: high
 started_at: "2026-03-12T00:45:02Z"
 status: done
 tags: []
-title: B393 B387 not fixed; only diagnostic logging added
+title: B387 not fixed; only diagnostic logging added
 ---
 
-B393 B387 not fixed; only diagnostic logging added
+Delegate #82 investigated B387 (/tasks on Telegram does nothing) and found plausible silent HTTP error swallowing in telegram_api.send_message when parse_mode=None, but the resulting worktree change only added diagnostic logging in telegram.ml and telegram_api.ml plus incidental formatting/test churn. No proven root-cause fix for /tasks was implemented, so B387 should remain open.
+
+Acceptance:
+- identify the concrete failure mode for /tasks,
+- add a targeted fix,
+- add focused regression coverage if practical,
+- and verify without relying solely on diagnostic logging.
