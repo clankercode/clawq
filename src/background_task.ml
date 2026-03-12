@@ -625,10 +625,62 @@ let result_preview_of_output ~exit_code ~output =
   if output = "" then Printf.sprintf "Process exited with code %d" exit_code
   else Printf.sprintf "exit %d: %s" exit_code output
 
-let final_status_for_completion ~db ~id ~exit_code ~output =
+let read_command_first_line command =
+  try
+    let ic = Unix.open_process_in command in
+    let line =
+      try Some (input_line ic)
+      with End_of_file -> None
+    in
+    let exit_code =
+      match Unix.close_process_in ic with
+      | Unix.WEXITED code -> code
+      | Unix.WSIGNALED _ | Unix.WSTOPPED _ -> 128
+    in
+    (exit_code, line)
+  with _ -> (128, None)
+
+let worktree_harvest_issue (task : task) =
+  match (task.use_worktree, task.worktree_path) with
+  | false, _ | _, None -> None
+  | true, Some worktree_path when not (path_is_git_repo worktree_path) ->
+      Some "Task worktree is no longer a git repository; changes cannot be harvested"
+  | true, Some worktree_path ->
+      let command =
+        Printf.sprintf
+          "git -C %s status --porcelain --untracked-files=normal 2>&1"
+          (Filename.quote worktree_path)
+      in
+      let exit_code, first_line = read_command_first_line command in
+      if exit_code <> 0 then
+        Some
+          (Printf.sprintf
+             "Unable to inspect task worktree for harvesting%s"
+             (match first_line with
+             | Some line when String.trim line <> "" -> ": " ^ String.trim line
+             | _ -> ""))
+      else
+        match first_line with
+        | Some line when String.trim line <> "" ->
+            Some
+              (Printf.sprintf
+                 "Task left uncommitted worktree changes that cannot be harvested: %s"
+                 (String.trim line))
+        | _ -> None
+
+let completion_outcome ~db ~id ~exit_code ~output =
+  let default_preview = result_preview_of_output ~exit_code ~output in
   match get_task ~db ~id with
-  | Some { status = Cancelled; _ } -> Cancelled
-  | _ -> classify_task_result ~exit_code ~output
+  | Some { status = Cancelled; _ } -> (Cancelled, default_preview)
+  | Some task -> (
+      match classify_task_result ~exit_code ~output with
+      | Failed -> (Failed, default_preview)
+      | Succeeded -> (
+          match worktree_harvest_issue task with
+          | Some issue -> (Failed, issue)
+          | None -> (Succeeded, default_preview))
+      | Cancelled | Queued | Running -> (Failed, default_preview))
+  | None -> (classify_task_result ~exit_code ~output, default_preview)
 
 let read_lines_window path ~offset ~limit =
   if limit <= 0 then Ok ([], 0)
@@ -992,8 +1044,7 @@ let finish ~db ~id ~status ~result_preview =
       ignore (Sqlite3.step stmt))
 
 let finalize_completed_task ~db ~id ~exit_code ~output =
-  let final_status = final_status_for_completion ~db ~id ~exit_code ~output in
-  let result_preview = result_preview_of_output ~exit_code ~output in
+  let final_status, result_preview = completion_outcome ~db ~id ~exit_code ~output in
   finish ~db ~id ~status:final_status ~result_preview;
   final_status
 
