@@ -82,53 +82,6 @@ let proc_cmdline_contains ~needle pid =
       in
       nlen > 0 && loop 0
 
-let daemon_started_at_unix pid =
-  match proc_start_ticks pid with
-  | None -> None
-  | Some ticks_s -> (
-      match int_of_string_opt ticks_s with
-      | None -> None
-      | Some ticks -> (
-          match read_file "/proc/uptime" with
-          | None -> None
-          | Some uptime_text ->
-              let first_field =
-                match String.split_on_char ' ' (String.trim uptime_text) with
-                | hd :: _ -> hd
-                | [] -> ""
-              in
-              match float_of_string_opt first_field with
-              | None -> None
-              | Some uptime_s ->
-                  let hz = 100.0 in
-                  Some (Unix.gettimeofday () -. uptime_s +. (float_of_int ticks /. hz))))
-
-let format_uptime secs =
-  let total = max 0 (int_of_float secs) in
-  let days = total / 86400 in
-  let hours = (total mod 86400) / 3600 in
-  let mins = (total mod 3600) / 60 in
-  let secs = total mod 60 in
-  if days > 0 then Printf.sprintf "%dd %dh %dm" days hours mins
-  else if hours > 0 then Printf.sprintf "%dh %dm" hours mins
-  else if mins > 0 then Printf.sprintf "%dm %ds" mins secs
-  else Printf.sprintf "%ds" secs
-
-let daemon_uptime_suffix pid =
-  match daemon_started_at_unix pid with
-  | Some started -> Some (format_uptime (Unix.gettimeofday () -. started))
-  | None -> None
-
-let daemon_uptime_line pid =
-  match daemon_uptime_suffix pid with
-  | Some text -> Some ("  uptime: " ^ text)
-  | None -> None
-
-let daemon_runtime_context_line pid =
-  match daemon_uptime_suffix pid with
-  | Some text -> Some ("- Daemon uptime: " ^ text)
-  | None -> None
-
 let daemon_status_line pid =
   let exe_note =
     let exe_link = Printf.sprintf "/proc/%d/exe" pid in
@@ -137,7 +90,7 @@ let daemon_status_line pid =
       if Restart_exec.path_is_deleted target then Some target else None
     with _ -> None
   in
-  match (exe_note, daemon_uptime_suffix pid) with
+  match (exe_note, Daemon_status.daemon_uptime_suffix pid) with
   | Some target, Some uptime ->
       Printf.sprintf
         "  daemon: running (pid %d, uptime %s, WARNING deleted exe: %s)" pid
@@ -413,7 +366,9 @@ let cmd_status () =
   | None -> add "  daemon: not running"
   | Some pid ->
       add (daemon_status_line pid);
-      (match daemon_uptime_line pid with Some line -> add line | None -> ())); 
+      (match Daemon_status.daemon_uptime_line pid with
+      | Some line -> add line
+      | None -> ()));
   let state_path = Filename.concat (clawq_dir ()) "daemon_state.json" in
   if Sys.file_exists state_path then begin
     try

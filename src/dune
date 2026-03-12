@@ -85,6 +85,7 @@
   setup_common
   restart_exec
   restart_notify
+  daemon_status
   benchmark
   models_catalog
   model_preferences
