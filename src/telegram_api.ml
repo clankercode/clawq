@@ -1138,19 +1138,31 @@ let send_chunked ?(disable_notification = true) ?parse_mode ~bot_token ~chat_id
         ~text:chunk ())
     (chunk_text text)
 
-let send_chunked_html_with_fallback ?(disable_notification = true) ~bot_token
-    ~chat_id ~text () =
+let send_chunked_html_with_fallback_using
+    (sender :
+      ?disable_notification:bool ->
+      ?parse_mode:string ->
+      bot_token:string ->
+      chat_id:string ->
+      text:string ->
+      unit ->
+      unit Lwt.t)
+    ?(disable_notification = true) ~bot_token ~chat_id ~text () =
   let open Lwt.Syntax in
   let chunks = chunk_text text in
   Lwt_list.iter_s
     (fun chunk ->
       Lwt.catch
         (fun () ->
-          send_message ~disable_notification ~parse_mode:"HTML" ~bot_token
-            ~chat_id ~text:chunk ())
-        (fun _exn ->
-          send_message ~disable_notification ~bot_token ~chat_id ~text:chunk ()))
+          sender ~disable_notification ~parse_mode:"HTML" ~bot_token ~chat_id
+            ~text:chunk ())
+        (fun _exn -> sender ~disable_notification ~bot_token ~chat_id ~text:chunk ()))
     chunks
+
+let send_chunked_html_with_fallback ?(disable_notification = true) ~bot_token
+    ~chat_id ~text () =
+  send_chunked_html_with_fallback_using send_message ~disable_notification
+    ~bot_token ~chat_id ~text ()
 
 type chunk_sender =
   ?disable_notification:bool ->

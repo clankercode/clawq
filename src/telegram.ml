@@ -375,8 +375,8 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                   Slash_commands.format_tools_telegram tools skills
               | None -> "Tools are not enabled."
             in
-            send_message ~bot_token ~chat_id:update.chat_id ~text
-              ~parse_mode:"HTML" ()
+            send_chunked_html_with_fallback ~bot_token
+              ~chat_id:update.chat_id ~text ()
         | Tasks ->
             let text =
               match Session.get_db session_mgr with

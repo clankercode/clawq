@@ -55,6 +55,60 @@ let test_send_silent_chunked_forces_disable_notification () =
     [ ("chat-1", "hello", true) ]
     (List.rev !calls)
 
+let test_send_chunked_html_with_fallback_retries_plain_text () =
+  let calls = ref [] in
+  let fake_send_message ?(disable_notification = false) ?parse_mode ~bot_token:_
+      ~chat_id ~text () =
+    calls := (chat_id, text, disable_notification, parse_mode) :: !calls;
+    match parse_mode with
+    | Some "HTML" -> Lwt.fail (Failure "html rejected")
+    | _ -> Lwt.return_unit
+  in
+  Lwt_main.run
+    (Telegram.send_chunked_html_with_fallback_using fake_send_message
+       ~bot_token:"token" ~chat_id:"chat-1" ~text:"<b>hello</b>" ());
+  let ordered_calls = List.rev !calls in
+  Alcotest.(check int) "html then plain retry" 2 (List.length ordered_calls);
+  match ordered_calls with
+  | [ (chat1, text1, disable1, mode1); (chat2, text2, disable2, mode2) ] ->
+      Alcotest.(check string) "first chat" "chat-1" chat1;
+      Alcotest.(check string) "first text" "<b>hello</b>" text1;
+      Alcotest.(check bool) "first disable_notification" true disable1;
+      Alcotest.(check (option string)) "first parse mode" (Some "HTML") mode1;
+      Alcotest.(check string) "second chat" "chat-1" chat2;
+      Alcotest.(check string) "second text" "<b>hello</b>" text2;
+      Alcotest.(check bool) "second disable_notification" true disable2;
+      Alcotest.(check (option string)) "second parse mode" None mode2
+  | _ -> Alcotest.fail "expected html attempt followed by plain retry"
+
+let test_send_chunked_html_with_fallback_chunks_long_messages () =
+  let calls = ref [] in
+  let fake_send_message ?(disable_notification = false) ?parse_mode ~bot_token:_
+      ~chat_id ~text () =
+    calls := (chat_id, text, disable_notification, parse_mode) :: !calls;
+    match parse_mode with
+    | Some "HTML" -> Lwt.fail (Failure "html rejected")
+    | _ -> Lwt.return_unit
+  in
+  let long_text = String.make 5000 'x' in
+  Lwt_main.run
+    (Telegram.send_chunked_html_with_fallback_using fake_send_message
+       ~bot_token:"token" ~chat_id:"chat-1" ~text:long_text ());
+  let ordered_calls = List.rev !calls in
+  Alcotest.(check int) "two chunks with html+plain attempts" 4
+    (List.length ordered_calls);
+  let plain_chunks =
+    List.filter_map
+      (fun (_chat_id, text, _disable_notification, parse_mode) ->
+        match parse_mode with None -> Some text | Some _ -> None)
+      ordered_calls
+  in
+  Alcotest.(check int) "two plain fallback chunks" 2 (List.length plain_chunks);
+  Alcotest.(check bool) "all fallback chunks within Telegram limit" true
+    (List.for_all (fun chunk -> String.length chunk <= 4096) plain_chunks);
+  Alcotest.(check string) "fallback chunks reconstruct original text" long_text
+    (String.concat "" plain_chunks)
+
 let poll_error_testable =
   Alcotest.testable
     (fun fmt e ->
@@ -182,6 +236,10 @@ let suite =
       test_should_process_update_scopes_by_chat;
     Alcotest.test_case "send silent chunked forces disable notification" `Quick
       test_send_silent_chunked_forces_disable_notification;
+    Alcotest.test_case "chunked html send falls back to plain text" `Quick
+      test_send_chunked_html_with_fallback_retries_plain_text;
+    Alcotest.test_case "chunked html fallback still chunks long messages" `Quick
+      test_send_chunked_html_with_fallback_chunks_long_messages;
     Alcotest.test_case "parse 409 conflict: webhook" `Quick
       test_parse_conflict_webhook;
     Alcotest.test_case "parse 409 conflict: duplicate poller" `Quick
