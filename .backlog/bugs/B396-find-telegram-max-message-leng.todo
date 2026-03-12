@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-12T02:21:32Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-12T04:16:24Z"
 complexity: medium
 depends_on: []
+duration_minutes: 114.8680462012
 estimate_hours: 1
 id: B396
 priority: high
 started_at: "2026-03-12T02:21:32Z"
-status: in_progress
+status: done
 tags: []
 title: find telegram max message length and then put a guard on sending messages that breaks down messages into multiple messages when they exceed a lenght. Need to parse and handle certain kinds of content like tables.
 ---
