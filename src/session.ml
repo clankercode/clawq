@@ -627,8 +627,7 @@ let with_session_lock ?session_warn_timeout ?session_fatal_timeout mgr ~key f =
         Lwt.return (agent, mutex, interrupt))
   in
   let* () =
-    Lwt_util.lock_with_timeout
-      ?warn_timeout:session_warn_timeout
+    Lwt_util.lock_with_timeout ?warn_timeout:session_warn_timeout
       ?fatal_timeout:session_fatal_timeout
       ~label:(Printf.sprintf "session_mutex/with_session_lock[%s]" key)
       mutex
@@ -1908,48 +1907,64 @@ let compact mgr ~key ?notifier () =
         in
         Some Agent.{ on_step_start; on_step_done }
   in
-  (* Use with_session_lock which calls get_or_create_locked, ensuring the
-     session is loaded from DB if it exists but isn't in memory yet (e.g.
-     after daemon restart). *)
+  (* Three-phase compaction: plan (lock), execute (no lock), apply (lock).
+     This avoids holding the session mutex during LLM calls which can take
+     70+ seconds and cause the fatal timeout in lock_with_timeout. *)
   let* result =
     Lwt.catch
       (fun () ->
-        with_session_lock mgr ~key (fun agent _interrupt ->
-            (* Now inside the lock we have the agent.  Determine which steps will
-               happen and send the initial pending checklist. *)
-            let* () =
-              match send_or_edit_opt with
-              | None -> Lwt.return_unit
-              | Some soe ->
-                  let has_mem_flush =
-                    agent.Agent.config.memory.pre_compaction_flush
-                    && Option.is_some mgr.db
-                  in
-                  overall_start := Unix.gettimeofday ();
-                  steps :=
-                    (if has_mem_flush then
-                       [ ("Save memories", "\xf0\x9f\xa7\xa0", None, None) ]
-                     else [])
-                    @ [
-                        ( "Summarize (part 1)",
-                          "\xe2\x9c\x82\xef\xb8\x8f",
-                          None,
-                          None );
-                        ( "Summarize (part 2)",
-                          "\xe2\x9c\x82\xef\xb8\x8f",
-                          None,
-                          None );
-                      ];
-                  soe (render ~finished:false)
+        (* Phase 1: Plan — acquire lock, snapshot state, release lock. *)
+        let* plan_opt =
+          with_session_lock mgr ~key (fun agent _interrupt ->
+              let plan = Agent.plan_force_compact agent in
+              (* Set up progress steps while we have the agent *)
+              let* () =
+                match (plan, send_or_edit_opt) with
+                | Some _, Some soe ->
+                    let has_mem_flush =
+                      agent.Agent.config.memory.pre_compaction_flush
+                      && Option.is_some mgr.db
+                    in
+                    overall_start := Unix.gettimeofday ();
+                    steps :=
+                      (if has_mem_flush then
+                         [ ("Save memories", "\xf0\x9f\xa7\xa0", None, None) ]
+                       else [])
+                      @ [
+                          ( "Summarize (part 1)",
+                            "\xe2\x9c\x82\xef\xb8\x8f",
+                            None,
+                            None );
+                          ( "Summarize (part 2)",
+                            "\xe2\x9c\x82\xef\xb8\x8f",
+                            None,
+                            None );
+                        ];
+                    soe (render ~finished:false)
+                | _ -> Lwt.return_unit
+              in
+              Lwt.return plan)
+        in
+        match plan_opt with
+        | None -> Lwt.return (Ok false)
+        | Some plan ->
+            (* Phase 2: Execute — LLM calls with NO lock held. *)
+            let* summary =
+              Agent.execute_compact_plan plan ?db:mgr.db ?compact_cbs ()
             in
-            let* compaction_info =
-              Agent.force_compact_history agent ?db:mgr.db ?compact_cbs ()
-            in
-            match compaction_info with
-            | Some _ ->
-                persist_compacted_history mgr ~key agent;
-                Lwt.return (Ok true)
-            | None -> Lwt.return (Ok false)))
+            (* Phase 3: Apply — re-acquire lock, reconcile, persist. *)
+            with_session_lock mgr ~key (fun agent _interrupt ->
+                match Agent.apply_compact_result agent plan ~summary with
+                | Some _ ->
+                    persist_compacted_history mgr ~key agent;
+                    Lwt.return (Ok true)
+                | None ->
+                    Logs.warn (fun m ->
+                        m
+                          "Compact apply skipped for session %s — history \
+                           changed during execution"
+                          key);
+                    Lwt.return (Ok false)))
       (fun exn -> Lwt.return (Error (Printexc.to_string exn)))
   in
   let* () =

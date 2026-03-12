@@ -463,6 +463,96 @@ let test_dispatch_flush_tool_call () =
     "unknown tool error" true
     (String.starts_with ~prefix:"Error:" result.content)
 
+(* Test 8: compact releases lock during LLM calls (B386 regression) *)
+let test_compact_releases_lock_during_llm () =
+  with_text_provider (fun config ->
+      let config =
+        {
+          config with
+          memory = { config.memory with pre_compaction_flush = false };
+        }
+      in
+      let mgr = Session.create ~config ?db:None () in
+      Lwt_main.run
+        (let open Lwt.Syntax in
+         (* Prime the session with enough history to compact *)
+         let* () =
+           Session.with_session_lock mgr ~key:"test" (fun agent _interrupt ->
+               fill_agent_history agent 30;
+               Lwt.return_unit)
+         in
+         (* Launch compact in background *)
+         let compact_done = ref false in
+         let compact_promise =
+           let* _result = Session.compact mgr ~key:"test" () in
+           compact_done := true;
+           Lwt.return_unit
+         in
+         (* Give compact time to acquire lock, plan, release, start LLM calls *)
+         let* () = Lwt_unix.sleep 0.05 in
+         (* Try to acquire the session lock — should succeed because compact
+            released it during the LLM execute phase *)
+         let* lock_result =
+           Session.try_session_lock mgr ~key:"test" (fun _agent _interrupt ->
+               Lwt.return true)
+         in
+         Alcotest.(check (option bool))
+           "lock acquired during compact execution" (Some true) lock_result;
+         (* Wait for compact to finish *)
+         let* () = compact_promise in
+         Alcotest.(check bool) "compact completed" true !compact_done;
+         Lwt.return_unit))
+
+(* Test 9: apply_compact_result handles new messages during execution *)
+let test_apply_handles_new_messages () =
+  with_text_provider (fun config ->
+      let agent = Agent.create ~config () in
+      fill_agent_history agent 30;
+      let plan = Agent.plan_force_compact agent in
+      Alcotest.(check bool) "plan exists" true (Option.is_some plan);
+      let plan = Option.get plan in
+      (* Simulate new messages arriving during execute phase *)
+      agent.Agent.history <-
+        Provider.make_message ~role:"assistant" ~content:"New response"
+        :: Provider.make_message ~role:"user" ~content:"New question"
+        :: agent.Agent.history;
+      let result =
+        Agent.apply_compact_result agent plan ~summary:"Test summary"
+      in
+      Alcotest.(check bool) "apply succeeded" true (Option.is_some result);
+      (* Verify new messages are preserved at the front (newest-first) *)
+      let first_msg = List.hd agent.Agent.history in
+      Alcotest.(check string)
+        "newest message preserved" "New response" first_msg.content;
+      let second_msg = List.nth agent.Agent.history 1 in
+      Alcotest.(check string)
+        "second newest preserved" "New question" second_msg.content)
+
+(* Test 10: apply_compact_result handles reset during execution *)
+let test_apply_handles_reset () =
+  with_text_provider (fun config ->
+      let agent = Agent.create ~config () in
+      fill_agent_history agent 30;
+      let plan = Agent.plan_force_compact agent in
+      Alcotest.(check bool) "plan exists" true (Option.is_some plan);
+      let plan = Option.get plan in
+      (* Simulate session reset during execute phase *)
+      agent.Agent.history <- [];
+      let result =
+        Agent.apply_compact_result agent plan ~summary:"Test summary"
+      in
+      Alcotest.(check bool)
+        "apply returns None on reset" true (Option.is_none result))
+
+(* Test 11: plan_force_compact returns None for short history *)
+let test_plan_returns_none_for_short_history () =
+  with_text_provider (fun config ->
+      let agent = Agent.create ~config () in
+      fill_agent_history agent 5;
+      let plan = Agent.plan_force_compact agent in
+      Alcotest.(check bool)
+        "no plan for short history" true (Option.is_none plan))
+
 let suite =
   [
     Alcotest.test_case "flush stores memories via tool calls" `Quick
@@ -478,4 +568,12 @@ let suite =
       test_config_defaults_true_when_absent;
     Alcotest.test_case "dispatch flush tool call" `Quick
       test_dispatch_flush_tool_call;
+    Alcotest.test_case "compact releases lock during LLM calls" `Quick
+      test_compact_releases_lock_during_llm;
+    Alcotest.test_case "compact handles new messages during execution" `Quick
+      test_apply_handles_new_messages;
+    Alcotest.test_case "compact handles reset during execution" `Quick
+      test_apply_handles_reset;
+    Alcotest.test_case "plan returns None for short history" `Quick
+      test_plan_returns_none_for_short_history;
   ]

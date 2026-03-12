@@ -148,7 +148,6 @@ let test_is_allowed_no_match () =
     "no match denied" false
     (Signal.is_allowed ~cfg ~from:"+999")
 
-
 let free_port () =
   let sock = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
   Fun.protect
@@ -167,20 +166,20 @@ let with_signal_sse_server ~delay_s ~payload f =
     Lwt.async (fun () ->
         let open Lwt.Syntax in
         let* () = Lwt_unix.sleep delay_s in
-        push (Some ("data: " ^ payload ^ "
-
-"));
+        push (Some ("data: " ^ payload ^ "\n\n"));
         push None;
         Lwt.return_unit);
     let headers =
       Cohttp.Header.of_list [ ("Content-Type", "text/event-stream") ]
     in
     Cohttp_lwt_unix.Server.respond ~status:`OK ~headers
-      ~body:(Cohttp_lwt.Body.of_stream body_stream) ()
+      ~body:(Cohttp_lwt.Body.of_stream body_stream)
+      ()
   in
   let stop, stopper = Lwt.wait () in
   let server =
-    Cohttp_lwt_unix.Server.create ~mode:(`TCP (`Port port))
+    Cohttp_lwt_unix.Server.create
+      ~mode:(`TCP (`Port port))
       (Cohttp_lwt_unix.Server.make ~callback ())
   in
   Lwt.async (fun () -> Lwt.pick [ server; stop ]);
@@ -202,7 +201,7 @@ let test_receive_loop_jsonrpc_allows_delayed_sse_body () =
           api_mode = "jsonrpc";
         }
       in
-      let old_timeout = !(Http_client.default_timeout_s) in
+      let old_timeout = !Http_client.default_timeout_s in
       Fun.protect
         ~finally:(fun () -> Http_client.set_default_timeout_s old_timeout)
         (fun () ->
@@ -213,11 +212,12 @@ let test_receive_loop_jsonrpc_allows_delayed_sse_body () =
           Lwt_main.run
             (Lwt.pick
                [
-                 (Signal.receive_loop_jsonrpc ~cfg ~on_message:(fun ~from ~group_id_opt:_ ~text ->
-                      seen := Some (from, text);
-                      if Lwt.is_sleeping stop then Lwt.wakeup_later stopper ();
-                      Lwt.return_unit)
-                    ());
+                 Signal.receive_loop_jsonrpc ~cfg
+                   ~on_message:(fun ~from ~group_id_opt:_ ~text ->
+                     seen := Some (from, text);
+                     if Lwt.is_sleeping stop then Lwt.wakeup_later stopper ();
+                     Lwt.return_unit)
+                   ();
                  stop;
                  (let open Lwt.Syntax in
                   let* () = Lwt_unix.sleep 1.0 in

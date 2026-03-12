@@ -16,6 +16,16 @@ type compaction_info = {
   context_window : int;
 }
 
+type compact_plan = {
+  cp_config : Runtime_config.t;
+  cp_system_prompt : string;
+  cp_pre_tokens : int;
+  cp_context_window : int;
+  cp_to_compact : Provider.message list;
+  cp_to_keep : Provider.message list;
+  cp_history_length : int;
+}
+
 type compact_callbacks = {
   on_step_start : string -> string -> unit Lwt.t;
       (** [on_step_start name emoji] called when a compaction sub-step begins *)
@@ -301,7 +311,7 @@ let truncate_for_history s ~max_chars =
     ^ Printf.sprintf
         "\n\n[truncated %d chars to keep context within model limits]" omitted
 
-let summarize_messages agent messages =
+let summarize_messages_with_config config messages =
   let open Lwt.Syntax in
   let content =
     List.map
@@ -329,9 +339,7 @@ let summarize_messages agent messages =
   in
   Lwt.catch
     (fun () ->
-      let* response =
-        Provider.complete ~config:agent.config ~messages:msgs ()
-      in
+      let* response = Provider.complete ~config ~messages:msgs () in
       match response with
       | Provider.Text { content; _ } -> Lwt.return content
       | Provider.ToolCalls _ -> Lwt.return content)
@@ -341,6 +349,9 @@ let summarize_messages agent messages =
       Lwt.return
         (Printf.sprintf "[Summary of %d messages - summarization failed]"
            (List.length messages)))
+
+let summarize_messages agent messages =
+  summarize_messages_with_config agent.config messages
 
 (* --- Pre-compaction memory flush ---------------------------------------- *)
 
@@ -859,6 +870,161 @@ let force_compact_history agent ?db ?compact_cbs () =
       let post_tokens = estimate_history_tokens agent.history in
       Lwt.return_some { pre_tokens; post_tokens; context_window = cw }
     end
+  end
+
+(* --- Split-mode compaction for Session.compact (no-lock-during-LLM) --- *)
+
+let plan_force_compact agent =
+  let pre_tokens = estimate_history_tokens agent.history in
+  let cw = context_window_for_agent agent in
+  let history_chrono = List.rev agent.history in
+  let total = List.length history_chrono in
+  let keep = min compaction_keep_recent total in
+  let compact_count = total - keep in
+  if compact_count = 0 then None
+  else begin
+    let to_compact_raw =
+      List.filteri (fun i _ -> i < compact_count) history_chrono
+    in
+    let to_keep_raw =
+      List.filteri (fun i _ -> i >= compact_count) history_chrono
+    in
+    let to_compact, to_keep =
+      adjust_split_for_tool_groups to_compact_raw to_keep_raw
+    in
+    if to_compact = [] then None
+    else
+      Some
+        {
+          cp_config = agent.config;
+          cp_system_prompt = agent.system_prompt;
+          cp_pre_tokens = pre_tokens;
+          cp_context_window = cw;
+          cp_to_compact = to_compact;
+          cp_to_keep = to_keep;
+          cp_history_length = List.length agent.history;
+        }
+  end
+
+let execute_compact_plan plan ?db ?compact_cbs () =
+  let open Lwt.Syntax in
+  let config = plan.cp_config in
+  let system_prompt = plan.cp_system_prompt in
+  let to_compact = plan.cp_to_compact in
+  (* Memory flush *)
+  let* () =
+    match (db, compact_cbs, config.memory.pre_compaction_flush) with
+    | Some db, Some cbs, true ->
+        let snapshot = List.map Fun.id to_compact in
+        let t0 = Unix.gettimeofday () in
+        let* () = cbs.on_step_start "Save memories" "\xf0\x9f\xa7\xa0" in
+        let* () =
+          Lwt.catch
+            (fun () ->
+              flush_memories_before_compaction ~config ~system_prompt ~db
+                ~to_compact:snapshot)
+            (fun exn ->
+              Logs.warn (fun m ->
+                  m "Pre-compaction memory flush failed: %s"
+                    (Printexc.to_string exn));
+              Lwt.return_unit)
+        in
+        cbs.on_step_done "Save memories" (Unix.gettimeofday () -. t0)
+    | Some db, None, true ->
+        let snapshot = List.map Fun.id to_compact in
+        Lwt.async (fun () ->
+            Lwt.catch
+              (fun () ->
+                flush_memories_before_compaction ~config ~system_prompt ~db
+                  ~to_compact:snapshot)
+              (fun exn ->
+                Logs.warn (fun m ->
+                    m "Pre-compaction memory flush failed: %s"
+                      (Printexc.to_string exn));
+                Lwt.return_unit));
+        Lwt.return_unit
+    | _ ->
+        Logs.debug (fun m ->
+            m "Pre-compaction memory flush: skipped (disabled)");
+        Lwt.return_unit
+  in
+  (* Summarize *)
+  let mid = List.length to_compact / 2 in
+  let first_half = List.filteri (fun i _ -> i < mid) to_compact in
+  let second_half = List.filteri (fun i _ -> i >= mid) to_compact in
+  let* summary1 =
+    match compact_cbs with
+    | Some cbs ->
+        let t0 = Unix.gettimeofday () in
+        let* () =
+          cbs.on_step_start "Summarize (part 1)" "\xe2\x9c\x82\xef\xb8\x8f"
+        in
+        let* s = summarize_messages_with_config config first_half in
+        let* () =
+          cbs.on_step_done "Summarize (part 1)" (Unix.gettimeofday () -. t0)
+        in
+        Lwt.return s
+    | None -> summarize_messages_with_config config first_half
+  in
+  let* summary2 =
+    match compact_cbs with
+    | Some cbs ->
+        let t0 = Unix.gettimeofday () in
+        let* () =
+          cbs.on_step_start "Summarize (part 2)" "\xe2\x9c\x82\xef\xb8\x8f"
+        in
+        let* s = summarize_messages_with_config config second_half in
+        let* () =
+          cbs.on_step_done "Summarize (part 2)" (Unix.gettimeofday () -. t0)
+        in
+        Lwt.return s
+    | None -> summarize_messages_with_config config second_half
+  in
+  let merged_summary =
+    Printf.sprintf
+      "[Conversation history compacted]\n\n\
+       Earlier context:\n\
+       %s\n\n\
+       Recent context:\n\
+       %s"
+      summary1 summary2
+  in
+  Lwt.return merged_summary
+
+let apply_compact_result agent plan ~summary =
+  let current_len = List.length agent.history in
+  let delta = current_len - plan.cp_history_length in
+  if delta < 0 then begin
+    Logs.warn (fun m ->
+        m
+          "Compact apply: history shrank (%d -> %d) during execution — session \
+           may have been reset, skipping apply"
+          plan.cp_history_length current_len);
+    None
+  end
+  else begin
+    let new_msgs =
+      if delta > 0 then List.filteri (fun i _ -> i < delta) agent.history
+      else []
+    in
+    let to_keep =
+      match List.rev plan.cp_to_keep with
+      | last :: rest ->
+          List.rev
+            (last :: List.rev (ensure_tool_group_integrity (List.rev rest)))
+      | [] -> []
+    in
+    let summary_msg =
+      Provider.make_message ~role:"assistant" ~content:summary
+    in
+    agent.history <- new_msgs @ List.rev (summary_msg :: to_keep);
+    let post_tokens = estimate_history_tokens agent.history in
+    Some
+      {
+        pre_tokens = plan.cp_pre_tokens;
+        post_tokens;
+        context_window = plan.cp_context_window;
+      }
   end
 
 let tools_json agent =
