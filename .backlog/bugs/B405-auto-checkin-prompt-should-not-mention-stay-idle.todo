@@ -1,0 +1,18 @@
+id: B405
+title: Auto check-in prompt should not mention STAY_IDLE
+status: open
+priority: high
+created_at: 2026-03-13
+labels: [autonomy, prompts, behavior]
+
+## Summary
+The automatic autonomous check-in prompt still explicitly tells the agent to reply `STAY_IDLE` when no work remains. Recent live behavior shows that merely mentioning this token in the check-in prompt distorts behavior: the agent fixates on the branch, narrates around it, or terminates too eagerly. We still want `STAY_IDLE` to remain a valid hidden response for runtime handling, but we do not want to advertise it in the prompt shown to the agent.
+
+Add a protective source comment above the prompt definitions explaining that `STAY_IDLE` remains a valid hidden control response and must not be reintroduced into the visible auto check-in prompt text.
+
+## Acceptance Criteria
+- The visible autonomous auto check-in prompt no longer mentions `STAY_IDLE`.
+- `STAY_IDLE` remains supported as a hidden valid response for runtime control flow.
+- A source comment is added immediately above the relevant prompt definitions warning future edits not to re-add the token to the visible prompt text.
+- Tests that currently assert the old visible prompt wording are updated accordingly.
+- Restart-resume wording is kept distinct unless separately intended.

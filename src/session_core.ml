@@ -75,15 +75,16 @@ let draining_message =
 
 let autonomous_stay_idle_message = "STAY_IDLE"
 
+(* STAY_IDLE remains a valid hidden control response for runtime logic, but do
+   not mention or spell it out in visible autonomous check-in/keepalive prompt
+   text. Advertising the token makes the agent over-index on idling and tempts
+   future prompt edits to reintroduce the same behavioral bug. *)
 let autonomous_continuation_prompt =
-  "Autonomous session check-in: continue working if more remains; otherwise \
-   reply exactly " ^ autonomous_stay_idle_message
+  "Autonomous session check-in: continue working if more remains."
 
 let keepalive_nudge_prompt =
   "[Automated Keepalive Check-In]\n\
-   Continue working on your tasks if any remain.\n\n\
-   If you have nothing to do and want to remain idle, reply exactly: "
-  ^ autonomous_stay_idle_message
+   Continue working on your tasks if any remain."
 
 let postmortem_session_prefix = "__postmortem_"
 

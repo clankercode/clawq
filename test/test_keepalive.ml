@@ -76,9 +76,9 @@ let test_keepalive_survives_upsert () =
 
 (* --- keepalive nudge prompt constant is defined --- *)
 
-let test_nudge_prompt_contains_stay_idle () =
+let test_nudge_prompt_hides_stay_idle () =
   Alcotest.(check bool)
-    "nudge prompt contains STAY_IDLE" true
+    "nudge prompt hides STAY_IDLE" false
     (let re = Str.regexp_string Session.autonomous_stay_idle_message in
      try
        ignore (Str.search_forward re Session.keepalive_nudge_prompt 0);
@@ -107,8 +107,8 @@ let suite =
       test_keepalive_default_false_in_session_info;
     Alcotest.test_case "keepalive survives upsert_session_state" `Quick
       test_keepalive_survives_upsert;
-    Alcotest.test_case "nudge prompt contains STAY_IDLE" `Quick
-      test_nudge_prompt_contains_stay_idle;
+    Alcotest.test_case "nudge prompt hides STAY_IDLE" `Quick
+      test_nudge_prompt_hides_stay_idle;
     Alcotest.test_case "nudge prompt contains header" `Quick
       test_nudge_prompt_contains_header;
   ]
