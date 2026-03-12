@@ -23,5 +23,11 @@ milestones:
       path: 02-ec-process-and-integration
       status: pending
 name: Error Correction Watcher
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 12
+    total_tasks: 12
 status: pending
 weeks: 3

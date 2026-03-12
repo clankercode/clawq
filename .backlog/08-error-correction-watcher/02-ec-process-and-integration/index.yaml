@@ -42,4 +42,10 @@ estimate_hours: 24
 id: P8.M2
 locked: false
 name: EC Process and Integration
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 9
+    total_tasks: 9
 status: pending

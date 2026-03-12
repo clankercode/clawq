@@ -4,6 +4,12 @@ estimate_hours: 8
 id: P8.M2.E3
 locked: false
 name: Multi-Model Diagnosis and Voting Pipeline
+stats:
+    blocked: 0
+    done: 0
+    in_progress: 0
+    pending: 3
+    total: 3
 status: pending
 tasks:
     - complexity: medium
