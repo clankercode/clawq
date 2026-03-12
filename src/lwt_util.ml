@@ -9,7 +9,7 @@ let default_warn_timeout = 10.0
 
 (** Default long timeout (seconds) for the second lock attempt. After this, the
     process aborts. *)
-let default_fatal_timeout = 50.0
+let default_fatal_timeout = 100.0
 
 (** [lock_with_timeout ~label ?warn_timeout ?fatal_timeout mutex] acquires
     [mutex] with a two-stage timeout:
