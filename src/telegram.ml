@@ -385,7 +385,10 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                   Task_tree.render_tree_with_legend ~db ~session_key:key
               | None -> "Tasks are not available (no database)."
             in
-            send_message ~bot_token ~chat_id:update.chat_id ~text ()
+            let* _ =
+              send_message_with_id ~bot_token ~chat_id:update.chat_id ~text ()
+            in
+            Lwt.return_unit
         | Model action -> (
             let open Slash_commands in
             match action with
