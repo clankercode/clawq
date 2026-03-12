@@ -1,0 +1,22 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B395
+priority: high
+status: pending
+tags: []
+title: postmortems can apply recursively too many times without making progress; need a circuitbreaker
+---
+[12:36:32.484] INFO  [__postmortem___postmortem_telegram:58495225:58495225] Tool result: memory_recall -> No matching memories found
+[12:36:32.484] INFO  [__postmortem___postmortem_telegram:58495225:58495225] Tool call: file_read (id=call_kCnOyqGRA4OyRpPekzhc6ELU) args={"path":"/home/xertrov/.clawq/postmortems/2026-03-12T123622-__postmortem_telegram:58495225:58495225.md'}},{"
+  ,"offset":1,"limit":120}
+[12:36:32.485] WARN  [__postmortem___postmortem_telegram:58495225:58495225] Tool error: file_read -> Error: No such file or directory
+[12:36:32.485] INFO  [__postmortem___postmortem_telegram:58495225:58495225] Tool call: shell_exec (id=call_zKFWcDyk3VJjTM24I1I28IWo) args={"command":"grep -RIn \"Autonomous session check-in\\|STAY_IDLE\\|B387\\|/tasks retry\\|quiescent\\|blocked\" /home/xertrov/src/clawq /home/xertrov/.clawq 2>/dev/null | head -80","cwd":"/home/xertrov/src/clawq","timeout":20,"head":120,"tail":40}
+[12:36:32.551] INFO  -> LLM provider=groq model=openai/gpt-oss-120b msgs=2 ~3k tok
+[12:36:37.868] INFO  [summarizer] session=__postmortem___postmortem___postmortem___postmortem___postmortem___postmortem___postmortem_telegram:58495225:58495225 tool=shell_exec original=20204B summary=11967B model=openai/gpt-oss-120b id=sum_f476d1a0d325
+[12:36:37.868] INFO  [__postmortem___postmortem___postmortem___postmortem___postmortem___postmortem___postmortem_telegram:58495225:58495225] Tool result: shell_exec -> [Auto-summarized: id=sum_f476d1a0d325, tool=shell_exec, model=openai/gpt-oss-120b, original: 166 lines / 20204 bytes / ~5051 tokens, summary: 116 lines / 11967 bytes / ~2992 tokens, at: 2026-03-12T01:...
+[12:36:37.902] INFO  [__postmortem___postmortem___postmortem___postmortem___postmortem___postmortem___postmortem_telegram:58495225:58495225] -> LLM provider=openai-codex model=gpt-5.4 msgs=6 ~13k tok
+[12:36:41.434] INFO  [summarizer] session=__postmortem___postmortem_telegram:58495225:58495225 tool=shell_exec original=13506B summary=12377B model=openai/gpt-oss-120b id=sum_d96e8287b306
+[12:36:41.435] INFO  [__postmortem___postmortem_telegram:58495225:58495225] Tool result: shell_exec -> [Auto-summarized: id=sum_d96e8287b306, tool=shell_exec, model=openai/gpt-oss-120b, original: 85 lines / 13506 bytes / ~3377 tokens, summary: 73 lines / 12377 bytes / ~3095 tokens, at: 2026-03-12T01:36...
+[12:36:41.469] INFO  [__postmortem___postmortem_telegram:58495225:58495225] -> LLM provider=openai-codex model=gpt-5.4 msgs=217 ~94k tok
