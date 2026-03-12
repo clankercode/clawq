@@ -85,3 +85,4 @@ let daemon_uptime_reply ~pid =
       | Some text -> Printf.sprintf "Daemon uptime: %s (pid %d)" text pid
       | None -> Printf.sprintf "Daemon is running (pid %d), but uptime is unavailable." pid)
   | None -> "Daemon is not running."
+
