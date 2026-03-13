@@ -1,10 +1,12 @@
 ---
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B378
 priority: high
-status: pending
+started_at: null
+status: done
 tags: []
 title: Use git CLI to get all commits for inspection
 ---
