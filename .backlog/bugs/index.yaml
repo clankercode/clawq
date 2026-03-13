@@ -414,3 +414,4 @@ bugs:
     - file: B415-teams-threads-sessions-are-cur.todo
     - file: B416-teams-connector-should-be-able.todo
     - file: B417-teams-all-messages-cause-notif.todo
+    - file: B418-heartbeat-feature-should-be-re.todo

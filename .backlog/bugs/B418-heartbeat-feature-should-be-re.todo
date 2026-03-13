@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B418
+priority: high
+status: pending
+tags: []
+title: 'HEARTBEAT feature should be refactored: sessions can register to recieve a heartbeat, but we shouldn''t send them to __main__ by default. This refactor will take some planning.'
+---
+
+HEARTBEAT feature should be refactored: sessions can register to recieve a heartbeat, but we shouldn't send them to __main__ by default. This refactor will take some planning.
