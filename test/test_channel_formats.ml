@@ -338,7 +338,7 @@ let test_telegram_chunk_text_short () =
   (* Instead, test that the api_base is set correctly *)
   Alcotest.(check bool)
     "api_base contains telegram.org" true
-    (contains_str Telegram.api_base "telegram.org")
+    (contains_str !Telegram.api_base "telegram.org")
 
 let test_telegram_parse_update_structure () =
   (* Test the JSON structure Telegram expects *)
@@ -556,8 +556,9 @@ let test_telegram_parse_missing_from () =
 let test_telegram_api_base_format () =
   Alcotest.(check bool)
     "api_base ends with /bot" true
-    (let len = String.length Telegram.api_base in
-     len > 4 && String.sub Telegram.api_base (len - 4) 4 = "/bot")
+    (let base = !Telegram.api_base in
+     let len = String.length base in
+     len > 4 && String.sub base (len - 4) 4 = "/bot")
 
 let test_telegram_pairing_active_before_expiry () =
   let chat_id = "chat_pair_active" in

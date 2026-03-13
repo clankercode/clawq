@@ -101,30 +101,35 @@ let test_chat_action_for_tool () =
 
 let test_send_chat_action_is_not_serialized_by_outbound_lock () =
   let mutex = Telegram.get_outbound_mutex "chat-lock" in
-  Lwt_main.run
-    (let open Lwt.Syntax in
-     let* () = Lwt_mutex.lock mutex in
-     let finished = ref false in
-     let action_p =
-       Lwt.catch
-         (fun () ->
-           let* () =
-             Telegram.send_chat_action ~bot_token:"token" ~chat_id:"chat-lock"
-               ~action:"typing"
-           in
-           finished := true;
-           Lwt.return_unit)
-         (fun _exn ->
-           finished := true;
-           Lwt.return_unit)
-     in
-     let* () = Lwt_unix.sleep 0.02 in
-     Alcotest.(check bool)
-       "send_chat_action completes even while outbound mutex is held" true
-       !finished;
-     Lwt_mutex.unlock mutex;
-     let* () = action_p in
-     Lwt.return_unit)
+  let old_base = !Telegram.api_base in
+  Telegram.api_base := "http://127.0.0.1:1/bot";
+  Fun.protect
+    ~finally:(fun () -> Telegram.api_base := old_base)
+    (fun () ->
+      Lwt_main.run
+        (let open Lwt.Syntax in
+         let* () = Lwt_mutex.lock mutex in
+         let finished = ref false in
+         let action_p =
+           Lwt.catch
+             (fun () ->
+               let* () =
+                 Telegram.send_chat_action ~bot_token:"token"
+                   ~chat_id:"chat-lock" ~action:"typing"
+               in
+               finished := true;
+               Lwt.return_unit)
+             (fun _exn ->
+               finished := true;
+               Lwt.return_unit)
+         in
+         let* () = Lwt_unix.sleep 0.02 in
+         Alcotest.(check bool)
+           "send_chat_action completes even while outbound mutex is held" true
+           !finished;
+         Lwt_mutex.unlock mutex;
+         let* () = action_p in
+         Lwt.return_unit))
 
 let test_with_outbound_lock_blocks_until_mutex_released () =
   let mutex = Telegram.get_outbound_mutex "chat-lock-blocked" in

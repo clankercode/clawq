@@ -1,4 +1,4 @@
-let api_base = "https://api.telegram.org/bot"
+let api_base = ref "https://api.telegram.org/bot"
 
 let current_thinking_message current =
   Printf.sprintf "Current thinking level: %s"
@@ -355,7 +355,7 @@ type poll_result = Updates of int * update list | Poll_error of poll_error
 
 let delete_webhook ~bot_token =
   let open Lwt.Syntax in
-  let uri = Printf.sprintf "%s%s/deleteWebhook" api_base bot_token in
+  let uri = Printf.sprintf "%s%s/deleteWebhook" !api_base bot_token in
   let body = "{}" in
   let* status, _body = Http_client.post_json ~uri ~headers:[] ~body in
   if status >= 200 && status < 300 then
@@ -387,7 +387,7 @@ let get_updates ~bot_token ~offset ~timeout =
   let request_timeout_s = float_of_int (timeout + 10) in
   let uri =
     Printf.sprintf "%s%s/getUpdates?offset=%d&timeout=%d&allowed_updates=%s"
-      api_base bot_token offset timeout
+      !api_base bot_token offset timeout
       "%5B%22message%22%2C%22callback_query%22%2C%22poll_answer%22%5D"
   in
   let* status, body =
@@ -568,7 +568,7 @@ let get_updates ~bot_token ~offset ~timeout =
 let acknowledge_update ~bot_token ~update_id =
   let open Lwt.Syntax in
   let uri =
-    Printf.sprintf "%s%s/getUpdates?offset=%d&timeout=0" api_base bot_token
+    Printf.sprintf "%s%s/getUpdates?offset=%d&timeout=0" !api_base bot_token
       (update_id + 1)
   in
   Lwt.catch
@@ -625,7 +625,7 @@ let chunk_text ?(max_len = telegram_max_message_len) text =
 
 let send_chat_action ~bot_token ~chat_id ~action =
   let open Lwt.Syntax in
-  let uri = Printf.sprintf "%s%s/sendChatAction" api_base bot_token in
+  let uri = Printf.sprintf "%s%s/sendChatAction" !api_base bot_token in
   let body =
     `Assoc [ ("chat_id", `String chat_id); ("action", `String action) ]
     |> Yojson.Safe.to_string
@@ -816,7 +816,7 @@ let send_message_with_id ?(disable_notification = true) ?parse_mode ~bot_token
     ~chat_id ~text () =
   let open Lwt.Syntax in
   with_outbound_lock ~chat_id (fun () ->
-      let uri = Printf.sprintf "%s%s/sendMessage" api_base bot_token in
+      let uri = Printf.sprintf "%s%s/sendMessage" !api_base bot_token in
       let base_fields =
         [
           ("chat_id", `String chat_id);
@@ -890,7 +890,7 @@ let send_message_with_keyboard ?(disable_notification = true) ?parse_mode
     ~bot_token ~chat_id ~text ~buttons () =
   let open Lwt.Syntax in
   with_outbound_lock ~chat_id (fun () ->
-      let uri = Printf.sprintf "%s%s/sendMessage" api_base bot_token in
+      let uri = Printf.sprintf "%s%s/sendMessage" !api_base bot_token in
       let inline_buttons =
         List.map
           (fun (label, callback_data) ->
@@ -945,7 +945,7 @@ let send_message_with_keyboard ?(disable_notification = true) ?parse_mode
 
 let answer_callback_query ~bot_token ~callback_query_id ?(text = "") () =
   let open Lwt.Syntax in
-  let uri = Printf.sprintf "%s%s/answerCallbackQuery" api_base bot_token in
+  let uri = Printf.sprintf "%s%s/answerCallbackQuery" !api_base bot_token in
   let body =
     `Assoc
       [
@@ -963,7 +963,7 @@ let edit_message ?parse_mode ~bot_token ~chat_id ~message_id ~text () =
   else
     let open Lwt.Syntax in
     with_outbound_lock ~chat_id (fun () ->
-        let uri = Printf.sprintf "%s%s/editMessageText" api_base bot_token in
+        let uri = Printf.sprintf "%s%s/editMessageText" !api_base bot_token in
         let base_fields =
           [
             ("chat_id", `String chat_id);
@@ -1004,7 +1004,7 @@ let edit_message ?parse_mode ~bot_token ~chat_id ~message_id ~text () =
 let delete_message ~bot_token ~chat_id ~message_id () =
   let open Lwt.Syntax in
   with_outbound_lock ~chat_id (fun () ->
-      let uri = Printf.sprintf "%s%s/deleteMessage" api_base bot_token in
+      let uri = Printf.sprintf "%s%s/deleteMessage" !api_base bot_token in
       let body =
         `Assoc
           [
@@ -1099,7 +1099,7 @@ let make_status_notifier ~bot_token ~chat_id =
 
 let set_message_reaction ~bot_token ~chat_id ~message_id ~emoji () =
   let open Lwt.Syntax in
-  let uri = Printf.sprintf "%s%s/setMessageReaction" api_base bot_token in
+  let uri = Printf.sprintf "%s%s/setMessageReaction" !api_base bot_token in
   let reaction =
     `Assoc [ ("type", `String "emoji"); ("emoji", `String emoji) ]
   in
@@ -1123,7 +1123,7 @@ let set_message_reaction ~bot_token ~chat_id ~message_id ~emoji () =
 
 let clear_message_reaction ~bot_token ~chat_id ~message_id () =
   let open Lwt.Syntax in
-  let uri = Printf.sprintf "%s%s/setMessageReaction" api_base bot_token in
+  let uri = Printf.sprintf "%s%s/setMessageReaction" !api_base bot_token in
   let body =
     `Assoc
       [
@@ -1147,7 +1147,7 @@ let send_message ?(disable_notification = true) ?parse_mode ~bot_token ~chat_id
   Lwt_util.with_lock_timeout
     ~label:(Printf.sprintf "tg_outbound/sendMessage[%s]" chat_id) mutex
     (fun () ->
-      let uri = Printf.sprintf "%s%s/sendMessage" api_base bot_token in
+      let uri = Printf.sprintf "%s%s/sendMessage" !api_base bot_token in
       let base_fields =
         [
           ("chat_id", `String chat_id);
@@ -1237,7 +1237,7 @@ let send_silent_chunked (send_chunked : chunk_sender) ~bot_token ~chat_id ~text
 let send_poll_api ?(disable_notification = true) ~bot_token ~chat_id ~question
     ~options ~allows_multiple () =
   let open Lwt.Syntax in
-  let uri = Printf.sprintf "%s%s/sendPoll" api_base bot_token in
+  let uri = Printf.sprintf "%s%s/sendPoll" !api_base bot_token in
   let body =
     `Assoc
       [
@@ -1301,7 +1301,7 @@ let set_my_commands ~bot_token =
              ])
          Slash_commands.commands)
   in
-  let uri = Printf.sprintf "%s%s/setMyCommands" api_base bot_token in
+  let uri = Printf.sprintf "%s%s/setMyCommands" !api_base bot_token in
   let body = `Assoc [ ("commands", cmds) ] |> Yojson.Safe.to_string in
   let* status, resp_body = Http_client.post_json ~uri ~headers:[] ~body in
   if status >= 200 && status < 300 then
@@ -1392,7 +1392,7 @@ let requires_totp_auth ~(account : Runtime_config.telegram_account) ~chat_id =
 let download_telegram_file ~bot_token ~file_id =
   let open Lwt.Syntax in
   let get_file_uri =
-    Printf.sprintf "%s%s/getFile?file_id=%s" api_base bot_token file_id
+    Printf.sprintf "%s%s/getFile?file_id=%s" !api_base bot_token file_id
   in
   let* _status, file_body = Http_client.get ~uri:get_file_uri ~headers:[] in
   let file_json = Yojson.Safe.from_string file_body in

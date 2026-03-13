@@ -145,7 +145,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
             Lwt.catch
               (fun () ->
                 let get_file_uri =
-                  Printf.sprintf "%s%s/getFile?file_id=%s" api_base bot_token
+                  Printf.sprintf "%s%s/getFile?file_id=%s" !api_base bot_token
                     file_id
                 in
                 let* _status, file_body =
