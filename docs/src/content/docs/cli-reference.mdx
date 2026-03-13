@@ -73,8 +73,7 @@ Set a config value by dot-path. Examples:
 ```bash
 clawq config set providers.openrouter.api_key "sk-..."
 clawq config set providers.openrouter.base_url "https://openrouter.ai/api/v1"
-clawq config set providers.openrouter.default_model "openai/gpt-4o"
-clawq config set default_provider "openrouter"
+clawq config set agent_defaults.primary_model "openrouter:gpt-4o"
 clawq config set channels.telegram.accounts.main.bot_token "123:ABC..."
 clawq config set channels.telegram.accounts.main.allow_from '["*"]'
 clawq config set security.tools_enabled true

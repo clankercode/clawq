@@ -41,7 +41,7 @@ Manage individual values by dot-path:
 ```bash
 # Set a value
 clawq config set providers.openrouter.api_key "sk-..."
-clawq config set default_provider "openrouter"
+clawq config set agent_defaults.primary_model "openrouter:gpt-5.4"
 clawq config set channels.telegram.accounts.main.bot_token "123:ABC..."
 
 # Read a value
@@ -92,7 +92,7 @@ When `security.encrypt_secrets` is `true` and `CLAWQ_MASTER_KEY` is set, API key
 
 ### providers
 
-An object keyed by provider name. Use `default_provider` to choose which configured provider is used by default.
+An object keyed by provider name. The active provider is selected via `agent_defaults.primary_model` using the `provider:model` format.
 
 ```json
 {
@@ -107,8 +107,7 @@ An object keyed by provider name. Use `default_provider` to choose which configu
       "base_url": "https://api.openai.com/v1",
       "default_model": "gpt-4o"
     }
-  },
-  "default_provider": "openrouter"
+  }
 }
 ```
 
@@ -123,6 +122,15 @@ An object keyed by provider name. Use `default_provider` to choose which configu
 
 ### default_provider
 
+:::caution[Deprecated]
+`default_provider` is deprecated as of B425. The provider is already embedded in
+`agent_defaults.primary_model` using the `provider:model` format (e.g. `"openrouter:gpt-5.4"`).
+
+**Migration:** remove `default_provider` from your `config.json` and ensure
+`agent_defaults.primary_model` is set to a canonical `provider:model` string.
+clawq will warn at startup if this field is still present.
+:::
+
 ```json
 {
   "default_provider": "openrouter"
@@ -130,6 +138,7 @@ An object keyed by provider name. Use `default_provider` to choose which configu
 ```
 
 This selects which key from `providers` is used when a request does not choose a provider explicitly.
+This field is no longer needed when `agent_defaults.primary_model` uses the `provider:model` format.
 
 ### channels
 
@@ -401,7 +410,6 @@ Controls behavior of the `ask_user_question` tool, which lets the agent ask clar
       "default_model": "openai/gpt-4o"
     }
   },
-  "default_provider": "openrouter",
   "channels": {
     "telegram": {
       "accounts": {

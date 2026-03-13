@@ -63,7 +63,11 @@ let fetch_embedding ~(config : Runtime_config.t) ~text =
     match config.memory.embedding_provider with
     | Some p -> p
     | None -> (
-        match config.default_provider with Some p -> p | None -> "openai")
+        match
+          Runtime_config.effective_primary_provider config.agent_defaults
+        with
+        | Some p -> p
+        | None -> "openai")
   in
   let provider =
     match List.assoc_opt provider_name config.providers with

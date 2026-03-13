@@ -428,6 +428,9 @@ let cmd_status () =
    with
   | Some warn -> add ("  " ^ warn)
   | None -> ());
+  (match Runtime_config.default_provider_deprecation_warning cfg with
+  | Some warn -> add ("  " ^ warn)
+  | None -> ());
   add (Printf.sprintf "  temperature: %.2f" cfg.default_temperature);
   add (Printf.sprintf "  gateway: %s:%d" cfg.gateway.host cfg.gateway.port);
   add
@@ -558,17 +561,22 @@ let cmd_doctor () =
       List.iter add (Openai_codex_oauth.doctor_warnings ~provider_name:name p))
     cfg.providers;
   (match cfg.default_provider with
-  | Some name when not (List.exists (fun (n, _) -> n = name) cfg.providers) ->
-      add
-        (Printf.sprintf "WARNING: default_provider '%s' not found in providers"
-           name)
   | Some name -> (
-      match List.assoc_opt name cfg.providers with
-      | Some p when not (Runtime_config.provider_has_auth p) ->
-          add
-            (Printf.sprintf
-               "WARNING: default_provider '%s' has no configured auth" name)
-      | _ -> ())
+      add
+        "WARNING: \"default_provider\" is deprecated. Remove it from \
+         config.json and set \"agent_defaults.primary_model\" to a \
+         \"provider:model\" string (e.g. \"openrouter:gpt-5.4\") instead.";
+      if not (List.exists (fun (n, _) -> n = name) cfg.providers) then
+        add
+          (Printf.sprintf
+             "WARNING: default_provider '%s' not found in providers" name)
+      else
+        match List.assoc_opt name cfg.providers with
+        | Some p when not (Runtime_config.provider_has_auth p) ->
+            add
+              (Printf.sprintf
+                 "WARNING: default_provider '%s' has no configured auth" name)
+        | _ -> ())
   | None -> ());
   (match cfg.channels.telegram with
   | None -> ()
@@ -661,11 +669,10 @@ let cmd_onboard () =
     let template =
       {|{
   "default_temperature": 0.7,
-  "default_provider": "openrouter",
   "providers": {
-    "openrouter": {
+    "openai-codex": {
       "api_key": "YOUR_API_KEY_HERE",
-      "base_url": "https://openrouter.ai/api/v1"
+      "base_url": "https://api.openai.com/v1"
     }
   },
   "agent_defaults": {

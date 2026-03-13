@@ -71,8 +71,7 @@ Set individual values by dot-path:
 ```bash
 clawq config set providers.openrouter.api_key "sk-or-v1-YOUR_KEY_HERE"
 clawq config set providers.openrouter.base_url "https://openrouter.ai/api/v1"
-clawq config set providers.openrouter.default_model "openai/gpt-4o"
-clawq config set default_provider "openrouter"
+clawq config set agent_defaults.primary_model "openrouter:gpt-4o"
 
 # Optional Telegram channel
 clawq config set channels.telegram.accounts.main.bot_token "7123456789:AAF1k_YOUR_TOKEN_HERE"
@@ -104,7 +103,6 @@ Minimal working configuration:
       "default_model": "openai/gpt-4o"
     }
   },
-  "default_provider": "openrouter",
   "channels": {
     "telegram": {
       "accounts": {
@@ -128,7 +126,7 @@ Minimal working configuration:
 - `allow_from`: `["*"]` allows all users. To restrict access, list specific chat IDs: `["123456789", "987654321"]`.
 - `base_url`: Use `https://api.openai.com/v1` for OpenAI directly, or any compatible endpoint.
 - `default_model`: Default model for this provider. Can be overridden per-request.
-- `default_provider`: Selects which provider name is used by default.
+- `agent_defaults.primary_model`: Sets the provider and model using `provider:model` format (e.g. `"openrouter:gpt-4o"`).
 - For GitHub webhook automation, add `channels.github` config plus a public webhook URL; see the Channels page for the full setup and hook file format.
 
 ## 4. Validate

@@ -852,6 +852,18 @@ let effective_primary_provider (ad : agent_defaults) =
 let primary_model_deprecation_warning (ad : agent_defaults) =
   Pmodel.deprecation_warning (Pmodel.parse_flexible ad.primary_model)
 
+let default_provider_deprecation_warning (cfg : t) =
+  match cfg.default_provider with
+  | None -> None
+  | Some p ->
+      Some
+        (Printf.sprintf
+           "WARNING: \"default_provider\" (\"%s\") is deprecated. The provider \
+            is already embedded in \"agent_defaults.primary_model\" using the \
+            \"provider:model\" format. Remove \"default_provider\" from your \
+            config.json."
+           p)
+
 let expand_home path =
   if String.length path >= 2 && String.sub path 0 2 = "~/" then
     let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in

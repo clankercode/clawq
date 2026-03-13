@@ -44,11 +44,6 @@ let build_config_json (m : model) : Yojson.Safe.t =
         ("tool_search_enabled", `Bool m.tool_search_enabled);
       ]
   in
-  let default_provider =
-    match m.providers with
-    | p :: _ -> [ ("default_provider", `String p.name) ]
-    | [] -> []
-  in
   let channels =
     let ch = ref [] in
     if m.channel_sel.telegram && m.telegram_token <> "" then
@@ -118,7 +113,7 @@ let build_config_json (m : model) : Yojson.Safe.t =
   in
   `Assoc
     ([ ("default_temperature", `Float 0.7) ]
-    @ default_provider @ providers_entry
+    @ providers_entry
     @ [ ("agent_defaults", agent_defaults) ]
     @ [ ("security", security) ]
     @ channels @ tunnel @ gateway)

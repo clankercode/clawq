@@ -14,6 +14,17 @@ let parse_config ?(resolve_secrets = true) json =
     try Some (json |> member "default_provider" |> to_string)
     with _ -> default.default_provider
   in
+  let () =
+    match parsed_default_provider with
+    | Some p ->
+        Printf.eprintf
+          "WARNING: \"default_provider\" (\"%s\") is deprecated. The provider \
+           is already embedded in \"agent_defaults.primary_model\" using the \
+           \"provider:model\" format. Remove \"default_provider\" from your \
+           config.json.\n"
+          p
+    | None -> ()
+  in
   let encrypt_secrets =
     try json |> member "security" |> member "encrypt_secrets" |> to_bool
     with _ -> Runtime_config.default.security.encrypt_secrets
