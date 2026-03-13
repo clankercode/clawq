@@ -1549,23 +1549,42 @@ let test_handle_service_signal_restart () =
         "service signal restart with no daemon" "Daemon is not running" result)
 
 let test_handle_update_without_live_daemon_reports_stub () =
-  with_temp_home (fun _home ->
-      let result = Command_bridge.handle [ "update" ] in
-      Alcotest.(check bool)
-        "reports update start" true
-        (contains result "Starting update...");
-      Alcotest.(check bool)
-        "reports git mode" true
-        (contains result "Mode: git");
-      Alcotest.(check bool)
-        "runs git pull" true
-        (contains result "Running: git pull");
-      Alcotest.(check bool)
-        "runs build" true
-        (contains result "Running: make build");
-      Alcotest.(check bool)
-        "reports build completion" true
-        (contains result "Build complete. Next"))
+  with_temp_home (fun home ->
+      let bin_dir = Filename.concat home "bin" in
+      Unix.mkdir bin_dir 0o755;
+      let fake_git = Filename.concat bin_dir "git" in
+      let git_oc = open_out fake_git in
+      output_string git_oc
+        "#!/bin/sh\nif [ \"$1\" = \"pull\" ]; then\n  echo 'Already up to date.'\n  exit 0\nfi\nexit 1\n";
+      close_out git_oc;
+      Unix.chmod fake_git 0o755;
+      let fake_make = Filename.concat bin_dir "make" in
+      let make_oc = open_out fake_make in
+      output_string make_oc
+        "#!/bin/sh\nif [ \"$1\" = \"build\" ]; then\n  exit 0\nfi\nexit 1\n";
+      close_out make_oc;
+      Unix.chmod fake_make 0o755;
+      let old_path = try Sys.getenv "PATH" with Not_found -> "" in
+      Unix.putenv "PATH" (bin_dir ^ ":" ^ old_path);
+      Fun.protect
+        (fun () ->
+          let result = Command_bridge.handle [ "update" ] in
+          Alcotest.(check bool)
+            "reports update start" true
+            (contains result "Starting update...");
+          Alcotest.(check bool)
+            "reports git mode" true
+            (contains result "Mode: git");
+          Alcotest.(check bool)
+            "runs git pull" true
+            (contains result "Running: git pull");
+          Alcotest.(check bool)
+            "runs build" true
+            (contains result "Running: make build");
+          Alcotest.(check bool)
+            "reports build completion" true
+            (contains result "Build complete. Next"))
+        ~finally:(fun () -> Unix.putenv "PATH" old_path))
 
 let test_handle_update_auto_pairs_with_live_gateway () =
   with_temp_home (fun home ->
