@@ -573,12 +573,292 @@ let test_migrate_heartbeat_prefixed_keys () =
       Alcotest.(check bool)
         "enabled migrated" false cfg.heartbeat.heartbeat_enabled;
       Alcotest.(check int)
-        "interval_seconds migrated" 250
-        cfg.heartbeat.heartbeat_interval_seconds;
+        "interval_seconds migrated" 250 cfg.heartbeat.heartbeat_interval_seconds;
       Alcotest.(check int)
         "quiet_start migrated" 21 cfg.heartbeat.heartbeat_quiet_start;
       Alcotest.(check int)
         "quiet_end migrated" 6 cfg.heartbeat.heartbeat_quiet_end)
+
+let test_to_json_notify_uses_short_keys () =
+  let cfg =
+    {
+      Runtime_config.default with
+      notify =
+        Some
+          { Runtime_config.notify_channel = "telegram"; notify_target = "bob" };
+    }
+  in
+  let json = Runtime_config.to_json cfg in
+  let open Yojson.Safe.Util in
+  let n = json |> member "notify" in
+  Alcotest.(check string)
+    "notify.channel serialized with short key" "telegram"
+    (n |> member "channel" |> to_string);
+  Alcotest.(check string)
+    "notify.target serialized with short key" "bob"
+    (n |> member "target" |> to_string);
+  Alcotest.(check bool)
+    "notify.notify_channel absent" true
+    (n |> member "notify_channel" = `Null);
+  Alcotest.(check bool)
+    "notify.notify_target absent" true
+    (n |> member "notify_target" = `Null)
+
+let test_notify_roundtrip () =
+  let cfg =
+    {
+      Runtime_config.default with
+      notify =
+        Some
+          {
+            Runtime_config.notify_channel = "telegram";
+            notify_target = "alice";
+          };
+    }
+  in
+  let json = Runtime_config.to_json cfg in
+  let cfg2 = Config_loader.parse_config json in
+  match cfg2.notify with
+  | None -> Alcotest.fail "expected notify config after roundtrip"
+  | Some nc ->
+      Alcotest.(check string)
+        "notify_channel roundtrip" "telegram" nc.notify_channel;
+      Alcotest.(check string) "notify_target roundtrip" "alice" nc.notify_target
+
+let test_to_json_summarizer_uses_short_keys () =
+  let json = Runtime_config.to_json Runtime_config.default in
+  let open Yojson.Safe.Util in
+  let s = json |> member "summarizer" in
+  Alcotest.(check bool)
+    "summarizer.enabled key present" true
+    (s |> member "enabled" <> `Null);
+  Alcotest.(check bool)
+    "summarizer.model key present" true
+    (s |> member "model" <> `Null);
+  Alcotest.(check bool)
+    "summarizer.summarizer_enabled absent" true
+    (s |> member "summarizer_enabled" = `Null);
+  Alcotest.(check bool)
+    "summarizer.summarizer_model absent" true
+    (s |> member "summarizer_model" = `Null)
+
+let test_summarizer_roundtrip () =
+  let cfg =
+    {
+      Runtime_config.default with
+      summarizer =
+        {
+          Runtime_config.default_summarizer_config with
+          summarizer_enabled = false;
+          threshold_chars = 9999;
+        };
+    }
+  in
+  let json = Runtime_config.to_json cfg in
+  let cfg2 = Config_loader.parse_config json in
+  Alcotest.(check bool)
+    "summarizer_enabled roundtrip" false cfg2.summarizer.summarizer_enabled;
+  Alcotest.(check int)
+    "threshold_chars roundtrip" 9999 cfg2.summarizer.threshold_chars
+
+let test_to_json_includes_task_tree_notifications () =
+  let cfg =
+    {
+      Runtime_config.default with
+      agent_defaults =
+        {
+          Runtime_config.default.agent_defaults with
+          task_tree_notifications = false;
+        };
+    }
+  in
+  let json = Runtime_config.to_json cfg in
+  let open Yojson.Safe.Util in
+  Alcotest.(check bool)
+    "task_tree_notifications serialized" false
+    (json |> member "agent_defaults"
+    |> member "task_tree_notifications"
+    |> to_bool)
+
+let test_task_tree_notifications_roundtrip () =
+  let cfg =
+    {
+      Runtime_config.default with
+      agent_defaults =
+        {
+          Runtime_config.default.agent_defaults with
+          task_tree_notifications = false;
+        };
+    }
+  in
+  let json = Runtime_config.to_json cfg in
+  let cfg2 = Config_loader.parse_config json in
+  Alcotest.(check bool)
+    "task_tree_notifications roundtrip" false
+    cfg2.agent_defaults.task_tree_notifications
+
+let test_to_json_includes_task_tree_purge_after_days () =
+  let cfg =
+    {
+      Runtime_config.default with
+      memory =
+        { Runtime_config.default.memory with task_tree_purge_after_days = 14 };
+    }
+  in
+  let json = Runtime_config.to_json cfg in
+  let open Yojson.Safe.Util in
+  Alcotest.(check int)
+    "task_tree_purge_after_days serialized" 14
+    (json |> member "memory" |> member "task_tree_purge_after_days" |> to_int)
+
+let test_task_tree_purge_after_days_roundtrip () =
+  let cfg =
+    {
+      Runtime_config.default with
+      memory =
+        { Runtime_config.default.memory with task_tree_purge_after_days = 7 };
+    }
+  in
+  let json = Runtime_config.to_json cfg in
+  let cfg2 = Config_loader.parse_config json in
+  Alcotest.(check int)
+    "task_tree_purge_after_days roundtrip" 7
+    cfg2.memory.task_tree_purge_after_days
+
+let test_to_json_includes_interactive () =
+  let json = Runtime_config.to_json Runtime_config.default in
+  let open Yojson.Safe.Util in
+  Alcotest.(check bool)
+    "interactive section present" true
+    (json |> member "interactive" <> `Null);
+  Alcotest.(check bool)
+    "enable_question_notes default serialized" true
+    (json |> member "interactive" |> member "enable_question_notes" |> to_bool)
+
+let test_interactive_roundtrip () =
+  let cfg =
+    {
+      Runtime_config.default with
+      interactive = { Runtime_config.enable_question_notes = false };
+    }
+  in
+  let json = Runtime_config.to_json cfg in
+  let cfg2 = Config_loader.parse_config json in
+  Alcotest.(check bool)
+    "enable_question_notes roundtrip" false
+    cfg2.interactive.enable_question_notes
+
+let test_full_config_roundtrip () =
+  (* Build a config with non-default values for every serialized section,
+     then verify that to_json → parse_config produces the same values.
+     This is a catch-all guard against future to_json/parse_config key drifts. *)
+  let cfg =
+    {
+      Runtime_config.default with
+      default_temperature = 0.4;
+      agent_defaults =
+        {
+          Runtime_config.default.agent_defaults with
+          primary_model = "anthropic:claude-sonnet-4-6";
+          max_tool_iterations = 5;
+          task_tree_notifications = false;
+          show_thinking = true;
+        };
+      memory =
+        {
+          Runtime_config.default.memory with
+          max_messages_per_session = 200;
+          task_tree_purge_after_days = 30;
+          max_message_age_days = 14;
+        };
+      heartbeat =
+        {
+          Runtime_config.heartbeat_enabled = false;
+          heartbeat_interval_seconds = 120;
+          heartbeat_quiet_start = 22;
+          heartbeat_quiet_end = 7;
+        };
+      notify =
+        Some
+          {
+            Runtime_config.notify_channel = "discord";
+            notify_target = "user123";
+          };
+      summarizer =
+        {
+          Runtime_config.default_summarizer_config with
+          summarizer_enabled = false;
+          threshold_chars = 5000;
+          max_age_days = 60;
+        };
+      observer =
+        {
+          Runtime_config.default_observer_config with
+          enabled = false;
+          check_every_n_messages = 10;
+        };
+      interactive = { Runtime_config.enable_question_notes = false };
+    }
+  in
+  let json = Runtime_config.to_json cfg in
+  let cfg2 = Config_loader.parse_config json in
+  Alcotest.(check (float 0.001))
+    "default_temperature" cfg.default_temperature cfg2.default_temperature;
+  Alcotest.(check string)
+    "primary_model" cfg.agent_defaults.primary_model
+    cfg2.agent_defaults.primary_model;
+  Alcotest.(check int)
+    "max_tool_iterations" cfg.agent_defaults.max_tool_iterations
+    cfg2.agent_defaults.max_tool_iterations;
+  Alcotest.(check bool)
+    "task_tree_notifications" cfg.agent_defaults.task_tree_notifications
+    cfg2.agent_defaults.task_tree_notifications;
+  Alcotest.(check bool)
+    "show_thinking" cfg.agent_defaults.show_thinking
+    cfg2.agent_defaults.show_thinking;
+  Alcotest.(check int)
+    "memory.max_messages_per_session" cfg.memory.max_messages_per_session
+    cfg2.memory.max_messages_per_session;
+  Alcotest.(check int)
+    "memory.task_tree_purge_after_days" cfg.memory.task_tree_purge_after_days
+    cfg2.memory.task_tree_purge_after_days;
+  Alcotest.(check int)
+    "memory.max_message_age_days" cfg.memory.max_message_age_days
+    cfg2.memory.max_message_age_days;
+  Alcotest.(check bool)
+    "heartbeat.enabled" cfg.heartbeat.heartbeat_enabled
+    cfg2.heartbeat.heartbeat_enabled;
+  Alcotest.(check int)
+    "heartbeat.interval_seconds" cfg.heartbeat.heartbeat_interval_seconds
+    cfg2.heartbeat.heartbeat_interval_seconds;
+  Alcotest.(check int)
+    "heartbeat.quiet_start" cfg.heartbeat.heartbeat_quiet_start
+    cfg2.heartbeat.heartbeat_quiet_start;
+  Alcotest.(check int)
+    "heartbeat.quiet_end" cfg.heartbeat.heartbeat_quiet_end
+    cfg2.heartbeat.heartbeat_quiet_end;
+  (match cfg2.notify with
+  | None -> Alcotest.fail "notify should be present"
+  | Some nc ->
+      Alcotest.(check string) "notify.channel" "discord" nc.notify_channel;
+      Alcotest.(check string) "notify.target" "user123" nc.notify_target);
+  Alcotest.(check bool)
+    "summarizer.enabled" cfg.summarizer.summarizer_enabled
+    cfg2.summarizer.summarizer_enabled;
+  Alcotest.(check int)
+    "summarizer.threshold_chars" cfg.summarizer.threshold_chars
+    cfg2.summarizer.threshold_chars;
+  Alcotest.(check int)
+    "summarizer.max_age_days" cfg.summarizer.max_age_days
+    cfg2.summarizer.max_age_days;
+  Alcotest.(check bool)
+    "observer.enabled" cfg.observer.enabled cfg2.observer.enabled;
+  Alcotest.(check int)
+    "observer.check_every_n_messages" cfg.observer.check_every_n_messages
+    cfg2.observer.check_every_n_messages;
+  Alcotest.(check bool)
+    "interactive.enable_question_notes" cfg.interactive.enable_question_notes
+    cfg2.interactive.enable_question_notes
 
 let suite =
   [
@@ -646,6 +926,24 @@ let suite =
       test_parse_heartbeat_config;
     Alcotest.test_case "migrate heartbeat prefixed keys" `Quick
       test_migrate_heartbeat_prefixed_keys;
+    Alcotest.test_case "to_json notify uses short keys" `Quick
+      test_to_json_notify_uses_short_keys;
+    Alcotest.test_case "notify roundtrip" `Quick test_notify_roundtrip;
+    Alcotest.test_case "to_json summarizer uses short keys" `Quick
+      test_to_json_summarizer_uses_short_keys;
+    Alcotest.test_case "summarizer roundtrip" `Quick test_summarizer_roundtrip;
+    Alcotest.test_case "to_json includes task_tree_notifications" `Quick
+      test_to_json_includes_task_tree_notifications;
+    Alcotest.test_case "task_tree_notifications roundtrip" `Quick
+      test_task_tree_notifications_roundtrip;
+    Alcotest.test_case "to_json includes task_tree_purge_after_days" `Quick
+      test_to_json_includes_task_tree_purge_after_days;
+    Alcotest.test_case "task_tree_purge_after_days roundtrip" `Quick
+      test_task_tree_purge_after_days_roundtrip;
+    Alcotest.test_case "to_json includes interactive section" `Quick
+      test_to_json_includes_interactive;
+    Alcotest.test_case "interactive roundtrip" `Quick test_interactive_roundtrip;
+    Alcotest.test_case "full config roundtrip" `Quick test_full_config_roundtrip;
     Alcotest.test_case "default_path returns config.json path" `Quick (fun () ->
         let path = Config_loader.default_path () in
         Alcotest.(check bool)

@@ -1059,6 +1059,7 @@ let to_json (cfg : t) : Yojson.Safe.t =
                  `Float ad.autonomous_continuation_delay );
                ( "autonomous_continuation_enabled",
                  `Bool ad.autonomous_continuation_enabled );
+               ("task_tree_notifications", `Bool ad.task_tree_notifications);
              ]
             @
             match ad.reasoning_effort with
@@ -1163,6 +1164,24 @@ let to_json (cfg : t) : Yojson.Safe.t =
                   [
                     ( "github",
                       `Assoc [ ("auth", auth_json); ("repos", repos_json) ] );
+                  ])
+            @ (match cfg.channels.mattermost with
+              | None -> []
+              | Some mm ->
+                  [
+                    ( "mattermost",
+                      `Assoc
+                        [
+                          ("url", `String mm.url);
+                          ("access_token", `String mm.access_token);
+                          ("team_id", `String mm.team_id);
+                          ( "channel_ids",
+                            `List (List.map (fun s -> `String s) mm.channel_ids)
+                          );
+                          ( "allow_users",
+                            `List (List.map (fun s -> `String s) mm.allow_users)
+                          );
+                        ] );
                   ])
             @ (match cfg.channels.dingtalk with
               | None -> []
@@ -1382,6 +1401,7 @@ let to_json (cfg : t) : Yojson.Safe.t =
                               `List
                                 (List.map (fun s -> `String s) tm.allow_users)
                             );
+                            ("mention_mode", `String tm.mention_mode);
                           ] );
                     ])) );
         ("gateway", `Assoc gateway_fields);
@@ -1418,6 +1438,8 @@ let to_json (cfg : t) : Yojson.Safe.t =
                  `Int cfg.memory.max_messages_per_session );
                ("max_message_age_days", `Int cfg.memory.max_message_age_days);
                ("pre_compaction_flush", `Bool cfg.memory.pre_compaction_flush);
+               ( "task_tree_purge_after_days",
+                 `Int cfg.memory.task_tree_purge_after_days );
              ]
             @ (if cfg.memory.db_path <> "" then
                  [ ("db_path", `String cfg.memory.db_path) ]
@@ -1522,8 +1544,8 @@ let to_json (cfg : t) : Yojson.Safe.t =
             ( "notify",
               `Assoc
                 [
-                  ("notify_channel", `String nc.notify_channel);
-                  ("notify_target", `String nc.notify_target);
+                  ("channel", `String nc.notify_channel);
+                  ("target", `String nc.notify_target);
                 ] );
           ]
     | None -> fields
@@ -1604,9 +1626,8 @@ let to_json (cfg : t) : Yojson.Safe.t =
         ( "summarizer",
           `Assoc
             ([
-               ("summarizer_enabled", `Bool sum.summarizer_enabled);
-               ( "summarizer_model",
-                 `String (Pmodel.to_string sum.summarizer_model) );
+               ("enabled", `Bool sum.summarizer_enabled);
+               ("model", `String (Pmodel.to_string sum.summarizer_model));
                ("threshold_chars", `Int sum.threshold_chars);
                ("p1_max_chars", `Int sum.p1_max_chars);
                ("p2_max_chars", `Int sum.p2_max_chars);
@@ -1624,6 +1645,86 @@ let to_json (cfg : t) : Yojson.Safe.t =
             | Some tmpl -> [ ("envelope_template", `String tmpl) ]
             | None -> []) );
       ]
+  in
+  let fields =
+    fields
+    @ [
+        ( "interactive",
+          `Assoc
+            [
+              ( "enable_question_notes",
+                `Bool cfg.interactive.enable_question_notes );
+            ] );
+      ]
+  in
+  let fields =
+    match cfg.voice with
+    | None -> fields
+    | Some v ->
+        fields
+        @ [
+            ( "voice",
+              `Assoc
+                [
+                  ("stt_enabled", `Bool v.stt_enabled);
+                  ("tts_enabled", `Bool v.tts_enabled);
+                  ("stt_provider", `String v.stt_provider);
+                  ("tts_provider", `String v.tts_provider);
+                  ("tts_model", `String v.tts_model);
+                  ("tts_voice", `String v.tts_voice);
+                  ("audio_dir", `String v.audio_dir);
+                ] );
+          ]
+  in
+  let fields =
+    match cfg.web_channel with
+    | None -> fields
+    | Some wc ->
+        let wc_fields =
+          [
+            ("enabled", `Bool wc.enabled);
+            ("path_prefix", `String wc.path_prefix);
+            ("token_ttl_hours", `Int wc.token_ttl_hours);
+          ]
+          @
+          match wc.totp_secret with
+          | Some s -> [ ("totp_secret", `String s) ]
+          | None -> []
+        in
+        fields @ [ ("web_channel", `Assoc wc_fields) ]
+  in
+  let fields =
+    match cfg.telemetry with
+    | None -> fields
+    | Some t ->
+        fields
+        @ [
+            ( "telemetry",
+              `Assoc
+                [
+                  ("enabled", `Bool t.enabled);
+                  ("endpoint", `String t.endpoint);
+                  ("service_name", `String t.service_name);
+                ] );
+          ]
+  in
+  let fields =
+    if cfg.agent_bindings = [] then fields
+    else
+      fields
+      @ [
+          ( "agent_bindings",
+            `List
+              (List.map
+                 (fun (b : Agent_router.binding) ->
+                   `Assoc
+                     [
+                       ("pattern", `String b.pattern);
+                       ("agent_name", `String b.agent_name);
+                       ("priority", `Int b.priority);
+                     ])
+                 cfg.agent_bindings) );
+        ]
   in
   `Assoc fields
 

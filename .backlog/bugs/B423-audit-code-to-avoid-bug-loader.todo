@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-13T10:21:17Z"
+claimed_by: cli-user
+completed_at: "2026-03-13T10:36:31Z"
 complexity: medium
 depends_on: []
+duration_minutes: 15.240896726183333
 estimate_hours: 1
 id: B423
 priority: high
-status: pending
+started_at: "2026-03-13T10:21:17Z"
+status: done
 tags: []
 title: 'Audit code to avoid bug: loader reads the wrong JSON key names. Happened with heartbeat settings.'
 ---

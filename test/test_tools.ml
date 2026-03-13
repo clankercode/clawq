@@ -1368,7 +1368,7 @@ let test_zai_websearch_cache_hit () =
   Alcotest.(check int) "tools/call called twice" 2 !call_count
 
 let test_zai_websearch_integration () =
-  let config = Config_loader.load () in
+  let config = Config_loader.load_readonly () in
   let api_key =
     match config.zai_mcp with
     | Some cfg when Runtime_config.is_key_set cfg.key -> cfg.key
@@ -1388,7 +1388,7 @@ let test_zai_websearch_integration () =
       (not (String.length out >= 6 && String.sub out 0 6 = "Error:"))
 
 let test_zai_webfetch_integration () =
-  let config = Config_loader.load () in
+  let config = Config_loader.load_readonly () in
   let api_key =
     match config.zai_mcp with
     | Some cfg when Runtime_config.is_key_set cfg.key -> cfg.key

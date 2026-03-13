@@ -1724,6 +1724,19 @@ let migrate_config_json (json : Yojson.Safe.t) : Yojson.Safe.t =
            top)
   | other -> other
 
+(** Read config without backfill or validation warnings. Use only in read-only
+    contexts (integration tests, quick key checks) where writing to the config
+    file would be a harmful side-effect. *)
+let load_readonly ?(path = "") () : Runtime_config.t =
+  let config_path = if path <> "" then path else default_path () in
+  if not (Sys.file_exists config_path) then Runtime_config.default
+  else
+    match try Some (Yojson.Safe.from_file config_path) with _ -> None with
+    | None -> Runtime_config.default
+    | Some json ->
+        let json = migrate_config_json json in
+        parse_config ~resolve_secrets:true json
+
 let load ?(path = "") () : Runtime_config.t =
   let config_path = if path <> "" then path else default_path () in
   if not (Sys.file_exists config_path) then Runtime_config.default
