@@ -1,5 +1,111 @@
 open Tools_builtin_util
 
+(* Directories to skip during recursive walks — these are commonly huge and
+   rarely contain user-authored content worth searching. *)
+let skip_dirs =
+  let s = Hashtbl.create 32 in
+  List.iter
+    (fun d -> Hashtbl.replace s d ())
+    [
+      ".git";
+      "node_modules";
+      ".cache";
+      "_build";
+      ".opam";
+      "__pycache__";
+      ".tox";
+      ".mypy_cache";
+      ".pytest_cache";
+      "target";
+      "dist";
+      "build";
+      ".next";
+      ".nuxt";
+      "vendor";
+      "_opam";
+      ".yarn";
+      ".pnpm-store";
+    ];
+  s
+
+let is_skip_dir name = Hashtbl.mem skip_dirs name
+
+(* Recursively walk a directory tree in a thread-pool thread, skipping
+   common huge directories, with a timeout.  [on_entry] is called for every
+   file-system entry; it may call [~add] to accumulate a result string and
+   check [~at_limit] to stop early.  Returns [Ok results] or [Error msg]. *)
+let walk_collect ?(timeout = 30.0) ?(max_files = 1000) ~root ~max_results
+    ~on_entry () =
+  Lwt.pick
+    [
+      Lwt_preemptive.detach
+        (fun () ->
+          let results = ref [] in
+          let count = ref 0 in
+          let files_visited = ref 0 in
+          let hit_file_limit = ref false in
+          let add s =
+            if !count < max_results then begin
+              results := s :: !results;
+              incr count
+            end
+          in
+          let at_limit () =
+            if !count >= max_results then true
+            else if !files_visited >= max_files then begin
+              hit_file_limit := true;
+              true
+            end
+            else false
+          in
+          let rec walk dir =
+            if at_limit () then ()
+            else
+              match Sys.readdir dir with
+              | entries ->
+                  Array.iter
+                    (fun entry ->
+                      if not (at_limit ()) then begin
+                        let full = Filename.concat dir entry in
+                        let is_dir =
+                          try Sys.is_directory full with Sys_error _ -> false
+                        in
+                        incr files_visited;
+                        on_entry ~full ~entry ~is_dir ~at_limit ~add;
+                        if is_dir && not (is_skip_dir entry) then walk full
+                      end)
+                    entries
+              | exception Sys_error _ -> ()
+          in
+          (try
+             if Sys.is_directory root then walk root
+             else begin
+               incr files_visited;
+               on_entry ~full:root ~entry:(Filename.basename root) ~is_dir:false
+                 ~at_limit ~add
+             end
+           with Sys_error _ -> ());
+          let results = List.rev !results in
+          if !hit_file_limit then
+            Ok
+              ( results,
+                Some
+                  (Printf.sprintf
+                     "\n\n\
+                      (warning: stopped after visiting %d files — use a more \
+                      specific path or increase max_files to search more)"
+                     max_files) )
+          else Ok (results, None))
+        ();
+      Lwt.bind (Lwt_unix.sleep timeout) (fun () ->
+          Lwt.return
+            (Error
+               (Printf.sprintf
+                  "Error: operation timed out after %.0fs (search path may be \
+                   too broad — try a more specific path or narrower glob)"
+                  timeout)));
+    ]
+
 let is_path_allowed ~workspace ~workspace_only ~extra_allowed_paths path =
   if not workspace_only then true
   else is_path_within_allowed_roots ~workspace ~extra_allowed_paths path
@@ -935,6 +1041,16 @@ let glob ~workspace ~workspace_only ~extra_allowed_paths =
                       ( "description",
                         `String "Max results to return (default 200)" );
                     ] );
+                ( "max_files",
+                  `Assoc
+                    [
+                      ("type", `String "integer");
+                      ( "description",
+                        `String
+                          "Max files to visit during search (default 1000). \
+                           Increase for broad searches or reduce search scope \
+                           with a more specific root/pattern." );
+                    ] );
               ] );
           ("required", `List [ `String "pattern" ]);
         ];
@@ -947,6 +1063,9 @@ let glob ~workspace ~workspace_only ~extra_allowed_paths =
         let root_arg = try args |> member "root" |> to_string with _ -> "" in
         let max_results =
           try args |> member "max_results" |> to_int with _ -> 200
+        in
+        let max_files =
+          try args |> member "max_files" |> to_int with _ -> 1000
         in
         if pattern = "" then Lwt.return "Error: pattern is required"
         else
@@ -979,44 +1098,35 @@ let glob ~workspace ~workspace_only ~extra_allowed_paths =
             Lwt.return
               "Error: root path is outside the workspace in workspace_only mode"
           else
-            let results = ref [] in
-            let count = ref 0 in
-            let rec walk dir =
-              if !count >= max_results then ()
-              else
-                match Sys.readdir dir with
-                | entries ->
-                    Array.iter
-                      (fun entry ->
-                        if !count < max_results then begin
-                          let full = Filename.concat dir entry in
-                          let rel =
-                            let rlen = String.length root in
-                            let flen = String.length full in
-                            if
-                              flen > rlen + 1
-                              && String.sub full 0 rlen = root
-                              && full.[rlen] = '/'
-                            then String.sub full (rlen + 1) (flen - rlen - 1)
-                            else full
-                          in
-                          if glob_matches_path ~pattern rel then begin
-                            results := full :: !results;
-                            incr count
-                          end;
-                          try if Sys.is_directory full then walk full
-                          with Sys_error _ -> ()
-                        end)
-                      entries
-                | exception Sys_error _ -> ()
-            in
-            walk root;
-            let sorted = List.sort String.compare (List.rev !results) in
-            if sorted = [] then Lwt.return "No files matched"
-            else
-              Lwt.return
-                (String.concat "\n" sorted
-                ^ Printf.sprintf "\n\n(%d files matched)" (List.length sorted)));
+            let rlen = String.length root in
+            Lwt.bind
+              (walk_collect ~root ~max_results ~max_files
+                 ~on_entry:(fun ~full ~entry:_ ~is_dir:_ ~at_limit:_ ~add ->
+                   let flen = String.length full in
+                   let rel =
+                     if
+                       flen > rlen + 1
+                       && String.sub full 0 rlen = root
+                       && full.[rlen] = '/'
+                     then String.sub full (rlen + 1) (flen - rlen - 1)
+                     else full
+                   in
+                   if glob_matches_path ~pattern rel then add full)
+                 ())
+              (fun result ->
+                match result with
+                | Error msg -> Lwt.return msg
+                | Ok (results, warning) ->
+                    let sorted = List.sort String.compare results in
+                    if sorted = [] then
+                      Lwt.return
+                        ("No files matched" ^ Option.value ~default:"" warning)
+                    else
+                      Lwt.return
+                        (String.concat "\n" sorted
+                        ^ Printf.sprintf "\n\n(%d files matched)"
+                            (List.length sorted)
+                        ^ Option.value ~default:"" warning)));
     invoke_stream = None;
     risk_level = Low;
     deferred = false;
@@ -1197,6 +1307,16 @@ let grep ~workspace ~workspace_only ~extra_allowed_paths =
                       ("type", `String "integer");
                       ("description", `String "Max matching lines (default 50)");
                     ] );
+                ( "max_files",
+                  `Assoc
+                    [
+                      ("type", `String "integer");
+                      ( "description",
+                        `String
+                          "Max files to visit during search (default 1000). \
+                           Increase for broad searches or reduce search scope \
+                           with a more specific path/file_glob." );
+                    ] );
               ] );
           ("required", `List [ `String "pattern" ]);
         ];
@@ -1217,6 +1337,9 @@ let grep ~workspace ~workspace_only ~extra_allowed_paths =
         in
         let max_results =
           try args |> member "max_results" |> to_int with _ -> 50
+        in
+        let max_files =
+          try args |> member "max_files" |> to_int with _ -> 1000
         in
         if pattern = "" then Lwt.return "Error: pattern is required"
         else
@@ -1294,60 +1417,42 @@ let grep ~workspace ~workspace_only ~extra_allowed_paths =
                 Lwt.return
                   "Error: path is outside the workspace in workspace_only mode"
               else
-                let matches = ref [] in
-                let match_count = ref 0 in
-                let search_file file_path =
-                  if
-                    !match_count >= max_results
-                    || not (file_matches_glob file_path)
-                  then ()
-                  else
-                    try
-                      let ic = open_in file_path in
-                      let lnum = ref 0 in
-                      (try
-                         while !match_count < max_results do
-                           let line = input_line ic in
-                           incr lnum;
-                           if line_matches line then begin
-                             matches :=
-                               Printf.sprintf "%s:%d: %s" file_path !lnum line
-                               :: !matches;
-                             incr match_count
-                           end
-                         done
-                       with End_of_file -> ());
-                      close_in ic
-                    with Sys_error _ -> ()
-                in
-                let rec walk dir =
-                  if !match_count >= max_results then ()
-                  else
-                    match Sys.readdir dir with
-                    | entries ->
-                        Array.iter
-                          (fun entry ->
-                            if !match_count < max_results then begin
-                              let full = Filename.concat dir entry in
-                              try
-                                if Sys.is_directory full then walk full
-                                else search_file full
-                              with Sys_error _ -> ()
-                            end)
-                          entries
-                    | exception Sys_error _ -> ()
-                in
-                (try
-                   if Sys.is_directory root then walk root else search_file root
-                 with Sys_error _ -> ());
-                let sorted = List.rev !matches in
-                if sorted = [] then
-                  Lwt.return
-                    (Printf.sprintf "No matches found for '%s'" pattern)
-                else
-                  Lwt.return
-                    (String.concat "\n" sorted
-                    ^ Printf.sprintf "\n\n(%d matches)" (List.length sorted)));
+                Lwt.bind
+                  (walk_collect ~root ~max_results ~max_files
+                     ~on_entry:(fun ~full ~entry:_ ~is_dir ~at_limit ~add ->
+                       if is_dir || at_limit () || not (file_matches_glob full)
+                       then ()
+                       else begin
+                         try
+                           let ic = open_in full in
+                           let lnum = ref 0 in
+                           (try
+                              while not (at_limit ()) do
+                                let line = input_line ic in
+                                incr lnum;
+                                if line_matches line then
+                                  add
+                                    (Printf.sprintf "%s:%d: %s" full !lnum line)
+                              done
+                            with End_of_file -> ());
+                           close_in ic
+                         with Sys_error _ -> ()
+                       end)
+                     ())
+                  (fun result ->
+                    match result with
+                    | Error msg -> Lwt.return msg
+                    | Ok (sorted, warning) ->
+                        if sorted = [] then
+                          Lwt.return
+                            (Printf.sprintf "No matches found for '%s'" pattern
+                            ^ Option.value ~default:"" warning)
+                        else
+                          Lwt.return
+                            (String.concat "\n" sorted
+                            ^ Printf.sprintf "\n\n(%d matches)"
+                                (List.length sorted)
+                            ^ Option.value ~default:"" warning)));
     invoke_stream = None;
     risk_level = Low;
     deferred = false;
