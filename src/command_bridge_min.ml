@@ -378,20 +378,43 @@ let cmd_audit args =
         let rows = Audit.query ~db ~limit:20 () in
         if rows = [] then "No audit log entries."
         else
-          let lines =
+          let columns =
+            Table_format.
+              [
+                { header = "ID"; align = Right; min_width = 2; flex = false };
+                {
+                  header = "TIMESTAMP";
+                  align = Left;
+                  min_width = 19;
+                  flex = false;
+                };
+                { header = "EVENT"; align = Left; min_width = 5; flex = false };
+                { header = "TOOL"; align = Left; min_width = 4; flex = false };
+                {
+                  header = "DETAILS";
+                  align = Left;
+                  min_width = 10;
+                  flex = true;
+                };
+              ]
+          in
+          let tbl_rows =
             List.map
               (fun (r : Audit.row) ->
-                Printf.sprintf "  %-5d %-20s %-18s %-10s %s" r.id r.timestamp
-                  r.event_type
-                  (match r.tool_name with Some n -> n | None -> "")
+                [
+                  string_of_int r.id;
+                  r.timestamp;
+                  r.event_type;
+                  (match r.tool_name with Some n -> n | None -> "");
                   (match r.details with
                   | Some d when String.length d > 50 ->
                       String.sub d 0 50 ^ "..."
                   | Some d -> d
-                  | None -> ""))
+                  | None -> "");
+                ])
               rows
           in
-          "Audit log:\n" ^ String.concat "\n" lines
+          "Audit log:\n" ^ Table_format.render columns tbl_rows
     | _ -> "Usage: clawq-min audit <list>"
 
 let cmd_skills args =

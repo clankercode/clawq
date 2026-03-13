@@ -870,15 +870,6 @@ let cmd_plan args =
       \  plan logs <id> [--lines N]             - Show stage logs\n\
       \  plan cancel <id>                       - Cancel pipeline"
 
-let format_background_task_row (task : Background_task.task) =
-  let branch = if task.branch = "" then "-" else task.branch in
-  let health = Background_task.diagnose_health task in
-  Printf.sprintf "  %-4d %-8s %-8s %-16s %-18s %s" task.id
-    (Background_task.string_of_runner task.runner)
-    (Background_task.string_of_status task.status)
-    (Background_task.string_of_health health)
-    branch task.repo_path
-
 let format_background_task_details (task : Background_task.task) =
   let add line acc = line :: acc in
   let lines = ref [] in
@@ -1104,7 +1095,19 @@ let cmd_auth args =
           configured_names
       in
       let all = known_auth_providers @ extra in
-      let lines =
+      let columns =
+        Table_format.
+          [
+            { header = "PROVIDER"; align = Left; min_width = 8; flex = false };
+            {
+              header = "DESCRIPTION";
+              align = Left;
+              min_width = 10;
+              flex = true;
+            };
+          ]
+      in
+      let tbl_rows =
         List.map
           (fun (name, desc) ->
             let suffix =
@@ -1116,11 +1119,11 @@ let cmd_auth args =
                 else " [configured]"
               else ""
             in
-            Printf.sprintf "  %-20s %s%s" name desc suffix)
+            [ name; desc ^ suffix ])
           all
       in
       "Known providers (use with 'clawq auth set-key'):\n"
-      ^ String.concat "\n" lines
+      ^ Table_format.render columns tbl_rows
   | [ "encrypt" ] ->
       if not (get_config ()).security.encrypt_secrets then
         "Secret encryption is disabled. Set security.encrypt_secrets to true \

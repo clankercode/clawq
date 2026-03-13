@@ -445,6 +445,36 @@ let cmd_delegate args =
             repo_path id id
       | Error msg -> "Error: " ^ msg)
 
+let format_audit_table rows =
+  if rows = [] then "No audit log entries."
+  else
+    let columns =
+      Table_format.
+        [
+          { header = "ID"; align = Right; min_width = 2; flex = false };
+          { header = "TIMESTAMP"; align = Left; min_width = 19; flex = false };
+          { header = "EVENT"; align = Left; min_width = 5; flex = false };
+          { header = "TOOL"; align = Left; min_width = 4; flex = false };
+          { header = "DETAILS"; align = Left; min_width = 10; flex = true };
+        ]
+    in
+    let tbl_rows =
+      List.map
+        (fun (r : Audit.row) ->
+          [
+            string_of_int r.id;
+            r.timestamp;
+            r.event_type;
+            (match r.tool_name with Some n -> n | None -> "");
+            (match r.details with
+            | Some d ->
+                if String.length d > 50 then String.sub d 0 50 ^ "..." else d
+            | None -> "");
+          ])
+        rows
+    in
+    "Audit log:\n" ^ Table_format.render columns tbl_rows
+
 let cmd_audit args =
   let cfg = get_config () in
   if not cfg.security.audit_enabled then
@@ -455,49 +485,11 @@ let cmd_audit args =
     match args with
     | [ "list" ] | [] ->
         let rows = Audit.query ~db ~limit:20 () in
-        if rows = [] then "No audit log entries."
-        else
-          let header =
-            Printf.sprintf "  %-5s %-20s %-18s %-10s %s" "ID" "TIMESTAMP"
-              "EVENT" "TOOL" "DETAILS"
-          in
-          let lines =
-            List.map
-              (fun (r : Audit.row) ->
-                Printf.sprintf "  %-5d %-20s %-18s %-10s %s" r.id r.timestamp
-                  r.event_type
-                  (match r.tool_name with Some n -> n | None -> "")
-                  (match r.details with
-                  | Some d ->
-                      if String.length d > 50 then String.sub d 0 50 ^ "..."
-                      else d
-                  | None -> ""))
-              rows
-          in
-          "Audit log:\n" ^ header ^ "\n" ^ String.concat "\n" lines
+        format_audit_table rows
     | [ "list"; "--limit"; n ] ->
         let limit = try int_of_string n with _ -> 20 in
         let rows = Audit.query ~db ~limit () in
-        if rows = [] then "No audit log entries."
-        else
-          let header =
-            Printf.sprintf "  %-5s %-20s %-18s %-10s %s" "ID" "TIMESTAMP"
-              "EVENT" "TOOL" "DETAILS"
-          in
-          let lines =
-            List.map
-              (fun (r : Audit.row) ->
-                Printf.sprintf "  %-5d %-20s %-18s %-10s %s" r.id r.timestamp
-                  r.event_type
-                  (match r.tool_name with Some n -> n | None -> "")
-                  (match r.details with
-                  | Some d ->
-                      if String.length d > 50 then String.sub d 0 50 ^ "..."
-                      else d
-                  | None -> ""))
-              rows
-          in
-          "Audit log:\n" ^ header ^ "\n" ^ String.concat "\n" lines
+        format_audit_table rows
     | [ "verify" ] -> (
         match Audit.get_signing_key () with
         | Error msg -> Printf.sprintf "Error: %s" msg

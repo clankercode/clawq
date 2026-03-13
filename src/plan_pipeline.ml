@@ -603,24 +603,23 @@ let format_pipeline_summary pipeline =
 let format_pipeline_list pipelines =
   if pipelines = [] then "No plan pipelines."
   else
-    let header =
-      Printf.sprintf "  %-5s %-12s %-10s %s" "ID" "STAGE" "STATUS" "PROMPT"
+    let columns =
+      Table_format.
+        [
+          { header = "ID"; align = Right; min_width = 2; flex = false };
+          { header = "STAGE"; align = Left; min_width = 5; flex = false };
+          { header = "STATUS"; align = Left; min_width = 6; flex = false };
+          { header = "PROMPT"; align = Left; min_width = 10; flex = true };
+        ]
     in
     let rows =
       List.map
         (fun p ->
-          let stage_s =
-            let s = string_of_stage p.stage in
-            if String.length s > 12 then String.sub s 0 12 else s
-          in
-          let prompt_s =
-            if String.length p.prompt > 40 then String.sub p.prompt 0 40 ^ "..."
-            else p.prompt
-          in
-          Printf.sprintf "  %-5d %-12s %-10s %s" p.id stage_s p.status prompt_s)
+          let stage_s = string_of_stage p.stage in
+          [ string_of_int p.id; stage_s; p.status; p.prompt ])
         pipelines
     in
-    "Plan pipelines:\n" ^ header ^ "\n" ^ String.concat "\n" rows
+    "Plan pipelines:\n" ^ Table_format.render columns rows
 
 let cancel_pipeline ~db ~id =
   match get_pipeline ~db ~id with

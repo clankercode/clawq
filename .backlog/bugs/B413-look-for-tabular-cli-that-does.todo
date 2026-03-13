@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-13T07:19:01Z"
+claimed_by: cli-user
+completed_at: "2026-03-13T07:23:01Z"
 complexity: medium
 depends_on: []
+duration_minutes: 4.0086959658
 estimate_hours: 1
 id: B413
 priority: high
-status: pending
+started_at: "2026-03-13T07:19:01Z"
+status: done
 tags: []
 title: 'look for tabular CLI that doesn''t use src/table_format.ml but could/should use it (example use: `clawq cron list`) -- update the cli commands that you find to use the new table formatter'
 ---

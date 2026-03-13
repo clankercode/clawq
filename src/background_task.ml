@@ -346,9 +346,17 @@ let rec format_task_list tasks = format_task_list_with_hidden tasks 0
 and format_task_list_with_hidden tasks hidden_count =
   if tasks = [] && hidden_count = 0 then "No background tasks."
   else
-    let header =
-      Printf.sprintf "  %-4s %-8s %-8s %-16s %-8s %-18s %s" "ID" "RUNNER"
-        "STATUS" "HEALTH" "RUNTIME" "BRANCH" "REPO"
+    let columns =
+      Table_format.
+        [
+          { header = "ID"; align = Right; min_width = 2; flex = false };
+          { header = "RUNNER"; align = Left; min_width = 6; flex = false };
+          { header = "STATUS"; align = Left; min_width = 6; flex = false };
+          { header = "HEALTH"; align = Left; min_width = 6; flex = false };
+          { header = "RUNTIME"; align = Left; min_width = 7; flex = false };
+          { header = "BRANCH"; align = Left; min_width = 6; flex = false };
+          { header = "REPO"; align = Left; min_width = 4; flex = true };
+        ]
     in
     let rows =
       List.map
@@ -356,10 +364,15 @@ and format_task_list_with_hidden tasks hidden_count =
           let branch = if task.branch = "" then "-" else task.branch in
           let runtime = runtime_string task in
           let health = diagnose_health task in
-          Printf.sprintf "  %-4d %-8s %-8s %-16s %-8s %-18s %s" task.id
-            (string_of_runner task.runner)
-            (string_of_status task.status)
-            (string_of_health health) runtime branch task.repo_path)
+          [
+            string_of_int task.id;
+            string_of_runner task.runner;
+            string_of_status task.status;
+            string_of_health health;
+            runtime;
+            branch;
+            task.repo_path;
+          ])
         tasks
     in
     let footer =
@@ -372,7 +385,7 @@ and format_task_list_with_hidden tasks hidden_count =
           (if hidden_count = 1 then "" else "s")
       else ""
     in
-    "Background tasks:\n" ^ header ^ "\n" ^ String.concat "\n" rows ^ footer
+    "Background tasks:\n" ^ Table_format.render columns rows ^ footer
 
 let sql_text = function Sqlite3.Data.TEXT s -> Some s | _ -> None
 let sql_int = function Sqlite3.Data.INT i -> Some (Int64.to_int i) | _ -> None
