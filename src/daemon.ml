@@ -139,7 +139,8 @@ let run ~(config : Runtime_config.t) =
   Logs.info (fun m ->
       m
         "Channels: cli=%b telegram=%b discord=%b slack=%b github=%b signal=%b \
-         matrix=%b irc=%b email=%b nostr=%b dingtalk=%b onebot=%b lark=%b"
+         matrix=%b irc=%b email=%b nostr=%b dingtalk=%b onebot=%b lark=%b \
+         teams=%b"
         config.channels.cli
         (config.channels.telegram <> None)
         (config.channels.discord <> None)
@@ -154,7 +155,8 @@ let run ~(config : Runtime_config.t) =
         (config.channels.onebot <> None)
         (match config.channels.lark with
         | Some lk -> lk.enabled
-        | None -> false));
+        | None -> false)
+        (config.channels.teams <> None));
   let sandbox = ref (make_sandbox config) in
   Logs.info (fun m ->
       m "Sandbox backend: %s"
@@ -1052,6 +1054,16 @@ let run ~(config : Runtime_config.t) =
                   m "Lark channel error: %s" (Printexc.to_string exn));
               Lwt.return_unit))
   | Some _ | None -> ());
+  (match config.channels.teams with
+  | Some _ ->
+      Lwt.async (fun () ->
+          Lwt.catch
+            (fun () -> Teams.start ~config ~_session_manager:session_manager)
+            (fun exn ->
+              Logs.err (fun m ->
+                  m "Teams channel error: %s" (Printexc.to_string exn));
+              Lwt.return_unit))
+  | None -> ());
   let* _resume_summary =
     run_pending_session_resume_stage ~session_manager ~config ()
   in
