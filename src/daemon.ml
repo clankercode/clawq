@@ -140,7 +140,7 @@ let run ~(config : Runtime_config.t) =
       m
         "Channels: cli=%b telegram=%b discord=%b slack=%b github=%b signal=%b \
          matrix=%b irc=%b email=%b nostr=%b dingtalk=%b onebot=%b lark=%b \
-         teams=%b"
+         teams=%b mattermost=%b imessage=%b whatsapp=%b line=%b"
         config.channels.cli
         (config.channels.telegram <> None)
         (config.channels.discord <> None)
@@ -156,7 +156,11 @@ let run ~(config : Runtime_config.t) =
         (match config.channels.lark with
         | Some lk -> lk.enabled
         | None -> false)
-        (config.channels.teams <> None));
+        (config.channels.teams <> None)
+        (config.channels.mattermost <> None)
+        (config.channels.imessage <> None)
+        (config.channels.whatsapp <> None)
+        (config.channels.line <> None));
   let sandbox = ref (make_sandbox config) in
   Logs.info (fun m ->
       m "Sandbox backend: %s"
@@ -778,6 +782,10 @@ let run ~(config : Runtime_config.t) =
         ("onebot", "starting");
         ("lark", "starting");
         ("teams", "starting");
+        ("mattermost", "starting");
+        ("imessage", "starting");
+        ("whatsapp", "starting");
+        ("line", "starting");
       ];
   let gateway_stop, stop_gateway = Lwt.wait () in
   let gateway =
@@ -923,6 +931,10 @@ let run ~(config : Runtime_config.t) =
          ("onebot", "running");
          ("lark", "running");
          ("teams", "running");
+         ("mattermost", "running");
+         ("imessage", "running");
+         ("whatsapp", "running");
+         ("line", "running");
        ]
       @ if slack_socket_enabled then [ ("slack_socket", "running") ] else []);
   (match db with
