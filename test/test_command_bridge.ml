@@ -376,8 +376,8 @@ let test_handle_session_heartbeat_status_mentions_global_disable () =
   "heartbeat": {
     "enabled": false,
     "interval_seconds": 300,
-    "quiet_start_hour": 23,
-    "quiet_end_hour": 8
+    "quiet_start": 23,
+    "quiet_end": 8
   },
   "security": {
     "tools_enabled": false

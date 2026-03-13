@@ -296,7 +296,7 @@ Note: `providers.*.default_model` is the model identifier as understood by that 
 
 **telemetry** — `enabled`, `endpoint`, `service_name`.
 
-**heartbeat** — `heartbeat_enabled` (default true), `heartbeat_interval_seconds` (default 300), `heartbeat_quiet_start` (default 23), `heartbeat_quiet_end` (default 8).
+**heartbeat** — `enabled` (default true), `interval_seconds` (default 250), `quiet_start` (default 23), `quiet_end` (default 8).
 
 **notify** — `notify_channel`, `notify_target`. Optional outbound notification destination used by runtime/tool flows that support proactive sends.
 
@@ -456,8 +456,8 @@ current queue state for a given session; `session list` appends
 
 ## Heartbeats
 
-- Heartbeats are controlled by `heartbeat.heartbeat_enabled`, `heartbeat.heartbeat_interval_seconds`, `heartbeat.heartbeat_quiet_start`, and `heartbeat.heartbeat_quiet_end`.
-- `heartbeat.heartbeat_enabled` is the global master switch. Session participation is a separate persisted opt-in.
+- Heartbeats are controlled by `heartbeat.enabled`, `heartbeat.interval_seconds`, `heartbeat.quiet_start`, and `heartbeat.quiet_end`.
+- `heartbeat.enabled` is the global master switch. Session participation is a separate persisted opt-in.
 - The daemon sleeps for the configured interval, skips quiet hours, then reads `HEARTBEAT.md` from the workspace root.
 - If `HEARTBEAT.md` is missing or empty, nothing happens.
 - Heartbeat execution targets only sessions explicitly opted in via `clawq session heartbeat SESSION on` or `/heartbeat on` from a supported chat session.
@@ -678,7 +678,7 @@ Tell users:
 - **`cd ~/src/clawq && ...` fails**: in default `workspace_only` mode, `cd` and `&&` are not supported because execution is direct-process style and unsafe shell syntax is rejected. Use a direct allowed binary with explicit path arguments, or disable `workspace_only` if you truly need shell semantics.
 - **Shell builtin fails with `No such file or directory`**: you are likely in direct-exec mode, not `/bin/sh -c` mode.
 - **Git or tools complain about missing `/dev/null`**: inspect sandbox backend. Bubblewrap tries to bind `/dev` and `/dev/null`; if this still fails, verify host `/dev/null` exists and try `security.sandbox_backend = "none"` or `"firejail"` to isolate the backend problem.
-- **Heartbeats expected but not appearing**: confirm `heartbeat_enabled = true`, quiet hours are not suppressing the tick, `HEARTBEAT.md` exists and is non-empty, and the target session was opted in with `clawq session heartbeat SESSION on` or `/heartbeat on`. Also verify the session is a supported Telegram/Slack/Discord session.
+- **Heartbeats expected but not appearing**: confirm `heartbeat.enabled = true`, quiet hours are not suppressing the tick, `HEARTBEAT.md` exists and is non-empty, and the target session was opted in with `clawq session heartbeat SESSION on` or `/heartbeat on`. Also verify the session is a supported Telegram/Slack/Discord session.
 - **A turn seems stuck or you want to interrupt it from chat**: send a message starting with `!`. Example: `!stop` interrupts the in-flight turn for that session and then sends `stop` as the next normal message; a bare `!` becomes `[interrupted]`.
 - **`clawq service signal-restart` says daemon is not running, but `daemon_state.json` shows a live pid**: you are likely running a direct `clawq agent` process rather than a service-managed daemon. `clawq service ...` commands follow the service PID file, not `daemon_state.json`.
 - **Need graceful restart for a direct `clawq agent` process**: send `SIGUSR1` to the live process itself; do not assume `clawq service signal-restart` can reach it unless it was started through the service path.

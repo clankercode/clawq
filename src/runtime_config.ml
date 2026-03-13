@@ -631,7 +631,7 @@ let default =
     heartbeat =
       {
         heartbeat_enabled = true;
-        heartbeat_interval_seconds = 300;
+        heartbeat_interval_seconds = 250;
         heartbeat_quiet_start = 23;
         heartbeat_quiet_end = 8;
       };
@@ -1507,11 +1507,10 @@ let to_json (cfg : t) : Yojson.Safe.t =
         ( "heartbeat",
           `Assoc
             [
-              ("heartbeat_enabled", `Bool cfg.heartbeat.heartbeat_enabled);
-              ( "heartbeat_interval_seconds",
-                `Int cfg.heartbeat.heartbeat_interval_seconds );
-              ("heartbeat_quiet_start", `Int cfg.heartbeat.heartbeat_quiet_start);
-              ("heartbeat_quiet_end", `Int cfg.heartbeat.heartbeat_quiet_end);
+              ("enabled", `Bool cfg.heartbeat.heartbeat_enabled);
+              ("interval_seconds", `Int cfg.heartbeat.heartbeat_interval_seconds);
+              ("quiet_start", `Int cfg.heartbeat.heartbeat_quiet_start);
+              ("quiet_end", `Int cfg.heartbeat.heartbeat_quiet_end);
             ] );
       ]
   in

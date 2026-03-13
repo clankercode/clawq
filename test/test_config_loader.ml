@@ -533,6 +533,53 @@ let test_parse_log_config_defaults () =
   Alcotest.(check int) "default max_size_mb" 10 cfg.log.max_size_mb;
   Alcotest.(check int) "default max_files" 5 cfg.log.max_files
 
+let test_parse_heartbeat_config () =
+  let json =
+    Yojson.Safe.from_string
+      {|{
+        "heartbeat": {
+          "enabled": false,
+          "interval_seconds": 250,
+          "quiet_start": 22,
+          "quiet_end": 7
+        }
+      }|}
+  in
+  let cfg = Config_loader.parse_config json in
+  Alcotest.(check bool)
+    "heartbeat_enabled parsed" false cfg.heartbeat.heartbeat_enabled;
+  Alcotest.(check int)
+    "heartbeat_interval_seconds parsed" 250
+    cfg.heartbeat.heartbeat_interval_seconds;
+  Alcotest.(check int)
+    "heartbeat_quiet_start parsed" 22 cfg.heartbeat.heartbeat_quiet_start;
+  Alcotest.(check int)
+    "heartbeat_quiet_end parsed" 7 cfg.heartbeat.heartbeat_quiet_end
+
+let test_migrate_heartbeat_prefixed_keys () =
+  (* Old configs may have heartbeat.heartbeat_x keys; migration should rename
+     them to the canonical unprefixed form on load. *)
+  with_temp_file
+    {|{
+      "heartbeat": {
+        "heartbeat_enabled": false,
+        "heartbeat_interval_seconds": 250,
+        "heartbeat_quiet_start": 21,
+        "heartbeat_quiet_end": 6
+      }
+    }|}
+    (fun path ->
+      let cfg = Config_loader.load ~path () in
+      Alcotest.(check bool)
+        "enabled migrated" false cfg.heartbeat.heartbeat_enabled;
+      Alcotest.(check int)
+        "interval_seconds migrated" 250
+        cfg.heartbeat.heartbeat_interval_seconds;
+      Alcotest.(check int)
+        "quiet_start migrated" 21 cfg.heartbeat.heartbeat_quiet_start;
+      Alcotest.(check int)
+        "quiet_end migrated" 6 cfg.heartbeat.heartbeat_quiet_end)
+
 let suite =
   [
     Alcotest.test_case "load warns on invalid port" `Quick
@@ -595,6 +642,10 @@ let suite =
     Alcotest.test_case "parse log config" `Quick test_parse_log_config;
     Alcotest.test_case "parse log config defaults" `Quick
       test_parse_log_config_defaults;
+    Alcotest.test_case "parse heartbeat config" `Quick
+      test_parse_heartbeat_config;
+    Alcotest.test_case "migrate heartbeat prefixed keys" `Quick
+      test_migrate_heartbeat_prefixed_keys;
     Alcotest.test_case "default_path returns config.json path" `Quick (fun () ->
         let path = Config_loader.default_path () in
         Alcotest.(check bool)

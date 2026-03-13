@@ -326,10 +326,10 @@ let config_schema =
       ( "heartbeat",
         O
           [
-            ("heartbeat_enabled", L);
-            ("heartbeat_interval_seconds", L);
-            ("heartbeat_quiet_start", L);
-            ("heartbeat_quiet_end", L);
+            ("enabled", L);
+            ("interval_seconds", L);
+            ("quiet_start", L);
+            ("quiet_end", L);
           ] );
       ("notify", O [ ("notify_channel", L); ("notify_target", L) ]);
       ( "web_search",

@@ -1307,13 +1307,13 @@ let parse_config ?(resolve_secrets = true) json =
         try h |> member "enabled" |> to_bool with _ -> true
       in
       let heartbeat_interval_seconds =
-        try h |> member "interval_seconds" |> to_int with _ -> 300
+        try h |> member "interval_seconds" |> to_int with _ -> 250
       in
       let heartbeat_quiet_start =
-        try h |> member "quiet_start_hour" |> to_int with _ -> 23
+        try h |> member "quiet_start" |> to_int with _ -> 23
       in
       let heartbeat_quiet_end =
-        try h |> member "quiet_end_hour" |> to_int with _ -> 8
+        try h |> member "quiet_end" |> to_int with _ -> 8
       in
       ({
          heartbeat_enabled;
@@ -1685,6 +1685,45 @@ let warn_invalid_config ~config_path issues =
 
 let default_path () = Dot_dir.config_path ()
 
+(* Rename heartbeat.heartbeat_x -> heartbeat.x for any old key that has no
+   corresponding new key already present. Applied in-memory before parse and
+   backfill so the canonical short names take effect immediately and the
+   backfill pass will persist the clean form. *)
+let migrate_config_json (json : Yojson.Safe.t) : Yojson.Safe.t =
+  let renames =
+    [
+      ("heartbeat_enabled", "enabled");
+      ("heartbeat_interval_seconds", "interval_seconds");
+      ("heartbeat_quiet_start", "quiet_start");
+      ("heartbeat_quiet_end", "quiet_end");
+    ]
+  in
+  let migrate_heartbeat = function
+    | `Assoc fields ->
+        let fields =
+          List.fold_left
+            (fun acc (old_key, new_key) ->
+              if List.mem_assoc new_key acc then acc
+              else
+                match List.assoc_opt old_key acc with
+                | None -> acc
+                | Some v ->
+                    let acc = List.filter (fun (k, _) -> k <> old_key) acc in
+                    acc @ [ (new_key, v) ])
+            fields renames
+        in
+        `Assoc fields
+    | other -> other
+  in
+  match json with
+  | `Assoc top ->
+      `Assoc
+        (List.map
+           (fun (k, v) ->
+             if k = "heartbeat" then (k, migrate_heartbeat v) else (k, v))
+           top)
+  | other -> other
+
 let load ?(path = "") () : Runtime_config.t =
   let config_path = if path <> "" then path else default_path () in
   if not (Sys.file_exists config_path) then Runtime_config.default
@@ -1699,6 +1738,7 @@ let load ?(path = "") () : Runtime_config.t =
     match json with
     | None -> Runtime_config.default
     | Some json ->
+        let json = migrate_config_json json in
         let config = parse_config ~resolve_secrets:true json in
         let backfill_cfg = parse_config ~resolve_secrets:false json in
         let raw_validation_cfg =

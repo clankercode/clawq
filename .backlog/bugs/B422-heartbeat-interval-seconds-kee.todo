@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-13T10:07:28Z"
+claimed_by: cli-user
+completed_at: "2026-03-13T10:11:39Z"
 complexity: medium
 depends_on: []
+duration_minutes: 4.198357470183334
 estimate_hours: 1
 id: B422
 priority: high
-status: pending
+started_at: "2026-03-13T10:07:28Z"
+status: done
 tags: []
 title: heartbeat_interval_seconds keeps getting reset to 300 in config instead of what i set it to (250)
 ---
