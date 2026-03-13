@@ -439,8 +439,9 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                 if team_id = "" then "personal" else team_id
               in
               Logs.info (fun m ->
-                  m "Teams: message from user=%s team=%s conv=%s" user_id
-                    effective_team_id conversation_id);
+                  m "Teams: message from user=%s (id=%s) team=%s conv=%s"
+                    (if user_name <> "" then user_name else user_id)
+                    user_id effective_team_id conversation_id);
               if not (is_team_allowed ~config ~team_id:effective_team_id) then (
                 Logs.warn (fun m ->
                     m "Teams: ignoring message from unauthorized team=%s"
@@ -448,7 +449,10 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                 Lwt.return_unit)
               else if not (is_user_allowed ~config ~user_id) then (
                 Logs.warn (fun m ->
-                    m "Teams: ignoring message from unauthorized user=%s"
+                    m
+                      "Teams: ignoring message from unauthorized user=%s \
+                       (id=%s)"
+                      (if user_name <> "" then user_name else user_id)
                       user_id);
                 Lwt.return_unit)
               else
@@ -518,8 +522,12 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                             ~reply_to_id:activity_id ~text:response ?mention ()
                     | Error err ->
                         Logs.err (fun m ->
-                            m "Teams: agent error for conv=%s user=%s: %s"
-                              conversation_id user_id err);
+                            m
+                              "Teams: agent error for conv=%s user=%s (id=%s): \
+                               %s"
+                              conversation_id
+                              (if user_name <> "" then user_name else user_id)
+                              user_id err);
                         Lwt.return_unit)
                 | Reply text -> send_text text
                 | Reset ->
