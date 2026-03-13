@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-13T07:18:57Z"
+claimed_by: cli-user
+completed_at: "2026-03-13T07:23:29Z"
 complexity: medium
 depends_on: []
+duration_minutes: 4.5369899176
 estimate_hours: 1
 id: B414
 priority: high
-status: pending
+started_at: "2026-03-13T07:18:57Z"
+status: done
 tags: []
 title: 'Teams: Add sender name in message context header'
 ---

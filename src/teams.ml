@@ -245,6 +245,9 @@ let parse_activity body_str =
       let user_id =
         try json |> member "from" |> member "id" |> to_string with _ -> ""
       in
+      let user_name =
+        try json |> member "from" |> member "name" |> to_string with _ -> ""
+      in
       let conversation_id =
         try json |> member "conversation" |> member "id" |> to_string
         with _ -> ""
@@ -257,7 +260,15 @@ let parse_activity body_str =
       in
       if text = "" || conversation_id = "" || user_id = "" then None
       else
-        Some (activity_id, service_url, conversation_id, user_id, team_id, text)
+        let sender_name = if user_name = "" then None else Some user_name in
+        Some
+          ( activity_id,
+            service_url,
+            conversation_id,
+            user_id,
+            team_id,
+            sender_name,
+            text )
   with _ -> None
 
 (* Strip <at>...</at> mention tags from Teams message text *)
@@ -311,8 +322,13 @@ let handle_webhook ~(config : Runtime_config.teams_config)
       match parse_activity body_str with
       | None -> Lwt.return_unit
       | Some
-          (activity_id, service_url, conversation_id, user_id, team_id, raw_text)
-        -> (
+          ( activity_id,
+            service_url,
+            conversation_id,
+            user_id,
+            team_id,
+            sender_name,
+            raw_text ) -> (
           if dedup_seen activity_id then Lwt.return_unit
           else
             let text = strip_at_mentions raw_text in
@@ -354,7 +370,7 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                           let* response =
                             Session.turn session_manager ~key ~message:text
                               ~channel_name:"teams" ~channel_type:"webhook"
-                              ~sender_id:user_id ()
+                              ~sender_id:user_id ?sender_name ()
                           in
                           Lwt.return (Ok response))
                         (fun exn -> Lwt.return (Error (Printexc.to_string exn))))
