@@ -453,10 +453,10 @@ let migrate_schema db current_version =
       exec_exn db
         "INSERT INTO session_state_new (session_key, turn, channel, \
          channel_id, response_sent_at, last_active, keepalive_enabled, \
-         heartbeat_enabled, model_override) SELECT session_key, turn, \
-         channel, channel_id, response_sent_at, last_active, \
-         keepalive_enabled, heartbeat_enabled, model_override FROM \
-         session_state WHERE (channel IS NULL) = (channel_id IS NULL)";
+         heartbeat_enabled, model_override) SELECT session_key, turn, channel, \
+         channel_id, response_sent_at, last_active, keepalive_enabled, \
+         heartbeat_enabled, model_override FROM session_state WHERE (channel \
+         IS NULL) = (channel_id IS NULL)";
       exec_exn db "DROP TABLE session_state";
       exec_exn db "ALTER TABLE session_state_new RENAME TO session_state";
       init_inbound_queue_schema db;

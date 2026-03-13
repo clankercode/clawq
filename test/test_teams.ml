@@ -225,6 +225,26 @@ let test_encode_channel_id_format () =
   in
   Alcotest.(check string) "pipe-delimited" "https://svc|conv-1" encoded
 
+let test_slash_command_recognized_after_mention_strip () =
+  let stripped = Teams.strip_at_mentions "<at>Bot</at> /help" in
+  Alcotest.(check string) "stripped to /help" "/help" stripped;
+  match Slash_commands.handle stripped with
+  | Slash_commands.Reply _ -> ()
+  | _ -> Alcotest.fail "expected Reply from /help"
+
+let test_slash_new_after_mention_strip () =
+  let stripped = Teams.strip_at_mentions "<at>Bot</at> /new" in
+  Alcotest.(check string) "stripped to /new" "/new" stripped;
+  match Slash_commands.handle stripped with
+  | Slash_commands.Reset -> ()
+  | _ -> Alcotest.fail "expected Reset from /new"
+
+let test_not_slash_after_mention_strip () =
+  let stripped = Teams.strip_at_mentions "<at>Bot</at> hello world" in
+  match Slash_commands.handle stripped with
+  | Slash_commands.NotACommand -> ()
+  | _ -> Alcotest.fail "expected NotACommand for normal message"
+
 let suite =
   [
     Alcotest.test_case "parse_activity returns record" `Quick
@@ -260,4 +280,10 @@ let suite =
       test_decode_channel_id_with_pipe_in_conversation_id;
     Alcotest.test_case "encode_channel_id format" `Quick
       test_encode_channel_id_format;
+    Alcotest.test_case "slash /help recognized after mention strip" `Quick
+      test_slash_command_recognized_after_mention_strip;
+    Alcotest.test_case "slash /new recognized after mention strip" `Quick
+      test_slash_new_after_mention_strip;
+    Alcotest.test_case "normal message not a slash command" `Quick
+      test_not_slash_after_mention_strip;
   ]
