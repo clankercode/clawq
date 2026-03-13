@@ -542,6 +542,17 @@ let run_foreground ~db ~pipeline ~runner ~on_progress () =
                               PipelineFailed
                                 (Printf.sprintf "task %d was cancelled" task_id);
                           }
+                    | Background_task.DirtyWorktree ->
+                        loop
+                          {
+                            p with
+                            stage =
+                              PipelineFailed
+                                (Printf.sprintf
+                                   "task %d completed but left uncommitted \
+                                    worktree changes"
+                                   task_id);
+                          }
                     | Background_task.Failed -> (
                         match stage with
                         | PlanReview _ | CodeReview _ ->

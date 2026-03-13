@@ -2989,13 +2989,13 @@ let test_finalize_completed_task_fails_for_dirty_worktree () =
           ~output:"all done"
       in
       Alcotest.(check string)
-        "dirty worktree fails" "failed"
+        "dirty worktree status" "dirty_worktree"
         (Background_task.string_of_status status);
       match Background_task.get_task ~db ~id with
       | None -> Alcotest.fail "expected task"
       | Some task ->
           Alcotest.(check string)
-            "task stored as failed" "failed"
+            "task stored as dirty_worktree" "dirty_worktree"
             (Background_task.string_of_status task.status);
           let preview = Option.value ~default:"" task.result_preview in
           Alcotest.(check bool)
@@ -3016,6 +3016,82 @@ let test_finalize_completed_task_fails_for_dirty_worktree () =
                     preview 0);
                true
              with Not_found -> false))
+
+let test_dirty_worktree_status_is_terminal () =
+  Alcotest.(check bool)
+    "DirtyWorktree is terminal" true
+    (Background_task.is_terminal_status Background_task.DirtyWorktree)
+
+let test_dirty_worktree_string_roundtrip () =
+  let s = Background_task.string_of_status Background_task.DirtyWorktree in
+  Alcotest.(check string) "to_string" "dirty_worktree" s;
+  let rt = Background_task.status_of_string s in
+  Alcotest.(check string)
+    "roundtrip" "dirty_worktree"
+    (Background_task.string_of_status rt)
+
+let test_terse_message_dirty_worktree () =
+  let task : Background_task.task =
+    {
+      id = 42;
+      runner = Background_task.Codex;
+      model = None;
+      repo_path = "/tmp/repo";
+      prompt = "test prompt";
+      branch = "test-branch";
+      worktree_path = Some "/tmp/wt";
+      log_path = None;
+      status = Background_task.DirtyWorktree;
+      session_key = None;
+      channel = None;
+      channel_id = None;
+      pid = None;
+      result_preview = Some "uncommitted worktree changes";
+      created_at = "2026-01-01 00:00:00";
+      started_at = Some "2026-01-01 00:00:00";
+      finished_at = Some "2026-01-01 00:01:00";
+      automerge = false;
+      use_worktree = true;
+      merge_status = None;
+      retry_count = 0;
+    }
+  in
+  let msg = Background_task.terse_finished_message task in
+  Alcotest.(check bool)
+    "contains dirty-worktree" true
+    (try
+       ignore (Str.search_forward (Str.regexp_string "dirty-worktree") msg 0);
+       true
+     with Not_found -> false);
+  Alcotest.(check bool)
+    "contains preview" true
+    (try
+       ignore
+         (Str.search_forward
+            (Str.regexp_string "uncommitted worktree changes")
+            msg 0);
+       true
+     with Not_found -> false)
+
+let test_dirty_worktree_retryable () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"test" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      Background_task.finish ~db ~id ~status:Background_task.DirtyWorktree
+        ~result_preview:"dirty";
+      match Background_task.retry ~db ~id with
+      | Ok _ -> ()
+      | Error msg ->
+          Alcotest.fail
+            (Printf.sprintf "retry should accept DirtyWorktree: %s" msg))
 
 let test_count_active_for_session () =
   with_temp_git_repo (fun repo_path ->
@@ -3221,6 +3297,14 @@ let suite =
     Alcotest.test_case "retry count persists" `Quick test_retry_count_persists;
     Alcotest.test_case "finalize completed task fails for dirty worktree" `Quick
       test_finalize_completed_task_fails_for_dirty_worktree;
+    Alcotest.test_case "dirty worktree status is terminal" `Quick
+      test_dirty_worktree_status_is_terminal;
+    Alcotest.test_case "dirty worktree string roundtrip" `Quick
+      test_dirty_worktree_string_roundtrip;
+    Alcotest.test_case "terse message dirty worktree" `Quick
+      test_terse_message_dirty_worktree;
+    Alcotest.test_case "dirty worktree retryable" `Quick
+      test_dirty_worktree_retryable;
     Alcotest.test_case "count active for session" `Quick
       test_count_active_for_session;
   ]

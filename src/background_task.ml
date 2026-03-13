@@ -1,5 +1,12 @@
 type runner = Codex | Claude | Kimi | Gemini | Opencode | Cursor
-type status = Queued | Running | Succeeded | Failed | Cancelled
+
+type status =
+  | Queued
+  | Running
+  | Succeeded
+  | Failed
+  | DirtyWorktree
+  | Cancelled
 
 type health =
   | Active
@@ -65,6 +72,7 @@ let string_of_status = function
   | Running -> "running"
   | Succeeded -> "succeeded"
   | Failed -> "failed"
+  | DirtyWorktree -> "dirty_worktree"
   | Cancelled -> "cancelled"
 
 let status_of_string s =
@@ -73,11 +81,12 @@ let status_of_string s =
   | "running" -> Running
   | "succeeded" -> Succeeded
   | "failed" -> Failed
+  | "dirty_worktree" -> DirtyWorktree
   | "cancelled" -> Cancelled
   | _ -> Failed
 
 let is_terminal_status = function
-  | Succeeded | Failed | Cancelled -> true
+  | Succeeded | Failed | DirtyWorktree | Cancelled -> true
   | Queued | Running -> false
 
 let max_retry_count = 3
@@ -191,6 +200,7 @@ let status_summary = function
   | Running -> "running"
   | Succeeded -> "succeeded"
   | Failed -> "failed"
+  | DirtyWorktree -> "dirty-worktree"
   | Cancelled -> "cancelled"
 
 let parse_sqlite_datetime s =
@@ -228,7 +238,7 @@ let log_stale_threshold_seconds = 120.0
 let diagnose_health ?(now = Unix.gettimeofday ())
     ?(pid_alive = fun pid -> Process_group.group_alive pid) (task : task) =
   match task.status with
-  | Queued | Succeeded | Failed | Cancelled -> Not_applicable
+  | Queued | Succeeded | Failed | DirtyWorktree | Cancelled -> Not_applicable
   | Running ->
       let pid_alive =
         match task.pid with
@@ -804,9 +814,10 @@ let completion_outcome ~db ~id ~exit_code ~output =
       | Failed -> (Failed, default_preview)
       | Succeeded -> (
           match worktree_harvest_issue task with
-          | Some issue -> (Failed, issue)
+          | Some issue -> (DirtyWorktree, issue)
           | None -> (Succeeded, default_preview))
-      | Cancelled | Queued | Running -> (Failed, default_preview))
+      | DirtyWorktree | Cancelled | Queued | Running -> (Failed, default_preview)
+      )
   | None -> (classify_task_result ~exit_code ~output, default_preview)
 
 let read_lines_window path ~offset ~limit =
@@ -1266,7 +1277,7 @@ let cancel_with_signal ~send_signal ~db ~id
   | Some task -> (
       match task.status with
       | Cancelled -> Error (Printf.sprintf "Task %d is already cancelled" id)
-      | Succeeded | Failed ->
+      | Succeeded | Failed | DirtyWorktree ->
           Error (Printf.sprintf "Task %d is already finished" id)
       | Queued ->
           ignore
@@ -1294,7 +1305,7 @@ let cancel ~db ~id = cancel_with_signal ~send_signal:Unix.kill ~db ~id ()
 let retry ~db ~id =
   match get_task ~db ~id with
   | None -> Error (Printf.sprintf "No background task found with id %d" id)
-  | Some task when task.status <> Failed ->
+  | Some task when not (task.status = Failed || task.status = DirtyWorktree) ->
       Error
         (Printf.sprintf
            "Task %d has status '%s' — only failed tasks can be retried" id
@@ -1396,9 +1407,10 @@ let routing_from_context ?context ?notify_cfg () =
 
 let build_delegate_prompt ~automerge:_ ~goal =
   let commit_line =
-    "- You MUST commit all changes with a clear, descriptive commit message \
-     before reporting completion. Do not push or perform destructive git \
-     history edits."
+    "- CRITICAL: You MUST `git add` and `git commit` all changes before \
+     reporting completion. Verify with `git status` that the worktree is \
+     clean. Tasks with uncommitted changes are marked as dirty-worktree \
+     failures regardless of exit code."
   in
   String.concat "\n"
     [
@@ -1409,13 +1421,14 @@ let build_delegate_prompt ~automerge:_ ~goal =
       goal;
       "";
       "Execution contract:";
+      commit_line;
       "- Work only inside this directory/worktree.";
       "- Do not inspect or modify the original source repo path directly; use \
        only the files available in the current worktree.";
       "- Make the smallest focused change that completes the task well.";
       "- Run relevant verification when practical and mention what you ran.";
       "- Summarize the changes, results, and any follow-up concerns at the end.";
-      commit_line;
+      "- Do not push or perform destructive git history edits.";
     ]
 
 let delegate_enqueue ?context ?notify_cfg ?(check_available = true)
@@ -1574,6 +1587,7 @@ let terse_finished_message (task : task) =
     match task.status with
     | Succeeded -> "succeeded"
     | Failed -> "failed"
+    | DirtyWorktree -> "dirty-worktree"
     | Cancelled -> "cancelled"
     | Queued -> "queued"
     | Running -> "running"
@@ -1584,7 +1598,7 @@ let terse_finished_message (task : task) =
   in
   let merge_suffix = merge_status_suffix task in
   match (task.status, task.result_preview) with
-  | Failed, Some preview ->
+  | (Failed | DirtyWorktree), Some preview ->
       let short =
         if String.length preview > 80 then String.sub preview 0 80 ^ "..."
         else preview
@@ -1594,6 +1608,12 @@ let terse_finished_message (task : task) =
 
 let finalize_hint (task : task) =
   match (task.status, task.branch, task.worktree_path) with
+  | DirtyWorktree, _, Some wt ->
+      Some
+        (Printf.sprintf
+           "worktree %s has uncommitted changes; commit manually and run \
+            `background finalize %d`"
+           wt task.id)
   | Succeeded, branch, Some _ when String.trim branch <> "" ->
       Some
         (Printf.sprintf "next: merge/review %s into %s when ready" branch

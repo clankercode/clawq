@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-12T22:55:02Z"
+claimed_by: cli-user
+completed_at: "2026-03-13T00:28:46Z"
 complexity: medium
 depends_on: []
+duration_minutes: 93.73777177296667
 estimate_hours: 1
 id: B402
 priority: high
-status: pending
+started_at: "2026-03-12T22:55:02Z"
+status: done
 tags: []
 title: delegated worker prompts should require commit and success reporting should distinguish dirty worktrees
 ---
