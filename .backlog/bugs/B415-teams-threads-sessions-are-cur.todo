@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B415
+priority: high
+status: pending
+tags: []
+title: Teams threads/sessions are currently are different *per user* in a channel even when the teams channel is the same. Ideally though we have a shared session per channel.
+---
+
+Teams threads/sessions are currently are different *per user* in a channel even when the teams channel is the same. Ideally though we have a shared session per channel.
