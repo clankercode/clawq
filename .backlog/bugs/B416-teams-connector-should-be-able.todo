@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B416
+priority: high
+status: pending
+tags: []
+title: Teams connector should be able @ mention users in a group chat (might require unified sessions for each chat room / channel, see B415)
+---
+
+Teams connector should be able @ mention users in a group chat (might require unified sessions for each chat room / channel, see B415)

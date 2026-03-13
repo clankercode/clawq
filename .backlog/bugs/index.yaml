@@ -412,3 +412,4 @@ bugs:
     - file: B413-look-for-tabular-cli-that-does.todo
     - file: B414-teams-add-sender-name-in-messa.todo
     - file: B415-teams-threads-sessions-are-cur.todo
+    - file: B416-teams-connector-should-be-able.todo
