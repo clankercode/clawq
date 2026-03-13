@@ -296,6 +296,7 @@ let test_teams_credential_validation () =
       service_url = "";
       allow_teams = [];
       allow_users = [];
+      mention_mode = "entity";
     }
   in
   let invalid_teams = { valid_teams with Runtime_config.app_id = "abc" } in

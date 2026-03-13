@@ -206,6 +206,10 @@ type teams_config = {
   service_url : string;
   allow_teams : string list;
   allow_users : string list;
+  mention_mode : string;
+      (* "entity" (default): proper Teams <at>Name</at> with entity markup.
+         "text": plain @Name prefix, no entity markup.
+         "none": no @mention prepended to any message. *)
 }
 
 type channel_config = {

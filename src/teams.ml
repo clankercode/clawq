@@ -208,26 +208,39 @@ let split_message text =
 (* Build a reply activity JSON body, optionally with an @mention and
    notification alert control.
    Always include channelData.notification.alert explicitly: true forces a
-   desktop/mobile toast notification, false suppresses it. *)
-let build_reply_body ~alert ~text ~mention =
+   desktop/mobile toast notification, false suppresses it.
+   mention_mode controls how the mention is rendered:
+     "entity" (default): Teams <at>Name</at> with entity markup (mention badge).
+     "text": plain @Name prefix, no entity (no mention badge).
+     "none" or anything else: no prefix added. *)
+let build_reply_body ~alert ~text ~mention ~mention_mode =
   let text_with_mention, entities =
     match mention with
-    | Some { mention_id; mention_name } ->
-        let at_tag = Printf.sprintf "<at>%s</at>" mention_name in
-        let full_text = Printf.sprintf "%s %s" at_tag text in
-        let entity =
-          `Assoc
-            [
-              ("type", `String "mention");
-              ( "mentioned",
-                `Assoc
-                  [ ("id", `String mention_id); ("name", `String mention_name) ]
-              );
-              ("text", `String at_tag);
-            ]
-        in
-        (full_text, [ entity ])
     | None -> (text, [])
+    | Some { mention_id; mention_name } -> (
+        match mention_mode with
+        | "none" -> (text, [])
+        | "text" ->
+            let at_tag = Printf.sprintf "@%s" mention_name in
+            (Printf.sprintf "%s %s" at_tag text, [])
+        | _ ->
+            (* "entity" mode: proper Teams mention with entity markup *)
+            let at_tag = Printf.sprintf "<at>%s</at>" mention_name in
+            let full_text = Printf.sprintf "%s %s" at_tag text in
+            let entity =
+              `Assoc
+                [
+                  ("type", `String "mention");
+                  ( "mentioned",
+                    `Assoc
+                      [
+                        ("id", `String mention_id);
+                        ("name", `String mention_name);
+                      ] );
+                  ("text", `String at_tag);
+                ]
+            in
+            (full_text, [ entity ]))
   in
   let base =
     [ ("type", `String "message"); ("text", `String text_with_mention) ]
@@ -273,7 +286,10 @@ let send_reply ?(alert = false) ~(config : Runtime_config.teams_config)
                 (Uri.pct_encode reply_to_id)
           in
           let headers = [ ("Authorization", "Bearer " ^ token) ] in
-          let body = build_reply_body ~alert ~text:chunk ~mention in
+          let body =
+            build_reply_body ~alert ~text:chunk ~mention
+              ~mention_mode:config.mention_mode
+          in
           let* status, resp = Http_client.post_json ~uri ~headers ~body in
           if status < 200 || status >= 300 then
             Logs.warn (fun m ->
@@ -430,10 +446,12 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                   if user_name = "" then None else Some user_name
                 in
                 (* @mention the sender in group chats so they get a
-                   notification *)
+                   notification. Only on final responses and ask_user_question
+                   prompts — not on intermediate streaming updates (notify). *)
                 let mention =
-                  if is_group && user_name <> "" then
-                    Some { mention_id = user_id; mention_name = user_name }
+                  if
+                    is_group && user_name <> "" && config.mention_mode <> "none"
+                  then Some { mention_id = user_id; mention_name = user_name }
                   else None
                 in
                 (* Register alerting notifier for ask_user_question *)
@@ -445,9 +463,11 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                 let* result =
                   Session.with_registered_notifier session_manager ~key
                     ~notify:(fun reply_text ->
+                      (* No mention on intermediate updates — mention only on
+                         the final response to avoid repeated tagging. *)
                       send_reply ~alert:false ~config
                         ~service_url:effective_service_url ~conversation_id
-                        ~reply_to_id:activity_id ~text:reply_text ?mention ())
+                        ~reply_to_id:activity_id ~text:reply_text ())
                     (fun () ->
                       Lwt.catch
                         (fun () ->

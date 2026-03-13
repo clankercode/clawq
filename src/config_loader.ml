@@ -801,6 +801,9 @@ let parse_config ?(resolve_secrets = true) json =
             try tm |> member "allow_users" |> to_list |> List.map to_string
             with _ -> [ "*" ]
           in
+          let mention_mode =
+            try tm |> member "mention_mode" |> to_string with _ -> "entity"
+          in
           if app_id = "" || app_secret = "" || tenant_id = "" then None
           else
             Some
@@ -812,6 +815,7 @@ let parse_config ?(resolve_secrets = true) json =
                  service_url;
                  allow_teams;
                  allow_users;
+                 mention_mode;
                }
                 : Runtime_config.teams_config)
         with _ -> None

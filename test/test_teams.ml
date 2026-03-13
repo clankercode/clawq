@@ -113,7 +113,10 @@ let test_parse_activity_group_chat () =
       Alcotest.(check string) "text" "hi" a.text
 
 let test_build_reply_body_no_mention () =
-  let body = Teams.build_reply_body ~alert:false ~text:"hello" ~mention:None in
+  let body =
+    Teams.build_reply_body ~alert:false ~text:"hello" ~mention:None
+      ~mention_mode:"entity"
+  in
   let json = Yojson.Safe.from_string body in
   let open Yojson.Safe.Util in
   Alcotest.(check string) "type" "message" (json |> member "type" |> to_string);
@@ -130,7 +133,10 @@ let test_build_reply_body_with_mention () =
   let mention =
     Some Teams.{ mention_id = "user-123"; mention_name = "Alice" }
   in
-  let body = Teams.build_reply_body ~alert:true ~text:"hello" ~mention in
+  let body =
+    Teams.build_reply_body ~alert:true ~text:"hello" ~mention
+      ~mention_mode:"entity"
+  in
   let json = Yojson.Safe.from_string body in
   let open Yojson.Safe.Util in
   Alcotest.(check string)
@@ -157,6 +163,36 @@ let test_build_reply_body_with_mention () =
   Alcotest.(check string)
     "entity text" "<at>Alice</at>"
     (entity |> member "text" |> to_string)
+
+let test_build_reply_body_text_mention () =
+  let mention =
+    Some Teams.{ mention_id = "user-123"; mention_name = "Alice" }
+  in
+  let body =
+    Teams.build_reply_body ~alert:false ~text:"hello" ~mention
+      ~mention_mode:"text"
+  in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  Alcotest.(check string)
+    "text with fake at" "@Alice hello"
+    (json |> member "text" |> to_string);
+  let entities = try json |> member "entities" |> to_list with _ -> [] in
+  Alcotest.(check int) "no entities for text mode" 0 (List.length entities)
+
+let test_build_reply_body_none_mode () =
+  (* mention_mode "none" is handled by passing mention:None from handle_webhook,
+     so build_reply_body with mention:None should produce no prefix regardless
+     of mode *)
+  let body =
+    Teams.build_reply_body ~alert:false ~text:"hello" ~mention:None
+      ~mention_mode:"none"
+  in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  Alcotest.(check string)
+    "no prefix" "hello"
+    (json |> member "text" |> to_string)
 
 let test_split_message_multi () =
   let long = String.make (Teams.max_message_chars + 100) 'x' in
@@ -186,6 +222,10 @@ let suite =
       test_build_reply_body_no_mention;
     Alcotest.test_case "build_reply_body with mention" `Quick
       test_build_reply_body_with_mention;
+    Alcotest.test_case "build_reply_body text mention" `Quick
+      test_build_reply_body_text_mention;
+    Alcotest.test_case "build_reply_body none mode" `Quick
+      test_build_reply_body_none_mode;
     Alcotest.test_case "split_message single" `Quick test_split_message_single;
     Alcotest.test_case "split_message multi" `Quick test_split_message_multi;
   ]

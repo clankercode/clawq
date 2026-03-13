@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-13T09:49:56Z"
+claimed_by: cli-user
+completed_at: "2026-03-13T10:01:25Z"
 complexity: medium
 depends_on: []
+duration_minutes: 11.489965725933333
 estimate_hours: 1
 id: B419
 priority: high
-status: pending
+started_at: "2026-03-13T09:49:56Z"
+status: done
 tags: []
 title: The teams connector -- in a group chat at least -- seems to tag the caller in every message that's part of a reply, which is annoying. Need to analyze behavior and discuss what to do.
 ---
