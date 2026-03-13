@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B424
+priority: high
+status: pending
+tags: []
+title: Slash commands should work over teams -- need to discuss exactly how and what the behavior is and should be
+---
+
+Slash commands should work over teams -- need to discuss exactly how and what the behavior is and should be
