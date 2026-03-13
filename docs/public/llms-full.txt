@@ -596,7 +596,7 @@ current queue state for a given session; `session list` appends
 
 **channels.teams** config fields: `app_id`, `app_secret`, `tenant_id`, `webhook_path` (default `/teams/webhook`), `service_url` (default `https://smba.trafficmanager.net/amer`), `allow_teams` (default `["*"]`), `allow_users` (default `["*"]`).
 
-Session key format: `teams:<team_id_or_personal>:<conversation_id>:<user_id>`
+Session key format: `teams:<team_id_or_personal>:<conversation_id>` (shared per-channel; sender identity via context headers)
 
 Note: JWT RS256 signature verification is not implemented (no RSA lib available). Claim-only validation (`aud`, `iss`, `exp`, `nbf`) is performed.
 

@@ -110,13 +110,13 @@ inside Teams. You cannot message a bot that has no Teams app.
 ## Session Key Format
 
 ```
-teams:<team_id>:<conversation_id>:<user_id>
+teams:<team_id>:<conversation_id>
 ```
 
-- Personal chats and group chats without a Teams channel context: `team_id` = `"personal"` (used when `channelData.team` is absent from the activity).
-- Team channel messages: `team_id` = the `channelData.team.id` value from the activity.
+Sessions are shared per-channel: all users in the same Teams channel share one session. Sender identity is conveyed via context headers.
 
-Each unique `(team_id, conversation_id, user_id)` tuple gets a separate clawq session.
+- Personal chats and group chats without a Teams channel context: `team_id` = `"personal"` (used when `channelData.team` is absent from the activity). Since `conversation_id` is unique per 1:1 chat, personal sessions are effectively per-user.
+- Team channel messages: `team_id` = the `channelData.team.id` value from the activity.
 
 ## Authentication Details
 

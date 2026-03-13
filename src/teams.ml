@@ -4,6 +4,19 @@
 let max_message_chars = 28672
 let dedup = Channel_util.Lru_dedup.create 500
 
+let session_key ~team_id ~conversation_id =
+  Printf.sprintf "teams:%s:%s" team_id conversation_id
+
+type teams_activity = {
+  activity_id : string;
+  service_url : string;
+  conversation_id : string;
+  user_id : string;
+  user_name : string;
+  team_id : string;
+  text : string;
+}
+
 let dedup_seen id =
   if id = "" then false else Channel_util.Lru_dedup.check_and_mark dedup id
 
@@ -242,11 +255,10 @@ let parse_activity body_str =
       let service_url =
         try json |> member "serviceUrl" |> to_string with _ -> ""
       in
-      let user_id =
-        try json |> member "from" |> member "id" |> to_string with _ -> ""
-      in
+      let from_obj = try json |> member "from" with _ -> `Null in
+      let user_id = try from_obj |> member "id" |> to_string with _ -> "" in
       let user_name =
-        try json |> member "from" |> member "name" |> to_string with _ -> ""
+        try from_obj |> member "name" |> to_string with _ -> ""
       in
       let conversation_id =
         try json |> member "conversation" |> member "id" |> to_string
@@ -260,15 +272,16 @@ let parse_activity body_str =
       in
       if text = "" || conversation_id = "" || user_id = "" then None
       else
-        let sender_name = if user_name = "" then None else Some user_name in
         Some
-          ( activity_id,
-            service_url,
-            conversation_id,
-            user_id,
-            team_id,
-            sender_name,
-            text )
+          {
+            activity_id;
+            service_url;
+            conversation_id;
+            user_id;
+            user_name;
+            team_id;
+            text;
+          }
   with _ -> None
 
 (* Strip <at>...</at> mention tags from Teams message text *)
@@ -322,13 +335,15 @@ let handle_webhook ~(config : Runtime_config.teams_config)
       match parse_activity body_str with
       | None -> Lwt.return_unit
       | Some
-          ( activity_id,
-            service_url,
-            conversation_id,
-            user_id,
-            team_id,
-            sender_name,
-            raw_text ) -> (
+          {
+            activity_id;
+            service_url;
+            conversation_id;
+            user_id;
+            user_name;
+            team_id;
+            text = raw_text;
+          } -> (
           if dedup_seen activity_id then Lwt.return_unit
           else
             let text = strip_at_mentions raw_text in
@@ -355,8 +370,10 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                   if service_url = "" then config.service_url else service_url
                 in
                 let key =
-                  Printf.sprintf "teams:%s:%s:%s" effective_team_id
-                    conversation_id user_id
+                  session_key ~team_id:effective_team_id ~conversation_id
+                in
+                let sender_name =
+                  if user_name = "" then None else Some user_name
                 in
                 let* result =
                   Session.with_registered_notifier session_manager ~key

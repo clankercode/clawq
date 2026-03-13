@@ -104,6 +104,7 @@
   test_setup_discord
   test_setup_slack
   test_setup_teams
+  test_teams
   test_setup_telegram
   test_setup_tunnel
   test_setup_summarizer

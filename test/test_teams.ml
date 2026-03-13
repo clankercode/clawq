@@ -1,0 +1,124 @@
+let activity_json ~activity_type ~text ~activity_id ~service_url ~user_id
+    ~user_name ~conversation_id ~team_id =
+  let team_data =
+    if team_id = "" then `Null
+    else `Assoc [ ("team", `Assoc [ ("id", `String team_id) ]) ]
+  in
+  `Assoc
+    [
+      ("type", `String activity_type);
+      ("id", `String activity_id);
+      ("serviceUrl", `String service_url);
+      ("text", `String text);
+      ("from", `Assoc [ ("id", `String user_id); ("name", `String user_name) ]);
+      ("conversation", `Assoc [ ("id", `String conversation_id) ]);
+      ("channelData", team_data);
+    ]
+  |> Yojson.Safe.to_string
+
+let test_parse_activity_returns_record () =
+  let body =
+    activity_json ~activity_type:"message" ~text:"hello" ~activity_id:"act-1"
+      ~service_url:"https://svc" ~user_id:"u1" ~user_name:"Alice"
+      ~conversation_id:"conv-1" ~team_id:"t1"
+  in
+  match Teams.parse_activity body with
+  | None -> Alcotest.fail "expected Some"
+  | Some a ->
+      Alcotest.(check string) "activity_id" "act-1" a.activity_id;
+      Alcotest.(check string) "service_url" "https://svc" a.service_url;
+      Alcotest.(check string) "conversation_id" "conv-1" a.conversation_id;
+      Alcotest.(check string) "user_id" "u1" a.user_id;
+      Alcotest.(check string) "user_name" "Alice" a.user_name;
+      Alcotest.(check string) "team_id" "t1" a.team_id;
+      Alcotest.(check string) "text" "hello" a.text
+
+let test_parse_activity_non_message () =
+  let body =
+    activity_json ~activity_type:"typing" ~text:"hello" ~activity_id:"act-2"
+      ~service_url:"https://svc" ~user_id:"u1" ~user_name:"Alice"
+      ~conversation_id:"conv-1" ~team_id:""
+  in
+  Alcotest.(check bool)
+    "typing returns None" true
+    (Teams.parse_activity body = None)
+
+let test_parse_activity_empty_text () =
+  let body =
+    activity_json ~activity_type:"message" ~text:"" ~activity_id:"act-3"
+      ~service_url:"https://svc" ~user_id:"u1" ~user_name:"Alice"
+      ~conversation_id:"conv-1" ~team_id:""
+  in
+  Alcotest.(check bool)
+    "empty text returns None" true
+    (Teams.parse_activity body = None)
+
+let test_parse_activity_missing_from_name () =
+  let body =
+    `Assoc
+      [
+        ("type", `String "message");
+        ("id", `String "act-4");
+        ("serviceUrl", `String "https://svc");
+        ("text", `String "hi");
+        ("from", `Assoc [ ("id", `String "u1") ]);
+        ("conversation", `Assoc [ ("id", `String "conv-1") ]);
+        ("channelData", `Null);
+      ]
+    |> Yojson.Safe.to_string
+  in
+  match Teams.parse_activity body with
+  | None -> Alcotest.fail "expected Some"
+  | Some a ->
+      Alcotest.(check string) "user_name defaults to empty" "" a.user_name
+
+let test_session_key () =
+  let key = Teams.session_key ~team_id:"t1" ~conversation_id:"conv-1" in
+  Alcotest.(check string) "session key format" "teams:t1:conv-1" key
+
+let test_session_key_personal () =
+  let key = Teams.session_key ~team_id:"personal" ~conversation_id:"conv-abc" in
+  Alcotest.(check string) "personal session key" "teams:personal:conv-abc" key
+
+let test_strip_at_mentions () =
+  let result = Teams.strip_at_mentions "<at>Bot</at> hello world" in
+  Alcotest.(check string) "stripped mention" "hello world" result
+
+let test_strip_at_mentions_multiple () =
+  let result = Teams.strip_at_mentions "<at>Bot</at> hi <at>Other</at> there" in
+  Alcotest.(check string) "stripped multiple" "hi  there" result
+
+let test_strip_at_mentions_no_tags () =
+  let result = Teams.strip_at_mentions "plain text" in
+  Alcotest.(check string) "no tags unchanged" "plain text" result
+
+let test_split_message_single () =
+  let chunks = Teams.split_message "short message" in
+  Alcotest.(check int) "one chunk" 1 (List.length chunks);
+  Alcotest.(check string) "content" "short message" (List.hd chunks)
+
+let test_split_message_multi () =
+  let long = String.make (Teams.max_message_chars + 100) 'x' in
+  let chunks = Teams.split_message long in
+  Alcotest.(check bool) "multiple chunks" true (List.length chunks > 1)
+
+let suite =
+  [
+    Alcotest.test_case "parse_activity returns record" `Quick
+      test_parse_activity_returns_record;
+    Alcotest.test_case "parse_activity non-message" `Quick
+      test_parse_activity_non_message;
+    Alcotest.test_case "parse_activity empty text" `Quick
+      test_parse_activity_empty_text;
+    Alcotest.test_case "parse_activity missing from.name" `Quick
+      test_parse_activity_missing_from_name;
+    Alcotest.test_case "session_key format" `Quick test_session_key;
+    Alcotest.test_case "session_key personal" `Quick test_session_key_personal;
+    Alcotest.test_case "strip_at_mentions" `Quick test_strip_at_mentions;
+    Alcotest.test_case "strip_at_mentions multiple" `Quick
+      test_strip_at_mentions_multiple;
+    Alcotest.test_case "strip_at_mentions no tags" `Quick
+      test_strip_at_mentions_no_tags;
+    Alcotest.test_case "split_message single" `Quick test_split_message_single;
+    Alcotest.test_case "split_message multi" `Quick test_split_message_multi;
+  ]

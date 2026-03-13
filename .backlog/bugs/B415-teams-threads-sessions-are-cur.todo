@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-13T07:23:35Z"
+claimed_by: cli-user
+completed_at: "2026-03-13T07:41:58Z"
 complexity: medium
 depends_on: []
+duration_minutes: 18.389416148616668
 estimate_hours: 1
 id: B415
 priority: high
-status: pending
+started_at: "2026-03-13T07:23:35Z"
+status: done
 tags: []
 title: Teams threads/sessions are currently are different *per user* in a channel even when the teams channel is the same. Ideally though we have a shared session per channel.
 ---

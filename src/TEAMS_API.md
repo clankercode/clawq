@@ -150,10 +150,12 @@ POST {serviceUrl}/v3/conversations/{conversation_id}/activities
 
 ## Session Key Format
 
-`teams:<team_id_or_personal>:<conversation_id>:<user_id>`
+`teams:<team_id_or_personal>:<conversation_id>`
 
-- For personal chats: team_id is `"personal"`.
-- For group chats without a team: team_id is `"group"`.
+Sessions are shared per-channel: all users in the same Teams channel share one session. Sender identity is conveyed to the LLM via context headers (`sender=@<aad_id> (Display Name)`).
+
+- For personal chats: team_id is `"personal"`. Since `conversation_id` is unique per 1:1 chat, this is effectively per-user.
+- For group chats without a team: team_id is `"personal"` (when `channelData.team` is absent).
 - For team channels: team_id is the channelData.team.id value.
 
 ## Reference

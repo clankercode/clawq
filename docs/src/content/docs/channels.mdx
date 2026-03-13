@@ -366,7 +366,7 @@ Framework REST API using OAuth 2.0 bearer tokens.
 2. clawq responds `202 Accepted` immediately.
 3. Asynchronously, clawq verifies JWT claims, extracts the message text
    (stripping `<at>` mention tags), looks up or creates a session keyed as
-   `teams:<team_id>:<conversation_id>:<user_id>`, and runs the agent turn.
+   `teams:<team_id>:<conversation_id>`, and runs the agent turn. Sessions are shared per-channel; sender identity is passed via context headers.
 4. The reply is posted back via
    `{serviceUrl}/v3/conversations/{conversation_id}/activities/{activity_id}`.
 

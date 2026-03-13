@@ -134,6 +134,7 @@ let () =
     @ [ ("setup_discord", Test_setup_discord.suite) ]
     @ [ ("setup_slack", Test_setup_slack.suite) ]
     @ [ ("setup_teams", Test_setup_teams.suite) ]
+    @ [ ("teams", Test_teams.suite) ]
     @ [ ("setup_telegram", Test_setup_telegram.suite) ]
     @ [ ("setup_tunnel", Test_setup_tunnel.suite) ]
     @ [ ("setup_summarizer", Test_setup_summarizer.suite) ]
