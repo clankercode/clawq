@@ -627,6 +627,15 @@ let test_dispatch_resumed_message_routes_slack () =
     (Some ("slack-token", "C42", "hello"))
     !called
 
+let test_dispatch_resumed_message_routes_github () =
+  let config = Runtime_config.default in
+  let result =
+    Lwt_main.run
+      (Daemon.dispatch_resumed_message ~config ~channel:"github"
+         ~channel_id:"acme/backend" ~text:"done" ())
+  in
+  Alcotest.(check (result unit string)) "github dispatch ok" (Ok ()) result
+
 let test_resume_pending_agent_sessions_marks_missing_channel_info () =
   let db = Memory.init ~db_path:":memory:" () in
   let config = Runtime_config.default in
@@ -1503,8 +1512,7 @@ let test_notify_background_task_finished_dirty_worktree_dispatches_finalize_hint
   in
   Session.set_special_command_handler session_manager
     (fun ~key ~message:_ ~send_progress:_ ~interrupt_check:_ ->
-      if key = "telegram:42:user" then Lwt.return_some "ok"
-      else Lwt.return_none);
+      if key = "telegram:42:user" then Lwt.return_some "ok" else Lwt.return_none);
   let task =
     {
       (make_test_task ()) with
@@ -1540,7 +1548,8 @@ let test_notify_background_task_finished_dirty_worktree_dispatches_finalize_hint
     "dispatched text contains finalize hint" true
     (try
        ignore
-         (Str.search_forward (Str.regexp_string "background finalize")
+         (Str.search_forward
+            (Str.regexp_string "background finalize")
             status_text 0);
        true
      with Not_found -> false)
@@ -2025,6 +2034,8 @@ let suite =
       test_dispatch_resumed_message_routes_discord;
     Alcotest.test_case "dispatch resumed message routes slack" `Quick
       test_dispatch_resumed_message_routes_slack;
+    Alcotest.test_case "dispatch resumed message routes github (no-op)" `Quick
+      test_dispatch_resumed_message_routes_github;
     Alcotest.test_case
       "resume pending sessions marks missing channel info as sent" `Quick
       test_resume_pending_agent_sessions_marks_missing_channel_info;

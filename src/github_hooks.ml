@@ -654,7 +654,8 @@ let run_matching_hooks ~(session_manager : Session.t) ~prepared =
                 (fun () ->
                   let* response =
                     Session.turn session_manager ~key ~message ~channel_name
-                      ~channel_type:"dm" ~sender_id ()
+                      ~channel_type:"dm" ~sender_id ~channel:"github"
+                      ~channel_id:prepared.repo_full_name ()
                   in
                   Logs.info (fun m ->
                       m "GitHub hooks: ran hook %s for %s %s response=%S"

@@ -251,6 +251,12 @@ let dispatch_resumed_message ?(senders = default_resume_senders)
           let* () = senders.send_teams ~config:tc ~channel_id ~text in
           Lwt.return (Ok ())
       | None -> Lwt.return (Error "teams channel is not configured"))
+  | "github" ->
+      (* GitHub sessions are fire-and-forget: the agent posts back to GitHub
+         via tool calls; there is no channel to route the resumed response to. *)
+      Logs.info (fun m ->
+          m "Resumed github session repo=%s response=%S" channel_id text);
+      Lwt.return (Ok ())
   | _ -> Lwt.return (Error (Printf.sprintf "unsupported channel %s" channel))
 
 let resumed_dispatch_target ~session_key ~channel ~channel_id =

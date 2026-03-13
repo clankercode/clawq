@@ -59,6 +59,8 @@ let run_clawq_command ~(github_config : Runtime_config.github_config)
         let* response =
           Session.turn session_manager ~key ~message:full_message
             ~channel_name:gh_channel_name ~channel_type:"dm" ~sender_id:author
+            ~channel:"github"
+            ~channel_id:(owner ^ "/" ^ repo)
             ()
         in
         Lwt.return (Result.Ok response))
