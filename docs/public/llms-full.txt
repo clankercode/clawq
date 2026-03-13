@@ -233,7 +233,7 @@ Note: `providers.*.default_model` is the model identifier as understood by that 
 
 **prompt** — `dynamic_enabled` (default true), `include_tools_section` (default true), `include_safety_section` (default true), `include_workspace_section` (default true), `include_runtime_section` (default true), `include_datetime_section` (default true), `workspace_files` (default: AGENTS.md, EGO.md, SOUL.md, TOOLS.md, IDENTITY.md, USER.md, HEARTBEAT.md, BOOTSTRAP.md, MEMORY.md, memory.md), `max_workspace_file_chars` (default 8000), `max_workspace_total_chars` (default 20000). When `include_runtime_section` is enabled, the per-turn runtime block can include current cwd, effective workspace, git root/branch, OS, session id, optional session name, main-session status, whether heartbeat routing currently applies, `workspace_only`, requested/effective sandbox backend, shell policy and visible roots summary, plus estimated context-usage and compaction-threshold information.
 
-**channels.telegram** — `text_coalesce_ms` (default 150, set to 0 to disable text coalescing). Telegram Bot API polling uses a 30s long-poll window with a 40s HTTP client timeout to avoid false local timeouts during normal long-poll waits. Under `accounts.<name>`: `bot_token`, `allow_from` (array of chat IDs or `["*"]`), `totp.enabled`, `totp.secret`, `totp.session_ttl_hours`.
+**channels.telegram** — `text_coalesce_ms` (default 150, set to 0 to disable text coalescing). Telegram Bot API polling uses a 30s long-poll window with a 45s HTTP client timeout to avoid false local timeouts during normal long-poll waits. Under `accounts.<name>`: `bot_token`, `allow_from` (array of chat IDs or `["*"]`), `totp.enabled`, `totp.secret`, `totp.session_ttl_hours`.
 
 **channels.discord** — `bot_token`, `allow_guilds` (default `["*"]`), `allow_users` (default `["*"]`), `intents`. Enabled by presence in config.
 
@@ -251,7 +251,7 @@ Note: `providers.*.default_model` is the model identifier as understood by that 
 
 **channels.signal** — `base_url`, `account`, `api_mode`, `allow_from`, `max_chunk_bytes`.
 
-**channels.matrix** — `homeserver_url`, `access_token`, `user_id`, `allow_rooms`, `allow_users`. Matrix `/sync` uses a 30s long-poll window with a 40s HTTP client timeout to avoid false local timeouts during normal sync waits.
+**channels.matrix** — `homeserver_url`, `access_token`, `user_id`, `allow_rooms`, `allow_users`. Matrix `/sync` uses a 30s long-poll window with a 45s HTTP client timeout to avoid false local timeouts during normal sync waits.
 
 **channels.irc** — `host`, `port`, `tls`, `nick`, `password`, `sasl`, `channels`, `allow_from`.
 

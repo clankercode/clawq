@@ -384,7 +384,7 @@ let parse_conflict_description body =
 
 let get_updates ~bot_token ~offset ~timeout =
   let open Lwt.Syntax in
-  let request_timeout_s = float_of_int (timeout + 10) in
+  let request_timeout_s = float_of_int (timeout + 15) in
   let uri =
     Printf.sprintf "%s%s/getUpdates?offset=%d&timeout=%d&allowed_updates=%s"
       !api_base bot_token offset timeout
@@ -1303,7 +1303,9 @@ let set_my_commands ~bot_token =
   in
   let uri = Printf.sprintf "%s%s/setMyCommands" !api_base bot_token in
   let body = `Assoc [ ("commands", cmds) ] |> Yojson.Safe.to_string in
-  let* status, resp_body = Http_client.post_json ~uri ~headers:[] ~body in
+  let* status, resp_body =
+    Http_client.post_json_with_timeout ~timeout_s:45.0 ~uri ~headers:[] ~body
+  in
   if status >= 200 && status < 300 then
     Logs.info (fun m ->
         m "Telegram: registered %d slash commands"
