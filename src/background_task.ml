@@ -39,6 +39,8 @@ type task = {
   use_worktree : bool;
   merge_status : string option;
   retry_count : int;
+  parent_task_id : int option;
+  replaced_by : int option;
 }
 
 type queued_message = {
@@ -306,6 +308,12 @@ let format_task_summary ?(full = false) ?(compact = false) (task : task) =
   add (Printf.sprintf "status: %s" (status_summary task.status));
   if task.retry_count > 0 then
     add (Printf.sprintf "retries: %d/%d" task.retry_count max_retry_count);
+  (match task.parent_task_id with
+  | Some pid -> add (Printf.sprintf "parent_task: %d" pid)
+  | None -> ());
+  (match task.replaced_by with
+  | Some rid -> add (Printf.sprintf "replaced_by: %d" rid)
+  | None -> ());
   let health = diagnose_health task in
   (match health with
   | Not_applicable -> ()
@@ -436,6 +444,8 @@ let task_of_stmt stmt : task =
       (match Sqlite3.column stmt 20 with
       | Sqlite3.Data.INT i -> Int64.to_int i
       | _ -> 0);
+    parent_task_id = Sqlite3.column stmt 21 |> sql_int;
+    replaced_by = Sqlite3.column stmt 22 |> sql_int;
   }
 
 let init_schema db =
@@ -498,7 +508,9 @@ let init_schema db =
   try_alter "ALTER TABLE background_tasks ADD COLUMN merge_status TEXT";
   try_alter
     "ALTER TABLE background_tasks ADD COLUMN retry_count INTEGER NOT NULL \
-     DEFAULT 0"
+     DEFAULT 0";
+  try_alter "ALTER TABLE background_tasks ADD COLUMN parent_task_id INTEGER";
+  try_alter "ALTER TABLE background_tasks ADD COLUMN replaced_by INTEGER"
 
 let list_queued_messages ~db ~task_id =
   let sql =
@@ -596,14 +608,14 @@ type invocation = Fresh | Resume of string
 
 let enqueue ~db ~runner ?model ?(require_git = true) ?(automerge = false)
     ?(use_worktree = true) ~repo_path ~prompt ?branch ?session_key ?channel
-    ?channel_id () =
+    ?channel_id ?parent_task_id () =
   match validate_repo_path ~require_git repo_path with
   | Error _ as err -> err
   | Ok () ->
       let sql =
         "INSERT INTO background_tasks (runner, model, repo_path, prompt, \
-         branch, session_key, channel, channel_id, automerge, use_worktree) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+         branch, session_key, channel, channel_id, automerge, use_worktree, \
+         parent_task_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
       in
       let stmt = Sqlite3.prepare db sql in
       Fun.protect
@@ -629,6 +641,11 @@ let enqueue ~db ~runner ?model ?(require_git = true) ?(automerge = false)
           ignore
             (Sqlite3.bind stmt 10
                (Sqlite3.Data.INT (if use_worktree then 1L else 0L)));
+          (match parent_task_id with
+          | Some pid ->
+              ignore
+                (Sqlite3.bind stmt 11 (Sqlite3.Data.INT (Int64.of_int pid)))
+          | None -> ignore (Sqlite3.bind stmt 11 Sqlite3.Data.NULL));
           match Sqlite3.step stmt with
           | Sqlite3.Rc.DONE -> Ok (Int64.to_int (Sqlite3.last_insert_rowid db))
           | rc ->
@@ -640,7 +657,8 @@ let select_columns =
   "id, runner, model, repo_path, prompt, COALESCE(branch, ''), worktree_path, \
    log_path, status, session_key, channel, channel_id, pid, result_preview, \
    created_at, started_at, finished_at, COALESCE(automerge, 0), \
-   COALESCE(use_worktree, 1), merge_status, COALESCE(retry_count, 0)"
+   COALESCE(use_worktree, 1), merge_status, COALESCE(retry_count, 0), \
+   parent_task_id, replaced_by"
 
 let list_tasks ~db : task list =
   let sql =
@@ -1345,6 +1363,153 @@ let retry ~db ~id =
                 (Printf.sprintf "Failed to retry task %d: %s" id
                    (Sqlite3.Rc.to_string rc)))
 
+type evidence = {
+  original_prompt : string;
+  log_tail : string option;
+  worktree_diff_stat : string option;
+  result_preview : string option;
+  health : health;
+  status : status;
+}
+
+let gather_evidence (task : task) =
+  let log_tail =
+    match log_excerpt ~lines:40 task with
+    | Ok text -> Some text
+    | Error _ -> None
+  in
+  let worktree_diff_stat =
+    match task.worktree_path with
+    | Some wt when Sys.file_exists wt && path_is_git_repo wt ->
+        let cmd =
+          Printf.sprintf "git -C %s diff HEAD --stat 2>&1" (Filename.quote wt)
+        in
+        let ic = Unix.open_process_in cmd in
+        let buf = Buffer.create 256 in
+        (try
+           while Buffer.length buf < 3000 do
+             Buffer.add_char buf (input_char ic)
+           done
+         with End_of_file -> ());
+        ignore (Unix.close_process_in ic);
+        let s = String.trim (Buffer.contents buf) in
+        if s = "" then None else Some s
+    | _ -> None
+  in
+  {
+    original_prompt = task.prompt;
+    log_tail;
+    worktree_diff_stat;
+    result_preview = task.result_preview;
+    health = diagnose_health task;
+    status = task.status;
+  }
+
+let build_recovery_prompt ~original_id evidence =
+  let or_none = function None -> "none" | Some s -> s in
+  let commit_line =
+    "- CRITICAL: You MUST `git add` and `git commit` all changes before \
+     reporting completion. Verify with `git status` that the worktree is \
+     clean. Tasks with uncommitted changes are marked as dirty-worktree \
+     failures regardless of exit code."
+  in
+  String.concat "\n"
+    [
+      Printf.sprintf
+        "You are a replacement background coding agent. A previous task (id \
+         %d) %s and you are continuing the work."
+        original_id
+        (string_of_status evidence.status);
+      "";
+      "Original Goal:";
+      evidence.original_prompt;
+      "";
+      "Previous Result:";
+      or_none evidence.result_preview;
+      "";
+      "Previous Worktree Changes (git diff --stat):";
+      or_none evidence.worktree_diff_stat;
+      "";
+      "Previous Log Tail:";
+      or_none evidence.log_tail;
+      "";
+      "Execution contract:";
+      commit_line;
+      "- Work only inside this directory/worktree.";
+      "- Do not inspect or modify the original source repo path directly; use \
+       only the files available in the current worktree.";
+      "- Make the smallest focused change that completes the task well.";
+      "- Run relevant verification when practical and mention what you ran.";
+      "- Summarize the changes, results, and any follow-up concerns at the end.";
+      "- Do not push or perform destructive git history edits.";
+    ]
+
+let set_replaced_by ~db ~id ~replaced_by_id =
+  let sql = "UPDATE background_tasks SET replaced_by = ? WHERE id = ?" in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore
+        (Sqlite3.bind stmt 1 (Sqlite3.Data.INT (Int64.of_int replaced_by_id)));
+      ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int id)));
+      ignore (Sqlite3.step stmt))
+
+let recover ~db ~id ?runner ?model () =
+  match get_task ~db ~id with
+  | None -> Error (Printf.sprintf "No background task found with id %d" id)
+  | Some task ->
+      let health = diagnose_health task in
+      let recoverable =
+        match task.status with
+        | Failed | DirtyWorktree | Cancelled -> true
+        | Running -> (
+            match health with
+            | Stalled | Zombie | Process_missing -> true
+            | _ -> false)
+        | Queued | Succeeded -> false
+      in
+      if not recoverable then
+        let reason =
+          match task.status with
+          | Running ->
+              Printf.sprintf
+                "Task %d is still actively running — cancel it first or wait \
+                 for it to finish"
+                id
+          | Succeeded ->
+              Printf.sprintf "Task %d already succeeded — nothing to recover" id
+          | Queued ->
+              Printf.sprintf
+                "Task %d is queued — cancel it first if you want to replace it"
+                id
+          | _ -> Printf.sprintf "Task %d cannot be recovered" id
+        in
+        Error reason
+      else begin
+        (* If running but stuck, cancel it first *)
+        (match task.status with Running -> ignore (cancel ~db ~id) | _ -> ());
+        let evidence = gather_evidence task in
+        let prompt = build_recovery_prompt ~original_id:id evidence in
+        let effective_runner =
+          match runner with Some r -> r | None -> task.runner
+        in
+        let effective_model =
+          match model with Some _ -> model | None -> task.model
+        in
+        match
+          enqueue ~db ~runner:effective_runner ?model:effective_model
+            ~require_git:false ~automerge:task.automerge
+            ~use_worktree:task.use_worktree ~repo_path:task.repo_path ~prompt
+            ?session_key:task.session_key ?channel:task.channel
+            ?channel_id:task.channel_id ~parent_task_id:id ()
+        with
+        | Ok new_id ->
+            set_replaced_by ~db ~id ~replaced_by_id:new_id;
+            Ok (new_id, effective_runner)
+        | Error msg -> Error msg
+      end
+
 let count_active ~db =
   let sql =
     "SELECT COUNT(*) FROM background_tasks WHERE status IN ('queued', \
@@ -1937,7 +2102,7 @@ let clear_all_tracked () = Hashtbl.clear running
 let reap_dead_running_tasks ~db ~on_task_finished =
   let running_in_db =
     List.filter
-      (fun t -> t.status = Running && not (Hashtbl.mem running t.id))
+      (fun (t : task) -> t.status = Running && not (Hashtbl.mem running t.id))
       (list_tasks ~db)
   in
   let count = ref 0 in
@@ -1985,7 +2150,7 @@ let readopt_running_tasks ~db ~on_task_finished =
   in
   let orphaned =
     List.filter
-      (fun t ->
+      (fun (t : task) ->
         t.status = Running
         && (not (Hashtbl.mem running t.id))
         &&
@@ -2741,6 +2906,81 @@ let cancel_tool ~db =
         else
           match cancel ~db ~id with
           | Ok msg -> Lwt.return msg
+          | Error msg -> Lwt.return ("Error: " ^ msg));
+    invoke_stream = None;
+    risk_level = Medium;
+    deferred = false;
+  }
+
+let recover_tool ~db =
+  {
+    Tool.name = "background_task_recover";
+    description =
+      "Recover a failed or stuck background task by spawning a replacement \
+       with full context from the original. Works on failed, dirty_worktree, \
+       cancelled, or stuck (stalled/zombie/process-missing) tasks.";
+    parameters_schema =
+      `Assoc
+        [
+          ("type", `String "object");
+          ( "properties",
+            `Assoc
+              [
+                ( "id",
+                  `Assoc
+                    [
+                      ("type", `String "integer");
+                      ("description", `String "Task id to recover");
+                    ] );
+                ( "runner",
+                  `Assoc
+                    [
+                      ("type", `String "string");
+                      ( "description",
+                        `String
+                          "Optional runner override \
+                           (codex|claude|kimi|gemini|opencode|cursor)" );
+                    ] );
+                ( "model",
+                  `Assoc
+                    [
+                      ("type", `String "string");
+                      ("description", `String "Optional model override");
+                    ] );
+              ] );
+          ("required", `List [ `String "id" ]);
+          ("additionalProperties", `Bool false);
+        ];
+    invoke =
+      (fun ?context:_ args ->
+        let open Yojson.Safe.Util in
+        let id = try args |> member "id" |> to_int with _ -> -1 in
+        if id < 0 then
+          Lwt.return
+            "Error: id is required and must be a positive integer. Provide the \
+             numeric task id of the task to recover."
+        else
+          let runner =
+            try
+              let s = args |> member "runner" |> to_string in
+              if String.trim s = "" then None else runner_of_string s
+            with _ -> None
+          in
+          let model =
+            try
+              let s = args |> member "model" |> to_string in
+              if String.trim s = "" then None else Some s
+            with _ -> None
+          in
+          match recover ~db ~id ?runner ?model () with
+          | Ok (new_id, effective_runner) ->
+              Lwt.return
+                (Printf.sprintf
+                   "Recovered task %d → new task %d (%s). Use `background show \
+                    %d` to track it."
+                   id new_id
+                   (string_of_runner effective_runner)
+                   new_id)
           | Error msg -> Lwt.return ("Error: " ^ msg));
     invoke_stream = None;
     risk_level = Medium;

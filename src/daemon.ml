@@ -1363,7 +1363,8 @@ let run ~(config : Runtime_config.t) =
                 let open Lwt.Syntax in
                 let queued =
                   List.filter
-                    (fun t -> t.Background_task.status = Background_task.Queued)
+                    (fun (t : Background_task.task) ->
+                      t.status = Background_task.Queued)
                     (Background_task.list_tasks ~db)
                 in
                 if queued <> [] then

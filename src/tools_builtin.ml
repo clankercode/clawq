@@ -1026,6 +1026,7 @@ let register_all ~(config : Runtime_config.t) ~sandbox ?(db = None)
         (Background_task.delegate_tool_with_notify ~db
            ~default_repo_path:workspace ~notify_cfg:config.notify ());
       Tool_registry.register registry (Background_task.cancel_tool ~db);
+      Tool_registry.register registry (Background_task.recover_tool ~db);
       Tool_registry.register registry (Worktree_merge.finalize_tool ~db);
       Tool_registry.register registry
         (Plan_pipeline.start_tool ~db ~default_repo_path:workspace);

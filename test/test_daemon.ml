@@ -1343,6 +1343,8 @@ let make_test_task ?(id = 9) ?(session_key = Some "telegram:42:user")
     use_worktree = true;
     merge_status = None;
     retry_count = 0;
+    parent_task_id = None;
+    replaced_by = None;
   }
 
 let test_notify_background_task_finished_dispatches_and_injects_wakeup () =

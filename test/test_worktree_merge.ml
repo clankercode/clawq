@@ -76,6 +76,8 @@ let fake_task ?(automerge = false) ?(use_worktree = true) ?(merge_status = None)
     use_worktree;
     merge_status;
     retry_count = 0;
+    parent_task_id = None;
+    replaced_by = None;
   }
 
 let test_schema_migration () =

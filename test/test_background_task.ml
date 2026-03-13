@@ -74,6 +74,8 @@ let fake_task ?(status = Background_task.Queued) id =
     use_worktree = true;
     merge_status = None;
     retry_count = 0;
+    parent_task_id = None;
+    replaced_by = None;
   }
 
 let fake_started_task ?(runner = Background_task.Codex) ?model
@@ -100,6 +102,8 @@ let fake_started_task ?(runner = Background_task.Codex) ?model
     use_worktree = true;
     merge_status = None;
     retry_count = 0;
+    parent_task_id = None;
+    replaced_by = None;
   }
 
 let test_enqueue_and_list_tasks () =
@@ -294,6 +298,8 @@ let test_command_of_task_codex () =
       use_worktree = true;
       merge_status = None;
       retry_count = 0;
+      parent_task_id = None;
+      replaced_by = None;
     }
   in
   Alcotest.(check (array string))
@@ -327,6 +333,8 @@ let test_command_of_task_claude () =
       use_worktree = true;
       merge_status = None;
       retry_count = 0;
+      parent_task_id = None;
+      replaced_by = None;
     }
   in
   Alcotest.(check (array string))
@@ -358,6 +366,8 @@ let test_command_of_task_kimi () =
       use_worktree = true;
       merge_status = None;
       retry_count = 0;
+      parent_task_id = None;
+      replaced_by = None;
     }
   in
   Alcotest.(check (array string))
@@ -389,6 +399,8 @@ let test_command_of_task_kimi_with_model () =
       use_worktree = true;
       merge_status = None;
       retry_count = 0;
+      parent_task_id = None;
+      replaced_by = None;
     }
   in
   Alcotest.(check (array string))
@@ -420,6 +432,8 @@ let test_command_of_task_gemini () =
       use_worktree = true;
       merge_status = None;
       retry_count = 0;
+      parent_task_id = None;
+      replaced_by = None;
     }
   in
   Alcotest.(check (array string))
@@ -451,6 +465,8 @@ let test_command_of_task_gemini_with_model () =
       use_worktree = true;
       merge_status = None;
       retry_count = 0;
+      parent_task_id = None;
+      replaced_by = None;
     }
   in
   Alcotest.(check (array string))
@@ -482,6 +498,8 @@ let test_command_of_task_opencode () =
       use_worktree = true;
       merge_status = None;
       retry_count = 0;
+      parent_task_id = None;
+      replaced_by = None;
     }
   in
   Alcotest.(check (array string))
@@ -513,6 +531,8 @@ let test_command_of_task_opencode_with_model () =
       use_worktree = true;
       merge_status = None;
       retry_count = 0;
+      parent_task_id = None;
+      replaced_by = None;
     }
   in
   Alcotest.(check (array string))
@@ -544,6 +564,8 @@ let test_command_of_task_cursor () =
       use_worktree = true;
       merge_status = None;
       retry_count = 0;
+      parent_task_id = None;
+      replaced_by = None;
     }
   in
   Alcotest.(check (array string))
@@ -575,6 +597,8 @@ let test_command_of_task_cursor_with_model () =
       use_worktree = true;
       merge_status = None;
       retry_count = 0;
+      parent_task_id = None;
+      replaced_by = None;
     }
   in
   Alcotest.(check (array string))
@@ -1360,6 +1384,8 @@ let make_task ?(id = 1) ?(runner = Background_task.Claude)
     use_worktree = true;
     merge_status = None;
     retry_count = 0;
+    parent_task_id = None;
+    replaced_by = None;
   }
 
 let test_elapsed_string_recent () =
@@ -1556,6 +1582,8 @@ let test_command_of_task_codex_with_model () =
       use_worktree = true;
       merge_status = None;
       retry_count = 0;
+      parent_task_id = None;
+      replaced_by = None;
     }
   in
   Alcotest.(check (array string))
@@ -1594,6 +1622,8 @@ let test_command_of_task_claude_with_model () =
       use_worktree = true;
       merge_status = None;
       retry_count = 0;
+      parent_task_id = None;
+      replaced_by = None;
     }
   in
   Alcotest.(check (array string))
@@ -3095,6 +3125,8 @@ let test_terse_message_dirty_worktree () =
       use_worktree = true;
       merge_status = None;
       retry_count = 0;
+      parent_task_id = None;
+      replaced_by = None;
     }
   in
   let msg = Background_task.terse_finished_message task in
@@ -3161,6 +3193,210 @@ let test_count_active_for_session () =
       Alcotest.(check int) "sess-b has 1 active" 1 count_b;
       let count_all = Background_task.count_active ~db in
       Alcotest.(check int) "total active is 2" 2 count_all)
+
+let test_recover_from_failed_task () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"implement feature" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      Background_task.finish ~db ~id ~status:Background_task.Failed
+        ~result_preview:"exit 1: compilation error";
+      match Background_task.recover ~db ~id () with
+      | Error msg -> Alcotest.fail msg
+      | Ok (new_id, runner) ->
+          Alcotest.(check string)
+            "runner preserved" "codex"
+            (Background_task.string_of_runner runner);
+          let new_task =
+            match Background_task.get_task ~db ~id:new_id with
+            | Some t -> t
+            | None -> Alcotest.fail "new task not found"
+          in
+          Alcotest.(check (option int))
+            "parent_task_id set" (Some id) new_task.parent_task_id;
+          Alcotest.(check string)
+            "new task queued" "queued"
+            (Background_task.string_of_status new_task.status);
+          let original =
+            match Background_task.get_task ~db ~id with
+            | Some t -> t
+            | None -> Alcotest.fail "original task not found"
+          in
+          Alcotest.(check (option int))
+            "replaced_by set" (Some new_id) original.replaced_by)
+
+let test_recover_from_dirty_worktree () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Claude ~repo_path
+            ~prompt:"fix tests" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      Background_task.finish ~db ~id ~status:Background_task.DirtyWorktree
+        ~result_preview:"uncommitted changes";
+      match Background_task.recover ~db ~id () with
+      | Error msg -> Alcotest.fail msg
+      | Ok (new_id, _runner) ->
+          let new_task =
+            match Background_task.get_task ~db ~id:new_id with
+            | Some t -> t
+            | None -> Alcotest.fail "new task not found"
+          in
+          Alcotest.(check (option int))
+            "parent_task_id set" (Some id) new_task.parent_task_id)
+
+let test_recover_rejects_healthy_running () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"do work" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      (* Spawn a real subprocess so group_alive works *)
+      let proc =
+        Process_group.start ~cwd:repo_path ~env:(Unix.environment ())
+          (Process_group.Exec [| "sleep"; "10" |])
+      in
+      let log_path = Filename.temp_file "clawq-test" ".log" in
+      ignore
+        (Background_task.set_running ~db ~id ~branch:"test"
+           ~worktree_path:repo_path ~log_path ~pid:proc.Process_group.pid);
+      Fun.protect
+        ~finally:(fun () ->
+          Lwt_main.run
+            (let open Lwt.Syntax in
+             let* () = Process_group.terminate proc.pid in
+             let* _ = Process_group.wait proc.pid in
+             Process_group.close proc))
+        (fun () ->
+          match Background_task.recover ~db ~id () with
+          | Ok _ -> Alcotest.fail "should reject healthy running task"
+          | Error msg ->
+              Alcotest.(check bool)
+                "error mentions still running" true
+                (String_util.contains msg "still actively running")))
+
+let test_recover_from_stuck_task () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"do work" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      (* Mark as running with a dead pid — will be Zombie/Process_missing *)
+      ignore
+        (Background_task.set_running ~db ~id ~branch:"test"
+           ~worktree_path:repo_path
+           ~log_path:(Filename.temp_file "clawq-test" ".log")
+           ~pid:999999);
+      match Background_task.recover ~db ~id () with
+      | Error msg -> Alcotest.fail msg
+      | Ok (new_id, _) ->
+          let new_task =
+            match Background_task.get_task ~db ~id:new_id with
+            | Some t -> t
+            | None -> Alcotest.fail "new task not found"
+          in
+          Alcotest.(check (option int))
+            "parent_task_id set" (Some id) new_task.parent_task_id;
+          let original =
+            match Background_task.get_task ~db ~id with
+            | Some t -> t
+            | None -> Alcotest.fail "original not found"
+          in
+          Alcotest.(check string)
+            "original cancelled" "cancelled"
+            (Background_task.string_of_status original.status))
+
+let test_recovery_prompt_includes_evidence () =
+  let task =
+    {
+      (fake_started_task ~status:Background_task.Failed 42) with
+      prompt = "implement sorting algorithm";
+      result_preview = Some "exit 1: type error on line 42";
+    }
+  in
+  let evidence = Background_task.gather_evidence task in
+  Alcotest.(check string)
+    "original_prompt" "implement sorting algorithm" evidence.original_prompt;
+  Alcotest.(check (option string))
+    "result_preview" (Some "exit 1: type error on line 42")
+    evidence.result_preview;
+  let prompt = Background_task.build_recovery_prompt ~original_id:42 evidence in
+  Alcotest.(check bool)
+    "prompt mentions original id" true
+    (String_util.contains prompt "id 42");
+  Alcotest.(check bool)
+    "prompt contains original goal" true
+    (String_util.contains prompt "implement sorting algorithm");
+  Alcotest.(check bool)
+    "prompt contains result preview" true
+    (String_util.contains prompt "exit 1: type error on line 42")
+
+let test_lineage_in_summary () =
+  let task =
+    { (fake_task 10) with parent_task_id = Some 5; replaced_by = Some 15 }
+  in
+  let summary = Background_task.format_task_summary task in
+  Alcotest.(check bool)
+    "summary contains parent_task" true
+    (String_util.contains summary "parent_task: 5");
+  Alcotest.(check bool)
+    "summary contains replaced_by" true
+    (String_util.contains summary "replaced_by: 15")
+
+let test_recover_runner_override () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"do work" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      Background_task.finish ~db ~id ~status:Background_task.Failed
+        ~result_preview:"failed";
+      match
+        Background_task.recover ~db ~id ~runner:Background_task.Claude ()
+      with
+      | Error msg -> Alcotest.fail msg
+      | Ok (new_id, runner) ->
+          Alcotest.(check string)
+            "runner overridden to claude" "claude"
+            (Background_task.string_of_runner runner);
+          let new_task =
+            match Background_task.get_task ~db ~id:new_id with
+            | Some t -> t
+            | None -> Alcotest.fail "new task not found"
+          in
+          Alcotest.(check string)
+            "new task has claude runner" "claude"
+            (Background_task.string_of_runner new_task.runner))
 
 let suite =
   [
@@ -3350,4 +3586,17 @@ let suite =
       test_dirty_worktree_retryable;
     Alcotest.test_case "count active for session" `Quick
       test_count_active_for_session;
+    Alcotest.test_case "recover from failed task" `Quick
+      test_recover_from_failed_task;
+    Alcotest.test_case "recover from dirty worktree" `Quick
+      test_recover_from_dirty_worktree;
+    Alcotest.test_case "recover rejects healthy running" `Quick
+      test_recover_rejects_healthy_running;
+    Alcotest.test_case "recover from stuck task" `Quick
+      test_recover_from_stuck_task;
+    Alcotest.test_case "recovery prompt includes evidence" `Quick
+      test_recovery_prompt_includes_evidence;
+    Alcotest.test_case "lineage in summary" `Quick test_lineage_in_summary;
+    Alcotest.test_case "recover runner override" `Quick
+      test_recover_runner_override;
   ]

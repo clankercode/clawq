@@ -27,6 +27,7 @@ Every clawq command is listed below. Run `clawq COMMAND --help` for per-command 
 | `clawq background message ID MESSAGE...` | Queue a follow-up user-style chat message for a previously started worktree-backed background task and resume it |
 | `clawq background cancel ID` | Cancel a queued or running background task |
 | `clawq background retry ID` | Re-queue a failed background task (max 3 retries) |
+| `clawq background recover ID [--runner R] [--model M]` | Recover a failed or stuck task by spawning a replacement with full context from the original |
 | `clawq background finalize ID` | Rebase, fast-forward merge, and clean up a completed task's worktree |
 | `clawq channel` | List configured channels |
 | `clawq config` | Manage configuration (wizard, get/set/show) |
@@ -163,6 +164,7 @@ clawq background resume 1
 clawq background message 1 "Please fix the failing tests before wrapping up"
 clawq background cancel 1
 clawq background retry 1
+clawq background recover 1 --runner claude
 clawq background finalize 1
 ```
 

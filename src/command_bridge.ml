@@ -242,6 +242,8 @@ let cmd_background args =
          task\n\
         \  background retry <id>                                   - Re-queue \
          a failed task\n\
+        \  background recover <id> [--runner R] [--model M]        - Recover a \
+         failed/stuck task with full context\n\
         \  background finalize <id>                                - Rebase, \
          merge and clean up worktree"
   | [ "show"; id_s ] -> (
@@ -384,6 +386,33 @@ let cmd_background args =
         match Background_task.retry ~db ~id with
         | Ok msg -> msg
         | Error msg -> "Error: " ^ msg)
+  | "recover" :: id_s :: rest -> (
+      let db = get_db () in
+      Background_task.init_schema db;
+      let id = try int_of_string id_s with _ -> -1 in
+      if id < 0 then "Error: background task id must be an integer"
+      else
+        let runner =
+          match rest with
+          | "--runner" :: r :: _ -> Background_task.runner_of_string r
+          | _ -> None
+        in
+        let model =
+          match rest with
+          | "--model" :: m :: _ -> Some m
+          | _ :: "--model" :: m :: _ -> Some m
+          | _ :: _ :: "--model" :: m :: _ -> Some m
+          | _ -> None
+        in
+        match Background_task.recover ~db ~id ?runner ?model () with
+        | Ok (new_id, effective_runner) ->
+            Printf.sprintf
+              "Recovered task %d → new task %d (%s). Use `clawq background \
+               show %d` to track it."
+              id new_id
+              (Background_task.string_of_runner effective_runner)
+              new_id
+        | Error msg -> "Error: " ^ msg)
   | [ "finalize"; id_s ] | "finalize" :: id_s :: _ -> (
       let db = get_db () in
       Background_task.init_schema db;
@@ -400,7 +429,7 @@ let cmd_background args =
             Worktree_merge.format_result result)
   | _ ->
       "Usage: clawq background \
-       <list|show|add|wait|logs|resume|message|cancel|retry|finalize>\n\
+       <list|show|add|wait|logs|resume|message|cancel|retry|recover|finalize>\n\
       \  background list                                         - List queued \
        and completed tasks\n\
       \  background show <id>                                    - Show task \
@@ -419,6 +448,8 @@ let cmd_background args =
        queued/running task\n\
       \  background retry <id>                                   - Re-queue a \
        failed task (max 3 retries)\n\
+      \  background recover <id> [--runner R] [--model M]        - Recover a \
+       failed/stuck task with full context\n\
       \  background finalize <id>                                - Rebase, \
        merge and clean up a task's worktree"
 

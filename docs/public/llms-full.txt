@@ -45,6 +45,7 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 | `background message ID MESSAGE...` | Queue a new user-style chat message for a previously started worktree-backed background task and resume it |
 | `background cancel ID` | Cancel a queued or running background task |
 | `background retry ID` | Re-queue a failed background task (max 3 retries) |
+| `background recover ID [--runner R] [--model M]` | Recover a failed or stuck background task by spawning a replacement with full evidence context (original prompt, log tail, git diff stat, result preview). Links original and replacement via parent_task_id/replaced_by lineage. Works on failed, dirty_worktree, cancelled, or stuck (stalled/zombie/process-missing) tasks |
 | `background finalize ID` | Rebase a completed task's worktree branch onto the target branch, fast-forward merge, and clean up the worktree |
 | `delegate [--runner auto|kimi|opencode|codex|claude|gemini|cursor] [--model MODEL] [--repo PATH] [--branch NAME] GOAL` | High-level shortcut for handing off repository work as a background task with sensible defaults; auto order: kimi → cursor → opencode (zai-coding-plan/glm-5) → claude → codex → gemini |
 | `plan` | Run multi-stage planning pipelines (default: list) |

@@ -583,6 +583,41 @@ let background_retry_cmd =
     (Cmd.info "retry" ~doc:"Re-queue a failed background task.")
     Term.(ret (const (fun id -> run "background" [ "retry"; id ]) $ id))
 
+let background_recover_cmd =
+  let id = Arg.(required & pos 0 (some string) None & info [] ~docv:"ID") in
+  let runner =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "runner" ] ~docv:"RUNNER"
+          ~doc:"Override runner (codex|claude|kimi|gemini|opencode|cursor).")
+  in
+  let model =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "model" ] ~docv:"MODEL" ~doc:"Override model.")
+  in
+  Cmd.v
+    (Cmd.info "recover"
+       ~doc:"Recover a failed or stuck background task with full context.")
+    Term.(
+      ret
+        (const (fun id runner model ->
+             let args = [ "recover"; id ] in
+             let args =
+               match runner with
+               | Some r -> args @ [ "--runner"; r ]
+               | None -> args
+             in
+             let args =
+               match model with
+               | Some m -> args @ [ "--model"; m ]
+               | None -> args
+             in
+             run "background" args)
+        $ id $ runner $ model))
+
 let background_finalize_cmd =
   let id = Arg.(required & pos 0 (some string) None & info [] ~docv:"ID") in
   Cmd.v
@@ -607,6 +642,7 @@ let background_cmd =
       background_message_cmd;
       background_cancel_cmd;
       background_retry_cmd;
+      background_recover_cmd;
       background_finalize_cmd;
     ]
 
