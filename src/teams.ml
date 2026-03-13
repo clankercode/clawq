@@ -207,8 +207,8 @@ let split_message text =
 
 (* Build a reply activity JSON body, optionally with an @mention and
    notification alert control.
-   Only include channelData.notification when suppressing (alert=false);
-   omit it entirely for normal replies so Teams uses default behavior. *)
+   Always include channelData.notification.alert explicitly: true forces a
+   desktop/mobile toast notification, false suppresses it. *)
 let build_reply_body ~alert ~text ~mention =
   let text_with_mention, entities =
     match mention with
@@ -233,13 +233,11 @@ let build_reply_body ~alert ~text ~mention =
     [ ("type", `String "message"); ("text", `String text_with_mention) ]
   in
   let base =
-    if alert then base
-    else
-      base
-      @ [
-          ( "channelData",
-            `Assoc [ ("notification", `Assoc [ ("alert", `Bool false) ]) ] );
-        ]
+    base
+    @ [
+        ( "channelData",
+          `Assoc [ ("notification", `Assoc [ ("alert", `Bool alert) ]) ] );
+      ]
   in
   let fields =
     match entities with
