@@ -1,6 +1,7 @@
 SHELL_SWITCH ?= clawq-5.1
 SHELL := opam exec --switch=$(SHELL_SWITCH) -- /usr/bin/env bash
 .SHELLFLAGS := -c
+export OPAM_SWITCH := $(SHELL_SWITCH)
 
 .PHONY: bootstrap build restart build-restart build-minimal build-wasm build-opt build-opt-all build-opt-speed build-opt-size build-opt-minimal build-opt-stripped build-opt-stripped-all build-opt-speed-stripped build-opt-size-stripped binary-size-report binary-size-check dependency-audit native-size-report packaging-report flambda-experiment extract extract-check coq-verify coq-check run phase2 benchmark benchmark-quick test test-all test-run fmt fmt-check ui ui-dev ui-check clean release docker-build docker-run verify-report coverage coverage-summary coverage-switch-setup embed-ui update-fv fv-all
 

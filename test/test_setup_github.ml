@@ -186,23 +186,30 @@ let instructions_include_verification_and_hook_notes () =
       true
     with Not_found -> false
   in
-  Alcotest.(check bool) "mentions gateway enabled" true
+  Alcotest.(check bool)
+    "mentions gateway enabled" true
     (contains "HTTP gateway enabled");
-  Alcotest.(check bool) "mentions service status" true
+  Alcotest.(check bool)
+    "mentions service status" true
     (contains "clawq service status");
-  Alcotest.(check bool) "mentions daemon log" true
+  Alcotest.(check bool)
+    "mentions daemon log" true
     (contains "tail -f ~/.clawq/daemon.log");
-  Alcotest.(check bool) "mentions github hooks log lines" true
-    (contains "GitHub hooks:");
-  Alcotest.(check bool) "mentions gh-hooks dir" true
+  Alcotest.(check bool)
+    "mentions github hooks log lines" true (contains "GitHub hooks:");
+  Alcotest.(check bool)
+    "mentions gh-hooks dir" true
     (contains "~/.clawq/workspace/gh-hooks/");
-  Alcotest.(check bool) "mentions workflow event name" true
-    (contains "workflow_run");
-  Alcotest.(check bool) "mentions workflow failure status" true
+  Alcotest.(check bool)
+    "mentions workflow event name" true (contains "workflow_run");
+  Alcotest.(check bool)
+    "mentions workflow failure status" true
     (contains "status: completed");
-  Alcotest.(check bool) "mentions workflow failure conclusion" true
+  Alcotest.(check bool)
+    "mentions workflow failure conclusion" true
     (contains "conclusion: failure");
-  Alcotest.(check bool) "mentions review event" true
+  Alcotest.(check bool)
+    "mentions review event" true
     (contains "Pull request reviews")
 
 let deep_merge_empty () =

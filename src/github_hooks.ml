@@ -657,8 +657,7 @@ let run_matching_hooks ~(session_manager : Session.t) ~prepared =
                       ~channel_type:"dm" ~sender_id ()
                   in
                   Logs.info (fun m ->
-                      m
-                        "GitHub hooks: ran hook %s for %s %s response=%S"
+                      m "GitHub hooks: ran hook %s for %s %s response=%S"
                         hook.name prepared.repo_full_name prepared.event_name
                         response);
                   Lwt.return 1)

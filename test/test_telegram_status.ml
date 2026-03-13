@@ -123,11 +123,13 @@ let test_status_notifier_invalid_non_numeric_send_id_is_suppressed () =
   let sm =
     Status_message.create ~debounce_interval:0.0 ~notifier ~parse_mode:"HTML" ()
   in
-  Lwt_main.run (Status_message.tool_start sm ~id:"t1" ~name:"file_read" ~summary:None);
+  Lwt_main.run
+    (Status_message.tool_start sm ~id:"t1" ~name:"file_read" ~summary:None);
   Alcotest.(check (option string))
     "invalid telegram id does not get adopted" None sm.msg_id
 
-let test_telegram_status_notifier_preserves_silent_send_after_lock_warn_timeout () =
+let test_telegram_status_notifier_preserves_silent_send_after_lock_warn_timeout
+    () =
   let outbound_mutex = Lwt_mutex.create () in
   let disable_notifications = ref [] in
   let sent = ref [] in
@@ -145,10 +147,17 @@ let test_telegram_status_notifier_preserves_silent_send_after_lock_warn_timeout 
      let transport : Telegram.status_transport =
        {
          send_with_id =
-           (fun ?disable_notification ?parse_mode:_ ~bot_token:_ ~chat_id:_ ~text () ->
+           (fun ?disable_notification
+             ?parse_mode:_
+             ~bot_token:_
+             ~chat_id:_
+             ~text
+             ()
+           ->
              Lwt_util.with_lock_timeout ~label:"telegram-status-test"
                ~warn_timeout:0.01 ~fatal_timeout:0.2 outbound_mutex (fun () ->
-                 disable_notifications := disable_notification :: !disable_notifications;
+                 disable_notifications :=
+                   disable_notification :: !disable_notifications;
                  sent := text :: !sent;
                  Lwt.return "42"));
          edit_text =
@@ -166,22 +175,25 @@ let test_telegram_status_notifier_preserves_silent_send_after_lock_warn_timeout 
          ~chat_id:"chat-1"
      in
      let sm =
-       Status_message.create ~debounce_interval:0.0 ~notifier ~parse_mode:"HTML" ()
+       Status_message.create ~debounce_interval:0.0 ~notifier ~parse_mode:"HTML"
+         ()
      in
-     let* () = Status_message.tool_start sm ~id:"t1" ~name:"shell_exec" ~summary:None in
-     let* () = Status_message.tool_result sm ~id:"t1" ~name:"shell_exec" ~result:"ok"
+     let* () =
+       Status_message.tool_start sm ~id:"t1" ~name:"shell_exec" ~summary:None
+     in
+     let* () =
+       Status_message.tool_result sm ~id:"t1" ~name:"shell_exec" ~result:"ok"
          ~is_error:false
      in
      Lwt.return_unit);
-  Alcotest.(check int) "initial send still succeeds after warn timeout" 1
-    (List.length !sent);
-  Alcotest.(check int) "follow-up edit still succeeds after warn timeout" 1
-    (List.length !edited);
-  Alcotest.(check (list (option bool))) "status sends stay silent" [ Some true ]
-    !disable_notifications;
-  Alcotest.(check (option string)) "message id adopted after delayed send"
-    (Some "42")
-    (Some "42")
+  Alcotest.(check int)
+    "initial send still succeeds after warn timeout" 1 (List.length !sent);
+  Alcotest.(check int)
+    "follow-up edit still succeeds after warn timeout" 1 (List.length !edited);
+  Alcotest.(check (list (option bool)))
+    "status sends stay silent" [ Some true ] !disable_notifications;
+  Alcotest.(check (option string))
+    "message id adopted after delayed send" (Some "42") (Some "42")
 
 let test_status_message_tool_start_sends_immediately_without_debounce_delay () =
   let notifier, sent, edited, _deleted =
@@ -198,7 +210,10 @@ let test_status_message_tool_start_sends_immediately_without_debounce_delay () =
           (fun _id ?parse_mode:_ _text ->
             incr edited;
             Lwt.return None);
-        delete = (fun _id -> incr deleted; Lwt.return_unit);
+        delete =
+          (fun _id ->
+            incr deleted;
+            Lwt.return_unit);
       }
     in
     (notifier, sent, edited, deleted)
@@ -216,7 +231,13 @@ let test_consolidated_tool_start_and_result_use_single_status_message () =
   let transport : Telegram.status_transport =
     {
       send_with_id =
-        (fun ?disable_notification ?parse_mode ~bot_token:_ ~chat_id:_ ~text () ->
+        (fun ?disable_notification
+          ?parse_mode
+          ~bot_token:_
+          ~chat_id:_
+          ~text
+          ()
+        ->
           transport_calls :=
             Printf.sprintf "send dn=%s pm=%s text=%s"
               (match disable_notification with
@@ -259,12 +280,13 @@ let test_consolidated_tool_start_and_result_use_single_status_message () =
      Lwt.return_unit);
   let calls = List.rev !transport_calls in
   Alcotest.(check int) "one send then one edit" 2 (List.length calls);
-  Alcotest.(check bool) "first call is silent HTML send" true
+  Alcotest.(check bool)
+    "first call is silent HTML send" true
     (match calls with
-    | first :: _ ->
-        String.starts_with ~prefix:"send dn=true pm=HTML" first
+    | first :: _ -> String.starts_with ~prefix:"send dn=true pm=HTML" first
     | [] -> false);
-  Alcotest.(check bool) "second call edits same message" true
+  Alcotest.(check bool)
+    "second call edits same message" true
     (match calls with
     | _ :: second :: _ -> String.starts_with ~prefix:"edit id=42 pm=HTML" second
     | _ -> false)
@@ -273,7 +295,8 @@ let test_format_tool_result_detail_includes_tool_name_and_empty_output () =
   Alcotest.(check string)
     "empty output gets placeholder" "shell_exec\n[empty output]"
     (Telegram.format_tool_result_detail ~name:"shell_exec" ~result:"   ");
-  Alcotest.(check string) "tool name prefixes detail" "file_read\nhello"
+  Alcotest.(check string)
+    "tool name prefixes detail" "file_read\nhello"
     (Telegram.format_tool_result_detail ~name:"file_read" ~result:"hello")
 
 let make_notifier () =
@@ -316,17 +339,27 @@ let test_finalize_idempotent_with_tools () =
   in
   Lwt_main.run
     (let open Lwt.Syntax in
-     let* () = Status_message.tool_start sm ~id:"t1" ~name:"file_read" ~summary:None in
-     let* () = Status_message.tool_start sm ~id:"t2" ~name:"file_write" ~summary:None in
-     let* () = Status_message.tool_start sm ~id:"t3" ~name:"shell_exec" ~summary:None in
-     let* () = Status_message.tool_start sm ~id:"t4" ~name:"http_get" ~summary:None in
+     let* () =
+       Status_message.tool_start sm ~id:"t1" ~name:"file_read" ~summary:None
+     in
+     let* () =
+       Status_message.tool_start sm ~id:"t2" ~name:"file_write" ~summary:None
+     in
+     let* () =
+       Status_message.tool_start sm ~id:"t3" ~name:"shell_exec" ~summary:None
+     in
+     let* () =
+       Status_message.tool_start sm ~id:"t4" ~name:"http_get" ~summary:None
+     in
      let* () = Status_message.finalize sm in
      Lwt.return_unit);
   let edited_after_first_finalize = !edited in
   Lwt_main.run (Status_message.finalize sm);
-  Alcotest.(check bool) "first finalize edited consolidated status" true
+  Alcotest.(check bool)
+    "first finalize edited consolidated status" true
     (edited_after_first_finalize > 0);
-  Alcotest.(check int) "second finalize is a no-op" edited_after_first_finalize !edited
+  Alcotest.(check int)
+    "second finalize is a no-op" edited_after_first_finalize !edited
 
 let suite =
   [
@@ -334,8 +367,8 @@ let suite =
       test_status_notifier_edits_in_place_without_reanchoring;
     Alcotest.test_case "tool result details are scoped" `Quick
       test_tool_result_details_callbacks_are_scoped;
-    Alcotest.test_case "tool result details require matching chat and user" `Quick
-      test_tool_result_details_require_matching_chat_and_user;
+    Alcotest.test_case "tool result details require matching chat and user"
+      `Quick test_tool_result_details_require_matching_chat_and_user;
     Alcotest.test_case "tool result details evict oldest only" `Quick
       test_tool_result_details_evict_oldest_without_clearing_newer_entries;
     Alcotest.test_case "invalid status send id is suppressed" `Quick
@@ -344,8 +377,8 @@ let suite =
       test_telegram_status_notifier_preserves_silent_send_after_lock_warn_timeout;
     Alcotest.test_case "status tool start sends immediately" `Quick
       test_status_message_tool_start_sends_immediately_without_debounce_delay;
-    Alcotest.test_case "consolidated tool status reuses one telegram message" `Quick
-      test_consolidated_tool_start_and_result_use_single_status_message;
+    Alcotest.test_case "consolidated tool status reuses one telegram message"
+      `Quick test_consolidated_tool_start_and_result_use_single_status_message;
     Alcotest.test_case "format tool result detail includes tool name" `Quick
       test_format_tool_result_detail_includes_tool_name_and_empty_output;
     Alcotest.test_case "finalize without tools is idempotent" `Quick

@@ -71,23 +71,32 @@ let test_typing_loop_propagates_promise_rejection () =
      Lwt.return_unit)
 
 let test_chat_action_for_tool () =
-  Alcotest.(check string) "file_write -> upload_document" "upload_document"
+  Alcotest.(check string)
+    "file_write -> upload_document" "upload_document"
     (Telegram.chat_action_for_tool "file_write");
-  Alcotest.(check string) "file_edit -> upload_document" "upload_document"
+  Alcotest.(check string)
+    "file_edit -> upload_document" "upload_document"
     (Telegram.chat_action_for_tool "file_edit");
-  Alcotest.(check string) "web_fetch -> find_location" "find_location"
+  Alcotest.(check string)
+    "web_fetch -> find_location" "find_location"
     (Telegram.chat_action_for_tool "web_fetch");
-  Alcotest.(check string) "web_search -> find_location" "find_location"
+  Alcotest.(check string)
+    "web_search -> find_location" "find_location"
     (Telegram.chat_action_for_tool "web_search");
-  Alcotest.(check string) "http_get -> find_location" "find_location"
+  Alcotest.(check string)
+    "http_get -> find_location" "find_location"
     (Telegram.chat_action_for_tool "http_get");
-  Alcotest.(check string) "http_request -> find_location" "find_location"
+  Alcotest.(check string)
+    "http_request -> find_location" "find_location"
     (Telegram.chat_action_for_tool "http_request");
-  Alcotest.(check string) "transcribe -> record_voice" "record_voice"
+  Alcotest.(check string)
+    "transcribe -> record_voice" "record_voice"
     (Telegram.chat_action_for_tool "transcribe");
-  Alcotest.(check string) "shell_exec -> typing" "typing"
+  Alcotest.(check string)
+    "shell_exec -> typing" "typing"
     (Telegram.chat_action_for_tool "shell_exec");
-  Alcotest.(check string) "unknown -> typing" "typing"
+  Alcotest.(check string)
+    "unknown -> typing" "typing"
     (Telegram.chat_action_for_tool "anything_else")
 
 let test_send_chat_action_is_not_serialized_by_outbound_lock () =
@@ -133,7 +142,8 @@ let test_with_outbound_lock_blocks_until_mutex_released () =
        "with_outbound_lock remains blocked while mutex held" false !finished;
      Lwt_mutex.unlock mutex;
      let* () = blocked_p in
-     Alcotest.(check bool) "with_outbound_lock runs after release" true !finished;
+     Alcotest.(check bool)
+       "with_outbound_lock runs after release" true !finished;
      Lwt.return_unit)
 
 let test_refreshable_typing_can_overlap_outbound_lock () =
@@ -197,7 +207,8 @@ let test_refreshable_loop_refresh_triggers_immediate_send () =
      refresh ();
      let* () = Lwt_unix.sleep 0.02 in
      let count_after = List.length !call_times in
-     Alcotest.(check bool) "refresh caused additional send" true
+     Alcotest.(check bool)
+       "refresh caused additional send" true
        (count_after > count_before);
      Lwt.wakeup resolve "ok";
      let* _result = result_p in
@@ -221,7 +232,8 @@ let test_refreshable_loop_stops_on_resolve () =
      let count_at_stop = !call_count in
      refresh ();
      let* () = Lwt_unix.sleep 0.05 in
-     Alcotest.(check int) "no further calls after stop" count_at_stop !call_count;
+     Alcotest.(check int)
+       "no further calls after stop" count_at_stop !call_count;
      Lwt.return_unit)
 
 let test_deferred_typing_skips_for_fast_promise () =
@@ -284,12 +296,13 @@ let test_live_activity_typing_follows_session_state () =
      let* () =
        Session.with_live_activity mgr ~key (fun () ->
            let* () = Lwt_unix.sleep 0.04 in
-           Alcotest.(check bool) "active session sends typing" true
-             (!call_count >= 2);
+           Alcotest.(check bool)
+             "active session sends typing" true (!call_count >= 2);
            let count_before_refresh = !call_count in
            Lwt_condition.broadcast refresh_trigger ();
            let* () = Lwt_unix.sleep 0.02 in
-           Alcotest.(check bool) "refresh triggers immediate resend" true
+           Alcotest.(check bool)
+             "refresh triggers immediate resend" true
              (!call_count > count_before_refresh);
            Lwt.return_unit)
      in

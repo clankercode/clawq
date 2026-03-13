@@ -92,12 +92,9 @@ let post_setup_instructions ~repo_name ~webhook_path ~webhook_secret
   let tunnel_note =
     match tunnel_url with
     | None ->
-        "
-\
-        \    Note: You are using localhost. For GitHub to reach your server,
-\
-        \    set up a tunnel first: clawq tunnel start
-"
+        "\n\
+        \    Note: You are using localhost. For GitHub to reach your server,\n\
+        \    set up a tunnel first: clawq tunnel start\n"
     | Some _ -> ""
   in
   Printf.sprintf

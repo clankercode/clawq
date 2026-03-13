@@ -787,7 +787,7 @@ let test_github_webhook_accepts_repo_case_mismatch () =
   Session.set_special_command_handler session_manager
     (fun ~key ~message:_ ~send_progress:_ ~interrupt_check:_ ->
       seen_key := Some key;
-      Lwt.return_some "accepted") ;
+      Lwt.return_some "accepted");
   let github_config : Runtime_config.github_config =
     {
       auth = Runtime_config.GithubPat "ghp_test12345";

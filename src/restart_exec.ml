@@ -9,10 +9,8 @@ let path_mentions_deleted path =
   try
     let target = Unix.readlink path in
     let lower = String.lowercase_ascii target in
-    String.contains lower '('
-    && String.contains lower ')'
-    && String.contains lower 'd'
-    && String.contains lower 'e'
+    String.contains lower '(' && String.contains lower ')'
+    && String.contains lower 'd' && String.contains lower 'e'
     && String.contains lower 'l'
   with _ -> false
 
@@ -28,7 +26,8 @@ let validate_and_fix path =
   if path_is_deleted path || path_mentions_deleted path then
     Error
       (Printf.sprintf
-         "execve target %s points to a deleted binary; rebuild or set %s to a fresh executable"
+         "execve target %s points to a deleted binary; rebuild or set %s to a \
+          fresh executable"
          path reexec_path_env)
   else
     try

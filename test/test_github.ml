@@ -493,12 +493,14 @@ let github_hook_workflow_events_are_not_user_generated () =
         (Cohttp.Header.of_list [ ("X-GitHub-Delivery", "workflow-delivery") ])
       ~raw_body:payload
   in
-  Alcotest.(check bool) "workflow_run bypasses user gating" false
-    prepared.is_user_generated
+  Alcotest.(check bool)
+    "workflow_run bypasses user gating" false prepared.is_user_generated
 
 let handle_webhook_non_user_generated_failure_runs_hooks () =
   Test_helpers.with_temp_home (fun home ->
-      let ensure_dir path = if not (Sys.file_exists path) then Unix.mkdir path 0o755 in
+      let ensure_dir path =
+        if not (Sys.file_exists path) then Unix.mkdir path 0o755
+      in
       let clawq_dir = Filename.concat home ".clawq" in
       let workspace_dir = Filename.concat clawq_dir "workspace" in
       let hook_dir = Filename.concat workspace_dir "gh-hooks" in
@@ -507,8 +509,7 @@ let handle_webhook_non_user_generated_failure_runs_hooks () =
       let () = ensure_dir hook_dir in
       let hook_path = Filename.concat hook_dir "workflow_run.md" in
       let hook_body =
-        String.concat "
-"
+        String.concat "\n"
           [
             "---";
             "name: failed-workflow";
@@ -535,7 +536,8 @@ let handle_webhook_non_user_generated_failure_runs_hooks () =
       let prepared =
         Github_hooks.prepare_event ~event_name:"workflow_run"
           ~headers:
-            (Cohttp.Header.of_list [ ("X-GitHub-Delivery", "workflow-delivery") ])
+            (Cohttp.Header.of_list
+               [ ("X-GitHub-Delivery", "workflow-delivery") ])
           ~raw_body:body
       in
       let matched_hooks =
@@ -546,7 +548,9 @@ let handle_webhook_non_user_generated_failure_runs_hooks () =
               loaded_hooks
         | None -> []
       in
-      Alcotest.(check int) "matched workflow hooks" 1 (List.length matched_hooks);
+      Alcotest.(check int)
+        "matched workflow hooks" 1
+        (List.length matched_hooks);
       let repo_config : Runtime_config.github_repo_config =
         {
           name = "acme/backend";

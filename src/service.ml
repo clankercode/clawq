@@ -96,7 +96,8 @@ let daemon_status_line pid =
         "  daemon: running (pid %d, uptime %s, WARNING deleted exe: %s)" pid
         uptime target
   | Some target, None ->
-      Printf.sprintf "  daemon: running (pid %d, WARNING deleted exe: %s)" pid target
+      Printf.sprintf "  daemon: running (pid %d, WARNING deleted exe: %s)" pid
+        target
   | None, Some uptime ->
       Printf.sprintf "  daemon: running (pid %d, uptime %s)" pid uptime
   | None, None -> Printf.sprintf "  daemon: running (pid %d)" pid
@@ -364,9 +365,9 @@ let cmd_status () =
   add "Service status:";
   (match read_pid () with
   | None -> add "  daemon: not running"
-  | Some pid ->
+  | Some pid -> (
       add (daemon_status_line pid);
-      (match Daemon_status.daemon_uptime_line pid with
+      match Daemon_status.daemon_uptime_line pid with
       | Some line -> add line
       | None -> ()));
   let state_path = Filename.concat (clawq_dir ()) "daemon_state.json" in

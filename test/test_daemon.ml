@@ -1577,12 +1577,13 @@ let test_resume_agent_session_sends_visible_injection_prompt () =
         "history retains prior user message" true
         (List.exists
            (fun (m : Provider.message) ->
-             m.role = "user"
-             && m.content = "please continue after restart")
+             m.role = "user" && m.content = "please continue after restart")
            history);
       Alcotest.(check bool)
         "assistant reply persisted" true
-        (List.exists (fun (m : Provider.message) -> m.role = "assistant") history))
+        (List.exists
+           (fun (m : Provider.message) -> m.role = "assistant")
+           history))
 
 let test_rich_send_fn_direct_dispatch_fallback () =
   (* Simulate the rich_send_fn fallback: when no notifier is registered,
