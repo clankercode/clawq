@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-13T13:28:39Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-13T13:35:19Z"
 complexity: medium
 depends_on: []
+duration_minutes: 6.669373973833333
 estimate_hours: 1
 id: B230
 priority: medium
 started_at: "2026-03-13T13:28:39Z"
-status: in_progress
+status: done
 tags: []
 title: GitHub webhook interactions should map each issue/PR/comment thread to a stable clawq session
 ---

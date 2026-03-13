@@ -556,8 +556,10 @@ let test_github_webhook_routes_to_session_and_posts_reply () =
           let json = Yojson.Safe.from_string (body_string body) in
           let open Yojson.Safe.Util in
           Alcotest.(check string)
-            "status" "replied"
+            "status" "accepted"
             (json |> member "status" |> to_string);
+          (* Processing is async; wait for side effects *)
+          Lwt_main.run (Lwt_unix.sleep 0.1);
           Alcotest.(check (option string))
             "session key" (Some "github:acme/backend:pr:42") !seen_key;
           Alcotest.(check bool)
@@ -570,10 +572,6 @@ let test_github_webhook_routes_to_session_and_posts_reply () =
             (match !seen_message with
             | Some message -> contains_str message "review routing"
             | None -> false);
-          (* Github.handle_webhook reports reply status synchronously, but the
-             outbound GitHub comment POST is spawned asynchronously. Give the
-             fake API server a brief chance to observe it before asserting. *)
-          Lwt_main.run (Lwt_unix.sleep 0.05);
           Alcotest.(check (option string))
             "comment endpoint" (Some "/repos/acme/backend/issues/42/comments")
             !seen_post_path;
@@ -658,8 +656,10 @@ let test_github_pr_synchronize_reuses_pr_session () =
           let json = Yojson.Safe.from_string (body_string body) in
           let open Yojson.Safe.Util in
           Alcotest.(check string)
-            "status" "replied"
+            "status" "accepted"
             (json |> member "status" |> to_string);
+          (* Processing is async; wait for side effects *)
+          Lwt_main.run (Lwt_unix.sleep 0.1);
           Alcotest.(check (option string))
             "session key" (Some "github:acme/backend:pr:42") !seen_key;
           Alcotest.(check bool)
@@ -760,8 +760,10 @@ Payload: {{payload_path}}
       let json = Yojson.Safe.from_string (body_string body) in
       let open Yojson.Safe.Util in
       Alcotest.(check string)
-        "status" "hooked:1"
+        "status" "accepted"
         (json |> member "status" |> to_string);
+      (* Processing is async; wait for side effects *)
+      Lwt_main.run (Lwt_unix.sleep 0.1);
       Alcotest.(check (option string))
         "session key" (Some "github:acme/backend:workflow_run:55") !seen_key;
       Alcotest.(check bool)
@@ -832,8 +834,10 @@ let test_github_webhook_accepts_repo_case_mismatch () =
   let json = Yojson.Safe.from_string (body_string body) in
   let open Yojson.Safe.Util in
   Alcotest.(check string)
-    "status" "ignored"
+    "status" "accepted"
     (json |> member "status" |> to_string);
+  (* Async processing handles the event internally *)
+  Lwt_main.run (Lwt_unix.sleep 0.05);
   Alcotest.(check (option string))
     "no session key for bare event" None !seen_key
 
@@ -911,9 +915,140 @@ This should never run.
       let json = Yojson.Safe.from_string (body_string body) in
       let open Yojson.Safe.Util in
       Alcotest.(check string)
-        "status" "repo mismatch"
+        "status" "accepted"
         (json |> member "status" |> to_string);
+      (* Async processing handles the repo mismatch internally *)
+      Lwt_main.run (Lwt_unix.sleep 0.05);
       Alcotest.(check (option string)) "no session" None !seen_key)
+
+let test_github_webhook_reaction_and_placeholder_edit () =
+  let webhook_secret = "webhook-secret" in
+  let payload =
+    {|{"action":"created","issue":{"number":42,"title":"Webhook test","pull_request":{"url":"https://api.github.com/repos/acme/backend/pulls/42"}},"comment":{"id":9001,"user":{"login":"octocat"},"body":"/clawq review routing","html_url":"https://github.com/acme/backend/pull/42#issuecomment-9001"},"repository":{"name":"backend","owner":{"login":"acme"}}}|}
+  in
+  let signature =
+    compute_github_signature ~secret:webhook_secret ~body:payload
+  in
+  let seen_key = ref None in
+  let api_calls = ref [] in
+  let callback _conn req body =
+    let open Lwt.Syntax in
+    let* body_text = Cohttp_lwt.Body.to_string body in
+    let meth = Cohttp.Code.string_of_method (Cohttp.Request.meth req) in
+    let path = Uri.path (Cohttp.Request.uri req) in
+    api_calls := (meth, path, body_text) :: !api_calls;
+    (* Return {"id": 12345} for POST to comments so placeholder path works *)
+    if
+      Cohttp.Request.meth req = `POST
+      && contains_str path "/comments"
+      && not (contains_str path "/reactions")
+    then
+      Cohttp_lwt_unix.Server.respond_string ~status:`Created
+        ~body:{|{"id":12345}|} ()
+    else Cohttp_lwt_unix.Server.respond_string ~status:`Created ~body:"{}" ()
+  in
+  with_fake_github_api callback (fun github_api_base ->
+      with_env "CLAWQ_GITHUB_API_BASE" (Some github_api_base) (fun () ->
+          let db = Memory.init ~db_path:":memory:" () in
+          let config = Runtime_config.default in
+          let session_manager = Session.create ~config ~db () in
+          Session.set_special_command_handler session_manager
+            (fun ~key ~message:_ ~send_progress:_ ~interrupt_check:_ ->
+              seen_key := Some key;
+              Lwt.return_some "final agent response");
+          let github_config : Runtime_config.github_config =
+            {
+              auth = Runtime_config.GithubPat "ghp_test12345";
+              repos =
+                [
+                  {
+                    Runtime_config.name = "acme/backend";
+                    webhook_secret;
+                    webhook_path = "/github/webhook/backend";
+                    agent_name = None;
+                    allow_users = [ "octocat" ];
+                    react_to = [ "issue_comment" ];
+                    include_pr_files = false;
+                  };
+                ];
+            }
+          in
+          let headers =
+            Cohttp.Header.of_list
+              [
+                ("X-GitHub-Event", "issue_comment");
+                ("X-Hub-Signature-256", signature);
+              ]
+          in
+          let req =
+            Cohttp.Request.make ~headers ~meth:`POST
+              (Uri.of_string "http://127.0.0.1/github/webhook/backend")
+          in
+          let resp, body =
+            Lwt_main.run
+              (Http_server.handler ~session_manager ~require_pairing:false
+                 ~auth_token:None ~github_config
+                 ~github_api_limiter:
+                   (Rate_limiter.create ~rate_per_minute:60
+                      ~burst_multiplier:1.0)
+                 (Obj.magic ()) req
+                 (Cohttp_lwt.Body.of_string payload))
+          in
+          Alcotest.(check int)
+            "ok" 200
+            (Cohttp.Code.code_of_status (Cohttp.Response.status resp));
+          let json = Yojson.Safe.from_string (body_string body) in
+          let open Yojson.Safe.Util in
+          Alcotest.(check string)
+            "status" "accepted"
+            (json |> member "status" |> to_string);
+          (* Processing is async; wait for side effects *)
+          Lwt_main.run (Lwt_unix.sleep 0.2);
+          Alcotest.(check (option string))
+            "session key" (Some "github:acme/backend:pr:42") !seen_key;
+          let calls = List.rev !api_calls in
+          (* AC #4: Verify eyes reaction was posted *)
+          let reaction_calls =
+            List.filter
+              (fun (meth, path, body) ->
+                meth = "POST"
+                && contains_str path "/reactions"
+                && contains_str body {|"content":"eyes"|})
+              calls
+          in
+          Alcotest.(check bool)
+            "eyes reaction posted" true
+            (List.length reaction_calls > 0);
+          Alcotest.(check bool)
+            "reaction on correct comment" true
+            (List.exists
+               (fun (_, path, _) -> contains_str path "/issues/comments/9001/")
+               reaction_calls);
+          (* AC #5: Verify placeholder comment was posted *)
+          let placeholder_calls =
+            List.filter
+              (fun (meth, path, body) ->
+                meth = "POST"
+                && contains_str path "/issues/42/comments"
+                && (not (contains_str path "/reactions"))
+                && contains_str body "Working on it")
+              calls
+          in
+          Alcotest.(check bool)
+            "placeholder comment posted" true
+            (List.length placeholder_calls > 0);
+          (* AC #5: Verify final response was PATCHed to the placeholder *)
+          let edit_calls =
+            List.filter
+              (fun (meth, path, body) ->
+                meth = "PATCH"
+                && contains_str path "/issues/comments/12345"
+                && contains_str body "final agent response")
+              calls
+          in
+          Alcotest.(check bool)
+            "final response edited into placeholder" true
+            (List.length edit_calls > 0)))
 
 let test_github_webhook_rejects_ambiguous_path () =
   let webhook_secret = "webhook-secret" in
@@ -1022,6 +1157,8 @@ let suite =
       test_github_webhook_rejects_repo_mismatch;
     Alcotest.test_case "github webhook accepts repo case mismatch" `Quick
       test_github_webhook_accepts_repo_case_mismatch;
+    Alcotest.test_case "github webhook reaction and placeholder edit" `Quick
+      test_github_webhook_reaction_and_placeholder_edit;
     Alcotest.test_case "github webhook rejects ambiguous path" `Quick
       test_github_webhook_rejects_ambiguous_path;
   ]

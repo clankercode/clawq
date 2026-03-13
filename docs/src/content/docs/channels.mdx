@@ -332,6 +332,50 @@ Use the interactive wizard (`clawq setup github`) or follow the manual steps:
 5. Add any hook files to `~/.clawq/workspace/gh-hooks/` and start
    `clawq agent`.
 
+### Session Keys
+
+Each GitHub thread maps to a stable clawq session key so that follow-up
+`/clawq` interactions resume the same conversation context:
+
+| Thread surface | Session key format |
+|---|---|
+| PR event or comment on a PR | `github:{owner}/{repo}:pr:{number}` |
+| Issue comment (non-PR) | `github:{owner}/{repo}:issue:{number}` |
+| PR review comment | `github:{owner}/{repo}:pr:{number}` |
+
+Review comments on the same PR share a session with the PR timeline, so the
+agent has full PR context regardless of which comment surface invoked it.
+Replies are routed back to the correct GitHub API surface: issue/PR comments
+use the Issues API, while review comments reply in-thread via the Pull Reviews
+API.
+
+### Comment/Reply Lifecycle
+
+When a `/clawq` command is detected in a GitHub comment, clawq follows a
+defined lifecycle to provide clear feedback:
+
+1. **Acknowledge** --- an "eyes" reaction is added to the triggering comment
+   so the user knows the command was received.
+2. **Placeholder** --- a placeholder comment is posted with a spinner
+   (`> /clawq ...\n\n⏳ Working on it...`) for issue and PR comments. Review
+   comments skip this step since replies are threaded differently.
+3. **Process** --- the webhook returns HTTP 200 immediately; the agent turn
+   runs asynchronously via `Lwt.async`.
+4. **Finalize** --- the placeholder comment is edited with the final response
+   (or a new comment/reply is posted if no placeholder exists). All bot
+   replies include a `<!-- clawq-reply -->` marker.
+5. **Notify** --- a channel notifier is registered for the session so that
+   autonomous or deferred agent responses are posted to the same GitHub
+   thread.
+
+**Bot self-loop protection:** incoming comments containing the
+`<!-- clawq-reply -->` marker are silently ignored, preventing the bot from
+reacting to its own replies.
+
+**Delivery deduplication:** the `X-GitHub-Delivery` header is tracked in an
+in-memory LRU set (capacity 500). Duplicate deliveries are rejected before
+any processing occurs.
+
 ### Key Features
 
 - **Signature verification** --- deliveries must pass GitHub HMAC validation
@@ -340,8 +384,15 @@ Use the interactive wizard (`clawq setup github`) or follow the manual steps:
   `channels.github.repos[].name` for that webhook path.
 - **Unique webhook paths** --- duplicate `webhook_path` bindings are rejected
   as ambiguous.
-- **Legacy `/clawq` support** --- PR comments, review comments, and supported
-  PR events can still trigger conversational agent replies.
+- **Stable sessions** --- repeated `/clawq` interactions on the same issue or
+  PR resume the same session context (see Session Keys above).
+- **Async processing** --- the webhook returns HTTP 200 immediately; agent
+  processing happens asynchronously with acknowledgment, placeholder, and
+  edit lifecycle (see Comment/Reply Lifecycle above).
+- **Delivery deduplication** --- duplicate webhook deliveries are suppressed
+  via an in-memory LRU set keyed by the `X-GitHub-Delivery` header.
+- **Bot self-loop protection** --- replies include an HTML comment marker;
+  incoming comments with that marker are silently ignored.
 - **File-backed hooks** --- non-comment events such as `workflow_job` can route
   prompts into sessions using repo-scoped markdown hook files.
 - **Trust gating** --- `allow_users` gates arbitrary-content events such as

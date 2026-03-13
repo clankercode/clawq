@@ -1292,7 +1292,7 @@ let handler ~session_manager ~require_pairing ~auth_token
             ~body:
               {|{"error":"github webhook path is ambiguous; make webhook_path values unique"}|}
             ()
-      | Found_github_repo repo_config -> (
+      | Found_github_repo repo_config ->
           let event_type =
             match
               Cohttp.Header.get (Cohttp.Request.headers req) "x-github-event"
@@ -1302,21 +1302,38 @@ let handler ~session_manager ~require_pairing ~auth_token
           in
           let req_headers = Cohttp.Request.headers req in
           let api_limiter = Option.get github_api_limiter in
-          let* result =
-            Github.handle_webhook ~repo_config ~github_config:gc
-              ~session_manager ~api_limiter ~event_type ~body:body_str
-              ~headers:req_headers
+          (* Quick synchronous signature check for immediate 403 *)
+          let sig_header =
+            Cohttp.Header.get req_headers "x-hub-signature-256"
+            |> Option.value ~default:""
           in
-          match result with
-          | Github.BadSignature ->
-              Cohttp_lwt_unix.Server.respond_string ~status:`Forbidden
-                ~headers:json_headers ~body:{|{"error":"invalid signature"}|} ()
-          | Github.Ok msg ->
-              Cohttp_lwt_unix.Server.respond_string ~status:`OK
-                ~headers:json_headers
-                ~body:
-                  (Yojson.Safe.to_string (`Assoc [ ("status", `String msg) ]))
-                ()))
+          if
+            not
+              (Github_webhook.verify_signature
+                 ~secret:repo_config.webhook_secret ~body:body_str
+                 ~signature_header:sig_header)
+          then
+            Cohttp_lwt_unix.Server.respond_string ~status:`Forbidden
+              ~headers:json_headers ~body:{|{"error":"invalid signature"}|} ()
+          else begin
+            (* Process asynchronously, return 200 immediately *)
+            Lwt.async (fun () ->
+                Lwt.catch
+                  (fun () ->
+                    let* _result =
+                      Github.handle_webhook ~repo_config ~github_config:gc
+                        ~session_manager ~api_limiter ~event_type ~body:body_str
+                        ~headers:req_headers
+                    in
+                    Lwt.return_unit)
+                  (fun exn ->
+                    Logs.err (fun m ->
+                        m "GitHub webhook handler error: %s"
+                          (Printexc.to_string exn));
+                    Lwt.return_unit));
+            Cohttp_lwt_unix.Server.respond_string ~status:`OK
+              ~headers:json_headers ~body:{|{"status":"accepted"}|} ()
+          end)
   | meth, path
     when match web_channel with
          | Some (wc : Web_channel.t) ->

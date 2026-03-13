@@ -346,11 +346,30 @@ let session_key_review_comment () =
 
 let format_reply_basic () =
   let result = Github.format_reply ~command:"hello" ~response:"world" in
-  Alcotest.(check string) "format" "> /clawq hello\n\nworld" result
+  let expected = "> /clawq hello\n\nworld\n" ^ Github.bot_reply_marker in
+  Alcotest.(check string) "format" expected result
 
 let format_reply_empty_command () =
   let result = Github.format_reply ~command:"" ~response:"world" in
-  Alcotest.(check string) "format empty" "world" result
+  let expected = "world\n" ^ Github.bot_reply_marker in
+  Alcotest.(check string) "format empty" expected result
+
+let bot_reply_marker_detected () =
+  let reply = Github.format_reply ~command:"review" ~response:"looks good" in
+  Alcotest.(check bool) "bot reply detected" true (Github.is_bot_reply reply)
+
+let bot_reply_marker_not_in_user_text () =
+  Alcotest.(check bool)
+    "user text not detected" false
+    (Github.is_bot_reply "/clawq review this PR")
+
+let dedup_prevents_reprocessing () =
+  (* Use a fresh dedup instance indirectly by checking the LRU behavior *)
+  let id = "test-delivery-dedup-" ^ string_of_float (Unix.gettimeofday ()) in
+  let first = Channel_util.Lru_dedup.check_and_mark Github.dedup id in
+  let second = Channel_util.Lru_dedup.check_and_mark Github.dedup id in
+  Alcotest.(check bool) "first time not seen" false first;
+  Alcotest.(check bool) "second time seen" true second
 
 let github_hook_load_and_render () =
   with_temp_clawq_home (fun home ->
@@ -584,7 +603,8 @@ let handle_webhook_non_user_generated_failure_runs_hooks () =
             ( "x-hub-signature-256",
               "sha256="
               ^ Digestif.SHA256.(hmac_string ~key:"secret123" body |> to_hex) );
-            ("X-GitHub-Delivery", "workflow-delivery");
+            ( "X-GitHub-Delivery",
+              "workflow-delivery-" ^ string_of_float (Unix.gettimeofday ()) );
           ]
       in
       match
@@ -740,6 +760,12 @@ let format_suite =
   [
     Alcotest.test_case "basic" `Quick format_reply_basic;
     Alcotest.test_case "empty command" `Quick format_reply_empty_command;
+    Alcotest.test_case "bot reply marker detected" `Quick
+      bot_reply_marker_detected;
+    Alcotest.test_case "user text not detected as bot" `Quick
+      bot_reply_marker_not_in_user_text;
+    Alcotest.test_case "dedup prevents reprocessing" `Quick
+      dedup_prevents_reprocessing;
   ]
 
 let hooks_suite =
@@ -771,6 +797,313 @@ let tunnel_suite =
     Alcotest.test_case "start static" `Quick cf_tunnel_start_static;
   ]
 
+(* B230: Integration tests verifying that /clawq webhook interactions map to
+   stable session keys and that repeated interactions on the same thread
+   resume the same session context. *)
+
+let delivery_counter = ref 0
+
+let make_webhook_env ~secret ~body ~allow_users =
+  incr delivery_counter;
+  let delivery_id =
+    Printf.sprintf "test-delivery-%d-%f" !delivery_counter
+      (Unix.gettimeofday ())
+  in
+  let repo_config : Runtime_config.github_repo_config =
+    {
+      name = "acme/backend";
+      webhook_secret = secret;
+      webhook_path = "/github/webhook/backend";
+      agent_name = None;
+      allow_users;
+      react_to = [];
+      include_pr_files = false;
+    }
+  in
+  let github_config : Runtime_config.github_config =
+    { auth = Runtime_config.GithubPat "ghp_test12345"; repos = [ repo_config ] }
+  in
+  let session_manager = Session.create ~config:Runtime_config.default () in
+  let api_limiter =
+    Rate_limiter.create ~rate_per_minute:600 ~burst_multiplier:1.0
+  in
+  let sig_header =
+    "sha256=" ^ Digestif.SHA256.(hmac_string ~key:secret body |> to_hex)
+  in
+  let headers =
+    Cohttp.Header.of_list
+      [
+        ("x-hub-signature-256", sig_header); ("X-GitHub-Delivery", delivery_id);
+      ]
+  in
+  (repo_config, github_config, session_manager, api_limiter, headers)
+
+let handle_webhook_clawq_pr_comment_session_key () =
+  Test_helpers.with_temp_home (fun _home ->
+      let body =
+        {|{"action":"created","issue":{"number":42,"title":"Fix bug","state":"open","user":{"login":"alice"},"pull_request":{"url":"https://api.github.com/repos/acme/backend/pulls/42"},"body":"PR body"},"comment":{"id":200,"user":{"login":"bob"},"body":"/clawq review this","html_url":"https://github.com/acme/backend/pull/42#issuecomment-200"},"repository":{"name":"backend","owner":{"login":"acme"}}}|}
+      in
+      let secret = "test-secret" in
+      let repo_config, github_config, session_manager, api_limiter, headers =
+        make_webhook_env ~secret ~body ~allow_users:[ "bob" ]
+      in
+      let captured_key = ref "" in
+      session_manager.special_command_handler <-
+        Some
+          (fun ~key ~message:_ ~send_progress:_ ~interrupt_check:_ ->
+            captured_key := key;
+            Lwt.return (Some "mock response"));
+      let previous_api_base = Sys.getenv_opt "CLAWQ_GITHUB_API_BASE" in
+      Unix.putenv "CLAWQ_GITHUB_API_BASE" "http://127.0.0.1:1";
+      Fun.protect
+        ~finally:(fun () ->
+          match previous_api_base with
+          | Some v -> Unix.putenv "CLAWQ_GITHUB_API_BASE" v
+          | None -> Unix.putenv "CLAWQ_GITHUB_API_BASE" "")
+        (fun () ->
+          match
+            Lwt_main.run
+              (Github.handle_webhook ~repo_config ~github_config
+                 ~session_manager ~api_limiter ~event_type:"issue_comment" ~body
+                 ~headers)
+          with
+          | Github.Ok _ ->
+              Alcotest.(check string)
+                "session key for PR comment" "github:acme/backend:pr:42"
+                !captured_key
+          | Github.BadSignature -> Alcotest.fail "expected valid signature"))
+
+let handle_webhook_clawq_issue_comment_session_key () =
+  Test_helpers.with_temp_home (fun _home ->
+      let body =
+        {|{"action":"created","issue":{"number":5,"title":"Bug report","state":"open","user":{"login":"alice"},"body":"something broken"},"comment":{"id":300,"user":{"login":"bob"},"body":"/clawq help with this","html_url":"https://github.com/acme/backend/issues/5#issuecomment-300"},"repository":{"name":"backend","owner":{"login":"acme"}}}|}
+      in
+      let secret = "test-secret" in
+      let repo_config, github_config, session_manager, api_limiter, headers =
+        make_webhook_env ~secret ~body ~allow_users:[ "bob" ]
+      in
+      let captured_key = ref "" in
+      session_manager.special_command_handler <-
+        Some
+          (fun ~key ~message:_ ~send_progress:_ ~interrupt_check:_ ->
+            captured_key := key;
+            Lwt.return (Some "mock response"));
+      let previous_api_base = Sys.getenv_opt "CLAWQ_GITHUB_API_BASE" in
+      Unix.putenv "CLAWQ_GITHUB_API_BASE" "http://127.0.0.1:1";
+      Fun.protect
+        ~finally:(fun () ->
+          match previous_api_base with
+          | Some v -> Unix.putenv "CLAWQ_GITHUB_API_BASE" v
+          | None -> Unix.putenv "CLAWQ_GITHUB_API_BASE" "")
+        (fun () ->
+          match
+            Lwt_main.run
+              (Github.handle_webhook ~repo_config ~github_config
+                 ~session_manager ~api_limiter ~event_type:"issue_comment" ~body
+                 ~headers)
+          with
+          | Github.Ok _ ->
+              Alcotest.(check string)
+                "session key for issue comment" "github:acme/backend:issue:5"
+                !captured_key
+          | Github.BadSignature -> Alcotest.fail "expected valid signature"))
+
+let handle_webhook_clawq_review_comment_session_key () =
+  Test_helpers.with_temp_home (fun _home ->
+      let body =
+        {|{"action":"created","comment":{"id":400,"user":{"login":"carol"},"body":"/clawq suggest fix","diff_hunk":"@@ -1 +1 @@\n-old","path":"src/foo.ml","html_url":"https://github.com/acme/backend/pull/42#discussion_r400"},"pull_request":{"number":42,"title":"Fix bug","body":"PR body","state":"open","html_url":"https://github.com/acme/backend/pull/42","user":{"login":"alice"},"base":{"ref":"main"},"head":{"ref":"fix"}},"repository":{"name":"backend","owner":{"login":"acme"}}}|}
+      in
+      let secret = "test-secret" in
+      let repo_config, github_config, session_manager, api_limiter, headers =
+        make_webhook_env ~secret ~body ~allow_users:[ "carol" ]
+      in
+      let captured_key = ref "" in
+      session_manager.special_command_handler <-
+        Some
+          (fun ~key ~message:_ ~send_progress:_ ~interrupt_check:_ ->
+            captured_key := key;
+            Lwt.return (Some "mock response"));
+      let previous_api_base = Sys.getenv_opt "CLAWQ_GITHUB_API_BASE" in
+      Unix.putenv "CLAWQ_GITHUB_API_BASE" "http://127.0.0.1:1";
+      Fun.protect
+        ~finally:(fun () ->
+          match previous_api_base with
+          | Some v -> Unix.putenv "CLAWQ_GITHUB_API_BASE" v
+          | None -> Unix.putenv "CLAWQ_GITHUB_API_BASE" "")
+        (fun () ->
+          match
+            Lwt_main.run
+              (Github.handle_webhook ~repo_config ~github_config
+                 ~session_manager ~api_limiter
+                 ~event_type:"pull_request_review_comment" ~body ~headers)
+          with
+          | Github.Ok _ ->
+              Alcotest.(check string)
+                "session key for review comment" "github:acme/backend:pr:42"
+                !captured_key
+          | Github.BadSignature -> Alcotest.fail "expected valid signature"))
+
+let handle_webhook_repeated_clawq_same_session () =
+  Test_helpers.with_temp_home (fun _home ->
+      let make_comment_body comment_id text =
+        Printf.sprintf
+          {|{"action":"created","issue":{"number":42,"title":"Fix bug","state":"open","user":{"login":"alice"},"pull_request":{"url":"https://api.github.com/repos/acme/backend/pulls/42"},"body":"PR body"},"comment":{"id":%d,"user":{"login":"bob"},"body":"/clawq %s","html_url":"https://github.com/acme/backend/pull/42#issuecomment-%d"},"repository":{"name":"backend","owner":{"login":"acme"}}}|}
+          comment_id text comment_id
+      in
+      let secret = "test-secret" in
+      let session_manager = Session.create ~config:Runtime_config.default () in
+      let captured_keys = ref [] in
+      session_manager.special_command_handler <-
+        Some
+          (fun ~key ~message:_ ~send_progress:_ ~interrupt_check:_ ->
+            captured_keys := key :: !captured_keys;
+            Lwt.return (Some "mock response"));
+      let previous_api_base = Sys.getenv_opt "CLAWQ_GITHUB_API_BASE" in
+      Unix.putenv "CLAWQ_GITHUB_API_BASE" "http://127.0.0.1:1";
+      Fun.protect
+        ~finally:(fun () ->
+          match previous_api_base with
+          | Some v -> Unix.putenv "CLAWQ_GITHUB_API_BASE" v
+          | None -> Unix.putenv "CLAWQ_GITHUB_API_BASE" "")
+        (fun () ->
+          let run_comment cid text =
+            let body = make_comment_body cid text in
+            let repo_config, github_config, _, api_limiter, headers =
+              make_webhook_env ~secret ~body ~allow_users:[ "bob" ]
+            in
+            Lwt_main.run
+              (Github.handle_webhook ~repo_config ~github_config
+                 ~session_manager ~api_limiter ~event_type:"issue_comment" ~body
+                 ~headers)
+          in
+          ignore (run_comment 200 "review this");
+          ignore (run_comment 201 "any suggestions?");
+          let keys = List.rev !captured_keys in
+          Alcotest.(check int) "two turns processed" 2 (List.length keys);
+          Alcotest.(check string)
+            "first key" "github:acme/backend:pr:42" (List.nth keys 0);
+          Alcotest.(check string)
+            "second key matches first" "github:acme/backend:pr:42"
+            (List.nth keys 1)))
+
+let handle_webhook_bot_self_loop_protection () =
+  Test_helpers.with_temp_home (fun _home ->
+      let bot_reply =
+        Printf.sprintf
+          {|{"action":"created","issue":{"number":42,"title":"Fix bug","state":"open","user":{"login":"alice"},"pull_request":{"url":"https://api.github.com/repos/acme/backend/pulls/42"},"body":"PR body"},"comment":{"id":500,"user":{"login":"clawq-bot"},"body":"> /clawq review\n\nlooks good\n%s","html_url":"https://github.com/acme/backend/pull/42#issuecomment-500"},"repository":{"name":"backend","owner":{"login":"acme"}}}|}
+          Github.bot_reply_marker
+      in
+      let secret = "test-secret" in
+      let repo_config, github_config, session_manager, api_limiter, headers =
+        make_webhook_env ~secret ~body:bot_reply ~allow_users:[ "*" ]
+      in
+      let called = ref false in
+      session_manager.special_command_handler <-
+        Some
+          (fun ~key:_ ~message:_ ~send_progress:_ ~interrupt_check:_ ->
+            called := true;
+            Lwt.return (Some "should not reach"));
+      match
+        Lwt_main.run
+          (Github.handle_webhook ~repo_config ~github_config ~session_manager
+             ~api_limiter ~event_type:"issue_comment" ~body:bot_reply ~headers)
+      with
+      | Github.Ok msg ->
+          Alcotest.(check bool) "handler not called" false !called;
+          Alcotest.(check string) "result" "bot self-reply" msg
+      | Github.BadSignature -> Alcotest.fail "expected valid signature")
+
+let handle_webhook_dedup_delivery_id () =
+  Test_helpers.with_temp_home (fun _home ->
+      let body =
+        {|{"action":"created","issue":{"number":42,"title":"Fix bug","state":"open","user":{"login":"alice"},"pull_request":{"url":"https://api.github.com/repos/acme/backend/pulls/42"},"body":"PR body"},"comment":{"id":600,"user":{"login":"bob"},"body":"/clawq review","html_url":"https://github.com/acme/backend/pull/42#issuecomment-600"},"repository":{"name":"backend","owner":{"login":"acme"}}}|}
+      in
+      let secret = "test-secret" in
+      let session_manager = Session.create ~config:Runtime_config.default () in
+      let call_count = ref 0 in
+      session_manager.special_command_handler <-
+        Some
+          (fun ~key:_ ~message:_ ~send_progress:_ ~interrupt_check:_ ->
+            incr call_count;
+            Lwt.return (Some "mock"));
+      let delivery_id =
+        "dedup-test-" ^ string_of_float (Unix.gettimeofday ())
+      in
+      let previous_api_base = Sys.getenv_opt "CLAWQ_GITHUB_API_BASE" in
+      Unix.putenv "CLAWQ_GITHUB_API_BASE" "http://127.0.0.1:1";
+      Fun.protect
+        ~finally:(fun () ->
+          match previous_api_base with
+          | Some v -> Unix.putenv "CLAWQ_GITHUB_API_BASE" v
+          | None -> Unix.putenv "CLAWQ_GITHUB_API_BASE" "")
+        (fun () ->
+          let run () =
+            let sig_header =
+              "sha256="
+              ^ Digestif.SHA256.(hmac_string ~key:secret body |> to_hex)
+            in
+            let headers =
+              Cohttp.Header.of_list
+                [
+                  ("x-hub-signature-256", sig_header);
+                  ("X-GitHub-Delivery", delivery_id);
+                ]
+            in
+            let repo_config : Runtime_config.github_repo_config =
+              {
+                name = "acme/backend";
+                webhook_secret = secret;
+                webhook_path = "/github/webhook/backend";
+                agent_name = None;
+                allow_users = [ "bob" ];
+                react_to = [];
+                include_pr_files = false;
+              }
+            in
+            let github_config : Runtime_config.github_config =
+              {
+                auth = Runtime_config.GithubPat "ghp_test12345";
+                repos = [ repo_config ];
+              }
+            in
+            let api_limiter =
+              Rate_limiter.create ~rate_per_minute:600 ~burst_multiplier:1.0
+            in
+            Lwt_main.run
+              (Github.handle_webhook ~repo_config ~github_config
+                 ~session_manager ~api_limiter ~event_type:"issue_comment" ~body
+                 ~headers)
+          in
+          let result1 = run () in
+          let result2 = run () in
+          Alcotest.(check int) "called once" 1 !call_count;
+          (match result1 with
+          | Github.Ok _ -> ()
+          | Github.BadSignature -> Alcotest.fail "first call bad sig");
+          match result2 with
+          | Github.Ok msg ->
+              Alcotest.(check string) "second call deduped" "duplicate" msg
+          | Github.BadSignature -> Alcotest.fail "second call bad sig"))
+
+let session_integration_suite =
+  [
+    Alcotest.test_case "PR comment → stable session key" `Quick
+      handle_webhook_clawq_pr_comment_session_key;
+    Alcotest.test_case "issue comment → issue session key" `Quick
+      handle_webhook_clawq_issue_comment_session_key;
+    Alcotest.test_case "review comment → PR session key" `Quick
+      handle_webhook_clawq_review_comment_session_key;
+    Alcotest.test_case "repeated /clawq on same thread → same session" `Quick
+      handle_webhook_repeated_clawq_same_session;
+  ]
+
+let lifecycle_suite =
+  [
+    Alcotest.test_case "bot self-loop protection" `Quick
+      handle_webhook_bot_self_loop_protection;
+    Alcotest.test_case "delivery dedup" `Quick handle_webhook_dedup_delivery_id;
+  ]
+
 let suites =
   [
     ("github_webhook_sig", sig_suite);
@@ -781,4 +1114,6 @@ let suites =
     ("github_hooks", hooks_suite);
     ("github_config", config_suite);
     ("cf_tunnel", tunnel_suite);
+    ("github_session_integration", session_integration_suite);
+    ("github_lifecycle", lifecycle_suite);
   ]

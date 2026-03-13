@@ -47,6 +47,68 @@ let reply_to_review_comment ~auth ~owner ~repo ~pull_number ~comment_id ~body =
           owner repo pull_number comment_id status);
   Lwt.return_unit
 
+let add_reaction ~auth ~owner ~repo ~comment_id ~content
+    ~(comment_type : [ `Issue | `Review ]) =
+  let open Lwt.Syntax in
+  let segment =
+    match comment_type with `Issue -> "issues" | `Review -> "pulls"
+  in
+  let uri =
+    Printf.sprintf "%s/repos/%s/%s/%s/comments/%d/reactions"
+      (github_api_base ()) owner repo segment comment_id
+  in
+  let headers = auth_headers auth in
+  let req_body =
+    `Assoc [ ("content", `String content) ] |> Yojson.Safe.to_string
+  in
+  let* status, _body = Http_client.post_json ~uri ~headers ~body:req_body in
+  if status < 200 || status >= 300 then
+    Logs.warn (fun m ->
+        m "GitHub API add_reaction %s/%s comment=%d returned %d" owner repo
+          comment_id status);
+  Lwt.return_unit
+
+let post_comment_returning_id ~auth ~owner ~repo ~issue_number ~body =
+  let open Lwt.Syntax in
+  let uri =
+    Printf.sprintf "%s/repos/%s/%s/issues/%d/comments" (github_api_base ())
+      owner repo issue_number
+  in
+  let headers = auth_headers auth in
+  let req_body = `Assoc [ ("body", `String body) ] |> Yojson.Safe.to_string in
+  let* status, resp_body = Http_client.post_json ~uri ~headers ~body:req_body in
+  if status < 200 || status >= 300 then begin
+    Logs.warn (fun m ->
+        m "GitHub API post_comment_returning_id %s/%s#%d returned %d" owner repo
+          issue_number status);
+    Lwt.return None
+  end
+  else
+    let id =
+      try
+        Some
+          (Yojson.Safe.from_string resp_body
+          |> Yojson.Safe.Util.member "id"
+          |> Yojson.Safe.Util.to_int)
+      with _ -> None
+    in
+    Lwt.return id
+
+let edit_comment ~auth ~owner ~repo ~comment_id ~body =
+  let open Lwt.Syntax in
+  let uri =
+    Printf.sprintf "%s/repos/%s/%s/issues/comments/%d" (github_api_base ())
+      owner repo comment_id
+  in
+  let headers = auth_headers auth in
+  let req_body = `Assoc [ ("body", `String body) ] |> Yojson.Safe.to_string in
+  let* status, _body = Http_client.patch_json ~uri ~headers ~body:req_body in
+  if status < 200 || status >= 300 then
+    Logs.warn (fun m ->
+        m "GitHub API edit_comment %s/%s comment=%d returned %d" owner repo
+          comment_id status);
+  Lwt.return_unit
+
 let get_pr_files ~auth ~owner ~repo ~pull_number =
   let open Lwt.Syntax in
   let headers = auth_headers auth in

@@ -248,7 +248,7 @@ Note: `providers.*.default_model` is the model identifier as understood by that 
 
 **channels.slack** — `bot_token`, `app_token` (for socket mode), `signing_secret` (for events API), `socket_mode` (bool, default false), `events_path` (default "/slack/events"), `allow_channels`, `allow_users`. Enabled by presence in config.
 
-**channels.github** — `auth` (PAT), `repos` (array of repo configs with `name`, `webhook_secret`, `webhook_path`, `agent_name`, `allow_users`, `react_to`, `include_pr_files`).
+**channels.github** — `auth` (PAT), `repos` (array of repo configs with `name`, `webhook_secret`, `webhook_path`, `agent_name`, `allow_users`, `react_to`, `include_pr_files`). Session keys: `github:{owner}/{repo}:pr:{n}` for PR events/comments, `github:{owner}/{repo}:issue:{n}` for issue comments. Repeated `/clawq` interactions on the same thread resume the same session. Comment lifecycle: acknowledge with eyes reaction, post placeholder comment (for issue/PR comments), process asynchronously, edit placeholder with final response. All bot replies include a `<!-- clawq-reply -->` marker for self-loop protection. Duplicate deliveries are suppressed via an LRU set keyed by X-GitHub-Delivery header.
 
 **channels.whatsapp** — `phone_number_id`, `access_token`, `verify_token`, `allow_from`.
 
