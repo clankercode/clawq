@@ -1467,6 +1467,34 @@ let test_status_message_includes_finalize_hint_for_succeeded_worktree () =
        true
      with Not_found -> false)
 
+let test_status_message_dirty_worktree_includes_finalize_hint () =
+  let task =
+    {
+      (make_task ~id:11 ~status:Background_task.DirtyWorktree
+         ~repo_path:"/tmp/myrepo" ~branch:"B393-fix" ())
+      with
+      worktree_path = Some "/some/path";
+      result_preview = Some "Task left uncommitted changes in worktree";
+    }
+  in
+  let msg = Background_task.status_message task in
+  Alcotest.(check bool)
+    "contains uncommitted changes notice" true
+    (try
+       ignore
+         (Str.search_forward
+            (Str.regexp_string "worktree /some/path has uncommitted changes")
+            msg 0);
+       true
+     with Not_found -> false);
+  Alcotest.(check bool)
+    "contains background finalize command" true
+    (try
+       ignore
+         (Str.search_forward (Str.regexp_string "background finalize") msg 0);
+       true
+     with Not_found -> false)
+
 let test_enqueue_rejects_non_git_repo () =
   let db = Memory.init ~db_path:":memory:" () in
   Background_task.init_schema db;
@@ -3209,6 +3237,8 @@ let suite =
       test_terse_finished_message_failed_with_preview;
     Alcotest.test_case "status_message succeeded next step" `Quick
       test_status_message_includes_finalize_hint_for_succeeded_worktree;
+    Alcotest.test_case "status_message dirty worktree finalize hint" `Quick
+      test_status_message_dirty_worktree_includes_finalize_hint;
     Alcotest.test_case "routing_from_context reads CLAWQ_SESSION_ID env" `Quick
       test_routing_from_context_reads_env;
     Alcotest.test_case "routing_from_context prefers context over env" `Quick

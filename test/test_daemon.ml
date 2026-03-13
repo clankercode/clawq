@@ -1469,6 +1469,82 @@ let test_notify_background_task_finished_queues_wakeup_when_session_busy () =
       Alcotest.failf "expected one queued wake-up message, got %d"
         (List.length msgs)
 
+let test_notify_background_task_finished_dirty_worktree_dispatches_finalize_hint
+    () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let telegram_account =
+    { Runtime_config.bot_token = "tg-token"; allow_from = []; totp = None }
+  in
+  let config =
+    {
+      Runtime_config.default with
+      channels =
+        {
+          Runtime_config.default.channels with
+          telegram =
+            Some
+              {
+                accounts = [ ("main", telegram_account) ];
+                text_coalesce_ms = 150;
+              };
+        };
+    }
+  in
+  let session_manager = Session.create ~config ~db () in
+  let dispatched = ref [] in
+  let senders =
+    {
+      Daemon.default_resume_senders with
+      send_telegram =
+        (fun ~bot_token:_ ~chat_id:_ ~text ->
+          dispatched := text :: !dispatched;
+          Lwt.return_unit);
+    }
+  in
+  Session.set_special_command_handler session_manager
+    (fun ~key ~message:_ ~send_progress:_ ~interrupt_check:_ ->
+      if key = "telegram:42:user" then Lwt.return_some "ok"
+      else Lwt.return_none);
+  let task =
+    {
+      (make_test_task ()) with
+      Background_task.status = Background_task.DirtyWorktree;
+      worktree_path = Some "/some/path";
+      result_preview = Some "Task left uncommitted changes";
+    }
+  in
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () =
+       Daemon.notify_background_task_finished ~continuation_delay:100.0 ~senders
+         ~session_manager ~config task
+     in
+     let* () = Lwt.pause () in
+     Session.cancel_autonomous_continuation session_manager
+       ~key:"telegram:42:user");
+  let status_text =
+    match List.rev !dispatched with
+    | t :: _ -> t
+    | [] -> Alcotest.fail "expected at least one dispatch"
+  in
+  Alcotest.(check bool)
+    "dispatched text contains result_preview" true
+    (try
+       ignore
+         (Str.search_forward
+            (Str.regexp_string "Task left uncommitted changes")
+            status_text 0);
+       true
+     with Not_found -> false);
+  Alcotest.(check bool)
+    "dispatched text contains finalize hint" true
+    (try
+       ignore
+         (Str.search_forward (Str.regexp_string "background finalize")
+            status_text 0);
+       true
+     with Not_found -> false)
+
 let test_background_task_wakeup_arms_autonomous_continuation () =
   let db = Memory.init ~db_path:":memory:" () in
   let telegram_account =
@@ -1963,6 +2039,9 @@ let suite =
     Alcotest.test_case "background completion queues wake-up when session busy"
       `Quick
       test_notify_background_task_finished_queues_wakeup_when_session_busy;
+    Alcotest.test_case
+      "background dirty-worktree completion dispatches finalize hint" `Quick
+      test_notify_background_task_finished_dirty_worktree_dispatches_finalize_hint;
     Alcotest.test_case "resume agent session sends compaction notice" `Quick
       test_resume_agent_session_sends_compaction_notice;
     Alcotest.test_case
