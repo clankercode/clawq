@@ -469,7 +469,7 @@ current queue state for a given session; `session list` appends
 
 - There are two daemon launch modes in practice: service-managed (`clawq service start`) and direct agent execution (`clawq agent`). They share most runtime code but not identical operational control paths.
 - `clawq service signal-restart` only targets the daemon discovered via the service PID file. If no PID file exists, that command reports "Daemon is not running" even if a directly launched `clawq agent` process is alive and reflected in `daemon_state.json`.
-- `SIGUSR1` on the live daemon process triggers graceful restart logic: the daemon enters draining mode, warns active channel sessions, waits for in-flight requests to finish, then restarts itself.
+- `SIGUSR1` on the live daemon process triggers graceful restart logic: the daemon enters draining mode, interrupts all active sessions (so long-running tool calls like `background_task_wait` can detect imminent restart and return early), warns active channel sessions, waits for in-flight requests to finish, then restarts itself.
 - Drain warnings go to currently registered live channel notifiers immediately, then again at 5s, 10s, 15s, 30s, 45s, and 60s while waiting.
 - If drain does not finish within about 60 seconds, the daemon forces the restart.
 - The actual restart path is an in-place `execve` re-entry. In service-managed mode this goes back through `clawq service start` with internal no-fork environment flags; direct `clawq agent` restart uses the agent re-exec path instead.

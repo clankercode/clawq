@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-13T02:46:50Z"
+claimed_by: cli-user
+completed_at: "2026-03-13T02:57:53Z"
 complexity: medium
 depends_on: []
+duration_minutes: 11.065960269533333
 estimate_hours: 1
 id: B296
 priority: medium
-status: pending
+started_at: "2026-03-13T02:46:50Z"
+status: done
 tags: []
 title: Drain timeout forces restart with in-flight agent turn, abandoning background_task_wait mid-wait
 ---

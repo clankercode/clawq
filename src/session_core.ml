@@ -251,6 +251,13 @@ let set_special_command_handler mgr handler =
 let start_draining mgr =
   Lwt_util.with_lock_timeout ~label:"sessions_lock" mgr.sessions_lock (fun () ->
       mgr.draining <- true;
+      (* Interrupt ALL active sessions so long-running tool calls (e.g.
+         background_task_wait) can detect imminent restart and return early,
+         rather than blocking drain until the drain timeout forces restart. *)
+      Hashtbl.iter
+        (fun _key (_agent, _mutex, interrupt) ->
+          interrupt := Some Agent.restart_interrupt_token)
+        mgr.sessions;
       Lwt.return_unit)
 
 let stop_draining mgr =

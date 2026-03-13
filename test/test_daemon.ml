@@ -899,6 +899,33 @@ let test_wait_for_drain_reports_timeout () =
   in
   Alcotest.(check bool) "timeout reported" true timed_out
 
+let test_start_draining_interrupts_all_sessions () =
+  let config = Runtime_config.default in
+  let session_manager = Session.create ~config () in
+  (* Manually insert sessions: a channel session and a non-channel session *)
+  let make_session () =
+    let agent = Agent.create ~config () in
+    let mutex = Lwt_mutex.create () in
+    let interrupt = ref None in
+    (agent, mutex, interrupt)
+  in
+  let main_triple = make_session () in
+  let chan_triple = make_session () in
+  Hashtbl.replace session_manager.Session.sessions "__main__" main_triple;
+  Hashtbl.replace session_manager.Session.sessions "telegram:123:u" chan_triple;
+  Lwt_main.run (Session.start_draining session_manager);
+  let _, _, main_interrupt = main_triple in
+  let _, _, chan_interrupt = chan_triple in
+  Alcotest.(check bool)
+    "__main__ session interrupted" true
+    (!main_interrupt = Some Agent.restart_interrupt_token);
+  Alcotest.(check bool)
+    "channel session interrupted" true
+    (!chan_interrupt = Some Agent.restart_interrupt_token);
+  Alcotest.(check bool)
+    "draining flag set" true
+    (Session.is_draining session_manager)
+
 let test_send_drain_warnings_does_not_notify_channel () =
   let config = Runtime_config.default in
   let session_manager = Session.create ~config () in
@@ -1935,6 +1962,8 @@ let suite =
       `Quick test_wait_for_drain_returns_when_in_flight_reaches_zero;
     Alcotest.test_case "wait for drain reports timeout" `Quick
       test_wait_for_drain_reports_timeout;
+    Alcotest.test_case "start draining interrupts all sessions" `Quick
+      test_start_draining_interrupts_all_sessions;
     Alcotest.test_case "send drain warnings sends scheduled messages" `Quick
       test_send_drain_warnings_does_not_notify_channel;
     Alcotest.test_case "restart signal duplicate delta detects recent signal"
