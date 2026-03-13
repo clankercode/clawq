@@ -185,6 +185,27 @@ let start_ec_process state =
   state.healthy <- true;
   Logs.info (fun m -> m "EC process started (pid=%d)" pid)
 
+let kill_ec_process state =
+  let pid =
+    match state.pid with Some p -> Some p | None -> read_pid_file ()
+  in
+  (match pid with
+  | Some p ->
+      Process_group.signal_group p Sys.sigterm;
+      (* Brief grace for cleanup, then force kill *)
+      Unix.sleepf 0.5;
+      if process_alive p then Process_group.signal_group p Sys.sigkill;
+      (* Wait briefly for kernel to reap *)
+      let deadline = Unix.gettimeofday () +. 2.0 in
+      while process_alive p && Unix.gettimeofday () < deadline do
+        Unix.sleepf 0.05
+      done
+  | None -> ());
+  remove_pid_file ();
+  state.pid <- None;
+  state.healthy <- false;
+  Lwt.return_unit
+
 let stop_ec_process ?(timeout_s = 30.0) state =
   let open Lwt.Syntax in
   match state.pid with
