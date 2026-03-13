@@ -65,7 +65,7 @@ _ * [ ] ( ) ~ ` > # + - = | { } . !
 |---------|------|----------|
 | Agent responses | MarkdownV2 | `telegram.ml` main message loop |
 | `/tools` command | HTML | `slash_commands.ml:format_tools_telegram` |
-| Tool call results | MarkdownV2 | `telegram.ml` consolidated tool status |
+| Tool call results | HTML | `status_message.ml` consolidated tool status |
 | `/delegate` responses | HTML | `telegram.ml` via `send_chunked_html_with_fallback` |
 | `/fork_and` responses | HTML | `telegram.ml` via `send_chunked_html_with_fallback` |
 | Status messages | Plain text | Various |

@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-13T00:56:47Z"
+claimed_by: cli-user
+completed_at: "2026-03-13T01:20:39Z"
 complexity: medium
 depends_on: []
+duration_minutes: 23.873577285633335
 estimate_hours: 1
 id: B388
 priority: high
-status: pending
+started_at: "2026-03-13T00:56:47Z"
+status: done
 tags: []
 title: telegram tool call message shows formatting like '<b>' sometimes (usually after a tool is done but before the next one)
 ---

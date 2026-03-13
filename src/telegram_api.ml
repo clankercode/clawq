@@ -122,6 +122,22 @@ let is_valid_message_id message_id =
   | Some id when id > 0 -> true
   | _ -> false
 
+let is_not_modified_error resp_body =
+  try
+    let json = Yojson.Safe.from_string resp_body in
+    let desc =
+      json
+      |> Yojson.Safe.Util.member "description"
+      |> Yojson.Safe.Util.to_string
+    in
+    let lower = String.lowercase_ascii desc in
+    let re = Str.regexp_string "message is not modified" in
+    try
+      ignore (Str.search_forward re lower 0);
+      true
+    with Not_found -> false
+  with _ -> false
+
 let html_fallback_to_plain_text text =
   let with_newlines =
     text
@@ -839,7 +855,10 @@ let send_message_with_id ?(disable_notification = true) ?parse_mode ~bot_token
       let body = `Assoc fields |> Yojson.Safe.to_string in
       let* status, resp_body = Http_client.post_json ~uri ~headers:[] ~body in
       let* status, resp_body =
-        if parse_mode <> None && status >= 400 then (
+        if
+          parse_mode <> None && status >= 400
+          && not (is_not_modified_error resp_body)
+        then (
           let plain_text =
             match parse_mode with
             | Some "HTML" -> html_fallback_to_plain_text text
@@ -981,8 +1000,11 @@ let edit_message ?parse_mode ~bot_token ~chat_id ~message_id ~text () =
           | None -> base_fields
         in
         let body = `Assoc fields |> Yojson.Safe.to_string in
-        let* status, _body = Http_client.post_json ~uri ~headers:[] ~body in
-        if parse_mode <> None && status >= 400 then
+        let* status, resp_body = Http_client.post_json ~uri ~headers:[] ~body in
+        if
+          parse_mode <> None && status >= 400
+          && not (is_not_modified_error resp_body)
+        then
           let plain_text =
             match parse_mode with
             | Some "HTML" -> html_fallback_to_plain_text text
@@ -1162,8 +1184,11 @@ let send_message ?(disable_notification = true) ?parse_mode ~bot_token ~chat_id
         | None -> base_fields
       in
       let body = `Assoc fields |> Yojson.Safe.to_string in
-      let* status, _body = Http_client.post_json ~uri ~headers:[] ~body in
-      if parse_mode <> None && status >= 400 then
+      let* status, resp_body = Http_client.post_json ~uri ~headers:[] ~body in
+      if
+        parse_mode <> None && status >= 400
+        && not (is_not_modified_error resp_body)
+      then
         let plain_text =
           match parse_mode with
           | Some "HTML" -> html_fallback_to_plain_text text

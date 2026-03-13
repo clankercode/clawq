@@ -361,6 +361,76 @@ let test_finalize_idempotent_with_tools () =
   Alcotest.(check int)
     "second finalize is a no-op" edited_after_first_finalize !edited
 
+let test_is_not_modified_error_detects_telegram_error () =
+  Alcotest.(check bool)
+    "detects message-not-modified" true
+    (Telegram.is_not_modified_error
+       {|{"ok":false,"error_code":400,"description":"Bad Request: message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message"}|});
+  Alcotest.(check bool)
+    "rejects unrelated 400 error" false
+    (Telegram.is_not_modified_error
+       {|{"ok":false,"error_code":400,"description":"Bad Request: can't parse entities: Unsupported start tag"}|});
+  Alcotest.(check bool)
+    "rejects malformed JSON" false
+    (Telegram.is_not_modified_error "not json");
+  Alcotest.(check bool)
+    "rejects empty body" false
+    (Telegram.is_not_modified_error "")
+
+let test_edit_message_skips_fallback_on_not_modified () =
+  let edit_calls = ref [] in
+  let transport : Telegram.status_transport =
+    {
+      send_with_id =
+        (fun ?disable_notification:_
+          ?parse_mode:_
+          ~bot_token:_
+          ~chat_id:_
+          ~text:_
+          ()
+        -> Lwt.return "42");
+      edit_text =
+        (fun ?parse_mode ~bot_token:_ ~chat_id:_ ~message_id ~text () ->
+          edit_calls :=
+            ( message_id,
+              (match parse_mode with Some s -> s | None -> "none"),
+              text )
+            :: !edit_calls;
+          Lwt.return_unit);
+      delete_message =
+        (fun ~bot_token:_ ~chat_id:_ ~message_id:_ () -> Lwt.return_unit);
+    }
+  in
+  let notifier =
+    Telegram.make_status_notifier_with_transport transport ~bot_token:"token"
+      ~chat_id:"chat-1"
+  in
+  let sm =
+    Status_message.create ~debounce_interval:0.0 ~notifier ~parse_mode:"HTML" ()
+  in
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () =
+       Status_message.tool_start sm ~id:"t1" ~name:"file_read"
+         ~summary:(Some "test.ml")
+     in
+     let* () =
+       Status_message.tool_result sm ~id:"t1" ~name:"file_read" ~result:"ok"
+         ~is_error:false
+     in
+     Lwt.return_unit);
+  let calls = List.rev !edit_calls in
+  Alcotest.(check int) "one edit for tool_result" 1 (List.length calls);
+  let _, pm, text = List.hd calls in
+  Alcotest.(check string) "edit uses HTML parse mode" "HTML" pm;
+  Alcotest.(check bool)
+    "edit text contains <b> formatting" true
+    (let re = Str.regexp_string "<b>" in
+     try
+       ignore (Str.search_forward re text 0);
+       true
+     with Not_found -> false)
+
 let suite =
   [
     Alcotest.test_case "edit notifier does not re-anchor" `Quick
@@ -385,6 +455,10 @@ let suite =
       test_finalize_idempotent_no_tools;
     Alcotest.test_case "finalize with tools is idempotent" `Quick
       test_finalize_idempotent_with_tools;
+    Alcotest.test_case "is_not_modified_error detects telegram error" `Quick
+      test_is_not_modified_error_detects_telegram_error;
+    Alcotest.test_case "edit skips fallback on not-modified" `Quick
+      test_edit_message_skips_fallback_on_not_modified;
   ]
 
 let () =
