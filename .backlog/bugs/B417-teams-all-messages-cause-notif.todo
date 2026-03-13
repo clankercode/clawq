@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B417
+priority: high
+status: pending
+tags: []
+title: 'teams: all messages cause notifications. if it''s possible to avoid this we should (similar to telegram)'
+---
+
+teams: all messages cause notifications. if it's possible to avoid this we should (similar to telegram)
