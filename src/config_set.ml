@@ -170,6 +170,17 @@ let channels_schema =
             ("allow_from", L);
             ("allow_groups", L);
           ] );
+      ( "teams",
+        O
+          [
+            ("app_id", L);
+            ("app_secret", L);
+            ("tenant_id", L);
+            ("webhook_path", L);
+            ("service_url", L);
+            ("allow_teams", L);
+            ("allow_users", L);
+          ] );
     ]
 
 let config_schema =
@@ -194,6 +205,7 @@ let config_schema =
             ("send_continuation_checkin", L);
             ("autonomous_continuation_delay", L);
             ("autonomous_continuation_enabled", L);
+            ("task_tree_notifications", L);
           ] );
       ( "prompt",
         O
@@ -204,6 +216,7 @@ let config_schema =
             ("include_workspace_section", L);
             ("include_runtime_section", L);
             ("include_datetime_section", L);
+            ("include_autonomy_section", L);
             ("workspace_files", L);
             ("max_workspace_file_chars", L);
             ("max_workspace_total_chars", L);
@@ -248,6 +261,7 @@ let config_schema =
             ("max_messages_per_session", L);
             ("max_message_age_days", L);
             ("pre_compaction_flush", L);
+            ("task_tree_purge_after_days", L);
           ] );
       ( "security",
         O
@@ -331,6 +345,35 @@ let config_schema =
             ("websearch_enabled", L);
             ("webfetch_enabled", L);
           ] );
+      ("quota_cache_ttl_s", L);
+      ( "observer",
+        O
+          [
+            ("enabled", L);
+            ("model", L);
+            ("check_every_n_messages", L);
+            ("round1_window", L);
+            ("round2_window", L);
+            ("thinking_token_threshold", L);
+            ("consecutive_errors_threshold", L);
+            ("repeat_call_threshold", L);
+          ] );
+      ( "summarizer",
+        O
+          [
+            ("summarizer_enabled", L);
+            ("summarizer_model", L);
+            ("escalation_model", L);
+            ("threshold_chars", L);
+            ("p1_max_chars", L);
+            ("p2_max_chars", L);
+            ("context_window_messages", L);
+            ("excluded_tools", L);
+            ("max_age_days", L);
+            ("envelope_template", L);
+          ] );
+      ("log", O [ ("max_size_mb", L); ("max_files", L) ]);
+      ("interactive", O [ ("enable_question_notes", L) ]);
     ]
 
 let rec validate_path segments schema =
