@@ -409,3 +409,4 @@ bugs:
     - file: B410-clawq-channel-test-teams-does.todo
     - file: B411-telegram-poll-errors-caused-by.todo
     - file: B412-clawq-cron-list-should-have-an.todo
+    - file: B413-look-for-tabular-cli-that-does.todo

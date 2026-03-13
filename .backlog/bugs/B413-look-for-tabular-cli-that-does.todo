@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B413
+priority: high
+status: pending
+tags: []
+title: 'look for tabular CLI that doesn''t use src/table_format.ml but could/should use it (example use: `clawq cron list`) -- update the cli commands that you find to use the new table formatter'
+---
+
+look for tabular CLI that doesn't use src/table_format.ml but could/should use it (example use: `clawq cron list`) -- update the cli commands that you find to use the new table formatter
