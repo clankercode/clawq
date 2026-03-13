@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-13T06:47:32Z"
+claimed_by: cli-user
+completed_at: "2026-03-13T06:52:37Z"
 complexity: medium
 depends_on: []
+duration_minutes: 5.09401465305
 estimate_hours: 1
 id: B410
 priority: high
-status: pending
+started_at: "2026-03-13T06:47:32Z"
+status: done
 tags: []
 title: '`clawq channel test teams` does not work but was suggested somewhere'
 ---

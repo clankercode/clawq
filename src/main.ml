@@ -153,7 +153,8 @@ let provider_cmd =
     ]
 
 let channel_cmd =
-  simple "channel" "List configured channels (CLI, Telegram, Discord, Slack)."
+  with_args "channel" "List configured channels or test a channel connection."
+    []
 
 let memory_cmd = simple "memory" "Show memory backend configuration."
 

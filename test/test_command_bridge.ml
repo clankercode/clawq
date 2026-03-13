@@ -259,6 +259,12 @@ let test_handle_channel () =
     String.length result >= String.length prefix
     && String.sub result 0 (String.length prefix) = prefix)
 
+let test_handle_channel_test_teams () =
+  let result = Command_bridge.handle [ "channel"; "test"; "teams" ] in
+  (* Without valid Teams config, should report not configured or connection failed *)
+  let has_teams = contains result "Teams" || contains result "teams" in
+  Alcotest.(check bool) "channel test teams mentions teams" true has_teams
+
 let test_handle_memory () =
   with_temp_home (fun home ->
       let _db = session_db home in
@@ -2505,6 +2511,8 @@ let suite =
       "models usage excludes session-only set without live session" `Quick
       test_models_set_usage_excludes_session_only_set_without_live_session;
     Alcotest.test_case "handle channel" `Quick test_handle_channel;
+    Alcotest.test_case "handle channel test teams" `Quick
+      test_handle_channel_test_teams;
     Alcotest.test_case "handle memory" `Quick test_handle_memory;
     Alcotest.test_case "handle workspace" `Quick test_handle_workspace;
     Alcotest.test_case "handle workspace uses effective workspace" `Quick
