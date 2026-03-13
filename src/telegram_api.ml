@@ -932,59 +932,66 @@ let send_message_with_id ?(disable_notification = true) ?parse_mode ~bot_token
 let send_message_with_keyboard ?(disable_notification = true) ?parse_mode
     ~bot_token ~chat_id ~text ~buttons () =
   let open Lwt.Syntax in
-  with_outbound_lock ~chat_id (fun () ->
-      let uri = Printf.sprintf "%s%s/sendMessage" !api_base bot_token in
-      let inline_buttons =
-        List.map
-          (fun (label, callback_data) ->
-            `Assoc
-              [
-                ("text", `String label); ("callback_data", `String callback_data);
-              ])
-          buttons
-      in
-      let reply_markup =
-        `Assoc [ ("inline_keyboard", `List [ `List inline_buttons ]) ]
-      in
-      let base_fields =
-        [
-          ("chat_id", `String chat_id);
-          ("text", `String text);
-          ("disable_notification", `Bool disable_notification);
-          ("reply_markup", reply_markup);
-        ]
-      in
-      let fields =
-        match parse_mode with
-        | Some mode -> ("parse_mode", `String mode) :: base_fields
-        | None -> base_fields
-      in
-      let body = `Assoc fields |> Yojson.Safe.to_string in
-      let* status, resp_body = Http_client.post_json ~uri ~headers:[] ~body in
-      let msg_id =
-        try
-          let json = Yojson.Safe.from_string resp_body in
-          json
-          |> Yojson.Safe.Util.member "result"
-          |> Yojson.Safe.Util.member "message_id"
-          |> Yojson.Safe.Util.to_int |> string_of_int
-        with _ ->
-          Logs.warn (fun m ->
-              m
-                "Telegram sendMessage with keyboard did not return a \
-                 message_id (HTTP %d, chat_id=%s)"
-                status chat_id);
-          "0"
-      in
-      (match int_of_string_opt msg_id with
-      | Some id ->
-          let cur =
-            Option.value ~default:0
-              (Hashtbl.find_opt latest_chat_msg_id chat_id)
+  if is_outbound_rate_limited chat_id then Lwt.return "0"
+  else
+    with_outbound_lock ~chat_id (fun () ->
+        let uri = Printf.sprintf "%s%s/sendMessage" !api_base bot_token in
+        let inline_buttons =
+          List.map
+            (fun (label, callback_data) ->
+              `Assoc
+                [
+                  ("text", `String label);
+                  ("callback_data", `String callback_data);
+                ])
+            buttons
+        in
+        let reply_markup =
+          `Assoc [ ("inline_keyboard", `List [ `List inline_buttons ]) ]
+        in
+        let base_fields =
+          [
+            ("chat_id", `String chat_id);
+            ("text", `String text);
+            ("disable_notification", `Bool disable_notification);
+            ("reply_markup", reply_markup);
+          ]
+        in
+        let fields =
+          match parse_mode with
+          | Some mode -> ("parse_mode", `String mode) :: base_fields
+          | None -> base_fields
+        in
+        let body = `Assoc fields |> Yojson.Safe.to_string in
+        let* status, resp_body = Http_client.post_json ~uri ~headers:[] ~body in
+        if status = 429 then (
+          record_outbound_rate_limit ~chat_id ~body:resp_body;
+          Lwt.return "0")
+        else
+          let msg_id =
+            try
+              let json = Yojson.Safe.from_string resp_body in
+              json
+              |> Yojson.Safe.Util.member "result"
+              |> Yojson.Safe.Util.member "message_id"
+              |> Yojson.Safe.Util.to_int |> string_of_int
+            with _ ->
+              Logs.warn (fun m ->
+                  m
+                    "Telegram sendMessage with keyboard did not return a \
+                     message_id (HTTP %d, chat_id=%s)"
+                    status chat_id);
+              "0"
           in
-          if id > cur then Hashtbl.replace latest_chat_msg_id chat_id id
-      | None -> ());
-      Lwt.return msg_id)
+          (match int_of_string_opt msg_id with
+          | Some id ->
+              let cur =
+                Option.value ~default:0
+                  (Hashtbl.find_opt latest_chat_msg_id chat_id)
+              in
+              if id > cur then Hashtbl.replace latest_chat_msg_id chat_id id
+          | None -> ());
+          Lwt.return msg_id)
 
 let answer_callback_query ~bot_token ~callback_query_id ?(text = "") () =
   let open Lwt.Syntax in
