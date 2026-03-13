@@ -206,7 +206,9 @@ let split_message text =
   end
 
 (* Build a reply activity JSON body, optionally with an @mention and
-   notification alert control *)
+   notification alert control.
+   Only include channelData.notification when suppressing (alert=false);
+   omit it entirely for normal replies so Teams uses default behavior. *)
 let build_reply_body ~alert ~text ~mention =
   let text_with_mention, entities =
     match mention with
@@ -228,12 +230,16 @@ let build_reply_body ~alert ~text ~mention =
     | None -> (text, [])
   in
   let base =
-    [
-      ("type", `String "message");
-      ("text", `String text_with_mention);
-      ( "channelData",
-        `Assoc [ ("notification", `Assoc [ ("alert", `Bool alert) ]) ] );
-    ]
+    [ ("type", `String "message"); ("text", `String text_with_mention) ]
+  in
+  let base =
+    if alert then base
+    else
+      base
+      @ [
+          ( "channelData",
+            `Assoc [ ("notification", `Assoc [ ("alert", `Bool false) ]) ] );
+        ]
   in
   let fields =
     match entities with
@@ -270,7 +276,11 @@ let send_reply ?(alert = false) ~(config : Runtime_config.teams_config)
           in
           let headers = [ ("Authorization", "Bearer " ^ token) ] in
           let body = build_reply_body ~alert ~text:chunk ~mention in
-          let* _status, _resp = Http_client.post_json ~uri ~headers ~body in
+          let* status, resp = Http_client.post_json ~uri ~headers ~body in
+          if status < 200 || status >= 300 then
+            Logs.warn (fun m ->
+                m "Teams: send_reply failed (HTTP %d) conv=%s: %s" status
+                  conversation_id resp);
           Lwt.return_unit)
         chunks
 

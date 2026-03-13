@@ -136,11 +136,11 @@ let test_build_reply_body_with_mention () =
   Alcotest.(check string)
     "text with mention" "<at>Alice</at> hello"
     (json |> member "text" |> to_string);
-  let alert =
-    json |> member "channelData" |> member "notification" |> member "alert"
-    |> to_bool
+  (* alert=true omits channelData entirely, letting Teams use default behavior *)
+  let has_channel_data =
+    match json |> member "channelData" with `Null -> false | _ -> true
   in
-  Alcotest.(check bool) "alert true" true alert;
+  Alcotest.(check bool) "no channelData when alert" false has_channel_data;
   let entities = json |> member "entities" |> to_list in
   Alcotest.(check int) "one entity" 1 (List.length entities);
   let entity = List.hd entities in
