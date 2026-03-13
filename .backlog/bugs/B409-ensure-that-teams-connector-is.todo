@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-13T06:27:37Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B409
 priority: high
-status: pending
+started_at: "2026-03-13T06:27:37Z"
+status: in_progress
 tags: []
 title: ensure that teams connector is run at startup (its not listed in logs)
 ---
