@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B406
+priority: high
+status: pending
+tags: []
+title: For cloudflare tunnel (and other tunnels) once they are started we should print the public url to the log if we can
+---
+
+For cloudflare tunnel (and other tunnels) once they are started we should print the public url to the log if we can
