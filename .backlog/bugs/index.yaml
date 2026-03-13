@@ -408,3 +408,4 @@ bugs:
     - file: B409-ensure-that-teams-connector-is.todo
     - file: B410-clawq-channel-test-teams-does.todo
     - file: B411-telegram-poll-errors-caused-by.todo
+    - file: B412-clawq-cron-list-should-have-an.todo

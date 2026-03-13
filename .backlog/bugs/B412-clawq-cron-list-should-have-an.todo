@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B412
+priority: high
+status: pending
+tags: []
+title: '`clawq cron list` should have an option to show the cron job''s prompt, too. Also, we should write a nice table to the console if we can tell it''s width so we can do wordwrapping etc. If there''s a library to do this already, let''s use that, otherwise we can write a module and update the cron list output.'
+---
+
+`clawq cron list` should have an option to show the cron job's prompt, too. Also, we should write a nice table to the console if we can tell it's width so we can do wordwrapping etc. If there's a library to do this already, let's use that, otherwise we can write a module and update the cron list output.
