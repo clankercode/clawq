@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B414
+priority: high
+status: pending
+tags: []
+title: 'Teams: Add sender name in message context header'
+---
+
+Teams: Add sender name in message context header
