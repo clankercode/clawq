@@ -10,3 +10,29 @@ title: telegram poll errors -- caused by recent commits mb?
 ---
 
 telegram poll errors -- caused by recent commits mb?
+
+
+[17:41:27.347] INFO Cron scheduler started [17:41:27.347] INFO Heartbeat enabled: interval=300s 
+quiet=23:00-8:00 [17:41:28.536] INFO Quota refresh: zai session=0% monthly=2% | kimi | groq Unknown 
+(no_api) | openai-codexsession=11% (15m left) weekly=53% (5d10h left) [17:41:57.337] WARN Telegram: 
+setMyCommands failed for 'default': Failure("HTTP timeout in post_json after 30.0s") [17:41:57.337] INFO 
+Telegram poll #1 for account 'default' [17:42:35.148] INFO Telegram poll #1 for 'default': 37811ms 
+elapsed, 0 update(s) received [17:42:35.148] INFO Telegram poll #2 for account 'default' [17:43:13.830] 
+INFO Telegram poll #2 for 'default': 38682ms elapsed, 0 update(s) received [17:43:13.831] INFO Telegram 
+poll #3 for account 'default' [17:43:48.751] INFO Telegram poll #3 for 'default': 34920ms elapsed, 0 
+update(s) received [17:43:48.751] INFO Telegram polling stable, suppressing routine poll logs for 
+'default' [17:43:50.791] INFO Incoming webhook: teams method=POST path=/teams/webhook ip=52.123.207.196 
+[17:43:50.791] WARN Teams: auth failed: JWT aud mismatch: got fdc0c6d3-4489-4915-ac7a-33804fa65c1c, 
+expected myappid — check that app_id in config matches the Application ID in Azure [17:44:09.917] INFO 
+Incoming webhook: teams method=POST path=/teams/webhook ip=52.123.207.196 [17:44:09.917] WARN Teams: 
+auth failed: JWT aud mismatch: got fdc0c6d3-4489-4915-ac7a-33804fa65c1c, expected myappid — check that 
+app_id in config matches the Application ID in Azure ^[[B[17:45:02.407] ERROR Telegram poll error for 
+'default': Failure("HTTP timeout in get_with_timeout after 40.0s") [17:45:10.745] INFO Incoming webhook: 
+teams method=POST path=/teams/webhook ip=52.123.207.196 [17:45:10.745] WARN Teams: auth failed: JWT aud 
+mismatch: got fdc0c6d3-4489-4915-ac7a-33804fa65c1c, expected myappid — check that app_id in config 
+matches the Application ID in Azure [17:45:10.907] INFO Incoming webhook: teams method=POST 
+path=/teams/webhook ip=52.123.207.196 [17:45:10.908] WARN Teams: auth failed: JWT aud mismatch: got 
+fdc0c6d3-4489-4915-ac7a-33804fa65c1c, expected myappid — check that app_id in config matches the 
+Application ID in Azure
+[17:45:47.411] ERROR Telegram poll error for 'default': Failure("HTTP timeout in get_with_timeout after 40.0s")
+
