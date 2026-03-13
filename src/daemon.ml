@@ -1595,8 +1595,7 @@ let run ~(config : Runtime_config.t) =
   let* () =
     if ec_state.pid <> None then begin
       Logs.info (fun m -> m "Stopping EC process");
-      if final_intent = Restart then Error_watcher.graceful_handoff ec_state
-      else Error_watcher.stop_ec_process ec_state
+      Error_watcher.stop_ec_process ec_state
     end
     else Lwt.return_unit
   in
