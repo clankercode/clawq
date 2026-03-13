@@ -29,3 +29,4 @@ reviews/
 *.bak
 _coverage/
 *.coverage
+memory/
