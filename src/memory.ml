@@ -439,7 +439,10 @@ let migrate_schema db current_version =
       (* Recreate session_state with CHECK constraint enforcing channel and
          channel_id are either both NULL or both non-NULL.
          SQLite does not support ADD CONSTRAINT on existing tables, so we
-         use the CREATE-INSERT-DROP-RENAME pattern. *)
+         use the CREATE-INSERT-DROP-RENAME pattern.
+         Drop any leftover session_state_new from a previous partial run
+         to make this migration re-entrant. *)
+      exec_exn db "DROP TABLE IF EXISTS session_state_new";
       exec_exn db
         "CREATE TABLE session_state_new (session_key TEXT PRIMARY KEY, turn \
          TEXT NOT NULL DEFAULT 'user', channel TEXT, channel_id TEXT, \
