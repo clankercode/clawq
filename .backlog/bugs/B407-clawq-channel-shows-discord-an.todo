@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B407
+priority: high
+status: pending
+tags: []
+title: '`clawq channel` shows Discord and slack as configured even when they are missing tokens and secrets. A missing token/secret should indicate that it is not configured.'
+---
+
+`clawq channel` shows Discord and slack as configured even when they are missing tokens and secrets. A missing token/secret should indicate that it is not configured.
