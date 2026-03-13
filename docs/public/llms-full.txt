@@ -598,6 +598,8 @@ current queue state for a given session; `session list` appends
 
 Session key format: `teams:<team_id_or_personal>:<conversation_id>` (shared per-channel; sender identity via context headers)
 
+In group chats (`conversation.isGroup`), replies @mention the sender using Bot Framework mention entities so they receive a notification.
+
 Note: JWT RS256 signature verification is not implemented (no RSA lib available). Claim-only validation (`aud`, `iss`, `exp`, `nbf`) is performed.
 
 ## Gateway and Web UI

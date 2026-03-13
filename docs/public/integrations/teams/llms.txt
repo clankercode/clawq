@@ -163,7 +163,8 @@ Replies longer than this limit are split at whitespace boundaries and sent as mu
    b. The activity is parsed: `type` must be `"message"`, `text` is extracted and stripped of `<at>BotName</at>` mention tags.
    c. `allow_teams` and `allow_users` filters are applied.
    d. Session key is constructed and the agent turn is dispatched via `Session.turn`.
-   e. The reply is POSTed to `{serviceUrl}/v3/conversations/{conversation_id}/activities/{activity_id}`.
+   e. In group chats (`conversation.isGroup`), the sender is @mentioned in the reply text via `<at>SenderName</at>` and a Bot Framework mention entity, so they receive a notification.
+   f. The reply is POSTed to `{serviceUrl}/v3/conversations/{conversation_id}/activities/{activity_id}`.
 
 ## Verifying the Integration
 

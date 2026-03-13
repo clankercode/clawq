@@ -15,7 +15,10 @@ type teams_activity = {
   user_name : string;
   team_id : string;
   text : string;
+  is_group : bool;
 }
+
+type mention = { mention_id : string; mention_name : string }
 
 let dedup_seen id =
   if id = "" then false else Channel_util.Lru_dedup.check_and_mark dedup id
@@ -202,11 +205,48 @@ let split_message text =
     List.rev !result
   end
 
+(* Build a reply activity JSON body, optionally with an @mention and
+   notification alert control *)
+let build_reply_body ~alert ~text ~mention =
+  let text_with_mention, entities =
+    match mention with
+    | Some { mention_id; mention_name } ->
+        let at_tag = Printf.sprintf "<at>%s</at>" mention_name in
+        let full_text = Printf.sprintf "%s %s" at_tag text in
+        let entity =
+          `Assoc
+            [
+              ("type", `String "mention");
+              ( "mentioned",
+                `Assoc
+                  [ ("id", `String mention_id); ("name", `String mention_name) ]
+              );
+              ("text", `String at_tag);
+            ]
+        in
+        (full_text, [ entity ])
+    | None -> (text, [])
+  in
+  let base =
+    [
+      ("type", `String "message");
+      ("text", `String text_with_mention);
+      ( "channelData",
+        `Assoc [ ("notification", `Assoc [ ("alert", `Bool alert) ]) ] );
+    ]
+  in
+  let fields =
+    match entities with
+    | [] -> base
+    | ents -> base @ [ ("entities", `List ents) ]
+  in
+  `Assoc fields |> Yojson.Safe.to_string
+
 (* Send a reply via Bot Framework REST API.
    ~alert controls channelData.notification.alert: true triggers a
    desktop/mobile notification toast, false suppresses it. *)
 let send_reply ?(alert = false) ~(config : Runtime_config.teams_config)
-    ~service_url ~conversation_id ~reply_to_id ~text () =
+    ~service_url ~conversation_id ~reply_to_id ~text ?mention () =
   let open Lwt.Syntax in
   let* token_opt = fetch_token ~config in
   match token_opt with
@@ -229,17 +269,7 @@ let send_reply ?(alert = false) ~(config : Runtime_config.teams_config)
                 (Uri.pct_encode reply_to_id)
           in
           let headers = [ ("Authorization", "Bearer " ^ token) ] in
-          let body =
-            `Assoc
-              [
-                ("type", `String "message");
-                ("text", `String chunk);
-                ( "channelData",
-                  `Assoc [ ("notification", `Assoc [ ("alert", `Bool alert) ]) ]
-                );
-              ]
-            |> Yojson.Safe.to_string
-          in
+          let body = build_reply_body ~alert ~text:chunk ~mention in
           let* _status, _resp = Http_client.post_json ~uri ~headers ~body in
           Lwt.return_unit)
         chunks
@@ -269,9 +299,14 @@ let parse_activity body_str =
       let user_name =
         try from_obj |> member "name" |> to_string with _ -> ""
       in
+      let conversation_obj =
+        try json |> member "conversation" with _ -> `Null
+      in
       let conversation_id =
-        try json |> member "conversation" |> member "id" |> to_string
-        with _ -> ""
+        try conversation_obj |> member "id" |> to_string with _ -> ""
+      in
+      let is_group =
+        try conversation_obj |> member "isGroup" |> to_bool with _ -> false
       in
       let team_id =
         try
@@ -290,6 +325,7 @@ let parse_activity body_str =
             user_name;
             team_id;
             text;
+            is_group;
           }
   with _ -> None
 
@@ -352,6 +388,7 @@ let handle_webhook ~(config : Runtime_config.teams_config)
             user_name;
             team_id;
             text = raw_text;
+            is_group;
           } -> (
           if dedup_seen activity_id then Lwt.return_unit
           else
@@ -384,18 +421,25 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                 let sender_name =
                   if user_name = "" then None else Some user_name
                 in
+                (* @mention the sender in group chats so they get a
+                   notification *)
+                let mention =
+                  if is_group && user_name <> "" then
+                    Some { mention_id = user_id; mention_name = user_name }
+                  else None
+                in
                 (* Register alerting notifier for ask_user_question *)
                 Session.register_alert_channel_notifier session_manager ~key
                   (fun reply_text ->
                     send_reply ~alert:true ~config
                       ~service_url:effective_service_url ~conversation_id
-                      ~reply_to_id:activity_id ~text:reply_text ());
+                      ~reply_to_id:activity_id ~text:reply_text ?mention ());
                 let* result =
                   Session.with_registered_notifier session_manager ~key
                     ~notify:(fun reply_text ->
                       send_reply ~alert:false ~config
                         ~service_url:effective_service_url ~conversation_id
-                        ~reply_to_id:activity_id ~text:reply_text ())
+                        ~reply_to_id:activity_id ~text:reply_text ?mention ())
                     (fun () ->
                       Lwt.catch
                         (fun () ->
@@ -414,7 +458,7 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                     else
                       send_reply ~alert:true ~config
                         ~service_url:effective_service_url ~conversation_id
-                        ~reply_to_id:activity_id ~text:response ()
+                        ~reply_to_id:activity_id ~text:response ?mention ()
                 | Error err ->
                     Logs.err (fun m ->
                         m "Teams: agent error for conv=%s user=%s: %s"

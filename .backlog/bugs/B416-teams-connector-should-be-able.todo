@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-13T07:48:49Z"
+claimed_by: cli-user
+completed_at: "2026-03-13T07:53:46Z"
 complexity: medium
 depends_on: []
+duration_minutes: 4.96283660125
 estimate_hours: 1
 id: B416
 priority: high
-status: pending
+started_at: "2026-03-13T07:48:49Z"
+status: done
 tags: []
 title: Teams connector should be able @ mention users in a group chat (might require unified sessions for each chat room / channel, see B415)
 ---

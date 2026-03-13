@@ -369,6 +369,7 @@ Framework REST API using OAuth 2.0 bearer tokens.
    `teams:<team_id>:<conversation_id>`, and runs the agent turn. Sessions are shared per-channel; sender identity is passed via context headers.
 4. The reply is posted back via
    `{serviceUrl}/v3/conversations/{conversation_id}/activities/{activity_id}`.
+   In group chats, the sender is @mentioned in the reply so they receive a notification.
 
 ### Configuration
 
@@ -494,6 +495,9 @@ clawq channel              # confirm teams shows as configured
   with the bot via `allow_teams` and `allow_users`.
 - **Activity deduplication** --- duplicate Bot Framework deliveries are
   suppressed via an in-memory LRU set.
+- **@mention in group chats** --- replies in group conversations automatically
+  @mention the sender using Bot Framework mention entities, ensuring they
+  receive a notification.
 
 See the [Microsoft Teams bot documentation](https://learn.microsoft.com/en-us/microsoftteams/platform/bots/what-are-bots) and the [Bot Framework authentication guide](https://learn.microsoft.com/en-us/azure/bot-service/rest-api/bot-framework-rest-connector-authentication) for full details.
 

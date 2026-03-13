@@ -135,6 +135,29 @@ Or to start a new activity in the conversation (no reply_to_id):
 POST {serviceUrl}/v3/conversations/{conversation_id}/activities
 ```
 
+### @Mentions in Group Chats
+
+In group chats (`conversation.isGroup == true`), replies include an `<at>` tag and `entities` array so the sender receives a notification:
+
+```json
+{
+  "type": "message",
+  "text": "<at>User Name</at> Hello!",
+  "entities": [
+    {
+      "type": "mention",
+      "mentioned": {
+        "id": "<user_aad_object_id>",
+        "name": "User Name"
+      },
+      "text": "<at>User Name</at>"
+    }
+  ]
+}
+```
+
+The `mentioned.id` is the user's AAD object ID from `from.id` in the inbound activity. This is only added when `conversation.isGroup` is true and the sender's display name is available.
+
 ## Message Size Limits
 
 - Maximum message length: **28,672 characters** (28 KB).
