@@ -374,6 +374,19 @@ let config_schema =
           ] );
       ("log", O [ ("max_size_mb", L); ("max_files", L) ]);
       ("interactive", O [ ("enable_question_notes", L) ]);
+      ( "error_watcher",
+        O
+          [
+            ("enabled", L);
+            ("scan_interval_s", L);
+            ("primary_models", L);
+            ("fallback_models", L);
+            ("cooldown_s", L);
+            ("max_errors_per_batch", L);
+            ("ignore_patterns", L);
+            ("auto_fix_enabled", L);
+            ("ec_commit_tag", L);
+          ] );
     ]
 
 let rec validate_path segments schema =

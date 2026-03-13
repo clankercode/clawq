@@ -76,7 +76,10 @@ The extracted OCaml is tracked in git so the project builds without Coq installe
 | `slack.ml` | Slack Events API channel with HMAC verification |
 | `slack_socket.ml` | Slack Socket Mode: WSS-based event receiving via app_token |
 | `ws_client.ml` | Shared TLS WebSocket client (httpun-ws, gluten, tls-lwt, ca-certs) |
-| `daemon.ml` | Supervisor: gateway + telegram + discord + slack_socket, signal handling, periodic cleanup, config file watcher (10s mtime poll + SIGHUP) |
+| `daemon.ml` | Supervisor: gateway + telegram + discord + slack_socket, signal handling, periodic cleanup, config file watcher (10s mtime poll + SIGHUP), EC process lifecycle |
+| `error_watcher.ml` | Error correction shared types, helpers, and EC process lifecycle management |
+| `ec_process.ml` | EC process entry point: daemon log/session/background-task error scanning, correlation |
+| `ec_diagnosis.ml` | Multi-model diagnosis pipeline: parallel LLM queries, voting, planning, fix spawning |
 | `service.ml` | Service orchestrator: starts/stops subsystems (server, tunnel, scheduler) |
 | `scheduler.ml` | Scheduled tasks: cron-like recurring job execution |
 | `audit.ml` | Audit logging: append-only log of tool invocations and security events |

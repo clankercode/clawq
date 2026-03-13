@@ -100,7 +100,8 @@
   summarizer
   tool_postprocess
   log_rotation
-  table_format)
+  table_format
+  error_watcher)
  (foreign_stubs
   (language c)
   (names landlock_stubs))
@@ -188,7 +189,9 @@
   setup_teams
   setup_telegram
   setup_tunnel
-  setup_summarizer)
+  setup_summarizer
+  ec_process
+  ec_diagnosis)
  (wrapped false)
  (libraries
   clawq_runtime_core

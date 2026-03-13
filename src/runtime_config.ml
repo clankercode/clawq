@@ -389,6 +389,18 @@ type zai_mcp_config = {
 
 type interactive_config = { enable_question_notes : bool }
 
+type error_watcher_config = {
+  ec_enabled : bool;
+  scan_interval_s : float;
+  primary_models : string list;
+  fallback_models : string list;
+  cooldown_s : float;
+  max_errors_per_batch : int;
+  ignore_patterns : string list;
+  auto_fix_enabled : bool;
+  ec_commit_tag : string;
+}
+
 type observer_config = {
   enabled : bool;
   model : Pmodel.t;
@@ -443,9 +455,25 @@ type t = {
   summarizer : summarizer_config;
   log : log_config;
   interactive : interactive_config;
+  error_watcher : error_watcher_config;
 }
 
 let default_log_config : log_config = { max_size_mb = 10; max_files = 5 }
+
+let default_error_watcher_config : error_watcher_config =
+  let v = Build_info.version in
+  let n = String.length v in
+  {
+    ec_enabled = n >= 4 && String.sub v (n - 4) 4 = "-dev";
+    scan_interval_s = 30.0;
+    primary_models = [ "anthropic:claude-opus-4-6"; "openai-codex:gpt-5.4" ];
+    fallback_models = [ "zai_coding:glm-5"; "kimi_coding:kimi-for-code" ];
+    cooldown_s = 300.0;
+    max_errors_per_batch = 10;
+    ignore_patterns = [];
+    auto_fix_enabled = false;
+    ec_commit_tag = "[INTERNAL_EC]";
+  }
 
 let default_interactive_config : interactive_config =
   { enable_question_notes = true }
@@ -643,6 +671,7 @@ let default =
     summarizer = default_summarizer_config;
     log = default_log_config;
     interactive = default_interactive_config;
+    error_watcher = default_error_watcher_config;
   }
 
 let is_key_set key =
@@ -1737,6 +1766,28 @@ let to_json (cfg : t) : Yojson.Safe.t =
                      ])
                  cfg.agent_bindings) );
         ]
+  in
+  let ew = cfg.error_watcher in
+  let fields =
+    fields
+    @ [
+        ( "error_watcher",
+          `Assoc
+            [
+              ("enabled", `Bool ew.ec_enabled);
+              ("scan_interval_s", `Float ew.scan_interval_s);
+              ( "primary_models",
+                `List (List.map (fun s -> `String s) ew.primary_models) );
+              ( "fallback_models",
+                `List (List.map (fun s -> `String s) ew.fallback_models) );
+              ("cooldown_s", `Float ew.cooldown_s);
+              ("max_errors_per_batch", `Int ew.max_errors_per_batch);
+              ( "ignore_patterns",
+                `List (List.map (fun s -> `String s) ew.ignore_patterns) );
+              ("auto_fix_enabled", `Bool ew.auto_fix_enabled);
+              ("ec_commit_tag", `String ew.ec_commit_tag);
+            ] );
+      ]
   in
   `Assoc fields
 

@@ -10,7 +10,7 @@ stats:
     in_progress: 0
     pending: 3
     total: 3
-status: pending
+status: done
 tasks:
     - complexity: medium
       depends_on: []
@@ -18,23 +18,26 @@ tasks:
       file: T001-add-error-watcher-config-type.todo
       id: T001
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Add error_watcher_config type, defaults, and JSON parsing
     - complexity: medium
       depends_on:
-        - T001
+        - P8.M1.E1.T001
       estimate_hours: 2
       file: T002-create-error-watcher-ml-with-s.todo
       id: T002
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Create error_watcher.ml with shared types and helpers
     - complexity: medium
       depends_on:
-        - T002
+        - P8.M1.E1.T002
       estimate_hours: 2
       file: T003-build-wiring-and-initial-test.todo
       id: T003
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: Build wiring and initial test suite

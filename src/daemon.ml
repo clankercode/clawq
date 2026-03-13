@@ -830,6 +830,7 @@ let run ~(config : Runtime_config.t) =
             m "Telegram polling error: %s" (Printexc.to_string exn));
         Lwt.return_unit)
   in
+  let ec_state = Error_watcher.create_state () in
   let shutdown_waiter, shutdown_resolver = Lwt.wait () in
   let restart_waiter, restart_resolver = Lwt.wait () in
   let shutting_down = ref false in
@@ -911,6 +912,29 @@ let run ~(config : Runtime_config.t) =
                       m "Tunnel reconfiguration error: %s"
                         (Printexc.to_string exn));
                   Lwt.return_unit));
+          (* Handle EC process enable/disable on config reload *)
+          if new_config.error_watcher.ec_enabled && ec_state.pid = None then begin
+            Logs.info (fun m ->
+                m "EC watcher enabled via config reload, starting");
+            try Error_watcher.start_ec_process ec_state
+            with exn ->
+              Logs.err (fun m ->
+                  m "Failed to start EC process: %s" (Printexc.to_string exn))
+          end
+          else if
+            (not new_config.error_watcher.ec_enabled) && ec_state.pid <> None
+          then begin
+            Logs.info (fun m ->
+                m "EC watcher disabled via config reload, stopping");
+            Lwt.async (fun () ->
+                Lwt.catch
+                  (fun () -> Error_watcher.stop_ec_process ec_state)
+                  (fun exn ->
+                    Logs.err (fun m ->
+                        m "Failed to stop EC process: %s"
+                          (Printexc.to_string exn));
+                    Lwt.return_unit))
+          end;
           Logs.info (fun m -> m "Config reloaded successfully")
         with exn ->
           Logs.err (fun m ->
@@ -1114,6 +1138,23 @@ let run ~(config : Runtime_config.t) =
                     (Printexc.to_string exn));
               Lwt.return_unit))
   | None -> ());
+  (* Error Correction watcher process *)
+  if config.error_watcher.ec_enabled then begin
+    Logs.info (fun m -> m "Starting Error Correction watcher process");
+    (try Error_watcher.start_ec_process ec_state
+     with exn ->
+       Logs.err (fun m ->
+           m "Failed to start EC process: %s" (Printexc.to_string exn)));
+    Lwt.async (fun () ->
+        Lwt.catch
+          (fun () ->
+            Error_watcher.run_health_check_loop ~shutdown:shutdown_waiter
+              ec_state)
+          (fun exn ->
+            Logs.err (fun m ->
+                m "EC health check loop error: %s" (Printexc.to_string exn));
+            Lwt.return_unit))
+  end;
   (* Config file watcher: stat every 10s, reload on mtime change *)
   let last_config_mtime = ref 0.0 in
   let config_watch_path = Config_loader.default_path () in
@@ -1153,6 +1194,32 @@ let run ~(config : Runtime_config.t) =
                              m "Tunnel reconfiguration error (file watch): %s"
                                (Printexc.to_string exn));
                          Lwt.return_unit));
+                 (* Handle EC process enable/disable on auto-reload *)
+                 if new_config.error_watcher.ec_enabled && ec_state.pid = None
+                 then begin
+                   Logs.info (fun m ->
+                       m "EC watcher enabled via auto-reload, starting");
+                   try Error_watcher.start_ec_process ec_state
+                   with exn ->
+                     Logs.err (fun m ->
+                         m "Failed to start EC process: %s"
+                           (Printexc.to_string exn))
+                 end
+                 else if
+                   (not new_config.error_watcher.ec_enabled)
+                   && ec_state.pid <> None
+                 then begin
+                   Logs.info (fun m ->
+                       m "EC watcher disabled via auto-reload, stopping");
+                   Lwt.async (fun () ->
+                       Lwt.catch
+                         (fun () -> Error_watcher.stop_ec_process ec_state)
+                         (fun exn ->
+                           Logs.err (fun m ->
+                               m "Failed to stop EC process: %s"
+                                 (Printexc.to_string exn));
+                           Lwt.return_unit))
+                 end;
                  Logs.info (fun m -> m "Config auto-reloaded (file changed)")
                end
              with exn ->
@@ -1523,6 +1590,15 @@ let run ~(config : Runtime_config.t) =
                 else "clean shutdown");
            })
   | _ -> ());
+  (* Stop EC process *)
+  let* () =
+    if ec_state.pid <> None then begin
+      Logs.info (fun m -> m "Stopping EC process");
+      if final_intent = Restart then Error_watcher.graceful_handoff ec_state
+      else Error_watcher.stop_ec_process ec_state
+    end
+    else Lwt.return_unit
+  in
   (* Stop tunnel manager *)
   let* () = Tunnel_manager.stop tunnel_manager in
   (* Flush telemetry on shutdown *)

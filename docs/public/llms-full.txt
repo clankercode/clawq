@@ -107,6 +107,12 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 | `tunnel daemon-status` | Show tunnel manager state from running daemon as JSON (state, provider, url, pid) |
 | `update [--mode auto|git|binary]` | Ask the live daemon to update itself and gracefully restart; currently warns if no live daemon is available because the offline fallback is still stubbed |
 | `version` | Print version and build info |
+| `watcher` | Manage the error correction watcher (default: status) |
+| `watcher status` | Show watcher config and EC process status |
+| `watcher enable` | Enable the error correction watcher |
+| `watcher disable` | Disable the error correction watcher |
+| `watcher reports` | List recent EC reports |
+| `watcher report ID` | Show a specific EC report with full diagnosis, voting, and plan details |
 | `workspace` | Print the current workspace directory |
 
 ## Slash Commands

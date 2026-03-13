@@ -10,7 +10,7 @@ stats:
     in_progress: 0
     pending: 2
     total: 2
-status: pending
+status: done
 tasks:
     - complexity: medium
       depends_on:
@@ -19,7 +19,8 @@ tasks:
       file: T001-ec-process-lifecycle-start-sto.todo
       id: T001
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: 'EC process lifecycle: start, stop, health check'
     - complexity: medium
       depends_on:
@@ -28,5 +29,6 @@ tasks:
       file: T002-graceful-handoff-and-daemon-in.todo
       id: T002
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Graceful handoff and daemon integration

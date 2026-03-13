@@ -141,6 +141,7 @@ let () =
     @ [ ("log_rotation", Test_log_rotation.suite) ]
     @ [ ("worktree_merge", Test_worktree_merge.suite) ]
     @ [ ("table_format", Test_table_format.tests) ]
+    @ [ ("error_watcher", Test_error_watcher.suite) ]
     @ Test_github.suites
     @ [
         ( "config_isolation",

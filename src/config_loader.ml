@@ -1557,6 +1557,57 @@ let parse_config ?(resolve_secrets = true) json =
          in
          ({ enable_question_notes } : Runtime_config.interactive_config)
        with _ -> Runtime_config.default_interactive_config);
+    error_watcher =
+      (try
+         let ew = json |> member "error_watcher" in
+         let def = Runtime_config.default_error_watcher_config in
+         let ec_enabled =
+           try ew |> member "enabled" |> to_bool with _ -> def.ec_enabled
+         in
+         let scan_interval_s =
+           try ew |> member "scan_interval_s" |> to_float
+           with _ -> def.scan_interval_s
+         in
+         let primary_models =
+           try ew |> member "primary_models" |> to_list |> List.map to_string
+           with _ -> def.primary_models
+         in
+         let fallback_models =
+           try ew |> member "fallback_models" |> to_list |> List.map to_string
+           with _ -> def.fallback_models
+         in
+         let cooldown_s =
+           try ew |> member "cooldown_s" |> to_float with _ -> def.cooldown_s
+         in
+         let max_errors_per_batch =
+           try ew |> member "max_errors_per_batch" |> to_int
+           with _ -> def.max_errors_per_batch
+         in
+         let ignore_patterns =
+           try ew |> member "ignore_patterns" |> to_list |> List.map to_string
+           with _ -> def.ignore_patterns
+         in
+         let auto_fix_enabled =
+           try ew |> member "auto_fix_enabled" |> to_bool
+           with _ -> def.auto_fix_enabled
+         in
+         let ec_commit_tag =
+           try ew |> member "ec_commit_tag" |> to_string
+           with _ -> def.ec_commit_tag
+         in
+         ({
+            ec_enabled;
+            scan_interval_s;
+            primary_models;
+            fallback_models;
+            cooldown_s;
+            max_errors_per_batch;
+            ignore_patterns;
+            auto_fix_enabled;
+            ec_commit_tag;
+          }
+           : Runtime_config.error_watcher_config)
+       with _ -> Runtime_config.default_error_watcher_config);
   }
 
 let rec merge_json (original : Yojson.Safe.t) (complete : Yojson.Safe.t) :

@@ -86,11 +86,11 @@ phases:
       description: 'I019: Proactive error watcher with separate EC process, multi-model diagnosis/voting pipeline, and auto-fix capability'
       estimate_hours: 30
       id: P8
-      locked: false
+      locked: true
       name: Error Correction Watcher
       path: 08-error-correction-watcher
       priority: high
-      status: pending
+      status: done
       weeks: 3
 project: Clawq
 stats:

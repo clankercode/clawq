@@ -1,14 +1,17 @@
 ---
+claimed_at: "2026-03-13T12:06:07Z"
+claimed_by: cli-user
+completed_at: "2026-03-13T12:16:36Z"
 complexity: medium
 depends_on:
     - P8.M2.E2.T003
+duration_minutes: 10.488630208566667
 estimate_hours: 4
 id: P8.M2.E3.T001
 priority: high
-status: pending
-tags:
-    - idea
-    - planning
+started_at: "2026-03-13T12:06:07Z"
+status: done
+tags: []
 title: Multi-model query helper and diagnosis phase
 ---
 Implement query_model helper wrapping Provider.complete with explicit model override. Implement Phase 1 (Diagnosis): parallel query of primary models (anthropic:claude-opus-4-6, openai-codex:gpt-5.4) via Lwt.all, fallback to secondary models (zai_coding:glm-5, kimi_coding:kimi-for-code) on failure, non-fatal error handling (continue with available results), diagnosis merging for fallback models. Deadlock-specific handling: when errors suggest deadlock (mutex timeout, Lwt_mutex, process hang, stale PID), always use powerful thinking models, include instructions to investigate locks/mutexes. AC: Queries 2 models in parallel. Falls back when primary fails. Merges fallback results. All-fail writes minimal report and exits cycle non-fatally.

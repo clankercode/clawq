@@ -470,6 +470,8 @@ let handle args =
   | "tunnel" :: _ -> unsupported "tunnel"
   | "service" :: _ -> unsupported "service"
   | "setup" :: _ -> unsupported "setup"
+  | "watcher" :: _ -> unsupported "watcher"
+  | "ec-run" :: _ -> unsupported "ec-run"
   | "hardware" :: _ -> "hardware: deferred to Phase 2"
   | "benchmark" :: rest -> Benchmark.run rest
   | "migrate" :: rest -> Migrate.cmd_migrate rest

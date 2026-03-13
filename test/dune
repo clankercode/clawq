@@ -112,7 +112,8 @@
   test_ask_user_question
   test_log_rotation
   test_worktree_merge
-  test_table_format)
+  test_table_format
+  test_error_watcher)
  (libraries
   clawq_extracted
   clawq_runtime_core

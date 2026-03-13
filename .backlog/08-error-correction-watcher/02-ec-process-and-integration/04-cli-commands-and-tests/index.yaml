@@ -10,7 +10,7 @@ stats:
     in_progress: 0
     pending: 1
     total: 1
-status: pending
+status: done
 tasks:
     - complexity: medium
       depends_on:
@@ -20,5 +20,6 @@ tasks:
       file: T001-watcher-cli-commands-ec-run-su.todo
       id: T001
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: Watcher CLI commands, ec-run subcommand, and comprehensive tests

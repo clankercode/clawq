@@ -1175,6 +1175,33 @@ let setup_cmd =
       setup_tunnel_cmd;
     ]
 
+let watcher_cmd =
+  with_args "watcher"
+    "Manage the error correction watcher (status, enable/disable, reports)."
+    [
+      `S "SUBCOMMANDS";
+      `I ("status", "Show watcher config and EC process status (default).");
+      `I ("enable", "Enable the error correction watcher.");
+      `I ("disable", "Disable the error correction watcher.");
+      `I ("reports", "List recent EC reports.");
+      `I ("report ID", "Show a specific EC report.");
+    ]
+
+let ec_run_cmd =
+  let daemon_mode =
+    Arg.(
+      value & flag
+      & info [ "daemon-mode" ] ~doc:"Run EC process in daemon mode (internal).")
+  in
+  Cmd.v
+    (Cmd.info "ec-run" ~doc:"Internal: run the error correction process.")
+    Term.(
+      ret
+        (const (fun daemon_mode ->
+             let args = if daemon_mode then [ "--daemon-mode" ] else [] in
+             run "ec-run" args)
+        $ daemon_mode))
+
 let version_cmd =
   let info = Cmd.info "version" ~doc:"Print version and build info." in
   Cmd.v info
@@ -1252,6 +1279,8 @@ let () =
       benchmark_cmd;
       completions_cmd;
       setup_cmd;
+      watcher_cmd;
+      ec_run_cmd;
     ]
   in
   exit (Cmd.eval ~argv ~env:help_env (Cmd.group main_info cmds))

@@ -9,7 +9,7 @@ epics:
       locked: false
       name: Configuration and Shared Types
       path: 01-configuration-and-shared-types
-      status: pending
+      status: done
 estimate_hours: 6
 id: P8.M1
 locked: false
@@ -20,4 +20,4 @@ stats:
     in_progress: 0
     pending: 3
     total_tasks: 3
-status: pending
+status: done

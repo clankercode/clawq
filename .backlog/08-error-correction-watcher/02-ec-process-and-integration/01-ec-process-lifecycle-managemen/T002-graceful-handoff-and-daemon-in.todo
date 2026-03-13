@@ -1,14 +1,17 @@
 ---
+claimed_at: "2026-03-13T11:48:08Z"
+claimed_by: cli-user
+completed_at: "2026-03-13T11:52:13Z"
 complexity: medium
 depends_on:
     - P8.M2.E1.T001
+duration_minutes: 4.08870117525
 estimate_hours: 3
 id: P8.M2.E1.T002
 priority: high
-status: pending
-tags:
-    - idea
-    - planning
+started_at: "2026-03-13T11:48:08Z"
+status: done
+tags: []
 title: Graceful handoff and daemon integration
 ---
 Add graceful_handoff to error_watcher.ml: spawn new EC -> SIGUSR2 old -> wait 90s -> SIGTERM old if alive. Add daemon.ml integration: start EC on startup, health check loop (30s), stop on disable, SIGTERM on daemon shutdown. AC: Daemon starts EC on startup. Config disable stops EC. Daemon restart performs graceful handoff. Daemon shutdown cleans up EC process.

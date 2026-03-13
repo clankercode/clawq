@@ -704,7 +704,7 @@ let test_schema_migration_12_to_13 () =
     result
   in
   Alcotest.(check bool) "summaries table exists" true has_table;
-  (* Verify schema version is 17 *)
+  (* Verify schema version is 18 *)
   let version =
     let stmt = Sqlite3.prepare db2 "SELECT version FROM schema_version" in
     Fun.protect
@@ -717,7 +717,7 @@ let test_schema_migration_12_to_13 () =
             | _ -> -1)
         | _ -> -1)
   in
-  Alcotest.(check int) "schema version 17" 17 version;
+  Alcotest.(check int) "schema version 18" 18 version;
   ignore (Sqlite3.db_close db2);
   try Unix.unlink path with _ -> ()
 
@@ -799,7 +799,7 @@ let suite =
       test_postprocess_passthrough_small;
     Alcotest.test_case "postprocess: truncates when no db" `Quick
       test_postprocess_truncates_when_no_db;
-    Alcotest.test_case "schema migration: 12 to 17" `Quick
+    Alcotest.test_case "schema migration: 12 to 18" `Quick
       test_schema_migration_12_to_13;
     Alcotest.test_case "truncate: short" `Quick test_truncate_for_history_short;
     Alcotest.test_case "truncate: long" `Quick test_truncate_for_history_long;

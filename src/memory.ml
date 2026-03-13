@@ -1,4 +1,4 @@
-let schema_version = 17
+let schema_version = 18
 
 type session_activity = Active | Inactive | Any
 
@@ -258,6 +258,20 @@ let init_pending_questions_schema db =
     \     created_at TEXT NOT NULL DEFAULT (datetime('now'))\n\
     \   )"
 
+let init_ec_reports_schema db =
+  exec_exn db
+    "CREATE TABLE IF NOT EXISTS ec_reports (\n\
+    \     id INTEGER PRIMARY KEY AUTOINCREMENT,\n\
+    \     timestamp TEXT NOT NULL DEFAULT (datetime('now')),\n\
+    \     error_hash TEXT NOT NULL,\n\
+    \     error_context TEXT NOT NULL,\n\
+    \     diagnoses_json TEXT,\n\
+    \     voting_json TEXT,\n\
+    \     winning_plan TEXT,\n\
+    \     fix_task_id INTEGER,\n\
+    \     status TEXT NOT NULL DEFAULT 'pending'\n\
+    \   )"
+
 let migrate_schema db current_version =
   match current_version with
   | 0 ->
@@ -468,6 +482,9 @@ let migrate_schema db current_version =
       Summary_store.init_schema db;
       init_pending_questions_schema db;
       set_schema_version db schema_version
+  | 17 ->
+      init_ec_reports_schema db;
+      set_schema_version db schema_version
   | n when n = schema_version ->
       init_session_schema db;
       init_inbound_queue_schema db;
@@ -477,7 +494,8 @@ let migrate_schema db current_version =
       init_postmortems_schema db;
       init_model_discovery_state_schema db;
       Summary_store.init_schema db;
-      init_pending_questions_schema db
+      init_pending_questions_schema db;
+      init_ec_reports_schema db
   | n ->
       failwith
         (Printf.sprintf "DB uses future schema version %d (current=%d)" n

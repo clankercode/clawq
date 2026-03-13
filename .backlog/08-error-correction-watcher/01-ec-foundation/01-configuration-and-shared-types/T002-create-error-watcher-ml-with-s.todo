@@ -1,14 +1,17 @@
 ---
+claimed_at: "2026-03-13T11:36:40Z"
+claimed_by: cli-user
+completed_at: "2026-03-13T11:43:16Z"
 complexity: medium
 depends_on:
-    - T001
+    - P8.M1.E1.T001
+duration_minutes: 6.614901185566667
 estimate_hours: 2
 id: P8.M1.E1.T002
 priority: high
-status: pending
-tags:
-    - idea
-    - planning
+started_at: "2026-03-13T11:36:40Z"
+status: done
+tags: []
 title: Create error_watcher.ml with shared types and helpers
 ---
 Create src/error_watcher.ml with shared types: error_source (DaemonLog|SessionError|BackgroundTaskLog), error_entry record, strip_ansi, parse_log_line (parses [HH:MM:SS.mmm] LEVEL [session_key] message format), JSON ser/deser for error_entry, PID/lock file path constants. Add to clawq_runtime_core in src/dune. AC: make build passes, types importable, strip_ansi and parse_log_line unit tests pass.

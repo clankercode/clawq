@@ -10,7 +10,7 @@ stats:
     in_progress: 0
     pending: 3
     total: 3
-status: pending
+status: done
 tasks:
     - complexity: medium
       depends_on:
@@ -19,7 +19,8 @@ tasks:
       file: T001-multi-model-query-helper-and-d.todo
       id: T001
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Multi-model query helper and diagnosis phase
     - complexity: medium
       depends_on:
@@ -28,7 +29,8 @@ tasks:
       file: T002-solution-proposals-and-voting.todo
       id: T002
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Solution proposals and voting pipeline
     - complexity: medium
       depends_on:
@@ -37,5 +39,6 @@ tasks:
       file: T003-planning-synthesis-fix-spawnin.todo
       id: T003
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: Planning synthesis, fix spawning, and EC reports

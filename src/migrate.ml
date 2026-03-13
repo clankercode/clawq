@@ -188,6 +188,7 @@ let convert (json : Yojson.Safe.t) =
       summarizer = default.summarizer;
       log = default.log;
       interactive = default.interactive;
+      error_watcher = default.error_watcher;
     }
   in
   (config, List.rev !warnings)

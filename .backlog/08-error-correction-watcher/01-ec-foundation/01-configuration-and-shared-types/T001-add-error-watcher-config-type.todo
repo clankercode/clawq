@@ -1,13 +1,16 @@
 ---
+claimed_at: "2026-03-13T11:36:40Z"
+claimed_by: cli-user
+completed_at: "2026-03-13T11:43:16Z"
 complexity: medium
 depends_on: []
+duration_minutes: 6.6124285502
 estimate_hours: 2
 id: P8.M1.E1.T001
 priority: high
-status: pending
-tags:
-    - idea
-    - planning
+started_at: "2026-03-13T11:36:40Z"
+status: done
+tags: []
 title: Add error_watcher_config type, defaults, and JSON parsing
 ---
 Add error_watcher_config type to runtime_config.ml (ec_enabled, scan_interval_s, primary_models, fallback_models, cooldown_s, max_errors_per_batch, ignore_patterns, auto_fix_enabled, ec_commit_tag). Add defaults (ec_enabled based on Build_info.version -dev suffix). Add field to main type t. Add JSON parsing to config_loader.ml following observer pattern. Add schema to config_set.ml. AC: make build passes, config loads with defaults, config set error_watcher.enabled true works.

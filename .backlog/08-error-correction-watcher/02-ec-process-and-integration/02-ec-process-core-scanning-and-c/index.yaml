@@ -10,7 +10,7 @@ stats:
     in_progress: 0
     pending: 3
     total: 3
-status: pending
+status: done
 tasks:
     - complexity: medium
       depends_on:
@@ -19,7 +19,8 @@ tasks:
       file: T001-ec-process-entry-point-with-si.todo
       id: T001
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: EC process entry point with signal handling and DB
     - complexity: medium
       depends_on:
@@ -28,7 +29,8 @@ tasks:
       file: T002-error-scanners-daemon-log-sess.todo
       id: T002
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: 'Error scanners: daemon log, session DB, background tasks'
     - complexity: medium
       depends_on:
@@ -37,5 +39,6 @@ tasks:
       file: T003-log-session-correlation-and-co.todo
       id: T003
       priority: medium
-      status: pending
+      status: done
+      tags: []
       title: Log-session correlation and context formatting

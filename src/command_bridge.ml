@@ -1264,6 +1264,125 @@ let cmd_setup args =
       \  tunnel      Configure Cloudflare tunnel\n\n\
        Documentation: https://clawq.org/channels/\n"
 
+let cmd_watcher args =
+  let cfg = get_config () in
+  let ew = cfg.error_watcher in
+  match args with
+  | [ "status" ] | [] ->
+      let pid_status =
+        match Error_watcher.read_pid_file () with
+        | Some pid ->
+            if Error_watcher.process_alive pid then
+              Printf.sprintf "running (pid %d)" pid
+            else "not running (stale PID file)"
+        | None -> "not running"
+      in
+      Printf.sprintf
+        "Error Correction Watcher\n\
+         ========================\n\
+         Enabled:            %b\n\
+         EC process:         %s\n\
+         Scan interval:      %.0fs\n\
+         Cooldown:           %.0fs\n\
+         Max errors/batch:   %d\n\
+         Auto-fix enabled:   %b\n\
+         Commit tag:         %s\n\
+         Primary models:     %s\n\
+         Fallback models:    %s\n\
+         Ignore patterns:    %s\n"
+        ew.ec_enabled pid_status ew.scan_interval_s ew.cooldown_s
+        ew.max_errors_per_batch ew.auto_fix_enabled ew.ec_commit_tag
+        (String.concat ", " ew.primary_models)
+        (String.concat ", " ew.fallback_models)
+        (if ew.ignore_patterns = [] then "(none)"
+         else String.concat ", " ew.ignore_patterns)
+  | [ "enable" ] ->
+      let result = Config_set.set_value "error_watcher.enabled" "true" in
+      result ^ "\nRestart the daemon for the change to take effect."
+  | [ "disable" ] ->
+      let result = Config_set.set_value "error_watcher.enabled" "false" in
+      result ^ "\nRestart the daemon for the change to take effect."
+  | [ "reports" ] ->
+      let db = get_db () in
+      Ec_diagnosis.init_ec_reports_schema db;
+      let reports = Ec_diagnosis.list_ec_reports ~db () in
+      if reports = [] then "No EC reports found."
+      else
+        let header =
+          Printf.sprintf "%-6s %-20s %-16s %s\n" "ID" "Timestamp" "Error Hash"
+            "Status"
+        in
+        let rows =
+          List.map
+            (fun (id, ts, hash, status) ->
+              Printf.sprintf "%-6d %-20s %-16s %s" id ts hash status)
+            reports
+        in
+        header ^ String.concat "\n" rows ^ "\n"
+  | [ "report"; id_str ] -> (
+      let db = get_db () in
+      Ec_diagnosis.init_ec_reports_schema db;
+      match int_of_string_opt id_str with
+      | None -> "Error: report ID must be an integer."
+      | Some id ->
+          let sql =
+            "SELECT id, timestamp, error_hash, error_context, diagnoses_json, \
+             voting_json, winning_plan, fix_task_id, status FROM ec_reports \
+             WHERE id = ?"
+          in
+          let stmt = Sqlite3.prepare db sql in
+          Fun.protect
+            ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+            (fun () ->
+              ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.INT (Int64.of_int id)));
+              if Sqlite3.step stmt <> Sqlite3.Rc.ROW then
+                Printf.sprintf "No report found with ID %d." id
+              else
+                let col_text i =
+                  match Sqlite3.column stmt i with
+                  | Sqlite3.Data.TEXT s -> s
+                  | _ -> ""
+                in
+                let fix_task =
+                  match Sqlite3.column stmt 7 with
+                  | Sqlite3.Data.INT n -> Some (Int64.to_int n)
+                  | _ -> None
+                in
+                Printf.sprintf
+                  "EC Report #%d\n\
+                   =============\n\
+                   Timestamp:    %s\n\
+                   Error Hash:   %s\n\
+                   Status:       %s\n\
+                   Fix Task ID:  %s\n\n\
+                   Error Context:\n\
+                   %s\n\n\
+                   Diagnoses:\n\
+                   %s\n\n\
+                   Voting:\n\
+                   %s\n\n\
+                   Winning Plan:\n\
+                   %s\n"
+                  id (col_text 1) (col_text 2) (col_text 8)
+                  (match fix_task with
+                  | Some tid -> string_of_int tid
+                  | None -> "(none)")
+                  (col_text 3) (col_text 4) (col_text 5) (col_text 6)))
+  | _ ->
+      "Usage: clawq watcher <status|enable|disable|reports|report ID>\n\n\
+      \  status    Show watcher config and EC process status (default)\n\
+      \  enable    Enable the error correction watcher\n\
+      \  disable   Disable the error correction watcher\n\
+      \  reports   List recent EC reports\n\
+      \  report ID Show a specific EC report\n"
+
+let cmd_ec_run args =
+  if List.mem "--daemon-mode" args then begin
+    Ec_process.run_daemon_mode ();
+    ""
+  end
+  else "Usage: clawq ec-run --daemon-mode\n(internal command)\n"
+
 let handle args =
   match args with
   | "phase2" :: _ -> Phase2.render ()
@@ -1306,4 +1425,6 @@ let handle args =
   | "plan" :: rest -> cmd_plan rest
   | "benchmark" :: rest -> Benchmark.run rest
   | "completions" :: rest -> Completions.cmd_completions rest
+  | "watcher" :: rest -> cmd_watcher rest
+  | "ec-run" :: rest -> cmd_ec_run rest
   | _ -> Clawq_core.dispatch args
