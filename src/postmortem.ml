@@ -17,11 +17,16 @@ let format_iso_timestamp () =
     (tm.Unix.tm_mon + 1) tm.Unix.tm_mday tm.Unix.tm_hour tm.Unix.tm_min
     tm.Unix.tm_sec
 
+let sanitize_for_filename s =
+  String.map (function '/' | '\\' -> '_' | c -> c) s
+
 let write_doc ~session_key ~pattern ~evidence_summary ~correction =
   let open Lwt.Syntax in
   let dir = postmortems_dir () in
   let ts = format_timestamp () in
-  let filename = Printf.sprintf "%s-%s.md" ts session_key in
+  let filename =
+    Printf.sprintf "%s-%s.md" ts (sanitize_for_filename session_key)
+  in
   let path = Filename.concat dir filename in
   let iso_ts = format_iso_timestamp () in
   let content =
