@@ -376,7 +376,13 @@ let run_daemon_mode () =
           with exn ->
             Printf.eprintf "EC scan cycle error: %s\n%!"
               (Printexc.to_string exn));
-         Unix.sleepf scan_interval
+         (* Sleep in short increments so SIGTERM is noticed promptly *)
+         let deadline = Unix.gettimeofday () +. scan_interval in
+         while
+           (not !shutdown_requested) && Unix.gettimeofday () < deadline
+         do
+           Unix.sleepf 0.5
+         done
        end
      done
    with _ -> ());
