@@ -1,0 +1,21 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B421
+priority: high
+status: pending
+tags: []
+title: issue resuming sessions from teams
+---
+
+[21:00:10.008] INFO  Teams: webhook channel ready at /teams/webhook (app_id: fdc0c6d3...)
+[21:00:10.008] INFO  Boot: pending-session-resume start
+[21:00:10.008] INFO  Boot: resuming pending routed sessions after channel listeners spawned; outbound resume delivery uses direct Telegram/Discord/Slack send APIs and does not wait for polling or gateway readiness
+[21:00:10.008] INFO  Resuming 2 pending agent sessions
+[21:00:10.008] WARN  Cannot resume session teams:personal:a:1JPVFngEx3FRRVWXUe5fb97HWjfsCdtDImgKuD3u_N6IpgOD0euB5bnQHI9RsDQuK3qOG_5Jyhq4wWGr0IczaxEXPN5vIGppdngtwZucpyhDNrW1_YJCrXnHrksQ5fCuT: missing channel info
+[21:00:10.021] WARN  Cannot resume session teams:personal:19:3ed169b9886a4a1faadc1dc20687cc66@thread.v2: missing channel info
+[21:00:10.033] INFO  Boot: pending-session resume summary pending=2 resumed=0 missing_channel=2 failed=0
+[21:00:10.033] INFO  Boot: pending-session-resume done elapsed=0.025s pending=2 resumed=0 missing_channel=2 failed=0
+[21:00:10.033] INFO  Boot: durable-replay start
+[21:00:10.033] INFO  Boot: no durable inbound queue rows to replay

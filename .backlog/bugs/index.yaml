@@ -417,3 +417,4 @@ bugs:
     - file: B418-heartbeat-feature-should-be-re.todo
     - file: B419-the-teams-connector-in-a-group.todo
     - file: B420-anywhere-we-handle-error-400-w.todo
+    - file: B421-issue-resuming-sessions-from-t.todo
