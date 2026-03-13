@@ -644,6 +644,7 @@ let select_provider ~(config : Runtime_config.t) ?preferred_provider
             (fun (n, p) ->
               n <> provider_name
               && provider_has_routable_auth ~name:n p
+              && p.Runtime_config.default_model <> None
               &&
               let t =
                 Option.value ~default:0.85 p.Runtime_config.quota_threshold
@@ -659,14 +660,16 @@ let select_provider ~(config : Runtime_config.t) ?preferred_provider
         match unconstrained_alt with
         | None -> (provider_name, provider, model)
         | Some (alt_name, alt_p) ->
-            Logs.info (fun m ->
-                m "[quota] deprioritized %s (constrained), routing to %s"
-                  provider_name alt_name);
             let alt_model =
               match alt_p.Runtime_config.default_model with
               | Some m -> m
-              | None -> model
+              | None -> model (* unreachable: filter requires default_model *)
             in
+            Logs.info (fun m ->
+                m
+                  "[quota] deprioritized %s (constrained), routing to %s \
+                   (model=%s)"
+                  provider_name alt_name alt_model);
             (alt_name, alt_p, alt_model))
 
 let complete ~(config : Runtime_config.t) ~messages ?tools ?session_key

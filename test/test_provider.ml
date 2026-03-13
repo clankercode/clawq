@@ -515,7 +515,7 @@ let test_select_provider_skips_codex_api_key_only_default () =
     "falls back to non-codex provider" "openrouter" provider_name;
   Alcotest.(check string) "user model preserved" "gpt-5.4" model
 
-let test_select_provider_quota_fallback_respects_user_model () =
+let test_select_provider_quota_fallback_uses_alt_default_model () =
   let config =
     {
       Runtime_config.default with
@@ -531,7 +531,7 @@ let test_select_provider_quota_fallback_respects_user_model () =
             {
               Runtime_config.default_provider_config with
               api_key = "sk-alternative";
-              default_model = Some "alternative/default-model";
+              default_model = Some "alternative-default-model";
             } );
         ];
       agent_defaults =
@@ -565,9 +565,10 @@ let test_select_provider_quota_fallback_respects_user_model () =
   in
   Alcotest.(check string)
     "routes to alternative" "alternative-provider" provider_name;
-  Alcotest.(check string) "uses user model not alt default" "gpt-5.4" model
+  Alcotest.(check string)
+    "uses alt default model not user model" "alternative-default-model" model
 
-let test_select_provider_quota_fallback_strips_canonical_prefix () =
+let test_select_provider_quota_fallback_skips_alt_without_default_model () =
   let config =
     {
       Runtime_config.default with
@@ -612,11 +613,12 @@ let test_select_provider_quota_fallback_strips_canonical_prefix () =
         } );
     ]
   in
-  let provider_name, _provider, model =
+  let provider_name, _provider, _model =
     Provider.select_provider ~config ~quota_states ()
   in
-  Alcotest.(check string) "routes to alt" "alt-provider" provider_name;
-  Alcotest.(check string) "bare model, not canonical" "gpt-5.4" model
+  Alcotest.(check string)
+    "stays on constrained provider when alt has no default_model" "openai-codex"
+    provider_name
 
 let test_select_provider_quota_fallback_prefers_alt_default_model () =
   let config =
@@ -979,10 +981,11 @@ let suite =
       test_select_provider_bare_model_overrides_default;
     Alcotest.test_case "select_provider skips codex api key only default" `Quick
       test_select_provider_skips_codex_api_key_only_default;
-    Alcotest.test_case "select_provider quota fallback respects user model"
-      `Quick test_select_provider_quota_fallback_respects_user_model;
-    Alcotest.test_case "select_provider quota fallback strips canonical prefix"
-      `Quick test_select_provider_quota_fallback_strips_canonical_prefix;
+    Alcotest.test_case "select_provider quota fallback uses alt default model"
+      `Quick test_select_provider_quota_fallback_uses_alt_default_model;
+    Alcotest.test_case
+      "select_provider quota fallback skips alt without default_model" `Quick
+      test_select_provider_quota_fallback_skips_alt_without_default_model;
     Alcotest.test_case
       "select_provider quota fallback prefers alt default model" `Quick
       test_select_provider_quota_fallback_prefers_alt_default_model;

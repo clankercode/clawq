@@ -103,7 +103,7 @@ An object keyed by provider name. Use `default_provider` to choose which configu
 | `api_key` | Yes | API key (or `$ENC:...` encrypted value) |
 | `base_url` | No | API base URL (defaults to OpenAI) |
 | `kind` | No | Provider kind override (for example `openai-codex`) |
-| `default_model` | No | Default model for this provider |
+| `default_model` | No | Default model for this provider. Required for quota-based failover: when another provider is deprioritized, only providers with a `default_model` are eligible alternatives |
 | `thinking_budget_tokens` | No | Provider reasoning budget when supported |
 | `oai_thinking_style` | No | OAI-compatible reasoning tag style; defaults to `none` |
 

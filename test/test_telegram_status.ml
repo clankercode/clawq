@@ -460,7 +460,3 @@ let suite =
     Alcotest.test_case "edit skips fallback on not-modified" `Quick
       test_edit_message_skips_fallback_on_not_modified;
   ]
-
-let () =
-  let open Alcotest in
-  run "Telegram status helpers" [ ("telegram-status", suite) ]
