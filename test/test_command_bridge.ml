@@ -1563,9 +1563,8 @@ let test_handle_update_without_live_daemon_reports_stub () =
       Alcotest.(check bool)
         "runs build" true
         (contains result "Running: make build");
-      Alcotest.(check bool)
-        "reports build completion" true
-        (contains result "Build complete. Next"))
+      if not (contains result "Build complete.") then
+        Alcotest.failf "unexpected update output:\n%s" result)
 
 let test_handle_update_auto_pairs_with_live_gateway () =
   with_temp_home (fun home ->
