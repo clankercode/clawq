@@ -117,6 +117,43 @@ let with_outbound_lock ~chat_id f =
     ~label:(Printf.sprintf "tg_outbound[%s]" chat_id)
     mutex f
 
+(* Per-chat 429 rate-limit cooldown: chat_id -> Unix time at which sends resume *)
+let outbound_rate_limited_until : (string, float) Hashtbl.t = Hashtbl.create 16
+
+let is_outbound_rate_limited chat_id =
+  match Hashtbl.find_opt outbound_rate_limited_until chat_id with
+  | None -> false
+  | Some until ->
+      if Unix.gettimeofday () >= until then (
+        Hashtbl.remove outbound_rate_limited_until chat_id;
+        false)
+      else true
+
+(* Parse retry_after seconds from a Telegram 429 response body.
+   Body format: {"ok":false,"parameters":{"retry_after":N},...} *)
+let parse_tg_retry_after body =
+  try
+    let json = Yojson.Safe.from_string body in
+    match
+      json
+      |> Yojson.Safe.Util.member "parameters"
+      |> Yojson.Safe.Util.member "retry_after"
+    with
+    | `Int n -> float_of_int n
+    | `Float f -> f
+    | _ -> 60.0
+  with _ -> 60.0
+
+let record_outbound_rate_limit ~chat_id ~body =
+  let retry_after = parse_tg_retry_after body in
+  Logs.warn (fun m ->
+      m
+        "Telegram 429 rate limit for chat_id=%s; suppressing outbound sends \
+         for %.0fs"
+        chat_id retry_after);
+  Hashtbl.replace outbound_rate_limited_until chat_id
+    (Unix.gettimeofday () +. retry_after)
+
 let is_valid_message_id message_id =
   match int_of_string_opt message_id with
   | Some id when id > 0 -> true
@@ -815,76 +852,82 @@ let ensure_session_typing_watcher ~(session_mgr : Session.t) ~key ~bot_token
 let send_message_with_id ?(disable_notification = true) ?parse_mode ~bot_token
     ~chat_id ~text () =
   let open Lwt.Syntax in
-  with_outbound_lock ~chat_id (fun () ->
-      let uri = Printf.sprintf "%s%s/sendMessage" !api_base bot_token in
-      let base_fields =
-        [
-          ("chat_id", `String chat_id);
-          ("text", `String text);
-          ("disable_notification", `Bool disable_notification);
-        ]
-      in
-      let fields =
-        match parse_mode with
-        | Some mode -> ("parse_mode", `String mode) :: base_fields
-        | None -> base_fields
-      in
-      let body = `Assoc fields |> Yojson.Safe.to_string in
-      let* status, resp_body = Http_client.post_json ~uri ~headers:[] ~body in
-      let* status, resp_body =
-        if
-          parse_mode <> None && status >= 400
-          && not (is_not_modified_error resp_body)
-        then (
-          let plain_text =
-            match parse_mode with
-            | Some "HTML" -> html_fallback_to_plain_text text
-            | _ -> text
+  if is_outbound_rate_limited chat_id then Lwt.return "0"
+  else
+    with_outbound_lock ~chat_id (fun () ->
+        let uri = Printf.sprintf "%s%s/sendMessage" !api_base bot_token in
+        let base_fields =
+          [
+            ("chat_id", `String chat_id);
+            ("text", `String text);
+            ("disable_notification", `Bool disable_notification);
+          ]
+        in
+        let fields =
+          match parse_mode with
+          | Some mode -> ("parse_mode", `String mode) :: base_fields
+          | None -> base_fields
+        in
+        let body = `Assoc fields |> Yojson.Safe.to_string in
+        let* status, resp_body = Http_client.post_json ~uri ~headers:[] ~body in
+        if status = 429 then (
+          record_outbound_rate_limit ~chat_id ~body:resp_body;
+          Lwt.return "0")
+        else
+          let* status, resp_body =
+            if
+              parse_mode <> None && status = 400
+              && not (is_not_modified_error resp_body)
+            then (
+              let plain_text =
+                match parse_mode with
+                | Some "HTML" -> html_fallback_to_plain_text text
+                | _ -> text
+              in
+              Logs.warn (fun m ->
+                  m
+                    "Telegram sendMessage failed (HTTP %d, parse_mode=%s), \
+                     retrying without parse_mode"
+                    status
+                    (Option.value parse_mode ~default:"none"));
+              let plain_fields =
+                [
+                  ("chat_id", `String chat_id);
+                  ("text", `String plain_text);
+                  ("disable_notification", `Bool disable_notification);
+                ]
+              in
+              let plain_body = `Assoc plain_fields |> Yojson.Safe.to_string in
+              Http_client.post_json ~uri ~headers:[] ~body:plain_body)
+            else Lwt.return (status, resp_body)
           in
-          Logs.warn (fun m ->
-              m
-                "Telegram sendMessage failed (HTTP %d, parse_mode=%s), \
-                 retrying without parse_mode"
-                status
-                (Option.value parse_mode ~default:"none"));
-          let plain_fields =
-            [
-              ("chat_id", `String chat_id);
-              ("text", `String plain_text);
-              ("disable_notification", `Bool disable_notification);
-            ]
+          let msg_id =
+            try
+              let json = Yojson.Safe.from_string resp_body in
+              let result = json |> Yojson.Safe.Util.member "result" in
+              result
+              |> Yojson.Safe.Util.member "message_id"
+              |> Yojson.Safe.Util.to_int |> string_of_int
+            with _ ->
+              Logs.warn (fun m ->
+                  m
+                    "Telegram sendMessage did not return a message_id (HTTP \
+                     %d, chat_id=%s, body=%s)"
+                    status chat_id
+                    (if String.length resp_body > 300 then
+                       String.sub resp_body 0 300 ^ "..."
+                     else resp_body));
+              "0"
           in
-          let plain_body = `Assoc plain_fields |> Yojson.Safe.to_string in
-          Http_client.post_json ~uri ~headers:[] ~body:plain_body)
-        else Lwt.return (status, resp_body)
-      in
-      let msg_id =
-        try
-          let json = Yojson.Safe.from_string resp_body in
-          let result = json |> Yojson.Safe.Util.member "result" in
-          result
-          |> Yojson.Safe.Util.member "message_id"
-          |> Yojson.Safe.Util.to_int |> string_of_int
-        with _ ->
-          Logs.warn (fun m ->
-              m
-                "Telegram sendMessage did not return a message_id (HTTP %d, \
-                 chat_id=%s, body=%s)"
-                status chat_id
-                (if String.length resp_body > 300 then
-                   String.sub resp_body 0 300 ^ "..."
-                 else resp_body));
-          "0"
-      in
-      (match int_of_string_opt msg_id with
-      | Some id ->
-          let cur =
-            Option.value ~default:0
-              (Hashtbl.find_opt latest_chat_msg_id chat_id)
-          in
-          if id > cur then Hashtbl.replace latest_chat_msg_id chat_id id
-      | None -> ());
-      Lwt.return msg_id)
+          (match int_of_string_opt msg_id with
+          | Some id ->
+              let cur =
+                Option.value ~default:0
+                  (Hashtbl.find_opt latest_chat_msg_id chat_id)
+              in
+              if id > cur then Hashtbl.replace latest_chat_msg_id chat_id id
+          | None -> ());
+          Lwt.return msg_id)
 
 let send_message_with_keyboard ?(disable_notification = true) ?parse_mode
     ~bot_token ~chat_id ~text ~buttons () =
@@ -959,7 +1002,7 @@ let answer_callback_query ~bot_token ~callback_query_id ?(text = "") () =
 let edit_message ?parse_mode ~bot_token ~chat_id ~message_id ~text () =
   (* Guard: message_id "0" means a prior send failed; skip to avoid
      a permanent silent-failure loop with the Telegram API. *)
-  if message_id = "0" then Lwt.return_unit
+  if message_id = "0" || is_outbound_rate_limited chat_id then Lwt.return_unit
   else
     let open Lwt.Syntax in
     with_outbound_lock ~chat_id (fun () ->
@@ -978,8 +1021,11 @@ let edit_message ?parse_mode ~bot_token ~chat_id ~message_id ~text () =
         in
         let body = `Assoc fields |> Yojson.Safe.to_string in
         let* status, resp_body = Http_client.post_json ~uri ~headers:[] ~body in
-        if
-          parse_mode <> None && status >= 400
+        if status = 429 then (
+          record_outbound_rate_limit ~chat_id ~body:resp_body;
+          Lwt.return_unit)
+        else if
+          parse_mode <> None && status = 400
           && not (is_not_modified_error resp_body)
         then
           let plain_text =
@@ -1143,47 +1189,52 @@ let clear_message_reaction ~bot_token ~chat_id ~message_id () =
 let send_message ?(disable_notification = true) ?parse_mode ~bot_token ~chat_id
     ~text () =
   let open Lwt.Syntax in
-  let mutex = get_outbound_mutex chat_id in
-  Lwt_util.with_lock_timeout
-    ~label:(Printf.sprintf "tg_outbound/sendMessage[%s]" chat_id) mutex
-    (fun () ->
-      let uri = Printf.sprintf "%s%s/sendMessage" !api_base bot_token in
-      let base_fields =
-        [
-          ("chat_id", `String chat_id);
-          ("text", `String text);
-          ("disable_notification", `Bool disable_notification);
-        ]
-      in
-      let fields =
-        match parse_mode with
-        | Some mode -> ("parse_mode", `String mode) :: base_fields
-        | None -> base_fields
-      in
-      let body = `Assoc fields |> Yojson.Safe.to_string in
-      let* status, resp_body = Http_client.post_json ~uri ~headers:[] ~body in
-      if
-        parse_mode <> None && status >= 400
-        && not (is_not_modified_error resp_body)
-      then
-        let plain_text =
-          match parse_mode with
-          | Some "HTML" -> html_fallback_to_plain_text text
-          | _ -> text
-        in
-        let plain_fields =
+  if is_outbound_rate_limited chat_id then Lwt.return_unit
+  else
+    let mutex = get_outbound_mutex chat_id in
+    Lwt_util.with_lock_timeout
+      ~label:(Printf.sprintf "tg_outbound/sendMessage[%s]" chat_id) mutex
+      (fun () ->
+        let uri = Printf.sprintf "%s%s/sendMessage" !api_base bot_token in
+        let base_fields =
           [
             ("chat_id", `String chat_id);
-            ("text", `String plain_text);
+            ("text", `String text);
             ("disable_notification", `Bool disable_notification);
           ]
         in
-        let plain_body = `Assoc plain_fields |> Yojson.Safe.to_string in
-        let* _status, _body =
-          Http_client.post_json ~uri ~headers:[] ~body:plain_body
+        let fields =
+          match parse_mode with
+          | Some mode -> ("parse_mode", `String mode) :: base_fields
+          | None -> base_fields
         in
-        Lwt.return_unit
-      else Lwt.return_unit)
+        let body = `Assoc fields |> Yojson.Safe.to_string in
+        let* status, resp_body = Http_client.post_json ~uri ~headers:[] ~body in
+        if status = 429 then (
+          record_outbound_rate_limit ~chat_id ~body:resp_body;
+          Lwt.return_unit)
+        else if
+          parse_mode <> None && status = 400
+          && not (is_not_modified_error resp_body)
+        then
+          let plain_text =
+            match parse_mode with
+            | Some "HTML" -> html_fallback_to_plain_text text
+            | _ -> text
+          in
+          let plain_fields =
+            [
+              ("chat_id", `String chat_id);
+              ("text", `String plain_text);
+              ("disable_notification", `Bool disable_notification);
+            ]
+          in
+          let plain_body = `Assoc plain_fields |> Yojson.Safe.to_string in
+          let* _status, _body =
+            Http_client.post_json ~uri ~headers:[] ~body:plain_body
+          in
+          Lwt.return_unit
+        else Lwt.return_unit)
 
 let send_chunked ?(disable_notification = true) ?parse_mode ~bot_token ~chat_id
     ~text () =
