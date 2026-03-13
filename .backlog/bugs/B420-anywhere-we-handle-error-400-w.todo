@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B420
+priority: high
+status: pending
+tags: []
+title: Anywhere we handle error >=400 we need to make sure it handles 429 properly.
+---
+
+Anywhere we handle error >=400 we need to make sure it handles 429 properly.
