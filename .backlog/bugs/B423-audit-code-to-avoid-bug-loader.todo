@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B423
+priority: high
+status: pending
+tags: []
+title: 'Audit code to avoid bug: loader reads the wrong JSON key names. Happened with heartbeat settings.'
+---
+
+Audit code to avoid bug: loader reads the wrong JSON key names. Happened with heartbeat settings.
