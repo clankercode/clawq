@@ -60,11 +60,13 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 | `mcp` | Start the MCP server (JSON-RPC via stdio) |
 | `memory` | Show memory backend config |
 | `session` | Inspect persisted sessions and raw chat-log epochs |
-| `session list [--channel NAME] [--prefix PREFIX] [--active|--inactive] [--main|--non-main]` | List persisted sessions with optional filters; appends `pending_inbound=N` when durable queue rows exist |
+| `session list [--channel NAME] [--prefix PREFIX] [--active|--inactive] [--main|--non-main]` | List persisted sessions with optional filters; appends `pending_inbound=N` when durable queue rows exist and marks opted-in sessions with `[keepalive]` / `[heartbeat]` |
 | `session epochs SESSION` | List the current and archived chat-log epochs for a session |
 | `session show SESSION [--epoch current|ID] [--offset N] [--limit N]` | Print raw persisted chat-log messages for the latest or a selected archived epoch; supports paging via offset/limit |
 | `session inject SESSION MESSAGE...` | Inject a live inbound message through the daemon session manager; idle sessions process immediately, busy channel sessions queue, and bang messages request interruption. When the daemon is offline, enqueues to the durable inbound queue for at-least-once replay on next startup |
 | `session pending SESSION` | Show durable inbound queue rows for a session (queue_id, state, attempt_count, last_error, preview, created_at) |
+| `session keepalive SESSION [on|off|status]` | Show or toggle the persisted keepalive flag for a session |
+| `session heartbeat SESSION [on|off|status]` | Show or toggle per-session heartbeat routing for Telegram/Slack/Discord sessions |
 | `migrate` | Run database migrations |
 | `models` | List configured LLM providers and models |
 | `onboard` | Create initial config if missing; runs onboarding wizard in TTY, otherwise writes a starter template |
@@ -117,6 +119,7 @@ Available in chat-integrated channels that support slash commands.
 - `/status` — report bot status
 - `/runtime_ctx` (alias `/runtime-ctx`) — show the full per-session runtime context block injected into the system prompt, including session identity, workspace, git branch, timezone, shell policy, context usage, and background task summary
 - `/thinking [low|medium|high|off|xhigh|max]` — show or set the current thinking level; `off` clears `agent_defaults.reasoning_effort`
+- `/heartbeat [on|off|status]` — show or toggle heartbeat routing for the current Telegram/Slack/Discord session; web sessions return an unsupported message
 - `/delegate <prompt>` — delegate a prompt to a temporary subagent session; the subagent runs the prompt, returns the result, and is discarded; the caller's main session history is not affected
 - `/fork_and <prompt>` — fork the current session's history into an ephemeral subagent and run the prompt there; the result is sent back to the channel but the parent session is not modified; useful for exploring side-tasks without polluting the main conversation
 - `/tasks` — display the agent's current task tree for this session (user-facing visibility into what the agent is tracking)
@@ -436,8 +439,6 @@ You also support MCP (Model Context Protocol) for exposing and consuming externa
 - Telegram uses `telegram:<chat_id>:<user_id>`.
 - Discord uses `discord:<channel_id>:<author_id>`.
 - Slack uses `slack:<channel_id>:<user_id>`.
-- Heartbeats use the special session key `__main__`.
-- `__main__` is the closest thing to the "main session" in current runtime behavior. Heartbeat work is routed there, not into a user channel session.
 - The runtime-context block shown to the model always includes the current session id. Session name is optional metadata; today it is only set for special internal cases such as the main session or debug prompt flows.
 - Registered channel notifiers exist only while a live channel request/stream is active; they are used for restart drain warnings and similar out-of-band messages to currently attached sessions.
 
@@ -456,14 +457,17 @@ current queue state for a given session; `session list` appends
 ## Heartbeats
 
 - Heartbeats are controlled by `heartbeat.heartbeat_enabled`, `heartbeat.heartbeat_interval_seconds`, `heartbeat.heartbeat_quiet_start`, and `heartbeat.heartbeat_quiet_end`.
+- `heartbeat.heartbeat_enabled` is the global master switch. Session participation is a separate persisted opt-in.
 - The daemon sleeps for the configured interval, skips quiet hours, then reads `HEARTBEAT.md` from the workspace root.
 - If `HEARTBEAT.md` is missing or empty, nothing happens.
-- Heartbeat execution tries to lock the `__main__` session. If that session is busy, the tick is skipped rather than queued.
+- Heartbeat execution targets only sessions explicitly opted in via `clawq session heartbeat SESSION on` or `/heartbeat on` from a supported chat session.
+- Supported heartbeat sessions are Telegram, Slack, and Discord session keys; web and `__main__` are not valid heartbeat targets.
+- Each opted-in session is processed independently. If one target session is busy, that session's tick is skipped rather than queued; other opted-in sessions still run.
 - The heartbeat prompt content is literally the trimmed contents of `HEARTBEAT.md`.
-- In the runtime-context block, "heartbeat routing applies" currently means the turn is on `__main__` and heartbeat processing is enabled. This is a routing-status hint, not a guarantee that future routing rules will stay main-session-only.
+- In the runtime-context block, "heartbeat routing enabled for this session" means global heartbeat is enabled and this specific session is opted in for heartbeat delivery.
 - If the model replies exactly `HEARTBEAT_OK`, the daemon logs success and sends no outbound message.
-- Otherwise the daemon currently logs that it would notify `notify.notify_channel` / `notify.notify_target`; it does not currently deliver that heartbeat message itself.
-- Heartbeat turns are not routed into normal web/Telegram/Discord session histories unless you explicitly build your own workflow around them.
+- Otherwise the daemon delivers the reply through the session's registered notifier or channel dispatch fallback for that opted-in session.
+- Heartbeat turns run inside the opted-in session's own history and lock, not in `__main__`.
 
 ## Restart and Resume Model
 
@@ -508,7 +512,7 @@ current queue state for a given session; `session list` appends
 - The `send_message` built-in tool exists only when the runtime registers it with a send function. Configuring `notify.notify_channel` / `notify.notify_target` alone does not guarantee the tool is available.
 - When invoked during an active channel turn, `send_message` prefers the live session notifier from tool context, so the message goes straight back to the current attached session.
 - Outside an active notified session, behavior falls back to the runtime-provided send function if one exists; if no send function was wired at startup, the tool is absent or returns an error.
-- Current heartbeat code does not itself emit outbound notifications; it only logs the intended target when a non-`HEARTBEAT_OK` reply is produced.
+- Heartbeat replies and continuation follow-ups are delivered through the opted-in session's normal outbound channel path.
 - During an active channel turn, the runtime can send additional text to that same session via the registered notifier.
 - Turn ownership is effectively per session key: one session runs at a time under a mutex, while different session keys can proceed independently.
 
@@ -520,7 +524,7 @@ current queue state for a given session; `session list` appends
 - Tool runner: built-in tools are registered at startup; file tools are direct I/O, shell tool is separately sandboxed and policy-checked.
 - Sandbox layer: Firejail/Bubblewrap/none wraps shell execution only.
 - Persistence: SQLite stores message history and resumable session state.
-- Scheduler/heartbeat: cron jobs run from the database; heartbeat polling reads `HEARTBEAT.md` on the `__main__` session.
+- Scheduler/heartbeat: cron jobs run from the database; heartbeat polling reads `HEARTBEAT.md` and fans out across opted-in Telegram/Slack/Discord sessions.
 - Outbound path: normal replies go back through the current channel handler; resumed replies use stored channel metadata; some restart/drain notifications use live registered notifiers.
 
 ## Your Channels
@@ -674,12 +678,12 @@ Tell users:
 - **`cd ~/src/clawq && ...` fails**: in default `workspace_only` mode, `cd` and `&&` are not supported because execution is direct-process style and unsafe shell syntax is rejected. Use a direct allowed binary with explicit path arguments, or disable `workspace_only` if you truly need shell semantics.
 - **Shell builtin fails with `No such file or directory`**: you are likely in direct-exec mode, not `/bin/sh -c` mode.
 - **Git or tools complain about missing `/dev/null`**: inspect sandbox backend. Bubblewrap tries to bind `/dev` and `/dev/null`; if this still fails, verify host `/dev/null` exists and try `security.sandbox_backend = "none"` or `"firejail"` to isolate the backend problem.
-- **Heartbeats expected but not appearing**: confirm `heartbeat_enabled = true`, quiet hours are not suppressing the tick, `HEARTBEAT.md` exists and is non-empty, and the daemon log shows heartbeat activity. Also remember current heartbeat logic logs intended notifications instead of sending them.
+- **Heartbeats expected but not appearing**: confirm `heartbeat_enabled = true`, quiet hours are not suppressing the tick, `HEARTBEAT.md` exists and is non-empty, and the target session was opted in with `clawq session heartbeat SESSION on` or `/heartbeat on`. Also verify the session is a supported Telegram/Slack/Discord session.
 - **A turn seems stuck or you want to interrupt it from chat**: send a message starting with `!`. Example: `!stop` interrupts the in-flight turn for that session and then sends `stop` as the next normal message; a bare `!` becomes `[interrupted]`.
 - **`clawq service signal-restart` says daemon is not running, but `daemon_state.json` shows a live pid**: you are likely running a direct `clawq agent` process rather than a service-managed daemon. `clawq service ...` commands follow the service PID file, not `daemon_state.json`.
 - **Need graceful restart for a direct `clawq agent` process**: send `SIGUSR1` to the live process itself; do not assume `clawq service signal-restart` can reach it unless it was started through the service path.
 - **Service restarted but autonomous work did not resume**: only recent pending sessions with stored channel + channel_id for Telegram/Discord/Slack are resumed automatically.
-- **Behavior differs because session is not `__main__`**: heartbeat/autonomous checks use `__main__`; normal user chats use per-channel session keys and separate histories/locks.
+- **Behavior differs because session is not opted into heartbeat**: normal user chats use their own session keys and histories; heartbeat runs only for sessions explicitly opted in.
 - **Bot not responding**: check daemon is running (`clawq status`), verify token (`clawq doctor`), check allow_from/allow_users/allow_guilds includes the user or is `["*"]`.
 - **Daemon refuses to bind non-loopback host**: if `gateway.host` is not loopback, set `gateway.auth_token` or change `gateway.host` back to `127.0.0.1`/`localhost`.
 - **No providers configured**: ensure `providers` section exists in config with a valid api_key, and `default_provider` is set.

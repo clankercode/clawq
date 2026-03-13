@@ -13,6 +13,12 @@ let result_to_string = function
       "ShowThinking(Status)"
   | Slash_commands.ShowThinking Slash_commands.ToggleShowThinking ->
       "ShowThinking(Toggle)"
+  | Slash_commands.Heartbeat Slash_commands.HeartbeatStatus ->
+      "Heartbeat(Status)"
+  | Slash_commands.Heartbeat (Slash_commands.SetHeartbeat true) ->
+      "Heartbeat(On)"
+  | Slash_commands.Heartbeat (Slash_commands.SetHeartbeat false) ->
+      "Heartbeat(Off)"
   | Slash_commands.Delegate s -> "Delegate(" ^ s ^ ")"
   | Slash_commands.ForkAnd s -> "ForkAnd(" ^ s ^ ")"
   | Slash_commands.Tools -> "Tools"
@@ -58,6 +64,7 @@ let result_eq a b =
   | Slash_commands.RuntimeCtx, Slash_commands.RuntimeCtx -> true
   | Slash_commands.Uptime, Slash_commands.Uptime -> true
   | Slash_commands.ShowThinking a, Slash_commands.ShowThinking b -> a = b
+  | Slash_commands.Heartbeat a, Slash_commands.Heartbeat b -> a = b
   | Slash_commands.Delegate a, Slash_commands.Delegate b -> a = b
   | Slash_commands.ForkAnd a, Slash_commands.ForkAnd b -> a = b
   | Slash_commands.Tools, Slash_commands.Tools -> true
@@ -178,6 +185,24 @@ let test_thinking_too_many_args () =
       Alcotest.fail
         (Printf.sprintf "expected Reply, got %s" (result_to_string other))
 
+let test_heartbeat_status () =
+  Alcotest.check result_testable "heartbeat status"
+    (Slash_commands.Heartbeat Slash_commands.HeartbeatStatus)
+    (Slash_commands.handle "/heartbeat")
+
+let test_heartbeat_toggle () =
+  Alcotest.check result_testable "heartbeat on"
+    (Slash_commands.Heartbeat (Slash_commands.SetHeartbeat true))
+    (Slash_commands.handle "/heartbeat on");
+  Alcotest.check result_testable "heartbeat off"
+    (Slash_commands.Heartbeat (Slash_commands.SetHeartbeat false))
+    (Slash_commands.handle "/heartbeat off")
+
+let test_heartbeat_invalid_args () =
+  Alcotest.check result_testable "heartbeat invalid args"
+    (Slash_commands.Reply "Usage: /heartbeat [on|off|status]")
+    (Slash_commands.handle "/heartbeat maybe")
+
 let test_regular_message () =
   Alcotest.check result_testable "regular msg" Slash_commands.NotACommand
     (Slash_commands.handle "hello world")
@@ -206,6 +231,7 @@ let test_commands_list () =
     "has show_thinking" true
     (List.mem "show_thinking" names);
   Alcotest.(check bool) "has config" true (List.mem "config" names);
+  Alcotest.(check bool) "has heartbeat" true (List.mem "heartbeat" names);
   Alcotest.(check bool) "has fork_and" true (List.mem "fork_and" names);
   Alcotest.(check bool) "has tools" true (List.mem "tools" names);
   Alcotest.(check bool) "has tasks" true (List.mem "tasks" names);
@@ -986,6 +1012,10 @@ let suite =
       test_thinking_invalid_level;
     Alcotest.test_case "thinking too many args" `Quick
       test_thinking_too_many_args;
+    Alcotest.test_case "heartbeat status" `Quick test_heartbeat_status;
+    Alcotest.test_case "heartbeat toggle" `Quick test_heartbeat_toggle;
+    Alcotest.test_case "heartbeat invalid args" `Quick
+      test_heartbeat_invalid_args;
     Alcotest.test_case "unknown command" `Quick test_unknown_command;
     Alcotest.test_case "regular message" `Quick test_regular_message;
     Alcotest.test_case "empty message" `Quick test_empty_message;

@@ -375,6 +375,11 @@ let cmd_debug_prompt args =
             (Task_tree.render_tree_with_legend ~db ~session_key:effective_key)
         end
       in
+      let heartbeat_routing_applies =
+        cfg.heartbeat.heartbeat_enabled
+        && Session.heartbeat_supported_session_key session_key
+        && Memory.session_heartbeat_enabled ~db ~session_key
+      in
       let runtime_context =
         Prompt_builder.build_runtime_context ~config:cfg
           ~details:
@@ -382,7 +387,7 @@ let cmd_debug_prompt args =
               Prompt_builder.session_id = session_key;
               session_name = Some "debug prompt";
               is_main_session = false;
-              heartbeat_routing_applies = false;
+              heartbeat_routing_applies;
               effective_workspace = Runtime_config.effective_workspace cfg;
               workspace_only = cfg.security.workspace_only;
               sandbox_backend_requested = cfg.security.sandbox_backend;

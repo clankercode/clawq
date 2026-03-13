@@ -537,6 +537,23 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
           in
           send_message ~bot_token:discord_config.bot_token
             ~channel_id:msg.channel_id ~text
+      | Heartbeat action ->
+          let text =
+            match action with
+            | Slash_commands.HeartbeatStatus ->
+                Session.session_heartbeat_status_text session_mgr ~key
+            | Slash_commands.SetHeartbeat enabled -> (
+                match
+                  Session.set_session_heartbeat session_mgr ~key ~enabled
+                with
+                | Ok () ->
+                    Printf.sprintf "Heartbeat %s for session %s"
+                      (if enabled then "enabled" else "disabled")
+                      key
+                | Error err -> err)
+          in
+          send_message ~bot_token:discord_config.bot_token
+            ~channel_id:msg.channel_id ~text
       | Delegate prompt ->
           let* () =
             send_message_fn ~bot_token:discord_config.bot_token

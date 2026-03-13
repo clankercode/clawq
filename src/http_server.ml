@@ -385,6 +385,17 @@ let handler ~session_manager ~require_pairing ~auth_token
                     in
                     Cohttp_lwt_unix.Server.respond_string ~status:`OK
                       ~headers:json_headers ~body:resp_json ()
+                | Slash_commands.Heartbeat _ ->
+                    let response =
+                      "Heartbeat routing is only available for Telegram, \
+                       Slack, and Discord sessions."
+                    in
+                    let resp_json =
+                      `Assoc [ ("response", `String response) ]
+                      |> Yojson.Safe.to_string
+                    in
+                    Cohttp_lwt_unix.Server.respond_string ~status:`OK
+                      ~headers:json_headers ~body:resp_json ()
                 | _ -> (
                     let* result =
                       Lwt.catch
@@ -869,6 +880,11 @@ let handler ~session_manager ~require_pairing ~auth_token
                               "Failed to update show_thinking: " ^ err)
                     in
                     sse_reply text
+                | Slash_commands.Heartbeat action ->
+                    ignore action;
+                    sse_reply
+                      "Heartbeat routing is only available for Telegram, \
+                       Slack, and Discord sessions."
                 | Slash_commands.Tools ->
                     let text =
                       match Session.get_tool_registry session_manager with

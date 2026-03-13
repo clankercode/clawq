@@ -1,6 +1,7 @@
 type command = { name : string; description : string }
 type thinking_action = ShowThinking | SetThinking of string option
 type show_thinking_action = ShowThinkingStatus | ToggleShowThinking
+type heartbeat_action = HeartbeatStatus | SetHeartbeat of bool
 
 type model_action =
   | ModelShow
@@ -33,6 +34,7 @@ type result =
   | Uptime
   | Thinking of thinking_action
   | ShowThinking of show_thinking_action
+  | Heartbeat of heartbeat_action
   | Delegate of string
   | ForkAnd of string
   | Tools
@@ -96,6 +98,10 @@ let commands =
     {
       name = "config";
       description = "View or modify config: /config <show|get|set|keys>";
+    };
+    {
+      name = "heartbeat";
+      description = "Show or set heartbeat routing for this session";
     };
     {
       name = "fork_and";
@@ -189,6 +195,12 @@ let handle text =
             | [ s ] when String.lowercase_ascii s = "status" ->
                 ShowThinking ShowThinkingStatus
             | _ -> Reply "Usage: /show_thinking [status]")
+        | "heartbeat" -> (
+            match args with
+            | [] | [ "status" ] -> Heartbeat HeartbeatStatus
+            | [ "on" ] -> Heartbeat (SetHeartbeat true)
+            | [ "off" ] -> Heartbeat (SetHeartbeat false)
+            | _ -> Reply "Usage: /heartbeat [on|off|status]")
         | "delegate" -> (
             match args with
             | [] -> Reply "Usage: /delegate <prompt>"

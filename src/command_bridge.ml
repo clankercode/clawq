@@ -1141,12 +1141,17 @@ let cmd_debug_context args =
     Some (Task_tree.render_tree_with_legend ~db ~session_key)
   in
   let is_main = session_key = "__main__" in
+  let heartbeat_routing_applies =
+    cfg.heartbeat.heartbeat_enabled
+    && Session.heartbeat_supported_session_key session_key
+    && Memory.session_heartbeat_enabled ~db ~session_key
+  in
   let details =
     {
       Prompt_builder.session_id = session_key;
       session_name = (if is_main then Some "main" else None);
       is_main_session = is_main;
-      heartbeat_routing_applies = is_main && cfg.heartbeat.heartbeat_enabled;
+      heartbeat_routing_applies;
       effective_workspace = Runtime_config.effective_workspace cfg;
       workspace_only = cfg.security.workspace_only;
       sandbox_backend_requested = cfg.security.sandbox_backend;

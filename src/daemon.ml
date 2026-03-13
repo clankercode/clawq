@@ -1331,21 +1331,26 @@ let run ~(config : Runtime_config.t) =
               Lwt.return_unit));
       Logs.info (fun m -> m "Cron scheduler started")
   | None -> Logs.info (fun m -> m "Cron scheduler disabled (no database)"));
-  if config.heartbeat.heartbeat_enabled then begin
-    let hb = config.heartbeat in
-    Logs.info (fun m ->
-        m "Heartbeat enabled: interval=%ds quiet=%d:00-%d:00"
-          hb.heartbeat_interval_seconds hb.heartbeat_quiet_start
-          hb.heartbeat_quiet_end);
-    Lwt.async (fun () ->
-        Lwt.catch
-          (fun () ->
-            let rec hb_loop () =
-              let open Lwt.Syntax in
-              let cur_hb = (Session.get_config session_manager).heartbeat in
-              let* () =
-                Lwt_unix.sleep (float_of_int cur_hb.heartbeat_interval_seconds)
-              in
+  let hb = config.heartbeat in
+  Logs.info (fun m ->
+      m "Heartbeat loop started: enabled=%b interval=%ds quiet=%d:00-%d:00"
+        hb.heartbeat_enabled hb.heartbeat_interval_seconds
+        hb.heartbeat_quiet_start hb.heartbeat_quiet_end);
+  Lwt.async (fun () ->
+      Lwt.catch
+        (fun () ->
+          let rec hb_loop () =
+            let open Lwt.Syntax in
+            let cur_hb = (Session.get_config session_manager).heartbeat in
+            let* () =
+              Lwt_unix.sleep (float_of_int cur_hb.heartbeat_interval_seconds)
+            in
+            let cur_hb = (Session.get_config session_manager).heartbeat in
+            if not cur_hb.heartbeat_enabled then begin
+              Logs.debug (fun m -> m "Heartbeat: disabled, skipping tick");
+              hb_loop ()
+            end
+            else
               let tm = Unix.localtime (Unix.gettimeofday ()) in
               let hour = tm.Unix.tm_hour in
               let in_quiet =
@@ -1382,68 +1387,65 @@ let run ~(config : Runtime_config.t) =
                       hb_loop ()
                     end
                     else begin
-                      let key = "__main__" in
-                      let* result =
-                        Lwt.catch
-                          (fun () ->
-                            Session.try_session_lock session_manager ~key
-                              (fun agent _interrupt ->
-                                Logs.info (fun m ->
-                                    m
-                                      "Heartbeat: processing HEARTBEAT.md (%d \
-                                       chars) on main session"
-                                      (String.length content));
-                                let* compaction_info =
-                                  Agent.prepare_turn_history agent
-                                    ~user_message:content ?db ()
-                                in
-                                let compacted =
-                                  Option.is_some compaction_info
-                                in
-                                let cur_cfg =
-                                  Session.get_config session_manager
-                                in
-                                let runtime_context =
-                                  Prompt_builder.build_runtime_context
-                                    ~config:cur_cfg
-                                    ~details:
-                                      (Session.runtime_context_details
-                                         session_manager ~agent ~key
-                                         ~compacted_before_turn:compacted)
-                                    ()
-                                in
-                                Agent.turn agent ~user_message:content ?db
-                                  ~session_key:key ?runtime_context
-                                  ~history_prepared:true ()))
-                          (fun exn ->
-                            Logs.err (fun m ->
-                                m "Heartbeat error: %s" (Printexc.to_string exn));
-                            Lwt.return_none)
+                      let keys =
+                        Session.list_heartbeat_session_keys session_manager
                       in
                       let* () =
-                        match result with
-                        | None ->
-                            Logs.info (fun m ->
-                                m
-                                  "Heartbeat: main session busy, skipping this \
-                                   tick");
-                            Lwt.return_unit
-                        | Some response ->
-                            handle_heartbeat_response ~session_manager ~key
-                              ~response ()
+                        if keys = [] then begin
+                          Logs.debug (fun m ->
+                              m "Heartbeat: no opted-in sessions, skipping tick");
+                          Lwt.return_unit
+                        end
+                        else
+                          Lwt_list.iter_s
+                            (fun key ->
+                              let* result =
+                                Lwt.catch
+                                  (fun () ->
+                                    Logs.info (fun m ->
+                                        m
+                                          "Heartbeat: processing HEARTBEAT.md \
+                                           (%d chars) on %s"
+                                          (String.length content) key);
+                                    let* result =
+                                      Session.with_suppressed_channel_output
+                                        session_manager ~key (fun () ->
+                                          Session.try_turn session_manager ~key
+                                            ~message:content ())
+                                    in
+                                    match result with
+                                    | Some response -> Lwt.return_some response
+                                    | None ->
+                                        Logs.info (fun m ->
+                                            m
+                                              "Heartbeat: session %s busy, \
+                                               skipping this tick"
+                                              key);
+                                        Lwt.return_none)
+                                  (fun exn ->
+                                    Logs.err (fun m ->
+                                        m "Heartbeat error for %s: %s" key
+                                          (Printexc.to_string exn));
+                                    Lwt.return_none)
+                              in
+                              match result with
+                              | None -> Lwt.return_unit
+                              | Some response ->
+                                  handle_heartbeat_response ~session_manager
+                                    ~key ~response ())
+                            keys
                       in
                       hb_loop ()
                     end
                   end
                 end
                 else hb_loop ()
-            in
-            hb_loop ())
-          (fun exn ->
-            Logs.err (fun m ->
-                m "Heartbeat loop error: %s" (Printexc.to_string exn));
-            Lwt.return_unit))
-  end;
+          in
+          hb_loop ())
+        (fun exn ->
+          Logs.err (fun m ->
+              m "Heartbeat loop error: %s" (Printexc.to_string exn));
+          Lwt.return_unit));
   let* picked_intent =
     Lwt.pick
       [

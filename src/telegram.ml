@@ -362,6 +362,22 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                   | Error err -> "Failed to update show_thinking: " ^ err)
             in
             send_message ~bot_token ~chat_id:update.chat_id ~text ()
+        | Heartbeat action ->
+            let text =
+              match action with
+              | Slash_commands.HeartbeatStatus ->
+                  Session.session_heartbeat_status_text session_mgr ~key
+              | Slash_commands.SetHeartbeat enabled -> (
+                  match
+                    Session.set_session_heartbeat session_mgr ~key ~enabled
+                  with
+                  | Ok () ->
+                      Printf.sprintf "Heartbeat %s for session %s"
+                        (if enabled then "enabled" else "disabled")
+                        key
+                  | Error err -> err)
+            in
+            send_message ~bot_token ~chat_id:update.chat_id ~text ()
         | Delegate prompt ->
             let* () =
               send_message ~bot_token ~chat_id:update.chat_id

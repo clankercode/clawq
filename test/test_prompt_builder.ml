@@ -173,7 +173,7 @@ let test_runtime_context_includes_session_details () =
         (contains runtime "- Session id: telegram:123:456");
       Alcotest.(check bool)
         "includes heartbeat applicability" true
-        (contains runtime "- Heartbeat routing applies: yes");
+        (contains runtime "- Heartbeat routing enabled for this session: yes");
       Alcotest.(check bool)
         "includes sandbox summary" true
         (contains runtime

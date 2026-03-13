@@ -1,7 +1,30 @@
 open Command_bridge_helpers
 
+let heartbeat_status_text ~db ~config ~session_key =
+  if not (Session.heartbeat_supported_session_key session_key) then
+    Session.heartbeat_unsupported_reason session_key
+  else
+    let enabled = Memory.session_heartbeat_enabled ~db ~session_key in
+    if config.Runtime_config.heartbeat.heartbeat_enabled then
+      Printf.sprintf "Session %s: heartbeat = %s" session_key
+        (if enabled then "on" else "off")
+    else
+      Printf.sprintf
+        "Session %s: heartbeat = %s (global heartbeat disabled in config)"
+        session_key
+        (if enabled then "on" else "off")
+
+let set_heartbeat_for_session ~db ~session_key ~enabled =
+  if not (Session.heartbeat_supported_session_key session_key) then
+    Error (Session.heartbeat_unsupported_reason session_key)
+  else begin
+    Memory.set_session_heartbeat ~db ~session_key ~enabled;
+    Ok ()
+  end
+
 let cmd_session args =
   let db = get_db () in
+  let config = get_config () in
   match args with
   | [] | [ "list" ] ->
       let sessions = Memory.list_session_infos ~db () in
@@ -34,6 +57,9 @@ let cmd_session args =
                let keepalive_suffix =
                  if row.keepalive_enabled then "  [keepalive]" else ""
                in
+               let heartbeat_suffix =
+                 if row.heartbeat_enabled then "  [heartbeat]" else ""
+               in
                let cost_info =
                  Request_stats.summary_for_session ~db
                    ~session_key:row.session_key
@@ -44,10 +70,10 @@ let cmd_session args =
                  else ""
                in
                Printf.sprintf
-                 "%s  state=%s  channel=%s  messages=%d  archives=%d%s%s%s"
+                 "%s  state=%s  channel=%s  messages=%d  archives=%d%s%s%s%s"
                  row.session_key state channel row.message_count
                  row.archived_epoch_count pending_suffix keepalive_suffix
-                 cost_suffix)
+                 heartbeat_suffix cost_suffix)
              sessions)
   | "list" :: rest -> (
       match parse_session_list_args rest with
@@ -87,6 +113,9 @@ let cmd_session args =
                    let keepalive_suffix =
                      if row.keepalive_enabled then "  [keepalive]" else ""
                    in
+                   let heartbeat_suffix =
+                     if row.heartbeat_enabled then "  [heartbeat]" else ""
+                   in
                    let cost_info =
                      Request_stats.summary_for_session ~db
                        ~session_key:row.session_key
@@ -97,10 +126,11 @@ let cmd_session args =
                      else ""
                    in
                    Printf.sprintf
-                     "%s  state=%s  channel=%s  messages=%d  archives=%d%s%s%s"
+                     "%s  state=%s  channel=%s  messages=%d  \
+                      archives=%d%s%s%s%s"
                      row.session_key state channel row.message_count
                      row.archived_epoch_count pending_suffix keepalive_suffix
-                     cost_suffix)
+                     heartbeat_suffix cost_suffix)
                  sessions))
   | [ "epochs"; session_key ] ->
       let epochs = Memory.list_session_epochs ~db ~session_key in
@@ -477,6 +507,21 @@ let cmd_session args =
           Printf.sprintf "Keepalive disabled for session %s" session_key
       | _ -> "Usage: clawq session keepalive SESSION [on|off|status]")
   | [ "keepalive" ] -> "Usage: clawq session keepalive SESSION [on|off|status]"
+  | "heartbeat" :: session_key :: rest -> (
+      match rest with
+      | [] | [ "status" ] -> heartbeat_status_text ~db ~config ~session_key
+      | [ "on" ] -> (
+          match set_heartbeat_for_session ~db ~session_key ~enabled:true with
+          | Ok () ->
+              Printf.sprintf "Heartbeat enabled for session %s" session_key
+          | Error err -> err)
+      | [ "off" ] -> (
+          match set_heartbeat_for_session ~db ~session_key ~enabled:false with
+          | Ok () ->
+              Printf.sprintf "Heartbeat disabled for session %s" session_key
+          | Error err -> err)
+      | _ -> "Usage: clawq session heartbeat SESSION [on|off|status]")
+  | [ "heartbeat" ] -> "Usage: clawq session heartbeat SESSION [on|off|status]"
   | "postmortems" :: rest ->
       let session_key, limit =
         let rec parse_args args sk lim =
@@ -533,6 +578,7 @@ let cmd_session args =
       \  session inject SESSION MESSAGE...\n\
       \  session compact SESSION\n\
       \  session keepalive SESSION [on|off|status]\n\
+      \  session heartbeat SESSION [on|off|status]\n\
       \  session postmortems [SESSION] [--limit N]"
 
 type background_add_args = {

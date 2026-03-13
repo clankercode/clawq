@@ -154,7 +154,8 @@ let add_runtime_details lines (details : runtime_context_details) =
   | _ -> ());
   add ("- Main session: " ^ yes_no details.is_main_session);
   add
-    ("- Heartbeat routing applies: " ^ yes_no details.heartbeat_routing_applies);
+    ("- Heartbeat routing enabled for this session: "
+    ^ yes_no details.heartbeat_routing_applies);
   add ("- Effective workspace: " ^ details.effective_workspace);
   add ("- Workspace only: " ^ yes_no details.workspace_only);
   add

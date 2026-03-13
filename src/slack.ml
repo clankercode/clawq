@@ -428,6 +428,26 @@ let handle_event ~(config : Runtime_config.slack_config)
                   send_message_fn ~bot_token:config.bot_token ~channel_id ~text
                 in
                 Lwt.return "ok"
+            | Heartbeat action ->
+                let text =
+                  match action with
+                  | Slash_commands.HeartbeatStatus ->
+                      Session.session_heartbeat_status_text session_manager ~key
+                  | Slash_commands.SetHeartbeat enabled -> (
+                      match
+                        Session.set_session_heartbeat session_manager ~key
+                          ~enabled
+                      with
+                      | Ok () ->
+                          Printf.sprintf "Heartbeat %s for session %s"
+                            (if enabled then "enabled" else "disabled")
+                            key
+                      | Error err -> err)
+                in
+                let* () =
+                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
+                in
+                Lwt.return "ok"
             | Delegate prompt ->
                 Lwt.async (fun () ->
                     send_message_fn ~bot_token:config.bot_token ~channel_id

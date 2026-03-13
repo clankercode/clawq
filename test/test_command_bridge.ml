@@ -327,6 +327,72 @@ let test_handle_session_list_filters () =
            true
          with Not_found -> false))
 
+let test_handle_session_heartbeat_toggle () =
+  with_temp_home (fun home ->
+      let db = session_db home in
+      Memory.store_message ~db ~session_key:"telegram:42:user1"
+        (Provider.make_message ~role:"user" ~content:"hi");
+      Memory.upsert_session_state ~db ~session_key:"telegram:42:user1"
+        ~turn:"user" ~channel:"telegram" ~channel_id:"42" ();
+      Alcotest.(check string)
+        "heartbeat on reply" "Heartbeat enabled for session telegram:42:user1"
+        (Command_bridge.handle
+           [ "session"; "heartbeat"; "telegram:42:user1"; "on" ]);
+      Alcotest.(check string)
+        "heartbeat status on" "Session telegram:42:user1: heartbeat = on"
+        (Command_bridge.handle
+           [ "session"; "heartbeat"; "telegram:42:user1"; "status" ]);
+      let listed = Command_bridge.handle [ "session"; "list" ] in
+      Alcotest.(check bool)
+        "session list shows heartbeat marker" true
+        (contains listed "[heartbeat]");
+      Alcotest.(check string)
+        "heartbeat off reply" "Heartbeat disabled for session telegram:42:user1"
+        (Command_bridge.handle
+           [ "session"; "heartbeat"; "telegram:42:user1"; "off" ]);
+      Alcotest.(check string)
+        "heartbeat status off" "Session telegram:42:user1: heartbeat = off"
+        (Command_bridge.handle
+           [ "session"; "heartbeat"; "telegram:42:user1"; "status" ]))
+
+let test_handle_session_heartbeat_rejects_unsupported_session () =
+  with_temp_home (fun home ->
+      ignore (session_db home);
+      let result =
+        Command_bridge.handle [ "session"; "heartbeat"; "web:abc"; "on" ]
+      in
+      Alcotest.(check bool)
+        "rejects web session" true
+        (contains result
+           "Heartbeat can only be enabled for Telegram, Slack, or Discord \
+            sessions."))
+
+let test_handle_session_heartbeat_status_mentions_global_disable () =
+  with_temp_home (fun home ->
+      let db = session_db home in
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "heartbeat": {
+    "enabled": false,
+    "interval_seconds": 300,
+    "quiet_start_hour": 23,
+    "quiet_end_hour": 8
+  },
+  "security": {
+    "tools_enabled": false
+  }
+}|});
+      Memory.set_session_heartbeat ~db ~session_key:"telegram:42:user1"
+        ~enabled:true;
+      let result =
+        Command_bridge.handle
+          [ "session"; "heartbeat"; "telegram:42:user1"; "status" ]
+      in
+      Alcotest.(check bool)
+        "mentions global disable" true
+        (contains result "global heartbeat disabled in config"))
+
 let test_handle_session_inject_routes_to_live_gateway () =
   with_temp_home (fun home ->
       let port = 19080 + Random.int 1000 in
@@ -2218,6 +2284,30 @@ let test_debug_context_uses_given_session_key () =
            true
          with Not_found -> false))
 
+let test_debug_context_shows_heartbeat_for_opted_in_session () =
+  with_temp_home (fun home ->
+      let db = session_db home in
+      Memory.upsert_session_state ~db ~session_key:"telegram:123:456"
+        ~turn:"user" ~channel:"telegram" ~channel_id:"123" ();
+      Memory.set_session_heartbeat ~db ~session_key:"telegram:123:456"
+        ~enabled:true;
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{
+  "prompt": {
+    "dynamic_enabled": true
+  },
+  "security": {
+    "tools_enabled": false
+  }
+}|});
+      let result =
+        Command_bridge.handle [ "debug"; "context"; "telegram:123:456" ]
+      in
+      Alcotest.(check bool)
+        "debug context shows heartbeat routing enabled" true
+        (contains result "Heartbeat routing enabled for this session: yes"))
+
 let test_debug_context_disabled_when_dynamic_off () =
   with_temp_home (fun home ->
       let clawq_dir = Filename.concat home ".clawq" in
@@ -2575,6 +2665,12 @@ let suite =
       test_handle_workspace_uses_effective_workspace;
     Alcotest.test_case "handle session list filters" `Quick
       test_handle_session_list_filters;
+    Alcotest.test_case "handle session heartbeat toggle" `Quick
+      test_handle_session_heartbeat_toggle;
+    Alcotest.test_case "handle session heartbeat rejects unsupported session"
+      `Quick test_handle_session_heartbeat_rejects_unsupported_session;
+    Alcotest.test_case "handle session heartbeat status mentions global disable"
+      `Quick test_handle_session_heartbeat_status_mentions_global_disable;
     Alcotest.test_case "handle session inject routes to live gateway" `Quick
       test_handle_session_inject_routes_to_live_gateway;
     Alcotest.test_case "handle session inject persists when daemon missing"
@@ -2693,6 +2789,8 @@ let suite =
       test_debug_context_shows_runtime_context;
     Alcotest.test_case "debug context uses given session key" `Quick
       test_debug_context_uses_given_session_key;
+    Alcotest.test_case "debug context shows heartbeat for opted-in session"
+      `Quick test_debug_context_shows_heartbeat_for_opted_in_session;
     Alcotest.test_case "debug context disabled when dynamic off" `Quick
       test_debug_context_disabled_when_dynamic_off;
     Alcotest.test_case "debug usage mentions context" `Quick

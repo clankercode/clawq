@@ -489,6 +489,37 @@ let rec turn mgr ~key ~message ?(content_parts = []) ?(attachments = [])
                     in
                     Lwt.return response)))
 
+let try_turn mgr ~key ~message ?(content_parts = []) ?(attachments = [])
+    ?channel_name ?channel_type ?sender_id ?sender_name ?channel ?channel_id
+    ?message_id ?before_drain () =
+  Session_core.with_live_activity mgr ~key (fun () ->
+      let open Lwt.Syntax in
+      let* () = Session_core.mark_autonomous_activity_started mgr ~key in
+      let* message = normalize_incoming_message mgr ~key ~message in
+      let* handled =
+        Session_core.handle_special_command mgr ~key ~message
+          ?send_progress:(Session_core.find_registered_notifier mgr ~key)
+          ~interrupt_check:(Session_core.interrupt_check_if_present mgr ~key)
+          ()
+      in
+      match handled with
+      | Some response -> Lwt.return_some response
+      | None ->
+          Session_core.try_session_lock mgr ~key (fun agent interrupt ->
+              Session_core.with_in_flight mgr (fun () ->
+                  let* response =
+                    run_locked_turn mgr ~key agent interrupt ~message
+                      ~content_parts ~attachments ?channel_name ?channel_type
+                      ?sender_id ?sender_name ?channel ?channel_id ()
+                  in
+                  let* () =
+                    match before_drain with
+                    | Some f -> f response
+                    | None -> Lwt.return_unit
+                  in
+                  let* () = drain_queued_messages mgr ~key agent interrupt () in
+                  Lwt.return response)))
+
 let () =
   spawn_postmortem_agent_fn :=
     fun mgr ~stuck_history ~session_key ~reason ?db () ->

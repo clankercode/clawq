@@ -74,6 +74,53 @@ let test_keepalive_survives_upsert () =
       Alcotest.(check bool)
         "keepalive still set after upsert" true (List.mem "sk" keys))
 
+let test_set_get_heartbeat () =
+  with_db (fun db ->
+      Memory.set_session_heartbeat ~db ~session_key:"telegram:42:user"
+        ~enabled:true;
+      let keys = Memory.list_heartbeat_session_keys ~db in
+      Alcotest.(check (list string))
+        "heartbeat session listed" [ "telegram:42:user" ] keys)
+
+let test_set_heartbeat_off () =
+  with_db (fun db ->
+      Memory.set_session_heartbeat ~db ~session_key:"telegram:42:user"
+        ~enabled:true;
+      Memory.set_session_heartbeat ~db ~session_key:"telegram:42:user"
+        ~enabled:false;
+      let keys = Memory.list_heartbeat_session_keys ~db in
+      Alcotest.(check (list string)) "no heartbeat sessions" [] keys)
+
+let test_heartbeat_reflected_in_session_info () =
+  with_db (fun db ->
+      Memory.upsert_session_state ~db ~session_key:"telegram:42:user"
+        ~turn:"user" ~channel:"telegram" ~channel_id:"42" ();
+      Memory.set_session_heartbeat ~db ~session_key:"telegram:42:user"
+        ~enabled:true;
+      let infos = Memory.list_session_infos ~db () in
+      match
+        List.find_opt
+          (fun (r : Memory.session_info) -> r.session_key = "telegram:42:user")
+          infos
+      with
+      | None -> Alcotest.fail "session not found in list"
+      | Some r ->
+          Alcotest.(check bool)
+            "heartbeat_enabled true" true r.heartbeat_enabled)
+
+let test_heartbeat_survives_upsert () =
+  with_db (fun db ->
+      Memory.upsert_session_state ~db ~session_key:"telegram:42:user"
+        ~turn:"user" ();
+      Memory.set_session_heartbeat ~db ~session_key:"telegram:42:user"
+        ~enabled:true;
+      Memory.upsert_session_state ~db ~session_key:"telegram:42:user"
+        ~turn:"agent" ();
+      let keys = Memory.list_heartbeat_session_keys ~db in
+      Alcotest.(check bool)
+        "heartbeat still set after upsert" true
+        (List.mem "telegram:42:user" keys))
+
 (* --- keepalive nudge prompt constant is defined --- *)
 
 let test_nudge_prompt_hides_stay_idle () =
@@ -107,6 +154,13 @@ let suite =
       test_keepalive_default_false_in_session_info;
     Alcotest.test_case "keepalive survives upsert_session_state" `Quick
       test_keepalive_survives_upsert;
+    Alcotest.test_case "set and get heartbeat flag" `Quick
+      test_set_get_heartbeat;
+    Alcotest.test_case "set heartbeat off clears" `Quick test_set_heartbeat_off;
+    Alcotest.test_case "heartbeat reflected in session_info" `Quick
+      test_heartbeat_reflected_in_session_info;
+    Alcotest.test_case "heartbeat survives upsert_session_state" `Quick
+      test_heartbeat_survives_upsert;
     Alcotest.test_case "nudge prompt hides STAY_IDLE" `Quick
       test_nudge_prompt_hides_stay_idle;
     Alcotest.test_case "nudge prompt contains header" `Quick

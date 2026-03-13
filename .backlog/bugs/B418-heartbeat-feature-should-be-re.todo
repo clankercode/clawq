@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-13T08:38:39Z"
+claimed_by: cli-user
+completed_at: "2026-03-13T09:15:55Z"
 complexity: medium
 depends_on: []
+duration_minutes: 37.273401059966666
 estimate_hours: 1
 id: B418
 priority: high
-status: pending
+started_at: "2026-03-13T08:38:39Z"
+status: done
 tags: []
 title: 'HEARTBEAT feature should be refactored: sessions can register to recieve a heartbeat, but we shouldn''t send them to __main__ by default. This refactor will take some planning.'
 ---

@@ -1287,6 +1287,28 @@ let test_handle_heartbeat_response_arms_follow_up_for_non_idle_reply () =
      let* () = Session.cancel_autonomous_continuation session_manager ~key in
      Lwt.pause ())
 
+let test_handle_heartbeat_response_sends_initial_reply_to_session () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let session_manager = Session.create ~config:Runtime_config.default ~db () in
+  let key = "telegram:42:user" in
+  let sent = ref [] in
+  Session.register_channel_notifier session_manager ~key (fun text ->
+      sent := text :: !sent;
+      Lwt.return_unit);
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () =
+       Daemon.handle_heartbeat_response ~session_manager ~key
+         ~response:"follow up on this" ()
+     in
+     Lwt.pause ());
+  Alcotest.(check (list string))
+    "heartbeat reply sent to session" [ "follow up on this" ] !sent;
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () = Session.cancel_autonomous_continuation session_manager ~key in
+     Lwt.pause ())
+
 let make_test_task ?(id = 9) ?(session_key = Some "telegram:42:user")
     ?(channel = Some "telegram") ?(channel_id = Some "42") () :
     Background_task.task =
@@ -1958,6 +1980,8 @@ let suite =
       test_handle_heartbeat_response_disarms_stay_idle;
     Alcotest.test_case "heartbeat work reply arms continuation" `Quick
       test_handle_heartbeat_response_arms_follow_up_for_non_idle_reply;
+    Alcotest.test_case "heartbeat work reply sends initial session message"
+      `Quick test_handle_heartbeat_response_sends_initial_reply_to_session;
     Alcotest.test_case "wait for drain returns when in-flight reaches zero"
       `Quick test_wait_for_drain_returns_when_in_flight_reaches_zero;
     Alcotest.test_case "wait for drain reports timeout" `Quick

@@ -345,6 +345,22 @@ let handle_heartbeat_response
     ~(session_manager : Session.t) ~key ~response () =
   let open Lwt.Syntax in
   let trimmed = String.trim response in
+  let notify_heartbeat text =
+    match Restart_notify.parse_channel_from_key key with
+    | Some (channel, channel_id) ->
+        notify_resumed_session ~session_manager
+          ~config:(Session.get_config session_manager)
+          ~session_key:key ~channel ~channel_id text
+    | None ->
+        Logs.warn (fun m ->
+            m "Heartbeat: session %s has no routable channel target" key);
+        Lwt.return_unit
+  in
+  let on_response follow_up =
+    let follow_up = String.trim follow_up in
+    if follow_up = "" || follow_up = "HEARTBEAT_OK" then Lwt.return_unit
+    else notify_heartbeat follow_up
+  in
   let* () =
     if
       trimmed = "" || trimmed = "HEARTBEAT_OK"
@@ -353,11 +369,12 @@ let handle_heartbeat_response
       Session.process_autonomous_turn_result ~delay:continuation_delay
         session_manager ~key ~response:trimmed
     else begin
+      let* () = notify_heartbeat trimmed in
       Lwt.async (fun () ->
           Lwt.catch
             (fun () ->
               Session.process_autonomous_turn_result ~delay:continuation_delay
-                session_manager ~key ~response:trimmed)
+                ~on_response session_manager ~key ~response:trimmed)
             (fun exn ->
               Logs.err (fun m ->
                   m "Heartbeat continuation error: %s" (Printexc.to_string exn));
@@ -370,16 +387,12 @@ let handle_heartbeat_response
   else begin
     Logs.info (fun m ->
         m "Heartbeat: agent response (%d chars)" (String.length trimmed));
-    match (Session.get_config session_manager).notify with
-    | Some nc ->
-        Logs.info (fun m ->
-            m "Heartbeat: would notify via %s -> %s" nc.notify_channel
-              nc.notify_target)
-    | None ->
-        Logs.warn (fun m ->
-            m
-              "Heartbeat: agent wants to send a message but no notify target \
-               configured")
+    if Restart_notify.parse_channel_from_key key = None then
+      Logs.warn (fun m ->
+          m
+            "Heartbeat: agent wants to send a message but session %s is not \
+             routable"
+            key)
   end;
   Lwt.return_unit
 
