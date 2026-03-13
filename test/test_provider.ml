@@ -567,6 +567,111 @@ let test_select_provider_quota_fallback_respects_user_model () =
     "routes to alternative" "alternative-provider" provider_name;
   Alcotest.(check string) "uses user model not alt default" "gpt-5.4" model
 
+let test_select_provider_quota_fallback_strips_canonical_prefix () =
+  let config =
+    {
+      Runtime_config.default with
+      providers =
+        [
+          ( "openai-codex",
+            {
+              Runtime_config.default_provider_config with
+              api_key = "sk-codex";
+              quota_threshold = Some 0.8;
+            } );
+          ( "alt-provider",
+            { Runtime_config.default_provider_config with api_key = "sk-alt" }
+          );
+        ];
+      agent_defaults =
+        {
+          Runtime_config.default.agent_defaults with
+          primary_model = "openai-codex:gpt-5.4";
+        };
+    }
+  in
+  let quota_states =
+    [
+      ( "openai-codex",
+        {
+          Provider_quota.provider_name = "openai-codex";
+          state =
+            Provider_quota.Known
+              {
+                session =
+                  Some
+                    {
+                      used_pct = 90.0;
+                      resets_at = None;
+                      window_duration_s = None;
+                    };
+                weekly = None;
+                monthly = None;
+              };
+          fetched_at = Unix.gettimeofday ();
+        } );
+    ]
+  in
+  let provider_name, _provider, model =
+    Provider.select_provider ~config ~quota_states ()
+  in
+  Alcotest.(check string) "routes to alt" "alt-provider" provider_name;
+  Alcotest.(check string) "bare model, not canonical" "gpt-5.4" model
+
+let test_select_provider_quota_fallback_prefers_alt_default_model () =
+  let config =
+    {
+      Runtime_config.default with
+      providers =
+        [
+          ( "openai-codex",
+            {
+              Runtime_config.default_provider_config with
+              api_key = "sk-codex";
+              quota_threshold = Some 0.8;
+            } );
+          ( "alt-provider",
+            {
+              Runtime_config.default_provider_config with
+              api_key = "sk-alt";
+              default_model = Some "alt-model-v1";
+            } );
+        ];
+      agent_defaults =
+        {
+          Runtime_config.default.agent_defaults with
+          primary_model = "openai-codex:gpt-5.4";
+        };
+    }
+  in
+  let quota_states =
+    [
+      ( "openai-codex",
+        {
+          Provider_quota.provider_name = "openai-codex";
+          state =
+            Provider_quota.Known
+              {
+                session =
+                  Some
+                    {
+                      used_pct = 90.0;
+                      resets_at = None;
+                      window_duration_s = None;
+                    };
+                weekly = None;
+                monthly = None;
+              };
+          fetched_at = Unix.gettimeofday ();
+        } );
+    ]
+  in
+  let provider_name, _provider, model =
+    Provider.select_provider ~config ~quota_states ()
+  in
+  Alcotest.(check string) "routes to alt" "alt-provider" provider_name;
+  Alcotest.(check string) "uses alt default model" "alt-model-v1" model
+
 let test_select_provider_preferred_provider_forces_failover_route () =
   let config =
     {
@@ -876,6 +981,11 @@ let suite =
       test_select_provider_skips_codex_api_key_only_default;
     Alcotest.test_case "select_provider quota fallback respects user model"
       `Quick test_select_provider_quota_fallback_respects_user_model;
+    Alcotest.test_case "select_provider quota fallback strips canonical prefix"
+      `Quick test_select_provider_quota_fallback_strips_canonical_prefix;
+    Alcotest.test_case
+      "select_provider quota fallback prefers alt default model" `Quick
+      test_select_provider_quota_fallback_prefers_alt_default_model;
     Alcotest.test_case "select_provider preferred provider forces failover"
       `Quick test_select_provider_preferred_provider_forces_failover_route;
     Alcotest.test_case "select_provider preferred provider requires auth" `Quick

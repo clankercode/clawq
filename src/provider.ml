@@ -663,11 +663,9 @@ let select_provider ~(config : Runtime_config.t) ?preferred_provider
                 m "[quota] deprioritized %s (constrained), routing to %s"
                   provider_name alt_name);
             let alt_model =
-              if raw_model <> "" then raw_model
-              else
-                match alt_p.Runtime_config.default_model with
-                | Some m -> m
-                | None -> raw_model
+              match alt_p.Runtime_config.default_model with
+              | Some m -> m
+              | None -> model
             in
             (alt_name, alt_p, alt_model))
 
