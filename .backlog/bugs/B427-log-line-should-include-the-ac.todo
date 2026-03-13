@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B427
+priority: high
+status: pending
+tags: []
+title: 'log line should include the actual username of the user (teams: message from user=...)'
+---
+
+Teams: message from user=29:1n-Yk_5p6jbgOVOYDJ5AwVGb_5c-E2L4lRwWoI9ytO18XQ93DWRLwc734sBJ3wyLtYcFPuDkmIwPrN1VV8WdWbg team=personal conv=a:1JPVFngEx3FRRVWXUe5fb97HWjfsCdtDImgKuD3u_N6IpgOD0euB5bnQHI9RsDQuK3qOG_5Jyhq4wWGr0IczaxEXPN5vIGppdngtwZucpyhDNrW1_YJCrXnHrksQ5fCuT
