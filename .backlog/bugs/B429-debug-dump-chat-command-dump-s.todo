@@ -1,0 +1,18 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B429
+priority: high
+status: pending
+tags: []
+title: /debug_dump_chat command - dump session to file and send as attachment
+---
+Add a '/debug_dump_chat' slash command that:
+
+1. Runs 'clawq session show SESSION_ID' and writes output to a temp file
+2. Sends the temp file to the user through the connector as a file attachment
+
+Note: May require implementing file attachment support in connectors (if not already present).
+
+Use case: Debugging session state/issues by giving users access to their full session context.

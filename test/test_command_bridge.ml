@@ -1548,7 +1548,14 @@ let test_handle_service_signal_restart () =
       Alcotest.(check string)
         "service signal restart with no daemon" "Daemon is not running" result)
 
+(* WARNING: Isolation isn't perfect — this test invokes the real update path
+   with fake git/make shims, but find_repo_root resolves to the real repo and
+   the update flow will trigger a restart of any running clawq instance.
+   Gated behind CLAWQ_TEST_DOCKER; run only in a docker container. *)
 let test_handle_update_without_live_daemon_reports_stub () =
+  if Sys.getenv_opt "CLAWQ_TEST_DOCKER" = None then
+    Alcotest.skip ()
+  else
   with_temp_home (fun home ->
       let bin_dir = Filename.concat home "bin" in
       Unix.mkdir bin_dir 0o755;

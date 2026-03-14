@@ -424,3 +424,5 @@ bugs:
     - file: B425-investigate-whether-we-can-dep.todo
     - file: B426-cant-resume-github-workflow-ru.todo
     - file: B427-log-line-should-include-the-ac.todo
+    - file: B428-help-output-on-teams-renders-a.todo
+    - file: B429-debug-dump-chat-command-dump-s.todo

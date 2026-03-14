@@ -53,6 +53,8 @@ jobs:
         run: |
           eval "$(opam env)"
           dune runtest
+        env:
+          CLAWQ_TEST_DOCKER: "1"
 
       - name: Save dune build cache
         uses: actions/cache/save@v4

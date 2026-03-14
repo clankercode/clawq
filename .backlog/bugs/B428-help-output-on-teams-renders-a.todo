@@ -1,0 +1,14 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B428
+priority: high
+status: pending
+tags:
+    - teams
+    - slash-commands
+title: /help output on Teams renders as single line (should format as table)
+---
+
+/help output on Teams renders as single line (should format as table)
