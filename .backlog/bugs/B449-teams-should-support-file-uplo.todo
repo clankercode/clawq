@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B449
+priority: high
+status: pending
+tags: []
+title: teams should support file uploading so /debug_dump_chat works
+---
+
+teams should support file uploading so /debug_dump_chat works
