@@ -18,7 +18,8 @@ Source: https://learn.microsoft.com/en-us/microsoftteams/platform/resources/bot-
 
 - Bot Framework v3 text messages support markdown tables when `textFormat` is `"markdown"` (default).
 - Markdown tables render natively on desktop, web, iOS, and Android Teams clients.
-- Teams uses markdown tables for tabular data (`/costs`, `/usage`, `/status`, `/help`, `/model usage`).
+- Teams uses markdown tables for tabular data (`/costs`, `/usage`, `/status`, `/help`, `/tools`, `/model usage`).
+- A blank line (`\n\n`) is required before pipe tables for Teams' markdown renderer to recognize them as table blocks.
 
 ### Telegram
 
@@ -77,6 +78,6 @@ Source: https://support.discord.com/hc/en-us/articles/210298617-Markdown-Text-10
 - `src/slash_commands.ml` owns slash-command content rendering.
 - Connectors select a rendering target instead of formatting replies ad hoc.
 - Telegram uses HTML-specific renderers (`<pre>` for tables, `<b>` for headings).
-- Teams uses native markdown tables (`Table_format.render_markdown`) for tabular output like `/costs`, `/usage`, `/model usage`, `/status`, and `/help`.
+- Teams uses native markdown tables (`Table_format.render_markdown`) for tabular output like `/costs`, `/usage`, `/model usage`, `/status`, `/tools`, and `/help`.
 - Discord and Slack use `Format_adapter.code_block` (triple-backtick fences) for tabular output.
 - Web/Plain receives raw text (no code block wrapping).

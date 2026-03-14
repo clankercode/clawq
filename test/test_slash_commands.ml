@@ -1256,6 +1256,99 @@ let test_format_costs_teams_markdown_table () =
         "teams costs not wrapped in code block" false
         (contains_str output "```"))
 
+let test_format_tools_teams_table () =
+  let tools =
+    [
+      {
+        Tool.name = "file_read";
+        description = "Read file contents";
+        parameters_schema = `Assoc [];
+        invoke = (fun ?context:_ _args -> Lwt.return "");
+        invoke_stream = None;
+        risk_level = Tool.Low;
+        deferred = false;
+      };
+      {
+        Tool.name = "shell_exec";
+        description = "Execute shell commands";
+        parameters_schema = `Assoc [];
+        invoke = (fun ?context:_ _args -> Lwt.return "");
+        invoke_stream = None;
+        risk_level = Tool.High;
+        deferred = false;
+      };
+    ]
+  in
+  let output =
+    Slash_commands.format_tools ~connector:Format_adapter.Teams tools []
+  in
+  Alcotest.(check bool)
+    "teams tools has markdown table header" true
+    (contains_str output "| Tool |");
+  Alcotest.(check bool)
+    "teams tools has separator" true
+    (contains_str output "| :---");
+  Alcotest.(check bool)
+    "teams tools contains file_read" true
+    (contains_str output "| file_read |");
+  Alcotest.(check bool)
+    "teams tools not wrapped in code block" false
+    (contains_str output "```")
+
+let test_format_tools_discord_code_block () =
+  let tools =
+    [
+      {
+        Tool.name = "file_read";
+        description = "Read file contents";
+        parameters_schema = `Assoc [];
+        invoke = (fun ?context:_ _args -> Lwt.return "");
+        invoke_stream = None;
+        risk_level = Tool.Low;
+        deferred = false;
+      };
+    ]
+  in
+  let output =
+    Slash_commands.format_tools ~connector:Format_adapter.Discord tools []
+  in
+  Alcotest.(check bool)
+    "discord tools wrapped in code block" true
+    (contains_str output "```");
+  Alcotest.(check bool)
+    "discord tools no markdown table pipes" false
+    (contains_str output "| Tool |")
+
+let test_format_status_teams_markdown_table () =
+  let text =
+    Slash_commands.format_status ~connector:Format_adapter.Teams ~db:None
+      ~session_count:5 ~active_count:2 ()
+  in
+  Alcotest.(check bool)
+    "teams status has markdown table" true
+    (contains_str text "| FIELD |");
+  Alcotest.(check bool)
+    "teams status has separator" true
+    (contains_str text "| :---");
+  Alcotest.(check bool)
+    "teams status not wrapped in code block" false (contains_str text "```");
+  Alcotest.(check bool)
+    "teams status has blank line before table" true
+    (contains_str text "\n\n|")
+
+let test_format_costs_teams_has_blank_line () =
+  with_request_stats_db (fun db ->
+      insert_request_stat ~db ~session_key:"teams:t1:conv" ~provider:"openai"
+        ~model:"gpt-5.4" ~prompt_tokens:1000 ~completion_tokens:200
+        ~cost_usd:0.10 ();
+      let output =
+        Slash_commands.format_costs ~connector:Format_adapter.Teams ~db
+          Slash_commands.CostsSummary
+      in
+      Alcotest.(check bool)
+        "teams costs has blank line before table" true
+        (contains_str output "\n\n|"))
+
 let test_format_costs_discord_code_block () =
   with_request_stats_db (fun db ->
       insert_request_stat ~db ~session_key:"discord:chan:user"
@@ -1407,4 +1500,12 @@ let suite =
       test_format_costs_teams_markdown_table;
     Alcotest.test_case "format costs discord code block" `Quick
       test_format_costs_discord_code_block;
+    Alcotest.test_case "format tools teams table" `Quick
+      test_format_tools_teams_table;
+    Alcotest.test_case "format tools discord code block" `Quick
+      test_format_tools_discord_code_block;
+    Alcotest.test_case "format status teams markdown table" `Quick
+      test_format_status_teams_markdown_table;
+    Alcotest.test_case "format costs teams blank line" `Quick
+      test_format_costs_teams_has_blank_line;
   ]

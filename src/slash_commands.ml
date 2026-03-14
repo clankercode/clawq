@@ -527,9 +527,61 @@ let format_tools_telegram (tools : Tool.t list) (skills : Tool.t list) : string
   end;
   Buffer.contents buf
 
+let format_tools_table ~connector (tools : Tool.t list) (skills : Tool.t list) =
+  let sort_tools ts =
+    List.sort (fun (a : Tool.t) b -> String.compare a.name b.name) ts
+  in
+  let columns =
+    Table_format.
+      [
+        { header = "Tool"; align = Left; min_width = 0; flex = false };
+        { header = "Risk"; align = Left; min_width = 0; flex = false };
+        { header = "Description"; align = Left; min_width = 0; flex = true };
+      ]
+  in
+  let tool_rows =
+    List.map
+      (fun (t : Tool.t) ->
+        [
+          t.name;
+          risk_level_string t.risk_level;
+          truncate_description t.description 60;
+        ])
+      (sort_tools tools)
+  in
+  let buf = Buffer.create 1024 in
+  Buffer.add_string buf
+    (Format_adapter.bold connector
+       (Printf.sprintf "Tools (%d)" (List.length tools)));
+  Buffer.add_string buf "\n\n";
+  Buffer.add_string buf
+    (Format_adapter.render_table connector ~max_width:80 columns tool_rows);
+  if skills <> [] then begin
+    let skill_rows =
+      List.map
+        (fun (t : Tool.t) ->
+          [
+            t.name;
+            risk_level_string t.risk_level;
+            truncate_description t.description 60;
+          ])
+        (sort_tools skills)
+    in
+    Buffer.add_string buf "\n\n";
+    Buffer.add_string buf
+      (Format_adapter.bold connector
+         (Printf.sprintf "Skills (%d)" (List.length skills)));
+    Buffer.add_string buf "\n\n";
+    Buffer.add_string buf
+      (Format_adapter.render_table connector ~max_width:80 columns skill_rows)
+  end;
+  Buffer.contents buf
+
 let format_tools ~connector tools skills =
-  Format_adapter.dispatch connector ~telegram_html:format_tools_telegram
-    ~default:format_tools_plain tools skills
+  match connector with
+  | Format_adapter.Telegram_html -> format_tools_telegram tools skills
+  | Format_adapter.Plain -> format_tools_plain tools skills
+  | _ -> format_tools_table ~connector tools skills
 
 let format_model_show_telegram ~current ~favorites ~usage_ranked =
   let buf = Buffer.create 1024 in
@@ -651,7 +703,7 @@ let format_costs ~connector ~db action =
           ]
         in
         Format_adapter.bold connector "Cost Summary"
-        ^ "\n"
+        ^ "\n\n"
         ^ Format_adapter.render_table connector ~max_width:60
             cost_summary_columns rows
   | CostsSessions ->
@@ -681,7 +733,7 @@ let format_costs ~connector ~db action =
             sessions
         in
         Format_adapter.bold connector "Session Costs"
-        ^ "\n"
+        ^ "\n\n"
         ^ Format_adapter.render_table connector ~max_width:60 session_columns
             rows
   | CostsSession key ->
@@ -691,7 +743,7 @@ let format_costs ~connector ~db action =
       else
         let rows = [ cost_table_row "Total" s ] in
         Format_adapter.bold connector (Printf.sprintf "Costs for %s" key)
-        ^ "\n"
+        ^ "\n\n"
         ^ Format_adapter.render_table connector ~max_width:60
             cost_summary_columns rows
   | CostsModel ->
@@ -726,7 +778,7 @@ let format_costs ~connector ~db action =
             models
         in
         Format_adapter.bold connector "Model Costs"
-        ^ "\n"
+        ^ "\n\n"
         ^ Format_adapter.render_table connector ~max_width:60 model_columns rows
   | CostsProvider ->
       let providers = Request_stats.summary_by_provider ~db in
@@ -765,7 +817,7 @@ let format_costs ~connector ~db action =
             providers
         in
         Format_adapter.bold connector "Provider Costs"
-        ^ "\n"
+        ^ "\n\n"
         ^ Format_adapter.render_table connector ~max_width:60 provider_columns
             rows
 
@@ -814,7 +866,7 @@ let format_usage ~connector ~db action =
           ]
         in
         Format_adapter.bold connector "Usage Summary"
-        ^ "\n"
+        ^ "\n\n"
         ^ Format_adapter.render_table connector ~max_width:60
             usage_summary_columns rows
   | UsageSessions ->
@@ -843,7 +895,7 @@ let format_usage ~connector ~db action =
             sessions
         in
         Format_adapter.bold connector "Session Usage"
-        ^ "\n"
+        ^ "\n\n"
         ^ Format_adapter.render_table connector ~max_width:60 session_columns
             rows
   | UsageSession key ->
@@ -853,7 +905,7 @@ let format_usage ~connector ~db action =
       else
         let rows = [ usage_table_row "Total" s ] in
         Format_adapter.bold connector (Printf.sprintf "Usage for %s" key)
-        ^ "\n"
+        ^ "\n\n"
         ^ Format_adapter.render_table connector ~max_width:60
             usage_summary_columns rows
   | UsageModel ->
@@ -886,7 +938,7 @@ let format_usage ~connector ~db action =
             models
         in
         Format_adapter.bold connector "Model Usage"
-        ^ "\n"
+        ^ "\n\n"
         ^ Format_adapter.render_table connector ~max_width:60 model_columns rows
   | UsageProvider ->
       let providers = Request_stats.summary_by_provider ~db in
@@ -923,7 +975,7 @@ let format_usage ~connector ~db action =
             providers
         in
         Format_adapter.bold connector "Provider Usage"
-        ^ "\n"
+        ^ "\n\n"
         ^ Format_adapter.render_table connector ~max_width:60 provider_columns
             rows
 
@@ -1039,7 +1091,7 @@ let format_status ~connector ~(db : Sqlite3.db option) ~session_count
     | None -> rows
   in
   Format_adapter.bold connector "Bot Status"
-  ^ "\n"
+  ^ "\n\n"
   ^ Format_adapter.render_table connector ~max_width:60 status_columns rows
 
 let format_model_usage ~connector ~(config : Runtime_config.t)
@@ -1079,5 +1131,5 @@ let format_model_usage ~connector ~(config : Runtime_config.t)
         results
     in
     Format_adapter.bold connector "Provider Quota/Usage"
-    ^ "\n"
+    ^ "\n\n"
     ^ Format_adapter.render_table connector ~max_width:60 columns rows

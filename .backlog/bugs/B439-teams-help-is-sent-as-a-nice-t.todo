@@ -1,14 +1,15 @@
 ---
-claimed_at: "2026-03-14T06:06:34Z"
+claimed_at: "2026-03-14T06:13:35Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-14T06:13:35Z"
 complexity: medium
 depends_on: []
+duration_minutes: 0.0154947671
 estimate_hours: 1
 id: B439
 priority: high
-started_at: "2026-03-14T06:06:34Z"
-status: in_progress
+started_at: "2026-03-14T06:13:35Z"
+status: done
 tags: []
 title: Teams /help is sent as a nice table, but /costs, /status, /usage etc are not (they should be). Also /tools is unformatted and unreadable on Teams. If possible, we should have a table type property for each provider, and use that to determine how we render tables for these kinds of responses.
 ---
