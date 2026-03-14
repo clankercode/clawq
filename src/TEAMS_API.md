@@ -301,12 +301,14 @@ uses a layered approach controlled by `file_consent_cards` config (default: `tru
 }
 ```
 2. User clicks Accept → Teams sends an `invoke` activity with `name: "fileConsent/invoke"`.
-3. Bot uploads file content to the `uploadUrl` from the invoke's `uploadInfo` via HTTP PUT.
-4. Bot sends a `FileInfoCard` referencing the uploaded OneDrive file.
-5. If user declines, bot acknowledges silently.
+3. Bot responds with HTTP 200 **immediately** (Teams has a short invoke timeout).
+4. In the background: bot uploads file content to the `uploadUrl` from the invoke's `uploadInfo` via HTTP PUT.
+5. Bot sends a `FileInfoCard` referencing the uploaded OneDrive file.
+6. If user declines, bot acknowledges silently.
 
-Pending consent data is stored in memory with a 10-minute TTL. Invoke activities are
-handled synchronously (HTTP 200) unlike regular message activities (HTTP 202 + async).
+Pending consent data is stored in memory with a 10-minute TTL. Invoke activities require
+an immediate HTTP 200 response — the actual upload runs asynchronously via `Lwt.async`.
+Regular message activities use HTTP 202 + async processing.
 
 ### Temp Download URL (Fallback, or `file_consent_cards: false`)
 

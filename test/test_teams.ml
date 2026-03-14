@@ -517,6 +517,135 @@ let test_pending_consent_cleanup () =
     "expired removed by cleanup" true
     (Teams.get_pending_consent expired = None)
 
+let test_file_consent_invoke_returns_immediately () =
+  (* Store a pending consent so handle_file_consent_invoke finds it *)
+  let consent_id =
+    Teams.store_pending_consent ~content:"file data" ~filename:"test.json"
+      ~content_type:"application/json" ~ttl_s:60.0
+  in
+  let config : Runtime_config.teams_config =
+    {
+      app_id = "test-app";
+      app_secret = "test-secret";
+      tenant_id = "test-tenant";
+      webhook_path = "/teams/webhook";
+      service_url = "https://smba.trafficmanager.net/amer";
+      allow_teams = [ "*" ];
+      allow_users = [ "*" ];
+      mention_mode = "entity";
+      file_consent_cards = true;
+    }
+  in
+  let invoke_json =
+    `Assoc
+      [
+        ("type", `String "invoke");
+        ("name", `String "fileConsent/invoke");
+        ("serviceUrl", `String "https://smba.trafficmanager.net/amer");
+        ("conversation", `Assoc [ ("id", `String "conv-test") ]);
+        ( "value",
+          `Assoc
+            [
+              ("action", `String "accept");
+              ("context", `Assoc [ ("consentId", `String consent_id) ]);
+              ( "uploadInfo",
+                `Assoc
+                  [
+                    (* Use a fake URL — the background upload will fail,
+                       but the invoke response should return immediately *)
+                    ("uploadUrl", `String "https://fake-onedrive/upload");
+                    ("contentUrl", `String "https://fake-onedrive/file");
+                    ("uniqueId", `String "uid-1");
+                    ("fileType", `String "json");
+                  ] );
+            ] );
+      ]
+  in
+  let result =
+    Lwt_main.run (Teams.handle_file_consent_invoke ~config invoke_json)
+  in
+  Alcotest.(check string)
+    "invoke response is immediate 200" {|{"status":200}|} result
+
+let test_file_consent_invoke_expired_returns_200 () =
+  (* With no pending consent, should still return 200 immediately *)
+  let config : Runtime_config.teams_config =
+    {
+      app_id = "test-app";
+      app_secret = "test-secret";
+      tenant_id = "test-tenant";
+      webhook_path = "/teams/webhook";
+      service_url = "https://smba.trafficmanager.net/amer";
+      allow_teams = [ "*" ];
+      allow_users = [ "*" ];
+      mention_mode = "entity";
+      file_consent_cards = true;
+    }
+  in
+  let invoke_json =
+    `Assoc
+      [
+        ("type", `String "invoke");
+        ("name", `String "fileConsent/invoke");
+        ("serviceUrl", `String "https://smba.trafficmanager.net/amer");
+        ("conversation", `Assoc [ ("id", `String "conv-test") ]);
+        ( "value",
+          `Assoc
+            [
+              ("action", `String "accept");
+              ( "context",
+                `Assoc [ ("consentId", `String "nonexistent-consent-id") ] );
+            ] );
+      ]
+  in
+  let result =
+    Lwt_main.run (Teams.handle_file_consent_invoke ~config invoke_json)
+  in
+  Alcotest.(check string)
+    "expired consent returns 200" {|{"status":200}|} result
+
+let test_file_consent_invoke_decline () =
+  let consent_id =
+    Teams.store_pending_consent ~content:"data" ~filename:"d.json"
+      ~content_type:"application/json" ~ttl_s:60.0
+  in
+  let config : Runtime_config.teams_config =
+    {
+      app_id = "test-app";
+      app_secret = "test-secret";
+      tenant_id = "test-tenant";
+      webhook_path = "/teams/webhook";
+      service_url = "https://smba.trafficmanager.net/amer";
+      allow_teams = [ "*" ];
+      allow_users = [ "*" ];
+      mention_mode = "entity";
+      file_consent_cards = true;
+    }
+  in
+  let invoke_json =
+    `Assoc
+      [
+        ("type", `String "invoke");
+        ("name", `String "fileConsent/invoke");
+        ("serviceUrl", `String "https://svc");
+        ("conversation", `Assoc [ ("id", `String "conv-1") ]);
+        ( "value",
+          `Assoc
+            [
+              ("action", `String "decline");
+              ("context", `Assoc [ ("consentId", `String consent_id) ]);
+            ] );
+      ]
+  in
+  let result =
+    Lwt_main.run (Teams.handle_file_consent_invoke ~config invoke_json)
+  in
+  Alcotest.(check string) "decline returns 200" {|{"status":200}|} result;
+  (* Pending consent should be cleaned up *)
+  Alcotest.(check bool)
+    "consent consumed on decline" true
+    (Teams.get_pending_consent consent_id = None)
+
 let test_debug_dump_filename_sanitization () =
   let safe_key =
     String.map
@@ -615,4 +744,10 @@ let suite =
       test_pending_consent_consumed_on_get;
     Alcotest.test_case "pending consent cleanup" `Quick
       test_pending_consent_cleanup;
+    Alcotest.test_case "file consent invoke returns immediately" `Quick
+      test_file_consent_invoke_returns_immediately;
+    Alcotest.test_case "file consent invoke expired returns 200" `Quick
+      test_file_consent_invoke_expired_returns_200;
+    Alcotest.test_case "file consent invoke decline" `Quick
+      test_file_consent_invoke_decline;
   ]

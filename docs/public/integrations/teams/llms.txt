@@ -158,7 +158,7 @@ Replies longer than this limit are split at whitespace boundaries and sent as mu
 
 The `/debug_dump_chat` command sends session state as a JSON file using a layered approach:
 
-1. **FileConsentCard** (default, `file_consent_cards: true`): Sends a consent card prompting the user to accept file upload to OneDrive. On accept, the bot uploads the file to the provided OneDrive URL and sends a FileInfoCard. Invoke activities for consent are handled synchronously (HTTP 200).
+1. **FileConsentCard** (default, `file_consent_cards: true`): Sends a consent card prompting the user to accept file upload to OneDrive. On accept, the bot responds with HTTP 200 immediately and uploads the file to the provided OneDrive URL in the background, then sends a FileInfoCard.
 2. **Temp download URL** (fallback, or `file_consent_cards: false`): Stores the file in memory with a random token and 1-hour TTL, sends a download link via `{tunnel.url}/downloads/{token}`. Requires `tunnel.url`.
 3. **Truncated text** (last resort): If no public URL is configured, sends the first 25KB of the dump as text.
 

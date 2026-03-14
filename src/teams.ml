@@ -749,7 +749,9 @@ let send_file_info_card ~(config : Runtime_config.teams_config) ~service_url
               conversation_id);
       Lwt.return_unit
 
-(* Handle fileConsent/invoke activities. Returns the invoke response body. *)
+(* Handle fileConsent/invoke activities. Returns the invoke response body
+   immediately — Teams requires a fast HTTP 200 reply. OneDrive upload and
+   FileInfoCard delivery run in the background via Lwt.async. *)
 let handle_file_consent_invoke ~(config : Runtime_config.teams_config) json =
   let open Lwt.Syntax in
   let open Yojson.Safe.Util in
@@ -779,14 +781,24 @@ let handle_file_consent_invoke ~(config : Runtime_config.teams_config) json =
             Logs.warn (fun m ->
                 m "Teams: file consent accepted but no pending data for id=%s"
                   consent_id);
-            (* Send error message *)
-            let* _id =
-              send_reply ~alert:false ~config ~service_url:effective_service_url
-                ~conversation_id ~reply_to_id:""
-                ~text:"File consent expired or already processed." ()
-            in
+            (* Send error message in background — don't block invoke response *)
+            Lwt.async (fun () ->
+                Lwt.catch
+                  (fun () ->
+                    let* _id =
+                      send_reply ~alert:false ~config
+                        ~service_url:effective_service_url ~conversation_id
+                        ~reply_to_id:""
+                        ~text:"File consent expired or already processed." ()
+                    in
+                    Lwt.return_unit)
+                  (fun exn ->
+                    Logs.err (fun m ->
+                        m "Teams: file consent error reply failed: %s"
+                          (Printexc.to_string exn));
+                    Lwt.return_unit));
             Lwt.return {|{"status":200}|}
-        | Some pending -> (
+        | Some pending ->
             let upload_info =
               try value |> member "uploadInfo" with _ -> `Null
             in
@@ -806,38 +818,53 @@ let handle_file_consent_invoke ~(config : Runtime_config.teams_config) json =
               Logs.warn (fun m ->
                   m "Teams: file consent accepted but no uploadUrl");
               Lwt.return {|{"status":200}|})
-            else
-              let* upload_result =
-                upload_to_onedrive ~upload_url ~content:pending.content
-                  ~content_type:pending.content_type
-              in
-              match upload_result with
-              | Ok () ->
-                  let* () =
-                    send_file_info_card ~config
-                      ~service_url:effective_service_url ~conversation_id
-                      ~filename:pending.filename ~content_url ~unique_id
-                      ~file_type ()
-                  in
-                  Logs.info (fun m ->
-                      m
-                        "Teams: file uploaded to OneDrive for consent_id=%s \
-                         conv=%s"
-                        consent_id conversation_id);
-                  Lwt.return {|{"status":200}|}
-              | Error err ->
-                  Logs.warn (fun m ->
-                      m "Teams: OneDrive upload failed for consent_id=%s: %s"
-                        consent_id err);
-                  let* _id =
-                    send_reply ~alert:false ~config
-                      ~service_url:effective_service_url ~conversation_id
-                      ~reply_to_id:""
-                      ~text:
-                        (Printf.sprintf "File upload to OneDrive failed: %s" err)
-                      ()
-                  in
-                  Lwt.return {|{"status":200}|}))
+            else begin
+              (* Upload to OneDrive and send FileInfoCard in background —
+                 Teams requires a fast HTTP 200 invoke response *)
+              Lwt.async (fun () ->
+                  Lwt.catch
+                    (fun () ->
+                      let* upload_result =
+                        upload_to_onedrive ~upload_url ~content:pending.content
+                          ~content_type:pending.content_type
+                      in
+                      match upload_result with
+                      | Ok () ->
+                          let* () =
+                            send_file_info_card ~config
+                              ~service_url:effective_service_url
+                              ~conversation_id ~filename:pending.filename
+                              ~content_url ~unique_id ~file_type ()
+                          in
+                          Logs.info (fun m ->
+                              m
+                                "Teams: file uploaded to OneDrive for \
+                                 consent_id=%s conv=%s"
+                                consent_id conversation_id);
+                          Lwt.return_unit
+                      | Error err ->
+                          Logs.warn (fun m ->
+                              m
+                                "Teams: OneDrive upload failed for \
+                                 consent_id=%s: %s"
+                                consent_id err);
+                          let* _id =
+                            send_reply ~alert:false ~config
+                              ~service_url:effective_service_url
+                              ~conversation_id ~reply_to_id:""
+                              ~text:
+                                (Printf.sprintf
+                                   "File upload to OneDrive failed: %s" err)
+                              ()
+                          in
+                          Lwt.return_unit)
+                    (fun exn ->
+                      Logs.err (fun m ->
+                          m "Teams: file consent upload background error: %s"
+                            (Printexc.to_string exn));
+                      Lwt.return_unit));
+              Lwt.return {|{"status":200}|}
+            end)
     | "decline" ->
         Logs.info (fun m ->
             m "Teams: file consent declined for id=%s" consent_id);
