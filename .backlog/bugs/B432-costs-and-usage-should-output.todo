@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B432
+priority: high
+status: pending
+tags: []
+title: /costs and /usage should output tables when supported
+---
+
+/costs and /usage should output tables when supported

@@ -428,3 +428,4 @@ bugs:
     - file: B429-debug-dump-chat-command-dump-s.todo
     - file: B430-feature-when-we-send-a-message.todo
     - file: B431-also-when-we-render-markdown-t.todo
+    - file: B432-costs-and-usage-should-output.todo
