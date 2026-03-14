@@ -1,0 +1,13 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 0.5
+id: P2.M4.E3.T005
+priority: high
+status: pending
+tags:
+    - idea
+    - planning
+title: Telegram setMyCommands on startup
+---
+Call Telegram setMyCommands API on daemon startup to register all commands dynamically. Use payload from manifest telegram command.

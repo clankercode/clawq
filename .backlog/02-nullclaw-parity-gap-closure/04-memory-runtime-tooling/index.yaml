@@ -19,6 +19,15 @@ epics:
       name: WASM/WASI Runtime
       path: 02-wasm-wasi-runtime
       status: pending
+    - complexity: medium
+      depends_on: []
+      description: 'Improve slash command system: priority field, manifest generation CLI, and connector-native command registration for Teams/Telegram autocomplete.'
+      estimate_hours: 4
+      id: E3
+      locked: false
+      name: Slash Command Registration & Tooling
+      path: 03-slash-command-registration-too
+      status: pending
 estimate_hours: 60
 id: P2.M4
 locked: false

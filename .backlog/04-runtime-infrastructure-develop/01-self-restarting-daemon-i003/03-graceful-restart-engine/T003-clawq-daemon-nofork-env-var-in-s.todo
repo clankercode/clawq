@@ -5,7 +5,7 @@ completed_at: "2026-03-07T04:24:51Z"
 complexity: low
 depends_on:
     - P4.M1.E3.T002
-duration_minutes: 0.0
+duration_minutes: 0
 estimate_hours: 1
 id: P4.M1.E3.T003
 priority: medium

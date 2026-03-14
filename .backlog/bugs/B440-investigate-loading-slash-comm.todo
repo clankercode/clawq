@@ -1,27 +1,69 @@
 ---
 complexity: medium
 depends_on: []
-estimate_hours: 1
+estimate_hours: 3
 id: B440
 priority: high
 status: pending
-tags: []
-title: Investigate loading slash commands for Teams autocomplete menu - design abstraction for Telegram/Teams and future connectors
+tags:
+    - teams
+    - telegram
+    - slash-commands
+    - connector
+title: Implement slash command registration for Teams/Telegram autocomplete with priority-based manifest generation
 ---
-Goal: Make slash commands appear in the Teams autocomplete menu when typing '/'.
 
-Investigation needed:
-1. Research Teams bot framework capabilities for registering/updating slash commands dynamically
-2. Check Telegram's command registration mechanism for comparison
-3. Review current connector architecture (src/channel_*.ml, src/connector.ml)
+## Research Summary (completed)
 
-Design requirements:
-- Abstraction that works for both Telegram and Teams now
-- Extensible to future connectors (Discord, Slack, Matrix, etc.)
-- Likely needs a  function in the connector interface
-- Commands defined centrally in slash_commands.ml should be the source of truth
+### Platform capabilities:
 
-Acceptance criteria:
-- [ ] Research documented: what APIs each platform provides
-- [ ] Design proposed: connector abstraction for command registration
-- [ ] Implementation path clear for Teams + Telegram
+| Platform | Mechanism | Dynamic? | Limit |
+|----------|-----------|----------|-------|
+| **Telegram** | `setMyCommands` API (`bots.setBotCommands`) | ✅ Yes, runtime | ~100 |
+| **Teams** | App manifest `bots.commandLists[].commands[]` | ❌ No, requires app package update | 10 per scope |
+
+### Key findings:
+- Teams requires manifest update to change commands — no runtime API
+- Telegram can register commands dynamically via API
+- Teams limit: 10 commands per messaging extension/bot command list
+- Both use `{command/title, description}` structure
+
+## Implementation Plan
+
+### Phase 1: Priority field + CLI manifest generator
+
+1. Add `priority` field to `slash_commands.ml` command type
+2. Create `clawq manifest` CLI command:
+   - `clawq manifest teams [--output FILE]` — top 10 by priority
+   - `clawq manifest telegram [--output FILE]` — all commands as JSON payload
+3. Sort by priority, trim to platform limit, emit JSON
+
+### Phase 2: Adaptive Card /menu command
+
+4. Add `/menu` slash command that returns Adaptive Card with paginated command buttons
+5. Card renders commands as clickable buttons, grouped by category
+6. Works around Teams 10-command limit for full discoverability
+
+### Phase 3: Telegram runtime registration
+
+7. On daemon startup (or first Telegram connection), call `setMyCommands` with full command list
+8. Add connector interface method `register_commands` for future extensibility
+
+## Acceptance criteria
+- [ ] `priority` field added to command type
+- [ ] `clawq manifest teams` generates valid manifest fragment
+- [ ] `clawq manifest telegram` generates `setMyCommands` payload
+- [ ] `/menu` Adaptive Card implemented for Teams
+- [ ] Telegram calls `setMyCommands` on startup
+- [ ] Connector abstraction documented in TOOLS.md
+
+## Subtasks
+
+- [ ] **T1**: Add `priority` field to `slash_commands.ml` command type (0.5h)
+- [ ] **T2**: Implement `clawq manifest teams` CLI command (1h)
+- [ ] **T3**: Implement `clawq manifest telegram` CLI command (0.5h)
+- [ ] **T4**: Add `/menu` Adaptive Card command for Teams (1.5h)
+- [ ] **T5**: Call `setMyCommands` on Telegram connector startup (0.5h)
+- [ ] **T6**: Document connector abstraction in TOOLS.md (0.5h)
+
+**Total estimate**: 4.5h

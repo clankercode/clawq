@@ -1,0 +1,56 @@
+complexity: medium
+depends_on: []
+estimate_hours: 4
+id: P2.M4.E3
+locked: false
+name: Slash Command Registration & Tooling
+status: pending
+tasks:
+    - complexity: low
+      depends_on: []
+      estimate_hours: 0.5
+      file: T001-add-priority-field-to-slash-co.todo
+      id: T001
+      priority: high
+      status: pending
+      title: Add priority field to slash_commands.ml command type
+    - complexity: low
+      depends_on: []
+      estimate_hours: 1
+      file: T002-clawq-manifest-teams-cli.todo
+      id: T002
+      priority: high
+      status: pending
+      title: clawq manifest teams CLI
+    - complexity: low
+      depends_on: []
+      estimate_hours: 0.5
+      file: T003-clawq-manifest-telegram-cli.todo
+      id: T003
+      priority: high
+      status: pending
+      title: clawq manifest telegram CLI
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 1.5
+      file: T004-teams-menu-adaptive-card.todo
+      id: T004
+      priority: medium
+      status: pending
+      title: Teams /menu Adaptive Card
+    - complexity: low
+      depends_on: []
+      estimate_hours: 0.5
+      file: T005-telegram-setmycommands-on-star.todo
+      id: T005
+      priority: high
+      status: pending
+      title: Telegram setMyCommands on startup
+    - complexity: low
+      depends_on: []
+      estimate_hours: 0.5
+      file: T006-connector-command-registration.todo
+      id: T006
+      priority: low
+      status: pending
+      title: Connector command registration abstraction

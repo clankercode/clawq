@@ -1,0 +1,17 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 1
+id: P2.M4.E3.T002
+priority: high
+status: pending
+tags:
+    - idea
+    - planning
+title: clawq manifest teams CLI
+---
+CLI command: clawq manifest teams [--output FILE]
+- Reads slash_commands.ml command list (sorted by priority)
+- Takes top 10 (Teams limit) and outputs manifest JSON fragment
+- Output format: bots.commandLists[].commands[] entries
+- Can be piped or pasted into app manifest

@@ -1,0 +1,16 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 0.5
+id: P2.M4.E3.T006
+priority: low
+status: pending
+tags:
+    - idea
+    - planning
+title: Connector command registration abstraction
+---
+Document the connector abstraction pattern for command registration:
+- register_commands : (string * string) list -> unit Lwt.t
+- Platform-specific implementations (Telegram=API, Teams=manifest generator, future connectors)
+- Update connector.ml interface docs

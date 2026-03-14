@@ -1,0 +1,17 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1.5
+id: P2.M4.E3.T004
+priority: medium
+status: pending
+tags:
+    - idea
+    - planning
+title: Teams /menu Adaptive Card
+---
+Paginated command menu via Adaptive Card:
+- Triggers on /menu command
+- Shows all commands as clickable buttons (9 per page)
+- Categories/groups for organization
+- Works around Teams 10-command manifest limit
