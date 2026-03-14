@@ -1,0 +1,67 @@
+---
+complexity: high
+depends_on: []
+estimate_hours: 3
+id: B441
+priority: high
+status: pending
+tags: []
+title: Investigate and design unified status update abstraction for all connectors
+---
+Goal: Design a single abstraction pattern to handle all tool call status updates, thinking streaming, and message updates across all connectors (Telegram, Teams, Slack, Discord, Matrix, etc).
+
+## Background
+- Telegram supports editing/updating existing messages with status info during tool runs
+- Teams has its own message update/edit capabilities
+- Different platforms have different capabilities for live updates, editing, streaming
+- Currently each connector handles status updates independently with no shared abstraction
+
+## Investigation Required
+1. Research how Telegram message editing works (editMessageText API, inline message updates)
+2. Research Teams message update/edit capabilities and limitations
+3. Research Slack, Discord, Matrix message editing/streaming capabilities
+4. Document what each platform supports:
+   - Can messages be edited after sending?
+   - Is there a time limit for edits?
+   - Can inline/interactive elements be updated?
+   - Is streaming/real-time update possible?
+
+## Design Requirements
+
+### Core Abstraction Interface
+- Single interface for all tool call status updates
+- Output is a generic instruction set (new message, update existing, append, etc.)
+- Associated content described in a platform-agnostic DSL
+
+### Content DSL
+- Data structures describing content semantically (not presentation)
+- Examples: tables (headings, rows), lists, code blocks, status indicators
+- Each connector has a formatter that renders DSL to platform-native format
+- Markdown tables for Teams, HTML for others, plain text fallback, etc.
+
+### Status Update Types
+- Tool started
+- Tool in progress (with progress info)
+- Tool completed (with result summary)
+- Tool failed (with error info)
+- Thinking streaming vs finalized thinking
+- Message content updates
+
+### Thinking/Streaming Support
+- Handle thinking that can be streamed live vs finalized-only
+- Some platforms can't edit after sending - need to buffer until complete
+- Configurable per-connector behavior
+
+### Output Model
+- Interface emits events or calls callbacks
+- Output: instruction type + generic content
+- Instruction types: SEND_NEW, UPDATE_EXISTING, APPEND_TO, STREAM_TO, etc.
+- Content in DSL format for connector formatter to render
+
+## Acceptance Criteria
+- [ ] Research documented for each platform's update/edit capabilities
+- [ ] DSL designed for content representation (tables, lists, code, status)
+- [ ] Abstraction interface designed with instruction types and callbacks
+- [ ] Implementation plan for per-connector formatters
+- [ ] Migration path from current ad-hoc status handling
+- [ ] Plan for thinking/streaming support across platforms
