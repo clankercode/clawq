@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 2
+id: B447
+priority: high
+status: pending
+tags: []
+title: Markdown tables produced by LLM do not render correctly in Teams
+---
+LLM-generated markdown tables don't render properly when sent through the Teams connector. Need to investigate Teams markdown table support and either: (1) convert tables to Teams-compatible format before sending, (2) use Adaptive Cards for tabular data, or (3) provide a fallback format. Related to B428 which fixed slash command tables, but this is for general LLM output tables.
