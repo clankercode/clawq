@@ -30,7 +30,8 @@ tasks:
       file: T003-clawq-manifest-telegram-cli.todo
       id: T003
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: clawq manifest telegram CLI
     - complexity: medium
       depends_on: []

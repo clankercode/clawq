@@ -1,13 +1,13 @@
 ---
+completed_at: null
 complexity: low
 depends_on: []
 estimate_hours: 0.5
 id: P2.M4.E3.T003
 priority: high
-status: pending
-tags:
-    - idea
-    - planning
+started_at: null
+status: done
+tags: []
 title: clawq manifest telegram CLI
 ---
 CLI command: clawq manifest telegram -- output JSON payload for setMyCommands API (all commands, no limit)
