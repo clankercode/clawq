@@ -502,6 +502,16 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
           in
           send_message_fn ~bot_token:discord_config.bot_token
             ~channel_id:msg.channel_id ~text
+      | Status ->
+          let text =
+            Slash_commands.format_status ~connector:Format_adapter.Discord
+              ~db:(Session.get_db session_mgr)
+              ~session_count:(Session.session_count session_mgr)
+              ~active_count:(Session.active_session_count session_mgr)
+              ()
+          in
+          send_message_fn ~bot_token:discord_config.bot_token
+            ~channel_id:msg.channel_id ~text
       | Thinking Slash_commands.ShowThinking ->
           let current =
             (Session.get_config session_mgr).agent_defaults.reasoning_effort

@@ -33,6 +33,7 @@ type result =
   | Compact
   | RuntimeCtx
   | Uptime
+  | Status
   | Thinking of thinking_action
   | ShowThinking of show_thinking_action
   | Heartbeat of heartbeat_action
@@ -230,7 +231,7 @@ let handle text =
         | "compact" -> Compact
         | "runtime-ctx" | "runtime_ctx" -> RuntimeCtx
         | "uptime" -> Uptime
-        | "status" -> Reply "Bot is running."
+        | "status" -> Status
         | "thinking" -> (
             match args with
             | [] -> Thinking ShowThinking
@@ -906,3 +907,119 @@ let format_usage ~connector ~db action =
         ^ "\n"
         ^ Format_adapter.code_block connector
             (Table_format.render ~max_width:60 provider_columns rows)
+
+let read_daemon_state_json () =
+  try
+    let path = Filename.concat (Dot_dir.path ()) "daemon_state.json" in
+    if Sys.file_exists path then Some (Yojson.Safe.from_file path) else None
+  with _ -> None
+
+let format_status ~connector ~(db : Sqlite3.db option) ~session_count
+    ~active_count () =
+  let open Yojson.Safe.Util in
+  let daemon_json = read_daemon_state_json () in
+  let pid = Daemon_status.read_current_daemon_pid () in
+  let status_str = match pid with Some _ -> "Running" | None -> "Unknown" in
+  let uptime_str =
+    match pid with
+    | Some p -> (
+        match Daemon_status.daemon_uptime_suffix p with
+        | Some s -> s
+        | None -> "unavailable")
+    | None -> "not running"
+  in
+  let pid_str =
+    match pid with Some p -> string_of_int p | None -> "not running"
+  in
+  let version_str = Build_info.version_string in
+  let build_date_str = Build_info.build_date in
+  let sessions_str =
+    Printf.sprintf "%d total, %d active" session_count active_count
+  in
+  let db_sessions_str =
+    match db with
+    | Some db -> string_of_int (List.length (Memory.list_sessions ~db))
+    | None -> "n/a"
+  in
+  let gateway_str =
+    match daemon_json with
+    | Some json -> (
+        try
+          let host = json |> member "gateway_host" |> to_string in
+          let port = json |> member "gateway_port" |> to_int in
+          Printf.sprintf "%s:%d" host port
+        with _ -> "unknown")
+    | None -> "unknown"
+  in
+  let connector_status name field =
+    match daemon_json with
+    | Some json -> (
+        try
+          let enabled = json |> member field |> to_bool in
+          let running =
+            try
+              let components = json |> member "components" |> to_assoc in
+              match List.assoc_opt name components with
+              | Some (`String "running") -> true
+              | _ -> false
+            with _ -> false
+          in
+          if running then "+ running"
+          else if enabled then "~ enabled"
+          else "- disabled"
+        with _ -> "- disabled")
+    | None -> "? unknown"
+  in
+  let telegram_str = connector_status "telegram" "telegram_enabled" in
+  let discord_str = connector_status "discord" "discord_enabled" in
+  let slack_str = connector_status "slack" "slack_enabled" in
+  let teams_str = connector_status "teams" "teams_enabled" in
+  let github_str = connector_status "github" "github_enabled" in
+  let tunnel_str, tunnel_url =
+    match daemon_json with
+    | Some json -> (
+        try
+          let tunnel = json |> member "tunnel" in
+          if tunnel = `Null then ("inactive", None)
+          else
+            let url =
+              try Some (tunnel |> member "url" |> to_string) with _ -> None
+            in
+            ("active", url)
+        with _ -> ("inactive", None))
+    | None -> ("unknown", None)
+  in
+  let status_columns =
+    Table_format.
+      [
+        { header = "FIELD"; align = Left; min_width = 12; flex = false };
+        { header = "VALUE"; align = Left; min_width = 20; flex = true };
+      ]
+  in
+  let rows =
+    [
+      [ "Status"; status_str ];
+      [ "Uptime"; uptime_str ];
+      [ "PID"; pid_str ];
+      [ "Version"; version_str ];
+      [ "Build Date"; build_date_str ];
+      [ "Sessions"; sessions_str ];
+      [ "DB Sessions"; db_sessions_str ];
+      [ "Gateway"; gateway_str ];
+      [ "Telegram"; telegram_str ];
+      [ "Discord"; discord_str ];
+      [ "Slack"; slack_str ];
+      [ "Teams"; teams_str ];
+      [ "GitHub"; github_str ];
+      [ "Tunnel"; tunnel_str ];
+    ]
+  in
+  let rows =
+    match tunnel_url with
+    | Some url -> rows @ [ [ "Tunnel URL"; url ] ]
+    | None -> rows
+  in
+  Format_adapter.bold connector "Bot Status"
+  ^ "\n"
+  ^ Format_adapter.code_block connector
+      (Table_format.render ~max_width:60 status_columns rows)

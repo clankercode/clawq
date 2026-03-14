@@ -371,6 +371,22 @@ let handler ~session_manager ~require_pairing ~auth_token
                     in
                     Cohttp_lwt_unix.Server.respond_string ~status:`OK
                       ~headers:json_headers ~body:resp_json ()
+                | Slash_commands.Status ->
+                    let response =
+                      Slash_commands.format_status
+                        ~connector:Format_adapter.Plain
+                        ~db:(Session.get_db session_manager)
+                        ~session_count:(Session.session_count session_manager)
+                        ~active_count:
+                          (Session.active_session_count session_manager)
+                        ()
+                    in
+                    let resp_json =
+                      `Assoc [ ("response", `String response) ]
+                      |> Yojson.Safe.to_string
+                    in
+                    Cohttp_lwt_unix.Server.respond_string ~status:`OK
+                      ~headers:json_headers ~body:resp_json ()
                 | Slash_commands.Costs action ->
                     let response =
                       match Session.get_db session_manager with
@@ -899,6 +915,17 @@ let handler ~session_manager ~require_pairing ~auth_token
                     let text =
                       Daemon_status.daemon_uptime_reply
                         ~pid:(Daemon_status.read_current_daemon_pid ())
+                    in
+                    sse_reply text
+                | Slash_commands.Status ->
+                    let text =
+                      Slash_commands.format_status
+                        ~connector:Format_adapter.Plain
+                        ~db:(Session.get_db session_manager)
+                        ~session_count:(Session.session_count session_manager)
+                        ~active_count:
+                          (Session.active_session_count session_manager)
+                        ()
                     in
                     sse_reply text
                 | Slash_commands.Costs action ->

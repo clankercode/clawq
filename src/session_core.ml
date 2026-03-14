@@ -1039,6 +1039,12 @@ let get_config mgr = mgr.config
 let get_tool_registry mgr = mgr.tool_registry
 let get_db mgr = mgr.db
 let set_sandbox mgr sandbox = mgr.sandbox <- Some sandbox
+let session_count mgr = Hashtbl.length mgr.sessions
+
+let active_session_count mgr =
+  Hashtbl.fold
+    (fun _key state acc -> if state.active_scopes > 0 then acc + 1 else acc)
+    mgr.live_activity 0
 
 let update_config ?(source = "") mgr config =
   let old_model = mgr.config.Runtime_config.agent_defaults.primary_model in

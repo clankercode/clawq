@@ -123,7 +123,7 @@ Available in chat-integrated channels that support slash commands.
 - `/start` — show the ready message
 - `/help` — list available slash commands
 - `/new` — reset the current session
-- `/status` — report bot status
+- `/status` — rich table-formatted status report showing uptime, PID, version, build date, session counts, gateway address, connector states (Telegram/Discord/Slack/Teams/GitHub), and tunnel info
 - `/runtime_ctx` (alias `/runtime-ctx`) — show the full per-session runtime context block injected into the system prompt, including session identity, workspace, git branch, timezone, shell policy, context usage, and background task summary
 - `/thinking [low|medium|high|off|xhigh|max]` — show or set the current thinking level; `off` clears `agent_defaults.reasoning_effort`
 - `/heartbeat [on|off|status]` — show or toggle heartbeat routing for the current Telegram/Slack/Discord session; web sessions return an unsupported message

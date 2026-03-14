@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-14T04:59:07Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B434
 priority: high
-status: pending
+started_at: "2026-03-14T04:59:07Z"
+status: in_progress
 tags: []
 title: 'connectors + slash cmds: /status should report a rich set if information about the bots status in a table. including uptime, version info, # sessions, # active sessions, # connectors, tunnle, etc.'
 ---

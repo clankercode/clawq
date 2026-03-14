@@ -49,6 +49,7 @@ let result_to_string = function
   | Slash_commands.Model Slash_commands.ModelUsage -> "Model(Usage)"
   | Slash_commands.Model (Slash_commands.ModelSetDefault name) ->
       "Model(SetDefault " ^ name ^ ")"
+  | Slash_commands.Status -> "Status"
   | Slash_commands.DebugDumpChat -> "DebugDumpChat"
   | Slash_commands.NotACommand -> "NotACommand"
 
@@ -66,6 +67,7 @@ let result_eq a b =
   | Slash_commands.Compact, Slash_commands.Compact -> true
   | Slash_commands.RuntimeCtx, Slash_commands.RuntimeCtx -> true
   | Slash_commands.Uptime, Slash_commands.Uptime -> true
+  | Slash_commands.Status, Slash_commands.Status -> true
   | Slash_commands.ShowThinking a, Slash_commands.ShowThinking b -> a = b
   | Slash_commands.Heartbeat a, Slash_commands.Heartbeat b -> a = b
   | Slash_commands.Delegate a, Slash_commands.Delegate b -> a = b
@@ -134,11 +136,8 @@ let test_new () =
     (Slash_commands.handle "/new")
 
 let test_status () =
-  match Slash_commands.handle "/status" with
-  | Slash_commands.Reply _ -> ()
-  | other ->
-      Alcotest.fail
-        (Printf.sprintf "expected Reply, got %s" (result_to_string other))
+  Alcotest.check result_testable "status" Slash_commands.Status
+    (Slash_commands.handle "/status")
 
 let test_compact () =
   Alcotest.check result_testable "compact" Slash_commands.Compact
@@ -414,12 +413,8 @@ let test_usage_usage_on_invalid_args () =
         (Printf.sprintf "expected Reply(Usage), got %s" (result_to_string other))
 
 let test_leading_whitespace () =
-  match Slash_commands.handle "  /status  " with
-  | Slash_commands.Reply _ -> ()
-  | other ->
-      Alcotest.fail
-        (Printf.sprintf "expected Reply for padded /status, got %s"
-           (result_to_string other))
+  Alcotest.check result_testable "padded status" Slash_commands.Status
+    (Slash_commands.handle "  /status  ")
 
 let contains_str haystack needle =
   try
@@ -1073,6 +1068,51 @@ let test_is_secret_path () =
     "workspace is not secret" false
     (Config_set.is_secret_path "workspace")
 
+let test_format_status_plain () =
+  let text =
+    Slash_commands.format_status ~connector:Format_adapter.Plain ~db:None
+      ~session_count:5 ~active_count:2 ()
+  in
+  Alcotest.(check bool)
+    "contains Status field" true
+    (String_util.contains text "Status");
+  Alcotest.(check bool)
+    "contains Uptime field" true
+    (String_util.contains text "Uptime");
+  Alcotest.(check bool)
+    "contains Version field" true
+    (String_util.contains text "Version");
+  Alcotest.(check bool)
+    "contains Sessions field" true
+    (String_util.contains text "5 total, 2 active");
+  Alcotest.(check bool)
+    "contains DB Sessions n/a" true
+    (String_util.contains text "n/a");
+  Alcotest.(check bool)
+    "contains Gateway field" true
+    (String_util.contains text "Gateway");
+  Alcotest.(check bool)
+    "contains Telegram field" true
+    (String_util.contains text "Telegram");
+  Alcotest.(check bool)
+    "contains Discord field" true
+    (String_util.contains text "Discord")
+
+let test_format_status_telegram_html () =
+  let text =
+    Slash_commands.format_status ~connector:Format_adapter.Telegram_html
+      ~db:None ~session_count:3 ~active_count:1 ()
+  in
+  Alcotest.(check bool)
+    "contains bold tag" true
+    (String_util.contains text "<b>Bot Status</b>");
+  Alcotest.(check bool)
+    "contains pre tag" true
+    (String_util.contains text "<pre>");
+  Alcotest.(check bool)
+    "contains session counts" true
+    (String_util.contains text "3 total, 1 active")
+
 let suite =
   [
     Alcotest.test_case "handle /start" `Quick test_start;
@@ -1186,4 +1226,7 @@ let suite =
       test_model_set_explicit_unchanged;
     Alcotest.test_case "/model set with no name shows usage" `Quick
       test_model_bare_set_keyword_still_error;
+    Alcotest.test_case "format_status plain" `Quick test_format_status_plain;
+    Alcotest.test_case "format_status telegram html" `Quick
+      test_format_status_telegram_html;
   ]

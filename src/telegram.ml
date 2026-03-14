@@ -328,6 +328,17 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                 ~pid:(Daemon_status.read_current_daemon_pid ())
             in
             send_message ~bot_token ~chat_id:update.chat_id ~text ()
+        | Status ->
+            let text =
+              Slash_commands.format_status
+                ~connector:Format_adapter.Telegram_html
+                ~db:(Session.get_db session_mgr)
+                ~session_count:(Session.session_count session_mgr)
+                ~active_count:(Session.active_session_count session_mgr)
+                ()
+            in
+            send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
+              ~text ()
         | Thinking Slash_commands.ShowThinking ->
             let current =
               (Session.get_config session_mgr).agent_defaults.reasoning_effort

@@ -388,6 +388,18 @@ let handle_event ~(config : Runtime_config.slack_config)
                   send_message_fn ~bot_token:config.bot_token ~channel_id ~text
                 in
                 Lwt.return "ok"
+            | Status ->
+                let text =
+                  Slash_commands.format_status ~connector:Format_adapter.Slack
+                    ~db:(Session.get_db session_manager)
+                    ~session_count:(Session.session_count session_manager)
+                    ~active_count:(Session.active_session_count session_manager)
+                    ()
+                in
+                let* () =
+                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
+                in
+                Lwt.return "ok"
             | Thinking Slash_commands.ShowThinking ->
                 let current =
                   (Session.get_config session_manager).agent_defaults

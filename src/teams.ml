@@ -555,6 +555,17 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                     send_text
                       (Daemon_status.daemon_uptime_reply
                          ~pid:(Daemon_status.read_current_daemon_pid ()))
+                | Status ->
+                    let text =
+                      Slash_commands.format_status
+                        ~connector:Format_adapter.Teams
+                        ~db:(Session.get_db session_manager)
+                        ~session_count:(Session.session_count session_manager)
+                        ~active_count:
+                          (Session.active_session_count session_manager)
+                        ()
+                    in
+                    send_text text
                 | Thinking Slash_commands.ShowThinking ->
                     let current =
                       (Session.get_config session_manager).agent_defaults
