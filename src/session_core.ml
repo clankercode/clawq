@@ -48,6 +48,7 @@ type t = {
   silent_channel_notifiers : (string, string -> unit Lwt.t) Hashtbl.t;
   alert_channel_notifiers : (string, string -> unit Lwt.t) Hashtbl.t;
   status_message_factories : (string, unit -> Status_message.t) Hashtbl.t;
+  connector_capabilities : (string, Connector_capabilities.t) Hashtbl.t;
   interrupt_finalizers : (string, unit -> unit Lwt.t) Hashtbl.t;
   rich_notifiers :
     (string, Rich_message.t -> Rich_message.send_result Lwt.t) Hashtbl.t;
@@ -253,6 +254,7 @@ let create ~config ?tool_registry ?sandbox ?(landlock_enabled = false) ?db () =
     silent_channel_notifiers = Hashtbl.create 16;
     alert_channel_notifiers = Hashtbl.create 16;
     status_message_factories = Hashtbl.create 16;
+    connector_capabilities = Hashtbl.create 16;
     interrupt_finalizers = Hashtbl.create 8;
     rich_notifiers = Hashtbl.create 16;
     deferred_responses = Hashtbl.create 16;
@@ -303,6 +305,7 @@ let unregister_channel_notifier mgr ~key =
   Hashtbl.remove mgr.silent_channel_notifiers key;
   Hashtbl.remove mgr.alert_channel_notifiers key;
   Hashtbl.remove mgr.status_message_factories key;
+  Hashtbl.remove mgr.connector_capabilities key;
   Hashtbl.remove mgr.interrupt_finalizers key
 
 let register_silent_channel_notifier mgr ~key notify =
@@ -319,6 +322,12 @@ let find_alert_channel_notifier mgr ~key =
 
 let register_status_message_factory mgr ~key factory =
   Hashtbl.replace mgr.status_message_factories key factory
+
+let register_connector_capabilities mgr ~key caps =
+  Hashtbl.replace mgr.connector_capabilities key caps
+
+let find_connector_capabilities mgr ~key =
+  Hashtbl.find_opt mgr.connector_capabilities key
 
 let register_interrupt_finalizer mgr ~key cb =
   Hashtbl.replace mgr.interrupt_finalizers key cb

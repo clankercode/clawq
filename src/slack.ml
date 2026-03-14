@@ -275,7 +275,9 @@ let handle_event ~(config : Runtime_config.slack_config)
                   make_status_notifier ~bot_token:config.bot_token ~channel_id
                 in
                 Status_message.create ~notifier
-                  ~parse_mode:Connector_status.Slack.status_parse_mode ())
+                  ~parse_mode:Connector_status.Slack.status_parse_mode ());
+            Session.register_connector_capabilities session_manager ~key
+              Connector_capabilities.slack
           end;
           if Update_tool.is_update_command text then begin
             let notify text =
@@ -796,19 +798,31 @@ let handle_event ~(config : Runtime_config.slack_config)
                       set_reaction_on_single timestamp emoji)
                     ~emoji:emoji_name
                 in
-                let thinking_buf = Buffer.create 256 in
-                let status_msg =
+                let notifier_factory =
                   if use_consolidated then
-                    let status_notifier =
-                      make_status_notifier ~bot_token:config.bot_token
-                        ~channel_id
-                    in
                     Some
-                      (Status_message.create ~notifier:status_notifier
-                         ~parse_mode:Connector_status.Slack.status_parse_mode ())
+                      (fun () ->
+                        let status_notifier =
+                          make_status_notifier ~bot_token:config.bot_token
+                            ~channel_id
+                        in
+                        Status_message.create ~notifier:status_notifier
+                          ~parse_mode:Connector_status.Slack.status_parse_mode
+                          ())
                   else None
                 in
-                let visibility = Stream_visibility.create () in
+                let strategy =
+                  Status_update.select_strategy ~agent_defaults
+                    ~capabilities:(Some Connector_capabilities.slack)
+                in
+                let handler =
+                  Status_update.make_handler ~strategy ~notifier_factory
+                    ~notify:(fun text ->
+                      send_message_fn ~bot_token:config.bot_token ~channel_id
+                        ~text)
+                    ~agent_defaults
+                    ~parse_mode:Connector_status.Slack.status_parse_mode
+                in
                 let on_chunk chunk =
                   (match chunk with
                   | Provider.ToolStart _ ->
@@ -819,39 +833,7 @@ let handle_event ~(config : Runtime_config.slack_config)
                               (Connector_status.Slack.phase_emoji Processing))
                       end
                   | _ -> ());
-                  match status_msg with
-                  | Some sm -> (
-                      match chunk with
-                      | Provider.ToolStart { id; name; arguments } ->
-                          let summary =
-                            Stream_visibility.summarize_tool_arguments ~name
-                              arguments
-                          in
-                          Status_message.tool_start sm ~id ~name ~summary
-                      | Provider.ToolResult { id; name; result; is_error } ->
-                          Status_message.tool_result sm ~id ~name ~result
-                            ~is_error
-                      | Provider.ThinkingDelta text ->
-                          if agent_defaults.show_thinking then
-                            Buffer.add_string thinking_buf text;
-                          Lwt.return_unit
-                      | Provider.Delta _ | Provider.ToolCallDelta _
-                      | Provider.ToolOutputDelta _ | Provider.Done ->
-                          Lwt.return_unit)
-                  | None ->
-                      let settings : Stream_visibility.settings =
-                        {
-                          show_thinking = agent_defaults.show_thinking;
-                          show_tool_calls = agent_defaults.show_tool_calls;
-                          notify_tool_starts = false;
-                          notify_tool_successes = true;
-                        }
-                      in
-                      Stream_visibility.on_chunk visibility ~settings
-                        ~notify:(fun text ->
-                          send_message_fn ~bot_token:config.bot_token
-                            ~channel_id ~text)
-                        chunk
+                  handler.on_chunk chunk
                 in
                 let* () =
                   set_reaction (Connector_status.Slack.phase_emoji Received)
@@ -913,16 +895,8 @@ let handle_event ~(config : Runtime_config.slack_config)
                     Lwt.return_unit
                   else
                     let open Lwt.Syntax in
-                    let* () =
-                      match status_msg with
-                      | Some sm -> Status_message.finalize sm
-                      | None -> Lwt.return_unit
-                    in
-                    let thinking =
-                      match status_msg with
-                      | Some _ -> Buffer.contents thinking_buf
-                      | None -> Stream_visibility.thinking_text visibility
-                    in
+                    let* () = handler.finalize () in
+                    let thinking = handler.get_thinking () in
                     let* () =
                       if thinking <> "" then
                         send_message_fn ~bot_token:config.bot_token ~channel_id
@@ -981,16 +955,8 @@ let handle_event ~(config : Runtime_config.slack_config)
                             ~response);
                       Lwt.return "ok")
                     else
-                      let* () =
-                        match status_msg with
-                        | Some sm -> Status_message.finalize sm
-                        | None -> Lwt.return_unit
-                      in
-                      let thinking =
-                        match status_msg with
-                        | Some _ -> Buffer.contents thinking_buf
-                        | None -> Stream_visibility.thinking_text visibility
-                      in
+                      let* () = handler.finalize () in
+                      let thinking = handler.get_thinking () in
                       let* () =
                         if thinking <> "" then
                           send_message_fn ~bot_token:config.bot_token
@@ -1029,11 +995,7 @@ let handle_event ~(config : Runtime_config.slack_config)
                     Logs.err (fun m ->
                         m "Slack agent error for channel=%s user=%s: %s"
                           channel_id user_id err);
-                    let* () =
-                      match status_msg with
-                      | Some sm -> Status_message.finalize sm
-                      | None -> Lwt.return_unit
-                    in
+                    let* () = handler.finalize () in
                     let* () =
                       send_message_fn ~bot_token:config.bot_token ~channel_id
                         ~text:

@@ -1547,7 +1547,6 @@ let test_consolidated_status_on_chunk_hides_thinking_when_disabled () =
   let thinking =
     "this hidden chain of thought is long enough to force a send"
   in
-  let thinking_buf = Buffer.create 64 in
   let agent_defaults =
     {
       Runtime_config.default.agent_defaults with
@@ -1555,12 +1554,15 @@ let test_consolidated_status_on_chunk_hides_thinking_when_disabled () =
       show_tool_calls = true;
     }
   in
-  Lwt_main.run
-    (Session.consolidated_status_on_chunk ~agent_defaults ~thinking_buf sm
-       (Provider.ThinkingDelta thinking));
+  let handler =
+    Status_update.make_handler ~strategy:Consolidated
+      ~notifier_factory:(Some (fun () -> sm))
+      ~notify:(fun _ -> Lwt.return_unit)
+      ~agent_defaults ~parse_mode:"Markdown"
+  in
+  Lwt_main.run (handler.on_chunk (Provider.ThinkingDelta thinking));
   Alcotest.(check string)
-    "thinking buffer remains empty" ""
-    (Buffer.contents thinking_buf);
+    "thinking buffer remains empty" "" (handler.get_thinking ());
   Alcotest.(check string)
     "status render stays empty" "" (Status_message.render sm);
   Alcotest.(check int) "no status message sent" 0 (List.length !sent);
@@ -1573,7 +1575,6 @@ let test_consolidated_status_on_chunk_shows_thinking_when_enabled () =
       ~parse_mode:"Markdown" ()
   in
   let thinking = "visible plan for the user" in
-  let thinking_buf = Buffer.create 64 in
   let agent_defaults =
     {
       Runtime_config.default.agent_defaults with
@@ -1581,12 +1582,15 @@ let test_consolidated_status_on_chunk_shows_thinking_when_enabled () =
       show_tool_calls = true;
     }
   in
-  Lwt_main.run
-    (Session.consolidated_status_on_chunk ~agent_defaults ~thinking_buf sm
-       (Provider.ThinkingDelta thinking));
+  let handler =
+    Status_update.make_handler ~strategy:Consolidated
+      ~notifier_factory:(Some (fun () -> sm))
+      ~notify:(fun _ -> Lwt.return_unit)
+      ~agent_defaults ~parse_mode:"Markdown"
+  in
+  Lwt_main.run (handler.on_chunk (Provider.ThinkingDelta thinking));
   Alcotest.(check string)
-    "thinking buffer captures text" thinking
-    (Buffer.contents thinking_buf);
+    "thinking buffer captures text" thinking (handler.get_thinking ());
   Alcotest.(check bool)
     "status render includes thinking" true
     (string_contains (Status_message.render sm) thinking);

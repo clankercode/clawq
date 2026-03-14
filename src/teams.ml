@@ -315,41 +315,117 @@ let send_reply ?(alert = false) ~(config : Runtime_config.teams_config)
           "Teams: service_url is empty or missing scheme (service_url=%S, \
            conversation_id=%S); cannot send reply"
           service_url conversation_id);
-    Lwt.return_unit
+    Lwt.return ""
   end
   else
     let* token_opt = fetch_token ~config in
     match token_opt with
     | None ->
         Logs.err (fun m -> m "Teams: cannot send reply, no OAuth token");
-        Lwt.return_unit
+        Lwt.return ""
     | Some token ->
         let chunks = split_message text in
-        Lwt_list.iter_s
-          (fun chunk ->
-            let uri =
-              if reply_to_id = "" then
-                Printf.sprintf "%s/v3/conversations/%s/activities"
-                  (String.trim service_url)
-                  (Uri.pct_encode conversation_id)
+        let last_id = ref "" in
+        let* () =
+          Lwt_list.iter_s
+            (fun chunk ->
+              let uri =
+                if reply_to_id = "" then
+                  Printf.sprintf "%s/v3/conversations/%s/activities"
+                    (String.trim service_url)
+                    (Uri.pct_encode conversation_id)
+                else
+                  Printf.sprintf "%s/v3/conversations/%s/activities/%s"
+                    (String.trim service_url)
+                    (Uri.pct_encode conversation_id)
+                    (Uri.pct_encode reply_to_id)
+              in
+              let headers = [ ("Authorization", "Bearer " ^ token) ] in
+              let body =
+                build_reply_body ~alert ~text:chunk ~mention
+                  ~mention_mode:config.mention_mode
+              in
+              let* status, resp = Http_client.post_json ~uri ~headers ~body in
+              if status >= 200 && status < 300 then begin
+                try
+                  let json = Yojson.Safe.from_string resp in
+                  let open Yojson.Safe.Util in
+                  let id =
+                    try json |> member "id" |> to_string with _ -> ""
+                  in
+                  if id <> "" then last_id := id
+                with _ -> ()
+              end
               else
-                Printf.sprintf "%s/v3/conversations/%s/activities/%s"
-                  (String.trim service_url)
-                  (Uri.pct_encode conversation_id)
-                  (Uri.pct_encode reply_to_id)
-            in
-            let headers = [ ("Authorization", "Bearer " ^ token) ] in
-            let body =
-              build_reply_body ~alert ~text:chunk ~mention
-                ~mention_mode:config.mention_mode
-            in
-            let* status, resp = Http_client.post_json ~uri ~headers ~body in
-            if status < 200 || status >= 300 then
-              Logs.warn (fun m ->
-                  m "Teams: send_reply failed (HTTP %d) conv=%s: %s" status
-                    conversation_id resp);
-            Lwt.return_unit)
-          chunks
+                Logs.warn (fun m ->
+                    m "Teams: send_reply failed (HTTP %d) conv=%s: %s" status
+                      conversation_id resp);
+              Lwt.return_unit)
+            chunks
+        in
+        Lwt.return !last_id
+
+let edit_activity ~(config : Runtime_config.teams_config) ~service_url
+    ~conversation_id ~activity_id ~text () =
+  let open Lwt.Syntax in
+  let* token_opt = fetch_token ~config in
+  match token_opt with
+  | None ->
+      Logs.err (fun m -> m "Teams: cannot edit activity, no OAuth token");
+      Lwt.return_unit
+  | Some token ->
+      let uri =
+        Printf.sprintf "%s/v3/conversations/%s/activities/%s"
+          (String.trim service_url)
+          (Uri.pct_encode conversation_id)
+          (Uri.pct_encode activity_id)
+      in
+      let headers = [ ("Authorization", "Bearer " ^ token) ] in
+      let body =
+        `Assoc
+          [
+            ("type", `String "message");
+            ("textFormat", `String "markdown");
+            ("text", `String text);
+          ]
+        |> Yojson.Safe.to_string
+      in
+      let* status, resp = Http_client.put_json ~uri ~headers ~body in
+      if status < 200 || status >= 300 then
+        Logs.warn (fun m ->
+            m "Teams: edit_activity failed (HTTP %d) conv=%s activity=%s: %s"
+              status conversation_id activity_id resp);
+      Lwt.return_unit
+
+let delete_activity ~(config : Runtime_config.teams_config) ~service_url
+    ~conversation_id ~activity_id () =
+  let open Lwt.Syntax in
+  let* token_opt = fetch_token ~config in
+  match token_opt with
+  | None ->
+      Logs.err (fun m -> m "Teams: cannot delete activity, no OAuth token");
+      Lwt.return_unit
+  | Some token ->
+      let uri =
+        Printf.sprintf "%s/v3/conversations/%s/activities/%s"
+          (String.trim service_url)
+          (Uri.pct_encode conversation_id)
+          (Uri.pct_encode activity_id)
+      in
+      let headers =
+        Cohttp.Header.of_list [ ("Authorization", "Bearer " ^ token) ]
+      in
+      let uri_obj = Uri.of_string uri in
+      let* resp, resp_body = Cohttp_lwt_unix.Client.delete ~headers uri_obj in
+      let status = Cohttp.Response.status resp |> Cohttp.Code.code_of_status in
+      if status < 200 || status >= 300 then begin
+        let* body_str = Cohttp_lwt.Body.to_string resp_body in
+        Logs.warn (fun m ->
+            m "Teams: delete_activity failed (HTTP %d) conv=%s activity=%s: %s"
+              status conversation_id activity_id body_str);
+        Lwt.return_unit
+      end
+      else Lwt.return_unit
 
 let send_adaptive_card ~(config : Runtime_config.teams_config) ~service_url
     ~conversation_id ~reply_to_id ~card () =
@@ -379,6 +455,27 @@ let send_adaptive_card ~(config : Runtime_config.teams_config) ~service_url
             m "Teams: send_adaptive_card failed (HTTP %d) conv=%s: %s" status
               conversation_id resp);
       Lwt.return_unit
+
+let make_status_notifier ~(config : Runtime_config.teams_config) ~service_url
+    ~conversation_id ~reply_to_id : Status_message.notifier =
+  {
+    send =
+      (fun ?parse_mode:_ text ->
+        send_reply ~alert:false ~config ~service_url ~conversation_id
+          ~reply_to_id ~text ());
+    edit =
+      (fun msg_id ?parse_mode:_ text ->
+        let open Lwt.Syntax in
+        let* () =
+          edit_activity ~config ~service_url ~conversation_id
+            ~activity_id:msg_id ~text ()
+        in
+        Lwt.return None);
+    delete =
+      (fun msg_id ->
+        delete_activity ~config ~service_url ~conversation_id
+          ~activity_id:msg_id ());
+  }
 
 let send_message ~(config : Runtime_config.teams_config) ~channel_id ~text =
   let service_url, conversation_id = decode_channel_id channel_id in
@@ -549,9 +646,13 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                   else None
                 in
                 let send_text text =
-                  send_reply ~alert:true ~config
-                    ~service_url:effective_service_url ~conversation_id
-                    ~reply_to_id:activity_id ~text ?mention ()
+                  let open Lwt.Syntax in
+                  let* _id =
+                    send_reply ~alert:true ~config
+                      ~service_url:effective_service_url ~conversation_id
+                      ~reply_to_id:activity_id ~text ?mention ()
+                  in
+                  Lwt.return_unit
                 in
                 (* Ensure a typing indicator watcher is running for this
                    session. The watcher tracks Session live_activity and
@@ -567,10 +668,28 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                 let refresh_typing () = typing_watcher.refresh () in
                 match Slash_commands.handle text with
                 | NotACommand -> (
+                    (* Register status message factory and capabilities *)
+                    if
+                      Option.is_none
+                        (Session.find_connector_capabilities session_manager
+                           ~key)
+                    then begin
+                      Session.register_connector_capabilities session_manager
+                        ~key Connector_capabilities.teams;
+                      Session.register_status_message_factory session_manager
+                        ~key (fun () ->
+                          let notifier =
+                            make_status_notifier ~config
+                              ~service_url:effective_service_url
+                              ~conversation_id ~reply_to_id:activity_id
+                          in
+                          Status_message.create ~notifier ~parse_mode:"Markdown"
+                            ())
+                    end;
                     (* Register alerting notifier for ask_user_question *)
                     Session.register_alert_channel_notifier session_manager ~key
                       (fun reply_text ->
-                        let* () =
+                        let* _id =
                           send_reply ~alert:true ~config
                             ~service_url:effective_service_url ~conversation_id
                             ~reply_to_id:activity_id ~text:reply_text ?mention
@@ -583,7 +702,7 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                         ~notify:(fun reply_text ->
                           (* No mention on intermediate updates — mention only
                              on the final response to avoid repeated tagging. *)
-                          let* () =
+                          let* _id =
                             send_reply ~alert:false ~config
                               ~service_url:effective_service_url
                               ~conversation_id ~reply_to_id:activity_id
@@ -613,9 +732,13 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                         if Session.is_queued_message_response response then
                           Lwt.return_unit
                         else
-                          send_reply ~alert:true ~config
-                            ~service_url:effective_service_url ~conversation_id
-                            ~reply_to_id:activity_id ~text:response ?mention ()
+                          let* _id =
+                            send_reply ~alert:true ~config
+                              ~service_url:effective_service_url
+                              ~conversation_id ~reply_to_id:activity_id
+                              ~text:response ?mention ()
+                          in
+                          Lwt.return_unit
                     | Error err ->
                         Logs.err (fun m ->
                             m

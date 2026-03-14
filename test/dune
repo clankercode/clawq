@@ -116,7 +116,10 @@
   test_worktree_merge
   test_table_format
   test_markdown_util
-  test_error_watcher)
+  test_error_watcher
+  test_connector_capabilities
+  test_status_update
+  test_content_dsl)
  (libraries
   clawq_extracted
   clawq_runtime_core

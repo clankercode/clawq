@@ -26,6 +26,9 @@
   connector_status
   reaction_tracker
   status_message
+  connector_capabilities
+  status_update
+  content_dsl
   workspace_scaffold
   string_util
   path_util

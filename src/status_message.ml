@@ -91,20 +91,16 @@ let fmt_code t text =
 
 let fmt_plain t text = Format_adapter.escape t.connector text
 
-let render t =
-  let buf = Buffer.create 256 in
+let to_document t =
   let total = Hashtbl.length t.tools in
   if total = 0 then
     if t.thinking_text <> "" then
-      Printf.sprintf "\xF0\x9F\x92\xAD %s"
-        (fmt_italic t
-           (Stream_visibility.truncate_text ~max_chars:200 t.thinking_text))
-    else ""
+      [ Content_dsl.ThinkingPreview t.thinking_text ]
+    else []
   else
     let entries_in_order =
       Queue.fold (fun acc id -> id :: acc) [] t.tool_order |> List.rev
     in
-    (* Separate entries by state, preserving chronological insertion order *)
     let done_and_failed = ref [] in
     let running = ref [] in
     let pending = ref [] in
@@ -119,14 +115,13 @@ let render t =
             | Pending -> pending := entry :: !pending))
       entries_in_order;
     let all_done_list = List.rev !done_and_failed in
-    let running = List.rev !running in
-    let pending = List.rev !pending in
+    let running_list = List.rev !running in
+    let pending_list = List.rev !pending in
     let all_done =
-      List.length running = 0
-      && List.length pending = 0
+      List.length running_list = 0
+      && List.length pending_list = 0
       && total = t.total_done + t.total_failed
     in
-    (* Collapsing: if more than 8 done/failed, collapse all but last 2 *)
     let n_done = List.length all_done_list in
     let collapsed_count, visible_done =
       if n_done > 8 && not t.finalized then
@@ -137,11 +132,9 @@ let render t =
         (to_collapse, visible)
       else (0, all_done_list)
     in
-    (* Render collapsed line *)
+    let doc = ref [] in
     if collapsed_count > 0 then
-      Buffer.add_string buf
-        (Printf.sprintf "\xE2\x9C\x93 %d tools completed\n" collapsed_count);
-    (* Render visible done/failed in chronological order *)
+      doc := Content_dsl.CollapsedTools { count = collapsed_count } :: !doc;
     List.iter
       (fun (entry : tool_entry) ->
         match entry.state with
@@ -150,93 +143,90 @@ let render t =
               match entry.finished_at with
               | Some fin ->
                   let dur = fin -. entry.started_at in
-                  if dur > 1.0 then " " ^ format_duration dur else ""
-              | None -> ""
+                  if dur > 1.0 then Some (format_duration dur) else None
+              | None -> None
             in
-            let summary_part =
-              match entry.summary with
-              | Some s -> Printf.sprintf " \xE2\x80\x94 %s" (fmt_code t s)
-              | None -> ""
-            in
-            let preview_part =
-              match entry.result_preview with
-              | Some p -> Printf.sprintf " \xE2\x86\x92 %s" (fmt_italic t p)
-              | None -> ""
-            in
-            Buffer.add_string buf
-              (Printf.sprintf "\xE2\x9C\x93 %s %s%s%s%s\n" entry.emoji
-                 (fmt_bold t entry.name) summary_part preview_part
-                 (fmt_plain t timing))
+            doc :=
+              Content_dsl.ToolEntry
+                {
+                  emoji = entry.emoji;
+                  name = entry.name;
+                  summary = entry.summary;
+                  state = Content_dsl.Done;
+                  timing;
+                  preview = entry.result_preview;
+                  error_detail = None;
+                  connector_char = None;
+                }
+              :: !doc
         | Failed ->
-            let summary_part =
-              match entry.summary with
-              | Some s -> Printf.sprintf " \xE2\x80\x94 %s" (fmt_code t s)
-              | None -> ""
-            in
-            let error_part =
-              match entry.error_detail with
-              | Some err ->
-                  Printf.sprintf "\n  \xE2\x94\x94 %s" (fmt_italic t err)
-              | None -> ""
-            in
-            Buffer.add_string buf
-              (Printf.sprintf "\xE2\x9C\x97 %s %s%s%s\n" entry.emoji
-                 (fmt_bold t entry.name) summary_part error_part)
+            doc :=
+              Content_dsl.ToolEntry
+                {
+                  emoji = entry.emoji;
+                  name = entry.name;
+                  summary = entry.summary;
+                  state = Content_dsl.Failed;
+                  timing = None;
+                  preview = None;
+                  error_detail = entry.error_detail;
+                  connector_char = None;
+                }
+              :: !doc
         | _ -> ())
       visible_done;
-    (* Render running with box drawing *)
-    let active_items = running @ pending in
+    let active_items = running_list @ pending_list in
     let n_active = List.length active_items in
     let active_idx = ref 0 in
     List.iter
       (fun (entry : tool_entry) ->
         incr active_idx;
-        let connector =
-          if !active_idx = n_active then "\xE2\x94\x97 " (* ┗ *)
-          else "\xE2\x94\xA3 " (* ┣ *)
-        in
-        let summary_part =
-          match entry.summary with
-          | Some s -> Printf.sprintf " \xE2\x80\x94 %s" (fmt_code t s)
-          | None -> ""
+        let connector_char =
+          if !active_idx = n_active then "\xE2\x94\x97 " else "\xE2\x94\xA3 "
         in
         let elapsed = Unix.gettimeofday () -. entry.started_at in
         let timing =
-          if elapsed > 5.0 then " " ^ format_duration elapsed ^ "..." else ""
+          if elapsed > 5.0 then Some (format_duration elapsed ^ "...") else None
         in
-        Buffer.add_string buf
-          (Printf.sprintf "%s\xE2\x97\x89 %s %s%s%s\n" connector entry.emoji
-             (fmt_bold t entry.name) summary_part (fmt_plain t timing)))
-      running;
+        doc :=
+          Content_dsl.ToolEntry
+            {
+              emoji = entry.emoji;
+              name = entry.name;
+              summary = entry.summary;
+              state = Content_dsl.Running;
+              timing;
+              preview = None;
+              error_detail = None;
+              connector_char = Some connector_char;
+            }
+          :: !doc)
+      running_list;
     List.iter
       (fun (entry : tool_entry) ->
         incr active_idx;
-        let connector =
-          if !active_idx = n_active then "\xE2\x94\x97 " (* ┗ *)
-          else "\xE2\x94\xA3 " (* ┣ *)
+        let connector_char =
+          if !active_idx = n_active then "\xE2\x94\x97 " else "\xE2\x94\xA3 "
         in
-        Buffer.add_string buf
-          (Printf.sprintf "%s\xE2\x97\x8B %s %s\n" connector entry.emoji
-             entry.name))
-      pending;
-    (* Progress bar + counter *)
-    (if List.length running > 0 && total > 1 then
-       let done_count = t.total_done + t.total_failed in
-       let bar_width = 8 in
-       let filled = if total > 0 then done_count * bar_width / total else 0 in
-       let empty = bar_width - filled in
-       let repeat n s =
-         let buf = Buffer.create (n * String.length s) in
-         for _ = 1 to n do
-           Buffer.add_string buf s
-         done;
-         Buffer.contents buf
-       in
-       let bar = repeat filled "\xE2\x96\x93" ^ repeat empty "\xE2\x96\x91" in
-       Buffer.add_string buf (Printf.sprintf "%s %d/%d\n" bar done_count total));
-    (* Summary footer when all done and total >= 4 *)
-    if all_done && total >= 4 then (
-      (* Build emoji breakdown *)
+        doc :=
+          Content_dsl.ToolEntry
+            {
+              emoji = entry.emoji;
+              name = entry.name;
+              summary = None;
+              state = Content_dsl.Pending;
+              timing = None;
+              preview = None;
+              error_detail = None;
+              connector_char = Some connector_char;
+            }
+          :: !doc)
+      pending_list;
+    if List.length running_list > 0 && total > 1 then begin
+      let done_count = t.total_done + t.total_failed in
+      doc := Content_dsl.ProgressBar { filled = 0; total; done_count } :: !doc
+    end;
+    if all_done && total >= 4 then begin
       let emoji_counts = Hashtbl.create 8 in
       List.iter
         (fun id ->
@@ -265,16 +255,16 @@ let render t =
       let parallel_indicator =
         if t.parallel_batch_size > 1 then " \xC2\xB7 \xF0\x9F\x94\x80" else ""
       in
-      Buffer.add_string buf
-        (Printf.sprintf
-           "\xE2\x94\x81\xE2\x94\x81\xE2\x94\x81\xE2\x94\x81\xE2\x94\x81\xE2\x94\x81\xE2\x94\x81\xE2\x94\x81\xE2\x94\x81\xE2\x94\x81\n\
-            \xF0\x9F\x9B\xA0\xEF\xB8\x8F %d tools \xC2\xB7 %s%s \xC2\xB7 %s"
-           total emoji_breakdown parallel_indicator total_time));
-    (* Trim trailing newline *)
-    let result = Buffer.contents buf in
-    let len = String.length result in
-    if len > 0 && result.[len - 1] = '\n' then String.sub result 0 (len - 1)
-    else result
+      doc :=
+        Content_dsl.ToolSummary
+          { total; emoji_breakdown; parallel_indicator; total_time }
+        :: !doc
+    end;
+    List.rev !doc
+
+let render t =
+  let doc = to_document t in
+  if doc = [] then "" else Content_dsl.render_document t.connector doc
 
 (* Debounced send or edit, serialized with a mutex to prevent duplicate sends.
    When callers arrive while an edit is in-flight, they mark a pending rerender

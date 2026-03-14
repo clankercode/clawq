@@ -18,21 +18,87 @@ let auth_header ~(cfg : Runtime_config.matrix_config) =
 let send_message ~(cfg : Runtime_config.matrix_config) ~room_id ~text =
   let open Lwt.Syntax in
   let chunks = chunk_text text in
-  Lwt_list.iter_s
-    (fun chunk ->
-      let txn_id = make_txn_id ~room_id in
-      let uri =
-        Printf.sprintf "%s/_matrix/client/v3/rooms/%s/send/m.room.message/%s"
-          cfg.homeserver_url (Uri.pct_encode room_id) txn_id
-      in
-      let body =
-        `Assoc [ ("msgtype", `String "m.text"); ("body", `String chunk) ]
-        |> Yojson.Safe.to_string
-      in
-      let headers = auth_header ~cfg in
-      let* _status, _body = Http_client.put_json ~uri ~headers ~body in
-      Lwt.return_unit)
-    chunks
+  let last_event_id = ref "" in
+  let* () =
+    Lwt_list.iter_s
+      (fun chunk ->
+        let txn_id = make_txn_id ~room_id in
+        let uri =
+          Printf.sprintf "%s/_matrix/client/v3/rooms/%s/send/m.room.message/%s"
+            cfg.homeserver_url (Uri.pct_encode room_id) txn_id
+        in
+        let body =
+          `Assoc [ ("msgtype", `String "m.text"); ("body", `String chunk) ]
+          |> Yojson.Safe.to_string
+        in
+        let headers = auth_header ~cfg in
+        let* status, resp_body = Http_client.put_json ~uri ~headers ~body in
+        if status >= 200 && status < 300 then begin
+          try
+            let json = Yojson.Safe.from_string resp_body in
+            let open Yojson.Safe.Util in
+            let eid =
+              try json |> member "event_id" |> to_string with _ -> ""
+            in
+            if eid <> "" then last_event_id := eid
+          with _ -> ()
+        end;
+        Lwt.return_unit)
+      chunks
+  in
+  Lwt.return !last_event_id
+
+let edit_message ~(cfg : Runtime_config.matrix_config) ~room_id ~event_id ~text
+    =
+  let open Lwt.Syntax in
+  let txn_id = make_txn_id ~room_id in
+  let uri =
+    Printf.sprintf "%s/_matrix/client/v3/rooms/%s/send/m.room.message/%s"
+      cfg.homeserver_url (Uri.pct_encode room_id) txn_id
+  in
+  let body =
+    `Assoc
+      [
+        ("msgtype", `String "m.text");
+        ("body", `String ("* " ^ text));
+        ( "m.new_content",
+          `Assoc [ ("msgtype", `String "m.text"); ("body", `String text) ] );
+        ( "m.relates_to",
+          `Assoc
+            [
+              ("rel_type", `String "m.replace"); ("event_id", `String event_id);
+            ] );
+      ]
+    |> Yojson.Safe.to_string
+  in
+  let headers = auth_header ~cfg in
+  let* _status, _body = Http_client.put_json ~uri ~headers ~body in
+  Lwt.return_unit
+
+let delete_message ~(cfg : Runtime_config.matrix_config) ~room_id ~event_id =
+  let open Lwt.Syntax in
+  let txn_id = make_txn_id ~room_id in
+  let uri =
+    Printf.sprintf "%s/_matrix/client/v3/rooms/%s/redact/%s/%s"
+      cfg.homeserver_url (Uri.pct_encode room_id) (Uri.pct_encode event_id)
+      txn_id
+  in
+  let headers = auth_header ~cfg in
+  let body = `Assoc [] |> Yojson.Safe.to_string in
+  let* _status, _body = Http_client.put_json ~uri ~headers ~body in
+  Lwt.return_unit
+
+let make_status_notifier ~(cfg : Runtime_config.matrix_config) ~room_id :
+    Status_message.notifier =
+  {
+    send = (fun ?parse_mode:_ text -> send_message ~cfg ~room_id ~text);
+    edit =
+      (fun msg_id ?parse_mode:_ text ->
+        let open Lwt.Syntax in
+        let* () = edit_message ~cfg ~room_id ~event_id:msg_id ~text in
+        Lwt.return None);
+    delete = (fun msg_id -> delete_message ~cfg ~room_id ~event_id:msg_id);
+  }
 
 (* Sync token persistence *)
 let sync_token_path ~(cfg : Runtime_config.matrix_config) =
@@ -165,11 +231,29 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
                         Logs.info (fun m ->
                             m "Matrix: message from %s in %s" sender room_id);
                         let key = "matrix:" ^ room_id ^ ":" ^ sender in
+                        (* Register status message factory and capabilities *)
+                        if
+                          Option.is_none
+                            (Session.find_connector_capabilities session_manager
+                               ~key)
+                        then begin
+                          Session.register_connector_capabilities
+                            session_manager ~key Connector_capabilities.matrix;
+                          Session.register_status_message_factory
+                            session_manager ~key (fun () ->
+                              let notifier =
+                                make_status_notifier ~cfg ~room_id
+                              in
+                              Status_message.create ~notifier
+                                ~parse_mode:"Markdown" ())
+                        end;
+                        let notify_text text =
+                          let* _eid = send_message ~cfg ~room_id ~text in
+                          Lwt.return_unit
+                        in
                         let* result =
                           Session.with_registered_notifier session_manager ~key
-                            ~notify:(fun text ->
-                              send_message ~cfg ~room_id ~text)
-                            (fun () ->
+                            ~notify:notify_text (fun () ->
                               Lwt.catch
                                 (fun () ->
                                   let* response =
@@ -186,17 +270,23 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
                           when Session.is_queued_message_response response ->
                             Lwt.return_unit
                         | Ok response ->
-                            send_message ~cfg ~room_id ~text:response
+                            let* _eid =
+                              send_message ~cfg ~room_id ~text:response
+                            in
+                            Lwt.return_unit
                         | Error err ->
                             Logs.err (fun m ->
                                 m "Matrix: agent error in %s from %s: %s"
                                   room_id sender err);
-                            send_message ~cfg ~room_id
-                              ~text:
-                                (Printf.sprintf
-                                   "Sorry, an error occurred processing your \
-                                    message: %s"
-                                   err))
+                            let* _eid =
+                              send_message ~cfg ~room_id
+                                ~text:
+                                  (Printf.sprintf
+                                     "Sorry, an error occurred processing your \
+                                      message: %s"
+                                     err)
+                            in
+                            Lwt.return_unit)
                       events
                   in
                   Channel_util.Backoff.reset backoff;

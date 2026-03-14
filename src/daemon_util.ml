@@ -70,7 +70,7 @@ type resume_senders = {
     config:Runtime_config.teams_config ->
     channel_id:string ->
     text:string ->
-    unit Lwt.t;
+    string Lwt.t;
 }
 
 let default_resume_senders =
@@ -248,7 +248,7 @@ let dispatch_resumed_message ?(senders = default_resume_senders)
   | "teams" -> (
       match config.channels.teams with
       | Some tc ->
-          let* () = senders.send_teams ~config:tc ~channel_id ~text in
+          let* _id = senders.send_teams ~config:tc ~channel_id ~text in
           Lwt.return (Ok ())
       | None -> Lwt.return (Error "teams channel is not configured"))
   | "github" ->

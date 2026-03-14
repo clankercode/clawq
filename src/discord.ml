@@ -909,19 +909,29 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
               ~set_one:(fun mid emoji -> set_reaction_on_single mid emoji)
               ~emoji
           in
-          let thinking_buf = Buffer.create 256 in
-          let status_msg =
+          let notifier_factory =
             if use_consolidated then
-              let status_notifier =
-                make_status_notifier ~bot_token:discord_config.bot_token
-                  ~channel_id:msg.channel_id
-              in
               Some
-                (Status_message.create ~notifier:status_notifier
-                   ~parse_mode:"Markdown" ())
+                (fun () ->
+                  let status_notifier =
+                    make_status_notifier ~bot_token:discord_config.bot_token
+                      ~channel_id:msg.channel_id
+                  in
+                  Status_message.create ~notifier:status_notifier
+                    ~parse_mode:"Markdown" ())
             else None
           in
-          let visibility = Stream_visibility.create () in
+          let strategy =
+            Status_update.select_strategy ~agent_defaults
+              ~capabilities:(Some Connector_capabilities.discord)
+          in
+          let handler =
+            Status_update.make_handler ~strategy ~notifier_factory
+              ~notify:(fun text ->
+                send_message_fn ~bot_token:discord_config.bot_token
+                  ~channel_id:msg.channel_id ~text)
+              ~agent_defaults ~parse_mode:"Markdown"
+          in
           let on_chunk chunk =
             (match chunk with
             | Provider.ToolStart _ ->
@@ -932,37 +942,7 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                         (Connector_status.Discord.phase_emoji Processing))
                 end
             | _ -> ());
-            match status_msg with
-            | Some sm -> (
-                match chunk with
-                | Provider.ToolStart { id; name; arguments } ->
-                    let summary =
-                      Stream_visibility.summarize_tool_arguments ~name arguments
-                    in
-                    Status_message.tool_start sm ~id ~name ~summary
-                | Provider.ToolResult { id; name; result; is_error } ->
-                    Status_message.tool_result sm ~id ~name ~result ~is_error
-                | Provider.ThinkingDelta text ->
-                    if agent_defaults.show_thinking then
-                      Buffer.add_string thinking_buf text;
-                    Lwt.return_unit
-                | Provider.Delta _ | Provider.ToolCallDelta _
-                | Provider.ToolOutputDelta _ | Provider.Done ->
-                    Lwt.return_unit)
-            | None ->
-                let settings : Stream_visibility.settings =
-                  {
-                    show_thinking = agent_defaults.show_thinking;
-                    show_tool_calls = agent_defaults.show_tool_calls;
-                    notify_tool_starts = false;
-                    notify_tool_successes = true;
-                  }
-                in
-                Stream_visibility.on_chunk visibility ~settings
-                  ~notify:(fun text ->
-                    send_message_fn ~bot_token:discord_config.bot_token
-                      ~channel_id:msg.channel_id ~text)
-                  chunk
+            handler.on_chunk chunk
           in
           let* () =
             set_reaction (Connector_status.Discord.phase_emoji Received)
@@ -1023,16 +1003,8 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
             if Session.is_queued_message_response response then Lwt.return_unit
             else
               let open Lwt.Syntax in
-              let* () =
-                match status_msg with
-                | Some sm -> Status_message.finalize sm
-                | None -> Lwt.return_unit
-              in
-              let thinking =
-                match status_msg with
-                | Some _ -> Buffer.contents thinking_buf
-                | None -> Stream_visibility.thinking_text visibility
-              in
+              let* () = handler.finalize () in
+              let thinking = handler.get_thinking () in
               let* () =
                 if thinking <> "" then
                   send_message_fn ~bot_token:discord_config.bot_token
@@ -1098,23 +1070,17 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                         make_status_notifier ~bot_token:discord_config.bot_token
                           ~channel_id:msg.channel_id
                       in
-                      Status_message.create ~notifier ~parse_mode:"Markdown" ())
+                      Status_message.create ~notifier ~parse_mode:"Markdown" ());
+                  Session.register_connector_capabilities session_mgr ~key
+                    Connector_capabilities.discord
                 end;
                 Lwt.async (fun () ->
                     Session.process_autonomous_turn_result
                       ~on_response:send_to_channel session_mgr ~key ~response);
                 Lwt.return_unit)
               else
-                let* () =
-                  match status_msg with
-                  | Some sm -> Status_message.finalize sm
-                  | None -> Lwt.return_unit
-                in
-                let thinking =
-                  match status_msg with
-                  | Some _ -> Buffer.contents thinking_buf
-                  | None -> Stream_visibility.thinking_text visibility
-                in
+                let* () = handler.finalize () in
+                let thinking = handler.get_thinking () in
                 let* () =
                   if thinking <> "" then
                     send_message_fn ~bot_token:discord_config.bot_token
@@ -1153,7 +1119,9 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                         make_status_notifier ~bot_token:discord_config.bot_token
                           ~channel_id:msg.channel_id
                       in
-                      Status_message.create ~notifier ~parse_mode:"Markdown" ())
+                      Status_message.create ~notifier ~parse_mode:"Markdown" ());
+                  Session.register_connector_capabilities session_mgr ~key
+                    Connector_capabilities.discord
                 end;
                 Lwt.async (fun () ->
                     Session.process_autonomous_turn_result
@@ -1163,11 +1131,7 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
               Logs.err (fun m ->
                   m "Discord agent error for channel=%s user=%s: %s"
                     msg.channel_id msg.author_id err);
-              let* () =
-                match status_msg with
-                | Some sm -> Status_message.finalize sm
-                | None -> Lwt.return_unit
-              in
+              let* () = handler.finalize () in
               let* () =
                 send_message_fn ~bot_token:discord_config.bot_token
                   ~channel_id:msg.channel_id

@@ -1,115 +1,47 @@
-let consolidated_status_on_chunk
-    ~(agent_defaults : Runtime_config.agent_defaults) ~thinking_buf sm =
-  function
-  | Provider.ToolStart { id; name; arguments } ->
-      let summary =
-        Stream_visibility.summarize_tool_arguments ~name arguments
-      in
-      Status_message.tool_start sm ~id ~name ~summary
-  | Provider.ToolResult { id; name; result; is_error } ->
-      Status_message.tool_result sm ~id ~name ~result ~is_error
-  | Provider.ThinkingDelta text ->
-      if agent_defaults.show_thinking then begin
-        Buffer.add_string thinking_buf text;
-        Status_message.update_thinking sm text
-      end
-      else Lwt.return_unit
-  | Provider.Delta _ | Provider.ToolCallDelta _ | Provider.ToolOutputDelta _
-  | Provider.Done ->
-      Lwt.return_unit
-
 let stream_turn_with_visibility mgr ~notify agent ~key ~effective_message
     ~persisted_up_to ~interrupt_check ~inject_messages ~runtime_context
     ~on_history_update ?on_stuck () =
   let open Lwt.Syntax in
   let agent_defaults = mgr.Session_core.config.agent_defaults in
-  let use_consolidated =
-    agent_defaults.show_tool_calls
-    && agent_defaults.tool_status_mode = "consolidated"
+  let capabilities = Session_core.find_connector_capabilities mgr ~key in
+  let strategy = Status_update.select_strategy ~agent_defaults ~capabilities in
+  let notifier_factory =
+    Hashtbl.find_opt mgr.Session_core.status_message_factories key
   in
-  let status_factory =
-    if use_consolidated then
-      Hashtbl.find_opt mgr.Session_core.status_message_factories key
-    else None
+  let parse_mode =
+    match capabilities with Some c -> c.parse_mode | None -> "Markdown"
   in
-  match status_factory with
-  | Some factory ->
-      let sm = factory () in
-      let thinking_buf = Buffer.create 256 in
-      let on_chunk =
-        consolidated_status_on_chunk ~agent_defaults ~thinking_buf sm
-      in
-      let* response =
-        Agent.turn_stream agent ~user_message:effective_message ?db:mgr.db
-          ~session_key:key ~interrupt_check ~inject_messages ?runtime_context
-          ~history_prepared:true ~on_history_update ?on_stuck ~on_chunk ()
-      in
-      let* () = Status_message.finalize sm in
-      let thinking = Buffer.contents thinking_buf in
-      let* () =
-        if agent_defaults.show_thinking && thinking <> "" then
-          notify (Stream_visibility.thinking_message thinking)
-        else Lwt.return_unit
-      in
-      if agent.Agent.compacted_mid_turn then begin
-        Session_core.persist_compacted_history mgr ~key agent;
-        agent.Agent.compacted_mid_turn <- false
-      end
-      else
-        Session_core.persist_new_messages mgr ~key
-          ~history_before:!persisted_up_to agent;
-      (match mgr.db with
-      | Some db when mgr.config.security.audit_enabled ->
-          Audit.log ~db
-            (ChatMessage
-               {
-                 session_key = key;
-                 role = "assistant";
-                 content_preview = response;
-               })
-      | _ -> ());
-      Lwt.return response
-  | None ->
-      let visibility = Stream_visibility.create () in
-      let settings : Stream_visibility.settings =
-        {
-          show_thinking = agent_defaults.show_thinking;
-          show_tool_calls = agent_defaults.show_tool_calls;
-          notify_tool_starts = false;
-          notify_tool_successes = true;
-        }
-      in
-      let* response =
-        Agent.turn_stream agent ~user_message:effective_message ?db:mgr.db
-          ~session_key:key ~interrupt_check ~inject_messages ?runtime_context
-          ~history_prepared:true ~on_history_update ?on_stuck
-          ~on_chunk:(Stream_visibility.on_chunk visibility ~settings ~notify)
-          ()
-      in
-      let thinking = Stream_visibility.thinking_text visibility in
-      let* () =
-        if settings.show_thinking && thinking <> "" then
-          notify (Stream_visibility.thinking_message thinking)
-        else Lwt.return_unit
-      in
-      if agent.Agent.compacted_mid_turn then begin
-        Session_core.persist_compacted_history mgr ~key agent;
-        agent.Agent.compacted_mid_turn <- false
-      end
-      else
-        Session_core.persist_new_messages mgr ~key
-          ~history_before:!persisted_up_to agent;
-      (match mgr.db with
-      | Some db when mgr.config.security.audit_enabled ->
-          Audit.log ~db
-            (ChatMessage
-               {
-                 session_key = key;
-                 role = "assistant";
-                 content_preview = response;
-               })
-      | _ -> ());
-      Lwt.return response
+  let handler =
+    Status_update.make_handler ~strategy ~notifier_factory ~notify
+      ~agent_defaults ~parse_mode
+  in
+  let* response =
+    Agent.turn_stream agent ~user_message:effective_message ?db:mgr.db
+      ~session_key:key ~interrupt_check ~inject_messages ?runtime_context
+      ~history_prepared:true ~on_history_update ?on_stuck
+      ~on_chunk:handler.on_chunk ()
+  in
+  let* () = handler.finalize () in
+  let thinking = handler.get_thinking () in
+  let* () =
+    if agent_defaults.show_thinking && thinking <> "" then
+      notify (Stream_visibility.thinking_message thinking)
+    else Lwt.return_unit
+  in
+  if agent.Agent.compacted_mid_turn then begin
+    Session_core.persist_compacted_history mgr ~key agent;
+    agent.Agent.compacted_mid_turn <- false
+  end
+  else
+    Session_core.persist_new_messages mgr ~key ~history_before:!persisted_up_to
+      agent;
+  (match mgr.db with
+  | Some db when mgr.config.security.audit_enabled ->
+      Audit.log ~db
+        (ChatMessage
+           { session_key = key; role = "assistant"; content_preview = response })
+  | _ -> ());
+  Lwt.return response
 
 let normalize_incoming_message mgr ~key ~message =
   let open Lwt.Syntax in

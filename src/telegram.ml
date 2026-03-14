@@ -92,7 +92,9 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
             Status_message.create
               ~notifier:
                 (make_status_notifier ~bot_token ~chat_id:update.chat_id)
-              ~parse_mode:"HTML" ())
+              ~parse_mode:"HTML" ());
+        Session.register_connector_capabilities session_mgr ~key
+          Connector_capabilities.telegram
       end;
       (* Register rich notifier for inline keyboards and polls *)
       if Option.is_none (Session.find_rich_notifier session_mgr ~key) then

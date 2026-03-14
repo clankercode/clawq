@@ -145,6 +145,9 @@ let () =
     @ [ ("table_format", Test_table_format.tests) ]
     @ [ ("markdown_util", Test_markdown_util.suite) ]
     @ [ ("error_watcher", Test_error_watcher.suite) ]
+    @ [ ("connector_capabilities", Test_connector_capabilities.tests) ]
+    @ [ ("status_update", Test_status_update.tests) ]
+    @ [ ("content_dsl", Test_content_dsl.tests) ]
     @ Test_github.suites
     @ [
         ( "config_isolation",
