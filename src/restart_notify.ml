@@ -50,6 +50,8 @@ let remove () = try Sys.remove (path ()) with _ -> ()
 
 let parse_channel_from_key key =
   match String.split_on_char ':' key with
+  | "teams" :: _ :: rest when rest <> [] ->
+      Some ("teams", "|" ^ String.concat ":" rest)
   | channel :: id :: _ -> Some (channel, id)
   | _ -> None
 

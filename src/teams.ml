@@ -302,38 +302,53 @@ let build_reply_body ~alert ~text ~mention ~mention_mode =
 let send_reply ?(alert = false) ~(config : Runtime_config.teams_config)
     ~service_url ~conversation_id ~reply_to_id ~text ?mention () =
   let open Lwt.Syntax in
-  let* token_opt = fetch_token ~config in
-  match token_opt with
-  | None ->
-      Logs.err (fun m -> m "Teams: cannot send reply, no OAuth token");
-      Lwt.return_unit
-  | Some token ->
-      let chunks = split_message text in
-      Lwt_list.iter_s
-        (fun chunk ->
-          let uri =
-            if reply_to_id = "" then
-              Printf.sprintf "%s/v3/conversations/%s/activities"
-                (String.trim service_url)
-                (Uri.pct_encode conversation_id)
-            else
-              Printf.sprintf "%s/v3/conversations/%s/activities/%s"
-                (String.trim service_url)
-                (Uri.pct_encode conversation_id)
-                (Uri.pct_encode reply_to_id)
-          in
-          let headers = [ ("Authorization", "Bearer " ^ token) ] in
-          let body =
-            build_reply_body ~alert ~text:chunk ~mention
-              ~mention_mode:config.mention_mode
-          in
-          let* status, resp = Http_client.post_json ~uri ~headers ~body in
-          if status < 200 || status >= 300 then
-            Logs.warn (fun m ->
-                m "Teams: send_reply failed (HTTP %d) conv=%s: %s" status
-                  conversation_id resp);
-          Lwt.return_unit)
-        chunks
+  if
+    service_url = ""
+    || not
+         (String.length service_url >= 8
+         && (String.sub service_url 0 8 = "https://"
+            || String.sub service_url 0 7 = "http://"))
+  then begin
+    Logs.err (fun m ->
+        m
+          "Teams: service_url is empty or missing scheme (service_url=%S, \
+           conversation_id=%S); cannot send reply"
+          service_url conversation_id);
+    Lwt.return_unit
+  end
+  else
+    let* token_opt = fetch_token ~config in
+    match token_opt with
+    | None ->
+        Logs.err (fun m -> m "Teams: cannot send reply, no OAuth token");
+        Lwt.return_unit
+    | Some token ->
+        let chunks = split_message text in
+        Lwt_list.iter_s
+          (fun chunk ->
+            let uri =
+              if reply_to_id = "" then
+                Printf.sprintf "%s/v3/conversations/%s/activities"
+                  (String.trim service_url)
+                  (Uri.pct_encode conversation_id)
+              else
+                Printf.sprintf "%s/v3/conversations/%s/activities/%s"
+                  (String.trim service_url)
+                  (Uri.pct_encode conversation_id)
+                  (Uri.pct_encode reply_to_id)
+            in
+            let headers = [ ("Authorization", "Bearer " ^ token) ] in
+            let body =
+              build_reply_body ~alert ~text:chunk ~mention
+                ~mention_mode:config.mention_mode
+            in
+            let* status, resp = Http_client.post_json ~uri ~headers ~body in
+            if status < 200 || status >= 300 then
+              Logs.warn (fun m ->
+                  m "Teams: send_reply failed (HTTP %d) conv=%s: %s" status
+                    conversation_id resp);
+            Lwt.return_unit)
+          chunks
 
 let send_adaptive_card ~(config : Runtime_config.teams_config) ~service_url
     ~conversation_id ~reply_to_id ~card () =

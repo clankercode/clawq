@@ -1022,6 +1022,11 @@ let test_parse_channel_from_key () =
     (Some ("slack", "C01"))
     (Restart_notify.parse_channel_from_key "slack:C01:U01");
   Alcotest.(check (option (pair string string)))
+    "teams key"
+    (Some ("teams", "|19:3ed169b9886a4a1faadc1dc20687cc66@thread.v2"))
+    (Restart_notify.parse_channel_from_key
+       "teams:personal:19:3ed169b9886a4a1faadc1dc20687cc66@thread.v2");
+  Alcotest.(check (option (pair string string)))
     "main key" None
     (Restart_notify.parse_channel_from_key "__main__")
 
