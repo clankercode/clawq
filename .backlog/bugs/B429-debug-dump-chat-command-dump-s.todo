@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-14T04:02:52Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B429
 priority: high
-status: pending
+started_at: "2026-03-14T04:02:52Z"
+status: in_progress
 tags: []
 title: /debug_dump_chat command - dump session to file and send as attachment
 ---

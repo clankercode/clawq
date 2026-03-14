@@ -43,6 +43,7 @@ type result =
   | Costs of costs_action
   | Usage of usage_action
   | Model of model_action
+  | DebugDumpChat
   | NotACommand
 
 let allowed_thinking_levels = [ "low"; "medium"; "high"; "off"; "xhigh"; "max" ]
@@ -122,6 +123,10 @@ let commands =
     {
       name = "usage";
       description = "Show token usage: /usage [session/model/provider]";
+    };
+    {
+      name = "debug_dump_chat";
+      description = "Dump session to file and send as attachment";
     };
   ]
 
@@ -396,6 +401,7 @@ let handle text =
                   \  /model unfav <name>       — Remove from favorites\n\
                   \  /model list [provider]    — List available models\n\
                   \  /model usage              — Show provider quota/usage")
+        | "debug-dump-chat" | "debug_dump_chat" -> DebugDumpChat
         | "" -> NotACommand
         | _ -> NotACommand)
 

@@ -747,6 +747,21 @@ let handle_event ~(config : Runtime_config.slack_config)
                     send_message_fn ~bot_token:config.bot_token ~channel_id
                       ~text);
                 Lwt.return "ok"
+            | DebugDumpChat ->
+                let content = Session.dump_json session_manager ~key in
+                let max_len = 1800 in
+                let text =
+                  if String.length content <= max_len then content
+                  else
+                    "Session dump (truncated — full dump not yet supported for \
+                     this connector):\n"
+                    ^ String.sub content 0 max_len
+                    ^ "\n..."
+                in
+                let* () =
+                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
+                in
+                Lwt.return "ok"
             | NotACommand -> (
                 let agent_defaults =
                   (Session.get_config session_manager).agent_defaults

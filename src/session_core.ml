@@ -1319,3 +1319,63 @@ let compact mgr ~key ?notifier () =
     | _ -> Lwt.return_unit
   in
   Lwt.return result
+
+(* Produce a full JSON dump of the current epoch for a session.
+   Used by /debug_dump_chat to send session state as a file attachment. *)
+let dump_json mgr ~key =
+  match mgr.db with
+  | None ->
+      Yojson.Safe.pretty_to_string
+        (`Assoc
+           [ ("session_key", `String key); ("error", `String "no database") ])
+  | Some db -> (
+      let config = mgr.config in
+      let msg_json (row : Memory.raw_message) =
+        let content_field =
+          match Yojson.Safe.from_string row.content with
+          | json -> json
+          | exception _ -> `String row.content
+        in
+        `Assoc
+          [
+            ("role", `String row.role);
+            ("content", content_field);
+            ("created_at", `String row.created_at);
+          ]
+      in
+      match
+        Memory.load_epoch_messages ~db ~session_key:key ~epoch:Memory.Current
+      with
+      | None ->
+          Yojson.Safe.pretty_to_string
+            (`Assoc
+               [
+                 ("session_key", `String key);
+                 ("epoch", `String "current");
+                 ("error", `String "no messages found");
+               ])
+      | Some rows ->
+          let epochs = Memory.list_session_epochs ~db ~session_key:key in
+          let archived =
+            List.filter (fun (e : Memory.session_epoch) -> not e.current) epochs
+          in
+          let archived_epoch_count = List.length archived in
+          let total_archived_messages =
+            List.fold_left
+              (fun acc (e : Memory.session_epoch) -> acc + e.message_count)
+              0 archived
+          in
+          let system_prompt =
+            Prompt_builder.build ~config ~tool_registry:None ()
+          in
+          Yojson.Safe.pretty_to_string
+            (`Assoc
+               [
+                 ("session_key", `String key);
+                 ("epoch", `String "current");
+                 ("system_prompt", `String system_prompt);
+                 ("archived_epoch_count", `Int archived_epoch_count);
+                 ("total_archived_messages", `Int total_archived_messages);
+                 ("total_messages", `Int (List.length rows));
+                 ("messages", `List (List.map msg_json rows));
+               ]))

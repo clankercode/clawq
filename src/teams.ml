@@ -640,6 +640,18 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                     Session.fork_and_run session_manager ~parent_key:key ~prompt
                       ~send_reply:send_text;
                     Lwt.return_unit
+                | DebugDumpChat ->
+                    let content = Session.dump_json session_manager ~key in
+                    let max_len = 1800 in
+                    let text =
+                      if String.length content <= max_len then content
+                      else
+                        "Session dump (truncated — full dump not yet supported \
+                         for this connector):\n"
+                        ^ String.sub content 0 max_len
+                        ^ "\n..."
+                    in
+                    send_text text
                 | Tools ->
                     let text =
                       match Session.get_tool_registry session_manager with

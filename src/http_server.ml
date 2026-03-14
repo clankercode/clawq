@@ -474,6 +474,14 @@ let handler ~session_manager ~require_pairing ~auth_token
                     in
                     Cohttp_lwt_unix.Server.respond_string ~status:`OK
                       ~headers:json_headers ~body:resp_json ()
+                | Slash_commands.DebugDumpChat ->
+                    let response = Session.dump_json session_manager ~key in
+                    let resp_json =
+                      `Assoc [ ("response", `String response) ]
+                      |> Yojson.Safe.to_string
+                    in
+                    Cohttp_lwt_unix.Server.respond_string ~status:`OK
+                      ~headers:json_headers ~body:resp_json ()
                 | _ -> (
                     let* result =
                       Lwt.catch
@@ -1048,6 +1056,15 @@ let handler ~session_manager ~require_pairing ~auth_token
                     Cohttp_lwt_unix.Server.respond ~status:`OK ~headers
                       ~body:(Cohttp_lwt.Body.of_stream stream)
                       ()
+                | Slash_commands.DebugDumpChat ->
+                    let key = "web:" ^ session_id in
+                    let response = Session.dump_json session_manager ~key in
+                    let resp_json =
+                      `Assoc [ ("response", `String response) ]
+                      |> Yojson.Safe.to_string
+                    in
+                    Cohttp_lwt_unix.Server.respond_string ~status:`OK
+                      ~headers:json_headers ~body:resp_json ()
                 | Slash_commands.Model action -> (
                     let open Slash_commands in
                     match action with

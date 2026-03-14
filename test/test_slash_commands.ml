@@ -49,6 +49,7 @@ let result_to_string = function
   | Slash_commands.Model Slash_commands.ModelUsage -> "Model(Usage)"
   | Slash_commands.Model (Slash_commands.ModelSetDefault name) ->
       "Model(SetDefault " ^ name ^ ")"
+  | Slash_commands.DebugDumpChat -> "DebugDumpChat"
   | Slash_commands.NotACommand -> "NotACommand"
 
 let result_eq a b =
@@ -74,6 +75,7 @@ let result_eq a b =
   | Slash_commands.Costs a, Slash_commands.Costs b -> a = b
   | Slash_commands.Usage a, Slash_commands.Usage b -> a = b
   | Slash_commands.Model _, Slash_commands.Model _ -> true
+  | Slash_commands.DebugDumpChat, Slash_commands.DebugDumpChat -> true
   | Slash_commands.NotACommand, Slash_commands.NotACommand -> true
   | _ -> false
 
@@ -629,6 +631,14 @@ let test_model_set_default () =
         (Printf.sprintf "expected Model(ModelSetDefault), got %s"
            (result_to_string other))
 
+let test_debug_dump_chat_command () =
+  Alcotest.check result_testable "/debug_dump_chat returns DebugDumpChat"
+    Slash_commands.DebugDumpChat
+    (Slash_commands.handle "/debug_dump_chat");
+  Alcotest.check result_testable "/debug-dump-chat alias"
+    Slash_commands.DebugDumpChat
+    (Slash_commands.handle "/debug-dump-chat")
+
 let test_tools_command () =
   Alcotest.check result_testable "/tools returns Tools" Slash_commands.Tools
     (Slash_commands.handle "/tools")
@@ -1135,6 +1145,8 @@ let suite =
     Alcotest.test_case "/model set slash format" `Quick
       test_model_set_slash_format;
     Alcotest.test_case "/model set-default" `Quick test_model_set_default;
+    Alcotest.test_case "/debug_dump_chat returns DebugDumpChat" `Quick
+      test_debug_dump_chat_command;
     Alcotest.test_case "/tools returns Tools" `Quick test_tools_command;
     Alcotest.test_case "/tasks returns Tasks" `Quick test_tasks_command;
     Alcotest.test_case "/tasks@bot returns Tasks" `Quick

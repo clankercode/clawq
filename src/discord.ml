@@ -789,6 +789,19 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
               send_message_fn ~bot_token:discord_config.bot_token
                 ~channel_id:msg.channel_id ~text);
           Lwt.return_unit
+      | DebugDumpChat ->
+          let content = Session.dump_json session_mgr ~key in
+          let max_len = 1800 in
+          let text =
+            if String.length content <= max_len then content
+            else
+              "Session dump (truncated — full dump not yet supported for this \
+               connector):\n"
+              ^ String.sub content 0 max_len
+              ^ "\n..."
+          in
+          send_message_fn ~bot_token:discord_config.bot_token
+            ~channel_id:msg.channel_id ~text
       | NotACommand when Update_tool.is_update_command msg.content -> (
           let send_first text =
             send_message_with_id ~suppress_notifications:true

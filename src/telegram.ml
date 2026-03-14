@@ -626,6 +626,35 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                 send_chunked_html_with_fallback ~disable_notification:false
                   ~bot_token ~chat_id:update.chat_id ~text ());
             Lwt.return_unit
+        | DebugDumpChat -> (
+            let content = Session.dump_json session_mgr ~key in
+            let timestamp =
+              Int64.to_int (Int64.of_float (Unix.gettimeofday ()))
+            in
+            let safe_key =
+              String.map
+                (fun c ->
+                  match c with
+                  | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '-' -> c
+                  | _ -> '_')
+                key
+            in
+            let filename =
+              Printf.sprintf "session_%s_%d.json" safe_key timestamp
+            in
+            let* result =
+              send_document ~bot_token ~chat_id:update.chat_id ~filename
+                ~content ()
+            in
+            match result with
+            | Ok _ -> Lwt.return_unit
+            | Error err ->
+                send_message ~bot_token ~chat_id:update.chat_id
+                  ~text:
+                    (Printf.sprintf
+                       "Failed to send debug dump: %s\n\nDump length: %d bytes"
+                       err (String.length content))
+                  ())
         | NotACommand -> (
             let msg = user_text in
             (* Early busy-session fast path: if the session is already busy,

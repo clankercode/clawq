@@ -1501,3 +1501,35 @@ let detect_mime_type data =
   then "image/webp"
   else if len >= 2 && data.[0] = 'B' && data.[1] = 'M' then "image/bmp"
   else "image/jpeg"
+
+let send_document ?(disable_notification = true) ~bot_token ~chat_id ~filename
+    ~content () =
+  let open Lwt.Syntax in
+  let uri = Printf.sprintf "%s%s/sendDocument" !api_base bot_token in
+  let parts =
+    [
+      Http_client.Field { name = "chat_id"; value = chat_id };
+      Http_client.Field
+        {
+          name = "disable_notification";
+          value = (if disable_notification then "true" else "false");
+        };
+      Http_client.File
+        {
+          name = "document";
+          filename;
+          content_type = "application/octet-stream";
+          data = content;
+        };
+    ]
+  in
+  let* status, body = Http_client.post_multipart ~uri ~headers:[] ~parts in
+  if status >= 200 && status < 300 then (
+    Logs.info (fun m ->
+        m "Telegram: sent document filename=%s chat_id=%s" filename chat_id);
+    Lwt.return (Ok (Yojson.Safe.from_string body)))
+  else (
+    Logs.warn (fun m ->
+        m "Telegram: sendDocument failed (HTTP %d) chat_id=%s: %s" status
+          chat_id body);
+    Lwt.return (Error (Printf.sprintf "sendDocument HTTP %d: %s" status body)))
