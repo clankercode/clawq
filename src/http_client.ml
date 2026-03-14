@@ -130,6 +130,21 @@ let post_multipart ~uri ~headers ~parts =
       let* body_str = Cohttp_lwt.Body.to_string body in
       Lwt.return (status, body_str))
 
+let put_raw ~uri ~headers ~content_type ~body =
+  let open Lwt.Syntax in
+  labeled_timeout ~label:"put_raw" !default_timeout_s (fun () ->
+      let uri = Uri.of_string uri in
+      let headers =
+        Cohttp.Header.of_list (("Content-Type", content_type) :: headers)
+      in
+      let body = Cohttp_lwt.Body.of_string body in
+      let* response, body = Cohttp_lwt_unix.Client.put ~headers ~body uri in
+      let status =
+        Cohttp.Response.status response |> Cohttp.Code.code_of_status
+      in
+      let* body_str = Cohttp_lwt.Body.to_string body in
+      Lwt.return (status, body_str))
+
 let put_empty ~uri ~headers =
   let open Lwt.Syntax in
   labeled_timeout ~label:"put_empty" !default_timeout_s (fun () ->

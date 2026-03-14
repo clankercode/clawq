@@ -561,9 +561,10 @@ clawq channel              # confirm teams shows as configured
   receive a notification.
 - **Native markdown tables** --- slash commands like `/status`, `/costs`, and
   `/usage` render with native markdown tables in Teams for clean formatting.
-- **File downloads** --- `/debug_dump_chat` serves full session state as a
-  downloadable JSON file via the bot's HTTP server (requires `tunnel.url`
-  config); falls back to truncated text when no public URL is configured.
+- **File uploads** --- `/debug_dump_chat` sends session state as a JSON file.
+  With `file_consent_cards: true` (default), prompts the user via a
+  FileConsentCard and uploads to OneDrive. Falls back to a temp download URL
+  via the bot's HTTP server (requires `tunnel.url`), or truncated text.
 - **Notification suppression** --- tool status messages (thinking indicators,
   tool call updates) do not trigger Teams notifications; only final replies do.
 

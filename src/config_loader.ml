@@ -815,6 +815,9 @@ let parse_config ?(resolve_secrets = true) json =
           let mention_mode =
             try tm |> member "mention_mode" |> to_string with _ -> "entity"
           in
+          let file_consent_cards =
+            try tm |> member "file_consent_cards" |> to_bool with _ -> true
+          in
           if app_id = "" || app_secret = "" || tenant_id = "" then None
           else
             Some
@@ -827,6 +830,7 @@ let parse_config ?(resolve_secrets = true) json =
                  allow_teams;
                  allow_users;
                  mention_mode;
+                 file_consent_cards;
                }
                 : Runtime_config.teams_config)
         with _ -> None

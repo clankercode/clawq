@@ -415,6 +415,108 @@ let test_temp_downloads_cleanup () =
     "expired removed by cleanup" true
     (Temp_downloads.get expired = None)
 
+let test_build_file_consent_card () =
+  let body =
+    Teams.build_file_consent_card ~filename:"dump.json"
+      ~description:"Session dump" ~size_bytes:12345 ~consent_id:"abc123"
+  in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  Alcotest.(check string) "type" "message" (json |> member "type" |> to_string);
+  let attachments = json |> member "attachments" |> to_list in
+  Alcotest.(check int) "one attachment" 1 (List.length attachments);
+  let att = List.hd attachments in
+  Alcotest.(check string)
+    "contentType" "application/vnd.microsoft.teams.card.file.consent"
+    (att |> member "contentType" |> to_string);
+  Alcotest.(check string) "name" "dump.json" (att |> member "name" |> to_string);
+  let content = att |> member "content" in
+  Alcotest.(check string)
+    "description" "Session dump"
+    (content |> member "description" |> to_string);
+  Alcotest.(check int)
+    "sizeInBytes" 12345
+    (content |> member "sizeInBytes" |> to_int);
+  let accept_ctx = content |> member "acceptContext" in
+  Alcotest.(check string)
+    "acceptContext consentId" "abc123"
+    (accept_ctx |> member "consentId" |> to_string);
+  let decline_ctx = content |> member "declineContext" in
+  Alcotest.(check string)
+    "declineContext consentId" "abc123"
+    (decline_ctx |> member "consentId" |> to_string)
+
+let test_build_file_info_card () =
+  let body =
+    Teams.build_file_info_card ~filename:"dump.json"
+      ~content_url:"https://onedrive/file" ~unique_id:"uid-1" ~file_type:"json"
+  in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  Alcotest.(check string) "type" "message" (json |> member "type" |> to_string);
+  let attachments = json |> member "attachments" |> to_list in
+  let att = List.hd attachments in
+  Alcotest.(check string)
+    "contentType" "application/vnd.microsoft.teams.card.file.info"
+    (att |> member "contentType" |> to_string);
+  Alcotest.(check string)
+    "contentUrl" "https://onedrive/file"
+    (att |> member "contentUrl" |> to_string);
+  let content = att |> member "content" in
+  Alcotest.(check string)
+    "uniqueId" "uid-1"
+    (content |> member "uniqueId" |> to_string);
+  Alcotest.(check string)
+    "fileType" "json"
+    (content |> member "fileType" |> to_string)
+
+let test_pending_consent_store_and_get () =
+  let consent_id =
+    Teams.store_pending_consent ~content:"test data" ~filename:"test.json"
+      ~content_type:"application/json" ~ttl_s:60.0
+  in
+  Alcotest.(check bool) "id non-empty" true (String.length consent_id > 0);
+  match Teams.get_pending_consent consent_id with
+  | None -> Alcotest.fail "expected Some"
+  | Some entry ->
+      Alcotest.(check string) "content" "test data" entry.content;
+      Alcotest.(check string) "filename" "test.json" entry.filename
+
+let test_pending_consent_expired () =
+  let consent_id =
+    Teams.store_pending_consent ~content:"old" ~filename:"old.json"
+      ~content_type:"application/json" ~ttl_s:0.0
+  in
+  Unix.sleepf 0.01;
+  Alcotest.(check bool)
+    "expired is None" true
+    (Teams.get_pending_consent consent_id = None)
+
+let test_pending_consent_consumed_on_get () =
+  let consent_id =
+    Teams.store_pending_consent ~content:"once" ~filename:"once.json"
+      ~content_type:"application/json" ~ttl_s:60.0
+  in
+  ignore (Teams.get_pending_consent consent_id);
+  Alcotest.(check bool)
+    "second get is None" true
+    (Teams.get_pending_consent consent_id = None)
+
+let test_pending_consent_cleanup () =
+  let _live =
+    Teams.store_pending_consent ~content:"live" ~filename:"live.json"
+      ~content_type:"application/json" ~ttl_s:60.0
+  in
+  let expired =
+    Teams.store_pending_consent ~content:"expired" ~filename:"exp.json"
+      ~content_type:"application/json" ~ttl_s:0.0
+  in
+  Unix.sleepf 0.01;
+  Teams.cleanup_pending_consents ();
+  Alcotest.(check bool)
+    "expired removed by cleanup" true
+    (Teams.get_pending_consent expired = None)
+
 let test_debug_dump_filename_sanitization () =
   let safe_key =
     String.map
@@ -502,4 +604,15 @@ let suite =
       test_temp_downloads_url_no_base;
     Alcotest.test_case "temp_downloads cleanup" `Quick
       test_temp_downloads_cleanup;
+    Alcotest.test_case "file consent card JSON" `Quick
+      test_build_file_consent_card;
+    Alcotest.test_case "file info card JSON" `Quick test_build_file_info_card;
+    Alcotest.test_case "pending consent store and get" `Quick
+      test_pending_consent_store_and_get;
+    Alcotest.test_case "pending consent expired" `Quick
+      test_pending_consent_expired;
+    Alcotest.test_case "pending consent consumed on get" `Quick
+      test_pending_consent_consumed_on_get;
+    Alcotest.test_case "pending consent cleanup" `Quick
+      test_pending_consent_cleanup;
   ]

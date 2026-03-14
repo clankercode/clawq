@@ -1635,19 +1635,42 @@ let handler ~session_manager ~require_pairing ~auth_token
             Cohttp.Header.get headers "authorization"
             |> Option.value ~default:""
           in
-          (* Respond 202 immediately, process asynchronously *)
-          Lwt.async (fun () ->
-              Lwt.catch
-                (fun () ->
-                  Teams.handle_webhook ~config:tc ~session_manager ~auth_header
-                    body_str)
-                (fun exn ->
-                  Logs.err (fun m ->
-                      m "Teams webhook handler error: %s"
-                        (Printexc.to_string exn));
-                  Lwt.return_unit));
-          Cohttp_lwt_unix.Server.respond_string ~status:`Accepted
-            ~headers:json_headers ~body:{|{"status":"accepted"}|} ())
+          (* Check if this is an invoke activity needing sync response *)
+          let is_invoke =
+            try
+              let json = Yojson.Safe.from_string body_str in
+              Yojson.Safe.Util.(json |> member "type" |> to_string) = "invoke"
+            with _ -> false
+          in
+          if is_invoke then
+            Lwt.catch
+              (fun () ->
+                let* status_code, resp_body =
+                  Teams.handle_invoke ~config:tc ~auth_header body_str
+                in
+                let status = Cohttp.Code.status_of_code status_code in
+                Cohttp_lwt_unix.Server.respond_string ~status
+                  ~headers:json_headers ~body:resp_body ())
+              (fun exn ->
+                Logs.err (fun m ->
+                    m "Teams invoke handler error: %s" (Printexc.to_string exn));
+                Cohttp_lwt_unix.Server.respond_string ~status:`OK
+                  ~headers:json_headers ~body:{|{"status":200}|} ())
+          else begin
+            (* Respond 202 immediately, process asynchronously *)
+            Lwt.async (fun () ->
+                Lwt.catch
+                  (fun () ->
+                    Teams.handle_webhook ~config:tc ~session_manager
+                      ~auth_header body_str)
+                  (fun exn ->
+                    Logs.err (fun m ->
+                        m "Teams webhook handler error: %s"
+                          (Printexc.to_string exn));
+                    Lwt.return_unit));
+            Cohttp_lwt_unix.Server.respond_string ~status:`Accepted
+              ~headers:json_headers ~body:{|{"status":"accepted"}|} ()
+          end)
   | `GET, path
     when match teams_config with
          | Some tc -> path = tc.Runtime_config.webhook_path

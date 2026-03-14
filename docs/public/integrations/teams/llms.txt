@@ -154,15 +154,13 @@ Maximum message size: **28,672 characters** per activity.
 
 Replies longer than this limit are split at whitespace boundaries and sent as multiple sequential activities to the same conversation.
 
-## File Downloads
+## File Uploads
 
-The `/debug_dump_chat` command serves full session state as a downloadable JSON file via the bot's HTTP server:
+The `/debug_dump_chat` command sends session state as a JSON file using a layered approach:
 
-1. Content is stored in a temporary download with a random token and 1-hour TTL.
-2. A message is sent containing the download URL: `{tunnel.url}/downloads/{token}`.
-3. Requires `tunnel.url` to be configured for file download links.
-
-If no public URL is configured, the dump is sent as truncated text (25KB limit).
+1. **FileConsentCard** (default, `file_consent_cards: true`): Sends a consent card prompting the user to accept file upload to OneDrive. On accept, the bot uploads the file to the provided OneDrive URL and sends a FileInfoCard. Invoke activities for consent are handled synchronously (HTTP 200).
+2. **Temp download URL** (fallback, or `file_consent_cards: false`): Stores the file in memory with a random token and 1-hour TTL, sends a download link via `{tunnel.url}/downloads/{token}`. Requires `tunnel.url`.
+3. **Truncated text** (last resort): If no public URL is configured, sends the first 25KB of the dump as text.
 
 ## How It Works (Request Flow)
 

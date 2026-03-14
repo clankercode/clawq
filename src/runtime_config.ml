@@ -210,6 +210,9 @@ type teams_config = {
       (* "entity" (default): proper Teams <at>Name</at> with entity markup.
          "text": plain @Name prefix, no entity markup.
          "none": no @mention prepended to any message. *)
+  file_consent_cards : bool;
+      (* true (default): use FileConsentCard flow for file uploads (OneDrive).
+         false: skip consent cards, serve files via temp download URL. *)
 }
 
 type channel_config = {
@@ -1443,6 +1446,7 @@ let to_json (cfg : t) : Yojson.Safe.t =
                                 (List.map (fun s -> `String s) tm.allow_users)
                             );
                             ("mention_mode", `String tm.mention_mode);
+                            ("file_consent_cards", `Bool tm.file_consent_cards);
                           ] );
                     ])) );
         ("gateway", `Assoc gateway_fields);

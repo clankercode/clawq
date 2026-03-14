@@ -297,6 +297,7 @@ let test_teams_credential_validation () =
       allow_teams = [];
       allow_users = [];
       mention_mode = "entity";
+      file_consent_cards = true;
     }
   in
   let invalid_teams = { valid_teams with Runtime_config.app_id = "abc" } in

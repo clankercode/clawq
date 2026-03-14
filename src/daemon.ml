@@ -1353,6 +1353,7 @@ let run ~(config : Runtime_config.t) =
                   | None -> Lwt.return_unit
                 in
                 Temp_downloads.cleanup ();
+                Teams.cleanup_pending_consents ();
                 let* () = Lwt_unix.sleep 60.0 in
                 loop ()
               in

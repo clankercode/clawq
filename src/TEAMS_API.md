@@ -277,10 +277,38 @@ After uploading an attachment, send a message referencing it:
 }
 ```
 
-## Teams File Delivery via Temp Downloads
+## Teams File Delivery
 
-Since Teams does not support the Bot Framework attachment upload API, large payloads
-(e.g., `/debug_dump_chat` session dumps) are served from the bot's own HTTP server:
+Since Teams does not support the Bot Framework attachment upload API, file delivery
+uses a layered approach controlled by `file_consent_cards` config (default: `true`).
+
+### FileConsentCard Flow (Primary, `file_consent_cards: true`)
+
+1. Bot sends a `FileConsentCard` attachment prompting user consent:
+```json
+{
+  "type": "message",
+  "attachments": [{
+    "contentType": "application/vnd.microsoft.teams.card.file.consent",
+    "name": "session_dump.json",
+    "content": {
+      "description": "Session debug dump",
+      "sizeInBytes": 227899,
+      "acceptContext": { "consentId": "<random-id>" },
+      "declineContext": { "consentId": "<random-id>" }
+    }
+  }]
+}
+```
+2. User clicks Accept → Teams sends an `invoke` activity with `name: "fileConsent/invoke"`.
+3. Bot uploads file content to the `uploadUrl` from the invoke's `uploadInfo` via HTTP PUT.
+4. Bot sends a `FileInfoCard` referencing the uploaded OneDrive file.
+5. If user declines, bot acknowledges silently.
+
+Pending consent data is stored in memory with a 10-minute TTL. Invoke activities are
+handled synchronously (HTTP 200) unlike regular message activities (HTTP 202 + async).
+
+### Temp Download URL (Fallback, or `file_consent_cards: false`)
 
 1. Content is stored in `Temp_downloads` with a random token and 1-hour TTL.
 2. The bot sends a Teams message containing a download URL: `{public_base_url}/downloads/{token}`.
