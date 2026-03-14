@@ -84,7 +84,7 @@ let commands =
       description = "Show or set thinking level: /thinking [level]";
       priority = 80;
     };
-    { name = "tools"; description = "List all available tools"; priority = 75 };
+    { name = "tools"; description = "List all available tools"; priority = 48 };
     {
       name = "tasks";
       description = "Show the agent's current task tree";
@@ -110,7 +110,7 @@ let commands =
       name = "fork_and";
       description =
         "Fork the current session and run a prompt: /fork_and <prompt>";
-      priority = 50;
+      priority = 75;
     };
     {
       name = "compact";
