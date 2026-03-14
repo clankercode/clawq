@@ -21,7 +21,8 @@ tasks:
       file: T002-clawq-manifest-teams-cli.todo
       id: T002
       priority: high
-      status: pending
+      status: done
+      tags: []
       title: clawq manifest teams CLI
     - complexity: low
       depends_on: []
