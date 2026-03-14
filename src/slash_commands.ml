@@ -589,15 +589,6 @@ type render_ctx = {
   expandable : string list -> string;
 }
 
-let plain_ctx =
-  {
-    h = (fun s -> s);
-    k = (fun s -> s);
-    esc = (fun s -> s);
-    sub = (fun s -> "  " ^ s);
-    expandable = (fun items -> "\n\n" ^ String.concat "\n\n" items);
-  }
-
 let telegram_ctx =
   let esc = Format_adapter.escape Format_adapter.Telegram_html in
   {
@@ -612,8 +603,16 @@ let telegram_ctx =
   }
 
 let ctx_of_connector connector =
-  Format_adapter.dispatch connector ~telegram_html:telegram_ctx
-    ~default:plain_ctx
+  match connector with
+  | Format_adapter.Telegram_html -> telegram_ctx
+  | _ ->
+      {
+        h = (fun s -> Format_adapter.bold connector s);
+        k = (fun s -> Format_adapter.code connector s);
+        esc = Format_adapter.escape connector;
+        sub = (fun s -> "  " ^ s);
+        expandable = (fun items -> "\n\n" ^ String.concat "\n\n" items);
+      }
 
 let format_cost_summary_line label (s : Request_stats.summary) =
   Printf.sprintf "%s: $%.4f, %d turn%s, %s prompt (%s added), %s completion"

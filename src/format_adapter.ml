@@ -98,7 +98,7 @@ let blockquote connector text =
     cell content do not break table column boundaries. *)
 let escape_table_cell connector text =
   match connector with
-  | Discord | Slack | Telegram_markdown | Telegram_mdv2 ->
+  | Discord | Slack | Telegram_markdown | Telegram_mdv2 | Teams ->
       let buf = Buffer.create (String.length text + 4) in
       String.iter
         (fun c ->
