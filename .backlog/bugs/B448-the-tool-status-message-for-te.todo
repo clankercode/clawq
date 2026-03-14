@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-14T13:11:31Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B448
 priority: high
-status: pending
+started_at: "2026-03-14T13:11:31Z"
+status: in_progress
 tags: []
 title: The tool status message for Teams is updated which is great, however, it renders as markdown and thus newlines aren't rendered so the list of tool calls is shown on one line. It should be on multiple lines.
 ---
