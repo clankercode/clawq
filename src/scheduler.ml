@@ -125,7 +125,7 @@ let should_run schedule ~last_run ~now =
       match last_run with
       | Some lr when now -. lr < 60.0 -> false
       | _ ->
-          let tm = Unix.gmtime now in
+          let tm = Unix.localtime now in
           field_matches minute tm.tm_min
           && field_matches hour tm.tm_hour
           && field_matches dom tm.tm_mday

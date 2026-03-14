@@ -58,6 +58,37 @@ let test_should_run_interval () =
     "should not run before interval" false
     (Scheduler.should_run sched ~last_run:(Some 800.0) ~now)
 
+let test_should_run_cron_uses_localtime () =
+  let now = Unix.gettimeofday () in
+  let tm = Unix.localtime now in
+  let sched =
+    Scheduler.CronExpr
+      {
+        minute = [ tm.tm_min ];
+        hour = [ tm.tm_hour ];
+        dom = [];
+        month = [];
+        dow = [];
+      }
+  in
+  Alcotest.(check bool)
+    "cron matches current local time" true
+    (Scheduler.should_run sched ~last_run:None ~now);
+  let non_matching_hour = (tm.tm_hour + 1) mod 24 in
+  let sched_mismatch =
+    Scheduler.CronExpr
+      {
+        minute = [ tm.tm_min ];
+        hour = [ non_matching_hour ];
+        dom = [];
+        month = [];
+        dow = [];
+      }
+  in
+  Alcotest.(check bool)
+    "cron does not match wrong hour" false
+    (Scheduler.should_run sched_mismatch ~last_run:None ~now)
+
 let test_crud_jobs () =
   let db = Memory.init ~db_path:":memory:" () in
   Scheduler.init_schema db;
@@ -139,6 +170,8 @@ let suite =
     Alcotest.test_case "parse invalid cron out of range" `Quick
       test_parse_invalid_cron_out_of_range;
     Alcotest.test_case "should_run interval" `Quick test_should_run_interval;
+    Alcotest.test_case "should_run cron uses localtime" `Quick
+      test_should_run_cron_uses_localtime;
     Alcotest.test_case "CRUD jobs" `Quick test_crud_jobs;
     Alcotest.test_case "add invalid schedule" `Quick test_add_invalid_schedule;
     Alcotest.test_case "run history" `Quick test_run_history;
