@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-13T16:23:57Z"
+claimed_by: cli-user
+completed_at: "2026-03-13T16:35:44Z"
 complexity: medium
 depends_on: []
+duration_minutes: 11.784049700416666
 estimate_hours: 1
 id: B294
 priority: medium
-status: pending
+started_at: "2026-03-13T16:23:57Z"
+status: done
 tags: []
 title: Cohttp body stream not consumed after streaming LLM response, leaking connections
 ---

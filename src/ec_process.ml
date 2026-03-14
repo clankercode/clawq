@@ -386,9 +386,7 @@ let run_daemon_mode () =
               (Printexc.to_string exn));
          (* Sleep in short increments so SIGTERM is noticed promptly *)
          let deadline = Unix.gettimeofday () +. scan_interval in
-         while
-           (not !shutdown_requested) && Unix.gettimeofday () < deadline
-         do
+         while (not !shutdown_requested) && Unix.gettimeofday () < deadline do
            Unix.sleepf 0.5
          done
        end

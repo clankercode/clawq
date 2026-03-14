@@ -208,78 +208,72 @@ let complete_streaming ~(config : Runtime_config.t)
   Logs.info (fun m ->
       m "Ollama stream request to %s model=%s msgs=%d" uri model
         (List.length messages));
-  let* status, stream = Http_client.post_stream ~uri ~headers ~body in
-  if status < 200 || status >= 300 then begin
-    let* chunks = Lwt_stream.to_list stream in
-    let response_body = String.concat "" chunks in
-    Lwt.fail_with
-      (Printf.sprintf "Ollama API error (HTTP %d): %s" status response_body)
-  end
-  else
-    (* NDJSON streaming: each line is a JSON object.
-       done:true signals the end. Final message has the full response. *)
-    let buf = Buffer.create 256 in
-    let content_acc = Buffer.create 1024 in
-    let resp_model = ref model in
-    let tool_calls_acc : Provider.tool_call list ref = ref [] in
-    let tagged_state = { Provider.in_thinking = false; pending = "" } in
-    let process_line line =
-      if line = "" then Lwt.return_unit
-      else
-        try
-          let json = Yojson.Safe.from_string line in
-          let open Yojson.Safe.Util in
-          (try resp_model := json |> member "model" |> to_string with _ -> ());
-          let done_flag =
-            try json |> member "done" |> to_bool with _ -> false
-          in
-          if done_flag then begin
-            (* Final message - check for tool calls *)
-            let msg = try json |> member "message" with _ -> `Null in
-            let tc = parse_tool_calls_from_message msg in
-            if tc <> [] then tool_calls_acc := tc;
-            let* () =
-              match Provider.thinking_style_of_provider provider with
-              | Provider.TaggedThinking ->
-                  Provider.flush_tagged_content_delta ~state:tagged_state
-                    ~content_acc ~on_chunk ()
-              | Provider.NoThinking | Provider.ReasoningContent ->
-                  Lwt.return_unit
+  Http_client.post_stream_with ~uri ~headers ~body ~label:"Ollama API error"
+    ~on_ok:(fun stream ->
+      let buf = Buffer.create 256 in
+      let content_acc = Buffer.create 1024 in
+      let resp_model = ref model in
+      let tool_calls_acc : Provider.tool_call list ref = ref [] in
+      let tagged_state = { Provider.in_thinking = false; pending = "" } in
+      let process_line line =
+        if line = "" then Lwt.return_unit
+        else
+          try
+            let json = Yojson.Safe.from_string line in
+            let open Yojson.Safe.Util in
+            (try resp_model := json |> member "model" |> to_string
+             with _ -> ());
+            let done_flag =
+              try json |> member "done" |> to_bool with _ -> false
             in
-            let* () = on_chunk Provider.Done in
-            Lwt.return_unit
-          end
-          else begin
-            let msg = try json |> member "message" with _ -> `Null in
-            let content =
-              try msg |> member "content" |> to_string with _ -> ""
-            in
-            if content <> "" then begin
-              match Provider.thinking_style_of_provider provider with
-              | Provider.TaggedThinking ->
-                  Provider.emit_tagged_content_delta ~state:tagged_state
-                    ~content_acc ~on_chunk content
-              | Provider.NoThinking | Provider.ReasoningContent ->
-                  Buffer.add_string content_acc content;
-                  on_chunk (Provider.Delta content)
+            if done_flag then begin
+              (* Final message - check for tool calls *)
+              let msg = try json |> member "message" with _ -> `Null in
+              let tc = parse_tool_calls_from_message msg in
+              if tc <> [] then tool_calls_acc := tc;
+              let* () =
+                match Provider.thinking_style_of_provider provider with
+                | Provider.TaggedThinking ->
+                    Provider.flush_tagged_content_delta ~state:tagged_state
+                      ~content_acc ~on_chunk ()
+                | Provider.NoThinking | Provider.ReasoningContent ->
+                    Lwt.return_unit
+              in
+              let* () = on_chunk Provider.Done in
+              Lwt.return_unit
             end
-            else Lwt.return_unit
-          end
-        with _ -> Lwt.return_unit
-    in
-    let* () =
-      Lwt_stream.iter_s
-        (fun chunk ->
-          Buffer.add_string buf chunk;
-          Provider.process_sse_buffer ~buf ~process_line ())
-        stream
-    in
-    let remaining = Buffer.contents buf in
-    let* () =
-      if remaining <> "" then process_line remaining else Lwt.return_unit
-    in
-    let content = Buffer.contents content_acc in
-    let final_model = !resp_model in
-    Lwt.return
-      (Provider.make_stream_result ~tool_calls:!tool_calls_acc ~content
-         ~model:final_model ~usage:None ())
+            else begin
+              let msg = try json |> member "message" with _ -> `Null in
+              let content =
+                try msg |> member "content" |> to_string with _ -> ""
+              in
+              if content <> "" then begin
+                match Provider.thinking_style_of_provider provider with
+                | Provider.TaggedThinking ->
+                    Provider.emit_tagged_content_delta ~state:tagged_state
+                      ~content_acc ~on_chunk content
+                | Provider.NoThinking | Provider.ReasoningContent ->
+                    Buffer.add_string content_acc content;
+                    on_chunk (Provider.Delta content)
+              end
+              else Lwt.return_unit
+            end
+          with _ -> Lwt.return_unit
+      in
+      let* () =
+        Lwt_stream.iter_s
+          (fun chunk ->
+            Buffer.add_string buf chunk;
+            Provider.process_sse_buffer ~buf ~process_line ())
+          stream
+      in
+      let remaining = Buffer.contents buf in
+      let* () =
+        if remaining <> "" then process_line remaining else Lwt.return_unit
+      in
+      let content = Buffer.contents content_acc in
+      let final_model = !resp_model in
+      Lwt.return
+        (Provider.make_stream_result ~tool_calls:!tool_calls_acc ~content
+           ~model:final_model ~usage:None ()))
+    ()

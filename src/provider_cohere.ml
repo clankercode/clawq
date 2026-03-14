@@ -175,103 +175,97 @@ let complete_streaming ~(config : Runtime_config.t)
   Logs.info (fun m ->
       m "Cohere stream request to %s model=%s msgs=%d" uri model
         (List.length messages));
-  let* status, stream = Http_client.post_stream ~uri ~headers ~body in
-  if status < 200 || status >= 300 then begin
-    let* chunks = Lwt_stream.to_list stream in
-    let response_body = String.concat "" chunks in
-    Lwt.fail_with
-      (Printf.sprintf "Cohere API error (HTTP %d): %s" status response_body)
-  end
-  else
-    (* Cohere streaming uses SSE with event types *)
-    let buf = Buffer.create 256 in
-    let content_acc = Buffer.create 1024 in
-    let resp_model = ref model in
-    let usage_acc = ref None in
-    let tool_calls_acc : Provider.tool_call list ref = ref [] in
-    let current_event = ref "" in
-    let process_event event_type data_str =
-      try
-        let json = Yojson.Safe.from_string data_str in
-        let open Yojson.Safe.Util in
-        match event_type with
-        | "content-delta" -> (
-            try
-              let text =
-                json |> member "delta" |> member "message" |> member "content"
-                |> member "text" |> to_string
-              in
-              if text <> "" then begin
-                Buffer.add_string content_acc text;
-                on_chunk (Provider.Delta text)
-              end
-              else Lwt.return_unit
-            with _ -> Lwt.return_unit)
-        | "tool-call-delta" ->
-            (* Incremental tool call deltas; full tool calls arrive in
+  Http_client.post_stream_with ~uri ~headers ~body ~label:"Cohere API error"
+    ~on_ok:(fun stream ->
+      let buf = Buffer.create 256 in
+      let content_acc = Buffer.create 1024 in
+      let resp_model = ref model in
+      let usage_acc = ref None in
+      let tool_calls_acc : Provider.tool_call list ref = ref [] in
+      let current_event = ref "" in
+      let process_event event_type data_str =
+        try
+          let json = Yojson.Safe.from_string data_str in
+          let open Yojson.Safe.Util in
+          match event_type with
+          | "content-delta" -> (
+              try
+                let text =
+                  json |> member "delta" |> member "message" |> member "content"
+                  |> member "text" |> to_string
+                in
+                if text <> "" then begin
+                  Buffer.add_string content_acc text;
+                  on_chunk (Provider.Delta text)
+                end
+                else Lwt.return_unit
+              with _ -> Lwt.return_unit)
+          | "tool-call-delta" ->
+              (* Incremental tool call deltas; full tool calls arrive in
                tool-calls-chunk so we only need to acknowledge this event. *)
-            Lwt.return_unit
-        | "tool-calls-chunk" ->
-            (try
-               let tc_list = json |> member "tool_calls" |> to_list in
-               List.iter
-                 (fun tc ->
-                   try
-                     let id = tc |> member "id" |> to_string in
-                     let fn = tc |> member "function" in
-                     let function_name = fn |> member "name" |> to_string in
-                     let arguments = fn |> member "arguments" |> to_string in
-                     tool_calls_acc :=
-                       !tool_calls_acc
-                       @ [ { Provider.id; function_name; arguments } ]
-                   with _ -> ())
-                 tc_list
-             with _ -> ());
-            Lwt.return_unit
-        | "message-end" ->
-            (try
-               let u =
-                 json |> member "delta" |> member "usage" |> member "tokens"
-               in
-               let pt = u |> member "input_tokens" |> to_int in
-               let ct = u |> member "output_tokens" |> to_int in
-               usage_acc := Some (pt, ct)
-             with _ -> ());
-            on_chunk Provider.Done
-        | _ -> Lwt.return_unit
-      with _ -> Lwt.return_unit
-    in
-    let process_line line =
-      let event_prefix = "event: " in
-      let data_prefix = "data: " in
-      let eplen = String.length event_prefix in
-      let dplen = String.length data_prefix in
-      if String.length line >= eplen && String.sub line 0 eplen = event_prefix
-      then begin
-        current_event := String.sub line eplen (String.length line - eplen);
-        Lwt.return_unit
-      end
-      else if
-        String.length line >= dplen && String.sub line 0 dplen = data_prefix
-      then begin
-        let data = String.sub line dplen (String.length line - dplen) in
-        process_event !current_event data
-      end
-      else Lwt.return_unit
-    in
-    let* () =
-      Lwt_stream.iter_s
-        (fun chunk ->
-          Buffer.add_string buf chunk;
-          Provider.process_sse_buffer ~buf ~process_line ())
-        stream
-    in
-    let remaining = Buffer.contents buf in
-    let* () =
-      if remaining <> "" then process_line remaining else Lwt.return_unit
-    in
-    let content = Buffer.contents content_acc in
-    let final_model = !resp_model in
-    Lwt.return
-      (Provider.make_stream_result ~tool_calls:!tool_calls_acc ~content
-         ~model:final_model ~usage:!usage_acc ())
+              Lwt.return_unit
+          | "tool-calls-chunk" ->
+              (try
+                 let tc_list = json |> member "tool_calls" |> to_list in
+                 List.iter
+                   (fun tc ->
+                     try
+                       let id = tc |> member "id" |> to_string in
+                       let fn = tc |> member "function" in
+                       let function_name = fn |> member "name" |> to_string in
+                       let arguments = fn |> member "arguments" |> to_string in
+                       tool_calls_acc :=
+                         !tool_calls_acc
+                         @ [ { Provider.id; function_name; arguments } ]
+                     with _ -> ())
+                   tc_list
+               with _ -> ());
+              Lwt.return_unit
+          | "message-end" ->
+              (try
+                 let u =
+                   json |> member "delta" |> member "usage" |> member "tokens"
+                 in
+                 let pt = u |> member "input_tokens" |> to_int in
+                 let ct = u |> member "output_tokens" |> to_int in
+                 usage_acc := Some (pt, ct)
+               with _ -> ());
+              on_chunk Provider.Done
+          | _ -> Lwt.return_unit
+        with _ -> Lwt.return_unit
+      in
+      let process_line line =
+        let event_prefix = "event: " in
+        let data_prefix = "data: " in
+        let eplen = String.length event_prefix in
+        let dplen = String.length data_prefix in
+        if String.length line >= eplen && String.sub line 0 eplen = event_prefix
+        then begin
+          current_event := String.sub line eplen (String.length line - eplen);
+          Lwt.return_unit
+        end
+        else if
+          String.length line >= dplen && String.sub line 0 dplen = data_prefix
+        then begin
+          let data = String.sub line dplen (String.length line - dplen) in
+          process_event !current_event data
+        end
+        else Lwt.return_unit
+      in
+      let* () =
+        Lwt_stream.iter_s
+          (fun chunk ->
+            Buffer.add_string buf chunk;
+            Provider.process_sse_buffer ~buf ~process_line ())
+          stream
+      in
+      let remaining = Buffer.contents buf in
+      let* () =
+        if remaining <> "" then process_line remaining else Lwt.return_unit
+      in
+      let content = Buffer.contents content_acc in
+      let final_model = !resp_model in
+      Lwt.return
+        (Provider.make_stream_result ~tool_calls:!tool_calls_acc ~content
+           ~model:final_model ~usage:!usage_acc ()))
+    ()

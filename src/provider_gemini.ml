@@ -272,91 +272,85 @@ let complete_streaming ~(config : Runtime_config.t)
   let headers = [] in
   Logs.info (fun m ->
       m "Gemini stream request model=%s msgs=%d" model (List.length messages));
-  let* status, stream = Http_client.post_stream ~uri ~headers ~body in
-  if status < 200 || status >= 300 then begin
-    let* chunks = Lwt_stream.to_list stream in
-    let response_body = String.concat "" chunks in
-    Lwt.fail_with
-      (Printf.sprintf "Gemini API error (HTTP %d): %s" status response_body)
-  end
-  else
-    (* SSE stream: data: {json} lines *)
-    let buf = Buffer.create 256 in
-    let content_acc = Buffer.create 1024 in
-    let resp_model = ref model in
-    let usage_acc = ref None in
-    let tool_calls_acc : Provider.tool_call list ref = ref [] in
-    let tc_counter = ref 0 in
-    let process_line line =
-      let prefix = "data: " in
-      let plen = String.length prefix in
-      if String.length line >= plen && String.sub line 0 plen = prefix then begin
-        let data = String.sub line plen (String.length line - plen) in
-        if data = "[DONE]" then begin
-          let* () = on_chunk Provider.Done in
-          Lwt.return_unit
+  Http_client.post_stream_with ~uri ~headers ~body ~label:"Gemini API error"
+    ~on_ok:(fun stream ->
+      let buf = Buffer.create 256 in
+      let content_acc = Buffer.create 1024 in
+      let resp_model = ref model in
+      let usage_acc = ref None in
+      let tool_calls_acc : Provider.tool_call list ref = ref [] in
+      let tc_counter = ref 0 in
+      let process_line line =
+        let prefix = "data: " in
+        let plen = String.length prefix in
+        if String.length line >= plen && String.sub line 0 plen = prefix then begin
+          let data = String.sub line plen (String.length line - plen) in
+          if data = "[DONE]" then begin
+            let* () = on_chunk Provider.Done in
+            Lwt.return_unit
+          end
+          else
+            try
+              let json = Yojson.Safe.from_string data in
+              let open Yojson.Safe.Util in
+              (try resp_model := json |> member "modelVersion" |> to_string
+               with _ -> ());
+              (try
+                 let u = json |> member "usageMetadata" in
+                 let pt = u |> member "promptTokenCount" |> to_int in
+                 let ct = u |> member "candidatesTokenCount" |> to_int in
+                 usage_acc := Some (pt, ct)
+               with _ -> ());
+              let parts =
+                try
+                  json |> member "candidates" |> index 0 |> member "content"
+                  |> member "parts" |> to_list
+                with _ -> []
+              in
+              Lwt_list.iter_s
+                (fun part ->
+                  let* () =
+                    try
+                      let text = part |> member "text" |> to_string in
+                      if text <> "" then begin
+                        Buffer.add_string content_acc text;
+                        on_chunk (Provider.Delta text)
+                      end
+                      else Lwt.return_unit
+                    with _ -> Lwt.return_unit
+                  in
+                  (try
+                     let fc = part |> member "functionCall" in
+                     let name = fc |> member "name" |> to_string in
+                     let args = fc |> member "args" in
+                     let arguments = Yojson.Safe.to_string args in
+                     let idx = !tc_counter in
+                     incr tc_counter;
+                     let id = Printf.sprintf "gemini_%s_%d" name idx in
+                     tool_calls_acc :=
+                       !tool_calls_acc
+                       @ [ { Provider.id; function_name = name; arguments } ]
+                   with _ -> ());
+                  Lwt.return_unit)
+                parts
+            with _ -> Lwt.return_unit
         end
-        else
-          try
-            let json = Yojson.Safe.from_string data in
-            let open Yojson.Safe.Util in
-            (try resp_model := json |> member "modelVersion" |> to_string
-             with _ -> ());
-            (try
-               let u = json |> member "usageMetadata" in
-               let pt = u |> member "promptTokenCount" |> to_int in
-               let ct = u |> member "candidatesTokenCount" |> to_int in
-               usage_acc := Some (pt, ct)
-             with _ -> ());
-            let parts =
-              try
-                json |> member "candidates" |> index 0 |> member "content"
-                |> member "parts" |> to_list
-              with _ -> []
-            in
-            Lwt_list.iter_s
-              (fun part ->
-                let* () =
-                  try
-                    let text = part |> member "text" |> to_string in
-                    if text <> "" then begin
-                      Buffer.add_string content_acc text;
-                      on_chunk (Provider.Delta text)
-                    end
-                    else Lwt.return_unit
-                  with _ -> Lwt.return_unit
-                in
-                (try
-                   let fc = part |> member "functionCall" in
-                   let name = fc |> member "name" |> to_string in
-                   let args = fc |> member "args" in
-                   let arguments = Yojson.Safe.to_string args in
-                   let idx = !tc_counter in
-                   incr tc_counter;
-                   let id = Printf.sprintf "gemini_%s_%d" name idx in
-                   tool_calls_acc :=
-                     !tool_calls_acc
-                     @ [ { Provider.id; function_name = name; arguments } ]
-                 with _ -> ());
-                Lwt.return_unit)
-              parts
-          with _ -> Lwt.return_unit
-      end
-      else Lwt.return_unit
-    in
-    let* () =
-      Lwt_stream.iter_s
-        (fun chunk ->
-          Buffer.add_string buf chunk;
-          Provider.process_sse_buffer ~buf ~process_line ())
-        stream
-    in
-    let remaining = Buffer.contents buf in
-    let* () =
-      if remaining <> "" then process_line remaining else Lwt.return_unit
-    in
-    let content = Buffer.contents content_acc in
-    let final_model = !resp_model in
-    Lwt.return
-      (Provider.make_stream_result ~tool_calls:!tool_calls_acc ~content
-         ~model:final_model ~usage:!usage_acc ())
+        else Lwt.return_unit
+      in
+      let* () =
+        Lwt_stream.iter_s
+          (fun chunk ->
+            Buffer.add_string buf chunk;
+            Provider.process_sse_buffer ~buf ~process_line ())
+          stream
+      in
+      let remaining = Buffer.contents buf in
+      let* () =
+        if remaining <> "" then process_line remaining else Lwt.return_unit
+      in
+      let content = Buffer.contents content_acc in
+      let final_model = !resp_model in
+      Lwt.return
+        (Provider.make_stream_result ~tool_calls:!tool_calls_acc ~content
+           ~model:final_model ~usage:!usage_acc ()))
+    ()

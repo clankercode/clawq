@@ -658,45 +658,47 @@ let do_request ~provider_name ~provider ~model ~messages ?tools ~on_chunk () =
         | None -> []
       in
       let body = build_body ~model ~messages tools in
-      let* status, stream =
-        Http_client.post_stream ~uri:responses_uri ~headers ~body
-      in
-      if status < 200 || status >= 300 then begin
-        let* chunks = Lwt_stream.to_list stream in
-        let body = String.concat "" chunks in
-        (* Codex returns {"detail":"Bad Request"} (no further detail) for some
-           400s including context-window overflows.  Only rewrite to include
-           "context length" (which triggers is_context_exhaustion_error recovery
-           in agent.ml) when the request is large enough that context exhaustion
-           is plausible — otherwise the recovery path fires incorrectly on small
-           requests and collapses the history to empty. *)
-        let estimated_tokens =
-          List.fold_left
-            (fun acc (m : Provider.message) ->
-              let tc_args =
-                List.fold_left
-                  (fun a (tc : Provider.tool_call) ->
-                    a + String.length tc.arguments)
-                  0 m.tool_calls
-              in
-              acc + ((String.length m.content + tc_args + 3) / 4))
-            0 messages
-        in
-        let large_request =
-          List.length messages > 150 || estimated_tokens > 75_000
-        in
-        let msg =
-          if status = 400 && string_contains body "Bad Request" && large_request
-          then
-            Printf.sprintf
-              "OpenAI Codex error (HTTP %d): possible context length issue \
-               (msgs=%d ~%dk tok; raw: %s)"
-              status (List.length messages) (estimated_tokens / 1000) body
-          else Printf.sprintf "OpenAI Codex error (HTTP %d): %s" status body
-        in
-        Lwt.fail_with msg
-      end
-      else process_stream stream ~on_chunk
+      Http_client.post_stream_with ~uri:responses_uri ~headers ~body
+        ~label:"OpenAI Codex error"
+        ~on_error:(fun r ->
+          let open Lwt.Syntax in
+          let* body = Http_client.collect_error_body r.stream in
+          (* Codex returns {"detail":"Bad Request"} (no further detail) for some
+             400s including context-window overflows.  Only rewrite to include
+             "context length" (which triggers is_context_exhaustion_error recovery
+             in agent.ml) when the request is large enough that context exhaustion
+             is plausible — otherwise the recovery path fires incorrectly on small
+             requests and collapses the history to empty. *)
+          let estimated_tokens =
+            List.fold_left
+              (fun acc (m : Provider.message) ->
+                let tc_args =
+                  List.fold_left
+                    (fun a (tc : Provider.tool_call) ->
+                      a + String.length tc.arguments)
+                    0 m.tool_calls
+                in
+                acc + ((String.length m.content + tc_args + 3) / 4))
+              0 messages
+          in
+          let large_request =
+            List.length messages > 150 || estimated_tokens > 75_000
+          in
+          let msg =
+            if
+              r.status = 400
+              && string_contains body "Bad Request"
+              && large_request
+            then
+              Printf.sprintf
+                "OpenAI Codex error (HTTP %d): possible context length issue \
+                 (msgs=%d ~%dk tok; raw: %s)"
+                r.status (List.length messages) (estimated_tokens / 1000) body
+            else Printf.sprintf "OpenAI Codex error (HTTP %d): %s" r.status body
+          in
+          Lwt.fail_with msg)
+        ~on_ok:(fun stream -> process_stream stream ~on_chunk)
+        ()
 
 let complete ~(config : Runtime_config.t) ~provider ~model ~messages ?tools () =
   let provider_name =

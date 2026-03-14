@@ -145,6 +145,21 @@ let put_empty ~uri ~headers =
       let* body_str = Cohttp_lwt.Body.to_string body in
       Lwt.return (status, resp_headers, body_str))
 
+(** Drain remaining response body data, suppressing exceptions. Call in a
+    [Lwt.finalize] handler after consuming a stream returned by [post_stream] or
+    [get_stream] to prevent cohttp "Body not consumed" warnings and connection
+    leaks. *)
+let make_body_drain resp_body () =
+  Lwt.catch
+    (fun () -> Cohttp_lwt.Body.drain_body resp_body)
+    (fun _exn -> Lwt.return_unit)
+
+type stream_response = {
+  status : int;
+  stream : string Lwt_stream.t;
+  drain : unit -> unit Lwt.t;
+}
+
 (** [post_stream] applies the timeout only to the initial connection and
     response-header exchange, NOT to reading the body stream (which can take
     arbitrarily long for SSE / streaming responses). *)
@@ -155,13 +170,15 @@ let post_stream ~uri ~headers ~body =
       let headers =
         Cohttp.Header.of_list (("Content-Type", "application/json") :: headers)
       in
-      let body = Cohttp_lwt.Body.of_string body in
-      let* response, body = Cohttp_lwt_unix.Client.post ~headers ~body uri in
+      let req_body = Cohttp_lwt.Body.of_string body in
+      let* response, resp_body =
+        Cohttp_lwt_unix.Client.post ~headers ~body:req_body uri
+      in
       let status =
         Cohttp.Response.status response |> Cohttp.Code.code_of_status
       in
-      let stream = Cohttp_lwt.Body.to_stream body in
-      Lwt.return (status, stream))
+      let stream = Cohttp_lwt.Body.to_stream resp_body in
+      Lwt.return { status; stream; drain = make_body_drain resp_body })
 
 (** [get_stream] applies the timeout only to the initial connection and
     response-header exchange, NOT to reading the body stream. Use this for
@@ -171,12 +188,47 @@ let get_stream ~uri ~headers =
   labeled_timeout ~label:"get_stream" !default_timeout_s (fun () ->
       let uri = Uri.of_string uri in
       let headers = Cohttp.Header.of_list headers in
-      let* response, body = Cohttp_lwt_unix.Client.get ~headers uri in
+      let* response, resp_body = Cohttp_lwt_unix.Client.get ~headers uri in
       let status =
         Cohttp.Response.status response |> Cohttp.Code.code_of_status
       in
-      let stream = Cohttp_lwt.Body.to_stream body in
-      Lwt.return (status, stream))
+      let stream = Cohttp_lwt.Body.to_stream resp_body in
+      Lwt.return { status; stream; drain = make_body_drain resp_body })
+
+let collect_error_body stream =
+  let open Lwt.Syntax in
+  let* chunks = Lwt_stream.to_list stream in
+  Lwt.return (String.concat "" chunks)
+
+let post_stream_with ~uri ~headers ~body ~label ?on_error ~on_ok () =
+  let open Lwt.Syntax in
+  let* r = post_stream ~uri ~headers ~body in
+  Lwt.finalize
+    (fun () ->
+      if r.status < 200 || r.status >= 300 then
+        match on_error with
+        | Some f -> f r
+        | None ->
+            let* body = collect_error_body r.stream in
+            Lwt.fail_with
+              (Printf.sprintf "%s (HTTP %d): %s" label r.status body)
+      else on_ok r.stream)
+    r.drain
+
+let get_stream_with ~uri ~headers ~label ?on_error ~on_ok () =
+  let open Lwt.Syntax in
+  let* r = get_stream ~uri ~headers in
+  Lwt.finalize
+    (fun () ->
+      if r.status < 200 || r.status >= 300 then
+        match on_error with
+        | Some f -> f r
+        | None ->
+            let* body = collect_error_body r.stream in
+            Lwt.fail_with
+              (Printf.sprintf "%s (HTTP %d): %s" label r.status body)
+      else on_ok r.stream)
+    r.drain
 
 let get_with_timeout ~timeout_s ~uri ~headers =
   let open Lwt.Syntax in

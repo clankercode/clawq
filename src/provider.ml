@@ -1023,12 +1023,15 @@ let process_sse_stream ?(thinking_style = NoThinking) stream ~on_chunk =
             pb ())
           stream)
       (fun () ->
-        let open Lwt.Syntax in
-        let rec drain () =
-          let* chunk = Lwt_stream.get stream in
-          match chunk with None -> Lwt.return_unit | Some _ -> drain ()
-        in
-        drain ())
+        Lwt.catch
+          (fun () ->
+            let open Lwt.Syntax in
+            let rec drain () =
+              let* chunk = Lwt_stream.get stream in
+              match chunk with None -> Lwt.return_unit | Some _ -> drain ()
+            in
+            drain ())
+          (fun _exn -> Lwt.return_unit))
   in
   (* process any remaining data in buffer *)
   let remaining = Buffer.contents buf in
@@ -1096,15 +1099,9 @@ let complete_stream ~(config : Runtime_config.t) ~messages ?tools ?session_key
           m "%s-> LLM provider=%s model=%s msgs=%d ~%dk tok" sk_tag
             provider_name model (List.length messages)
             (estimate_messages_tokens messages / 1000));
-      let* status, stream = Http_client.post_stream ~uri ~headers ~body in
-      if status < 200 || status >= 300 then begin
-        (* collect error body from stream *)
-        let* chunks = Lwt_stream.to_list stream in
-        let response_body = String.concat "" chunks in
-        Lwt.fail_with
-          (Printf.sprintf "LLM API error (HTTP %d): %s" status response_body)
-      end
-      else
-        process_sse_stream
-          ~thinking_style:(thinking_style_of_provider provider)
-          stream ~on_chunk
+      Http_client.post_stream_with ~uri ~headers ~body ~label:"LLM API error"
+        ~on_ok:(fun stream ->
+          process_sse_stream
+            ~thinking_style:(thinking_style_of_provider provider)
+            stream ~on_chunk)
+        ()

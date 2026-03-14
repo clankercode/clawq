@@ -126,16 +126,16 @@ let test_get_stream_allows_delayed_body_after_headers () =
         with_default_timeout 0.05 (fun () ->
             Lwt_main.run
               (let open Lwt.Syntax in
-               let* status, stream =
+               let* r =
                  Http_client.get_stream
                    ~uri:
                      (Printf.sprintf "http://127.0.0.1:%d/stream-body-delay"
                         port)
                    ~headers:[]
                in
-               let* first_chunk = Lwt_stream.get stream in
-               let* end_of_stream = Lwt_stream.get stream in
-               Lwt.return (status, first_chunk, end_of_stream)))
+               let* first_chunk = Lwt_stream.get r.stream in
+               let* end_of_stream = Lwt_stream.get r.stream in
+               Lwt.return (r.status, first_chunk, end_of_stream)))
       in
       Alcotest.(check int) "status" 200 status;
       Alcotest.(check (option string))

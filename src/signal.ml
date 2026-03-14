@@ -172,43 +172,42 @@ let receive_loop_jsonrpc ~(cfg : Runtime_config.signal_config) ~on_message () =
     let result =
       Lwt.catch
         (fun () ->
-          let* status, body =
-            Http_client.get_stream ~uri
-              ~headers:[ ("Accept", "text/event-stream") ]
-          in
-          if status >= 200 && status < 300 then begin
-            let process_line line =
-              match parse_sse_data_line line with
-              | None -> Lwt.return_unit
-              | Some payload -> (
-                  match parse_jsonrpc_event payload with
-                  | None -> Lwt.return_unit
-                  | Some (from_, group_id_opt, text) ->
-                      if is_allowed ~cfg ~from:from_ then
-                        on_message ~from:from_ ~group_id_opt ~text
-                      else begin
-                        Logs.debug (fun m ->
-                            m
-                              "Signal: ignoring message from %s (not in \
-                               allow_from)"
-                              from_);
-                        Lwt.return_unit
-                      end)
-            in
-            let line_buffer = Buffer.create 256 in
-            let* () =
-              Lwt_stream.iter_s
-                (process_sse_chunk ~on_event:process_line line_buffer)
-                body
-            in
-            let* () = flush_sse_buffer ~on_event:process_line line_buffer in
-            Channel_util.Backoff.reset backoff;
-            Lwt.return `Ok
-          end
-          else begin
-            Logs.warn (fun m -> m "Signal: SSE poll returned HTTP %d" status);
-            Lwt.return `Error
-          end)
+          Http_client.get_stream_with ~uri
+            ~headers:[ ("Accept", "text/event-stream") ]
+            ~label:"Signal SSE"
+            ~on_error:(fun r ->
+              Logs.warn (fun m ->
+                  m "Signal: SSE poll returned HTTP %d" r.status);
+              Lwt.return `Error)
+            ~on_ok:(fun body ->
+              let process_line line =
+                match parse_sse_data_line line with
+                | None -> Lwt.return_unit
+                | Some payload -> (
+                    match parse_jsonrpc_event payload with
+                    | None -> Lwt.return_unit
+                    | Some (from_, group_id_opt, text) ->
+                        if is_allowed ~cfg ~from:from_ then
+                          on_message ~from:from_ ~group_id_opt ~text
+                        else begin
+                          Logs.debug (fun m ->
+                              m
+                                "Signal: ignoring message from %s (not in \
+                                 allow_from)"
+                                from_);
+                          Lwt.return_unit
+                        end)
+              in
+              let line_buffer = Buffer.create 256 in
+              let* () =
+                Lwt_stream.iter_s
+                  (process_sse_chunk ~on_event:process_line line_buffer)
+                  body
+              in
+              let* () = flush_sse_buffer ~on_event:process_line line_buffer in
+              Channel_util.Backoff.reset backoff;
+              Lwt.return `Ok)
+            ())
         (fun exn ->
           Logs.err (fun m ->
               m "Signal: SSE loop error: %s" (Printexc.to_string exn));
