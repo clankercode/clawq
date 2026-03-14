@@ -105,4 +105,4 @@ let escape_table_cell connector text =
           if c = '|' then Buffer.add_string buf "\\|" else Buffer.add_char buf c)
         text;
       Buffer.contents buf
-  | Telegram_html | Plain | Teams -> text
+  | Telegram_html | Plain -> text
