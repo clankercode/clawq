@@ -181,3 +181,5 @@ ideas:
       status: done
       tags: []
       title: Refactor skills to work like Claude Code's skills
+    - file: I022-allow-for-backing-up-workspace.todo
+      id: I022
