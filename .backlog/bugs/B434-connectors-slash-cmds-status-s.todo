@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B434
+priority: high
+status: pending
+tags: []
+title: 'connectors + slash cmds: /status should report a rich set if information about the bots status in a table. including uptime, version info, # sessions, # active sessions, # connectors, tunnle, etc.'
+---
+
+connectors + slash cmds: /status should report a rich set if information about the bots status in a table. including uptime, version info, # sessions, # active sessions, # connectors, tunnle, etc.

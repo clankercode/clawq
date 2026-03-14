@@ -430,3 +430,4 @@ bugs:
     - file: B431-also-when-we-render-markdown-t.todo
     - file: B432-costs-and-usage-should-output.todo
     - file: B433-connectors-for-table-output-to.todo
+    - file: B434-connectors-slash-cmds-status-s.todo
