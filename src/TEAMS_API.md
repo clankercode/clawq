@@ -227,7 +227,11 @@ Send a rich card by including an `attachments` array in the activity:
 }
 ```
 
-## Uploading Attachments
+## Uploading Attachments (Direct Line / Web Chat only)
+
+**NOTE:** The Bot Framework attachment upload endpoint only works for Direct Line and
+Web Chat channels. **Teams returns HTTP 404** for this endpoint. For Teams file
+delivery, use the temp download server approach (see below).
 
 Upload a file to a conversation via the Bot Framework attachment endpoint:
 
@@ -255,7 +259,7 @@ The uploaded attachment can be referenced via:
 {serviceUrl}/v3/attachments/{attachment_id}/views/original
 ```
 
-## Sending File Attachments
+## Sending File Attachments (Direct Line / Web Chat only)
 
 After uploading an attachment, send a message referencing it:
 
@@ -273,7 +277,16 @@ After uploading an attachment, send a message referencing it:
 }
 ```
 
-This is used by `/debug_dump_chat` to send session dumps as downloadable files.
+## Teams File Delivery via Temp Downloads
+
+Since Teams does not support the Bot Framework attachment upload API, large payloads
+(e.g., `/debug_dump_chat` session dumps) are served from the bot's own HTTP server:
+
+1. Content is stored in `Temp_downloads` with a random token and 1-hour TTL.
+2. The bot sends a Teams message containing a download URL: `{public_base_url}/downloads/{token}`.
+3. The `public_base_url` is set from `tunnel.url` in config (required for this feature).
+4. If no public URL is configured, the dump is sent as truncated text (25KB limit).
+5. Expired entries are cleaned up by the daemon's periodic cleanup loop.
 
 ## Key Bot Framework Endpoints
 

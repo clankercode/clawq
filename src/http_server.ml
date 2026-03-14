@@ -1714,6 +1714,25 @@ let handler ~session_manager ~require_pairing ~auth_token
             | `Ok _ ->
                 Cohttp_lwt_unix.Server.respond_string ~status:`OK
                   ~headers:json_headers ~body:{|{"code":0}|} ()))
+  | `GET, path
+    when String.length path > 11 && String.sub path 0 11 = "/downloads/" -> (
+      let* _ = Cohttp_lwt.Body.drain_body body in
+      let token = String.sub path 11 (String.length path - 11) in
+      match Temp_downloads.get token with
+      | None ->
+          Cohttp_lwt_unix.Server.respond_string ~status:`Not_found
+            ~headers:json_headers ~body:{|{"error":"not found or expired"}|} ()
+      | Some entry ->
+          let headers =
+            Cohttp.Header.of_list
+              [
+                ("Content-Type", entry.content_type);
+                ( "Content-Disposition",
+                  Printf.sprintf "attachment; filename=\"%s\"" entry.filename );
+              ]
+          in
+          Cohttp_lwt_unix.Server.respond_string ~status:`OK ~headers
+            ~body:entry.content ())
   | _ ->
       let* _ = Cohttp_lwt.Body.drain_body body in
       Cohttp_lwt_unix.Server.respond_string ~status:`Not_found

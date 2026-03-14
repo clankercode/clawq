@@ -183,6 +183,7 @@
   line_channel
   onebot
   teams
+  temp_downloads
   provider_anthropic
   provider_openai_codex
   provider_cohere

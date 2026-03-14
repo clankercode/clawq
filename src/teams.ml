@@ -487,7 +487,9 @@ let build_message_with_attachment ~filename ~content_type ~content_url =
   |> Yojson.Safe.to_string
 
 (* Upload an attachment to a conversation via Bot Framework REST API.
-   Returns Ok content_url on success, Error msg on failure. *)
+   Returns Ok content_url on success, Error msg on failure.
+   NOTE: This endpoint only works for Direct Line and Web Chat channels.
+   Teams returns HTTP 404 — use Temp_downloads for Teams file delivery. *)
 let upload_attachment ~(config : Runtime_config.teams_config) ~service_url
     ~conversation_id ~filename ~content_type ~content () =
   let open Lwt.Syntax in
@@ -985,7 +987,7 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                     Session.fork_and_run session_manager ~parent_key:key ~prompt
                       ~send_reply:send_text;
                     Lwt.return_unit
-                | DebugDumpChat -> (
+                | DebugDumpChat ->
                     let content = Session.dump_json session_manager ~key in
                     let timestamp =
                       Int64.to_int (Int64.of_float (Unix.gettimeofday ()))
@@ -1001,19 +1003,32 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                     let filename =
                       Printf.sprintf "session_%s_%d.json" safe_key timestamp
                     in
-                    let* result =
-                      send_file ~config ~service_url:effective_service_url
-                        ~conversation_id ~reply_to_id:activity_id ~filename
-                        ~content ~content_type:"application/json" ()
+                    let token =
+                      Temp_downloads.add ~content
+                        ~content_type:"application/json" ~filename ~ttl_s:3600.0
                     in
-                    match result with
-                    | Ok () -> Lwt.return_unit
-                    | Error err ->
-                        send_text
-                          (Printf.sprintf
-                             "Failed to send debug dump as file: %s\n\n\
-                              Dump length: %d bytes"
-                             err (String.length content)))
+                    let msg =
+                      match Temp_downloads.download_url token with
+                      | Some url ->
+                          Printf.sprintf
+                            "Session dump available for download (%d bytes, \
+                             expires in 1 hour):\n\n\
+                             %s"
+                            (String.length content) url
+                      | None ->
+                          let max_len = 25000 in
+                          if String.length content <= max_len then content
+                          else
+                            Printf.sprintf
+                              "Session dump (truncated — configure tunnel.url \
+                               for full file download):\n\
+                               %s\n\
+                               ...\n\n\
+                               Full dump: %d bytes"
+                              (String.sub content 0 max_len)
+                              (String.length content)
+                    in
+                    send_text msg
                 | Tools ->
                     let text =
                       match Session.get_tool_registry session_manager with

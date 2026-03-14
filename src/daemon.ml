@@ -675,6 +675,7 @@ let run ~(config : Runtime_config.t) =
   let tunnel_manager = Tunnel_manager.create () in
   let tunnel_on_url url_opt =
     tunnel_url_ref := url_opt;
+    Temp_downloads.public_base_url := url_opt;
     match url_opt with
     | Some url -> (
         Logs.info (fun m -> m "Tunnel URL: %s" url);
@@ -686,6 +687,9 @@ let run ~(config : Runtime_config.t) =
         | None -> ())
     | None -> Logs.info (fun m -> m "Tunnel stopped")
   in
+  (* Pre-set public base URL from static tunnel config if available *)
+  if config.tunnel.enabled && String.trim config.tunnel.url <> "" then
+    Temp_downloads.public_base_url := Some config.tunnel.url;
   (Prompt_builder.tunnel_status_line_fn :=
      fun () ->
        let cur = !current_config in
@@ -1348,6 +1352,7 @@ let run ~(config : Runtime_config.t) =
                   | Some t -> Telemetry.maybe_flush t
                   | None -> Lwt.return_unit
                 in
+                Temp_downloads.cleanup ();
                 let* () = Lwt_unix.sleep 60.0 in
                 loop ()
               in

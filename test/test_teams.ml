@@ -348,6 +348,73 @@ let test_build_message_with_attachment () =
     (att |> member "contentUrl" |> to_string);
   Alcotest.(check string) "name" "dump.json" (att |> member "name" |> to_string)
 
+let test_temp_downloads_add_and_get () =
+  let token =
+    Temp_downloads.add ~content:"test content" ~content_type:"text/plain"
+      ~filename:"test.txt" ~ttl_s:60.0
+  in
+  Alcotest.(check bool) "token is non-empty" true (String.length token > 0);
+  match Temp_downloads.get token with
+  | None -> Alcotest.fail "expected Some entry"
+  | Some entry ->
+      Alcotest.(check string) "content" "test content" entry.content;
+      Alcotest.(check string) "content_type" "text/plain" entry.content_type;
+      Alcotest.(check string) "filename" "test.txt" entry.filename
+
+let test_temp_downloads_expired () =
+  let token =
+    Temp_downloads.add ~content:"old" ~content_type:"text/plain"
+      ~filename:"old.txt" ~ttl_s:0.0
+  in
+  Unix.sleepf 0.01;
+  Alcotest.(check bool)
+    "expired entry is None" true
+    (Temp_downloads.get token = None)
+
+let test_temp_downloads_missing () =
+  Alcotest.(check bool)
+    "missing token is None" true
+    (Temp_downloads.get "nonexistent-token" = None)
+
+let test_temp_downloads_url_with_base () =
+  let old_base = !Temp_downloads.public_base_url in
+  Temp_downloads.public_base_url := Some "https://example.com";
+  let url = Temp_downloads.download_url "abc123" in
+  Temp_downloads.public_base_url := old_base;
+  Alcotest.(check (option string))
+    "url with base" (Some "https://example.com/downloads/abc123") url
+
+let test_temp_downloads_url_trailing_slash () =
+  let old_base = !Temp_downloads.public_base_url in
+  Temp_downloads.public_base_url := Some "https://example.com/";
+  let url = Temp_downloads.download_url "abc123" in
+  Temp_downloads.public_base_url := old_base;
+  Alcotest.(check (option string))
+    "url strips trailing slash" (Some "https://example.com/downloads/abc123")
+    url
+
+let test_temp_downloads_url_no_base () =
+  let old_base = !Temp_downloads.public_base_url in
+  Temp_downloads.public_base_url := None;
+  let url = Temp_downloads.download_url "abc123" in
+  Temp_downloads.public_base_url := old_base;
+  Alcotest.(check (option string)) "no base returns None" None url
+
+let test_temp_downloads_cleanup () =
+  let _live =
+    Temp_downloads.add ~content:"live" ~content_type:"text/plain"
+      ~filename:"live.txt" ~ttl_s:60.0
+  in
+  let expired =
+    Temp_downloads.add ~content:"expired" ~content_type:"text/plain"
+      ~filename:"expired.txt" ~ttl_s:0.0
+  in
+  Unix.sleepf 0.01;
+  Temp_downloads.cleanup ();
+  Alcotest.(check bool)
+    "expired removed by cleanup" true
+    (Temp_downloads.get expired = None)
+
 let test_debug_dump_filename_sanitization () =
   let safe_key =
     String.map
@@ -421,4 +488,18 @@ let suite =
       test_build_message_with_attachment;
     Alcotest.test_case "debug dump filename sanitization" `Quick
       test_debug_dump_filename_sanitization;
+    Alcotest.test_case "temp_downloads add and get" `Quick
+      test_temp_downloads_add_and_get;
+    Alcotest.test_case "temp_downloads expired entry" `Quick
+      test_temp_downloads_expired;
+    Alcotest.test_case "temp_downloads missing token" `Quick
+      test_temp_downloads_missing;
+    Alcotest.test_case "temp_downloads url with base" `Quick
+      test_temp_downloads_url_with_base;
+    Alcotest.test_case "temp_downloads url trailing slash" `Quick
+      test_temp_downloads_url_trailing_slash;
+    Alcotest.test_case "temp_downloads url no base" `Quick
+      test_temp_downloads_url_no_base;
+    Alcotest.test_case "temp_downloads cleanup" `Quick
+      test_temp_downloads_cleanup;
   ]
