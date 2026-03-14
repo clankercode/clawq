@@ -1,0 +1,13 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 0.5
+id: P2.M3.E3.T003
+priority: high
+status: pending
+tags:
+    - idea
+    - planning
+title: Add priority field to slash_commands.ml command type
+---
+Add `priority: int` field to command record type. Higher priority = more important. Sort order: priority desc. Update command list with sensible defaults (help=100, new=90, status=80, etc.)

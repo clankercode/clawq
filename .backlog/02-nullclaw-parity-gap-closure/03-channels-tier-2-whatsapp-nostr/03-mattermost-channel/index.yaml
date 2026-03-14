@@ -30,3 +30,11 @@ tasks:
       status: done
       tags: []
       title: Add mattermost_config to runtime_config; parse channels.mattermost; wire into daemon.ml
+    - complexity: low
+      depends_on: []
+      estimate_hours: 0.5
+      file: T003-add-priority-field-to-slash-co.todo
+      id: T003
+      priority: high
+      status: pending
+      title: Add priority field to slash_commands.ml command type
