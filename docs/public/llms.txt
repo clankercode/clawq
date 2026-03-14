@@ -15,6 +15,10 @@
 
 - [MS Teams](https://clawq.org/integrations/teams/llms.txt): MS Teams Bot Framework channel setup, config reference, auth details, and troubleshooting
 
+## Tools
+
+- [Chat Log Viewer](https://clawq.org/chat-viewer): Drop-in browser viewer for clawq session show and Claude Code JSON chat logs — renders messages, tool calls, thinking blocks
+
 ## Optional
 
 - [Development Guide](https://clawq.org/development): Build, test, format, extraction workflow, code style, contributing

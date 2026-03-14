@@ -1,0 +1,670 @@
+---
+import DocsLayout from "../layouts/DocsLayout.astro";
+---
+
+<DocsLayout title="Chat Log Viewer" description="Drop a .json chat log file to inspect messages, tool calls, and thinking traces.">
+  <h1 class="page-title">Chat Log Viewer</h1>
+  <p class="page-description">
+    Drop a <code>.json</code> chat log file exported from <code>clawq session show</code> or Claude Code to inspect messages, tool calls, tool responses, and thinking blocks.
+    Files are processed entirely in your browser — nothing is uploaded.
+  </p>
+
+  <details class="cv-export-guide">
+    <summary>How to export chat logs</summary>
+    <div class="cv-export-guide__body">
+      <h3>Clawq</h3>
+      <p>Use <code>session show</code> to export a session as JSON:</p>
+      <pre><code># List available sessions
+clawq session list
+
+# Export a session to a .json file
+clawq session show SESSION_KEY > chat.json
+
+# Export a specific epoch
+clawq session show SESSION_KEY --epoch 2 > chat.json</code></pre>
+
+      <h3>Claude Code</h3>
+      <p>Claude Code stores conversations as JSONL files. Each line is a JSON message object. To export:</p>
+      <pre><code># Find recent conversations
+ls -lt ~/.claude/projects/*//*.jsonl | head
+
+# Convert JSONL to a JSON array for the viewer
+cat CONVERSATION.jsonl | jq -s '.' > chat.json</code></pre>
+      <p>Alternatively, use <code>claude export</code> if available in your version, or copy the <code>.jsonl</code> file directly — the viewer also accepts newline-delimited JSON.</p>
+    </div>
+  </details>
+
+  <div id="cv-error" class="cv-error" hidden></div>
+
+  <div id="cv-drop-zone" class="cv-drop-zone">
+    <div class="cv-drop-zone__content">
+      <svg class="cv-drop-zone__icon" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+        <polyline points="7 10 12 15 17 10"/>
+        <line x1="12" y1="15" x2="12" y2="3"/>
+      </svg>
+      <p class="cv-drop-zone__text">Drop a <code>.json</code> or <code>.jsonl</code> chat log file here, or click to browse</p>
+      <p class="cv-drop-zone__hint">Supports clawq session show, Claude Code, and JSONL formats</p>
+    </div>
+  </div>
+
+  <div id="cv-controls" class="cv-controls" hidden>
+    <div class="cv-controls__meta">
+      <span id="cv-meta-session" class="cv-meta-tag"></span>
+      <span id="cv-meta-epoch" class="cv-meta-tag"></span>
+      <span id="cv-meta-count" class="cv-meta-tag"></span>
+      <span id="cv-meta-file" class="cv-meta-tag"></span>
+    </div>
+    <button id="cv-reset-btn" class="cv-reset-btn" type="button">Load different file</button>
+  </div>
+
+  <div id="cv-transcript" class="cv-transcript-container" hidden></div>
+</DocsLayout>
+
+<script defer src="https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js" integrity="sha384-JEyTNhjM6R1ElGoJns4U2Ln4ofPcqzSsynQkmEc/KGy6336qAZl70tDLufbkla+3" crossorigin="anonymous"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/marked@15.0.12/marked.min.js" integrity="sha384-948ahk4ZmxYVYOc+rxN1H2gM1EJ2Duhp7uHtZ4WSLkV4Vtx5MUqnV+l7u9B+jFv+" crossorigin="anonymous"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.11.1/highlight.min.js" integrity="sha384-RH2xi4eIQ/gjtbs9fUXM68sLSi99C7ZWBRX1vDrVv6GQXRibxXLbwO2NGZB74MbU" crossorigin="anonymous"></script>
+
+<script>
+  import { normalize } from "../lib/chat-viewer/normalizer";
+  import { renderTranscript } from "../lib/chat-viewer/renderer";
+  import { initDropZone } from "../lib/chat-viewer/drop-zone";
+
+  function init() {
+    const dropZoneEl = document.getElementById("cv-drop-zone")!;
+    const controlsEl = document.getElementById("cv-controls")!;
+    const transcriptEl = document.getElementById("cv-transcript")!;
+    const errorEl = document.getElementById("cv-error")!;
+    const resetBtn = document.getElementById("cv-reset-btn")!;
+
+    const metaSession = document.getElementById("cv-meta-session")!;
+    const metaEpoch = document.getElementById("cv-meta-epoch")!;
+    const metaCount = document.getElementById("cv-meta-count")!;
+    const metaFile = document.getElementById("cv-meta-file")!;
+
+    function showError(msg: string) {
+      errorEl.textContent = msg;
+      errorEl.hidden = false;
+      setTimeout(() => { errorEl.hidden = true; }, 6000);
+    }
+
+    function reset() {
+      dropZoneEl.hidden = false;
+      controlsEl.hidden = true;
+      transcriptEl.hidden = true;
+      transcriptEl.innerHTML = "";
+      errorEl.hidden = true;
+    }
+
+    resetBtn.addEventListener("click", reset);
+
+    initDropZone(dropZoneEl, {
+      onFile(data: unknown, fileName: string) {
+        try {
+          const log = normalize(data);
+
+          // Update metadata
+          metaSession.textContent = log.sessionKey ? `Session: ${log.sessionKey}` : "";
+          metaSession.hidden = !log.sessionKey;
+          metaEpoch.textContent = log.epoch ? `Epoch: ${log.epoch}` : "";
+          metaEpoch.hidden = !log.epoch;
+          metaCount.textContent = `${log.messages.length} messages`;
+          metaFile.textContent = fileName;
+
+          // Render transcript
+          transcriptEl.innerHTML = "";
+          transcriptEl.appendChild(renderTranscript(log));
+
+          // Highlight code blocks
+          try { (window as any).hljs?.highlightAll(); } catch { /* hljs not loaded yet */ }
+
+          // Show transcript, hide drop zone
+          dropZoneEl.hidden = true;
+          controlsEl.hidden = false;
+          transcriptEl.hidden = false;
+          errorEl.hidden = true;
+        } catch (e) {
+          showError(e instanceof Error ? e.message : "Failed to process file.");
+        }
+      },
+      onError(msg: string) {
+        showError(msg);
+      },
+    });
+  }
+
+  // Run init when DOM is ready
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
+  // Re-init after Astro page swaps (view transitions)
+  document.addEventListener("astro:after-swap", init);
+</script>
+
+<style>
+  /* --- Page header --- */
+  .page-title {
+    font-family: var(--font-display);
+    font-size: clamp(1.5rem, 3vw, 2rem);
+    color: var(--text-primary);
+    margin-bottom: 0.5rem;
+  }
+
+  .page-description {
+    color: var(--text-secondary);
+    font-size: var(--fs-base);
+    line-height: 1.6;
+    margin-bottom: 2rem;
+    max-width: 48rem;
+  }
+
+  .page-description code {
+    background: var(--bg-tertiary);
+    padding: 0.15em 0.4em;
+    border-radius: 4px;
+    font-size: 0.9em;
+    border: 1px solid var(--border);
+  }
+
+  /* --- Export guide --- */
+  .cv-export-guide {
+    margin-bottom: 1.5rem;
+    border-radius: 10px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    overflow: hidden;
+  }
+
+  .cv-export-guide summary {
+    padding: 0.75rem 1rem;
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-size: var(--fs-sm);
+    font-weight: 500;
+    user-select: none;
+    list-style: none;
+  }
+
+  .cv-export-guide summary::before {
+    content: "\25B6";
+    font-size: 0.6rem;
+    margin-right: 0.5rem;
+    display: inline-block;
+    transition: transform 150ms ease;
+  }
+
+  .cv-export-guide[open] summary::before {
+    transform: rotate(90deg);
+  }
+
+  .cv-export-guide summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .cv-export-guide__body {
+    padding: 0 1rem 1rem;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    line-height: 1.6;
+  }
+
+  .cv-export-guide__body h3 {
+    font-size: 0.95rem;
+    color: var(--brass-primary);
+    margin: 1rem 0 0.4rem;
+    font-weight: 600;
+  }
+
+  .cv-export-guide__body h3:first-child {
+    margin-top: 0;
+  }
+
+  .cv-export-guide__body p {
+    margin: 0.3rem 0;
+  }
+
+  .cv-export-guide__body pre {
+    margin: 0.5rem 0;
+    padding: 0.7rem 1rem;
+    border-radius: 8px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    overflow-x: auto;
+    font-size: 0.85rem;
+    line-height: 1.5;
+  }
+
+  .cv-export-guide__body code {
+    font-family: "JetBrains Mono", Consolas, "SFMono-Regular", monospace;
+    font-size: 0.9em;
+  }
+
+  .cv-export-guide__body :not(pre) > code {
+    background: var(--bg-tertiary);
+    padding: 0.15em 0.35em;
+    border-radius: 3px;
+    border: 1px solid var(--border);
+  }
+
+  /* --- Error bar --- */
+  .cv-error {
+    padding: 0.75rem 1rem;
+    margin-bottom: 1rem;
+    border-radius: 8px;
+    background: rgba(196, 75, 63, 0.12);
+    border: 1px solid var(--error-red);
+    color: var(--error-red);
+    font-size: var(--fs-sm);
+  }
+
+  /* --- Drop zone --- */
+  .cv-drop-zone {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 16rem;
+    border: 2px dashed var(--border);
+    border-radius: 16px;
+    background: var(--bg-secondary);
+    cursor: pointer;
+    transition: border-color 200ms ease, background-color 200ms ease;
+  }
+
+  .cv-drop-zone:hover,
+  .cv-drop-zone:global(.cv-drop-zone--active) {
+    border-color: var(--brass-primary);
+    background: var(--brass-glow);
+  }
+
+  .cv-drop-zone__content {
+    text-align: center;
+    padding: 2rem;
+  }
+
+  .cv-drop-zone__icon {
+    color: var(--brass-primary);
+    margin: 0 auto 1rem;
+    opacity: 0.7;
+  }
+
+  .cv-drop-zone__text {
+    color: var(--text-primary);
+    font-size: var(--fs-base);
+    margin-bottom: 0.5rem;
+  }
+
+  .cv-drop-zone__text code {
+    background: var(--bg-tertiary);
+    padding: 0.15em 0.4em;
+    border-radius: 4px;
+    font-size: 0.9em;
+    border: 1px solid var(--border);
+  }
+
+  .cv-drop-zone__hint {
+    color: var(--text-tertiary);
+    font-size: var(--fs-sm);
+  }
+
+  /* --- Controls bar --- */
+  .cv-controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem 1rem;
+    margin-bottom: 1rem;
+    border-radius: 10px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+
+  .cv-controls__meta {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .cv-meta-tag {
+    font-size: var(--fs-sm);
+    color: var(--text-secondary);
+    background: var(--bg-tertiary);
+    padding: 0.2em 0.6em;
+    border-radius: 4px;
+  }
+
+  .cv-reset-btn {
+    font-size: var(--fs-sm);
+    padding: 0.4rem 0.8rem;
+    border-radius: 6px;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    cursor: pointer;
+    transition: border-color 150ms ease, background-color 150ms ease;
+  }
+
+  .cv-reset-btn:hover {
+    border-color: var(--brass-primary);
+    background: var(--bg-hover);
+  }
+
+  /* --- Transcript container --- */
+  .cv-transcript-container {
+    margin-bottom: 2rem;
+  }
+
+  /* --- Drag overlay --- */
+  :global(.cv-drag-overlay) {
+    position: fixed;
+    inset: 0;
+    z-index: 9998;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+  }
+
+  :global(.cv-drag-overlay--visible) {
+    display: flex;
+  }
+
+  :global(.cv-drag-overlay__inner) {
+    padding: 2rem 3rem;
+    border-radius: 16px;
+    background: var(--bg-secondary);
+    border: 2px dashed var(--brass-primary);
+    color: var(--brass-primary);
+    font-size: 1.25rem;
+    font-weight: 600;
+  }
+
+  /* --- Messages --- */
+  :global(.cv-transcript) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  :global(.cv-message) {
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  :global(.cv-message__header) {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.6rem 1rem;
+    font-size: 0.85rem;
+    user-select: none;
+  }
+
+  :global(.cv-role-label) {
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 0.75rem;
+  }
+
+  :global(.cv-timestamp) {
+    color: var(--text-tertiary);
+    font-size: 0.75rem;
+    margin-left: auto;
+  }
+
+  :global(.cv-chevron) {
+    font-size: 0.65rem;
+    margin-right: 0.4rem;
+    opacity: 0.6;
+    display: inline-block;
+    width: 0.8em;
+  }
+
+  :global(.cv-message__body) {
+    padding: 0.5rem 1rem 1rem;
+    line-height: 1.65;
+    font-size: 0.95rem;
+  }
+
+  /* Markdown content inside message bodies */
+  :global(.cv-message__body p) { margin: 0; }
+  :global(.cv-message__body p + p) { margin-top: 0.75rem; }
+  :global(.cv-message__body ul),
+  :global(.cv-message__body ol) { margin: 0.5rem 0; padding-left: 1.5rem; }
+  :global(.cv-message__body pre) {
+    overflow-x: auto;
+    padding: 0.8rem 1rem;
+    border-radius: 8px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    margin: 0.5rem 0;
+    font-size: 0.88em;
+  }
+  :global(.cv-message__body code) {
+    font-family: "JetBrains Mono", Consolas, "SFMono-Regular", monospace;
+    font-size: 0.9em;
+  }
+  :global(.cv-message__body :not(pre) > code) {
+    background: rgba(201, 168, 76, 0.08);
+    padding: 0.15em 0.35em;
+    border-radius: 3px;
+    border: 1px solid var(--border);
+  }
+  :global(.cv-message__body a) {
+    color: var(--brass-primary);
+    text-decoration-color: var(--brass-dark);
+  }
+  :global(.cv-message__body blockquote) {
+    border-left: 3px solid var(--coq-teal);
+    margin: 0.5rem 0;
+    padding: 0.4rem 1rem;
+    color: var(--text-secondary);
+    background: rgba(46, 139, 122, 0.05);
+    border-radius: 0 6px 6px 0;
+  }
+  :global(.cv-message__body h1),
+  :global(.cv-message__body h2),
+  :global(.cv-message__body h3),
+  :global(.cv-message__body h4) {
+    margin: 1rem 0 0.5rem;
+    font-size: 1em;
+    font-weight: 600;
+  }
+
+  /* --- System message --- */
+  :global(.cv-message--system) {
+    background: var(--bg-secondary);
+    border-left: 3px solid var(--info-blue);
+  }
+
+  :global(.cv-message--system .cv-message__header) {
+    color: var(--info-blue);
+    cursor: pointer;
+  }
+
+  :global(.cv-message--system .cv-message__body) {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+  }
+
+  /* --- User message --- */
+  :global(.cv-message--user) {
+    background: linear-gradient(135deg, rgba(46, 139, 122, 0.12), rgba(46, 139, 122, 0.22));
+    border: 1px solid rgba(46, 139, 122, 0.18);
+    border-top-right-radius: 4px;
+    margin-left: 8%;
+  }
+
+  :global(.cv-message--user .cv-role-label) {
+    color: var(--coq-teal-light);
+  }
+
+  /* --- Assistant message --- */
+  :global(.cv-message--assistant) {
+    background: var(--bg-tertiary);
+    border-left: 2px solid var(--brass-primary);
+    border-top-left-radius: 2px;
+    margin-right: 4%;
+  }
+
+  :global(.cv-message--assistant .cv-role-label) {
+    color: var(--brass-primary);
+  }
+
+  /* --- Tool standalone message --- */
+  :global(.cv-message--tool) {
+    background: var(--bg-secondary);
+    border-left: 2px solid var(--text-tertiary);
+  }
+
+  :global(.cv-message--tool .cv-role-label) {
+    color: var(--text-tertiary);
+  }
+
+  :global(.cv-tool-output) {
+    font-family: "JetBrains Mono", Consolas, monospace;
+    font-size: 0.84rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  /* --- Event message --- */
+  :global(.cv-message--event) {
+    text-align: center;
+  }
+
+  :global(.cv-message--event .cv-message__body) {
+    color: var(--text-tertiary);
+    font-size: 0.8rem;
+    font-style: italic;
+    padding: 0.3rem 1rem;
+  }
+
+  /* --- Thinking block --- */
+  :global(.cv-thinking) {
+    border-radius: 10px;
+    overflow: hidden;
+    background: rgba(46, 139, 122, 0.05);
+    border-left: 3px solid var(--coq-teal);
+    margin: 0.5rem 0;
+  }
+
+  :global(.cv-thinking__header) {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.8rem;
+    color: var(--coq-teal-light);
+    font-size: 0.85rem;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  :global(.cv-thinking__body) {
+    padding: 0 0.8rem 0.8rem;
+    color: var(--text-tertiary);
+    white-space: pre-wrap;
+    font-size: 0.88rem;
+    line-height: 1.55;
+  }
+
+  /* --- Tool call cards --- */
+  :global(.cv-tool-stack) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin: 0.5rem 0.5rem 0.5rem 0;
+  }
+
+  :global(.cv-tool-card) {
+    border-radius: 10px;
+    background: linear-gradient(180deg, rgba(15, 13, 20, 0.97), rgba(10, 8, 16, 0.99));
+    border: 1px solid var(--border);
+    overflow: hidden;
+  }
+
+  :global(.cv-tool-card__header) {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.65rem 0.85rem;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  :global(.cv-tool-card__name) {
+    font-family: "JetBrains Mono", Consolas, monospace;
+    font-size: 0.85rem;
+    color: var(--brass-primary);
+  }
+
+  :global(.cv-tool-card__status) {
+    white-space: nowrap;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-family: "JetBrains Mono", Consolas, monospace;
+  }
+
+  :global(.cv-tool-card__status--done) {
+    color: var(--coq-teal-light);
+  }
+
+  :global(.cv-tool-card__status--error) {
+    color: var(--error-red);
+  }
+
+  :global(.cv-tool-card__body) {
+    border-top: 1px solid var(--border);
+  }
+
+  :global(.cv-tool-card__args) {
+    padding: 0.6rem 0.85rem;
+    font-family: "JetBrains Mono", Consolas, monospace;
+    font-size: 0.8rem;
+    color: var(--text-tertiary);
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+
+  :global(.cv-tool-card__result) {
+    border-top: 1px solid var(--border);
+    padding: 0.6rem 0.85rem;
+  }
+
+  :global(.cv-tool-card__result-label) {
+    font-family: "JetBrains Mono", Consolas, monospace;
+    font-size: 0.72rem;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 0.3rem;
+  }
+
+  :global(.cv-tool-card__result-content) {
+    font-family: "JetBrains Mono", Consolas, monospace;
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 20rem;
+    overflow-y: auto;
+  }
+
+  /* --- Responsive --- */
+  @media (max-width: 48rem) {
+    :global(.cv-message--user) {
+      margin-left: 0;
+    }
+    :global(.cv-message--assistant) {
+      margin-right: 0;
+    }
+  }
+</style>

@@ -1,13 +1,16 @@
 ---
+claimed_at: "2026-03-14T12:44:56Z"
+claimed_by: cli-user
+completed_at: "2026-03-14T13:56:29Z"
 complexity: medium
 depends_on: []
+duration_minutes: 71.55711441338333
 estimate_hours: 10
 id: I020
 priority: medium
-status: pending
-tags:
-    - idea
-    - planning
+started_at: "2026-03-14T12:44:56Z"
+status: done
+tags: []
 title: 'Docs site chat log viewer: add an area where users can drop a .json chat log file and have it fully rendered for inspection. Should show messages, tool calls, tool responses, thinking blocks, etc. Useful for debugging sessions, sharing conversation traces, and understanding agent behavior.'
 ---
 

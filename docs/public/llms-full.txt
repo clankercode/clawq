@@ -745,5 +745,6 @@ Tell users:
 - [Channels](https://clawq.org/channels): Channel setup and Channel.S interface
 - [Development Guide](https://clawq.org/development): Build, test, format, contribute
 - [Verification Status](https://clawq.org/formal-verification): Machine-checked Coq verification status (F0–F12 verified, 174 theorems; F13–F17 planned: tool safety, config merge, MCP framing, memory isolation, sandbox containment)
+- [Chat Log Viewer](https://clawq.org/chat-viewer): Client-side browser tool to inspect .json chat logs from `clawq session show` or Claude Code — renders messages, tool calls, tool responses, and thinking blocks
 
 Preferred Codex delegation model: `gpt-5.4` when quality matters. Use `gpt-5.3-codex` when you specifically want the Codex-tuned path or need to mirror Codex OAuth defaults more closely.
