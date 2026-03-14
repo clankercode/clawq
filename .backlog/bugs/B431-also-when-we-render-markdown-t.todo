@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B431
+priority: high
+status: pending
+tags: []
+title: Also, when we render markdown tables as for `/help` in teams, the '|' character is sometimes in
+---
+
+Also, when we render markdown tables as for `/help` in teams, the '|' character is sometimes in
