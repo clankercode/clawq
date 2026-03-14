@@ -30,11 +30,14 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 | `config set KEY VALUE` | Set a config value by dot-path |
 | `config get KEY` | Read a config value by dot-path |
 | `config show [SECTION]` | Show config (secrets redacted) |
+| `completions [print\|install] [--shell SHELL]` | Generate and install shell tab-completion scripts (bash, zsh, fish; auto-detected from $SHELL) |
+| `costs [session [KEY]\|model\|provider]` | Show cumulative LLM costs and token usage |
 | `cron` | Manage scheduled agent messages (default: list) |
 | `cron list [--prompt\|-p]` | List all configured cron jobs (--prompt shows prompt text) |
 | `cron add NAME SESSION SCHEDULE MSG` | Add a cron job |
 | `cron remove NAME` | Remove a cron job by name |
 | `cron history NAME` | Show last 10 run records for a job |
+| `benchmark [--iterations N] [--tool NAME]` | Measure tool invocation latency to diagnose performance |
 | `background` | Inspect and control background coding tasks (default: list) |
 | `background list` | List queued, running, and completed background tasks |
 | `background show ID` | Show detailed status for a background task |
@@ -73,6 +76,7 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 | `onboard` | Create initial config if missing; runs onboarding wizard in TTY, otherwise writes a starter template |
 | `otp-show` | Show current browser pairing code and TOTP codes |
 | `phase2` | Show Phase 2 feature status |
+| `provider [quota [NAME]\|list]` | Inspect LLM provider configuration and live quota state |
 | `reset-agent` | Wipe all session history, cron jobs, workspace files, redeploy defaults (prompts for confirmation; does NOT touch config.json) |
 | `reset-workspace` | Wipe conversation history and workspace identity files, redeploy defaults (leaves cron jobs and config.json intact) |
 | `runtime` | Manage native and Docker runtimes (default: status) |
@@ -97,6 +101,8 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 | `setup teams` | Configure MS Teams app credentials |
 | `setup tunnel` | Configure tunnel provider (Cloudflare, Tailscale, ngrok) |
 | `setup summarizer` | Configure autosummarizer settings |
+| `session compact SESSION` | Compact session history by summarizing older messages |
+| `session events SESSION [--epoch E] [--type TYPE]` | Show event/system/compaction messages for a session |
 | `status` | Show runtime configuration and daemon status |
 | `transcribe FILE` | Transcribe audio via configured STT provider |
 | `tunnel` | Manage the public tunnel (default: status) |
@@ -106,6 +112,7 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 | `tunnel apply` | Trigger live tunnel reconfiguration in running daemon (reads current config and reconciles tunnel state) |
 | `tunnel restart` | Force stop and restart tunnel with current config (unconditional, unlike apply which is idempotent) |
 | `tunnel daemon-status` | Show tunnel manager state from running daemon as JSON (state, provider, url, pid) |
+| `usage [--refresh]` | Show provider quota/usage status |
 | `update [--mode auto|git|binary]` | Ask the live daemon to update itself and gracefully restart; currently warns if no live daemon is available because the offline fallback is still stubbed |
 | `version` | Print version and build info |
 | `watcher` | Manage the error correction watcher (default: status) |
@@ -137,6 +144,17 @@ Available in chat-integrated channels that support slash commands.
 - `/model unfav <name>` — remove a model from favorites
 - `/model list [provider]` — list available models, optionally filtered by provider
 - `/model usage` — show provider quota and model usage stats
+- `/costs [session [KEY]|model|provider]` — show cost breakdowns; no args shows a summary by time period (today, 7d, 30d, all)
+- `/usage [session [KEY]|model|provider]` — show token usage breakdowns; no args shows a summary by time period
+- `/uptime` — show current daemon uptime
+- `/debug_dump_chat` (alias `/debug-dump-chat`) — dump the current session state to a file and send as attachment
+- `/show_thinking` (alias `/show-thinking`, `/toggle-show-thinking`) — toggle display of model thinking blocks in responses; `/show_thinking status` to check current state
+- `/compact` — compact session history by summarizing older messages to free up context space
+- `/pair <6-digit-code>` — pair with TOTP code from the browser pairing flow
+- `/config [show|get|set|keys|wizard]` — view or modify configuration from chat; secrets cannot be set via chat (use terminal instead)
+- `/tools` — list all available tools with parameters and risk levels
+- `/tasks` — show the agent's current task tree for this session
+- `/update` — pull, rebuild, and gracefully restart clawq
 
 ## `!` Messages
 
@@ -312,6 +330,14 @@ Note: `providers.*.default_model` is the model identifier as understood by that 
 **zai_mcp** — Enables Z.ai MCP-powered web tools. Fields: `enabled` (bool, default true when section present), `api_key` (optional; auto-detected from `providers.zai.api_key` or `providers.zai_coding.api_key` if absent), `websearch_enabled` (bool, default true), `webfetch_enabled` (bool, default true). When configured, registers `zai_websearch` and `zai_webfetch` tools. Auth uses Z.ai GLM Coding Plan API key as Bearer token.
 
 **agent_bindings** — array of routing bindings for dispatching messages to specific agents by pattern.
+
+**log** — daemon log rotation. `max_size_mb` (default 10), `max_files` (default 5). When the daemon log exceeds `max_size_mb`, it is rotated; up to `max_files` historical log files are retained.
+
+**error_watcher** — error correction watcher configuration. `ec_enabled` (default: true only for `-dev` builds), `scan_interval_s` (default 30.0), `primary_models` (default `["anthropic:claude-opus-4-6", "openai-codex:gpt-5.4"]`), `fallback_models` (default `["zai_coding:glm-5", "kimi_coding:kimi-for-code"]`), `cooldown_s` (default 300.0), `max_errors_per_batch` (default 10), `ignore_patterns` (default []), `auto_fix_enabled` (default false), `ec_commit_tag` (default `"[INTERNAL_EC]"`).
+
+**observer** — turn observer for detecting stuck/looping agent behavior. `enabled` (default true), `model` (default `"groq:openai/gpt-oss-120b"`), `check_every_n_messages` (default 5), `round1_window` (default 8), `round2_window` (default 30), `thinking_token_threshold` (default 5000), `consecutive_errors_threshold` (default 3), `repeat_call_threshold` (default 2).
+
+**summarizer** — autosummarizer for long tool output. `summarizer_enabled` (default true), `summarizer_model` (default `"groq:openai/gpt-oss-120b"`), `escalation_model` (optional), `threshold_chars` (default 1500), `p1_max_chars` (default 200000), `p2_max_chars` (default 12000), `context_window_messages` (default 4), `excluded_tools` (default `["tool_search", "unsummarize", "summarize_thread", "thread_summary"]`), `max_age_days` (default 30), `envelope_template` (optional).
 
 ### Secret encryption
 

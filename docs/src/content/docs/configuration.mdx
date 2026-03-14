@@ -5,6 +5,8 @@ section: "runtime"
 order: 1
 ---
 
+import Callout from '../../components/Callout.astro';
+
 All clawq configuration lives in a single JSON file at `~/.clawq/config.json` (or `$CLAWQ_HOME/config.json` if the `CLAWQ_HOME` environment variable is set). This page covers every configuration section, the interactive wizard, programmatic access via the CLI, and environment variables.
 
 ## Configuration Methods
@@ -398,6 +400,278 @@ Controls behavior of the `ask_user_question` tool, which lets the agent ask clar
 | `enable_question_notes` | `true` | After structured answers (select, confirm, rating, number, date), prompt the user with "Add notes? (reply or 'skip')". Set to `false` to skip the notes prompt |
 
 **Live reconfiguration:** The daemon watches for tunnel config changes on SIGHUP and via file-change polling (every 10 seconds). When tunnel settings change, the daemon automatically stops the old tunnel and starts a new one — no daemon restart required. Use `clawq tunnel apply` to trigger reconciliation explicitly, or `clawq tunnel restart` to force a stop-and-restart even without config changes.
+
+### Model Format
+
+The canonical format for model references is `provider:model` (colon separator). Examples: `openai:gpt-5.4`, `anthropic:claude-sonnet-4-6`, `groq:llama-4-scout-17b-16e`.
+
+<Callout type="caution" title="Legacy format deprecated">
+  The legacy <code>provider/model</code> (slash) format is still accepted but deprecated and will be removed in a future release.
+</Callout>
+
+Deprecation warnings appear:
+
+- On config load when `primary_model` uses the legacy format
+- In `clawq status` output
+- When using `config set agent_defaults.primary_model`
+- In `/model set` (prints a format hint)
+- `models set-default` and `/model set-default` auto-normalize to canonical format
+
+Note: `providers.*.default_model` is the model identifier as understood by that provider's API (e.g. `openai/gpt-4o` on OpenRouter) — this is not subject to the format deprecation.
+
+### model_context_limits
+
+```json
+{
+  "model_context_limits": {
+    "openai-codex/gpt-5.4": 272000
+  }
+}
+```
+
+Optional top-level object mapping model names to manual token limits used for context budgeting and history compaction. Configured entries take precedence over built-in defaults.
+
+### heartbeat
+
+```json
+{
+  "heartbeat": {
+    "enabled": true,
+    "interval_seconds": 250,
+    "quiet_start": 23,
+    "quiet_end": 8
+  }
+}
+```
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `enabled` | `true` | Global master switch for heartbeat delivery |
+| `interval_seconds` | `250` | Seconds between heartbeat ticks |
+| `quiet_start` | `23` | Hour (0-23) when quiet period begins |
+| `quiet_end` | `8` | Hour (0-23) when quiet period ends |
+
+<Callout type="note" title="Per-session opt-in required">
+  Sessions must opt in individually via <code>/heartbeat on</code> or
+  <code>clawq session heartbeat SESSION on</code>. Only Telegram, Slack, and
+  Discord sessions are valid heartbeat targets.
+</Callout>
+
+The daemon reads `HEARTBEAT.md` from the workspace root on each tick.
+
+### error_watcher
+
+```json
+{
+  "error_watcher": {
+    "ec_enabled": false,
+    "scan_interval_s": 30.0,
+    "cooldown_s": 300.0,
+    "max_errors_per_batch": 10,
+    "auto_fix_enabled": false
+  }
+}
+```
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `ec_enabled` | `false` (true for `-dev` builds) | Enable the error correction watcher |
+| `scan_interval_s` | `30.0` | Seconds between daemon log scans |
+| `primary_models` | `["anthropic:claude-opus-4-6", "openai-codex:gpt-5.4"]` | Models for diagnosis |
+| `fallback_models` | `["zai_coding:glm-5", "kimi_coding:kimi-for-code"]` | Fallback models |
+| `cooldown_s` | `300.0` | Cooldown between EC runs |
+| `max_errors_per_batch` | `10` | Max errors per scan batch |
+| `ignore_patterns` | `[]` | Regex patterns to ignore in logs |
+| `auto_fix_enabled` | `false` | Automatically apply fixes |
+| `ec_commit_tag` | `"[INTERNAL_EC]"` | Git commit tag for EC fixes |
+
+<Callout type="caution" title="Auto-fix is off by default">
+  Set <code>auto_fix_enabled: true</code> only after verifying the watcher
+  behaves correctly in your environment. EC fixes are tagged with
+  <code>ec_commit_tag</code> for easy identification and rollback.
+</Callout>
+
+### notify
+
+```json
+{
+  "notify": {
+    "notify_channel": "telegram",
+    "notify_target": "123456789"
+  }
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `notify_channel` | Channel type for outbound notifications (e.g. `telegram`) |
+| `notify_target` | Target identifier (e.g. chat ID) for proactive sends |
+
+### web_search
+
+```json
+{
+  "web_search": {
+    "search_provider": "brave",
+    "search_api_key": "BSA...",
+    "num_results": 5
+  }
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `search_provider` | `"brave"` or `"ddg"` (DuckDuckGo) |
+| `search_api_key` | API key for the search provider |
+| `num_results` | Number of results to return |
+| `search_base_url` | Optional endpoint override (e.g. for SearXNG) |
+
+### zai_mcp
+
+```json
+{
+  "zai_mcp": {
+    "enabled": true,
+    "websearch_enabled": true,
+    "webfetch_enabled": true
+  }
+}
+```
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `enabled` | `true` (when section present) | Enable Z.ai MCP-powered web tools |
+| `api_key` | auto-detected | Bearer token; auto-detected from `providers.zai` or `providers.zai_coding` if absent |
+| `websearch_enabled` | `true` | Register `zai_websearch` tool |
+| `webfetch_enabled` | `true` | Register `zai_webfetch` tool |
+
+### voice
+
+```json
+{
+  "voice": {
+    "stt_enabled": true,
+    "tts_enabled": false,
+    "stt_provider": "openai",
+    "tts_provider": "openai",
+    "tts_model": "tts-1",
+    "tts_voice": "alloy",
+    "audio_dir": ""
+  }
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `stt_enabled` | Enable speech-to-text |
+| `tts_enabled` | Enable text-to-speech |
+| `stt_provider` | STT provider name |
+| `tts_provider` | TTS provider name |
+| `tts_model` | TTS model identifier |
+| `tts_voice` | Voice selection |
+| `audio_dir` | Directory for audio file storage |
+
+### web_channel
+
+```json
+{
+  "web_channel": {
+    "enabled": true,
+    "path_prefix": "/web",
+    "token_ttl_hours": 24
+  }
+}
+```
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `enabled` | -- | Enable the web channel routes |
+| `path_prefix` | `"/web"` | URL path prefix for web channel endpoints |
+| `totp_secret` | -- | Optional TOTP secret for web channel auth |
+| `token_ttl_hours` | `24` | Token validity period in hours |
+
+### telemetry
+
+```json
+{
+  "telemetry": {
+    "enabled": false,
+    "endpoint": "",
+    "service_name": "clawq"
+  }
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `enabled` | Enable telemetry reporting |
+| `endpoint` | Telemetry collection endpoint URL |
+| `service_name` | Service name for telemetry tags |
+
+### agent_bindings
+
+An array of routing bindings that dispatch messages to specific agents by pattern matching. Each binding specifies a pattern to match against incoming messages and routes matching messages to a named agent configuration.
+
+### log
+
+```json
+{
+  "log": {
+    "max_size_mb": 10,
+    "max_files": 5
+  }
+}
+```
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `max_size_mb` | `10` | Maximum daemon log file size before rotation |
+| `max_files` | `5` | Number of historical log files to retain |
+
+### observer
+
+```json
+{
+  "observer": {
+    "enabled": true,
+    "check_every_n_messages": 5
+  }
+}
+```
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `enabled` | `true` | Enable turn observer for stuck/looping detection |
+| `model` | `"groq:openai/gpt-oss-120b"` | Model for observer analysis |
+| `check_every_n_messages` | `5` | Check frequency |
+| `round1_window` | `8` | Recent messages to analyze in round 1 |
+| `round2_window` | `30` | Extended window for round 2 analysis |
+| `thinking_token_threshold` | `5000` | Thinking token threshold |
+| `consecutive_errors_threshold` | `3` | Error count before intervention |
+| `repeat_call_threshold` | `2` | Repeated tool call threshold |
+
+### summarizer
+
+```json
+{
+  "summarizer": {
+    "summarizer_enabled": true,
+    "threshold_chars": 1500
+  }
+}
+```
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `summarizer_enabled` | `true` | Enable autosummarizer for long tool output |
+| `summarizer_model` | `"groq:openai/gpt-oss-120b"` | Model for summarization |
+| `escalation_model` | -- | Optional stronger model for escalation |
+| `threshold_chars` | `1500` | Character threshold to trigger summarization |
+| `p1_max_chars` | `200000` | Max chars for phase 1 |
+| `p2_max_chars` | `12000` | Max chars for phase 2 |
+| `context_window_messages` | `4` | Messages of context to include |
+| `excluded_tools` | `["tool_search", ...]` | Tools exempt from summarization |
+| `max_age_days` | `30` | Days before summaries expire |
 
 ## Full Example
 

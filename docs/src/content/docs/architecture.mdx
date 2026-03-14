@@ -92,6 +92,20 @@ The extracted OCaml is tracked in git so the project builds without Coq installe
 | `tunnel_cloudflare.ml` | Cloudflare tunnel: manages cloudflared process, extracts assigned URL |
 | `rate_limiter.ml` | Token bucket rate limiter (IP, session, chat) |
 | `landlock.ml` | Landlock OS sandboxing (C FFI) |
+| `bg_shell.ml` | Background shell job registry and lifecycle (created when `shell_exec` is interrupted) |
+| `tools_bg_shell.ml` | Background shell tools: `bg_shell_status`, `bg_shell_wait`, `bg_shell_result` |
+| `slash_commands.ml` | Slash command parsing, dispatch, and per-connector rendering |
+| `format_adapter.ml` | Connector-safe formatting dispatch (markdown tables, code blocks, HTML) |
+| `table_format.ml` | Markdown and plaintext table rendering |
+| `setup_common.ml` | Shared TUI helpers for setup wizards (prompts, ANSI, box drawing) |
+| `config_wizard_model.ml` | Config wizard state machine types |
+| `config_wizard_tui.ml` | Config wizard terminal I/O loop |
+| `config_wizard_update.ml` | Config wizard state transitions |
+| `model_discovery.ml` | API-based model catalog discovery (12h TTL cache) |
+| `request_stats.ml` | Per-turn token usage and cost persistence |
+| `cost_tracker.ml` | Model pricing table and cost calculation |
+| `background_task.ml` | Background coding task lifecycle and recovery |
+| `pmodel.ml` | Canonical `provider:model` format parsing (strict + flexible), deprecation warnings |
 | `stt.ml` | Speech-to-text: audio transcription via Whisper-compatible API |
 
 ## Dune Libraries

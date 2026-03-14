@@ -5,6 +5,8 @@ section: "appendices"
 order: 1
 ---
 
+import Callout from '../../components/Callout.astro';
+
 Every clawq command is listed below. Run `clawq COMMAND --help` for per-command usage details.
 
 ## Commands
@@ -17,7 +19,10 @@ Every clawq command is listed below. Run `clawq COMMAND --help` for per-command 
 | `clawq auth codex-login [PROVIDER]` | Start ChatGPT/Codex OAuth login for a configured provider |
 | `clawq auth codex-status [PROVIDER]` | Show saved Codex OAuth status |
 | `clawq auth codex-logout [PROVIDER]` | Remove saved Codex OAuth credentials |
+| `clawq benchmark` | Measure tool invocation latency to diagnose performance |
 | `clawq capabilities` | List all active runtime capabilities |
+| `clawq completions` | Generate and install shell tab-completion scripts (bash, zsh, fish) |
+| `clawq costs` | Show cumulative LLM costs and token usage |
 | `clawq background` | Inspect and control background coding agent worktree tasks |
 | `clawq background add RUNNER [--model MODEL] REPO [--branch NAME] PROMPT` | Queue a background coding task in a fresh git worktree |
 | `clawq background show ID` | Inspect one background task, including log/worktree paths when available |
@@ -40,6 +45,7 @@ Every clawq command is listed below. Run `clawq COMMAND --help` for per-command 
 | `clawq onboard` | Interactive setup wizard (or template when not in a TTY) |
 | `clawq delegate [--runner auto|kimi|opencode|codex|claude|gemini|cursor] [--repo PATH] [--branch NAME] GOAL` | High-level shortcut for handing off a background coding task with sensible defaults; auto order: kimi → cursor → opencode (zai-coding-plan/glm-5) → claude → codex → gemini |
 | `clawq phase2` | Show Phase 2 feature status |
+| `clawq provider` | Inspect LLM provider configuration and live quota state |
 | `clawq otp-show` | Show the current browser pairing code and any Telegram TOTP codes |
 | `clawq reset-agent` | Wipe all session history, cron jobs, and workspace files |
 | `clawq runtime` | Manage native and Docker runtimes |
@@ -49,6 +55,9 @@ Every clawq command is listed below. Run `clawq COMMAND --help` for per-command 
 | `clawq status` | Show runtime configuration and daemon status |
 | `clawq transcribe` | Transcribe an audio file using the configured STT provider |
 | `clawq tunnel` | Manage a public tunnel to the local gateway |
+| `clawq update` | Request a live daemon update and graceful restart |
+| `clawq usage` | Show provider quota/usage status |
+| `clawq version` | Print version and build info |
 | `clawq watcher` | Manage the error correction watcher (status, enable/disable, reports) |
 | `clawq watcher status` | Show watcher config and EC process status (default) |
 | `clawq watcher enable` | Enable the error correction watcher |
@@ -278,3 +287,76 @@ opam exec --switch=clawq-5.1 -- dune exec test/test_main.exe -- test scheduler 0
 ```
 
 Prefer `gpt-5.4` for Codex delegation when quality matters. Use `gpt-5.3-codex` when you specifically want the Codex-tuned path or need to mirror Codex OAuth defaults.
+
+## Plan Subcommands
+
+The `plan` command manages multi-stage planning pipelines (planner → plan-review → coder → code-review):
+
+```bash
+clawq plan list                    # List all pipelines (default)
+clawq plan start PROMPT [OPTIONS]  # Start a new pipeline (foreground, blocking)
+clawq plan show ID                 # Show pipeline status and details
+clawq plan logs ID [--lines N]     # Show logs for the current stage
+clawq plan cancel ID               # Cancel a running pipeline
+```
+
+Options for `plan start`:
+
+| Option | Description |
+|--------|-------------|
+| `--repo PATH` | Repository path to plan against |
+| `--runner NAME` | Runner: auto, kimi, opencode, codex, claude, gemini, cursor |
+| `--planner-model M` | Model for the planner stage |
+| `--reviewer-model M` | Model for the reviewer stage |
+| `--coder-model M` | Model for the coder stage |
+| `--max-plan-review-iters N` | Maximum plan-review iterations (default 3; set 0 to skip) |
+| `--max-code-review-iters N` | Maximum code-review iterations (default 3; set 0 to skip) |
+| `--no-plan-review` | Skip plan review phase |
+| `--no-code-review` | Skip code review phase |
+
+## Message Interrupts
+
+<Callout type="tip" title="Interrupt syntax">
+  Prefix a message with <code>!</code> to interrupt the current turn for that
+  session and send the rest as a normal message. Works in the web UI, Telegram,
+  Discord, Slack, Teams, and all other chat channels.
+</Callout>
+
+- `!stop` — interrupts the in-flight turn and sends "stop" as the next message
+- `!` (bare) — interrupts and sends "[interrupted]"
+
+When `shell_exec` is interrupted, the running process is moved to a background shell instead of being killed. Use `/tools` to see `bg_shell_status`, `bg_shell_wait`, and `bg_shell_result` for tracking background shell jobs.
+
+## Slash Commands
+
+Slash commands are available in chat-integrated channels (Telegram, Discord, Slack, Teams, web UI). Type `/help` in any channel to see the full list.
+
+| Command | Description |
+|---------|-------------|
+| `/start` | Show the ready message |
+| `/help` | List available slash commands |
+| `/new` | Reset the current session |
+| `/status` | Rich table-formatted status report (uptime, PID, sessions, connectors, tunnel) |
+| `/runtime_ctx` | Show the full per-session runtime context block |
+| `/thinking [level]` | Show or set thinking level: `low`, `medium`, `high`, `off`, `xhigh`, `max` |
+| `/show_thinking` | Toggle display of model thinking in responses |
+| `/heartbeat [on\|off\|status]` | Toggle heartbeat routing for this session |
+| `/compact` | Compact session history by summarizing older messages |
+| `/model` | Show current model, favorites, and usage ranking |
+| `/model set <name>` | Set model for this session (supports `provider:model` format) |
+| `/model set-default <name>` | Set default model in config (persistent, auto-normalizes format) |
+| `/model fav <name>` | Toggle a model as favorite |
+| `/model unfav <name>` | Remove from favorites |
+| `/model list [provider]` | List available models |
+| `/model usage` | Show provider quota and usage stats |
+| `/costs [session [KEY]\|model\|provider]` | Show cost breakdowns |
+| `/usage [session [KEY]\|model\|provider]` | Show token usage breakdowns |
+| `/uptime` | Show current daemon uptime |
+| `/tools` | List all available tools with parameters and risk levels |
+| `/tasks` | Show the agent's current task tree |
+| `/delegate <prompt>` | Delegate a prompt to a temporary subagent |
+| `/fork_and <prompt>` | Fork current session and run a prompt in a new subagent |
+| `/config [show\|get\|set\|keys\|wizard]` | View or modify configuration from chat |
+| `/pair <code>` | Pair with TOTP code from browser |
+| `/update` | Pull, rebuild, and gracefully restart clawq |
+| `/debug_dump_chat` | Dump session state to file and send as attachment |

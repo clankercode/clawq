@@ -62,6 +62,13 @@ clawq setup teams       # MS Teams bot
 
 Each wizard loads existing config, presents an interactive dashboard, and writes changes back to `~/.clawq/config.json`.
 
+Additional setup wizards:
+
+```bash
+clawq setup tunnel      # Cloudflare / Tailscale / ngrok tunnel
+clawq setup summarizer  # Autosummarizer settings
+```
+
 ## 3. Manual Configuration
 
 ### Using config set commands
@@ -223,3 +230,15 @@ Open the browser UI at `http://127.0.0.1:13451/`:
 **Permission denied / config not found:**
 - Run `clawq onboard` to create the config directory
 - Check `~/.clawq/config.json` exists and is readable
+
+## What's Next
+
+Now that clawq is running, here are some things to explore:
+
+- **Slash commands in chat:** Type `/help` in any chat channel to see all available slash commands. `/status` shows a rich status report, `/costs` shows usage costs, and `/model list` shows available models.
+- **Interrupt a running turn:** Prefix a message with `!` to interrupt the current turn and send a new message. For example, `!stop` interrupts and sends "stop".
+- **Background tasks:** Use `clawq delegate "implement feature X"` to hand off coding work to a background agent running in a git worktree. See the output with `clawq background logs`.
+- **Shell completions:** Run `clawq completions install` to set up tab completion for your shell.
+- **[Configuration Reference](/configuration)** — all config sections and fields
+- **[CLI Reference](/cli-reference)** — complete command reference with slash commands
+- **[Channels](/channels)** — detailed setup guides for Discord, Slack, GitHub, Teams, and more

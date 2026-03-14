@@ -18,6 +18,11 @@ webhook-driven integrations such as GitHub and MS Teams.
   message. For example, <code>!stop</code> interrupts the in-flight turn and
   sends <code>stop</code> next. A bare <code>!</code> becomes
   <code>[interrupted]</code>.
+
+  If a <code>shell_exec</code> tool call is running when interrupted, the
+  process is moved to a background shell instead of being killed. Use
+  <code>bg_shell_status</code>, <code>bg_shell_wait</code>, and
+  <code>bg_shell_result</code> tools to track it.
 </Callout>
 
 ## The Channel.S Module Type
@@ -117,6 +122,11 @@ Or manually:
   when configured.
 - **Token redaction** --- bot tokens are automatically redacted in log output
   via the `redact_token` helper.
+- **Silent notifications** --- messages are sent with notification disabled
+  by default, so users are not constantly pinged by bot responses.
+- **Thinking format** --- when `show_thinking` is enabled, thinking blocks
+  are rendered as blockquote + italic (`> _thinking..._`) for a clean
+  Telegram display.
 
 ### How It Works
 
@@ -549,6 +559,10 @@ clawq channel              # confirm teams shows as configured
 - **@mention in group chats** --- replies in group conversations automatically
   @mention the sender using Bot Framework mention entities, ensuring they
   receive a notification.
+- **Native markdown tables** --- slash commands like `/status`, `/costs`, and
+  `/usage` render with native markdown tables in Teams for clean formatting.
+- **Notification suppression** --- tool status messages (thinking indicators,
+  tool call updates) do not trigger Teams notifications; only final replies do.
 
 See the [Microsoft Teams bot documentation](https://learn.microsoft.com/en-us/microsoftteams/platform/bots/what-are-bots) and the [Bot Framework authentication guide](https://learn.microsoft.com/en-us/azure/bot-service/rest-api/bot-framework-rest-connector-authentication) for full details.
 
