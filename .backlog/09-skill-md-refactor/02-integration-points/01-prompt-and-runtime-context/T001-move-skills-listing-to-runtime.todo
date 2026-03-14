@@ -1,0 +1,38 @@
+---
+claimed_at: "2026-03-14T14:20:49Z"
+claimed_by: cli-user
+completed_at: "2026-03-14T14:32:12Z"
+complexity: low
+depends_on:
+    - P9.M1.E1.T002
+duration_minutes: 11.389574260233333
+estimate_hours: 0.5
+id: P9.M2.E1.T001
+priority: medium
+started_at: "2026-03-14T14:20:49Z"
+status: done
+tags: []
+title: Move skills listing to runtime context
+---
+In src/prompt_builder.ml, move skill listing from the static system prompt (build function) to the dynamic runtime context (build_runtime_context function).
+
+Changes:
+1. Remove the skills_section call from build (lines 522-526 where skills_section ~workspace_dir:effective_ws is called)
+2. In build_runtime_context (around line 240, after existing sections), add:
+   - Call Skills.available_skills () to get cached SKILL.md metadata list
+   - If non-empty, emit '## Available Skills' header
+   - Include usage hint: 'Use the use_skill tool or /skill-name to activate. Reference @skill-name to auto-attach.'
+   - List each skill as '- name: description'
+3. The old skills_section function can be removed or left (it's only called from build)
+
+Key files:
+- src/prompt_builder.ml: build function (line 396-537), build_runtime_context (line 217-249)
+- src/skills.ml: available_skills function (from P9.M1.E1.T002)
+
+Acceptance criteria:
+- clawq session show-system-prompt output does NOT contain 'Available Skills' section
+- Runtime context (tested via /runtime-ctx slash command or build_runtime_context output) DOES contain Available Skills with name+description pairs
+- Skills listed in runtime context match what discover_md_skills returns
+- Existing prompt builder tests still pass (test_prompt_builder.ml)
+- make build passes
+- make test passes

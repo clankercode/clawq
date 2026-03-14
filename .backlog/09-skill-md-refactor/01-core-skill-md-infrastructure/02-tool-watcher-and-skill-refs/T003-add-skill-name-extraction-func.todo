@@ -1,0 +1,35 @@
+---
+claimed_at: "2026-03-14T14:19:00Z"
+claimed_by: cli-user
+completed_at: "2026-03-14T14:20:29Z"
+complexity: medium
+depends_on:
+    - P9.M1.E1.T002
+duration_minutes: 1.4922189531833334
+estimate_hours: 0.5
+id: P9.M1.E2.T003
+priority: medium
+started_at: "2026-03-14T14:19:00Z"
+status: done
+tags: []
+title: Add @skill-name extraction function
+---
+Add extract_skill_refs : skill_md_meta list -> string -> (string * skill_md_meta) list to src/skills.ml.
+
+Implementation:
+- Scan message text for @word patterns where word matches a known skill name
+- Word boundary aware: @ must be preceded by whitespace or start of string
+- Do NOT match email addresses (e.g. user@example.com — the @ must be preceded by whitespace/SOL)
+- Match against skill names case-insensitively (lowercase comparison)
+- Return list of (matched_text_including_@, skill_md_meta) pairs
+- Handle multiple @skill-name references in a single message
+- Skip duplicates (same skill referenced twice returns one entry)
+
+Acceptance criteria:
+- '@review-and-fix' in 'please check @review-and-fix' matches the skill
+- '@unknown-thing' does not match if not in skill list
+- 'user@example.com' does not false-positive match
+- '@foo @bar' with both being skills returns two entries
+- '@foo text @foo' returns one entry (deduped)
+- Empty skill list returns empty result
+- make build passes

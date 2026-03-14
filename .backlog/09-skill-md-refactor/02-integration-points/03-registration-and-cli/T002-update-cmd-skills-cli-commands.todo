@@ -1,0 +1,49 @@
+---
+claimed_at: "2026-03-14T14:20:50Z"
+claimed_by: cli-user
+completed_at: "2026-03-14T14:32:12Z"
+complexity: low
+depends_on:
+    - P9.M1.E1.T002
+duration_minutes: 11.379097073933334
+estimate_hours: 0.5
+id: P9.M2.E3.T002
+priority: medium
+started_at: "2026-03-14T14:20:50Z"
+status: done
+tags: []
+title: Update cmd_skills CLI commands
+---
+Update the skills CLI subcommand in both src/command_bridge.ml and src/command_bridge_min.ml.
+
+Changes to cmd_skills function in both files:
+1. 'clawq skills list' (and bare 'clawq skills'):
+   - Show SKILL.md skills section: name, description, source path (workspace vs personal)
+   - Show legacy JSON skills section: filename from ~/.clawq/skills/*.json
+   - Clear visual separation between the two sections
+   - Example output:
+     SKILL.md skills:
+       pag-review-via-team: review work using teams + review-and-fix (workspace .claude/skills/)
+       telegram-formatting: Telegram Formatting Skill (workspace .claude/skills/)
+     Legacy JSON skills:
+       git_status.json
+
+2. 'clawq skills path':
+   - Show all three skill search directories with labels:
+     Workspace: <ws>/.claude-p/skills/
+     Workspace: <ws>/.claude/skills/
+     Personal:  ~/.clawq/skills/
+
+3. 'clawq skills init':
+   - Keep existing JSON example creation
+   - Also create an example SKILL.md directory: ~/.clawq/skills/example-skill/SKILL.md
+   - Example SKILL.md with frontmatter (name, description) and simple instructions body
+
+Key files: src/command_bridge.ml (cmd_skills at line 589-597), src/command_bridge_min.ml (cmd_skills at line 427-435)
+
+Acceptance criteria:
+- clawq skills list shows both SKILL.md and JSON skills
+- clawq skills path shows all three directories
+- clawq skills init creates both JSON and SKILL.md examples
+- Both command_bridge.ml and command_bridge_min.ml updated consistently
+- make build passes

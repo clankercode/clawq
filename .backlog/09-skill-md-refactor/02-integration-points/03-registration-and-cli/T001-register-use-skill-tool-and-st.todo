@@ -1,0 +1,42 @@
+---
+claimed_at: "2026-03-14T14:20:50Z"
+claimed_by: cli-user
+completed_at: "2026-03-14T14:32:12Z"
+complexity: low
+depends_on:
+    - P9.M1.E2.T001
+    - P9.M1.E2.T002
+    - P9.M1.E1.T002
+duration_minutes: 11.37809210225
+estimate_hours: 0.5
+id: P9.M2.E3.T001
+priority: medium
+started_at: "2026-03-14T14:20:50Z"
+status: done
+tags: []
+title: Register use_skill tool and start skill watcher
+---
+Wire the use_skill tool and skill watcher into the startup paths.
+
+Changes in src/command_bridge_helpers.ml (build_tool_registry, after line 301):
+1. After registering skill_list_tool:
+   let workspace = Runtime_config.effective_workspace cfg in
+   let _cache = Skills.init_cache ~workspace_dir:workspace () in
+   Tool_registry.register registry (Skills.use_skill_tool ());
+
+Changes in src/daemon.ml (after line 211):
+1. After registering skill_list_tool:
+   let workspace = Runtime_config.effective_workspace !current_config in
+   let cache = Skills.init_cache ~workspace_dir:workspace () in
+   Tool_registry.register registry (Skills.use_skill_tool ());
+2. Later in daemon startup (after tool_registry setup completes), start the background watcher:
+   Lwt.async (fun () -> Skills.skill_watcher_loop cache);
+
+Key pattern: The use_skill tool reads filesystem on-demand via the global cache, so it automatically picks up new skills without needing registry updates. The watcher just keeps the cache fresh for prompt builder / slash commands / @refs.
+
+Acceptance criteria:
+- use_skill tool appears in Tool_registry.list output
+- Skills.init_cache is called with correct workspace_dir at startup
+- Background watcher is started via Lwt.async in daemon
+- CLI path (command_bridge_helpers) initializes cache but does NOT start watcher (single-shot CLI)
+- make build passes

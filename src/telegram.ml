@@ -298,7 +298,32 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
         in
         Lwt.return_unit)
       else
-        match Slash_commands.handle user_text with
+        let skill_names =
+          List.map
+            (fun (s : Skills.skill_md_meta) -> s.md_name)
+            (Skills.available_skills ())
+        in
+        let cmd_result = Slash_commands.handle ~skill_names user_text in
+        let cmd_result, user_text =
+          match cmd_result with
+          | Slash_commands.SkillInvoke (name, args) -> (
+              match Skills.find_skill_md name with
+              | Some skill ->
+                  let content =
+                    Skills.substitute_arguments skill.instructions args
+                  in
+                  let msg =
+                    Printf.sprintf "[Skill: %s]\n%s\n\nUser request: %s" name
+                      content args
+                  in
+                  (Slash_commands.NotACommand, msg)
+              | None ->
+                  ( Slash_commands.Reply
+                      (Printf.sprintf "Skill '%s' not found." name),
+                    user_text ))
+          | other -> (other, user_text)
+        in
+        match cmd_result with
         | Reply text -> send_message ~bot_token ~chat_id:update.chat_id ~text ()
         | Help | Menu _ ->
             let text =
@@ -670,6 +695,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                        "Failed to send debug dump: %s\n\nDump length: %d bytes"
                        err (String.length content))
                   ())
+        | SkillInvoke _ -> Lwt.return_unit (* unreachable: preprocessed above *)
         | NotACommand -> (
             let msg = user_text in
             (* Early busy-session fast path: if the session is already busy,

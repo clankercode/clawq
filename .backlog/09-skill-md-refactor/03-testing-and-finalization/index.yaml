@@ -1,0 +1,26 @@
+complexity: low
+depends_on: []
+epics:
+    - complexity: medium
+      depends_on: []
+      description: ""
+      estimate_hours: 1.5
+      id: E1
+      locked: false
+      name: Comprehensive Tests
+      path: 01-comprehensive-tests
+      status: done
+    - complexity: low
+      depends_on: []
+      description: ""
+      estimate_hours: 0.5
+      id: E2
+      locked: false
+      name: Ship
+      path: 02-ship
+      status: done
+estimate_hours: 2
+id: P9.M3
+locked: false
+name: Testing and Finalization
+status: done

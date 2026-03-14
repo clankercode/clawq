@@ -1,0 +1,38 @@
+---
+claimed_at: "2026-03-14T14:20:50Z"
+claimed_by: cli-user
+completed_at: "2026-03-14T14:32:12Z"
+complexity: medium
+depends_on:
+    - P9.M1.E1.T002
+duration_minutes: 11.37390833145
+estimate_hours: 0.5
+id: P9.M2.E2.T001
+priority: medium
+started_at: "2026-03-14T14:20:50Z"
+status: done
+tags: []
+title: Add SkillInvoke variant to slash commands
+---
+In src/slash_commands.ml, add support for dynamic skill-based slash commands.
+
+Changes:
+1. Add new variant to result type: | SkillInvoke of string * string (* skill_name, arguments *)
+2. Add optional parameter to handle function: ?(skill_names=[]) to accept known skill names. This keeps backward compatibility — all existing callers compile without changes.
+3. Change the catch-all at line 473 from '| _ -> NotACommand' to check if cmd_lower is in skill_names:
+   | _ ->
+       if List.exists (fun sn -> sn = cmd_lower) skill_names then
+         SkillInvoke (cmd_lower, String.concat " " args)
+       else NotACommand
+4. Update sorted_by_priority to accept optional ?skill_names parameter, appending skills as priority-1 commands for manifest generation.
+
+Key file: src/slash_commands.ml (1180 lines, handle function at line 261-473)
+
+Acceptance criteria:
+- /review-and-fix foo bar returns SkillInvoke ("review-and-fix", "foo bar") when skill_names includes it
+- /unknown-cmd still returns NotACommand when not in skill_names
+- All existing slash commands (/help, /status, /model, etc.) work unchanged
+- handle with no skill_names parameter compiles and behaves as before
+- sorted_by_priority with skill_names includes skills at low priority
+- Exhaustive pattern match: all callers that match on result type handle SkillInvoke (compiler enforced)
+- make build passes

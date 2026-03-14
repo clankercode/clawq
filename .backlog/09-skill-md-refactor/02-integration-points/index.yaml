@@ -1,0 +1,35 @@
+complexity: medium
+depends_on: []
+epics:
+    - complexity: low
+      depends_on: []
+      description: ""
+      estimate_hours: 1
+      id: E1
+      locked: false
+      name: Prompt and Runtime Context
+      path: 01-prompt-and-runtime-context
+      status: done
+    - complexity: medium
+      depends_on: []
+      description: ""
+      estimate_hours: 2
+      id: E2
+      locked: false
+      name: Slash Commands and Channel Dispatch
+      path: 02-slash-commands-and-channel-dis
+      status: done
+    - complexity: low
+      depends_on: []
+      description: ""
+      estimate_hours: 1
+      id: E3
+      locked: false
+      name: Registration and CLI
+      path: 03-registration-and-cli
+      status: done
+estimate_hours: 4
+id: P9.M2
+locked: false
+name: Integration Points
+status: done

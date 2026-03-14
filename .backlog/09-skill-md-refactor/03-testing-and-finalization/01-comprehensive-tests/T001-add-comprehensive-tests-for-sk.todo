@@ -1,0 +1,46 @@
+---
+claimed_at: "2026-03-14T14:32:48Z"
+claimed_by: cli-user
+completed_at: "2026-03-14T15:39:24Z"
+complexity: medium
+depends_on:
+    - P9.M1.E2.T001
+    - P9.M1.E2.T003
+    - P9.M2.E1.T001
+    - P9.M2.E2.T001
+    - P9.M2.E2.T002
+    - P9.M2.E2.T003
+    - P9.M2.E2.T004
+    - P9.M2.E3.T001
+    - P9.M2.E3.T002
+duration_minutes: 66.60725980803333
+estimate_hours: 1.5
+id: P9.M3.E1.T001
+priority: medium
+started_at: "2026-03-14T14:32:48Z"
+status: done
+tags: []
+title: Add comprehensive tests for SKILL.md system
+---
+Add ~120 lines of new tests to test/test_skills.ml. All 19 existing test cases must remain unchanged and passing.
+
+New test cases:
+1. test_parse_frontmatter: Valid YAML frontmatter with name, description, allowed-tools, model. Verify key-value extraction and body separation.
+2. test_parse_frontmatter_no_delimiters: Content without --- returns empty metadata list and full content as body.
+3. test_skill_md_meta_of_frontmatter: Verify name+description required (None on missing), allowed-tools comma-split, model optional.
+4. test_load_skill_md: Create temp dir with SKILL.md, load it, verify meta fields + instructions body.
+5. test_load_skill_md_missing_name: SKILL.md without name field returns None.
+6. test_substitute_arguments: '$ARGUMENTS' in body replaced with provided string. Multiple occurrences. No $ARGUMENTS = unchanged.
+7. test_discover_md_skills: Create temp dir structure with skills in .claude-p/skills/ and .claude/skills/, verify discovery finds both, deduplicates by name (first-found wins).
+8. test_use_skill_tool_found: Create temp skill, init cache, invoke use_skill tool with valid name, verify instructions returned.
+9. test_use_skill_tool_not_found: Invoke with invalid name, verify error message lists available skills.
+10. test_skill_md_priority: Same skill name in workspace and personal dirs — workspace version wins.
+11. test_extract_skill_refs: '@review-and-fix' detected, '@unknown' not detected, email 'user@foo.com' not false-positive, multiple refs, dedup.
+12. test_slash_command_skill: Slash_commands.handle ~skill_names:["foo"] "/foo bar" returns SkillInvoke("foo","bar"). /unknown returns NotACommand.
+13. test_skill_list_tool_both_formats: Create temp dir with both a JSON skill file and a SKILL.md skill directory. Call skill_list_tool with workspace_dir. Verify output includes both JSON and SKILL.md skills with correct names/descriptions.
+
+Acceptance criteria:
+- All 13 new tests pass
+- All 19 existing tests still pass
+- make test passes
+- make fmt-check passes

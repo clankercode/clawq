@@ -49,6 +49,12 @@ clawq manifest telegram --output cmds.json
 
 Generates the full `setMyCommands` JSON payload sorted by priority. Primarily useful for debugging — Telegram registration happens automatically on daemon startup.
 
+## Skills as Slash Commands
+
+SKILL.md skills (from `.claude-p/skills/`, `.claude/skills/`, `~/.clawq/skills/`) are automatically included in slash command manifests and menus. Each skill appears as `/skill-name` with its description from YAML frontmatter. Skills are appended after built-in commands at priority 100.
+
+Skills can also be referenced via `@skill-name` in messages (auto-attached as context) or invoked via the `use_skill` tool.
+
 ## Adding a New Command
 
 1. Add an entry to `Slash_commands.commands` in `src/slash_commands.ml` with appropriate priority

@@ -1,0 +1,18 @@
+complexity: low
+depends_on: []
+estimate_hours: 1
+id: P9.M2.E1
+locked: false
+name: Prompt and Runtime Context
+status: done
+tasks:
+    - complexity: low
+      depends_on:
+        - P9.M1.E1.T002
+      estimate_hours: 0.5
+      file: T001-move-skills-listing-to-runtime.todo
+      id: T001
+      priority: medium
+      status: done
+      tags: []
+      title: Move skills listing to runtime context

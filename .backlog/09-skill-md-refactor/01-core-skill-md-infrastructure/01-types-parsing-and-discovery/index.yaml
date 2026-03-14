@@ -1,0 +1,27 @@
+complexity: medium
+depends_on: []
+estimate_hours: 2
+id: P9.M1.E1
+locked: false
+name: Types, Parsing, and Discovery
+status: done
+tasks:
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 1
+      file: T001-add-skill-md-types-and-frontma.todo
+      id: T001
+      priority: medium
+      status: done
+      tags: []
+      title: Add SKILL.md types and frontmatter parser
+    - complexity: medium
+      depends_on:
+        - P9.M1.E1.T001
+      estimate_hours: 1
+      file: T002-add-skill-discovery-scanning-a.todo
+      id: T002
+      priority: medium
+      status: done
+      tags: []
+      title: Add skill discovery, scanning, and caching

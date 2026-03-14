@@ -1,0 +1,21 @@
+---
+claimed_at: "2026-03-14T15:39:32Z"
+claimed_by: cli-user
+completed_at: "2026-03-14T15:39:32Z"
+complexity: low
+depends_on:
+    - P9.M3.E2.T001
+duration_minutes: 0.012936641233333334
+estimate_hours: 0.1
+id: P9.M3.E2.T002
+priority: medium
+started_at: "2026-03-14T15:39:32Z"
+status: done
+tags: []
+title: Mark I021 done in backlog
+---
+Run 'bl done I021' to mark the idea as completed in the backlog.
+
+Acceptance criteria:
+- bl done I021 succeeds
+- I021 status shows as completed

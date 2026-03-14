@@ -1,9 +1,18 @@
 let commands_per_page = 9
 
+let skill_commands () =
+  List.map
+    (fun (s : Skills.skill_md_meta) ->
+      {
+        Slash_commands.name = s.md_name;
+        description = s.md_description;
+        priority = 100;
+      })
+    (Skills.available_skills ())
+
 let teams_json ?(n = 10) () =
-  let cmds =
-    List.filteri (fun i _ -> i < n) (Slash_commands.sorted_by_priority ())
-  in
+  let all_cmds = Slash_commands.sorted_by_priority () @ skill_commands () in
+  let cmds = List.filteri (fun i _ -> i < n) all_cmds in
   let commands_json =
     List.map
       (fun (c : Slash_commands.command) ->
@@ -32,7 +41,7 @@ let teams_json ?(n = 10) () =
   Yojson.Safe.pretty_to_string ~std:true manifest
 
 let telegram_json () =
-  let cmds = Slash_commands.sorted_by_priority () in
+  let cmds = Slash_commands.sorted_by_priority () @ skill_commands () in
   let commands_json =
     List.map
       (fun (c : Slash_commands.command) ->
@@ -46,7 +55,7 @@ let telegram_json () =
   Yojson.Safe.pretty_to_string ~std:true payload
 
 let menu_adaptive_card_json ?(page = 1) () =
-  let all_cmds = Slash_commands.sorted_by_priority () in
+  let all_cmds = Slash_commands.sorted_by_priority () @ skill_commands () in
   let total = List.length all_cmds in
   let total_pages =
     max 1 ((total + commands_per_page - 1) / commands_per_page)

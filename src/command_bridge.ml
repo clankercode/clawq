@@ -587,12 +587,49 @@ let cmd_audit args =
          PATH [--anchor PATH.anchor.json]|purge>"
 
 let cmd_skills args =
+  let cfg = get_config () in
+  let workspace = Runtime_config.effective_workspace cfg in
+  (* Ensure the global skill cache is initialized so available_skills works *)
+  let _ensure_cache =
+    match Skills.global_cache_get () with
+    | Some _ -> ()
+    | None -> ignore (Skills.init_cache ~workspace_dir:workspace ())
+  in
+  ignore _ensure_cache;
   match args with
   | [ "list" ] | [] ->
-      let files = Skills.list_skills () in
-      if files = [] then "No skills found in " ^ Skills.skills_dir ()
-      else "Skills:\n" ^ String.concat "\n" (List.map (fun f -> "  " ^ f) files)
-  | [ "path" ] -> "Skills directory: " ^ Skills.skills_dir ()
+      let lines = ref [] in
+      let add s = lines := s :: !lines in
+      let md_skills = Skills.available_skills () in
+      if md_skills <> [] then begin
+        add "SKILL.md skills:";
+        List.iter
+          (fun (s : Skills.skill_md_meta) ->
+            add
+              (Printf.sprintf "  %s: %s (%s)" s.md_name s.md_description
+                 s.md_source_path))
+          md_skills
+      end;
+      let json_files = Skills.list_skills () in
+      if json_files <> [] then begin
+        if md_skills <> [] then add "";
+        add
+          (Printf.sprintf "Legacy JSON skills (in %s):" (Skills.skills_dir ()));
+        List.iter (fun f -> add ("  " ^ f)) json_files
+      end;
+      if md_skills = [] && json_files = [] then "No skills found."
+      else String.concat "\n" (List.rev !lines)
+  | [ "path" ] ->
+      let dirs = Skills.skill_search_dirs ~workspace_dir:workspace () in
+      "Skill search directories:\n"
+      ^ String.concat "\n"
+          (List.map
+             (fun d ->
+               let exists =
+                 if Sys.file_exists d then " (exists)" else " (not found)"
+               in
+               "  " ^ d ^ exists)
+             dirs)
   | [ "init" ] -> Skills.create_example ()
   | _ -> "Usage: clawq skills <list|path|init>"
 

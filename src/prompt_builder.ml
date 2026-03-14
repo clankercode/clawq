@@ -215,7 +215,7 @@ let add_runtime_details lines (details : runtime_context_details) =
       add summary
 
 let build_runtime_context ~(config : Runtime_config.t) ?(force_full = false)
-    ?details () =
+    ?(md_skills : (string * string) list = []) ?details () =
   if (not force_full) && not config.prompt.dynamic_enabled then None
   else
     let lines = ref [] in
@@ -241,6 +241,17 @@ let build_runtime_context ~(config : Runtime_config.t) ?(force_full = false)
     (match details with
     | Some details -> add_runtime_details lines details
     | None -> ());
+    if md_skills <> [] then begin
+      add "";
+      add "## Available Skills";
+      add
+        "Use the `use_skill` tool or `/skill-name` to activate a skill. \
+         Reference @skill-name in messages to auto-attach.";
+      List.iter
+        (fun (name, description) ->
+          add (Printf.sprintf "- %s: %s" name description))
+        md_skills
+    end;
     match List.rev !lines with
     | [] -> None
     | items ->
@@ -331,18 +342,6 @@ let group_chat_section ~channel_type =
          intentionally decline to reply."
   | _ -> None
 
-let skills_section ~workspace_dir =
-  let skills_dir = Filename.concat workspace_dir ".claude-p/skills" in
-  if not (Sys.file_exists skills_dir) then None
-  else
-    let skills = try Sys.readdir skills_dir |> Array.to_list with _ -> [] in
-    let skills = List.filter (fun s -> s.[0] <> '.') skills in
-    if skills = [] then None
-    else
-      Some
-        (Printf.sprintf "## Available Skills\n%s"
-           (String.concat "\n" (List.map (fun s -> "- " ^ s) skills)))
-
 type scheduled_job_info = {
   sj_name : string;
   sj_schedule : string;
@@ -403,7 +402,6 @@ let build ~(config : Runtime_config.t) ~tool_registry ?(attachments = [])
     let lines = ref [] in
     let add s = lines := s :: !lines in
     let ws = Runtime_config.effective_workspace config in
-    let effective_ws = match workspace with Some w -> w | None -> ws in
     if config.agent_defaults.system_prompt <> "" then begin
       add config.agent_defaults.system_prompt;
       add ""
@@ -515,11 +513,6 @@ let build ~(config : Runtime_config.t) ~tool_registry ?(attachments = [])
       "- Fetch this when you need to understand your own capabilities or \
        modify your own configuration/behavior.";
     (match group_chat_section ~channel_type with
-    | Some s ->
-        add "";
-        add s
-    | None -> ());
-    (match skills_section ~workspace_dir:effective_ws with
     | Some s ->
         add "";
         add s

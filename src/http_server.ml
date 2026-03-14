@@ -342,7 +342,31 @@ let handler ~session_manager ~require_pairing ~auth_token
               if not sess_ok then rate_limit_response ()
               else
                 let key = "web:" ^ session_id in
-                match Slash_commands.handle message with
+                let skill_names =
+                  List.map
+                    (fun (s : Skills.skill_md_meta) -> s.md_name)
+                    (Skills.available_skills ())
+                in
+                let cmd_result, message =
+                  match Slash_commands.handle ~skill_names message with
+                  | Slash_commands.SkillInvoke (name, args) -> (
+                      match Skills.find_skill_md name with
+                      | Some skill ->
+                          let content =
+                            Skills.substitute_arguments skill.instructions args
+                          in
+                          let msg =
+                            Printf.sprintf "[Skill: %s]\n%s\n\nUser request: %s"
+                              name content args
+                          in
+                          (Slash_commands.NotACommand, msg)
+                      | None ->
+                          ( Slash_commands.Reply
+                              (Printf.sprintf "Skill '%s' not found." name),
+                            message ))
+                  | other -> (other, message)
+                in
+                match cmd_result with
                 | Slash_commands.Help | Slash_commands.Menu _ ->
                     let response =
                       Slash_commands.format_help ~connector:Format_adapter.Plain
@@ -886,7 +910,31 @@ let handler ~session_manager ~require_pairing ~auth_token
               in
               if not sess_ok then rate_limit_response ()
               else
-                match Slash_commands.handle message with
+                let skill_names =
+                  List.map
+                    (fun (s : Skills.skill_md_meta) -> s.md_name)
+                    (Skills.available_skills ())
+                in
+                let cmd_result, message =
+                  match Slash_commands.handle ~skill_names message with
+                  | Slash_commands.SkillInvoke (name, args) -> (
+                      match Skills.find_skill_md name with
+                      | Some skill ->
+                          let content =
+                            Skills.substitute_arguments skill.instructions args
+                          in
+                          let msg =
+                            Printf.sprintf "[Skill: %s]\n%s\n\nUser request: %s"
+                              name content args
+                          in
+                          (Slash_commands.NotACommand, msg)
+                      | None ->
+                          ( Slash_commands.Reply
+                              (Printf.sprintf "Skill '%s' not found." name),
+                            message ))
+                  | other -> (other, message)
+                in
+                match cmd_result with
                 | Slash_commands.Reply text -> sse_reply text
                 | Slash_commands.Help | Slash_commands.Menu _ ->
                     sse_reply
@@ -1288,6 +1336,8 @@ let handler ~session_manager ~require_pairing ~auth_token
                             ~connector:Format_adapter.Plain ~config:cfg results
                         in
                         sse_reply text)
+                | Slash_commands.SkillInvoke _ ->
+                    sse_reply "Error: unexpected SkillInvoke"
                 | Slash_commands.NotACommand ->
                     let key = "web:" ^ session_id in
                     let stream, push = Lwt_stream.create () in

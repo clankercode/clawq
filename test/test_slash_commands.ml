@@ -53,6 +53,8 @@ let result_to_string = function
   | Slash_commands.Status -> "Status"
   | Slash_commands.Menu page -> "Menu(" ^ string_of_int page ^ ")"
   | Slash_commands.DebugDumpChat -> "DebugDumpChat"
+  | Slash_commands.SkillInvoke (name, args) ->
+      "SkillInvoke(" ^ name ^ ", " ^ args ^ ")"
   | Slash_commands.NotACommand -> "NotACommand"
 
 let result_eq a b =
@@ -82,6 +84,8 @@ let result_eq a b =
   | Slash_commands.Model _, Slash_commands.Model _ -> true
   | Slash_commands.Menu a, Slash_commands.Menu b -> a = b
   | Slash_commands.DebugDumpChat, Slash_commands.DebugDumpChat -> true
+  | Slash_commands.SkillInvoke (a1, a2), Slash_commands.SkillInvoke (b1, b2) ->
+      a1 = b1 && a2 = b2
   | Slash_commands.NotACommand, Slash_commands.NotACommand -> true
   | _ -> false
 

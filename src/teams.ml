@@ -1087,7 +1087,33 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                     ~interval:3.0 ~idle_timeout:300.0
                 in
                 let refresh_typing () = typing_watcher.refresh () in
-                match Slash_commands.handle text with
+                let skill_names =
+                  List.map
+                    (fun (s : Skills.skill_md_meta) -> s.md_name)
+                    (Skills.available_skills ())
+                in
+                let cmd_result, text =
+                  match Slash_commands.handle ~skill_names text with
+                  | Slash_commands.SkillInvoke (name, args) -> (
+                      match Skills.find_skill_md name with
+                      | Some skill ->
+                          let content =
+                            Skills.substitute_arguments skill.instructions args
+                          in
+                          let msg =
+                            Printf.sprintf "[Skill: %s]\n%s\n\nUser request: %s"
+                              name content args
+                          in
+                          (Slash_commands.NotACommand, msg)
+                      | None ->
+                          ( Slash_commands.Reply
+                              (Printf.sprintf "Skill '%s' not found." name),
+                            text ))
+                  | other -> (other, text)
+                in
+                match cmd_result with
+                | SkillInvoke _ ->
+                    Lwt.return_unit (* unreachable: preprocessed above *)
                 | NotACommand -> (
                     (* Register status message factory and capabilities *)
                     if

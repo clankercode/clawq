@@ -1,0 +1,47 @@
+---
+claimed_at: "2026-03-14T14:20:50Z"
+claimed_by: cli-user
+completed_at: "2026-03-14T14:32:12Z"
+complexity: medium
+depends_on:
+    - P9.M1.E2.T003
+    - P9.M1.E2.T001
+    - P9.M1.E1.T002
+duration_minutes: 11.377021130266666
+estimate_hours: 0.5
+id: P9.M2.E2.T004
+priority: medium
+started_at: "2026-03-14T14:20:50Z"
+status: done
+tags: []
+title: Add @skill-name preprocessing to session_turn.ml
+---
+In src/session_turn.ml, add skill reference detection in the message normalization pipeline.
+
+Changes:
+1. Add expand_skill_refs function near normalize_incoming_message (line 46):
+   let expand_skill_refs message =
+     let skills = Skills.available_skills () in
+     let refs = Skills.extract_skill_refs skills message in
+     if refs = [] then (message, [])
+     else
+       let injections = List.filter_map (fun (_text, meta) ->
+         match Skills.find_skill_md meta.Skills.md_name with
+         | Some skill -> Some (Printf.sprintf "[Skill: %s]\n%s" meta.md_name skill.instructions)
+         | None -> None) refs in
+       (message, injections)
+
+2. Call expand_skill_refs during message processing, before the agent turn
+3. Inject skill content as additional context — follow the inject_attachment_context pattern from session_core.ml:962-968 (inject as system message prepended to history)
+4. Also handle /skill-name invocations in session_turn context (for the http_server / web UI path)
+
+Key files:
+- src/session_turn.ml (normalize_incoming_message at line 46)
+- src/session_core.ml:962-968 (inject_attachment_context pattern to follow)
+
+Acceptance criteria:
+- Message containing '@review-and-fix' gets skill content injected as context before agent turn
+- Multiple @refs inject multiple skill contents
+- Messages without @refs pass through unchanged (no extra processing overhead)
+- /skill-name invocations in session context also inject skill content
+- make build passes

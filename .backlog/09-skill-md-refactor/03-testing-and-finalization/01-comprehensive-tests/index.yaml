@@ -1,0 +1,26 @@
+complexity: medium
+depends_on: []
+estimate_hours: 1.5
+id: P9.M3.E1
+locked: false
+name: Comprehensive Tests
+status: done
+tasks:
+    - complexity: medium
+      depends_on:
+        - P9.M1.E2.T001
+        - P9.M1.E2.T003
+        - P9.M2.E1.T001
+        - P9.M2.E2.T001
+        - P9.M2.E2.T002
+        - P9.M2.E2.T003
+        - P9.M2.E2.T004
+        - P9.M2.E3.T001
+        - P9.M2.E3.T002
+      estimate_hours: 1.5
+      file: T001-add-comprehensive-tests-for-sk.todo
+      id: T001
+      priority: medium
+      status: done
+      tags: []
+      title: Add comprehensive tests for SKILL.md system

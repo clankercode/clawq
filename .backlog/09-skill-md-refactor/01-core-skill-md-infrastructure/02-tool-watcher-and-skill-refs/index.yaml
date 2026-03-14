@@ -1,0 +1,38 @@
+complexity: medium
+depends_on: []
+estimate_hours: 2
+id: P9.M1.E2
+locked: false
+name: Tool, Watcher, and Skill Refs
+status: done
+tasks:
+    - complexity: medium
+      depends_on:
+        - P9.M1.E1.T002
+      estimate_hours: 0.5
+      file: T001-add-use-skill-tool.todo
+      id: T001
+      priority: medium
+      status: done
+      tags: []
+      title: Add use_skill tool
+    - complexity: low
+      depends_on:
+        - P9.M1.E1.T002
+      estimate_hours: 0.5
+      file: T002-add-skill-background-watcher-l.todo
+      id: T002
+      priority: medium
+      status: done
+      tags: []
+      title: Add skill background watcher loop
+    - complexity: medium
+      depends_on:
+        - P9.M1.E1.T002
+      estimate_hours: 0.5
+      file: T003-add-skill-name-extraction-func.todo
+      id: T003
+      priority: medium
+      status: done
+      tags: []
+      title: Add @skill-name extraction function

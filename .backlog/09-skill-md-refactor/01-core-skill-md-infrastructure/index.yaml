@@ -1,0 +1,26 @@
+complexity: medium
+depends_on: []
+epics:
+    - complexity: medium
+      depends_on: []
+      description: ""
+      estimate_hours: 2
+      id: E1
+      locked: false
+      name: Types, Parsing, and Discovery
+      path: 01-types-parsing-and-discovery
+      status: done
+    - complexity: medium
+      depends_on: []
+      description: ""
+      estimate_hours: 2
+      id: E2
+      locked: false
+      name: Tool, Watcher, and Skill Refs
+      path: 02-tool-watcher-and-skill-refs
+      status: done
+estimate_hours: 4
+id: P9.M1
+locked: false
+name: Core SKILL.md Infrastructure
+status: done

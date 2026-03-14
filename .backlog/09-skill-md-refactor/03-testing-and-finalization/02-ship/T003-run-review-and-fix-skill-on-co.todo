@@ -1,0 +1,31 @@
+---
+claimed_at: "2026-03-14T15:39:37Z"
+claimed_by: cli-user
+completed_at: "2026-03-14T15:39:37Z"
+complexity: low
+depends_on:
+    - P9.M3.E2.T002
+duration_minutes: 0.005664309866666667
+estimate_hours: 0.5
+id: P9.M3.E2.T003
+priority: medium
+started_at: "2026-03-14T15:39:37Z"
+status: done
+tags: []
+title: Run review-and-fix skill on completed work
+---
+Final step: invoke the /review-and-fix skill to review all changes made for I021.
+
+The skill should review:
+- All modified files in src/ for code quality, consistency with OCaml style guidelines
+- Test coverage adequacy
+- Any regressions or edge cases missed
+- Formatting compliance (make fmt-check)
+- Build correctness (make build, make test)
+
+Fix any issues found by the review.
+
+Acceptance criteria:
+- review-and-fix skill completes
+- All issues identified are addressed
+- Final make build + make test + make fmt-check all pass

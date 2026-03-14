@@ -1,0 +1,29 @@
+---
+claimed_at: "2026-03-14T15:39:28Z"
+claimed_by: cli-user
+completed_at: "2026-03-14T15:39:28Z"
+complexity: low
+depends_on:
+    - P9.M3.E1.T001
+duration_minutes: 0.0085310713
+estimate_hours: 0.1
+id: P9.M3.E2.T001
+priority: medium
+started_at: "2026-03-14T15:39:28Z"
+status: done
+tags: []
+title: Git rebase against master
+---
+Rebase the I021 branch against the latest master to ensure clean merge.
+
+Commands:
+  git fetch origin master
+  git rebase origin/master
+
+If conflicts arise, resolve them maintaining the SKILL.md refactor changes.
+
+Acceptance criteria:
+- Rebase completes cleanly (or conflicts resolved)
+- make build passes after rebase
+- make test passes after rebase
+- make fmt-check passes after rebase

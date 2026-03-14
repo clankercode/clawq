@@ -1,0 +1,43 @@
+---
+claimed_at: "2026-03-14T14:20:50Z"
+claimed_by: cli-user
+completed_at: "2026-03-14T14:32:12Z"
+complexity: medium
+depends_on:
+    - P9.M2.E2.T001
+    - P9.M1.E2.T001
+duration_minutes: 11.3760110251
+estimate_hours: 1.5
+id: P9.M2.E2.T003
+priority: medium
+started_at: "2026-03-14T14:20:50Z"
+status: done
+tags: []
+title: Add SkillInvoke dispatch to all channels
+---
+In each channel's slash command dispatch, pass skill_names to Slash_commands.handle and handle the SkillInvoke result.
+
+Channels to update (5 files):
+- src/telegram.ml (handle at ~line 301)
+- src/discord.ml (handle at ~line 489)
+- src/slack.ml (handle at ~line 342)
+- src/teams.ml (handle at ~line 669)
+- src/http_server.ml (handle at ~lines 345, 889)
+
+For each channel:
+1. Get skill_names: List.map (fun s -> s.Skills.md_name) (Skills.available_skills ())
+2. Pass to Slash_commands.handle ~skill_names text
+3. Add match case for SkillInvoke (name, args):
+   - Load skill: Skills.find_skill_md name
+   - On None: send error reply 'Skill name not found'
+   - On Some skill: substitute arguments, construct message with [Skill: name] header + instructions + user args, proceed to agent turn with that message
+4. The message format: Printf.sprintf "[Skill: %s]\n%s\n\nUser request: %s" name content args
+
+Pattern follows existing NotACommand -> agent turn flow in each channel.
+
+Acceptance criteria:
+- All 5 channels compile with SkillInvoke handler
+- /skill-name loads skill and proceeds to agent turn in each channel
+- Unknown skill name sends channel-appropriate error reply
+- Existing slash command behavior unchanged
+- make build passes

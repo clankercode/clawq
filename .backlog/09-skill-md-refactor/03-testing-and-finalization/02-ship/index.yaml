@@ -1,0 +1,38 @@
+complexity: low
+depends_on: []
+estimate_hours: 0.5
+id: P9.M3.E2
+locked: false
+name: Ship
+status: done
+tasks:
+    - complexity: low
+      depends_on:
+        - P9.M3.E1.T001
+      estimate_hours: 0.1
+      file: T001-git-rebase-against-master.todo
+      id: T001
+      priority: medium
+      status: done
+      tags: []
+      title: Git rebase against master
+    - complexity: low
+      depends_on:
+        - P9.M3.E2.T001
+      estimate_hours: 0.1
+      file: T002-mark-i021-done-in-backlog.todo
+      id: T002
+      priority: medium
+      status: done
+      tags: []
+      title: Mark I021 done in backlog
+    - complexity: low
+      depends_on:
+        - P9.M3.E2.T002
+      estimate_hours: 0.5
+      file: T003-run-review-and-fix-skill-on-co.todo
+      id: T003
+      priority: medium
+      status: done
+      tags: []
+      title: Run review-and-fix skill on completed work

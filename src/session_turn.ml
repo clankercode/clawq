@@ -100,12 +100,33 @@ let spawn_postmortem_agent mgr ~stuck_history ~session_key ~reason ?db () =
     !spawn_postmortem_agent_fn mgr ~stuck_history ~session_key ~reason ?db ()
   end
 
+let expand_skill_refs_fn :
+    (string -> string * string list * (string * string) list) ref =
+  ref (fun message -> (message, [], []))
+
 let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
-    ?(attachments = []) ?channel_name ?channel_type ?sender_id ?sender_name
-    ?channel ?channel_id () =
+    ?(attachments = []) ?(skill_injections = [])
+    ?(md_skills : (string * string) list = []) ?channel_name ?channel_type
+    ?sender_id ?sender_name ?channel ?channel_id () =
   let open Lwt.Syntax in
   let interrupt_check () = !interrupt in
   interrupt := None;
+  let message, auto_injections, auto_md_skills =
+    !expand_skill_refs_fn message
+  in
+  let skill_injections = skill_injections @ auto_injections in
+  let md_skills =
+    match (md_skills, auto_md_skills) with
+    | [], auto -> auto
+    | explicit, [] -> explicit
+    | explicit, auto ->
+        let seen = Hashtbl.create 16 in
+        List.iter (fun (n, _) -> Hashtbl.replace seen n ()) explicit;
+        let deduped_auto =
+          List.filter (fun (n, _) -> not (Hashtbl.mem seen n)) auto
+        in
+        explicit @ deduped_auto
+  in
   (match mgr.Session_core.db with
   | Some db when mgr.config.security.audit_enabled ->
       Audit.log ~db
@@ -113,6 +134,11 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
            { session_key = key; role = "user"; content_preview = message })
   | _ -> ());
   Session_core.inject_attachment_context agent attachments;
+  List.iter
+    (fun content ->
+      agent.Agent.history <-
+        Provider.make_message ~role:"system" ~content :: agent.Agent.history)
+    skill_injections;
   let effective_message =
     Session_core.effective_message_for_turn ~message ?channel_name ?channel_type
       ?sender_id ?sender_name ()
@@ -134,7 +160,7 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
   if compacted then Session_core.persist_compacted_history mgr ~key agent
   else Session_core.persist_new_messages mgr ~key ~history_before agent;
   let runtime_context =
-    Prompt_builder.build_runtime_context ~config:mgr.config
+    Prompt_builder.build_runtime_context ~config:mgr.config ~md_skills
       ~details:
         (Session_core.runtime_context_details mgr ~agent ~key
            ~compacted_before_turn:compacted)
@@ -605,6 +631,9 @@ let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
                 Session_core.with_in_flight mgr (fun () ->
                     let interrupt_check () = !interrupt in
                     interrupt := None;
+                    let message, auto_injections, md_skills =
+                      !expand_skill_refs_fn message
+                    in
                     (match mgr.db with
                     | Some db when mgr.config.security.audit_enabled ->
                         Audit.log ~db
@@ -616,6 +645,12 @@ let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
                              })
                     | _ -> ());
                     Session_core.inject_attachment_context agent attachments;
+                    List.iter
+                      (fun content ->
+                        agent.Agent.history <-
+                          Provider.make_message ~role:"system" ~content
+                          :: agent.Agent.history)
+                      auto_injections;
                     let effective_message =
                       match
                         (channel_name, channel_type, sender_id, sender_name)
@@ -662,6 +697,7 @@ let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
                         agent;
                     let runtime_context =
                       Prompt_builder.build_runtime_context ~config:mgr.config
+                        ~md_skills
                         ~details:
                           (Session_core.runtime_context_details mgr ~agent ~key
                              ~compacted_before_turn:compacted)

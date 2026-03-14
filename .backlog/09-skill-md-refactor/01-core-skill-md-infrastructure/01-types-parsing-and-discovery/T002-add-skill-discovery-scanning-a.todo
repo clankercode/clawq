@@ -1,0 +1,17 @@
+---
+claimed_at: "2026-03-14T14:10:10Z"
+claimed_by: cli-user
+completed_at: "2026-03-14T14:18:31Z"
+complexity: medium
+depends_on:
+    - P9.M1.E1.T001
+duration_minutes: 8.356727730666666
+estimate_hours: 1
+id: P9.M1.E1.T002
+priority: medium
+started_at: "2026-03-14T14:10:10Z"
+status: done
+tags: []
+title: Add skill discovery, scanning, and caching
+---
+Add to src/skills.ml. Skill cache type with md_skills list, dir_mtimes, search_dirs. Functions: skill_search_dirs (workspace .claude-p/skills + .claude/skills + personal ~/.clawq/skills), scan_skill_dirs (find name/SKILL.md + flat .md with frontmatter, dedup by name), init_cache, refresh_cache_if_stale (10s threshold), available_skills (convenience), find_skill_md (lookup by name, load full content).

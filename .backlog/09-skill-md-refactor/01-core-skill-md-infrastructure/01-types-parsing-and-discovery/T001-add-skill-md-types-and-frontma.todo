@@ -1,0 +1,16 @@
+---
+claimed_at: "2026-03-14T14:10:10Z"
+claimed_by: cli-user
+completed_at: "2026-03-14T14:18:31Z"
+complexity: medium
+depends_on: []
+duration_minutes: 8.355726507383334
+estimate_hours: 1
+id: P9.M1.E1.T001
+priority: medium
+started_at: "2026-03-14T14:10:10Z"
+status: done
+tags: []
+title: Add SKILL.md types and frontmatter parser
+---
+Add to src/skills.ml after existing JSON code. Types: skill_md_meta (md_name, md_description, md_allowed_tools, md_model, md_source_path) and skill_md (meta + instructions). Functions: parse_frontmatter (split on --- delimiters, key:value pairs), skill_md_meta_of_frontmatter (extract required name/description, optional allowed-tools/model), load_skill_md (read file + parse), substitute_arguments (replace $ARGUMENTS).

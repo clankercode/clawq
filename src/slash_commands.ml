@@ -47,6 +47,7 @@ type result =
   | Model of model_action
   | Menu of int
   | DebugDumpChat
+  | SkillInvoke of string * string
   | NotACommand
 
 let allowed_thinking_levels = [ "low"; "medium"; "high"; "off"; "xhigh"; "max" ]
@@ -259,7 +260,7 @@ let usage_usage =
   \  /usage model           - Usage breakdown by model\n\
   \  /usage provider        - Usage breakdown by provider"
 
-let handle text =
+let handle ?(skill_names = []) text =
   let trimmed = String.trim text in
   if String.length trimmed = 0 || trimmed.[0] <> '/' then NotACommand
   else
@@ -475,7 +476,15 @@ let handle text =
             | _ -> Reply "Usage: /menu [page]")
         | "debug-dump-chat" | "debug_dump_chat" -> DebugDumpChat
         | "" -> NotACommand
-        | _ -> NotACommand)
+        | _ -> (
+            match
+              List.find_opt
+                (fun sn -> String.lowercase_ascii sn = cmd_lower)
+                skill_names
+            with
+            | Some original_name ->
+                SkillInvoke (original_name, String.concat " " args)
+            | None -> NotACommand))
 
 let reset_message ?(active_bg_tasks = 0) () =
   if active_bg_tasks > 0 then

@@ -1,0 +1,34 @@
+---
+claimed_at: "2026-03-14T14:19:00Z"
+claimed_by: cli-user
+completed_at: "2026-03-14T14:20:29Z"
+complexity: medium
+depends_on:
+    - P9.M1.E1.T002
+duration_minutes: 1.4902807949333332
+estimate_hours: 0.5
+id: P9.M1.E2.T001
+priority: medium
+started_at: "2026-03-14T14:19:00Z"
+status: done
+tags: []
+title: Add use_skill tool
+---
+Add use_skill_tool : unit -> Tool.t to src/skills.ml.
+
+Tool spec:
+- name: 'use_skill'
+- risk_level: Low, deferred: false
+- parameters_schema: name (string, required), arguments (string, optional)
+- description: 'Invoke a skill by name. Loads the skill SKILL.md instructions and returns them for you to follow. See Available Skills in runtime context.'
+- invoke: calls find_skill_md for the name, substitutes $ARGUMENTS in instructions with the arguments param, returns full instructions text
+- On not found: return actionable error listing all available skill names from cache
+
+Also update skill_list_tool to accept optional ?workspace_dir parameter and include SKILL.md skills in its output alongside legacy JSON skills.
+
+Acceptance criteria:
+- use_skill tool registered with correct schema compiles
+- Invoking with a valid skill name returns the SKILL.md body with $ARGUMENTS replaced
+- Invoking with unknown name returns error listing available skills
+- skill_list_tool output includes both JSON and SKILL.md skills
+- make build passes

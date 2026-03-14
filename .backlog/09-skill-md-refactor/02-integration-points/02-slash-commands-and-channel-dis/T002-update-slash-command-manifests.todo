@@ -1,0 +1,34 @@
+---
+claimed_at: "2026-03-14T14:20:50Z"
+claimed_by: cli-user
+completed_at: "2026-03-14T14:32:12Z"
+complexity: low
+depends_on:
+    - P9.M2.E2.T001
+    - P9.M1.E1.T002
+duration_minutes: 11.3749520258
+estimate_hours: 0.5
+id: P9.M2.E2.T002
+priority: medium
+started_at: "2026-03-14T14:20:50Z"
+status: done
+tags: []
+title: Update slash command manifests for skills
+---
+In src/slash_commands_manifest.ml (159 lines), include SKILL.md skills in channel command manifests.
+
+Changes:
+1. In teams_json: after getting built-in commands via sorted_by_priority(), also get Skills.available_skills() and append as additional command entries with title=skill_name, description=skill_description
+2. In telegram_json: same pattern — append skill entries to the commands_json list
+3. In menu_adaptive_card_json: skills appear as additional ActionSet items on the last page(s)
+4. Skills appear with lower priority than built-in commands (appended after, not interleaved)
+
+Key file: src/slash_commands_manifest.ml
+Dependencies: Skills.available_skills() from P9.M1.E1.T002
+
+Acceptance criteria:
+- Telegram manifest JSON includes skill commands (command=skill_name, description=skill_desc)
+- Teams manifest JSON includes skills in commandLists
+- Menu adaptive card includes skill commands
+- Empty skill list produces same output as before (no regression)
+- make build passes

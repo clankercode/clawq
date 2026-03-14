@@ -92,6 +92,16 @@ phases:
       priority: high
       status: done
       weeks: 3
+    - depends_on: []
+      description: ""
+      estimate_hours: 10
+      id: P9
+      locked: true
+      name: SKILL.md Refactor
+      path: 09-skill-md-refactor
+      priority: medium
+      status: done
+      weeks: 2
 project: Clawq
 stats:
     blocked: 1

@@ -1,0 +1,52 @@
+complexity: medium
+depends_on: []
+estimate_hours: 2
+id: P9.M2.E2
+locked: false
+name: Slash Commands and Channel Dispatch
+status: done
+tasks:
+    - complexity: medium
+      depends_on:
+        - P9.M1.E1.T002
+      estimate_hours: 0.5
+      file: T001-add-skillinvoke-variant-to-sla.todo
+      id: T001
+      priority: medium
+      status: done
+      tags: []
+      title: Add SkillInvoke variant to slash commands
+    - complexity: low
+      depends_on:
+        - P9.M2.E2.T001
+        - P9.M1.E1.T002
+      estimate_hours: 0.5
+      file: T002-update-slash-command-manifests.todo
+      id: T002
+      priority: medium
+      status: done
+      tags: []
+      title: Update slash command manifests for skills
+    - complexity: medium
+      depends_on:
+        - P9.M2.E2.T001
+        - P9.M1.E2.T001
+      estimate_hours: 1.5
+      file: T003-add-skillinvoke-dispatch-to-al.todo
+      id: T003
+      priority: medium
+      status: done
+      tags: []
+      title: Add SkillInvoke dispatch to all channels
+    - complexity: medium
+      depends_on:
+        - P9.M1.E2.T003
+        - P9.M1.E2.T001
+        - P9.M1.E1.T002
+      estimate_hours: 0.5
+      file: T004-add-skill-name-preprocessing-t.todo
+      id: T004
+      priority: medium
+      status: done
+      tags: []
+      title: Add @skill-name preprocessing to session_turn.ml

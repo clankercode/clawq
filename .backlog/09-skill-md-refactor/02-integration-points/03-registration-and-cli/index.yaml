@@ -1,0 +1,30 @@
+complexity: low
+depends_on: []
+estimate_hours: 1
+id: P9.M2.E3
+locked: false
+name: Registration and CLI
+status: done
+tasks:
+    - complexity: low
+      depends_on:
+        - P9.M1.E2.T001
+        - P9.M1.E2.T002
+        - P9.M1.E1.T002
+      estimate_hours: 0.5
+      file: T001-register-use-skill-tool-and-st.todo
+      id: T001
+      priority: medium
+      status: done
+      tags: []
+      title: Register use_skill tool and start skill watcher
+    - complexity: low
+      depends_on:
+        - P9.M1.E1.T002
+      estimate_hours: 0.5
+      file: T002-update-cmd-skills-cli-commands.todo
+      id: T002
+      priority: medium
+      status: done
+      tags: []
+      title: Update cmd_skills CLI commands

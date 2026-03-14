@@ -486,7 +486,31 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
               ~channel_id:msg.channel_id)
           ~interval:8.0 ~idle_timeout:300.0
       in
-      match Slash_commands.handle msg.content with
+      let skill_names =
+        List.map
+          (fun (s : Skills.skill_md_meta) -> s.md_name)
+          (Skills.available_skills ())
+      in
+      let cmd_result, msg =
+        match Slash_commands.handle ~skill_names msg.content with
+        | Slash_commands.SkillInvoke (name, args) -> (
+            match Skills.find_skill_md name with
+            | Some skill ->
+                let content =
+                  Skills.substitute_arguments skill.instructions args
+                in
+                let text =
+                  Printf.sprintf "[Skill: %s]\n%s\n\nUser request: %s" name
+                    content args
+                in
+                (Slash_commands.NotACommand, { msg with content = text })
+            | None ->
+                ( Slash_commands.Reply
+                    (Printf.sprintf "Skill '%s' not found." name),
+                  msg ))
+        | other -> (other, msg)
+      in
+      match cmd_result with
       | Reply text ->
           send_message_fn ~bot_token:discord_config.bot_token
             ~channel_id:msg.channel_id ~text
@@ -845,6 +869,7 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
           in
           send_message_fn ~bot_token:discord_config.bot_token
             ~channel_id:msg.channel_id ~text
+      | SkillInvoke _ -> Lwt.return_unit (* unreachable: preprocessed above *)
       | NotACommand when Update_tool.is_update_command msg.content -> (
           let send_first text =
             send_message_with_id ~suppress_notifications:true

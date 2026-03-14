@@ -178,6 +178,6 @@ ideas:
       file: I021-refactor-skills-to-work-like-c.todo
       id: I021
       priority: medium
-      status: in_progress
+      status: done
       tags: []
       title: Refactor skills to work like Claude Code's skills

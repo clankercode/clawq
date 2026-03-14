@@ -339,7 +339,31 @@ let handle_event ~(config : Runtime_config.slack_config)
             Lwt.return "ok"
           end
           else
-            match Slash_commands.handle text with
+            let skill_names =
+              List.map
+                (fun (s : Skills.skill_md_meta) -> s.md_name)
+                (Skills.available_skills ())
+            in
+            let cmd_result, text =
+              match Slash_commands.handle ~skill_names text with
+              | Slash_commands.SkillInvoke (name, args) -> (
+                  match Skills.find_skill_md name with
+                  | Some skill ->
+                      let content =
+                        Skills.substitute_arguments skill.instructions args
+                      in
+                      let msg =
+                        Printf.sprintf "[Skill: %s]\n%s\n\nUser request: %s"
+                          name content args
+                      in
+                      (Slash_commands.NotACommand, msg)
+                  | None ->
+                      ( Slash_commands.Reply
+                          (Printf.sprintf "Skill '%s' not found." name),
+                        text ))
+              | other -> (other, text)
+            in
+            match cmd_result with
             | Reply reply_text ->
                 let* () =
                   send_message_fn ~bot_token:config.bot_token ~channel_id
@@ -779,6 +803,8 @@ let handle_event ~(config : Runtime_config.slack_config)
                   send_message_fn ~bot_token:config.bot_token ~channel_id ~text
                 in
                 Lwt.return "ok"
+            | SkillInvoke _ ->
+                Lwt.return "ok" (* unreachable: preprocessed above *)
             | NotACommand -> (
                 let agent_defaults =
                   (Session.get_config session_manager).agent_defaults

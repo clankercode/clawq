@@ -328,7 +328,12 @@ let build_tool_registry ?db (cfg : Runtime_config.t) =
     Tool_registry.register registry
       (Skills.skill_create_tool ~workspace_only:cfg.security.workspace_only
          ~allowed_commands:Tools_builtin.default_shell_allowlist registry);
-    Tool_registry.register registry (Skills.skill_list_tool ());
+    let workspace = Runtime_config.effective_workspace cfg in
+    Tool_registry.register registry
+      (Skills.skill_list_tool ~workspace_dir:workspace ());
+    let _cache = Skills.init_cache ~workspace_dir:workspace () in
+    Tool_registry.register registry (Skills.use_skill_tool ());
+    Session_turn.expand_skill_refs_fn := Skills.expand_skill_refs;
     Some registry
   end
 

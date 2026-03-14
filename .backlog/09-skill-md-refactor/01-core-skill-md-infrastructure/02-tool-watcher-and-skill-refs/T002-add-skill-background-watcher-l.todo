@@ -1,0 +1,31 @@
+---
+claimed_at: "2026-03-14T14:19:00Z"
+claimed_by: cli-user
+completed_at: "2026-03-14T14:20:29Z"
+complexity: low
+depends_on:
+    - P9.M1.E1.T002
+duration_minutes: 1.4912225571
+estimate_hours: 0.5
+id: P9.M1.E2.T002
+priority: medium
+started_at: "2026-03-14T14:19:00Z"
+status: done
+tags: []
+title: Add skill background watcher loop
+---
+Add skill_watcher_loop : skill_cache -> unit Lwt.t to src/skills.ml.
+
+Implementation:
+- Async Lwt loop: sleep 10.0s, then check Unix.stat on each dir in cache.search_dirs
+- Compare st_mtime against cached dir_mtimes
+- If any dir changed: call scan_skill_dirs, update cache.md_skills + dir_mtimes + last_scan_time
+- Log via Logs.info when skills are reloaded (count of skills found)
+- Wrap stat/scan in try/with to handle missing dirs or permission errors gracefully
+- Follow exact pattern from daemon.ml config watcher (lines 1168-1230): rec loop with Lwt_unix.sleep + try/with + recursive tail call
+
+Acceptance criteria:
+- Compiles and follows Lwt async patterns (no blocking I/O)
+- Gracefully handles missing/unreadable directories (logs warning, continues loop)
+- When a new SKILL.md file is added to a watched dir, the cache updates within 10s
+- make build passes

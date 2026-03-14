@@ -1,0 +1,36 @@
+complexity: medium
+depends_on: []
+estimate_hours: 10
+id: P9
+locked: true
+milestones:
+    - complexity: medium
+      depends_on: []
+      description: ""
+      estimate_hours: 4
+      id: M1
+      locked: false
+      name: Core SKILL.md Infrastructure
+      path: 01-core-skill-md-infrastructure
+      status: done
+    - complexity: medium
+      depends_on: []
+      description: ""
+      estimate_hours: 4
+      id: M2
+      locked: false
+      name: Integration Points
+      path: 02-integration-points
+      status: done
+    - complexity: low
+      depends_on: []
+      description: ""
+      estimate_hours: 2
+      id: M3
+      locked: false
+      name: Testing and Finalization
+      path: 03-testing-and-finalization
+      status: done
+name: SKILL.md Refactor
+status: done
+weeks: 2
