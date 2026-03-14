@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B437
+priority: high
+status: pending
+tags: []
+title: when creating sessions, we should sanitize some posisble unsafe chars like fwd slash for the session id
+---
+
+when creating sessions, we should sanitize some posisble unsafe chars like fwd slash for the session id
