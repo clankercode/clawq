@@ -1458,4 +1458,6 @@ let grep ~workspace ~workspace_only ~extra_allowed_paths =
     deferred = false;
   }
 
+let bg_shell_tools = Tools_bg_shell.tools
+
 (* ───── HTTP tools ───── *)

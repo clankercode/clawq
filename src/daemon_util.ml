@@ -434,6 +434,7 @@ let refresh_runtime_bound_tools ~(config : Runtime_config.t)
   Tool_registry.replace registry
     (Tools_builtin.doc_write ~workspace
        ~workspace_files:config.prompt.workspace_files);
+  List.iter (Tool_registry.replace registry) (Tools_builtin.bg_shell_tools ());
   Logs.info (fun m -> m "Refreshed runtime-bound tools")
 
 let make_sandbox (config : Runtime_config.t) =

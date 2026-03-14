@@ -980,6 +980,7 @@ let register_all ~(config : Runtime_config.t) ~sandbox ?(db = None)
     (grep ~workspace ~workspace_only ~extra_allowed_paths);
   Tool_registry.register registry (http_request ~workspace_only);
   Tool_registry.register registry (web_fetch ~workspace_only);
+  List.iter (Tool_registry.register registry) (bg_shell_tools ());
   Tool_registry.register registry (git_operations ~workspace);
   if config.web_search <> None then
     Tool_registry.register registry (web_search ~config);

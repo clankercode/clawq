@@ -8,6 +8,7 @@
   test_agent_router
   test_audit
   test_background_task
+  test_bg_shell
   test_benchmark
   test_channel_formats
   test_chat_ui

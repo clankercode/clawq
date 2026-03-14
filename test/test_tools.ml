@@ -1876,11 +1876,12 @@ let test_shell_exec_interrupts_running_process () =
            Lwt.return result)
       in
       let elapsed = Unix.gettimeofday () -. started_at in
-      Alcotest.(check string)
-        "interrupt result" "Command interrupted by user." result;
+      Alcotest.(check bool)
+        "result contains bg job info" true
+        (contains result "Background shell job");
       Alcotest.(check bool) "returns promptly" true (elapsed < 2.0))
 
-let test_shell_exec_interrupt_kills_descendants () =
+let test_shell_exec_interrupt_moves_to_background () =
   with_temp_workspace (fun workspace ->
       let sandbox =
         Sandbox.create ~backend:Sandbox.None ~workspace ~extra_allowed_paths:[]
@@ -1893,8 +1894,7 @@ let test_shell_exec_interrupt_kills_descendants () =
       let interrupted = ref None in
       let pid_file = Filename.concat workspace "child.pid" in
       let command =
-        Printf.sprintf
-          "sleep 10 & child=$!; printf '%%s' \"$child\" > %s; wait $child"
+        Printf.sprintf "printf '%%s' \"$$\" > %s; echo hello; sleep 0.3"
           (Filename.quote pid_file)
       in
       let result =
@@ -1924,25 +1924,28 @@ let test_shell_exec_interrupt_kills_descendants () =
            let* result, () = Lwt.both invoke trigger in
            Lwt.return result)
       in
-      let child_pid =
-        let ic = open_in pid_file in
-        Fun.protect
-          (fun () -> int_of_string (input_line ic))
-          ~finally:(fun () -> close_in ic)
-      in
-      let rec wait_until_gone attempts =
-        if attempts <= 0 || not (process_exists child_pid) then ()
-        else begin
-          Unix.sleepf 0.05;
-          wait_until_gone (attempts - 1)
-        end
-      in
-      wait_until_gone 20;
-      Alcotest.(check string)
-        "interrupt result" "Command interrupted by user." result;
       Alcotest.(check bool)
-        "child process terminated" false (process_exists child_pid);
-      Sys.remove pid_file)
+        "result contains bg job info" true
+        (contains result "Background shell job");
+      Alcotest.(check bool)
+        "result contains bg_shell_status hint" true
+        (contains result "bg_shell_status");
+      (* Extract job ID and wait for finish, then verify log *)
+      let job_id =
+        try
+          let re = Str.regexp {|Background shell job #\([0-9]+\)|} in
+          ignore (Str.search_forward re result 0);
+          int_of_string (Str.matched_group 1 result)
+        with _ -> Alcotest.fail "could not parse job ID"
+      in
+      Lwt_main.run (Lwt_unix.sleep 0.5);
+      let job = Bg_shell.find job_id in
+      (match job with
+      | Some j ->
+          let log = Bg_shell.read_log j () in
+          Alcotest.(check bool) "log contains hello" true (contains log "hello")
+      | None -> Alcotest.fail "bg_shell job not found");
+      try Sys.remove pid_file with _ -> ())
 
 let test_shell_exec_timeout_kills_descendants () =
   with_temp_workspace (fun workspace ->
@@ -2539,8 +2542,8 @@ let suite =
       test_shell_exec_rejects_non_positive_head_or_tail;
     Alcotest.test_case "shell_exec interrupts running process" `Quick
       test_shell_exec_interrupts_running_process;
-    Alcotest.test_case "shell_exec interrupt kills descendants" `Quick
-      test_shell_exec_interrupt_kills_descendants;
+    Alcotest.test_case "shell_exec interrupt moves to background" `Quick
+      test_shell_exec_interrupt_moves_to_background;
     Alcotest.test_case "shell_exec timeout kills descendants" `Quick
       test_shell_exec_timeout_kills_descendants;
     Alcotest.test_case "watch_ci_after_push injects failure follow-up" `Quick

@@ -319,11 +319,11 @@ To encrypt API keys at rest: set `security.encrypt_secrets` to true, set `CLAWQ_
 
 ## Your Tools
 
-You have up to 39 built-in tools. 15 are always registered; `web_search`, `zai_websearch`, `zai_webfetch`, `send_message`, `ask_user_question`, `transcribe`, the four memory tools, `history_search`, `task_tree`, the background/delegation tool family (including `background_task_resume`, `background_task_send_message`, and `background_finalize`), and the five `plan_pipeline_*` tools are conditional on runtime configuration/wiring.
+You have up to 42 built-in tools. 15 are always registered; `web_search`, `zai_websearch`, `zai_webfetch`, `send_message`, `ask_user_question`, `transcribe`, the four memory tools, `history_search`, `task_tree`, the background/delegation tool family (including `background_task_resume`, `background_task_send_message`, and `background_finalize`), and the five `plan_pipeline_*` tools are conditional on runtime configuration/wiring.
 
 | Tool | Description |
 |------|-------------|
-| `shell_exec` | Execute a shell command (37-command allowlist when workspace_only, no pipes/semicolons/redirects/subshells; optional `head`/`tail` line windows on final stdout/stderr result; timeout 30s default, 600s max) |
+| `shell_exec` | Execute a shell command (37-command allowlist when workspace_only, no pipes/semicolons/redirects/subshells; optional `head`/`tail` line windows on final stdout/stderr result; timeout 30s default, 600s max). On user interrupt, the process is moved to a background shell instead of being killed — use `bg_shell_status`/`bg_shell_wait`/`bg_shell_result` to track it |
 | `file_read` | Read a file's text content (50K char limit; use offset/limit for larger files) |
 | `file_write` | Create or overwrite a file with the given content |
 | `file_append` | Append content to the end of a file, creating it if it does not exist |
@@ -358,6 +358,9 @@ You have up to 39 built-in tools. 15 are always registered; `web_search`, `zai_w
 | `background_task_send_message` | Queue a new user-style chat message for a previously started worktree-backed background task and resume it |
 | `delegate` | Delegate a coding task to a background subagent (Codex/Claude/Kimi/Gemini/Opencode/Cursor) in a git worktree. Use for 'spawn subagent'/'use haiku to ...' requests |
 | `background_task_cancel` | Cancel a queued or running background task |
+| `bg_shell_status` | Check the status of a background shell job (created when shell_exec is interrupted). Returns status, elapsed time, and last 20 lines of log |
+| `bg_shell_wait` | Wait for a background shell job to complete (max 110s). Returns job result on completion, or timeout/interrupt message |
+| `bg_shell_result` | Get the result and log output of a completed background shell job. Supports `head`/`tail` line windowing |
 | `background_finalize` | Finalize a completed background task by rebasing its worktree branch onto the target branch, fast-forward merging, and cleaning up the worktree. Use after automerge fails or when manually merging |
 | `task_tree` | Track and organize work using a persistent hierarchical task tree. Survives context compaction, visible every turn. Operations: add, update, remove, clear, archive. Statuses: pending, in_progress, done, error, cancelled. Supports depth-based auto-nesting, lifecycle enforcement (parent can't be done until children are), and archiving completed subtrees |
 | `plan_pipeline_start` | Start a multi-stage planning pipeline (foreground/blocking): planner agent writes `plan.md`, plan-review loop refines it, coder agent implements, code-review loop verifies. Params: `prompt` (required), `repo_path`, `runner`, `planner_model`, `reviewer_model`, `coder_model`, `max_plan_review_iters` (default 3), `max_code_review_iters` (default 3). Set iters to 0 to skip a review phase |
@@ -371,6 +374,7 @@ Background delegation notes:
 - The `background` command family is the lower-level control surface: queue work, inspect task metadata, wait for completion, read captured logs, resume a prior run, inject follow-up task messages, cancel a run, or finalize (merge) a completed task.
 - Background task worktrees live under `~/.clawq/background-worktrees/`.
 - Background task logs live under `~/.clawq/background-logs/`.
+- Background shell job logs (from interrupted shell_exec) live under `~/.clawq/bg-shells/`.
 - Automerge: both `delegate` and `background_task_enqueue` accept `automerge` (bool, default false) and `use_worktree` (bool, default true). When `automerge` is true and the task succeeds, the daemon automatically rebases the task branch onto the target branch, performs a fast-forward merge via `git update-ref`, and cleans up the worktree. If a conflict occurs, the task is marked and the parent agent is notified to use `background_finalize` to retry. `use_worktree=false` runs the agent directly in the repo directory without worktree isolation (automerge is ignored).
 - Resume/message flow: `background resume`, `background message`, `background_task_resume`, and `background_task_send_message` only work for tasks that already started in an isolated worktree-backed run. Resume uses the runner's native continue/resume flags. Message delivery is durable and replayed FIFO into the resumed runner invocation.
 - Session routing preservation: when `shell_exec` runs inside an active session (Telegram, Discord, etc.), it injects the `CLAWQ_SESSION_ID` env var into the child process. CLI subprocesses (e.g. `clawq background add`) read this variable to capture the originating session's routing metadata (session_key, channel, channel_id) on the task row, enabling completion notices to return to the originating channel. Standalone CLI launches without this env var fall back to static `notify` config or no routing.

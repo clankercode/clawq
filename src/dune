@@ -40,6 +40,8 @@
   tool
   tool_registry
   tools_builtin_util
+  bg_shell
+  tools_bg_shell
   tools_builtin_io
   tools_builtin_net
   tools_builtin
