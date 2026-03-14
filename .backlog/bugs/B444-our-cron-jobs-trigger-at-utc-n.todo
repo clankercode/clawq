@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B444
+priority: high
+status: pending
+tags: []
+title: our cron jobs trigger at UTC not local timezone
+---
+
+our cron jobs trigger at UTC not local timezone
