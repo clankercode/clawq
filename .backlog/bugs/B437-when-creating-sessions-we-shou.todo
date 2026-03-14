@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-14T05:43:57Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B437
 priority: high
-status: pending
+started_at: "2026-03-14T05:43:57Z"
+status: in_progress
 tags: []
 title: when creating sessions, we should sanitize some posisble unsafe chars like fwd slash for the session id
 ---
