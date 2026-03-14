@@ -527,8 +527,11 @@ let test_commands_route () =
   let commands = payload |> to_list in
   Alcotest.(check bool) "has commands" true (List.length commands > 0);
   Alcotest.(check string)
-    "first command has name" "start"
-    (List.hd commands |> member "name" |> to_string)
+    "first command has name" "help"
+    (List.hd commands |> member "name" |> to_string);
+  Alcotest.(check bool)
+    "command has priority field" true
+    (List.hd commands |> member "priority" |> to_int > 0)
 
 let test_ui_version_route () =
   let config = Runtime_config.default in

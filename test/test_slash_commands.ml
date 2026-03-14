@@ -50,7 +50,7 @@ let result_to_string = function
   | Slash_commands.Model (Slash_commands.ModelSetDefault name) ->
       "Model(SetDefault " ^ name ^ ")"
   | Slash_commands.Status -> "Status"
-  | Slash_commands.Menu -> "Menu"
+  | Slash_commands.Menu page -> "Menu(" ^ string_of_int page ^ ")"
   | Slash_commands.DebugDumpChat -> "DebugDumpChat"
   | Slash_commands.NotACommand -> "NotACommand"
 
@@ -78,6 +78,7 @@ let result_eq a b =
   | Slash_commands.Costs a, Slash_commands.Costs b -> a = b
   | Slash_commands.Usage a, Slash_commands.Usage b -> a = b
   | Slash_commands.Model _, Slash_commands.Model _ -> true
+  | Slash_commands.Menu a, Slash_commands.Menu b -> a = b
   | Slash_commands.DebugDumpChat, Slash_commands.DebugDumpChat -> true
   | Slash_commands.NotACommand, Slash_commands.NotACommand -> true
   | _ -> false
@@ -119,15 +120,14 @@ let test_help () =
         try
           ignore
             (Str.search_forward
-               (Str.regexp_string "Available commands:\n\n  /start")
+               (Str.regexp_string "Available commands:\n\n  /help")
                s 0);
           true
         with Not_found -> false
       in
       Alcotest.(check bool)
         "does not use markdown table" false contains_markdown_table;
-      Alcotest.(check bool)
-        "contains plain start line" true contains_plain_start
+      Alcotest.(check bool) "contains plain help line" true contains_plain_start
   | other ->
       Alcotest.fail
         (Printf.sprintf "expected Help, got %s" (result_to_string other))
@@ -1366,94 +1366,151 @@ let test_format_costs_discord_code_block () =
         "discord costs no markdown table pipes" false
         (contains_str output "| PERIOD |"))
 
-(* --- Priority and manifest tests --- *)
+let test_menu_default () =
+  Alcotest.check result_testable "/menu returns Menu 1" (Slash_commands.Menu 1)
+    (Slash_commands.handle "/menu")
 
-let test_command_has_priority () =
-  let first = List.hd Slash_commands.commands in
-  Alcotest.(check bool) "command has priority field" true (first.priority > 0)
+let test_menu_page () =
+  Alcotest.check result_testable "/menu 2 returns Menu 2"
+    (Slash_commands.Menu 2)
+    (Slash_commands.handle "/menu 2");
+  Alcotest.check result_testable "/menu 3 returns Menu 3"
+    (Slash_commands.Menu 3)
+    (Slash_commands.handle "/menu 3")
 
-let test_commands_by_priority_sorted () =
-  let sorted = Slash_commands.commands_by_priority in
+let test_menu_invalid () =
+  match Slash_commands.handle "/menu abc" with
+  | Slash_commands.Reply s ->
+      Alcotest.(check bool) "mentions Usage" true (contains_str s "Usage")
+  | other ->
+      Alcotest.fail
+        (Printf.sprintf "expected Reply, got %s" (result_to_string other))
+
+let test_menu_zero_page () =
+  match Slash_commands.handle "/menu 0" with
+  | Slash_commands.Reply s ->
+      Alcotest.(check bool) "mentions Usage" true (contains_str s "Usage")
+  | other ->
+      Alcotest.fail
+        (Printf.sprintf "expected Reply for /menu 0, got %s"
+           (result_to_string other))
+
+let test_priority_positive () =
+  List.iter
+    (fun (c : Slash_commands.command) ->
+      Alcotest.(check bool)
+        (Printf.sprintf "%s has positive priority" c.name)
+        true (c.priority > 0))
+    Slash_commands.commands
+
+let test_sorted_by_priority () =
+  let sorted = Slash_commands.sorted_by_priority () in
   let rec is_descending = function
     | [] | [ _ ] -> true
     | a :: (b :: _ as rest) ->
-        a.Slash_commands.priority >= b.Slash_commands.priority
-        && is_descending rest
+        a.Slash_commands.priority >= b.priority && is_descending rest
   in
-  Alcotest.(check bool)
-    "commands_by_priority sorted descending" true (is_descending sorted)
+  Alcotest.(check bool) "sorted descending" true (is_descending sorted);
+  Alcotest.(check int)
+    "same count"
+    (List.length Slash_commands.commands)
+    (List.length sorted)
+
+let test_commands_has_menu () =
+  let names =
+    List.map
+      (fun (c : Slash_commands.command) -> c.name)
+      Slash_commands.commands
+  in
+  Alcotest.(check bool) "has menu" true (List.mem "menu" names)
 
 let test_manifest_teams_json () =
-  let output = Slash_commands.manifest_teams () in
+  let output = Slash_commands_manifest.teams_json () in
   let json = Yojson.Safe.from_string output in
   let open Yojson.Safe.Util in
-  let bots = json |> member "bots" |> to_list in
-  Alcotest.(check bool) "has bots array" true (List.length bots > 0);
-  let cmd_lists = List.hd bots |> member "commandLists" |> to_list in
-  Alcotest.(check bool) "has commandLists" true (List.length cmd_lists > 0);
+  let cmd_lists = json |> member "commandLists" |> to_list in
+  Alcotest.(check int) "one command list" 1 (List.length cmd_lists);
   let cmds = List.hd cmd_lists |> member "commands" |> to_list in
-  Alcotest.(check bool) "at most 10 commands" true (List.length cmds <= 10)
+  Alcotest.(check int) "default 10 commands" 10 (List.length cmds);
+  let first = List.hd cmds in
+  let _ = first |> member "title" |> to_string in
+  let _ = first |> member "description" |> to_string in
+  ()
 
-let test_manifest_teams_top_priority () =
-  let output = Slash_commands.manifest_teams () in
+let test_manifest_teams_json_custom_n () =
+  let output = Slash_commands_manifest.teams_json ~n:3 () in
   let json = Yojson.Safe.from_string output in
   let open Yojson.Safe.Util in
   let cmds =
-    json |> member "bots" |> to_list |> List.hd |> member "commandLists"
-    |> to_list |> List.hd |> member "commands" |> to_list
+    json |> member "commandLists" |> to_list |> List.hd |> member "commands"
+    |> to_list
   in
-  let first_title = List.hd cmds |> member "title" |> to_string in
-  Alcotest.(check string)
-    "first command is highest priority" "/start" first_title
+  Alcotest.(check int) "3 commands" 3 (List.length cmds)
 
 let test_manifest_telegram_json () =
-  let output = Slash_commands.manifest_telegram () in
-  let json = Yojson.Safe.from_string output in
-  let cmds = Yojson.Safe.Util.to_list json in
-  let total = List.length Slash_commands.commands in
-  Alcotest.(check int)
-    "telegram manifest includes all commands" total (List.length cmds);
-  let first =
-    List.hd cmds
-    |> Yojson.Safe.Util.member "command"
-    |> Yojson.Safe.Util.to_string
-  in
-  Alcotest.(check string) "first command is highest priority" "start" first
-
-let test_menu_command () =
-  match Slash_commands.handle "/menu" with
-  | Slash_commands.Menu -> ()
-  | other ->
-      Alcotest.fail
-        (Printf.sprintf "expected Menu, got %s" (result_to_string other))
-
-let test_format_menu_plain () =
-  let output = Slash_commands.format_menu ~connector:Format_adapter.Plain in
-  Alcotest.(check bool)
-    "contains Command Menu" true
-    (contains_str output "Command Menu");
-  Alcotest.(check bool) "contains /help" true (contains_str output "/help")
-
-let test_format_menu_teams () =
-  let output = Slash_commands.format_menu ~connector:Format_adapter.Teams in
+  let output = Slash_commands_manifest.telegram_json () in
   let json = Yojson.Safe.from_string output in
   let open Yojson.Safe.Util in
-  let attachments = json |> member "attachments" |> to_list in
-  Alcotest.(check bool) "has attachments" true (List.length attachments > 0);
-  let card = List.hd attachments |> member "content" in
-  let card_type = card |> member "type" |> to_string in
-  Alcotest.(check string) "is AdaptiveCard" "AdaptiveCard" card_type
+  let cmds = json |> member "commands" |> to_list in
+  Alcotest.(check int)
+    "all commands"
+    (List.length Slash_commands.commands)
+    (List.length cmds);
+  let first = List.hd cmds in
+  let _ = first |> member "command" |> to_string in
+  let _ = first |> member "description" |> to_string in
+  ()
 
-let test_format_menu_telegram () =
-  let output =
-    Slash_commands.format_menu ~connector:Format_adapter.Telegram_html
+let test_manifest_teams_uses_title_key () =
+  let output = Slash_commands_manifest.teams_json ~n:1 () in
+  Alcotest.(check bool) "uses title key" true (contains_str output "\"title\"");
+  Alcotest.(check bool)
+    "uses description key" true
+    (contains_str output "\"description\"")
+
+let test_manifest_telegram_uses_command_key () =
+  let output = Slash_commands_manifest.telegram_json () in
+  Alcotest.(check bool)
+    "uses command key" true
+    (contains_str output "\"command\"");
+  Alcotest.(check bool)
+    "uses description key" true
+    (contains_str output "\"description\"")
+
+let test_menu_adaptive_card_json () =
+  let card = Slash_commands_manifest.menu_adaptive_card_json () in
+  let open Yojson.Safe.Util in
+  let attachments = card |> member "attachments" |> to_list in
+  Alcotest.(check int) "one attachment" 1 (List.length attachments);
+  let att = List.hd attachments in
+  Alcotest.(check string)
+    "adaptive card content type" "application/vnd.microsoft.card.adaptive"
+    (att |> member "contentType" |> to_string);
+  let content = att |> member "content" in
+  Alcotest.(check string)
+    "card type" "AdaptiveCard"
+    (content |> member "type" |> to_string);
+  Alcotest.(check string)
+    "card version" "1.4"
+    (content |> member "version" |> to_string)
+
+let test_menu_adaptive_card_pagination () =
+  let card1 = Slash_commands_manifest.menu_adaptive_card_json ~page:1 () in
+  let open Yojson.Safe.Util in
+  let actions1 =
+    card1 |> member "attachments" |> to_list |> List.hd |> member "content"
+    |> member "actions" |> to_list
   in
-  Alcotest.(check bool)
-    "contains bold title" true
-    (contains_str output "<b>Command Menu</b>");
-  Alcotest.(check bool)
-    "contains code command" true
-    (contains_str output "<code>/help</code>")
+  let total = List.length Slash_commands.commands in
+  if total > 9 then begin
+    Alcotest.(check bool)
+      "page 1 has next button" true
+      (List.length actions1 > 0);
+    let next_title = List.hd actions1 |> member "title" |> to_string in
+    Alcotest.(check bool)
+      "next button has Page 2" true
+      (contains_str next_title "Page 2")
+  end
 
 let suite =
   [
@@ -1598,18 +1655,24 @@ let suite =
       test_format_status_teams_markdown_table;
     Alcotest.test_case "format costs teams blank line" `Quick
       test_format_costs_teams_has_blank_line;
-    Alcotest.test_case "command has priority" `Quick test_command_has_priority;
-    Alcotest.test_case "commands_by_priority sorted" `Quick
-      test_commands_by_priority_sorted;
+    Alcotest.test_case "/menu default" `Quick test_menu_default;
+    Alcotest.test_case "/menu page" `Quick test_menu_page;
+    Alcotest.test_case "/menu invalid" `Quick test_menu_invalid;
+    Alcotest.test_case "/menu 0 rejected" `Quick test_menu_zero_page;
+    Alcotest.test_case "priority positive" `Quick test_priority_positive;
+    Alcotest.test_case "sorted by priority" `Quick test_sorted_by_priority;
+    Alcotest.test_case "commands has menu" `Quick test_commands_has_menu;
     Alcotest.test_case "manifest teams json" `Quick test_manifest_teams_json;
-    Alcotest.test_case "manifest teams top priority" `Quick
-      test_manifest_teams_top_priority;
+    Alcotest.test_case "manifest teams custom n" `Quick
+      test_manifest_teams_json_custom_n;
     Alcotest.test_case "manifest telegram json" `Quick
       test_manifest_telegram_json;
-    Alcotest.test_case "/menu returns Menu" `Quick test_menu_command;
-    Alcotest.test_case "format_menu plain" `Quick test_format_menu_plain;
-    Alcotest.test_case "format_menu teams adaptive card" `Quick
-      test_format_menu_teams;
-    Alcotest.test_case "format_menu telegram html" `Quick
-      test_format_menu_telegram;
+    Alcotest.test_case "manifest teams uses title key" `Quick
+      test_manifest_teams_uses_title_key;
+    Alcotest.test_case "manifest telegram uses command key" `Quick
+      test_manifest_telegram_uses_command_key;
+    Alcotest.test_case "menu adaptive card json" `Quick
+      test_menu_adaptive_card_json;
+    Alcotest.test_case "menu adaptive card pagination" `Quick
+      test_menu_adaptive_card_pagination;
   ]

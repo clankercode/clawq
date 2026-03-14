@@ -1238,19 +1238,6 @@ let ec_run_cmd =
              run "ec-run" args)
         $ daemon_mode))
 
-let manifest_cmd =
-  with_args "manifest"
-    "Generate platform-specific slash command registration payloads."
-    [
-      `S "SUBCOMMANDS";
-      `I
-        ( "teams",
-          "Generate Teams app manifest command list (top 10 by priority)." );
-      `I ("telegram", "Generate Telegram setMyCommands payload (all commands).");
-      `S "OPTIONS";
-      `I ("--output FILE", "Write output to file instead of stdout.");
-    ]
-
 let version_cmd =
   let info = Cmd.info "version" ~doc:"Print version and build info." in
   Cmd.v info
@@ -1261,6 +1248,16 @@ let version_cmd =
                Build_info.git_shorthash Build_info.build_date;
              `Ok ())
         $ const ()))
+
+let manifest_cmd =
+  with_args "manifest" "Generate connector command manifests (Teams, Telegram)."
+    [
+      `S "SUBCOMMANDS";
+      `I ("teams", "Generate Teams bot manifest commands JSON (top 10).");
+      `I ("teams --output FILE", "Write Teams manifest to a file.");
+      `I ("teams -n COUNT", "Customize the number of commands.");
+      `I ("telegram", "Generate Telegram setMyCommands JSON payload.");
+    ]
 
 let main_info =
   Cmd.info "clawq" ~version:Build_info.version_string

@@ -335,6 +335,35 @@ let send_reply ?(alert = false) ~(config : Runtime_config.teams_config)
           Lwt.return_unit)
         chunks
 
+let send_adaptive_card ~(config : Runtime_config.teams_config) ~service_url
+    ~conversation_id ~reply_to_id ~card () =
+  let open Lwt.Syntax in
+  let* token_opt = fetch_token ~config in
+  match token_opt with
+  | None ->
+      Logs.err (fun m -> m "Teams: cannot send adaptive card, no OAuth token");
+      Lwt.return_unit
+  | Some token ->
+      let uri =
+        if reply_to_id = "" then
+          Printf.sprintf "%s/v3/conversations/%s/activities"
+            (String.trim service_url)
+            (Uri.pct_encode conversation_id)
+        else
+          Printf.sprintf "%s/v3/conversations/%s/activities/%s"
+            (String.trim service_url)
+            (Uri.pct_encode conversation_id)
+            (Uri.pct_encode reply_to_id)
+      in
+      let headers = [ ("Authorization", "Bearer " ^ token) ] in
+      let body = Yojson.Safe.to_string card in
+      let* status, resp = Http_client.post_json ~uri ~headers ~body in
+      if status < 200 || status >= 300 then
+        Logs.warn (fun m ->
+            m "Teams: send_adaptive_card failed (HTTP %d) conv=%s: %s" status
+              conversation_id resp);
+      Lwt.return_unit
+
 let send_message ~(config : Runtime_config.teams_config) ~channel_id ~text =
   let service_url, conversation_id = decode_channel_id channel_id in
   let effective_service_url =
@@ -580,40 +609,19 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                               (if user_name <> "" then user_name else user_id)
                               user_id err);
                         Lwt.return_unit)
-                | Menu -> (
-                    let card_json =
-                      Slash_commands.format_menu ~connector:Format_adapter.Teams
-                    in
-                    let open Lwt.Syntax in
-                    let* token_opt = fetch_token ~config in
-                    match token_opt with
-                    | None ->
-                        Logs.err (fun m ->
-                            m "Teams: cannot send menu, no OAuth token");
-                        Lwt.return_unit
-                    | Some token ->
-                        let uri =
-                          Printf.sprintf "%s/v3/conversations/%s/activities"
-                            (String.trim effective_service_url)
-                            (Uri.pct_encode conversation_id)
-                        in
-                        let headers =
-                          [ ("Authorization", "Bearer " ^ token) ]
-                        in
-                        let* status, _resp =
-                          Http_client.post_json ~uri ~headers ~body:card_json
-                        in
-                        if status < 200 || status >= 300 then
-                          Logs.warn (fun m ->
-                              m "Teams: menu card failed (HTTP %d) conv=%s"
-                                status conversation_id);
-                        Lwt.return_unit)
                 | Reply text -> send_text text
                 | Help ->
                     let text =
                       Slash_commands.format_help ~connector:Format_adapter.Teams
                     in
                     send_text text
+                | Menu page ->
+                    let card_json =
+                      Slash_commands_manifest.menu_adaptive_card_json ~page ()
+                    in
+                    send_adaptive_card ~config
+                      ~service_url:effective_service_url ~conversation_id
+                      ~reply_to_id:activity_id ~card:card_json ()
                 | Reset ->
                     let* active_bg_tasks = Session.reset session_manager ~key in
                     send_text (Slash_commands.reset_message ~active_bg_tasks ())

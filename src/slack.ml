@@ -344,15 +344,7 @@ let handle_event ~(config : Runtime_config.slack_config)
                     ~text:reply_text
                 in
                 Lwt.return "ok"
-            | Menu ->
-                let text =
-                  Slash_commands.format_menu ~connector:Format_adapter.Slack
-                in
-                let* () =
-                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
-                in
-                Lwt.return "ok"
-            | Help ->
+            | Help | Menu _ ->
                 let text =
                   Slash_commands.format_help ~connector:Format_adapter.Slack
                 in

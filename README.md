@@ -159,6 +159,7 @@ clawq status           Show runtime configuration and daemon status
 clawq delegate         Queue a high-level background coding handoff
 clawq transcribe       Transcribe an audio file using the configured STT provider
 clawq tunnel           Manage a public tunnel to the local gateway (start/stop/status/apply/restart)
+clawq manifest         Generate connector command manifests (Teams, Telegram)
 clawq workspace        Print the current workspace directory
 ```
 

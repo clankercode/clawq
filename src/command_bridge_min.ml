@@ -434,6 +434,32 @@ let cmd_skills args =
   | [ "init" ] -> Skills.create_example ()
   | _ -> "Usage: clawq-min skills <list|path|init>"
 
+let cmd_manifest = function
+  | [ "teams" ] ->
+      print_string (Slash_commands_manifest.teams_json ());
+      ""
+  | [ "teams"; "--output"; path ] ->
+      let oc = open_out path in
+      output_string oc (Slash_commands_manifest.teams_json ());
+      close_out oc;
+      Printf.sprintf "Wrote Teams manifest to %s" path
+  | [ "teams"; "-n"; n ] -> (
+      match int_of_string_opt n with
+      | Some n when n > 0 ->
+          print_string (Slash_commands_manifest.teams_json ~n ());
+          ""
+      | _ -> "Error: -n requires a positive integer")
+  | [ "telegram" ] ->
+      print_string (Slash_commands_manifest.telegram_json ());
+      ""
+  | _ ->
+      "Usage: clawq manifest <platform>\n\n\
+       Platforms:\n\
+      \  teams    [--output FILE] [-n COUNT]  Generate Teams bot manifest \
+       commands\n\
+      \  telegram                             Generate Telegram setMyCommands \
+       payload"
+
 let unsupported cmd =
   Printf.sprintf
     "%s is disabled in minimal build. Use full 'clawq' binary for \
@@ -472,28 +498,8 @@ let handle args =
   | "setup" :: _ -> unsupported "setup"
   | "watcher" :: _ -> unsupported "watcher"
   | "ec-run" :: _ -> unsupported "ec-run"
+  | "manifest" :: rest -> cmd_manifest rest
   | "hardware" :: _ -> "hardware: deferred to Phase 2"
-  | "manifest" :: [ "teams" ] -> Slash_commands.manifest_teams ()
-  | "manifest" :: [ "telegram" ] -> Slash_commands.manifest_telegram ()
-  | "manifest" :: [ platform; "--output"; path ]
-    when platform = "teams" || platform = "telegram" ->
-      let content =
-        if platform = "teams" then Slash_commands.manifest_teams ()
-        else Slash_commands.manifest_telegram ()
-      in
-      let oc = open_out path in
-      output_string oc content;
-      output_char oc '\n';
-      close_out oc;
-      Printf.sprintf "%s manifest written to %s"
-        (String.capitalize_ascii platform)
-        path
-  | "manifest" :: _ ->
-      "Usage: clawq-min manifest <platform> [--output FILE]\n\n\
-       Platforms:\n\
-      \  teams      Generate Teams app manifest command list (top 10 by \
-       priority)\n\
-      \  telegram   Generate Telegram setMyCommands payload (all commands)"
   | "benchmark" :: rest -> Benchmark.run rest
   | "migrate" :: rest -> Migrate.cmd_migrate rest
   | "completions" :: rest -> Completions.cmd_completions rest

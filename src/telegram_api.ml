@@ -1281,7 +1281,7 @@ let cleanup_stale_routing () =
 
 let set_my_commands ~bot_token =
   let open Lwt.Syntax in
-  let sorted = Slash_commands.commands_by_priority in
+  let sorted = Slash_commands.sorted_by_priority () in
   let cmds =
     `List
       (List.map
@@ -1300,8 +1300,7 @@ let set_my_commands ~bot_token =
   in
   if status >= 200 && status < 300 then
     Logs.info (fun m ->
-        m "Telegram: registered %d slash commands (priority-sorted)"
-          (List.length sorted))
+        m "Telegram: registered %d slash commands" (List.length sorted))
   else
     Logs.warn (fun m ->
         m "Telegram: setMyCommands failed (HTTP %d) for token=%s: %s" status

@@ -121,6 +121,9 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 | `watcher disable` | Disable the error correction watcher |
 | `watcher reports` | List recent EC reports |
 | `watcher report ID` | Show a specific EC report with full diagnosis, voting, and plan details |
+| `manifest` | Generate connector command manifests |
+| `manifest teams [--output FILE] [-n COUNT]` | Generate Teams bot manifest commands JSON (top 10 by default) |
+| `manifest telegram` | Generate Telegram `setMyCommands` JSON payload |
 | `workspace` | Print the current workspace directory |
 
 ## Slash Commands
@@ -154,6 +157,7 @@ Available in chat-integrated channels that support slash commands.
 - `/config [show|get|set|keys|wizard]` — view or modify configuration from chat; secrets cannot be set via chat (use terminal instead)
 - `/tools` — list all available tools with parameters and risk levels
 - `/tasks` — show the agent's current task tree for this session
+- `/menu [page]` — show a paginated command menu; on Teams this sends an Adaptive Card with clickable command buttons, on other channels it falls back to the help list
 - `/update` — pull, rebuild, and gracefully restart clawq
 
 ## `!` Messages

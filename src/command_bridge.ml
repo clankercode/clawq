@@ -1414,32 +1414,31 @@ let cmd_ec_run args =
   end
   else "Usage: clawq ec-run --daemon-mode\n(internal command)\n"
 
-let cmd_manifest args =
-  match args with
-  | [ "teams" ] -> Slash_commands.manifest_teams ()
-  | [ "telegram" ] -> Slash_commands.manifest_telegram ()
+let cmd_manifest = function
+  | [ "teams" ] ->
+      print_string (Slash_commands_manifest.teams_json ());
+      ""
   | [ "teams"; "--output"; path ] ->
-      let content = Slash_commands.manifest_teams () in
       let oc = open_out path in
-      output_string oc content;
-      output_char oc '\n';
+      output_string oc (Slash_commands_manifest.teams_json ());
       close_out oc;
-      Printf.sprintf "Teams manifest written to %s" path
-  | [ "telegram"; "--output"; path ] ->
-      let content = Slash_commands.manifest_telegram () in
-      let oc = open_out path in
-      output_string oc content;
-      output_char oc '\n';
-      close_out oc;
-      Printf.sprintf "Telegram manifest written to %s" path
+      Printf.sprintf "Wrote Teams manifest to %s" path
+  | [ "teams"; "-n"; n ] -> (
+      match int_of_string_opt n with
+      | Some n when n > 0 ->
+          print_string (Slash_commands_manifest.teams_json ~n ());
+          ""
+      | _ -> "Error: -n requires a positive integer")
+  | [ "telegram" ] ->
+      print_string (Slash_commands_manifest.telegram_json ());
+      ""
   | _ ->
-      "Usage: clawq manifest <platform> [--output FILE]\n\n\
+      "Usage: clawq manifest <platform>\n\n\
        Platforms:\n\
-      \  teams      Generate Teams app manifest command list (top 10 by \
-       priority)\n\
-      \  telegram   Generate Telegram setMyCommands payload (all commands)\n\n\
-       Options:\n\
-      \  --output FILE   Write output to file instead of stdout"
+      \  teams    [--output FILE] [-n COUNT]  Generate Teams bot manifest \
+       commands\n\
+      \  telegram                             Generate Telegram setMyCommands \
+       payload"
 
 let handle args =
   match args with
@@ -1472,7 +1471,6 @@ let handle args =
   | "runtime" :: rest -> cmd_runtime rest
   | "tunnel" :: rest -> cmd_tunnel rest
   | "update" :: rest -> cmd_update rest
-  | "manifest" :: rest -> cmd_manifest rest
   | "hardware" :: _ -> "hardware: deferred to Phase 2"
   | "migrate" :: rest -> Migrate.cmd_migrate rest
   | "service" :: rest -> cmd_service rest
@@ -1486,4 +1484,5 @@ let handle args =
   | "completions" :: rest -> Completions.cmd_completions rest
   | "watcher" :: rest -> cmd_watcher rest
   | "ec-run" :: rest -> cmd_ec_run rest
+  | "manifest" :: rest -> cmd_manifest rest
   | _ -> Clawq_core.dispatch args
