@@ -16,6 +16,14 @@ function normalizeArray(items: unknown[]): ChatLog {
     return { messages: [] };
   }
 
+  // Detect Claude Code session JSONL: entries have a top-level "type" field
+  // like "user", "assistant", "file-history-snapshot", "progress", etc.
+  // Actual messages are nested under .message with .message.role
+  if (isClaudeCodeSessionJsonl(items)) {
+    const messages = extractClaudeCodeSessionMessages(items);
+    return { messages: normalizeClaudeCodeMessages(messages) };
+  }
+
   const first = items[0] as Record<string, unknown>;
   if (!first || typeof first !== "object" || !("role" in first)) {
     throw new Error("Array items must have a 'role' field.");
@@ -28,6 +36,33 @@ function normalizeArray(items: unknown[]): ChatLog {
 
   // Plain OpenAI-style messages (content is string)
   return { messages: items.map((item, i) => normalizeSimpleMessage(item as Record<string, unknown>, i)) };
+}
+
+/** Claude Code session JSONL: each line has a top-level "type" field ("user", "assistant",
+ *  "file-history-snapshot", "progress", "system", "queue-operation", "last-prompt", etc.)
+ *  and message entries nest the actual message under .message */
+function isClaudeCodeSessionJsonl(items: unknown[]): boolean {
+  const first = items[0] as Record<string, unknown>;
+  if (!first || typeof first !== "object" || !("type" in first)) return false;
+  const t = first.type;
+  // Check if the top-level type matches known Claude Code session entry types
+  const sessionTypes = new Set([
+    "user", "assistant", "file-history-snapshot", "progress",
+    "system", "queue-operation", "last-prompt",
+  ]);
+  return typeof t === "string" && sessionTypes.has(t);
+}
+
+/** Extract the inner .message objects from Claude Code session JSONL entries */
+function extractClaudeCodeSessionMessages(items: unknown[]): unknown[] {
+  const messages: unknown[] = [];
+  for (const item of items) {
+    const entry = item as Record<string, unknown>;
+    if ((entry.type === "user" || entry.type === "assistant") && entry.message && typeof entry.message === "object") {
+      messages.push(entry.message);
+    }
+  }
+  return messages;
 }
 
 function isClaudeCodeFormat(items: unknown[]): boolean {
