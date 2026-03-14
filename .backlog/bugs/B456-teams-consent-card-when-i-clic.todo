@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B456
+priority: high
+status: pending
+tags: []
+title: 'teams consent card: when i click allow, teams shows an error msg: ''This card action is not supported by clawq.'''
+---
+
+teams consent card: when i click allow, teams shows an error msg: 'This card action is not supported by clawq.'
