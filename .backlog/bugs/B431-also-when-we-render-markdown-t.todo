@@ -1,14 +1,15 @@
 ---
-claimed_at: "2026-03-14T03:38:53Z"
+claimed_at: "2026-03-14T03:47:38Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-14T03:47:38Z"
 complexity: medium
 depends_on: []
+duration_minutes: 0.013399335033333333
 estimate_hours: 1
 id: B431
 priority: high
-started_at: "2026-03-14T03:38:53Z"
-status: in_progress
+started_at: "2026-03-14T03:47:38Z"
+status: done
 tags: []
 title: Also, when we render markdown tables as for `/help` in teams, the '|' character is sometimes in descriptions and interferes with the markdown table rendering
 ---

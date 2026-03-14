@@ -92,3 +92,17 @@ let blockquote connector text =
   match connector with
   | Telegram_mdv2 | Telegram_html | Discord | Slack | Teams -> "> " ^ text
   | Telegram_markdown | Plain -> text
+
+(** Escape a string for use as a Markdown table cell value. Replaces [|] with
+    [\|] for connectors that render Markdown tables, so that pipe characters in
+    cell content do not break table column boundaries. *)
+let escape_table_cell connector text =
+  match connector with
+  | Discord | Slack | Telegram_markdown | Telegram_mdv2 ->
+      let buf = Buffer.create (String.length text + 4) in
+      String.iter
+        (fun c ->
+          if c = '|' then Buffer.add_string buf "\\|" else Buffer.add_char buf c)
+        text;
+      Buffer.contents buf
+  | Telegram_html | Plain -> text

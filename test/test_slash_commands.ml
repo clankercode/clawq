@@ -205,7 +205,7 @@ let test_thinking_too_many_args () =
   match Slash_commands.handle "/thinking low extra" with
   | Slash_commands.Reply text ->
       Alcotest.(check string)
-        "usage" "Usage: /thinking [low|medium|high|off|xhigh|max]" text
+        "usage" "Usage: /thinking [low/medium/high/off/xhigh/max]" text
   | other ->
       Alcotest.fail
         (Printf.sprintf "expected Reply, got %s" (result_to_string other))
@@ -225,7 +225,7 @@ let test_heartbeat_toggle () =
 
 let test_heartbeat_invalid_args () =
   Alcotest.check result_testable "heartbeat invalid args"
-    (Slash_commands.Reply "Usage: /heartbeat [on|off|status]")
+    (Slash_commands.Reply "Usage: /heartbeat [on/off/status]")
     (Slash_commands.handle "/heartbeat maybe")
 
 let test_regular_message () =

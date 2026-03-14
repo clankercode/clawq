@@ -60,7 +60,7 @@ let parse_thinking_level value =
 
 let thinking_usage () =
   Printf.sprintf "Usage: /thinking [%s]"
-    (String.concat "|" allowed_thinking_levels)
+    (String.concat "/" allowed_thinking_levels)
 
 let invalid_thinking_level_message value =
   Printf.sprintf "Invalid thinking level '%s'. Use one of: %s" value
@@ -98,7 +98,7 @@ let commands =
     };
     {
       name = "config";
-      description = "View or modify config: /config <show|get|set|keys>";
+      description = "View or modify config: /config [show/get/set/keys]";
     };
     {
       name = "heartbeat";
@@ -113,15 +113,15 @@ let commands =
     { name = "tasks"; description = "Show the agent's current task tree" };
     {
       name = "model";
-      description = "Manage model: /model [set|fav|unfav|list|usage] [args]";
+      description = "Manage model: /model [set/fav/unfav/list/usage] [args]";
     };
     {
       name = "costs";
-      description = "Show cost breakdowns: /costs [session|model|provider]";
+      description = "Show cost breakdowns: /costs [session/model/provider]";
     };
     {
       name = "usage";
-      description = "Show token usage: /usage [session|model|provider]";
+      description = "Show token usage: /usage [session/model/provider]";
     };
   ]
 
@@ -179,7 +179,7 @@ let format_help ~connector =
     ~default:help_text
 
 let costs_usage =
-  "Usage: /costs [session [KEY]|model|provider]\n\
+  "Usage: /costs [session [KEY]/model/provider]\n\
   \  /costs                 - Cost summary by time period\n\
   \  /costs session         - Cost breakdown across sessions\n\
   \  /costs session <key>   - Cost breakdown for one session\n\
@@ -187,7 +187,7 @@ let costs_usage =
   \  /costs provider        - Cost breakdown by provider"
 
 let usage_usage =
-  "Usage: /usage [session [KEY]|model|provider]\n\
+  "Usage: /usage [session [KEY]/model/provider]\n\
   \  /usage                 - Usage summary by time period\n\
   \  /usage session         - Usage breakdown across sessions\n\
   \  /usage session <key>   - Usage breakdown for one session\n\
@@ -245,7 +245,7 @@ let handle text =
             | [] | [ "status" ] -> Heartbeat HeartbeatStatus
             | [ "on" ] -> Heartbeat (SetHeartbeat true)
             | [ "off" ] -> Heartbeat (SetHeartbeat false)
-            | _ -> Reply "Usage: /heartbeat [on|off|status]")
+            | _ -> Reply "Usage: /heartbeat [on/off/status]")
         | "delegate" -> (
             match args with
             | [] -> Reply "Usage: /delegate <prompt>"
@@ -386,7 +386,7 @@ let handle text =
                 Model (ModelSet (String.concat " " args))
             | _ ->
                 Reply
-                  "Usage: /model [set|set-default|fav|unfav|list|usage] [args]\n\
+                  "Usage: /model [set/set-default/fav/unfav/list/usage] [args]\n\
                   \  /model                    — Show current model and \
                    favorites\n\
                   \  /model set <name>         — Set model for this session\n\
