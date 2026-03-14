@@ -448,3 +448,4 @@ bugs:
     - file: B449-teams-should-support-file-uplo.todo
     - file: B450-output-of-tasks-can-be-to-much.todo
     - file: B451-cache-for-codex-gpt-5-4-maybe.todo
+    - file: B452-teams-failed-to-send-debug-dum.todo

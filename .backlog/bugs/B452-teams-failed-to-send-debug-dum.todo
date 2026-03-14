@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B452
+priority: high
+status: pending
+tags: []
+title: 'teams failed to send debug dump: Upload failed (HTTP 404): Dump length: 227899 bytes. (in response to /debug_dump_chat)'
+---
+
+teams failed to send debug dump: Upload failed (HTTP 404): Dump length: 227899 bytes. (in response to /debug_dump_chat)
