@@ -59,7 +59,7 @@ let parse_cohere_response body model =
         let u = json |> member "usage" in
         let pt = u |> member "tokens" |> member "input_tokens" |> to_int in
         let ct = u |> member "tokens" |> member "output_tokens" |> to_int in
-        Some (pt, ct)
+        Some (pt, ct, 0)
       with _ -> None
     in
     let message = try json |> member "message" with _ -> `Null in
@@ -228,7 +228,7 @@ let complete_streaming ~(config : Runtime_config.t)
                  in
                  let pt = u |> member "input_tokens" |> to_int in
                  let ct = u |> member "output_tokens" |> to_int in
-                 usage_acc := Some (pt, ct)
+                 usage_acc := Some (pt, ct, 0)
                with _ -> ());
               on_chunk Provider.Done
           | _ -> Lwt.return_unit

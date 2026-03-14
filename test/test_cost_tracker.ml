@@ -53,7 +53,7 @@ let test_lookup_pricing_record () =
 let test_cache_cost_with_hit () =
   let cost =
     Cost_tracker.calculate_cost_with_cache ~model:"gpt-5.4" ~prompt_tokens:5000
-      ~completion_tokens:1000 ~added_prompt_tokens:1000 ~cache_hit:true
+      ~completion_tokens:1000 ~added_prompt_tokens:1000 ~cache_hit:true ()
   in
   (* fresh: 1000 * 2.50/1M = 0.0025, cached: 4000 * 1.25/1M = 0.005,
      output: 1000 * 15.0/1M = 0.015 => total = 0.0225 *)
@@ -68,7 +68,7 @@ let test_cache_cost_no_cache_rate () =
   let cost_cache =
     Cost_tracker.calculate_cost_with_cache ~model:"gpt-4-turbo"
       ~prompt_tokens:5000 ~completion_tokens:1000 ~added_prompt_tokens:1000
-      ~cache_hit:true
+      ~cache_hit:true ()
   in
   let cost_standard =
     Cost_tracker.calculate_cost ~model:"gpt-4-turbo" ~prompt_tokens:5000
@@ -76,6 +76,24 @@ let test_cache_cost_no_cache_rate () =
   in
   Alcotest.(check (float 0.0001))
     "no cache rate = standard" cost_standard cost_cache
+
+let test_cache_cost_with_api_cached_tokens () =
+  let cost_api =
+    Cost_tracker.calculate_cost_with_cache ~model:"gpt-5.4" ~prompt_tokens:5000
+      ~completion_tokens:1000 ~added_prompt_tokens:1000 ~cache_hit:true
+      ~api_cached_tokens:3500 ()
+  in
+  (* fresh: (5000-3500)=1500 * 2.50/1M = 0.00375, cached: 3500 * 1.25/1M = 0.004375,
+     output: 1000 * 15.0/1M = 0.015 => total = 0.023125 *)
+  Alcotest.(check (float 0.0001)) "api cached cost" 0.023125 cost_api;
+  let cost_heuristic =
+    Cost_tracker.calculate_cost_with_cache ~model:"gpt-5.4" ~prompt_tokens:5000
+      ~completion_tokens:1000 ~added_prompt_tokens:1000 ~cache_hit:true ()
+  in
+  (* Heuristic uses added_prompt_tokens: fresh=1000, cached=4000 *)
+  Alcotest.(check bool)
+    "api vs heuristic differ" true
+    (Float.abs (cost_api -. cost_heuristic) > 0.0001)
 
 let suite =
   [
@@ -90,4 +108,6 @@ let suite =
     Alcotest.test_case "cache cost with hit" `Quick test_cache_cost_with_hit;
     Alcotest.test_case "cache cost no cache rate" `Quick
       test_cache_cost_no_cache_rate;
+    Alcotest.test_case "cache cost with api cached tokens" `Quick
+      test_cache_cost_with_api_cached_tokens;
   ]

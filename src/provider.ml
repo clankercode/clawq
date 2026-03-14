@@ -18,13 +18,13 @@ type completion_response =
   | Text of {
       content : string;
       model : string;
-      usage : (int * int) option;
+      usage : (int * int * int) option;
       provider_response_items_json : string option;
     }
   | ToolCalls of {
       calls : tool_call list;
       model : string;
-      usage : (int * int) option;
+      usage : (int * int * int) option;
       provider_response_items_json : string option;
     }
 
@@ -793,7 +793,14 @@ let complete ~(config : Runtime_config.t) ~messages ?tools ?session_key
                 let u = json |> member "usage" in
                 let pt = u |> member "prompt_tokens" |> to_int in
                 let ct = u |> member "completion_tokens" |> to_int in
-                Some (pt, ct)
+                let cached =
+                  try
+                    u
+                    |> member "prompt_tokens_details"
+                    |> member "cached_tokens" |> to_int
+                  with _ -> 0
+                in
+                Some (pt, ct, cached)
               with _ -> None
             in
             if tool_calls_json <> [] then
@@ -901,7 +908,14 @@ let process_sse_stream ?(thinking_style = NoThinking) stream ~on_chunk =
            let u = json |> member "usage" in
            let pt = u |> member "prompt_tokens" |> to_int in
            let ct = u |> member "completion_tokens" |> to_int in
-           usage_acc := Some (pt, ct)
+           let cached =
+             try
+               u
+               |> member "prompt_tokens_details"
+               |> member "cached_tokens" |> to_int
+             with _ -> 0
+           in
+           usage_acc := Some (pt, ct, cached)
          with _ -> ());
         let delta =
           try json |> member "choices" |> index 0 |> member "delta"

@@ -431,7 +431,14 @@ let usage_of_json json =
   try
     let pt = json |> member "input_tokens" |> to_int in
     let ct = json |> member "output_tokens" |> to_int in
-    Some (pt, ct)
+    let cached =
+      try
+        json
+        |> member "input_tokens_details"
+        |> member "cached_tokens" |> to_int
+      with _ -> 0
+    in
+    Some (pt, ct, cached)
   with _ -> None
 
 let extract_final_output response_json =

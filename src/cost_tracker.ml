@@ -265,15 +265,19 @@ let calculate_cost ~model ~prompt_tokens ~completion_tokens =
       input_cost +. output_cost
 
 let calculate_cost_with_cache ~model ~prompt_tokens ~completion_tokens
-    ~added_prompt_tokens ~cache_hit =
+    ~added_prompt_tokens ~cache_hit ?(api_cached_tokens = 0) () =
   match lookup_pricing model with
   | None -> 0.0
   | Some p -> (
       match (cache_hit, p.cache_read_per_m) with
       | true, Some cache_per_m ->
-          let cached_tokens = max 0 (prompt_tokens - added_prompt_tokens) in
+          let cached_tokens =
+            if api_cached_tokens > 0 then api_cached_tokens
+            else max 0 (prompt_tokens - added_prompt_tokens)
+          in
+          let fresh_tokens = max 0 (prompt_tokens - cached_tokens) in
           let fresh_cost =
-            float_of_int added_prompt_tokens *. p.input_per_m /. 1_000_000.0
+            float_of_int fresh_tokens *. p.input_per_m /. 1_000_000.0
           in
           let cached_cost =
             float_of_int cached_tokens *. cache_per_m /. 1_000_000.0

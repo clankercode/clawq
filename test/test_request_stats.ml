@@ -173,7 +173,7 @@ let test_cache_pricing_calculation () =
   let cost =
     Cost_tracker.calculate_cost_with_cache ~model:"claude-opus-4-6"
       ~prompt_tokens:10000 ~completion_tokens:1000 ~added_prompt_tokens:2000
-      ~cache_hit:true
+      ~cache_hit:true ()
   in
   (* added: 2000 * 5.0/1M = 0.01, cached: 8000 * 0.50/1M = 0.004,
      output: 1000 * 25.0/1M = 0.025 => total = 0.039 *)
@@ -183,7 +183,7 @@ let test_cache_pricing_without_cache () =
   let cost_no_cache =
     Cost_tracker.calculate_cost_with_cache ~model:"claude-opus-4-6"
       ~prompt_tokens:10000 ~completion_tokens:1000 ~added_prompt_tokens:2000
-      ~cache_hit:false
+      ~cache_hit:false ()
   in
   let cost_standard =
     Cost_tracker.calculate_cost ~model:"claude-opus-4-6" ~prompt_tokens:10000

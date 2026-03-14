@@ -131,7 +131,10 @@ let parse_anthropic_response body model =
         let u = json |> member "usage" in
         let input_tokens = u |> member "input_tokens" |> to_int in
         let output_tokens = u |> member "output_tokens" |> to_int in
-        Some (input_tokens, output_tokens)
+        let cached =
+          try u |> member "cache_read_input_tokens" |> to_int with _ -> 0
+        in
+        Some (input_tokens, output_tokens, cached)
       with _ -> None
     in
     let content_list = try json |> member "content" |> to_list with _ -> [] in
@@ -336,7 +339,11 @@ let complete_streaming ~(config : Runtime_config.t)
                  let ot =
                    try u |> member "output_tokens" |> to_int with _ -> 0
                  in
-                 usage_acc := Some (it, ot)
+                 let cached =
+                   try u |> member "cache_read_input_tokens" |> to_int
+                   with _ -> 0
+                 in
+                 usage_acc := Some (it, ot, cached)
                with _ -> ());
               Lwt.return_unit
           | "content_block_start" -> (
@@ -422,8 +429,8 @@ let complete_streaming ~(config : Runtime_config.t)
                    let ot = u |> member "output_tokens" |> to_int in
                    usage_acc :=
                      match !usage_acc with
-                     | Some (it, _) -> Some (it, ot)
-                     | None -> Some (0, ot)
+                     | Some (it, _, cached) -> Some (it, ot, cached)
+                     | None -> Some (0, ot, 0)
                  with _ -> ()
                with _ -> ());
               Lwt.return_unit

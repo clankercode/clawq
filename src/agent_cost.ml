@@ -37,7 +37,7 @@ let track_cost ~config ~(history : Provider.message list)
     | Provider.ToolCalls { usage; model; _ } -> (usage, model)
   in
   match (usage, session_key) with
-  | Some (pt, ct), Some sid -> (
+  | Some (pt, ct, api_cached), Some sid -> (
       Cost_tracker.record_turn ~model ~prompt_tokens:pt ~completion_tokens:ct
         ~session_id:sid;
       Model_preferences.increment_usage model |> ignore;
@@ -58,26 +58,28 @@ let track_cost ~config ~(history : Provider.message list)
             | None -> pt
           in
           let cache_hit =
-            match prev with
-            | Some (_, _, ts) when ts <> "" -> (
-                try
-                  let stmt =
-                    Sqlite3.prepare db
-                      "SELECT (strftime('%s', 'now') - strftime('%s', ?1)) < \
-                       300"
-                  in
-                  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT ts));
-                  Fun.protect
-                    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
-                    (fun () ->
-                      match Sqlite3.step stmt with
-                      | Sqlite3.Rc.ROW -> (
-                          match Sqlite3.column stmt 0 with
-                          | Sqlite3.Data.INT 1L -> true
-                          | _ -> false)
-                      | _ -> false)
-                with _ -> false)
-            | _ -> false
+            if api_cached > 0 then true
+            else
+              match prev with
+              | Some (_, _, ts) when ts <> "" -> (
+                  try
+                    let stmt =
+                      Sqlite3.prepare db
+                        "SELECT (strftime('%s', 'now') - strftime('%s', ?1)) < \
+                         300"
+                    in
+                    ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT ts));
+                    Fun.protect
+                      ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+                      (fun () ->
+                        match Sqlite3.step stmt with
+                        | Sqlite3.Rc.ROW -> (
+                            match Sqlite3.column stmt 0 with
+                            | Sqlite3.Data.INT 1L -> true
+                            | _ -> false)
+                        | _ -> false)
+                  with _ -> false)
+              | _ -> false
           in
           let cost_usd_opt =
             match Cost_tracker.lookup_pricing model with
@@ -86,7 +88,8 @@ let track_cost ~config ~(history : Provider.message list)
                 Some
                   (Cost_tracker.calculate_cost_with_cache ~model
                      ~prompt_tokens:pt ~completion_tokens:ct
-                     ~added_prompt_tokens:added ~cache_hit)
+                     ~added_prompt_tokens:added ~cache_hit
+                     ~api_cached_tokens:api_cached ())
           in
           Request_stats.record ~db ~session_key:sid ~provider:pname ~model
             ~prompt_tokens:pt ~completion_tokens:ct ?cost_usd:cost_usd_opt
