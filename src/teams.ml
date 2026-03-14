@@ -275,6 +275,7 @@ let build_reply_body ~alert ~text ~mention ~mention_mode =
             in
             (full_text, [ entity ]))
   in
+  let text_with_mention = Markdown_util.normalize_tables text_with_mention in
   let base =
     [
       ("type", `String "message");

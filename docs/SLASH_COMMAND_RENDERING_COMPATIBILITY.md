@@ -79,5 +79,6 @@ Source: https://support.discord.com/hc/en-us/articles/210298617-Markdown-Text-10
 - Connectors select a rendering target instead of formatting replies ad hoc.
 - Telegram uses HTML-specific renderers (`<pre>` for tables, `<b>` for headings).
 - Teams uses native markdown tables (`Table_format.render_markdown`) for tabular output like `/costs`, `/usage`, `/model usage`, `/status`, `/tools`, and `/help`.
+- Teams applies `Markdown_util.normalize_tables` to all outbound messages (in `build_reply_body`). This post-processes free-form LLM text to ensure blank lines around tables, insert missing separator rows, and add trailing pipes — fixing common rendering issues with Teams' strict markdown parser. The transform is idempotent, so already well-formed tables pass through unchanged.
 - Discord and Slack use `Format_adapter.code_block` (triple-backtick fences) for tabular output.
 - Web/Plain receives raw text (no code block wrapping).

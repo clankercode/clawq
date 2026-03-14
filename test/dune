@@ -115,6 +115,7 @@
   test_log_rotation
   test_worktree_merge
   test_table_format
+  test_markdown_util
   test_error_watcher)
  (libraries
   clawq_extracted

@@ -276,6 +276,36 @@ let test_build_reply_body_includes_text_format () =
     "textFormat is markdown" "markdown"
     (json |> member "textFormat" |> to_string)
 
+let test_build_reply_body_normalizes_tables () =
+  let llm_text =
+    "Here are results\n| Name | Score |\n| Alice | 95 |\n| Bob | 87 |\nDone."
+  in
+  let body =
+    Teams.build_reply_body ~alert:false ~text:llm_text ~mention:None
+      ~mention_mode:"entity"
+  in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  let text = json |> member "text" |> to_string in
+  Alcotest.(check bool)
+    "separator row inserted" true
+    (try
+       ignore (Str.search_forward (Str.regexp_string "| --- | --- |") text 0);
+       true
+     with Not_found -> false);
+  Alcotest.(check bool)
+    "blank line before table" true
+    (try
+       ignore (Str.search_forward (Str.regexp_string "results\n\n|") text 0);
+       true
+     with Not_found -> false);
+  Alcotest.(check bool)
+    "blank line after table" true
+    (try
+       ignore (Str.search_forward (Str.regexp_string "|\n\nDone") text 0);
+       true
+     with Not_found -> false)
+
 let test_not_slash_after_mention_strip () =
   let stripped = Teams.strip_at_mentions "<at>Bot</at> hello world" in
   match Slash_commands.handle stripped with
@@ -327,4 +357,6 @@ let suite =
       test_build_reply_body_includes_text_format;
     Alcotest.test_case "normal message not a slash command" `Quick
       test_not_slash_after_mention_strip;
+    Alcotest.test_case "build_reply_body normalizes tables" `Quick
+      test_build_reply_body_normalizes_tables;
   ]
