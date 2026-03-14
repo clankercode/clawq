@@ -125,10 +125,13 @@ let commands =
   ]
 
 let help_text =
-  let lines =
-    List.map (fun c -> Printf.sprintf "/%s - %s" c.name c.description) commands
+  let rows =
+    List.map
+      (fun c -> Printf.sprintf "| /%s | %s |" c.name c.description)
+      commands
   in
-  "Available commands:\n" ^ String.concat "\n" lines
+  "Available commands:\n\n| Command | Description |\n|---------|-------------|\n"
+  ^ String.concat "\n" rows
   ^ "\n\n\
      Prefix a message with ! to interrupt the current turn in this session and \
      send the rest as a normal message."
