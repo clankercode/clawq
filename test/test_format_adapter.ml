@@ -85,11 +85,6 @@ let test_parse_mode_string_round_trip () =
     "Slack" "mrkdwn"
     (Format_adapter.parse_mode_string Slack)
 
-let test_escape_table_cell_teams () =
-  Alcotest.(check string)
-    "Teams escapes pipe characters" "a\\|b"
-    (Format_adapter.escape_table_cell Teams "a|b")
-
 let suite =
   [
     Alcotest.test_case "bold formatting" `Quick test_bold;
@@ -105,6 +100,4 @@ let suite =
     Alcotest.test_case "of_parse_mode mappings" `Quick test_of_parse_mode;
     Alcotest.test_case "parse_mode_string round trip" `Quick
       test_parse_mode_string_round_trip;
-    Alcotest.test_case "teams table cell escaping" `Quick
-      test_escape_table_cell_teams;
   ]

@@ -432,3 +432,4 @@ bugs:
     - file: B433-connectors-for-table-output-to.todo
     - file: B434-connectors-slash-cmds-status-s.todo
     - file: B435-costs-and-usage-both-send-plai.todo
+    - file: B436-deadlock-responding-to-github.todo
