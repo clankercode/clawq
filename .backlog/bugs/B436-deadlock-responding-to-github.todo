@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-14T05:29:36Z"
+claimed_by: cli-user
+completed_at: "2026-03-14T05:44:51Z"
 complexity: medium
 depends_on: []
+duration_minutes: 15.263608659583333
 estimate_hours: 1
 id: B436
 priority: high
-status: pending
+started_at: "2026-03-14T05:29:36Z"
+status: done
 tags: []
 title: Deadlock responding to github webhook
 ---

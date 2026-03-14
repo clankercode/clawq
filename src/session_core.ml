@@ -389,8 +389,7 @@ let enqueue_message_if_busy mgr ~key queued_message =
       else
         match Hashtbl.find_opt mgr.sessions key with
         | Some (_, mutex, interrupt)
-          when Lwt_mutex.is_locked mutex && queueable_channel_key key
-               && Hashtbl.mem mgr.channel_notifiers key ->
+          when Lwt_mutex.is_locked mutex && queueable_channel_key key ->
             let existing =
               match Hashtbl.find_opt mgr.queued_messages key with
               | Some msgs -> msgs

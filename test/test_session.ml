@@ -1142,6 +1142,31 @@ let test_enqueue_message_if_busy_marks_interrupt_and_preserves_message () =
            (fun msg -> msg.Session.message)
            (Session.take_next_queued_message mgr ~key:"telegram:1:u"))
 
+let test_enqueue_message_if_busy_queues_without_channel_notifier () =
+  let config = Runtime_config.default in
+  let mgr = Session.create ~config () in
+  let interrupt = ref None in
+  let mutex = Lwt_mutex.create () in
+  Hashtbl.replace mgr.sessions "github:owner/repo:pr:1"
+    (Agent.create ~config (), mutex, interrupt);
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () = Lwt_mutex.lock mutex in
+     let* queued =
+       Session.enqueue_message_if_busy mgr ~key:"github:owner/repo:pr:1"
+         (queued_message ~channel:"github" ~channel_id:"owner/repo:pr:1"
+            "task result injected")
+     in
+     Alcotest.(check bool) "message queued without notifier" true queued;
+     Alcotest.(check (option string))
+       "interrupt marked" (Some Agent.queued_message_interrupt_token) !interrupt;
+     Lwt.return_unit);
+  match Session.take_next_queued_message mgr ~key:"github:owner/repo:pr:1" with
+  | None -> Alcotest.fail "expected queued message"
+  | Some queued ->
+      Alcotest.(check string)
+        "queued content preserved" "task result injected" queued.Session.message
+
 let test_drain_queued_messages_sends_followup_response () =
   with_fake_chat_provider (fun config ->
       let db = Memory.init ~db_path:":memory:" () in
@@ -3716,6 +3741,8 @@ let suite =
     Alcotest.test_case
       "enqueue message if busy marks interrupt and preserves message" `Quick
       test_enqueue_message_if_busy_marks_interrupt_and_preserves_message;
+    Alcotest.test_case "enqueue message if busy queues without channel notifier"
+      `Quick test_enqueue_message_if_busy_queues_without_channel_notifier;
     Alcotest.test_case "drain queued messages sends followup response" `Quick
       test_drain_queued_messages_sends_followup_response;
     Alcotest.test_case "turn uses special command handler" `Quick
