@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-14T09:34:13Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B445
 priority: high
-status: pending
+started_at: "2026-03-14T09:34:13Z"
+status: in_progress
 tags: []
 title: failing to send message to teams with woken up thread
 ---
