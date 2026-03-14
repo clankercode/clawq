@@ -897,25 +897,44 @@ let cmd_tunnel args =
                   pid
             end)
     | [ "status" ] | [] -> (
-        match read_tunnel_state () with
-        | None ->
-            Printf.sprintf
-              "Tunnel provider: %s\n\
-              \  Status: stopped\n\
-              \  To start: clawq tunnel start"
-              provider_name
-        | Some (pid, url, start_ticks) ->
-            let running = tunnel_pid_matches ~pid ~start_ticks in
-            if running then
-              Printf.sprintf
-                "Tunnel provider: %s\n  Status: running (pid %d)\n  URL: %s"
-                provider_name pid url
-            else begin
-              remove_tunnel_state ();
-              Printf.sprintf
-                "Tunnel provider: %s\n  Status: stopped (stale state cleaned)"
-                provider_name
-            end)
+        let file_status =
+          match read_tunnel_state () with
+          | Some (pid, url, start_ticks) ->
+              let running = tunnel_pid_matches ~pid ~start_ticks in
+              if running then
+                Some
+                  (Printf.sprintf
+                     "Tunnel provider: %s\n\
+                     \  Status: running (pid %d)\n\
+                     \  URL: %s"
+                     provider_name pid url)
+              else begin
+                remove_tunnel_state ();
+                None
+              end
+          | None -> None
+        in
+        match file_status with
+        | Some s -> s
+        | None -> (
+            match read_daemon_tunnel_info () with
+            | Some (provider, Some url) ->
+                Printf.sprintf
+                  "Tunnel provider: %s\n\
+                  \  Status: running (daemon-managed)\n\
+                  \  URL: %s"
+                  provider url
+            | Some (provider, None) ->
+                Printf.sprintf
+                  "Tunnel provider: %s\n\
+                  \  Status: running (daemon-managed, URL pending)"
+                  provider
+            | None ->
+                Printf.sprintf
+                  "Tunnel provider: %s\n\
+                  \  Status: stopped\n\
+                  \  To start: clawq tunnel start"
+                  provider_name))
     | [ "apply" ] -> Lwt_main.run (!Tunnel_manager.daemon_apply_fn ())
     | [ "restart" ] -> Lwt_main.run (!Tunnel_manager.daemon_restart_fn ())
     | [ "daemon-status" ] -> !Tunnel_manager.daemon_status_fn ()

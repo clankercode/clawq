@@ -673,9 +673,11 @@ let run ~(config : Runtime_config.t) =
   in
   let tunnel_url_ref = ref None in
   let tunnel_manager = Tunnel_manager.create () in
+  let update_daemon_state_tunnel_ref = ref (fun () -> ()) in
   let tunnel_on_url url_opt =
     tunnel_url_ref := url_opt;
     Temp_downloads.public_base_url := url_opt;
+    !update_daemon_state_tunnel_ref ();
     match url_opt with
     | Some url -> (
         Logs.info (fun m -> m "Tunnel URL: %s" url);
@@ -772,6 +774,25 @@ let run ~(config : Runtime_config.t) =
     let tunnel_json = Some (Tunnel_manager.status_json tunnel_manager) in
     write_state ~pairing_code ~tunnel_json ~config ~components
   in
+  (update_daemon_state_tunnel_ref :=
+     fun () ->
+       let state_path = Filename.concat (Dot_dir.path ()) "daemon_state.json" in
+       try
+         let json = Yojson.Safe.from_file state_path in
+         let tunnel_json = Tunnel_manager.status_json tunnel_manager in
+         let updated =
+           match json with
+           | `Assoc fields ->
+               `Assoc
+                 (("tunnel", tunnel_json)
+                 :: List.filter (fun (k, _) -> k <> "tunnel") fields)
+           | other -> other
+         in
+         let oc = open_out state_path in
+         output_string oc (Yojson.Safe.pretty_to_string updated);
+         output_char oc '\n';
+         close_out oc
+       with _ -> ());
   Logs.info (fun m ->
       m "Web UI assets ready at %s (version=%s dev_mode=%b)" ui_server.ui_dir
         (Ui_server.version ui_server)

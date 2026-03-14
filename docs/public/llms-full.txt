@@ -108,7 +108,7 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 | `tunnel` | Manage the public tunnel (default: status) |
 | `tunnel start` | Start a tunnel to the local gateway (provider set in config: cloudflare, tailscale, ngrok, or custom) |
 | `tunnel stop` | Stop the tunnel |
-| `tunnel status` | Show tunnel status |
+| `tunnel status` | Show tunnel status (falls back to daemon state for daemon-managed tunnels) |
 | `tunnel apply` | Trigger live tunnel reconfiguration in running daemon (reads current config and reconciles tunnel state) |
 | `tunnel restart` | Force stop and restart tunnel with current config (unconditional, unlike apply which is idempotent) |
 | `tunnel daemon-status` | Show tunnel manager state from running daemon as JSON (state, provider, url, pid) |

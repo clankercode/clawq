@@ -1952,6 +1952,114 @@ let test_handle_tunnel_status () =
            true
          with Not_found -> false))
 
+let test_read_daemon_tunnel_info_active () =
+  with_temp_home (fun home ->
+      let clawq_dir = Filename.concat home ".clawq" in
+      Unix.mkdir clawq_dir 0o755;
+      let state_path = Filename.concat clawq_dir "daemon_state.json" in
+      let oc = open_out state_path in
+      output_string oc
+        (Yojson.Safe.to_string
+           (`Assoc
+              [
+                ("pid", `Int (Unix.getpid ()));
+                ( "tunnel",
+                  `Assoc
+                    [
+                      ("state", `String "active");
+                      ("provider", `String "cloudflare");
+                      ("url", `String "https://example.trycloudflare.com");
+                      ("pid", `Null);
+                    ] );
+              ]));
+      close_out oc;
+      let result = Command_bridge_helpers.read_daemon_tunnel_info () in
+      match result with
+      | Some (provider, Some url) ->
+          Alcotest.(check string) "provider" "cloudflare" provider;
+          Alcotest.(check string) "url" "https://example.trycloudflare.com" url
+      | Some (_, None) -> Alcotest.fail "expected URL but got None"
+      | None -> Alcotest.fail "expected daemon tunnel info but got None")
+
+let test_read_daemon_tunnel_info_idle () =
+  with_temp_home (fun home ->
+      let clawq_dir = Filename.concat home ".clawq" in
+      Unix.mkdir clawq_dir 0o755;
+      let state_path = Filename.concat clawq_dir "daemon_state.json" in
+      let oc = open_out state_path in
+      output_string oc
+        (Yojson.Safe.to_string
+           (`Assoc
+              [
+                ("pid", `Int (Unix.getpid ()));
+                ( "tunnel",
+                  `Assoc
+                    [
+                      ("state", `String "idle");
+                      ("provider", `Null);
+                      ("url", `Null);
+                      ("pid", `Null);
+                    ] );
+              ]));
+      close_out oc;
+      let result = Command_bridge_helpers.read_daemon_tunnel_info () in
+      Alcotest.(check bool) "idle returns None" true (result = None))
+
+let test_read_daemon_tunnel_info_stale_pid () =
+  with_temp_home (fun home ->
+      let clawq_dir = Filename.concat home ".clawq" in
+      Unix.mkdir clawq_dir 0o755;
+      let state_path = Filename.concat clawq_dir "daemon_state.json" in
+      let oc = open_out state_path in
+      output_string oc
+        (Yojson.Safe.to_string
+           (`Assoc
+              [
+                ("pid", `Int 999999);
+                ( "tunnel",
+                  `Assoc
+                    [
+                      ("state", `String "active");
+                      ("provider", `String "cloudflare");
+                      ("url", `String "https://example.com");
+                      ("pid", `Null);
+                    ] );
+              ]));
+      close_out oc;
+      let result = Command_bridge_helpers.read_daemon_tunnel_info () in
+      Alcotest.(check bool) "stale daemon returns None" true (result = None))
+
+let test_tunnel_status_daemon_fallback () =
+  with_temp_home (fun home ->
+      write_config_json home
+        (Yojson.Safe.from_string
+           {|{"tunnel":{"enabled":true,"provider":"cloudflare","url":"","managed":true,"tunnel_name":"test"}}|});
+      let clawq_dir = Filename.concat home ".clawq" in
+      let state_path = Filename.concat clawq_dir "daemon_state.json" in
+      let oc = open_out state_path in
+      output_string oc
+        (Yojson.Safe.to_string
+           (`Assoc
+              [
+                ("pid", `Int (Unix.getpid ()));
+                ( "tunnel",
+                  `Assoc
+                    [
+                      ("state", `String "active");
+                      ("provider", `String "cloudflare");
+                      ("url", `String "https://test.trycloudflare.com");
+                      ("pid", `Null);
+                    ] );
+              ]));
+      close_out oc;
+      let result = Command_bridge.handle [ "tunnel"; "status" ] in
+      Alcotest.(check bool)
+        "shows daemon-managed" true
+        (contains result "daemon-managed");
+      Alcotest.(check bool)
+        "shows URL" true
+        (contains result "https://test.trycloudflare.com"))
+
 let test_cmd_agent_refuses_second_live_instance () =
   let ran = ref false in
   let released = ref false in
@@ -2799,6 +2907,14 @@ let suite =
     Alcotest.test_case "handle reloads config between calls" `Quick
       test_handle_reloads_config_between_calls;
     Alcotest.test_case "handle tunnel status" `Quick test_handle_tunnel_status;
+    Alcotest.test_case "read daemon tunnel info active" `Quick
+      test_read_daemon_tunnel_info_active;
+    Alcotest.test_case "read daemon tunnel info idle" `Quick
+      test_read_daemon_tunnel_info_idle;
+    Alcotest.test_case "read daemon tunnel info stale pid" `Quick
+      test_read_daemon_tunnel_info_stale_pid;
+    Alcotest.test_case "tunnel status daemon fallback" `Quick
+      test_tunnel_status_daemon_fallback;
     Alcotest.test_case "cmd_agent reexecs on restart" `Quick
       test_cmd_agent_reexecs_on_restart;
     Alcotest.test_case "cmd_agent reexecs on restart with fresh path" `Quick

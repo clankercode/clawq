@@ -228,7 +228,7 @@ Config is also auto-reloaded every 10 seconds when the file changes on disk.
 # Standalone tunnel control (when daemon is not running)
 clawq tunnel start          # Start tunnel with configured provider
 clawq tunnel stop           # Stop the running tunnel
-clawq tunnel status         # Show tunnel status (default)
+clawq tunnel status         # Show tunnel status (default; detects daemon-managed tunnels)
 
 # Live tunnel control (when daemon is running)
 clawq tunnel apply          # Reconcile tunnel state with current config

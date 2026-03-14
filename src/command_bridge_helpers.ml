@@ -99,6 +99,36 @@ let read_live_daemon_gateway () =
               json |> member "gateway_port" |> to_int )
       with _ -> None)
 
+let read_daemon_tunnel_info () =
+  match read_daemon_state () with
+  | None -> None
+  | Some json -> (
+      let open Yojson.Safe.Util in
+      try
+        let pid = json |> member "pid" |> to_int in
+        if not (pid_is_alive pid) then begin
+          remove_daemon_state ();
+          None
+        end
+        else
+          match json |> member "tunnel" with
+          | `Null -> None
+          | tunnel_json ->
+              let state = tunnel_json |> member "state" |> to_string in
+              if state = "active" then
+                let provider =
+                  try tunnel_json |> member "provider" |> to_string
+                  with _ -> "unknown"
+                in
+                let url =
+                  match tunnel_json |> member "url" with
+                  | `String u -> Some u
+                  | _ -> None
+                in
+                Some (provider, url)
+              else None
+      with _ -> None)
+
 let get_sync ~uri ~headers =
   Lwt_main.run
     (Lwt.catch
