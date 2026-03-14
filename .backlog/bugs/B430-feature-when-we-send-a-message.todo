@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B430
+priority: high
+status: pending
+tags: []
+title: 'feature: when we send a message to interrupt and shell_exec is currently running, we should move it to a background shell and send the message immediately (along with info about the bg shell and how to check the status, wait for it, get results, etc). If we don''t support background shells, then we need to add that, too.'
+---
+
+feature: when we send a message to interrupt and shell_exec is currently running, we should move it to a background shell and send the message immediately (along with info about the bg shell and how to check the status, wait for it, get results, etc). If we don't support background shells, then we need to add that, too.
