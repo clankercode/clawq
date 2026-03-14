@@ -862,32 +862,76 @@ let cmd_models args =
       \  refresh [--force]            Refresh model list from provider APIs\n\
       \  refresh --provider PNAME     Refresh models for a specific provider"
 
-let cmd_usage refresh =
-  let cfg = get_config () in
+let parse_since_arg args =
+  let rec find = function
+    | "--since" :: v :: _ -> Some v
+    | _ :: rest -> find rest
+    | [] -> None
+  in
+  match find args with
+  | None -> None
+  | Some period ->
+      let now = Unix.gettimeofday () in
+      let ts =
+        match String.lowercase_ascii period with
+        | "today" ->
+            let tm = Unix.gmtime now in
+            let midnight =
+              { tm with Unix.tm_hour = 0; tm_min = 0; tm_sec = 0 }
+            in
+            let local_ts, _ = Unix.mktime midnight in
+            let dummy_gm = Unix.gmtime 0.0 in
+            let dummy_local = Unix.localtime 0.0 in
+            let tz_offset_s =
+              float_of_int
+                (((dummy_local.Unix.tm_hour - dummy_gm.Unix.tm_hour) * 3600)
+                + ((dummy_local.Unix.tm_min - dummy_gm.Unix.tm_min) * 60))
+            in
+            Some (local_ts -. tz_offset_s)
+        | "7d" -> Some (now -. 604800.0)
+        | "30d" -> Some (now -. 2592000.0)
+        | "90d" -> Some (now -. 7776000.0)
+        | _ -> None
+      in
+      ts
+
+let parse_string_arg flag args =
+  let rec find = function
+    | f :: v :: _ when f = flag -> Some v
+    | _ :: rest -> find rest
+    | [] -> None
+  in
+  find args
+
+let parse_int_arg flag args =
+  match parse_string_arg flag args with
+  | Some s -> ( try Some (int_of_string s) with _ -> None)
+  | None -> None
+
+let cmd_usage_history args =
   let db = get_db () in
   Provider_quota.set_db db;
-  Provider_quota.set_cache_ttl cfg.quota_cache_ttl_s;
-  let results =
-    if refresh then
-      let refreshed =
-        Lwt_main.run (Provider_quota.refresh_all ~config:cfg ())
-      in
-      List.map (fun pq -> (pq.Provider_quota.provider_name, pq)) refreshed
-    else Provider_quota.get_all_cached ()
+  let provider = parse_string_arg "--provider" args in
+  let since = parse_since_arg args in
+  let limit =
+    match parse_int_arg "--limit" args with Some n -> Some n | None -> Some 50
   in
-  if results = [] then
-    if refresh then "No providers configured."
-    else
-      "No cached quota data. Run 'clawq usage --refresh' to fetch current data."
+  let json_mode = List.mem "--json" args in
+  let entries =
+    match provider with
+    | Some p ->
+        Provider_quota.history_for_provider ~db ~provider:p ?since ?limit ()
+    | None -> Provider_quota.history_all ~db ?since ?limit ()
+  in
+  if entries = [] then "No quota history found."
+  else if json_mode then
+    let arr = `List (List.map Provider_quota.history_entry_to_json entries) in
+    Yojson.Safe.pretty_to_string arr
   else
-    let threshold_for name =
-      match List.assoc_opt name cfg.providers with
-      | Some pc -> Option.value ~default:0.85 pc.quota_threshold
-      | None -> 0.85
-    in
     let columns =
       Table_format.
         [
+          { header = "TIME"; align = Left; min_width = 19; flex = false };
           { header = "PROVIDER"; align = Left; min_width = 10; flex = false };
           { header = "SESSION"; align = Right; min_width = 7; flex = false };
           { header = "WEEKLY"; align = Right; min_width = 7; flex = false };
@@ -897,9 +941,9 @@ let cmd_usage refresh =
     in
     let rows =
       List.map
-        (fun (_name, pq) ->
+        (fun (entry : Provider_quota.history_entry) ->
           let sess, week, mon =
-            match pq.Provider_quota.state with
+            match entry.h_state with
             | Provider_quota.Unknown _ -> ("-", "-", "-")
             | Provider_quota.Known { session; weekly; monthly } ->
                 let fmt_pct = function
@@ -910,13 +954,102 @@ let cmd_usage refresh =
           in
           let status =
             Provider_quota.status_label
-              ~threshold:(threshold_for pq.Provider_quota.provider_name)
-              pq
+              {
+                provider_name = entry.h_provider;
+                state = entry.h_state;
+                fetched_at = entry.h_fetched_at;
+              }
           in
-          [ pq.Provider_quota.provider_name; sess; week; mon; status ])
-        results
+          [ entry.h_recorded_at; entry.h_provider; sess; week; mon; status ])
+        entries
     in
-    "Provider Usage:\n" ^ Table_format.render columns rows
+    "Quota History:\n" ^ Table_format.render columns rows
+
+let cmd_usage_purge args =
+  let db = get_db () in
+  Provider_quota.set_db db;
+  let now = Unix.gettimeofday () in
+  let before =
+    match args with
+    | [] -> now -. 7776000.0
+    | period :: _ -> (
+        match String.lowercase_ascii period with
+        | "7d" -> now -. 604800.0
+        | "30d" -> now -. 2592000.0
+        | "90d" -> now -. 7776000.0
+        | "all" -> now +. 1.0
+        | _ -> now -. 7776000.0)
+  in
+  let count = Provider_quota.purge_history ~db ~before () in
+  Printf.sprintf "Purged %d quota history entries." count
+
+let cmd_usage args =
+  match args with
+  | "history" :: rest -> cmd_usage_history rest
+  | "purge" :: rest -> cmd_usage_purge rest
+  | _ ->
+      let refresh = List.mem "--refresh" args || List.mem "-r" args in
+      let cfg = get_config () in
+      let db = get_db () in
+      Provider_quota.set_db db;
+      Provider_quota.set_cache_ttl cfg.quota_cache_ttl_s;
+      let results =
+        if refresh then
+          let refreshed =
+            Lwt_main.run (Provider_quota.refresh_all ~config:cfg ())
+          in
+          List.map (fun pq -> (pq.Provider_quota.provider_name, pq)) refreshed
+        else Provider_quota.get_all_cached ()
+      in
+      if results = [] then
+        if refresh then "No providers configured."
+        else
+          "No cached quota data. Run 'clawq usage --refresh' to fetch current \
+           data."
+      else
+        let threshold_for name =
+          match List.assoc_opt name cfg.providers with
+          | Some pc -> Option.value ~default:0.85 pc.quota_threshold
+          | None -> 0.85
+        in
+        let columns =
+          Table_format.
+            [
+              {
+                header = "PROVIDER";
+                align = Left;
+                min_width = 10;
+                flex = false;
+              };
+              { header = "SESSION"; align = Right; min_width = 7; flex = false };
+              { header = "WEEKLY"; align = Right; min_width = 7; flex = false };
+              { header = "MONTHLY"; align = Right; min_width = 7; flex = false };
+              { header = "STATUS"; align = Left; min_width = 6; flex = false };
+            ]
+        in
+        let rows =
+          List.map
+            (fun (_name, pq) ->
+              let sess, week, mon =
+                match pq.Provider_quota.state with
+                | Provider_quota.Unknown _ -> ("-", "-", "-")
+                | Provider_quota.Known { session; weekly; monthly } ->
+                    let fmt_pct = function
+                      | None -> "-"
+                      | Some w ->
+                          Printf.sprintf "%.0f%%" w.Provider_quota.used_pct
+                    in
+                    (fmt_pct session, fmt_pct weekly, fmt_pct monthly)
+              in
+              let status =
+                Provider_quota.status_label
+                  ~threshold:(threshold_for pq.Provider_quota.provider_name)
+                  pq
+              in
+              [ pq.Provider_quota.provider_name; sess; week; mon; status ])
+            results
+        in
+        "Provider Usage:\n" ^ Table_format.render columns rows
 
 let cmd_provider args =
   match args with

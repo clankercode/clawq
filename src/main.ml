@@ -123,22 +123,18 @@ let costs_cmd =
     ]
 
 let usage_cmd =
-  let refresh =
-    Arg.(
-      value & flag
-      & info [ "refresh"; "r" ]
-          ~doc:
-            "Force refresh quota data from all configured providers (uses \
-             cache if < TTL).")
-  in
-  Cmd.v
-    (Cmd.info "usage" ~doc:"Show provider quota/usage status.")
-    Term.(
-      ret
-        (const (fun refresh ->
-             let args = if refresh then [ "--refresh" ] else [] in
-             run "usage" args)
-        $ refresh))
+  with_args "usage" "Show provider quota/usage status."
+    [
+      `S "SUBCOMMANDS";
+      `I ("(default)", "Show current quota (use --refresh/-r to force fetch).");
+      `I ("history", "Show historical quota snapshots.");
+      `I ("purge [PERIOD]", "Delete old history (default: 90d).");
+      `S "HISTORY OPTIONS";
+      `I ("--provider NAME", "Filter to a specific provider.");
+      `I ("--since PERIOD", "Time range: today, 7d, 30d, 90d.");
+      `I ("--limit N", "Max rows (default: 50).");
+      `I ("--json", "Output as JSON.");
+    ]
 
 let provider_cmd =
   with_args "provider"

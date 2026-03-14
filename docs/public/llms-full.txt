@@ -113,6 +113,8 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 | `tunnel restart` | Force stop and restart tunnel with current config (unconditional, unlike apply which is idempotent) |
 | `tunnel daemon-status` | Show tunnel manager state from running daemon as JSON (state, provider, url, pid) |
 | `usage [--refresh]` | Show provider quota/usage status |
+| `usage history [--provider NAME] [--since PERIOD] [--limit N] [--json]` | Show historical quota snapshots |
+| `usage purge [PERIOD]` | Delete old quota history (default: 90d; accepts 7d, 30d, 90d, all) |
 | `update [--mode auto|git|binary]` | Ask the live daemon to update itself and gracefully restart; currently warns if no live daemon is available because the offline fallback is still stubbed |
 | `version` | Print version and build info |
 | `watcher` | Manage the error correction watcher (default: status) |

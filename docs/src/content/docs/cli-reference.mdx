@@ -56,7 +56,9 @@ Every clawq command is listed below. Run `clawq COMMAND --help` for per-command 
 | `clawq transcribe` | Transcribe an audio file using the configured STT provider |
 | `clawq tunnel` | Manage a public tunnel to the local gateway |
 | `clawq update` | Request a live daemon update and graceful restart |
-| `clawq usage` | Show provider quota/usage status |
+| `clawq usage` | Show provider quota/usage status (use `--refresh`/`-r` to force fetch) |
+| `clawq usage history` | Show historical quota snapshots (`--provider NAME`, `--since PERIOD`, `--limit N`, `--json`) |
+| `clawq usage purge [PERIOD]` | Delete old quota history (default: 90d; accepts 7d, 30d, 90d, all) |
 | `clawq version` | Print version and build info |
 | `clawq watcher` | Manage the error correction watcher (status, enable/disable, reports) |
 | `clawq watcher status` | Show watcher config and EC process status (default) |

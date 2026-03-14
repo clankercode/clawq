@@ -22,6 +22,14 @@ type provider_quota = {
   fetched_at : float;
 }
 
+type history_entry = {
+  h_id : int;
+  h_provider : string;
+  h_state : quota_state;
+  h_fetched_at : float;
+  h_recorded_at : string;
+}
+
 (* In-memory TTL cache: provider name -> latest quota *)
 let cache : (string, provider_quota) Hashtbl.t = Hashtbl.create 8
 let cache_ttl_s = ref 300.0
@@ -131,6 +139,145 @@ let store_to_db ?(replace = true) db pq =
         ignore (Sqlite3.step stmt))
   with _ -> ()
 
+let record_history db pq =
+  match pq.state with
+  | Unknown s when String.length s >= 12 && String.sub s 0 12 = "fetch_failed"
+    ->
+      ()
+  | _ -> (
+      try
+        let state_json = Yojson.Safe.to_string (quota_state_to_json pq.state) in
+        let stmt =
+          Sqlite3.prepare db
+            "INSERT INTO quota_history (provider, state_json, fetched_at) \
+             VALUES (?, ?, ?)"
+        in
+        Fun.protect
+          ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+          (fun () ->
+            ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT pq.provider_name));
+            ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT state_json));
+            ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.FLOAT pq.fetched_at));
+            ignore (Sqlite3.step stmt))
+      with _ -> ())
+
+let read_history_row stmt =
+  let h_id =
+    match Sqlite3.column stmt 0 with
+    | Sqlite3.Data.INT n -> Int64.to_int n
+    | _ -> raise Exit
+  in
+  let h_provider =
+    match Sqlite3.column stmt 1 with
+    | Sqlite3.Data.TEXT s -> s
+    | _ -> raise Exit
+  in
+  let state_json =
+    match Sqlite3.column stmt 2 with
+    | Sqlite3.Data.TEXT s -> s
+    | _ -> raise Exit
+  in
+  let h_fetched_at =
+    match Sqlite3.column stmt 3 with
+    | Sqlite3.Data.FLOAT f -> f
+    | Sqlite3.Data.INT n -> Int64.to_float n
+    | _ -> raise Exit
+  in
+  let h_recorded_at =
+    match Sqlite3.column stmt 4 with
+    | Sqlite3.Data.TEXT s -> s
+    | _ -> raise Exit
+  in
+  let json = Yojson.Safe.from_string state_json in
+  match quota_state_of_json json with
+  | Some h_state ->
+      Some { h_id; h_provider; h_state; h_fetched_at; h_recorded_at }
+  | None -> None
+
+let collect_history_rows stmt =
+  let rec loop acc =
+    match Sqlite3.step stmt with
+    | Sqlite3.Rc.ROW -> (
+        match read_history_row stmt with
+        | Some entry -> loop (entry :: acc)
+        | None -> loop acc)
+    | _ -> List.rev acc
+  in
+  loop []
+
+let history_for_provider ~db ~provider ?since ?limit () =
+  let base =
+    "SELECT id, provider, state_json, fetched_at, recorded_at FROM \
+     quota_history WHERE provider = ?"
+  in
+  let sql, binds =
+    match since with
+    | None ->
+        ( base ^ " ORDER BY recorded_at DESC",
+          [ (1, Sqlite3.Data.TEXT provider) ] )
+    | Some ts ->
+        ( base ^ " AND fetched_at >= ? ORDER BY recorded_at DESC",
+          [ (1, Sqlite3.Data.TEXT provider); (2, Sqlite3.Data.FLOAT ts) ] )
+  in
+  let sql =
+    match limit with Some n -> sql ^ " LIMIT " ^ string_of_int n | None -> sql
+  in
+  try
+    let stmt = Sqlite3.prepare db sql in
+    Fun.protect
+      ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+      (fun () ->
+        List.iter (fun (i, v) -> ignore (Sqlite3.bind stmt i v)) binds;
+        collect_history_rows stmt)
+  with _ -> []
+
+let history_all ~db ?since ?limit () =
+  let base =
+    "SELECT id, provider, state_json, fetched_at, recorded_at FROM \
+     quota_history"
+  in
+  let sql, binds =
+    match since with
+    | None -> (base ^ " ORDER BY recorded_at DESC", [])
+    | Some ts ->
+        ( base ^ " WHERE fetched_at >= ? ORDER BY recorded_at DESC",
+          [ (1, Sqlite3.Data.FLOAT ts) ] )
+  in
+  let sql =
+    match limit with Some n -> sql ^ " LIMIT " ^ string_of_int n | None -> sql
+  in
+  try
+    let stmt = Sqlite3.prepare db sql in
+    Fun.protect
+      ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+      (fun () ->
+        List.iter (fun (i, v) -> ignore (Sqlite3.bind stmt i v)) binds;
+        collect_history_rows stmt)
+  with _ -> []
+
+let history_entry_to_json entry =
+  `Assoc
+    [
+      ("id", `Int entry.h_id);
+      ("provider", `String entry.h_provider);
+      ("state", quota_state_to_json entry.h_state);
+      ("fetched_at", `Float entry.h_fetched_at);
+      ("recorded_at", `String entry.h_recorded_at);
+    ]
+
+let purge_history ~db ~before () =
+  try
+    let stmt =
+      Sqlite3.prepare db "DELETE FROM quota_history WHERE fetched_at < ?"
+    in
+    Fun.protect
+      ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+      (fun () ->
+        ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.FLOAT before));
+        ignore (Sqlite3.step stmt);
+        Sqlite3.changes db)
+  with _ -> 0
+
 let load_from_db db =
   try
     let stmt =
@@ -213,7 +360,9 @@ let store_result pq =
         when String.length s >= 12 && String.sub s 0 12 = "fetch_failed" ->
           (* Mirror in-memory: don't overwrite an existing entry in DB *)
           store_to_db ~replace:false db pq
-      | _ -> store_to_db db pq)
+      | _ ->
+          store_to_db db pq;
+          record_history db pq)
 
 (* Pace-aware constrained check for a single window *)
 let is_window_constrained ~threshold w =

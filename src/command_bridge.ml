@@ -1450,9 +1450,7 @@ let handle args =
   | "onboard" :: _ -> cmd_onboard ()
   | "models" :: rest -> cmd_models rest
   | "costs" :: rest -> cmd_costs rest
-  | "usage" :: rest ->
-      let refresh = List.mem "--refresh" rest || List.mem "-r" rest in
-      cmd_usage refresh
+  | "usage" :: rest -> cmd_usage rest
   | "provider" :: rest -> cmd_provider rest
   | "channel" :: "test" :: "teams" :: _ -> cmd_channel_test_teams ()
   | "channel" :: _ -> cmd_channel ()

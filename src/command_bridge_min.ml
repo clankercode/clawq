@@ -474,7 +474,7 @@ let handle args =
   | "doctor" :: _ -> cmd_doctor ()
   | "onboard" :: _ -> cmd_onboard ()
   | "models" :: rest -> cmd_models rest
-  | "usage" :: _ -> cmd_usage ()
+  | "usage" :: rest -> cmd_usage rest
   | "channel" :: _ -> cmd_channel ()
   | "memory" :: _ -> cmd_memory ()
   | "workspace" :: _ -> cmd_workspace ()

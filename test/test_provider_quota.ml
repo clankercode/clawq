@@ -261,6 +261,154 @@ let test_db_ttl_expired () =
   Provider_quota.reset_for_test ();
   Provider_quota.set_cache_ttl 300
 
+(* ── history ─────────────────────────────────────────────────────────────── *)
+
+let setup_history_db () =
+  let db = Sqlite3.db_open ":memory:" in
+  Provider_quota.reset_for_test ();
+  Provider_quota.set_db db;
+  ignore
+    (Sqlite3.exec db
+       "CREATE TABLE IF NOT EXISTS quota_history (\n\
+       \     id INTEGER PRIMARY KEY AUTOINCREMENT,\n\
+       \     provider TEXT NOT NULL,\n\
+       \     state_json TEXT NOT NULL,\n\
+       \     fetched_at REAL NOT NULL,\n\
+       \     recorded_at TEXT NOT NULL DEFAULT (datetime('now'))\n\
+       \   )");
+  db
+
+let test_history_record_and_query () =
+  let db = setup_history_db () in
+  let pq1 =
+    {
+      Provider_quota.provider_name = "anthropic";
+      state = known_session 40.0;
+      fetched_at = Unix.gettimeofday () -. 100.0;
+    }
+  in
+  let pq2 =
+    {
+      Provider_quota.provider_name = "anthropic";
+      state = known_session 60.0;
+      fetched_at = Unix.gettimeofday ();
+    }
+  in
+  Provider_quota.store_result pq1;
+  Provider_quota.store_result pq2;
+  let entries =
+    Provider_quota.history_for_provider ~db ~provider:"anthropic" ()
+  in
+  Alcotest.(check int) "two history entries" 2 (List.length entries);
+  let first = List.hd entries in
+  Alcotest.(check string) "newest first" "anthropic" first.h_provider;
+  Provider_quota.reset_for_test ()
+
+let test_history_all_providers () =
+  let db = setup_history_db () in
+  let pq1 =
+    {
+      Provider_quota.provider_name = "anthropic";
+      state = known_session 40.0;
+      fetched_at = Unix.gettimeofday ();
+    }
+  in
+  let pq2 =
+    {
+      Provider_quota.provider_name = "codex";
+      state = known_weekly 55.0;
+      fetched_at = Unix.gettimeofday ();
+    }
+  in
+  Provider_quota.store_result pq1;
+  Provider_quota.store_result pq2;
+  let entries = Provider_quota.history_all ~db () in
+  Alcotest.(check int) "two entries from two providers" 2 (List.length entries);
+  let providers =
+    List.map (fun (e : Provider_quota.history_entry) -> e.h_provider) entries
+  in
+  Alcotest.(check bool)
+    "both providers present" true
+    (List.mem "anthropic" providers && List.mem "codex" providers);
+  Provider_quota.reset_for_test ()
+
+let test_history_fetch_failed_not_recorded () =
+  let db = setup_history_db () in
+  let pq =
+    {
+      Provider_quota.provider_name = "anthropic";
+      state = Provider_quota.Unknown "fetch_failed:HTTP 500";
+      fetched_at = Unix.gettimeofday ();
+    }
+  in
+  Provider_quota.store_result pq;
+  let entries =
+    Provider_quota.history_for_provider ~db ~provider:"anthropic" ()
+  in
+  Alcotest.(check int) "fetch_failed not in history" 0 (List.length entries);
+  Provider_quota.reset_for_test ()
+
+let test_history_json_serialization () =
+  let entry =
+    {
+      Provider_quota.h_id = 1;
+      h_provider = "anthropic";
+      h_state = known_session 75.0;
+      h_fetched_at = 1710000000.0;
+      h_recorded_at = "2025-03-10 00:00:00";
+    }
+  in
+  let json = Provider_quota.history_entry_to_json entry in
+  let j_str = Yojson.Safe.to_string json in
+  let parsed = Yojson.Safe.from_string j_str in
+  let provider = Yojson.Safe.Util.(parsed |> member "provider" |> to_string) in
+  Alcotest.(check string) "provider roundtrips" "anthropic" provider;
+  let id = Yojson.Safe.Util.(parsed |> member "id" |> to_int) in
+  Alcotest.(check int) "id roundtrips" 1 id
+
+let test_history_purge () =
+  let db = setup_history_db () in
+  let pq_old =
+    {
+      Provider_quota.provider_name = "anthropic";
+      state = known_session 30.0;
+      fetched_at = Unix.gettimeofday () -. 100000.0;
+    }
+  in
+  let pq_new =
+    {
+      Provider_quota.provider_name = "anthropic";
+      state = known_session 50.0;
+      fetched_at = Unix.gettimeofday ();
+    }
+  in
+  Provider_quota.store_result pq_old;
+  Provider_quota.store_result pq_new;
+  let before = Unix.gettimeofday () -. 50000.0 in
+  let count = Provider_quota.purge_history ~db ~before () in
+  Alcotest.(check int) "purged 1 old entry" 1 count;
+  let remaining = Provider_quota.history_all ~db () in
+  Alcotest.(check int) "1 entry remaining" 1 (List.length remaining);
+  Provider_quota.reset_for_test ()
+
+let test_history_limit () =
+  let db = setup_history_db () in
+  for i = 0 to 4 do
+    let pq =
+      {
+        Provider_quota.provider_name = "anthropic";
+        state = known_session (float_of_int (i * 10));
+        fetched_at = Unix.gettimeofday () +. float_of_int i;
+      }
+    in
+    Provider_quota.store_result pq
+  done;
+  let entries =
+    Provider_quota.history_for_provider ~db ~provider:"anthropic" ~limit:3 ()
+  in
+  Alcotest.(check int) "limit caps to 3" 3 (List.length entries);
+  Provider_quota.reset_for_test ()
+
 let suite =
   [
     Alcotest.test_case "Unknown never constrained" `Quick
@@ -286,4 +434,13 @@ let suite =
     Alcotest.test_case "cache roundtrip" `Quick test_cache_roundtrip;
     Alcotest.test_case "DB persistence roundtrip" `Quick test_db_persistence;
     Alcotest.test_case "DB TTL expiry" `Quick test_db_ttl_expired;
+    Alcotest.test_case "history record and query" `Quick
+      test_history_record_and_query;
+    Alcotest.test_case "history all providers" `Quick test_history_all_providers;
+    Alcotest.test_case "history fetch_failed not recorded" `Quick
+      test_history_fetch_failed_not_recorded;
+    Alcotest.test_case "history JSON serialization" `Quick
+      test_history_json_serialization;
+    Alcotest.test_case "history purge" `Quick test_history_purge;
+    Alcotest.test_case "history limit" `Quick test_history_limit;
   ]

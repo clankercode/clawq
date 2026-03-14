@@ -704,7 +704,7 @@ let test_schema_migration_12_to_13 () =
     result
   in
   Alcotest.(check bool) "summaries table exists" true has_table;
-  (* Verify schema version is 18 *)
+  (* Verify schema version is 19 *)
   let version =
     let stmt = Sqlite3.prepare db2 "SELECT version FROM schema_version" in
     Fun.protect
@@ -717,7 +717,7 @@ let test_schema_migration_12_to_13 () =
             | _ -> -1)
         | _ -> -1)
   in
-  Alcotest.(check int) "schema version 18" 18 version;
+  Alcotest.(check int) "schema version 19" 19 version;
   ignore (Sqlite3.db_close db2);
   try Unix.unlink path with _ -> ()
 

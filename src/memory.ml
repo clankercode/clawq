@@ -1,4 +1,4 @@
-let schema_version = 18
+let schema_version = 19
 
 type session_activity = Active | Inactive | Any
 
@@ -158,6 +158,22 @@ let init_quota_cache_schema db =
     \     state_json TEXT NOT NULL,\n\
     \     fetched_at REAL NOT NULL\n\
     \   )"
+
+let init_quota_history_schema db =
+  exec_exn db
+    "CREATE TABLE IF NOT EXISTS quota_history (\n\
+    \     id INTEGER PRIMARY KEY AUTOINCREMENT,\n\
+    \     provider TEXT NOT NULL,\n\
+    \     state_json TEXT NOT NULL,\n\
+    \     fetched_at REAL NOT NULL,\n\
+    \     recorded_at TEXT NOT NULL DEFAULT (datetime('now'))\n\
+    \   )";
+  exec_exn db
+    "CREATE INDEX IF NOT EXISTS idx_quota_history_provider ON \
+     quota_history(provider, recorded_at)";
+  exec_exn db
+    "CREATE INDEX IF NOT EXISTS idx_quota_history_recorded ON \
+     quota_history(recorded_at)"
 
 let init_postmortems_schema db =
   exec_exn db
@@ -484,6 +500,10 @@ let migrate_schema db current_version =
       set_schema_version db schema_version
   | 17 ->
       init_ec_reports_schema db;
+      init_quota_history_schema db;
+      set_schema_version db schema_version
+  | 18 ->
+      init_quota_history_schema db;
       set_schema_version db schema_version
   | n when n = schema_version ->
       init_session_schema db;
@@ -491,6 +511,7 @@ let migrate_schema db current_version =
       init_models_cache_schema db;
       init_request_stats_schema db;
       init_quota_cache_schema db;
+      init_quota_history_schema db;
       init_postmortems_schema db;
       init_model_discovery_state_schema db;
       Summary_store.init_schema db;
