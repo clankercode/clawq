@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B455
+priority: high
+status: pending
+tags: []
+title: 'docs chat log viewer, error for claude code jsonl: Array items must have a ''role'' field. example file: /home/xertrov/.claude-p/projects/-home-xertrov-src-clawq-B452/66e752d0-f4a2-49c9-b3c7-593344e0f260.jsonl'
+---
+
+docs chat log viewer, error for claude code jsonl: Array items must have a 'role' field. example file: /home/xertrov/.claude-p/projects/-home-xertrov-src-clawq-B452/66e752d0-f4a2-49c9-b3c7-593344e0f260.jsonl
