@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-14T06:22:13Z"
+claimed_by: cli-user
+completed_at: "2026-03-14T06:32:20Z"
 complexity: medium
 depends_on: []
+duration_minutes: 10.121313486083332
 estimate_hours: 1
 id: B392
 priority: high
-status: pending
+started_at: "2026-03-14T06:22:13Z"
+status: done
 tags: []
 title: Add novelty clock to docs site where the hands are the big and small half of a lobster claw
 ---

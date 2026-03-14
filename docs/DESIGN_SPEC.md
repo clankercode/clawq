@@ -546,6 +546,17 @@ Three cards with corner brackets:
 
 Cards animate in on scroll intersection (`translateY(20px)` + `opacity: 0` to final position).
 
+### Novelty Clock
+
+Below the feature cards, a decorative analog clock with lobster-claw hands reinforces the "clawq" branding and clockwork theme.
+
+- SVG component (`LobsterClawClock.astro`), 200x200 viewBox, default 180px rendered size
+- Brass clock face with rivet bezel, minute ticks, cardinal hour ticks, Roman numerals (XII, III, VI, IX)
+- Hour hand: large claw half (broader, shorter, serrated inner edge, hooked tip, `--brass-primary`)
+- Minute hand: small claw half (thinner, longer, sharper hook, `--brass-light`)
+- JavaScript updates every 1s; CSS transition on rotation; `prefers-reduced-motion` disables transition
+- Caption: "Precision Timepiece" in small-caps `--text-tertiary`
+
 ---
 
 ## 9. Dark/Light Mode

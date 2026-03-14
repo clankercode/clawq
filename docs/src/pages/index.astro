@@ -1,6 +1,7 @@
 ---
 import LandingLayout from '../layouts/LandingLayout.astro';
 import HeroGearBackdrop from '../components/HeroGearBackdrop.astro';
+import LobsterClawClock from '../components/LobsterClawClock.astro';
 import { BACKDROP_ALGORITHMS, DEFAULT_HERO_GEAR_ALGORITHM } from '../lib/gears/backdrop_algorithms.ts';
 import fvStats from '../data/fv-stats.json';
 
@@ -134,6 +135,17 @@ const heroGearAlgorithm: (typeof allowedGearAlgorithms)[number] =
       </div>
 
     </div>
+  </section>
+
+  <!-- Novelty Clock -->
+  <section class="clock-showcase">
+    <div class="diamond-rule" aria-hidden="true">
+      <span class="rule-line"></span>
+      <span class="rule-diamond">&#x25C6;</span>
+      <span class="rule-line"></span>
+    </div>
+    <LobsterClawClock size={180} />
+    <p class="clock-caption">Precision Timepiece</p>
   </section>
 
 </LandingLayout>
@@ -380,6 +392,28 @@ const heroGearAlgorithm: (typeof allowedGearAlgorithms)[number] =
       transform: none;
       animation: none;
     }
+  }
+
+  /* ===== Clock Showcase ===== */
+  .clock-showcase {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0 1.5rem 4rem;
+  }
+
+  .clock-showcase .diamond-rule {
+    margin-bottom: 2rem;
+  }
+
+  .clock-caption {
+    font-family: var(--font-label);
+    font-variant: small-caps;
+    font-weight: 500;
+    font-size: var(--fs-sm);
+    color: var(--text-tertiary);
+    letter-spacing: 0.1em;
+    margin-top: 0.75rem;
   }
 
   /* ===== Responsive ===== */

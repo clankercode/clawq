@@ -1,0 +1,319 @@
+---
+interface Props {
+  size?: number;
+}
+
+const { size = 180 } = Astro.props;
+---
+<div class="lobster-clock-wrapper" style={`width: ${size}px; height: ${size}px;`}>
+  <svg
+    class="lobster-clock"
+    viewBox="0 0 200 200"
+    xmlns="http://www.w3.org/2000/svg"
+    role="img"
+    aria-label="Decorative analog clock with lobster claw hands showing current time"
+  >
+    <!-- Clock face -->
+    <circle class="clock-face" cx="100" cy="100" r="94" />
+    <circle class="clock-bezel" cx="100" cy="100" r="94" />
+    <circle class="clock-inner-ring" cx="100" cy="100" r="86" />
+
+    <!-- Bezel rivets — 24 dots around the rim -->
+    {Array.from({ length: 24 }).map((_, i) => {
+      const angle = (i * 15) * Math.PI / 180;
+      const cx = 100 + 90 * Math.sin(angle);
+      const cy = 100 - 90 * Math.cos(angle);
+      return <circle class="bezel-rivet" cx={cx} cy={cy} r="1" />;
+    })}
+
+    <!-- Hour tick marks -->
+    {Array.from({ length: 12 }).map((_, i) => {
+      const angle = (i * 30) * Math.PI / 180;
+      const isCardinal = i % 3 === 0;
+      const outerR = 84;
+      const innerR = isCardinal ? 74 : 78;
+      const x1 = 100 + outerR * Math.sin(angle);
+      const y1 = 100 - outerR * Math.cos(angle);
+      const x2 = 100 + innerR * Math.sin(angle);
+      const y2 = 100 - innerR * Math.cos(angle);
+      return (
+        <line
+          class:list={["tick", { "tick-cardinal": isCardinal }]}
+          x1={x1} y1={y1} x2={x2} y2={y2}
+        />
+      );
+    })}
+
+    <!-- Minute tick marks (non-hour positions) -->
+    {Array.from({ length: 60 }).map((_, i) => {
+      if (i % 5 === 0) return null;
+      const angle = (i * 6) * Math.PI / 180;
+      const outerR = 84;
+      const innerR = 81;
+      const x1 = 100 + outerR * Math.sin(angle);
+      const y1 = 100 - outerR * Math.cos(angle);
+      const x2 = 100 + innerR * Math.sin(angle);
+      const y2 = 100 - innerR * Math.cos(angle);
+      return <line class="tick-minute" x1={x1} y1={y1} x2={x2} y2={y2} />;
+    })}
+
+    <!-- Roman numerals -->
+    <text class="numeral" x="100" y="30" text-anchor="middle" dominant-baseline="central">XII</text>
+    <text class="numeral" x="170" y="102" text-anchor="middle" dominant-baseline="central">III</text>
+    <text class="numeral" x="100" y="174" text-anchor="middle" dominant-baseline="central">VI</text>
+    <text class="numeral" x="30" y="102" text-anchor="middle" dominant-baseline="central">IX</text>
+
+    <!-- Clock hands — wrapped in a group translated to center for rotation -->
+    <g aria-hidden="true">
+      <!--
+        Hour hand = propodus (large fixed claw half).
+        Path traced clockwise, all y values INCREASE as we travel downward.
+
+        Segment 1 — RIGHT OUTER EDGE (bottom-right → tip shoulder, going upward = y decreasing):
+          Start: (104, 105)
+          Body widens rightward as it rises; peak at ~(114, 76); shoulder at (108, 62).
+
+        Segment 2 — HOOK TIP (shoulder → inner edge start, curving left):
+          From (108, 62) the tip curves left and slightly downward around (101, 54),
+          completing the hook and arriving at the inner edge at (93, 68).
+          The hook point (most leftward, most upward part) is around (97, 55).
+
+        Segment 3 — LEFT INNER EDGE (inner edge start → base-left, going downward = y increasing):
+          From (93, 68) down to (96, 105).
+          3 rounded serration bumps protrude leftward (x decreasing) as we descend.
+          Between bumps the edge returns rightward (x increasing).
+            Bump A: enters ~(93,68), protrudes to x≈89 at y≈75, exits at ~(92,82)
+            Bump B: enters ~(92,82), protrudes to x≈88 at y≈88, exits at ~(91,93)
+            Bump C: enters ~(91,93), protrudes to x≈89 at y≈97, exits into base ~(96,105)
+      -->
+      <g class="hand hand-hour" data-hand="hour">
+        <path
+          class="claw-hour"
+          d="
+            M 104 105
+            C 108 94, 115 84, 114 76
+            C 113 68, 110 63, 108 62
+            C 106 59, 104 57, 103 56
+            C 102 54, 101 53, 101 53
+            C 100 53, 99 54, 97 56
+            C 95 58, 94 61, 93 65
+            C 92 67, 92 69, 93 70
+            C 92 72, 89 74, 89 77
+            C 89 80, 91 82, 93 83
+            C 92 84, 89 87, 88 91
+            C 87 94, 88 98, 91 99
+            C 91 100, 90 102, 91 104
+            C 92 106, 94 106, 96 105
+            Z
+          "
+        />
+      </g>
+
+      <!--
+        Minute hand = dactyl (small movable claw half).
+        Mirrored horizontally so serrations face RIGHT (toward the hour hand's
+        left-side serrations), making the two halves close toward each other.
+        Narrower, longer, 4 serration bumps, sharper hook curving right.
+      -->
+      <g class="hand hand-minute" data-hand="minute">
+        <path
+          class="claw-minute"
+          d="
+            M 98 105
+            C 95 95, 89 82, 90 72
+            C 91 63, 93 57, 94 54
+            C 95 51, 97 49, 98 47
+            C 99 45, 100 44, 100 44
+            C 101 44, 102 45, 103 47
+            C 104 49, 106 53, 107 57
+            C 107 59, 107 60, 106 61
+            C 107 63, 109 65, 110 68
+            C 111 71, 110 74, 108 75
+            C 109 77, 110 79, 111 82
+            C 112 85, 111 89, 108 90
+            C 109 92, 110 95, 110 98
+            C 110 101, 108 104, 105 105
+            C 104 105, 103 105, 102 105
+            Z
+          "
+        />
+      </g>
+    </g>
+
+    <!-- Center pivot -->
+    <circle class="pivot-outer" cx="100" cy="100" r="5" />
+    <circle class="pivot-inner" cx="100" cy="100" r="3" />
+    <circle class="pivot-highlight" cx="99" cy="99" r="1.5" />
+  </svg>
+</div>
+
+<style>
+  .lobster-clock-wrapper {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .lobster-clock {
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+  }
+
+  /* Clock face */
+  .clock-face {
+    fill: var(--bg-secondary);
+    stroke: var(--brass-primary);
+    stroke-width: 2.5;
+  }
+
+  .clock-bezel {
+    fill: none;
+    stroke: var(--brass-dark);
+    stroke-width: 4;
+    opacity: 0.4;
+  }
+
+  .clock-inner-ring {
+    fill: none;
+    stroke: var(--brass-dark);
+    stroke-width: 0.5;
+    opacity: 0.5;
+  }
+
+  .bezel-rivet {
+    fill: var(--brass-primary);
+    opacity: 0.35;
+  }
+
+  /* Tick marks */
+  .tick {
+    stroke: var(--brass-primary);
+    stroke-width: 1.5;
+    stroke-linecap: round;
+  }
+
+  .tick-cardinal {
+    stroke: var(--brass-light);
+    stroke-width: 2;
+  }
+
+  .tick-minute {
+    stroke: var(--brass-dark);
+    stroke-width: 0.5;
+    stroke-linecap: round;
+    opacity: 0.6;
+  }
+
+  /* Roman numerals */
+  .numeral {
+    font-family: var(--font-display, Georgia, serif);
+    font-size: 11px;
+    font-weight: 600;
+    fill: var(--brass-light);
+    letter-spacing: 0.05em;
+  }
+
+  /* Hand groups — rotation via JS */
+  .hand {
+    transform-origin: 100px 100px;
+    transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  /* Hour hand (large claw — propodus) */
+  .claw-hour {
+    fill: var(--brass-primary);
+    stroke: var(--brass-dark);
+    stroke-width: 0.8;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+  }
+
+  /* Minute hand (small claw — dactyl) */
+  .claw-minute {
+    fill: var(--brass-light);
+    stroke: var(--brass-dark);
+    stroke-width: 0.6;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+  }
+
+  /* Center pivot */
+  .pivot-outer {
+    fill: var(--brass-dark);
+    stroke: var(--brass-primary);
+    stroke-width: 1;
+  }
+
+  .pivot-inner {
+    fill: var(--brass-primary);
+  }
+
+  .pivot-highlight {
+    fill: var(--brass-light);
+    opacity: 0.6;
+  }
+
+  /* Reduced motion */
+  @media (prefers-reduced-motion: reduce) {
+    .hand {
+      transition: none;
+    }
+  }
+</style>
+
+<script>
+  function initClock() {
+    const clocks = document.querySelectorAll('.lobster-clock');
+    if (!clocks.length) return;
+
+    let prevHourDeg = -1;
+    let prevMinDeg = -1;
+    let hourOffset = 0;
+    let minOffset = 0;
+
+    function update() {
+      const now = new Date();
+      const h = now.getHours();
+      const m = now.getMinutes();
+      const s = now.getSeconds();
+
+      let hourDeg = (h % 12) * 30 + m * 0.5;
+      let minDeg = m * 6 + s * 0.1;
+
+      // Handle 360→0 wrap-around to prevent reverse animation
+      if (prevHourDeg >= 0 && hourDeg < prevHourDeg - 180) {
+        hourOffset += 360;
+      }
+      if (prevMinDeg >= 0 && minDeg < prevMinDeg - 180) {
+        minOffset += 360;
+      }
+
+      prevHourDeg = hourDeg;
+      prevMinDeg = minDeg;
+
+      hourDeg += hourOffset;
+      minDeg += minOffset;
+
+      clocks.forEach((clock) => {
+        const hourHand = clock.querySelector('[data-hand="hour"]');
+        const minHand = clock.querySelector('[data-hand="minute"]');
+        if (hourHand) {
+          (hourHand as HTMLElement).style.transform = `rotate(${hourDeg}deg)`;
+        }
+        if (minHand) {
+          (minHand as HTMLElement).style.transform = `rotate(${minDeg}deg)`;
+        }
+      });
+    }
+
+    update();
+    setInterval(update, 1000);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initClock);
+  } else {
+    initClock();
+  }
+</script>
