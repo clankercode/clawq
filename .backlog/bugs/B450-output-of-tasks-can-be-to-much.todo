@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B450
+priority: high
+status: pending
+tags: []
+title: output of /tasks can be to much. Need to have `/tasks` and `/tasks full`. The current output should be the full output. The default output should be a tree drawing of the tasks with each line truncated to ~50 characters. Use emoji for the checkbox, make it look nice and well formatted. For our custom formatting DSL thing we could have a Tree type or something if we don't already since we use the tree structure elsewhere sometimes.
+---
+
+output of /tasks can be to much. Need to have `/tasks` and `/tasks full`. The current output should be the full output. The default output should be a tree drawing of the tasks with each line truncated to ~50 characters. Use emoji for the checkbox, make it look nice and well formatted. For our custom formatting DSL thing we could have a Tree type or something if we don't already since we use the tree structure elsewhere sometimes.
