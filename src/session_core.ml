@@ -69,6 +69,26 @@ type drain_progress = {
   after_all : unit -> unit Lwt.t;
 }
 
+let sanitize_session_key key =
+  let buf = Buffer.create (String.length key) in
+  String.iter
+    (fun c ->
+      match c with
+      | '/' | '\\' | '\x00' -> Buffer.add_char buf '_'
+      | _ -> Buffer.add_char buf c)
+    key;
+  (* Collapse any ".." to "__" to prevent path traversal *)
+  let s = Buffer.contents buf in
+  let len = String.length s in
+  let result = Bytes.of_string s in
+  for i = 0 to len - 2 do
+    if Bytes.get result i = '.' && Bytes.get result (i + 1) = '.' then begin
+      Bytes.set result i '_';
+      Bytes.set result (i + 1) '_'
+    end
+  done;
+  Bytes.to_string result
+
 let queued_message_response = "__clawq_message_queued__"
 
 let draining_message =
@@ -645,6 +665,7 @@ let notify_channel_sessions mgr message =
     notifiers
 
 let get_or_create_locked mgr ~key =
+  let key = sanitize_session_key key in
   match Hashtbl.find_opt mgr.sessions key with
   | Some triple -> triple
   | None ->

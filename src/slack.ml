@@ -252,7 +252,12 @@ let handle_event ~(config : Runtime_config.slack_config)
           else Lwt.return "ok"
         end
         else
-          let key = "slack:" ^ channel_id ^ ":" ^ user_id in
+          let key =
+            "slack:"
+            ^ Session.sanitize_session_key channel_id
+            ^ ":"
+            ^ Session.sanitize_session_key user_id
+          in
           (* Register a persistent channel notifier so autonomous continuation
              responses can reach the Slack channel *)
           let send_to_channel_persistent text =

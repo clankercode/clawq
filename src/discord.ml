@@ -64,7 +64,9 @@ let is_allowed ~(config : Runtime_config.discord_config) ~guild_id ~user_id =
   guild_ok && user_ok
 
 let session_key ~channel_id ~author_id =
-  Printf.sprintf "discord:%s:%s" channel_id author_id
+  Printf.sprintf "discord:%s:%s"
+    (Session.sanitize_session_key channel_id)
+    (Session.sanitize_session_key author_id)
 
 let chunk_text ?(max_len = 2000) text =
   Channel_util.chunk_text ~prefer_newline_break:false ~max_len text

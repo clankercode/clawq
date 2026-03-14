@@ -3886,4 +3886,38 @@ let suite =
     Alcotest.test_case
       "drain_queued_messages deletes sqlite row after successful turn" `Quick
       test_drain_queued_messages_deletes_sqlite_row;
+    Alcotest.test_case "sanitize_session_key replaces forward slash" `Quick
+      (fun () ->
+        Alcotest.(check string)
+          "slash" "web:foo_bar"
+          (Session.sanitize_session_key "web:foo/bar"));
+    Alcotest.test_case "sanitize_session_key replaces backslash" `Quick
+      (fun () ->
+        Alcotest.(check string)
+          "backslash" "web:foo_bar"
+          (Session.sanitize_session_key "web:foo\\bar"));
+    Alcotest.test_case "sanitize_session_key replaces null byte" `Quick
+      (fun () ->
+        Alcotest.(check string)
+          "null" "web:foo_bar"
+          (Session.sanitize_session_key "web:foo\x00bar"));
+    Alcotest.test_case "sanitize_session_key replaces double dots" `Quick
+      (fun () ->
+        Alcotest.(check string)
+          "dotdot" "web:__secret"
+          (Session.sanitize_session_key "web:..secret"));
+    Alcotest.test_case "sanitize_session_key preserves normal keys" `Quick
+      (fun () ->
+        Alcotest.(check string)
+          "normal" "discord:123:456"
+          (Session.sanitize_session_key "discord:123:456"));
+    Alcotest.test_case "sanitize_session_key preserves colons" `Quick (fun () ->
+        Alcotest.(check string)
+          "colons" "telegram:42:user"
+          (Session.sanitize_session_key "telegram:42:user"));
+    Alcotest.test_case "sanitize_session_key handles mixed unsafe chars" `Quick
+      (fun () ->
+        Alcotest.(check string)
+          "mixed" "web:_________etc_passwd"
+          (Session.sanitize_session_key "web:../../../etc/passwd"));
   ]

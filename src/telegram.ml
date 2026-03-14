@@ -60,7 +60,12 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
       else Lwt.return_unit
     end
     else
-      let key = "telegram:" ^ update.chat_id ^ ":" ^ update.user_id in
+      let key =
+        "telegram:"
+        ^ Session.sanitize_session_key update.chat_id
+        ^ ":"
+        ^ Session.sanitize_session_key update.user_id
+      in
       let typing_watcher =
         ensure_session_typing_watcher ~session_mgr ~key ~bot_token
           ~chat_id:update.chat_id

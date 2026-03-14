@@ -340,6 +340,7 @@ let cmd_session args =
                             filtered_rows) );
                    ])))
   | "inject" :: session_key :: message_parts -> (
+      let session_key = Session.sanitize_session_key session_key in
       let message = String.concat " " message_parts in
       if String.trim message = "" then
         "Usage: clawq session inject SESSION MESSAGE..."

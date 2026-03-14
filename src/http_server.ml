@@ -325,6 +325,7 @@ let handler ~session_manager ~require_pairing ~auth_token
             let session_id =
               try json |> member "session_id" |> to_string with _ -> ""
             in
+            let session_id = Session.sanitize_session_key session_id in
             let message =
               try json |> member "message" |> to_string with _ -> ""
             in
@@ -556,6 +557,7 @@ let handler ~session_manager ~require_pairing ~auth_token
             let session_key =
               try json |> member "session_key" |> to_string with _ -> ""
             in
+            let session_key = Session.sanitize_session_key session_key in
             let message =
               try json |> member "message" |> to_string with _ -> ""
             in
@@ -862,6 +864,7 @@ let handler ~session_manager ~require_pairing ~auth_token
             let session_id =
               try json |> member "session_id" |> to_string with _ -> ""
             in
+            let session_id = Session.sanitize_session_key session_id in
             let message =
               try json |> member "message" |> to_string with _ -> ""
             in
