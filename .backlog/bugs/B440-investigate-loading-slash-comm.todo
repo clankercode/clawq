@@ -1,0 +1,27 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B440
+priority: high
+status: pending
+tags: []
+title: Investigate loading slash commands for Teams autocomplete menu - design abstraction for Telegram/Teams and future connectors
+---
+Goal: Make slash commands appear in the Teams autocomplete menu when typing '/'.
+
+Investigation needed:
+1. Research Teams bot framework capabilities for registering/updating slash commands dynamically
+2. Check Telegram's command registration mechanism for comparison
+3. Review current connector architecture (src/channel_*.ml, src/connector.ml)
+
+Design requirements:
+- Abstraction that works for both Telegram and Teams now
+- Extensible to future connectors (Discord, Slack, Matrix, etc.)
+- Likely needs a  function in the connector interface
+- Commands defined centrally in slash_commands.ml should be the source of truth
+
+Acceptance criteria:
+- [ ] Research documented: what APIs each platform provides
+- [ ] Design proposed: connector abstraction for command registration
+- [ ] Implementation path clear for Teams + Telegram
