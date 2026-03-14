@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B438
+priority: high
+status: pending
+tags: []
+title: Add feature for Teams (and make sure this is general for all connectors, even if they dont support it), should show the bot typing when we start processing responses, and it should stay typing while that session is active, and stop typing once the session is idle again. Typing here means the little typing indicator.
+---
+
+Add feature for Teams (and make sure this is general for all connectors, even if they dont support it), should show the bot typing when we start processing responses, and it should stay typing while that session is active, and stop typing once the session is idle again. Typing here means the little typing indicator.
