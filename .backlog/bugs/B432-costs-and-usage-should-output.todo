@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-14T04:23:21Z"
+claimed_by: cli-user
+completed_at: "2026-03-14T04:44:33Z"
 complexity: medium
 depends_on: []
+duration_minutes: 21.21320788341667
 estimate_hours: 1
 id: B432
 priority: high
-status: pending
+started_at: "2026-03-14T04:23:21Z"
+status: done
 tags: []
 title: /costs and /usage should output tables when supported
 ---

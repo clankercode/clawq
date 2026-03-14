@@ -885,8 +885,17 @@ let cmd_usage refresh =
       | Some pc -> Option.value ~default:0.85 pc.quota_threshold
       | None -> 0.85
     in
-    let header = "Provider\tSession\tWeekly\tMonthly\tStatus" in
-    let lines =
+    let columns =
+      Table_format.
+        [
+          { header = "PROVIDER"; align = Left; min_width = 10; flex = false };
+          { header = "SESSION"; align = Right; min_width = 7; flex = false };
+          { header = "WEEKLY"; align = Right; min_width = 7; flex = false };
+          { header = "MONTHLY"; align = Right; min_width = 7; flex = false };
+          { header = "STATUS"; align = Left; min_width = 6; flex = false };
+        ]
+    in
+    let rows =
       List.map
         (fun (_name, pq) ->
           let sess, week, mon =
@@ -904,11 +913,10 @@ let cmd_usage refresh =
               ~threshold:(threshold_for pq.Provider_quota.provider_name)
               pq
           in
-          Printf.sprintf "%s\t%s\t%s\t%s\t%s" pq.Provider_quota.provider_name
-            sess week mon status)
+          [ pq.Provider_quota.provider_name; sess; week; mon; status ])
         results
     in
-    header ^ "\n" ^ String.concat "\n" lines
+    "Provider Usage:\n" ^ Table_format.render columns rows
 
 let cmd_provider args =
   match args with
@@ -1468,19 +1476,26 @@ let raw_message_json config index (row : Memory.raw_message) =
       ("created_at", `String row.created_at);
     ]
 
-let format_summary_line label (s : Request_stats.summary) =
-  let cost_str = Printf.sprintf "$%.4f" s.total_cost_usd in
-  let turns_str = Printf.sprintf "%d turns" s.total_turns in
-  let tokens_str =
-    Printf.sprintf "%s prompt (%s added), %s completion"
-      (Request_stats.format_tokens s.total_prompt_tokens)
-      (Request_stats.format_tokens s.total_added_prompt_tokens)
-      (Request_stats.format_tokens s.total_completion_tokens)
-  in
-  Printf.sprintf "  %-14s %s    %s\n              %s" label
-    (Setup_common.green cost_str)
-    (Setup_common.dim turns_str)
-    (Setup_common.dim tokens_str)
+let cost_summary_columns =
+  Table_format.
+    [
+      { header = "PERIOD"; align = Left; min_width = 12; flex = false };
+      { header = "COST"; align = Right; min_width = 8; flex = false };
+      { header = "TURNS"; align = Right; min_width = 5; flex = false };
+      { header = "PROMPT"; align = Right; min_width = 6; flex = false };
+      { header = "ADDED"; align = Right; min_width = 6; flex = false };
+      { header = "COMPLETION"; align = Right; min_width = 6; flex = false };
+    ]
+
+let cost_summary_row label (s : Request_stats.summary) =
+  [
+    label;
+    Printf.sprintf "$%.4f" s.total_cost_usd;
+    string_of_int s.total_turns;
+    Request_stats.format_tokens s.total_prompt_tokens;
+    Request_stats.format_tokens s.total_added_prompt_tokens;
+    Request_stats.format_tokens s.total_completion_tokens;
+  ]
 
 let summary_to_json label (s : Request_stats.summary) =
   `Assoc
@@ -1522,15 +1537,15 @@ let cmd_costs args =
              ])
       else if all.total_turns = 0 then "No cost data recorded yet."
       else
-        String.concat "\n"
+        let rows =
           [
-            Setup_common.bold "Cost Summary";
-            "";
-            format_summary_line "Today" today;
-            format_summary_line "Last 7 days" week;
-            format_summary_line "Last 30 days" month;
-            format_summary_line "All time" all;
+            cost_summary_row "Today" today;
+            cost_summary_row "Last 7 days" week;
+            cost_summary_row "Last 30 days" month;
+            cost_summary_row "All time" all;
           ]
+        in
+        "Cost Summary:\n" ^ Table_format.render cost_summary_columns rows
   | [ "session" ] ->
       let sessions = Request_stats.summary_by_session ~db in
       if json_mode then
@@ -1554,41 +1569,38 @@ let cmd_costs args =
                 sessions))
       else if sessions = [] then "No cost data recorded yet."
       else
+        let session_columns =
+          Table_format.
+            [
+              { header = "SESSION"; align = Left; min_width = 10; flex = true };
+              { header = "COST"; align = Right; min_width = 8; flex = false };
+              { header = "TURNS"; align = Right; min_width = 5; flex = false };
+              { header = "PROMPT"; align = Right; min_width = 6; flex = false };
+              { header = "ADDED"; align = Right; min_width = 6; flex = false };
+              {
+                header = "COMPLETION";
+                align = Right;
+                min_width = 6;
+                flex = false;
+              };
+            ]
+        in
         let rows =
           List.map
             (fun (ss : Request_stats.session_summary) ->
-              let cost_str = Printf.sprintf "$%.4f" ss.summary.total_cost_usd in
-              let turns_str =
-                Printf.sprintf "%d turns" ss.summary.total_turns
-              in
-              let tokens_str =
-                Printf.sprintf "%s prompt (%s added), %s completion"
-                  (Request_stats.format_tokens ss.summary.total_prompt_tokens)
-                  (Request_stats.format_tokens
-                     ss.summary.total_added_prompt_tokens)
-                  (Request_stats.format_tokens
-                     ss.summary.total_completion_tokens)
-              in
-              Printf.sprintf "  %s\n    %s    %s\n    %s"
-                (Setup_common.cyan ss.session_key)
-                (Setup_common.green cost_str)
-                (Setup_common.dim turns_str)
-                (Setup_common.dim tokens_str))
+              cost_summary_row ss.session_key ss.summary)
             sessions
         in
-        String.concat "\n" (Setup_common.bold "Session Costs" :: "" :: rows)
+        "Session Costs:\n" ^ Table_format.render session_columns rows
   | [ "session"; key ] ->
       let s = Request_stats.summary_for_session ~db ~session_key:key in
       if json_mode then Yojson.Safe.pretty_to_string (summary_to_json key s)
       else if s.total_turns = 0 then
         Printf.sprintf "No cost data for session '%s'." key
       else
-        String.concat "\n"
-          [
-            Setup_common.bold (Printf.sprintf "Costs for %s" key);
-            "";
-            format_summary_line "Total" s;
-          ]
+        let rows = [ cost_summary_row "Total" s ] in
+        Printf.sprintf "Costs for %s:\n" key
+        ^ Table_format.render cost_summary_columns rows
   | [ "model" ] ->
       let models = Request_stats.summary_by_model ~db in
       if json_mode then
@@ -1609,21 +1621,34 @@ let cmd_costs args =
                 models))
       else if models = [] then "No cost data recorded yet."
       else
+        let model_columns =
+          Table_format.
+            [
+              { header = "MODEL"; align = Left; min_width = 15; flex = true };
+              { header = "COST"; align = Right; min_width = 8; flex = false };
+              { header = "TURNS"; align = Right; min_width = 5; flex = false };
+              { header = "PROMPT"; align = Right; min_width = 6; flex = false };
+              {
+                header = "COMPLETION";
+                align = Right;
+                min_width = 6;
+                flex = false;
+              };
+            ]
+        in
         let rows =
           List.map
             (fun (ms : Request_stats.model_summary) ->
-              let cost_str = Printf.sprintf "$%.4f" ms.summary.total_cost_usd in
-              let turns_str =
-                Printf.sprintf "%d turns" ms.summary.total_turns
-              in
-              Printf.sprintf "  %s  %s    %s"
-                (Setup_common.cyan
-                   (Printf.sprintf "%-30s" (ms.provider ^ ":" ^ ms.model)))
-                (Setup_common.green cost_str)
-                (Setup_common.dim turns_str))
+              [
+                ms.provider ^ ":" ^ ms.model;
+                Printf.sprintf "$%.4f" ms.summary.total_cost_usd;
+                string_of_int ms.summary.total_turns;
+                Request_stats.format_tokens ms.summary.total_prompt_tokens;
+                Request_stats.format_tokens ms.summary.total_completion_tokens;
+              ])
             models
         in
-        String.concat "\n" (Setup_common.bold "Model Costs" :: "" :: rows)
+        "Model Costs:\n" ^ Table_format.render model_columns rows
   | [ "provider" ] ->
       let providers = Request_stats.summary_by_provider ~db in
       if json_mode then
@@ -1642,18 +1667,39 @@ let cmd_costs args =
                 providers))
       else if providers = [] then "No cost data recorded yet."
       else
+        let provider_columns =
+          Table_format.
+            [
+              {
+                header = "PROVIDER";
+                align = Left;
+                min_width = 10;
+                flex = false;
+              };
+              { header = "COST"; align = Right; min_width = 8; flex = false };
+              { header = "TURNS"; align = Right; min_width = 5; flex = false };
+              { header = "PROMPT"; align = Right; min_width = 6; flex = false };
+              {
+                header = "COMPLETION";
+                align = Right;
+                min_width = 6;
+                flex = false;
+              };
+            ]
+        in
         let rows =
           List.map
             (fun (prov, (s : Request_stats.summary)) ->
-              let cost_str = Printf.sprintf "$%.4f" s.total_cost_usd in
-              let turns_str = Printf.sprintf "%d turns" s.total_turns in
-              Printf.sprintf "  %s  %s    %s"
-                (Setup_common.cyan (Printf.sprintf "%-20s" prov))
-                (Setup_common.green cost_str)
-                (Setup_common.dim turns_str))
+              [
+                prov;
+                Printf.sprintf "$%.4f" s.total_cost_usd;
+                string_of_int s.total_turns;
+                Request_stats.format_tokens s.total_prompt_tokens;
+                Request_stats.format_tokens s.total_completion_tokens;
+              ])
             providers
         in
-        String.concat "\n" (Setup_common.bold "Provider Costs" :: "" :: rows)
+        "Provider Costs:\n" ^ Table_format.render provider_columns rows
   | _ ->
       "Usage: clawq costs [subcommand] [--json]\n\n\
        Subcommands:\n\

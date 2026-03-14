@@ -947,7 +947,13 @@ let test_format_costs_plain_and_telegram () =
         (contains_str summary "Cost Summary");
       Alcotest.(check bool)
         "plain summary includes all time" true
-        (contains_str summary "All time:");
+        (contains_str summary "All time");
+      Alcotest.(check bool)
+        "plain summary has PERIOD header" true
+        (contains_str summary "PERIOD");
+      Alcotest.(check bool)
+        "plain summary has COST header" true
+        (contains_str summary "COST");
       let sessions =
         Slash_commands.format_costs ~connector:Format_adapter.Plain ~db
           Slash_commands.CostsSessions
@@ -966,11 +972,11 @@ let test_format_costs_plain_and_telegram () =
         "telegram heading" true
         (contains_str telegram "<b>Session Costs</b>");
       Alcotest.(check bool)
-        "telegram uses blockquote" true
-        (contains_str telegram "<blockquote expandable>");
+        "telegram uses pre code block" true
+        (contains_str telegram "<pre>");
       Alcotest.(check bool)
-        "telegram uses code formatting" true
-        (contains_str telegram "<code>telegram:1:user</code>"))
+        "telegram contains session key" true
+        (contains_str telegram "telegram:1:user"))
 
 let test_format_usage_plain_and_telegram () =
   with_request_stats_db (fun db ->
@@ -989,7 +995,10 @@ let test_format_usage_plain_and_telegram () =
         (contains_str summary "Usage Summary");
       Alcotest.(check bool)
         "plain usage includes all time" true
-        (contains_str summary "All time:");
+        (contains_str summary "All time");
+      Alcotest.(check bool)
+        "plain usage has TURNS header" true
+        (contains_str summary "TURNS");
       let sessions =
         Slash_commands.format_usage ~connector:Format_adapter.Plain ~db
           Slash_commands.UsageSessions
@@ -1011,11 +1020,11 @@ let test_format_usage_plain_and_telegram () =
         "telegram usage heading" true
         (contains_str telegram "<b>Session Usage</b>");
       Alcotest.(check bool)
-        "telegram usage uses blockquote" true
-        (contains_str telegram "<blockquote expandable>");
+        "telegram usage uses pre code block" true
+        (contains_str telegram "<pre>");
       Alcotest.(check bool)
-        "telegram usage uses code formatting" true
-        (contains_str telegram "<code>telegram:1:user</code>"))
+        "telegram usage contains session key" true
+        (contains_str telegram "telegram:1:user"))
 
 let test_model_bare_name () =
   match Slash_commands.handle "/model glm-5" with

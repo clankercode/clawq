@@ -179,7 +179,7 @@ let test_chat_costs_returns_cost_summary () =
         (contains_str response "Cost Summary");
       Alcotest.(check bool)
         "has all time row" true
-        (contains_str response "All time:"))
+        (contains_str response "All time"))
 
 let make_dummy_tool name description =
   {
@@ -302,7 +302,7 @@ let test_chat_usage_returns_usage_summary () =
         (contains_str response "Usage Summary");
       Alcotest.(check bool)
         "has all time row" true
-        (contains_str response "All time:"))
+        (contains_str response "All time"))
 
 let test_session_inject_rejects_missing_auth_token () =
   let config = Runtime_config.default in

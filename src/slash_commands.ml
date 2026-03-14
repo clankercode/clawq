@@ -582,62 +582,28 @@ let format_model_list ~connector ~models ~provider =
   Format_adapter.dispatch connector ~telegram_html:format_model_list_telegram
     ~default:format_model_list_plain ~models ~provider
 
-(* Rendering context for connector-aware output.
-   Plain connectors use identity functions; Telegram HTML uses markup wrappers.
-   [sub] formats a sub-item line (indented for plain, escaped for HTML).
-   [expandable] wraps a list of pre-formatted items into a collapsible block
-   (Telegram blockquote) or a flat double-newline-separated list (plain). *)
-type render_ctx = {
-  h : string -> string;
-  k : string -> string;
-  esc : string -> string;
-  sub : string -> string;
-  expandable : string list -> string;
-}
+let cost_table_row label (s : Request_stats.summary) =
+  [
+    label;
+    Printf.sprintf "$%.4f" s.total_cost_usd;
+    string_of_int s.total_turns;
+    Request_stats.format_tokens s.total_prompt_tokens;
+    Request_stats.format_tokens s.total_added_prompt_tokens;
+    Request_stats.format_tokens s.total_completion_tokens;
+  ]
 
-let telegram_ctx =
-  let esc = Format_adapter.escape Format_adapter.Telegram_html in
-  {
-    h = (fun s -> "<b>" ^ esc s ^ "</b>");
-    k = (fun s -> "<code>" ^ esc s ^ "</code>");
-    esc;
-    sub = esc;
-    expandable =
-      (fun items ->
-        "\n\n<blockquote expandable>\n" ^ String.concat "\n\n" items
-        ^ "\n</blockquote>");
-  }
-
-let ctx_of_connector connector =
-  match connector with
-  | Format_adapter.Telegram_html -> telegram_ctx
-  | _ ->
-      {
-        h = (fun s -> Format_adapter.bold connector s);
-        k = (fun s -> Format_adapter.code connector s);
-        esc = Format_adapter.escape connector;
-        sub = (fun s -> "  " ^ s);
-        expandable = (fun items -> "\n\n" ^ String.concat "\n\n" items);
-      }
-
-let format_cost_summary_line label (s : Request_stats.summary) =
-  Printf.sprintf "%s: $%.4f, %d turn%s, %s prompt (%s added), %s completion"
-    label s.total_cost_usd s.total_turns
-    (if s.total_turns = 1 then "" else "s")
-    (Request_stats.format_tokens s.total_prompt_tokens)
-    (Request_stats.format_tokens s.total_added_prompt_tokens)
-    (Request_stats.format_tokens s.total_completion_tokens)
-
-let format_usage_summary_line label (s : Request_stats.summary) =
-  Printf.sprintf "%s: %d turn%s, %s prompt (%s added), %s completion" label
-    s.total_turns
-    (if s.total_turns = 1 then "" else "s")
-    (Request_stats.format_tokens s.total_prompt_tokens)
-    (Request_stats.format_tokens s.total_added_prompt_tokens)
-    (Request_stats.format_tokens s.total_completion_tokens)
+let cost_summary_columns =
+  Table_format.
+    [
+      { header = "PERIOD"; align = Left; min_width = 12; flex = false };
+      { header = "COST"; align = Right; min_width = 8; flex = false };
+      { header = "TURNS"; align = Right; min_width = 5; flex = false };
+      { header = "PROMPT"; align = Right; min_width = 6; flex = false };
+      { header = "ADDED"; align = Right; min_width = 6; flex = false };
+      { header = "COMPLETION"; align = Right; min_width = 6; flex = false };
+    ]
 
 let format_costs ~connector ~db action =
-  let ctx = ctx_of_connector connector in
   match action with
   | CostsSummary ->
       let today =
@@ -654,86 +620,154 @@ let format_costs ~connector ~db action =
       let all = Request_stats.total_summary ~db in
       if all.total_turns = 0 then "No cost data recorded yet."
       else
-        String.concat "\n"
+        let rows =
           [
-            ctx.h "Cost Summary";
-            "";
-            ctx.esc (format_cost_summary_line "Today" today);
-            ctx.esc (format_cost_summary_line "Last 7 days" week);
-            ctx.esc (format_cost_summary_line "Last 30 days" month);
-            ctx.esc (format_cost_summary_line "All time" all);
+            cost_table_row "Today" today;
+            cost_table_row "Last 7 days" week;
+            cost_table_row "Last 30 days" month;
+            cost_table_row "All time" all;
           ]
+        in
+        Format_adapter.bold connector "Cost Summary"
+        ^ "\n"
+        ^ Format_adapter.code_block connector
+            (Table_format.render ~max_width:60 cost_summary_columns rows)
   | CostsSessions ->
       let sessions = Request_stats.summary_by_session ~db in
       if sessions = [] then "No cost data recorded yet."
       else
-        let items =
+        let session_columns =
+          Table_format.
+            [
+              { header = "SESSION"; align = Left; min_width = 10; flex = true };
+              { header = "COST"; align = Right; min_width = 8; flex = false };
+              { header = "TURNS"; align = Right; min_width = 5; flex = false };
+              { header = "PROMPT"; align = Right; min_width = 6; flex = false };
+              { header = "ADDED"; align = Right; min_width = 6; flex = false };
+              {
+                header = "COMPLETION";
+                align = Right;
+                min_width = 6;
+                flex = false;
+              };
+            ]
+        in
+        let rows =
           List.map
             (fun (ss : Request_stats.session_summary) ->
-              String.concat "\n"
-                [
-                  ctx.k ss.session_key;
-                  ctx.sub
-                    (Printf.sprintf "$%.4f, %d turn%s" ss.summary.total_cost_usd
-                       ss.summary.total_turns
-                       (if ss.summary.total_turns = 1 then "" else "s"));
-                  ctx.sub
-                    (Printf.sprintf "%s prompt (%s added), %s completion"
-                       (Request_stats.format_tokens
-                          ss.summary.total_prompt_tokens)
-                       (Request_stats.format_tokens
-                          ss.summary.total_added_prompt_tokens)
-                       (Request_stats.format_tokens
-                          ss.summary.total_completion_tokens));
-                ])
+              cost_table_row ss.session_key ss.summary)
             sessions
         in
-        ctx.h "Session Costs" ^ ctx.expandable items
+        Format_adapter.bold connector "Session Costs"
+        ^ "\n"
+        ^ Format_adapter.code_block connector
+            (Table_format.render ~max_width:60 session_columns rows)
   | CostsSession key ->
       let s = Request_stats.summary_for_session ~db ~session_key:key in
       if s.total_turns = 0 then
-        ctx.esc (Printf.sprintf "No cost data for session '%s'." key)
+        Printf.sprintf "No cost data for session '%s'." key
       else
-        String.concat "\n"
-          [
-            ctx.h (Printf.sprintf "Costs for %s" key);
-            "";
-            ctx.esc (format_cost_summary_line "Total" s);
-          ]
+        let rows = [ cost_table_row "Total" s ] in
+        Format_adapter.bold connector (Printf.sprintf "Costs for %s" key)
+        ^ "\n"
+        ^ Format_adapter.code_block connector
+            (Table_format.render ~max_width:60 cost_summary_columns rows)
   | CostsModel ->
       let models = Request_stats.summary_by_model ~db in
       if models = [] then "No cost data recorded yet."
       else
-        let items =
+        let model_columns =
+          Table_format.
+            [
+              { header = "MODEL"; align = Left; min_width = 15; flex = true };
+              { header = "COST"; align = Right; min_width = 8; flex = false };
+              { header = "TURNS"; align = Right; min_width = 5; flex = false };
+              { header = "PROMPT"; align = Right; min_width = 6; flex = false };
+              {
+                header = "COMPLETION";
+                align = Right;
+                min_width = 6;
+                flex = false;
+              };
+            ]
+        in
+        let rows =
           List.map
             (fun (ms : Request_stats.model_summary) ->
-              Printf.sprintf "%s  %s"
-                (ctx.k (ms.provider ^ ":" ^ ms.model))
-                (ctx.esc
-                   (Printf.sprintf "$%.4f, %d turn%s" ms.summary.total_cost_usd
-                      ms.summary.total_turns
-                      (if ms.summary.total_turns = 1 then "" else "s"))))
+              [
+                ms.provider ^ ":" ^ ms.model;
+                Printf.sprintf "$%.4f" ms.summary.total_cost_usd;
+                string_of_int ms.summary.total_turns;
+                Request_stats.format_tokens ms.summary.total_prompt_tokens;
+                Request_stats.format_tokens ms.summary.total_completion_tokens;
+              ])
             models
         in
-        ctx.h "Model Costs" ^ ctx.expandable items
+        Format_adapter.bold connector "Model Costs"
+        ^ "\n"
+        ^ Format_adapter.code_block connector
+            (Table_format.render ~max_width:60 model_columns rows)
   | CostsProvider ->
       let providers = Request_stats.summary_by_provider ~db in
       if providers = [] then "No cost data recorded yet."
       else
-        let items =
+        let provider_columns =
+          Table_format.
+            [
+              {
+                header = "PROVIDER";
+                align = Left;
+                min_width = 10;
+                flex = false;
+              };
+              { header = "COST"; align = Right; min_width = 8; flex = false };
+              { header = "TURNS"; align = Right; min_width = 5; flex = false };
+              { header = "PROMPT"; align = Right; min_width = 6; flex = false };
+              {
+                header = "COMPLETION";
+                align = Right;
+                min_width = 6;
+                flex = false;
+              };
+            ]
+        in
+        let rows =
           List.map
             (fun (provider, (s : Request_stats.summary)) ->
-              Printf.sprintf "%s  %s" (ctx.k provider)
-                (ctx.esc
-                   (Printf.sprintf "$%.4f, %d turn%s" s.total_cost_usd
-                      s.total_turns
-                      (if s.total_turns = 1 then "" else "s"))))
+              [
+                provider;
+                Printf.sprintf "$%.4f" s.total_cost_usd;
+                string_of_int s.total_turns;
+                Request_stats.format_tokens s.total_prompt_tokens;
+                Request_stats.format_tokens s.total_completion_tokens;
+              ])
             providers
         in
-        ctx.h "Provider Costs" ^ ctx.expandable items
+        Format_adapter.bold connector "Provider Costs"
+        ^ "\n"
+        ^ Format_adapter.code_block connector
+            (Table_format.render ~max_width:60 provider_columns rows)
+
+let usage_table_row label (s : Request_stats.summary) =
+  [
+    label;
+    string_of_int s.total_turns;
+    Request_stats.format_tokens s.total_prompt_tokens;
+    Request_stats.format_tokens s.total_added_prompt_tokens;
+    Request_stats.format_tokens s.total_completion_tokens;
+  ]
+
+let usage_summary_columns =
+  Table_format.
+    [
+      { header = "PERIOD"; align = Left; min_width = 12; flex = false };
+      { header = "TURNS"; align = Right; min_width = 5; flex = false };
+      { header = "PROMPT"; align = Right; min_width = 6; flex = false };
+      { header = "ADDED"; align = Right; min_width = 6; flex = false };
+      { header = "COMPLETION"; align = Right; min_width = 6; flex = false };
+    ]
 
 let format_usage ~connector ~db action =
-  let ctx = ctx_of_connector connector in
   match action with
   | UsageSummary ->
       let today =
@@ -750,85 +784,125 @@ let format_usage ~connector ~db action =
       let all = Request_stats.total_summary ~db in
       if all.total_turns = 0 then "No usage data recorded yet."
       else
-        String.concat "\n"
+        let rows =
           [
-            ctx.h "Usage Summary";
-            "";
-            ctx.esc (format_usage_summary_line "Today" today);
-            ctx.esc (format_usage_summary_line "Last 7 days" week);
-            ctx.esc (format_usage_summary_line "Last 30 days" month);
-            ctx.esc (format_usage_summary_line "All time" all);
+            usage_table_row "Today" today;
+            usage_table_row "Last 7 days" week;
+            usage_table_row "Last 30 days" month;
+            usage_table_row "All time" all;
           ]
+        in
+        Format_adapter.bold connector "Usage Summary"
+        ^ "\n"
+        ^ Format_adapter.code_block connector
+            (Table_format.render ~max_width:60 usage_summary_columns rows)
   | UsageSessions ->
       let sessions = Request_stats.summary_by_session ~db in
       if sessions = [] then "No usage data recorded yet."
       else
-        let items =
+        let session_columns =
+          Table_format.
+            [
+              { header = "SESSION"; align = Left; min_width = 10; flex = true };
+              { header = "TURNS"; align = Right; min_width = 5; flex = false };
+              { header = "PROMPT"; align = Right; min_width = 6; flex = false };
+              { header = "ADDED"; align = Right; min_width = 6; flex = false };
+              {
+                header = "COMPLETION";
+                align = Right;
+                min_width = 6;
+                flex = false;
+              };
+            ]
+        in
+        let rows =
           List.map
             (fun (ss : Request_stats.session_summary) ->
-              String.concat "\n"
-                [
-                  ctx.k ss.session_key;
-                  ctx.sub
-                    (Printf.sprintf "%d turn%s" ss.summary.total_turns
-                       (if ss.summary.total_turns = 1 then "" else "s"));
-                  ctx.sub
-                    (Printf.sprintf "%s prompt (%s added), %s completion"
-                       (Request_stats.format_tokens
-                          ss.summary.total_prompt_tokens)
-                       (Request_stats.format_tokens
-                          ss.summary.total_added_prompt_tokens)
-                       (Request_stats.format_tokens
-                          ss.summary.total_completion_tokens));
-                ])
+              usage_table_row ss.session_key ss.summary)
             sessions
         in
-        ctx.h "Session Usage" ^ ctx.expandable items
+        Format_adapter.bold connector "Session Usage"
+        ^ "\n"
+        ^ Format_adapter.code_block connector
+            (Table_format.render ~max_width:60 session_columns rows)
   | UsageSession key ->
       let s = Request_stats.summary_for_session ~db ~session_key:key in
       if s.total_turns = 0 then
-        ctx.esc (Printf.sprintf "No usage data for session '%s'." key)
+        Printf.sprintf "No usage data for session '%s'." key
       else
-        String.concat "\n"
-          [
-            ctx.h (Printf.sprintf "Usage for %s" key);
-            "";
-            ctx.esc (format_usage_summary_line "Total" s);
-          ]
+        let rows = [ usage_table_row "Total" s ] in
+        Format_adapter.bold connector (Printf.sprintf "Usage for %s" key)
+        ^ "\n"
+        ^ Format_adapter.code_block connector
+            (Table_format.render ~max_width:60 usage_summary_columns rows)
   | UsageModel ->
       let models = Request_stats.summary_by_model ~db in
       if models = [] then "No usage data recorded yet."
       else
-        let items =
+        let model_columns =
+          Table_format.
+            [
+              { header = "MODEL"; align = Left; min_width = 15; flex = true };
+              { header = "TURNS"; align = Right; min_width = 5; flex = false };
+              { header = "PROMPT"; align = Right; min_width = 6; flex = false };
+              {
+                header = "COMPLETION";
+                align = Right;
+                min_width = 6;
+                flex = false;
+              };
+            ]
+        in
+        let rows =
           List.map
             (fun (ms : Request_stats.model_summary) ->
-              Printf.sprintf "%s  %s"
-                (ctx.k (ms.provider ^ ":" ^ ms.model))
-                (ctx.esc
-                   (Printf.sprintf "%d turn%s, %s prompt, %s completion"
-                      ms.summary.total_turns
-                      (if ms.summary.total_turns = 1 then "" else "s")
-                      (Request_stats.format_tokens
-                         ms.summary.total_prompt_tokens)
-                      (Request_stats.format_tokens
-                         ms.summary.total_completion_tokens))))
+              [
+                ms.provider ^ ":" ^ ms.model;
+                string_of_int ms.summary.total_turns;
+                Request_stats.format_tokens ms.summary.total_prompt_tokens;
+                Request_stats.format_tokens ms.summary.total_completion_tokens;
+              ])
             models
         in
-        ctx.h "Model Usage" ^ ctx.expandable items
+        Format_adapter.bold connector "Model Usage"
+        ^ "\n"
+        ^ Format_adapter.code_block connector
+            (Table_format.render ~max_width:60 model_columns rows)
   | UsageProvider ->
       let providers = Request_stats.summary_by_provider ~db in
       if providers = [] then "No usage data recorded yet."
       else
-        let items =
+        let provider_columns =
+          Table_format.
+            [
+              {
+                header = "PROVIDER";
+                align = Left;
+                min_width = 10;
+                flex = false;
+              };
+              { header = "TURNS"; align = Right; min_width = 5; flex = false };
+              { header = "PROMPT"; align = Right; min_width = 6; flex = false };
+              {
+                header = "COMPLETION";
+                align = Right;
+                min_width = 6;
+                flex = false;
+              };
+            ]
+        in
+        let rows =
           List.map
             (fun (provider, (s : Request_stats.summary)) ->
-              Printf.sprintf "%s  %s" (ctx.k provider)
-                (ctx.esc
-                   (Printf.sprintf "%d turn%s, %s prompt, %s completion"
-                      s.total_turns
-                      (if s.total_turns = 1 then "" else "s")
-                      (Request_stats.format_tokens s.total_prompt_tokens)
-                      (Request_stats.format_tokens s.total_completion_tokens))))
+              [
+                provider;
+                string_of_int s.total_turns;
+                Request_stats.format_tokens s.total_prompt_tokens;
+                Request_stats.format_tokens s.total_completion_tokens;
+              ])
             providers
         in
-        ctx.h "Provider Usage" ^ ctx.expandable items
+        Format_adapter.bold connector "Provider Usage"
+        ^ "\n"
+        ^ Format_adapter.code_block connector
+            (Table_format.render ~max_width:60 provider_columns rows)
