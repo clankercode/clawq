@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-14T14:27:27Z"
+claimed_by: cli-user
+completed_at: "2026-03-14T14:43:03Z"
 complexity: medium
 depends_on: []
+duration_minutes: 15.614571867466667
 estimate_hours: 1
 id: B449
 priority: high
-status: pending
+started_at: "2026-03-14T14:27:27Z"
+status: done
 tags: []
 title: teams should support file uploading so /debug_dump_chat works
 ---

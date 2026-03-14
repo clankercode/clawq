@@ -312,6 +312,62 @@ let test_not_slash_after_mention_strip () =
   | Slash_commands.NotACommand -> ()
   | _ -> Alcotest.fail "expected NotACommand for normal message"
 
+let test_build_attachment_upload_body () =
+  let body =
+    Teams.build_attachment_upload_body ~filename:"test.json"
+      ~content_type:"application/json" ~content:"hello world"
+  in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  Alcotest.(check string)
+    "type" "application/json"
+    (json |> member "type" |> to_string);
+  Alcotest.(check string) "name" "test.json" (json |> member "name" |> to_string);
+  let b64 = json |> member "originalBase64" |> to_string in
+  Alcotest.(check string)
+    "base64 roundtrip" "hello world" (Base64.decode_exn b64)
+
+let test_build_message_with_attachment () =
+  let body =
+    Teams.build_message_with_attachment ~filename:"dump.json"
+      ~content_type:"application/json"
+      ~content_url:"https://svc/v3/attachments/att-1/views/original"
+  in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  Alcotest.(check string) "type" "message" (json |> member "type" |> to_string);
+  Alcotest.(check string) "text" "dump.json" (json |> member "text" |> to_string);
+  let attachments = json |> member "attachments" |> to_list in
+  Alcotest.(check int) "one attachment" 1 (List.length attachments);
+  let att = List.hd attachments in
+  Alcotest.(check string)
+    "contentType" "application/json"
+    (att |> member "contentType" |> to_string);
+  Alcotest.(check string)
+    "contentUrl" "https://svc/v3/attachments/att-1/views/original"
+    (att |> member "contentUrl" |> to_string);
+  Alcotest.(check string) "name" "dump.json" (att |> member "name" |> to_string)
+
+let test_debug_dump_filename_sanitization () =
+  let safe_key =
+    String.map
+      (fun c ->
+        match c with
+        | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '-' -> c
+        | _ -> '_')
+      "teams:personal:19:abc@thread.v2"
+  in
+  Alcotest.(check string)
+    "sanitized key" "teams_personal_19_abc_thread_v2" safe_key;
+  let filename = Printf.sprintf "session_%s_%d.json" safe_key 1710500000 in
+  Alcotest.(check bool)
+    "filename has no special chars" true
+    (String.to_seq filename
+    |> Seq.for_all (fun c ->
+        match c with
+        | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '_' | '-' | '.' -> true
+        | _ -> false))
+
 let suite =
   [
     Alcotest.test_case "parse_activity returns record" `Quick
@@ -359,4 +415,10 @@ let suite =
       test_not_slash_after_mention_strip;
     Alcotest.test_case "build_reply_body normalizes tables" `Quick
       test_build_reply_body_normalizes_tables;
+    Alcotest.test_case "build_attachment_upload_body" `Quick
+      test_build_attachment_upload_body;
+    Alcotest.test_case "build_message_with_attachment" `Quick
+      test_build_message_with_attachment;
+    Alcotest.test_case "debug dump filename sanitization" `Quick
+      test_debug_dump_filename_sanitization;
   ]

@@ -561,6 +561,9 @@ clawq channel              # confirm teams shows as configured
   receive a notification.
 - **Native markdown tables** --- slash commands like `/status`, `/costs`, and
   `/usage` render with native markdown tables in Teams for clean formatting.
+- **File attachments** --- `/debug_dump_chat` sends full session state as a
+  JSON file attachment via the Bot Framework attachment upload API, instead of
+  truncating to text.
 - **Notification suppression** --- tool status messages (thinking indicators,
   tool call updates) do not trigger Teams notifications; only final replies do.
 

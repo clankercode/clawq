@@ -456,6 +456,115 @@ let send_adaptive_card ~(config : Runtime_config.teams_config) ~service_url
               conversation_id resp);
       Lwt.return_unit
 
+(* Build JSON body for the Bot Framework attachment upload endpoint. *)
+let build_attachment_upload_body ~filename ~content_type ~content =
+  let encoded = Base64.encode_exn content in
+  `Assoc
+    [
+      ("type", `String content_type);
+      ("name", `String filename);
+      ("originalBase64", `String encoded);
+    ]
+  |> Yojson.Safe.to_string
+
+(* Build a message activity JSON body with a file attachment reference. *)
+let build_message_with_attachment ~filename ~content_type ~content_url =
+  `Assoc
+    [
+      ("type", `String "message");
+      ("text", `String filename);
+      ( "attachments",
+        `List
+          [
+            `Assoc
+              [
+                ("contentType", `String content_type);
+                ("contentUrl", `String content_url);
+                ("name", `String filename);
+              ];
+          ] );
+    ]
+  |> Yojson.Safe.to_string
+
+(* Upload an attachment to a conversation via Bot Framework REST API.
+   Returns Ok content_url on success, Error msg on failure. *)
+let upload_attachment ~(config : Runtime_config.teams_config) ~service_url
+    ~conversation_id ~filename ~content_type ~content () =
+  let open Lwt.Syntax in
+  let* token_opt = fetch_token ~config in
+  match token_opt with
+  | None -> Lwt.return (Error "No OAuth token available")
+  | Some token ->
+      let uri =
+        Printf.sprintf "%s/v3/conversations/%s/attachments"
+          (String.trim service_url)
+          (Uri.pct_encode conversation_id)
+      in
+      let headers = [ ("Authorization", "Bearer " ^ token) ] in
+      let body =
+        build_attachment_upload_body ~filename ~content_type ~content
+      in
+      let* status, resp = Http_client.post_json ~uri ~headers ~body in
+      if status >= 200 && status < 300 then
+        try
+          let json = Yojson.Safe.from_string resp in
+          let id = Yojson.Safe.Util.(json |> member "id" |> to_string) in
+          let content_url =
+            Printf.sprintf "%s/v3/attachments/%s/views/original"
+              (String.trim service_url) (Uri.pct_encode id)
+          in
+          Logs.info (fun m ->
+              m "Teams: uploaded attachment %s conv=%s" filename conversation_id);
+          Lwt.return (Ok content_url)
+        with exn ->
+          Lwt.return
+            (Error
+               (Printf.sprintf "Failed to parse upload response: %s"
+                  (Printexc.to_string exn)))
+      else
+        Lwt.return
+          (Error (Printf.sprintf "Upload failed (HTTP %d): %s" status resp))
+
+(* Send a file as an attachment in a Teams message.
+   Uploads via Bot Framework attachment API, then sends a message
+   referencing the uploaded content URL. *)
+let send_file ~(config : Runtime_config.teams_config) ~service_url
+    ~conversation_id ~reply_to_id ~filename ~content ~content_type () =
+  let open Lwt.Syntax in
+  let* upload_result =
+    upload_attachment ~config ~service_url ~conversation_id ~filename
+      ~content_type ~content ()
+  in
+  match upload_result with
+  | Error msg -> Lwt.return (Error msg)
+  | Ok content_url -> (
+      let* token_opt = fetch_token ~config in
+      match token_opt with
+      | None -> Lwt.return (Error "No OAuth token available for send")
+      | Some token ->
+          let uri =
+            if reply_to_id = "" then
+              Printf.sprintf "%s/v3/conversations/%s/activities"
+                (String.trim service_url)
+                (Uri.pct_encode conversation_id)
+            else
+              Printf.sprintf "%s/v3/conversations/%s/activities/%s"
+                (String.trim service_url)
+                (Uri.pct_encode conversation_id)
+                (Uri.pct_encode reply_to_id)
+          in
+          let headers = [ ("Authorization", "Bearer " ^ token) ] in
+          let body =
+            build_message_with_attachment ~filename ~content_type ~content_url
+          in
+          let* status, resp = Http_client.post_json ~uri ~headers ~body in
+          if status >= 200 && status < 300 then Lwt.return (Ok ())
+          else
+            Lwt.return
+              (Error
+                 (Printf.sprintf "Send with attachment failed (HTTP %d): %s"
+                    status resp)))
+
 let make_status_notifier ~(config : Runtime_config.teams_config) ~service_url
     ~conversation_id ~reply_to_id : Status_message.notifier =
   {
@@ -876,18 +985,35 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                     Session.fork_and_run session_manager ~parent_key:key ~prompt
                       ~send_reply:send_text;
                     Lwt.return_unit
-                | DebugDumpChat ->
+                | DebugDumpChat -> (
                     let content = Session.dump_json session_manager ~key in
-                    let max_len = 1800 in
-                    let text =
-                      if String.length content <= max_len then content
-                      else
-                        "Session dump (truncated — full dump not yet supported \
-                         for this connector):\n"
-                        ^ String.sub content 0 max_len
-                        ^ "\n..."
+                    let timestamp =
+                      Int64.to_int (Int64.of_float (Unix.gettimeofday ()))
                     in
-                    send_text text
+                    let safe_key =
+                      String.map
+                        (fun c ->
+                          match c with
+                          | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '-' -> c
+                          | _ -> '_')
+                        key
+                    in
+                    let filename =
+                      Printf.sprintf "session_%s_%d.json" safe_key timestamp
+                    in
+                    let* result =
+                      send_file ~config ~service_url:effective_service_url
+                        ~conversation_id ~reply_to_id:activity_id ~filename
+                        ~content ~content_type:"application/json" ()
+                    in
+                    match result with
+                    | Ok () -> Lwt.return_unit
+                    | Error err ->
+                        send_text
+                          (Printf.sprintf
+                             "Failed to send debug dump as file: %s\n\n\
+                              Dump length: %d bytes"
+                             err (String.length content)))
                 | Tools ->
                     let text =
                       match Session.get_tool_registry session_manager with

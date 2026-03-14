@@ -163,13 +163,127 @@ The `mentioned.id` is the user's AAD object ID from `from.id` in the inbound act
 - Maximum message length: **28,672 characters** (28 KB).
 - Split long messages at a whitespace boundary and send as multiple activities.
 
+## Editing an Activity
+
+Update an existing activity (e.g. to edit a status message in-place):
+
+```
+PUT {serviceUrl}/v3/conversations/{conversation_id}/activities/{activity_id}
+Authorization: Bearer {access_token}
+Content-Type: application/json
+
+{
+  "type": "message",
+  "textFormat": "markdown",
+  "text": "Updated text"
+}
+```
+
+Returns HTTP 200 on success.
+
+## Deleting an Activity
+
+Remove a previously sent activity:
+
+```
+DELETE {serviceUrl}/v3/conversations/{conversation_id}/activities/{activity_id}
+Authorization: Bearer {access_token}
+```
+
+Returns HTTP 200 on success.
+
+## Typing Indicator
+
+Send a typing indicator to show the bot is working:
+
+```
+POST {serviceUrl}/v3/conversations/{conversation_id}/activities
+Authorization: Bearer {access_token}
+Content-Type: application/json
+
+{
+  "type": "typing"
+}
+```
+
+## Sending Adaptive Cards
+
+Send a rich card by including an `attachments` array in the activity:
+
+```json
+{
+  "type": "message",
+  "attachments": [
+    {
+      "contentType": "application/vnd.microsoft.card.adaptive",
+      "content": {
+        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+        "type": "AdaptiveCard",
+        "version": "1.4",
+        "body": [ ... ]
+      }
+    }
+  ]
+}
+```
+
+## Uploading Attachments
+
+Upload a file to a conversation via the Bot Framework attachment endpoint:
+
+```
+POST {serviceUrl}/v3/conversations/{conversation_id}/attachments
+Authorization: Bearer {access_token}
+Content-Type: application/json
+
+{
+  "type": "application/json",
+  "name": "filename.json",
+  "originalBase64": "<base64-encoded-content>"
+}
+```
+
+Response:
+```json
+{
+  "id": "<attachment_id>"
+}
+```
+
+The uploaded attachment can be referenced via:
+```
+{serviceUrl}/v3/attachments/{attachment_id}/views/original
+```
+
+## Sending File Attachments
+
+After uploading an attachment, send a message referencing it:
+
+```json
+{
+  "type": "message",
+  "text": "filename.json",
+  "attachments": [
+    {
+      "contentType": "application/json",
+      "contentUrl": "{serviceUrl}/v3/attachments/{attachment_id}/views/original",
+      "name": "filename.json"
+    }
+  ]
+}
+```
+
+This is used by `/debug_dump_chat` to send session dumps as downloadable files.
+
 ## Key Bot Framework Endpoints
 
 | Endpoint | Purpose |
 |----------|---------|
 | `https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token` | OAuth token fetch |
 | `{serviceUrl}/v3/conversations/{conv_id}/activities` | Send activity (new) |
-| `{serviceUrl}/v3/conversations/{conv_id}/activities/{activity_id}` | Reply to activity |
+| `{serviceUrl}/v3/conversations/{conv_id}/activities/{activity_id}` | Reply / edit / delete activity |
+| `{serviceUrl}/v3/conversations/{conv_id}/attachments` | Upload attachment |
+| `{serviceUrl}/v3/attachments/{att_id}/views/original` | Retrieve uploaded attachment |
 
 ## Azure Setup Steps
 

@@ -154,6 +154,15 @@ Maximum message size: **28,672 characters** per activity.
 
 Replies longer than this limit are split at whitespace boundaries and sent as multiple sequential activities to the same conversation.
 
+## File Attachments
+
+The `/debug_dump_chat` command sends session state as a JSON file attachment using the Bot Framework attachment upload API:
+
+1. File content is base64-encoded and uploaded to `POST {serviceUrl}/v3/conversations/{id}/attachments`.
+2. A message activity is sent referencing the uploaded attachment URL.
+
+If the upload fails, an error message with the dump size is sent as text instead.
+
 ## How It Works (Request Flow)
 
 1. Teams POSTs a JSON `Activity` to your webhook path.
