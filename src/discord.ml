@@ -216,6 +216,19 @@ let delete_message ~bot_token ~channel_id ~message_id =
   in
   Lwt.return_unit
 
+(* Send a typing indicator to a Discord channel.
+   POST /channels/{channel_id}/typing — indicator lasts ~10 seconds. *)
+let trigger_typing ~bot_token ~channel_id =
+  let open Lwt.Syntax in
+  let route = "POST /channels/" ^ channel_id ^ "/typing" in
+  let uri = Printf.sprintf "%s/channels/%s/typing" api_base channel_id in
+  let headers = [ ("Authorization", "Bot " ^ bot_token) ] in
+  let* _status, _body =
+    discord_rest_call ~route ~f:(fun () ->
+        Http_client.post_json_with_headers ~uri ~headers ~body:"")
+  in
+  Lwt.return_unit
+
 let make_status_notifier ~bot_token ~channel_id : Status_message.notifier =
   {
     send =
@@ -463,6 +476,15 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
     else
       let key =
         session_key ~channel_id:msg.channel_id ~author_id:msg.author_id
+      in
+      (* Ensure a typing indicator watcher is running for this session.
+         Discord typing indicator lasts ~10s; we refresh every 8s. *)
+      let _typing_watcher =
+        Typing_indicator.ensure_session_typing_watcher ~session_mgr ~key
+          ~send_action:(fun () ->
+            trigger_typing ~bot_token:discord_config.bot_token
+              ~channel_id:msg.channel_id)
+          ~interval:8.0 ~idle_timeout:300.0
       in
       match Slash_commands.handle msg.content with
       | Reply text ->

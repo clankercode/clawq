@@ -185,6 +185,31 @@ let verify_auth ~(config : Runtime_config.teams_config) auth_header =
       Lwt.return (Error "Missing or malformed Authorization: Bearer header")
   | Some token -> Lwt.return (check_jwt_claims ~config token)
 
+(* Send a typing indicator via Bot Framework REST API.
+   Posts a {"type":"typing"} activity to the conversation. *)
+let send_typing_activity ~(config : Runtime_config.teams_config) ~service_url
+    ~conversation_id =
+  let open Lwt.Syntax in
+  let* token_opt = fetch_token ~config in
+  match token_opt with
+  | None -> Lwt.return_unit
+  | Some token ->
+      let uri =
+        Printf.sprintf "%s/v3/conversations/%s/activities"
+          (String.trim service_url)
+          (Uri.pct_encode conversation_id)
+      in
+      let headers = [ ("Authorization", "Bearer " ^ token) ] in
+      let body =
+        `Assoc [ ("type", `String "typing") ] |> Yojson.Safe.to_string
+      in
+      let* status, _resp = Http_client.post_json ~uri ~headers ~body in
+      if status < 200 || status >= 300 then
+        Logs.debug (fun m ->
+            m "Teams: typing indicator failed (HTTP %d) conv=%s" status
+              conversation_id);
+      Lwt.return_unit
+
 (* Split text into chunks of at most max_message_chars, breaking at whitespace *)
 let split_message text =
   if String.length text <= max_message_chars then [ text ]
@@ -483,22 +508,44 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                     ~service_url:effective_service_url ~conversation_id
                     ~reply_to_id:activity_id ~text ?mention ()
                 in
+                (* Ensure a typing indicator watcher is running for this
+                   session. The watcher tracks Session live_activity and
+                   sends typing activities while the session is active. *)
+                let typing_watcher =
+                  Typing_indicator.ensure_session_typing_watcher
+                    ~session_mgr:session_manager ~key
+                    ~send_action:(fun () ->
+                      send_typing_activity ~config
+                        ~service_url:effective_service_url ~conversation_id)
+                    ~interval:3.0 ~idle_timeout:300.0
+                in
+                let refresh_typing () = typing_watcher.refresh () in
                 match Slash_commands.handle text with
                 | NotACommand -> (
                     (* Register alerting notifier for ask_user_question *)
                     Session.register_alert_channel_notifier session_manager ~key
                       (fun reply_text ->
-                        send_reply ~alert:true ~config
-                          ~service_url:effective_service_url ~conversation_id
-                          ~reply_to_id:activity_id ~text:reply_text ?mention ());
+                        let* () =
+                          send_reply ~alert:true ~config
+                            ~service_url:effective_service_url ~conversation_id
+                            ~reply_to_id:activity_id ~text:reply_text ?mention
+                            ()
+                        in
+                        refresh_typing ();
+                        Lwt.return_unit);
                     let* result =
                       Session.with_registered_notifier session_manager ~key
                         ~notify:(fun reply_text ->
                           (* No mention on intermediate updates — mention only
                              on the final response to avoid repeated tagging. *)
-                          send_reply ~alert:false ~config
-                            ~service_url:effective_service_url ~conversation_id
-                            ~reply_to_id:activity_id ~text:reply_text ())
+                          let* () =
+                            send_reply ~alert:false ~config
+                              ~service_url:effective_service_url
+                              ~conversation_id ~reply_to_id:activity_id
+                              ~text:reply_text ()
+                          in
+                          refresh_typing ();
+                          Lwt.return_unit)
                         (fun () ->
                           Lwt.catch
                             (fun () ->

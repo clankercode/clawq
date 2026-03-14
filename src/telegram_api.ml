@@ -235,9 +235,8 @@ let format_tool_result_detail ~name ~result =
 let pending_text_updates : (string, pending_text_update) Hashtbl.t =
   Hashtbl.create 64
 
-type typing_watcher = { refresh : unit -> unit }
+type typing_watcher = Typing_indicator.typing_watcher
 
-let typing_watchers : (string, typing_watcher) Hashtbl.t = Hashtbl.create 64
 let duplicate_update_ttl_seconds = 600.0
 let text_coalesce_window_seconds = ref 0.15
 
@@ -774,80 +773,14 @@ let with_typing_deferred ~bot_token ~chat_id ~grace p =
       send_chat_action ~bot_token ~chat_id ~action:"typing")
     ~interval:3.0 ~grace p
 
-let rec typing_loop_live_activity ~current_activity ~wait_for_change
-    ~wait_for_refresh ~send_action ~interval ~idle_timeout () =
-  let open Lwt.Syntax in
-  let rec wait_until_active snapshot =
-    if snapshot.Session.active then keep_active snapshot
-    else
-      let* next =
-        Lwt.pick
-          [
-            (let* snapshot =
-               wait_for_change ~after_generation:snapshot.Session.generation
-             in
-             Lwt.return (`Changed snapshot));
-            (let* () = Lwt_unix.sleep idle_timeout in
-             Lwt.return `Idle_timeout);
-          ]
-      in
-      match next with
-      | `Changed snapshot -> wait_until_active snapshot
-      | `Idle_timeout -> Lwt.return_unit
-  and keep_active snapshot =
-    if not snapshot.Session.active then wait_until_active snapshot
-    else
-      let* () =
-        Lwt.catch (fun () -> send_action ()) (fun _exn -> Lwt.return_unit)
-      in
-      let* next =
-        Lwt.pick
-          [
-            (let* snapshot =
-               wait_for_change ~after_generation:snapshot.Session.generation
-             in
-             Lwt.return (`Changed snapshot));
-            (let* () =
-               Lwt.pick [ Lwt_unix.sleep interval; wait_for_refresh () ]
-             in
-             let* snapshot = current_activity () in
-             Lwt.return (`Tick snapshot));
-          ]
-      in
-      match next with
-      | `Changed snapshot -> keep_active snapshot
-      | `Tick snapshot -> keep_active snapshot
-  in
-  let* snapshot = current_activity () in
-  wait_until_active snapshot
+let typing_loop_live_activity = Typing_indicator.typing_loop_live_activity
 
 let ensure_session_typing_watcher ~(session_mgr : Session.t) ~key ~bot_token
     ~chat_id =
-  match Hashtbl.find_opt typing_watchers key with
-  | Some watcher -> watcher
-  | None ->
-      let refresh_trigger = Lwt_condition.create () in
-      let watcher =
-        { refresh = (fun () -> Lwt_condition.broadcast refresh_trigger ()) }
-      in
-      Hashtbl.replace typing_watchers key watcher;
-      Lwt.async (fun () ->
-          Lwt.finalize
-            (fun () ->
-              typing_loop_live_activity
-                ~current_activity:(fun () ->
-                  Session.current_live_activity session_mgr ~key)
-                ~wait_for_change:(fun ~after_generation ->
-                  Session.wait_for_live_activity_change session_mgr ~key
-                    ~after_generation)
-                ~wait_for_refresh:(fun () -> Lwt_condition.wait refresh_trigger)
-                ~send_action:(fun () ->
-                  send_chat_action ~bot_token ~chat_id ~action:"typing")
-                ~interval:3.0 ~idle_timeout:300.0 ())
-            (fun () ->
-              Hashtbl.remove typing_watchers key;
-              Lwt.return_unit));
-      watcher
+  Typing_indicator.ensure_session_typing_watcher ~session_mgr ~key
+    ~send_action:(fun () ->
+      send_chat_action ~bot_token ~chat_id ~action:"typing")
+    ~interval:3.0 ~idle_timeout:300.0
 
 let send_message_with_id ?(disable_notification = true) ?parse_mode ~bot_token
     ~chat_id ~text () =

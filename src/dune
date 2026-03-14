@@ -66,6 +66,7 @@
   rich_message
   channel
   channel_util
+  typing_indicator
   slash_commands
   totp
   cost_tracker

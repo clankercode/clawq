@@ -88,6 +88,7 @@
   test_telegram_reactions
   test_telegram_status
   test_telegram_typing
+  test_typing_indicator
   test_tools
   test_tools_security
   test_totp
