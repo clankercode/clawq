@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B454
+priority: high
+status: pending
+tags: []
+title: 'docs chat log viewer: tool calls (making the call, not the response) aren''t shown.'
+---
+
+docs chat log viewer: tool calls (making the call, not the response) aren't shown.
