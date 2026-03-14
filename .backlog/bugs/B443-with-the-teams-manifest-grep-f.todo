@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B443
+priority: high
+status: pending
+tags: []
+title: With the teams manifest (grep for commandLists), let's deprioritize tools, and include /fork_and instead
+---
+
+With the teams manifest (grep for commandLists), let's deprioritize tools, and include /fork_and instead
