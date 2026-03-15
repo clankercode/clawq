@@ -7,6 +7,11 @@ let generate_callback_id ~index ~label =
   let hash = Digest.to_hex (Digest.string (label ^ nonce)) in
   Printf.sprintf "cb_%d_%s" index (String.sub hash 0 8)
 
+let send_message_delivery_note =
+  " The message has been delivered to the user asynchronously — you do not \
+   need to repeat the same information in your reply unless the user \
+   explicitly asked for a direct answer."
+
 let send_message ~(send_fn : (text:string -> unit Lwt.t) option)
     ~(rich_send_fn :
        (session_key:string -> Rich_message.t -> Rich_message.send_result Lwt.t)
@@ -105,8 +110,9 @@ let send_message ~(send_fn : (text:string -> unit Lwt.t) option)
                     Lwt.return
                       (Printf.sprintf
                          "Message sent with %d button(s). message_id=%s \
-                          callback_ids=[%s]"
-                         (List.length buttons) result.message_id ids))
+                          callback_ids=[%s]%s"
+                         (List.length buttons) result.message_id ids
+                         send_message_delivery_note))
                   (fun exn ->
                     Lwt.return
                       ("Error sending rich message: " ^ Printexc.to_string exn))
@@ -123,8 +129,8 @@ let send_message ~(send_fn : (text:string -> unit Lwt.t) option)
                         Lwt.return
                           (Printf.sprintf
                              "Message sent (buttons rendered as text). \
-                              callback_ids=[%s]"
-                             ids))
+                              callback_ids=[%s]%s"
+                             ids send_message_delivery_note))
                       (fun exn ->
                         Lwt.return
                           ("Error sending message: " ^ Printexc.to_string exn))
@@ -141,7 +147,7 @@ let send_message ~(send_fn : (text:string -> unit Lwt.t) option)
                     let* _result =
                       rsf ~session_key:sk (Rich_message.Text text)
                     in
-                    Lwt.return "Message sent")
+                    Lwt.return ("Message sent." ^ send_message_delivery_note))
                   (fun exn ->
                     Lwt.return
                       ("Error sending message: " ^ Printexc.to_string exn))
@@ -156,7 +162,7 @@ let send_message ~(send_fn : (text:string -> unit Lwt.t) option)
                       (fun () ->
                         let open Lwt.Syntax in
                         let* () = f ~text in
-                        Lwt.return "Message sent")
+                        Lwt.return ("Message sent." ^ send_message_delivery_note))
                       (fun exn ->
                         Lwt.return
                           ("Error sending message: " ^ Printexc.to_string exn))));

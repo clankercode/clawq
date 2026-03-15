@@ -502,7 +502,9 @@ let test_send_message_uses_send_fn_over_send_progress () =
            }
          (`Assoc [ ("text", `String "status update") ]))
   in
-  Alcotest.(check string) "tool result" "Message sent" result;
+  Alcotest.(check bool)
+    "tool result starts with Message sent" true
+    (String.starts_with ~prefix:"Message sent." result);
   Alcotest.(check (list string))
     "send_fn used" [ "status update" ] (List.rev !send_fn_called);
   Alcotest.(check bool) "send_progress not used" false !send_progress_called
@@ -520,7 +522,9 @@ let test_send_message_falls_back_to_notify_channel () =
   let result =
     Lwt_main.run (tool.invoke (`Assoc [ ("text", `String "fallback update") ]))
   in
-  Alcotest.(check string) "tool result" "Message sent" result;
+  Alcotest.(check bool)
+    "tool result starts with Message sent" true
+    (String.starts_with ~prefix:"Message sent." result);
   Alcotest.(check (list string))
     "fallback send used" [ "fallback update" ] (List.rev !sent)
 
@@ -642,7 +646,9 @@ let test_send_message_plain_text_via_rich_notifier () =
            }
          (`Assoc [ ("text", `String "plain text update") ]))
   in
-  Alcotest.(check string) "tool result" "Message sent" result;
+  Alcotest.(check bool)
+    "tool result starts with Message sent" true
+    (String.starts_with ~prefix:"Message sent." result);
   Alcotest.(check bool) "send_fn not called" false !send_fn_called;
   match !rich_received with
   | Some (Rich_message.Text text) ->
@@ -670,10 +676,30 @@ let test_send_message_plain_text_rich_fallback_no_session () =
   let result =
     Lwt_main.run (tool.invoke (`Assoc [ ("text", `String "no session msg") ]))
   in
-  Alcotest.(check string) "tool result" "Message sent" result;
+  Alcotest.(check bool)
+    "tool result starts with Message sent" true
+    (String.starts_with ~prefix:"Message sent." result);
   Alcotest.(check bool) "rich_send_fn not called" false !rich_send_fn_called;
   Alcotest.(check (list string))
     "send_fn used as fallback" [ "no session msg" ] (List.rev !send_fn_called)
+
+let test_send_message_success_includes_no_repeat_guidance () =
+  let tool =
+    Tools_builtin.send_message ~rich_send_fn:None
+      ~send_fn:(Some (fun ~text:_ -> Lwt.return_unit))
+  in
+  let result =
+    Lwt_main.run (tool.invoke (`Assoc [ ("text", `String "test msg") ]))
+  in
+  Alcotest.(check bool)
+    "result says message delivered" true
+    (contains result "delivered");
+  Alcotest.(check bool)
+    "result says not to repeat" true
+    (contains result "do not need to repeat");
+  Alcotest.(check bool)
+    "result preserves explicit-answer escape hatch" true
+    (contains result "unless the user explicitly asked")
 
 let test_send_poll_rich_notifier () =
   let received = ref None in
@@ -2518,6 +2544,8 @@ let suite =
       test_send_message_plain_text_via_rich_notifier;
     Alcotest.test_case "send_message plain text rich fallback no session" `Quick
       test_send_message_plain_text_rich_fallback_no_session;
+    Alcotest.test_case "send_message success includes no-repeat guidance" `Quick
+      test_send_message_success_includes_no_repeat_guidance;
     Alcotest.test_case "send_poll with rich notifier" `Quick
       test_send_poll_rich_notifier;
     Alcotest.test_case "send_poll text fallback" `Quick
