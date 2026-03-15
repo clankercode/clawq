@@ -1,0 +1,24 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 0.5
+id: B492
+priority: high
+status: pending
+tags: []
+title: 'shell_exec reliability: enforce ''command'' parameter and improve error message'
+---
+Problem
+Agent repeatedly omits the 'command' parameter when calling shell_exec, causing wasted turns and frustration. The tool should be harder to misuse.
+
+Why this matters
+shell_exec is a frequently used tool, and repeated parameter-omission errors degrade user experience and waste turns. The current error message is generic and does not guide the agent toward correct usage.
+
+Acceptance criteria
+- The 'command' parameter is enforced at tool-invocation level so it is impossible to call shell_exec without providing it
+- If omission somehow still occurs, the error message includes an example like: shell_exec(command="ls -la")
+- At least one test covers the enforced-parameter behavior
+
+Notes
+- Agent repeatedly called shell_exec with empty/missing command parameter in a recent Teams session, receiving "Error: shell_exec requires a non-empty 'command' parameter" each time
+- User suggested: keep the name, but ensure the framework rejects missing-parameter calls before the agent can proceed

@@ -488,3 +488,4 @@ bugs:
     - file: B489-trinking-not-shown-or-recorded.todo
     - file: B490-update-cron-show-x-output-to-u.todo
     - file: B491-review-all-slash-command-outpu.todo
+    - file: B492-shell-exec-reliability-enforce.todo
