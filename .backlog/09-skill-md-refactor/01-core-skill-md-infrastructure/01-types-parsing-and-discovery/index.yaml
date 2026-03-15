@@ -4,6 +4,12 @@ estimate_hours: 2
 id: P9.M1.E1
 locked: false
 name: Types, Parsing, and Discovery
+stats:
+    blocked: 0
+    done: 2
+    in_progress: 0
+    pending: 0
+    total: 2
 status: done
 tasks:
     - complexity: medium

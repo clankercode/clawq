@@ -78,7 +78,7 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 | `phase2` | Show Phase 2 feature status |
 | `provider [quota [NAME]\|list]` | Inspect LLM provider configuration and live quota state |
 | `reset-agent` | Wipe all session history, cron jobs, workspace files, redeploy defaults (prompts for confirmation; does NOT touch config.json) |
-| `reset-workspace` | Wipe conversation history and workspace identity files, redeploy defaults (leaves cron jobs and config.json intact) |
+| `reset-workspace` | Wipe conversation history and workspace identity files, redeploy defaults (auto-backs up workspace first; leaves cron jobs and config.json intact) |
 | `runtime` | Manage native and Docker runtimes (default: status) |
 | `runtime status` | Show status of native and Docker runtimes |
 | `runtime native start/stop/health` | Manage native runtime |
@@ -127,6 +127,10 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 | `manifest teams [--output FILE] [-n COUNT]` | Generate Teams bot manifest commands JSON (top 10 by default) |
 | `manifest telegram` | Generate Telegram `setMyCommands` JSON payload |
 | `workspace` | Print the current workspace directory |
+| `workspace backup [NAME]` | Backup all workspace files to a named version (auto-generates timestamp name if omitted) |
+| `workspace versions` | List all workspace backup versions (newest first) |
+| `workspace restore NAME` | Restore workspace files from a named backup version |
+| `workspace delete NAME` | Delete a workspace backup version |
 
 ## Slash Commands
 
@@ -734,7 +738,8 @@ Tell users:
 - **Config not found**: run `clawq onboard` to create the initial config, or `clawq config wizard` after a config already exists.
 - **Check health**: `curl http://127.0.0.1:13451/health`.
 - **Pairing confusion in browser**: use `clawq otp-show`, then `GET /pair` to inspect pairing status if needed; `POST /pair/regenerate` requires existing auth.
-- **Reset state**: `clawq reset-agent` (wipes sessions + cron + workspace) or `clawq reset-workspace` (lighter, keeps cron).
+- **Reset state**: `clawq reset-agent` (wipes sessions + cron + workspace) or `clawq reset-workspace` (lighter, keeps cron). Both auto-backup workspace files before resetting; restore with `clawq workspace restore <name>`.
+- **Backup/restore workspace**: `clawq workspace backup my-snapshot` to save, `clawq workspace versions` to list, `clawq workspace restore my-snapshot` to restore.
 
 ## Docs
 

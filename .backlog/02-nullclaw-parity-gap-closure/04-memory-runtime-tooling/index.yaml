@@ -34,8 +34,8 @@ locked: false
 name: Memory, Runtime & Tooling
 stats:
     blocked: 0
-    done: 12
+    done: 18
     in_progress: 0
     pending: 0
-    total_tasks: 12
+    total_tasks: 18
 status: done

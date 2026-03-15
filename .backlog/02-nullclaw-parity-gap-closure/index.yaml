@@ -61,9 +61,9 @@ milestones:
 name: 'Nullclaw Parity: Gap Closure'
 stats:
     blocked: 0
-    done: 105
+    done: 111
     in_progress: 0
     pending: 0
-    total_tasks: 105
+    total_tasks: 111
 status: done
 weeks: 16

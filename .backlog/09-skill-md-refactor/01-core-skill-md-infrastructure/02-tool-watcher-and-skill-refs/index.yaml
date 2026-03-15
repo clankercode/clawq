@@ -4,6 +4,12 @@ estimate_hours: 2
 id: P9.M1.E2
 locked: false
 name: Tool, Watcher, and Skill Refs
+stats:
+    blocked: 0
+    done: 3
+    in_progress: 0
+    pending: 0
+    total: 3
 status: done
 tasks:
     - complexity: medium

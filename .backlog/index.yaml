@@ -1,16 +1,11 @@
 critical_path:
-    - P8.M1.E1.T001
-    - P8.M1.E1.T002
-    - P8.M1.E1.T003
-    - P8.M2.E2.T001
-    - P8.M2.E2.T002
-    - P8.M2.E2.T003
-    - P8.M2.E3.T001
-    - P8.M2.E3.T002
-    - P8.M2.E3.T003
-    - P8.M2.E4.T001
+    - P7.M2.E1.T001
+    - P7.M2.E1.T002
+    - P7.M2.E1.T003
+    - P7.M2.E2.T001
+    - P7.M2.E2.T003
 description: A formally verified fully autonomous AI assistant.
-next_available: P8.M1.E1.T001
+next_available: B457
 phases:
     - depends_on: []
       description: 'Features identified via nullclaw comparison and doc review. Organized by effort tier: quick wins, high impact, ecosystem expansion, and formalization.'
@@ -105,8 +100,8 @@ phases:
 project: Clawq
 stats:
     blocked: 1
-    done: 586
-    in_progress: 47
-    pending: 31
-    total_tasks: 665
+    done: 688
+    in_progress: 51
+    pending: 2
+    total_tasks: 742
 timeline_weeks: 0

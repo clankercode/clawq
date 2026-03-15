@@ -4,6 +4,12 @@ estimate_hours: 1.5
 id: P9.M3.E1
 locked: false
 name: Comprehensive Tests
+stats:
+    blocked: 0
+    done: 1
+    in_progress: 0
+    pending: 0
+    total: 1
 status: done
 tasks:
     - complexity: medium

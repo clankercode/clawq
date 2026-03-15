@@ -4,6 +4,12 @@ estimate_hours: 1
 id: P9.M2.E1
 locked: false
 name: Prompt and Runtime Context
+stats:
+    blocked: 0
+    done: 1
+    in_progress: 0
+    pending: 0
+    total: 1
 status: done
 tasks:
     - complexity: low

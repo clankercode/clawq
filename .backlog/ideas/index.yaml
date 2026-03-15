@@ -187,7 +187,7 @@ ideas:
       file: I022-allow-for-backing-up-workspace.todo
       id: I022
       priority: medium
-      status: in_progress
+      status: done
       tags: []
       title: Allow for backing up workspace files into versions so we can safely try destructive actions and restore if something goes wrong.
     - file: I023-add-debug-mode-that-saves-all.todo

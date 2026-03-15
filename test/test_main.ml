@@ -148,6 +148,7 @@ let () =
     @ [ ("connector_capabilities", Test_connector_capabilities.tests) ]
     @ [ ("status_update", Test_status_update.tests) ]
     @ [ ("content_dsl", Test_content_dsl.tests) ]
+    @ [ ("workspace_version", Test_workspace_version.suite) ]
     @ Test_github.suites
     @ [
         ( "config_isolation",

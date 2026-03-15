@@ -1104,6 +1104,14 @@ let cmd_reset_workspace () =
     "Cancelled."
   end
   else begin
+    let backup_name = Workspace_version.auto_backup_name () in
+    (match Workspace_version.backup ~workspace ~name:backup_name with
+    | Ok files ->
+        Printf.printf "  Auto-backup: %d file(s) saved as '%s'\n"
+          (List.length files) backup_name;
+        Printf.printf "    Restore with: clawq workspace restore %s\n\n"
+          backup_name
+    | Error e -> Printf.printf "  Warning: auto-backup failed: %s\n\n" e);
     let db =
       Memory.init ~db_path ~search_enabled:cfg.memory.search_enabled ()
     in
@@ -1512,7 +1520,7 @@ let handle args =
   | "channel" :: _ -> cmd_channel ()
   | "memory" :: rest -> cmd_memory rest
   | "session" :: rest -> cmd_session rest
-  | "workspace" :: _ -> cmd_workspace ()
+  | "workspace" :: rest -> cmd_workspace rest
   | "capabilities" :: _ -> cmd_capabilities ()
   | "auth" :: rest -> cmd_auth rest
   | "transcribe" :: rest -> cmd_transcribe rest

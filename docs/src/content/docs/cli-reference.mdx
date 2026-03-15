@@ -67,6 +67,10 @@ Every clawq command is listed below. Run `clawq COMMAND --help` for per-command 
 | `clawq watcher reports` | List recent EC reports |
 | `clawq watcher report ID` | Show a specific EC report with full detail |
 | `clawq workspace` | Print the current workspace directory |
+| `clawq workspace backup [NAME]` | Backup all workspace files to a named version (auto-generates timestamp name if omitted) |
+| `clawq workspace versions` | List all workspace backup versions (newest first) |
+| `clawq workspace restore NAME` | Restore workspace files from a named backup version |
+| `clawq workspace delete NAME` | Delete a workspace backup version |
 
 ## Config Subcommands
 

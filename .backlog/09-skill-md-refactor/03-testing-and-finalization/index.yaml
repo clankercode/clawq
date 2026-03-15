@@ -23,4 +23,10 @@ estimate_hours: 2
 id: P9.M3
 locked: false
 name: Testing and Finalization
+stats:
+    blocked: 0
+    done: 4
+    in_progress: 0
+    pending: 0
+    total_tasks: 4
 status: done

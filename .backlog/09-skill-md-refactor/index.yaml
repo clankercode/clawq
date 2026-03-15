@@ -32,5 +32,11 @@ milestones:
       path: 03-testing-and-finalization
       status: done
 name: SKILL.md Refactor
+stats:
+    blocked: 0
+    done: 16
+    in_progress: 0
+    pending: 0
+    total_tasks: 16
 status: done
 weeks: 2

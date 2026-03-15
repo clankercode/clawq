@@ -4,6 +4,12 @@ estimate_hours: 0.5
 id: P9.M3.E2
 locked: false
 name: Ship
+stats:
+    blocked: 0
+    done: 3
+    in_progress: 0
+    pending: 0
+    total: 3
 status: done
 tasks:
     - complexity: low

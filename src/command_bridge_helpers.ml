@@ -1289,9 +1289,45 @@ let cmd_memory args =
       \  memory export [path]                             - Export to JSON\n\
       \  memory import <path>                             - Import from JSON"
 
-let cmd_workspace () =
+let cmd_workspace args =
   let cfg = get_config () in
-  Printf.sprintf "Workspace: %s" (Runtime_config.effective_workspace cfg)
+  let workspace = Runtime_config.effective_workspace cfg in
+  match args with
+  | [] -> Printf.sprintf "Workspace: %s" workspace
+  | [ "backup" ] -> (
+      let name = Workspace_version.auto_backup_name () in
+      match Workspace_version.backup ~workspace ~name with
+      | Ok files ->
+          Printf.sprintf "Backed up %d file(s) as '%s'" (List.length files) name
+      | Error e -> Printf.sprintf "Error: %s" e)
+  | [ "backup"; name ] -> (
+      match Workspace_version.backup ~workspace ~name with
+      | Ok files ->
+          Printf.sprintf "Backed up %d file(s) as '%s'" (List.length files) name
+      | Error e -> Printf.sprintf "Error: %s" e)
+  | [ "versions" ] | [ "list" ] ->
+      let versions = Workspace_version.list_versions () in
+      if versions = [] then "No workspace versions found."
+      else
+        let lines =
+          List.map
+            (fun (name, ts) -> Printf.sprintf "  %s  (%s)" name ts)
+            versions
+        in
+        "Workspace versions:\n" ^ String.concat "\n" lines
+  | [ "restore"; name ] -> (
+      match Workspace_version.restore ~workspace ~name with
+      | Ok files ->
+          Printf.sprintf "Restored %d file(s) from '%s'" (List.length files)
+            name
+      | Error e -> Printf.sprintf "Error: %s" e)
+  | [ "delete"; name ] -> (
+      match Workspace_version.delete ~name with
+      | Ok () -> Printf.sprintf "Deleted version '%s'" name
+      | Error e -> Printf.sprintf "Error: %s" e)
+  | _ ->
+      "Usage: clawq workspace [backup [NAME] | versions | restore NAME | \
+       delete NAME]"
 
 type session_list_args = {
   channel : string option;

@@ -30,6 +30,7 @@
   status_update
   content_dsl
   workspace_scaffold
+  workspace_version
   string_util
   path_util
   agent_cost

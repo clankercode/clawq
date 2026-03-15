@@ -32,4 +32,10 @@ estimate_hours: 4
 id: P9.M2
 locked: false
 name: Integration Points
+stats:
+    blocked: 0
+    done: 7
+    in_progress: 0
+    pending: 0
+    total_tasks: 7
 status: done

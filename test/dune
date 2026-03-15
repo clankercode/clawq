@@ -119,7 +119,8 @@
   test_error_watcher
   test_connector_capabilities
   test_status_update
-  test_content_dsl)
+  test_content_dsl
+  test_workspace_version)
  (libraries
   clawq_extracted
   clawq_runtime_core

@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-14T16:35:24Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-14T16:52:46Z"
 complexity: medium
 depends_on: []
+duration_minutes: 17.3674732329
 estimate_hours: 10
 id: I022
 priority: medium
 started_at: "2026-03-14T16:35:24Z"
-status: in_progress
+status: done
 tags: []
 title: Allow for backing up workspace files into versions so we can safely try destructive actions and restore if something goes wrong.
 ---

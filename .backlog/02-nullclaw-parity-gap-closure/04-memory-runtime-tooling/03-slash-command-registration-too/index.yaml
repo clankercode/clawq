@@ -4,6 +4,12 @@ estimate_hours: 4
 id: P2.M4.E3
 locked: false
 name: Slash Command Registration & Tooling
+stats:
+    blocked: 0
+    done: 6
+    in_progress: 0
+    pending: 0
+    total: 6
 status: done
 tasks:
     - complexity: low
