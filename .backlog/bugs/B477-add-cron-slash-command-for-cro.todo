@@ -1,0 +1,28 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 2
+id: B477
+priority: medium
+status: pending
+tags: []
+title: Add /cron slash command for cron management
+---
+Problem
+The chat interface lacks a `/cron` slash command for routine cron-job operations. Users currently have to rely on CLI syntax or manual operator mediation to list jobs, inspect recent runs, create jobs, edit schedules/messages, or remove obsolete jobs.
+
+Why this matters
+Cron work is inherently operational and often happens from within a live chat thread. Without a first-class `/cron` command, simple scheduling tasks are slower, less discoverable, and more error-prone than they should be, especially when testing connector-specific delivery behavior.
+
+Acceptance criteria
+- A `/cron` slash command exists in chat-facing command handling.
+- The command can at minimum list existing cron jobs and recent run status in a user-facing format.
+- The command supports creating a cron job from chat.
+- The command supports editing or replacing key cron job fields such as schedule and/or message.
+- The command supports removing cron jobs from chat.
+- Help/usage text makes the supported `/cron` operations discoverable.
+- Tests cover command parsing and at least one happy-path operation.
+
+Notes
+- Prompted by Teams-session cron troubleshooting where inspecting and adjusting jobs from chat would be materially easier than dropping to CLI.
+- Related area: existing CLI `clawq cron` subcommands already cover list/add/remove/history; this bug is about exposing an equivalent chat command surface.

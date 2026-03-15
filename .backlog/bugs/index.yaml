@@ -473,3 +473,4 @@ bugs:
     - file: B474-teams-cron-delivery-path-repor.todo
     - file: B475-background-task-finalize-shoul.todo
     - file: B476-update-delegated-coder-agent-i.todo
+    - file: B477-add-cron-slash-command-for-cro.todo
