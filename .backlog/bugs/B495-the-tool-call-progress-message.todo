@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B495
+priority: high
+status: pending
+tags: []
+title: 'The tool call progress message no longer appears (in teams at least), suspicion: this broke with the recent fix about the timer counting up forever'
+---
+
+The tool call progress message no longer appears (in teams at least), suspicion: this broke with the recent fix about the timer counting up forever

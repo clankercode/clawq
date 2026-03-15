@@ -491,3 +491,4 @@ bugs:
     - file: B492-shell-exec-reliability-enforce.todo
     - file: B493-tool-call-status-timer-continu.todo
     - file: B494-add-total-lines-output-to-shel.todo
+    - file: B495-the-tool-call-progress-message.todo
