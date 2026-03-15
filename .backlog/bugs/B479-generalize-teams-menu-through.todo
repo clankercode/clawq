@@ -1,0 +1,26 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 2
+id: B479
+priority: medium
+status: pending
+tags: []
+title: Generalize Teams /menu through shared formatter/DSL
+---
+Problem
+Teams `/menu` capabilities and other interactive outbound affordances appear to be implemented as connector-specific features rather than clearly generalized through the shared outgoing-message formatter/content DSL. That makes it unclear whether menus, question-style choices, and similar interactive UI can be expressed once in a platform-agnostic way and rendered appropriately per connector.
+
+Why this matters
+Interactive message affordances are broadly useful: menus, quick actions, structured questions, and button-driven flows should ideally be modeled in one shared representation and rendered natively per connector where possible. If Teams `/menu` is special-cased instead of flowing through the formatter/DSL architecture, the system becomes brittle, duplicates logic, and makes it harder to add useful interactive patterns consistently across Teams, Telegram, Discord, web, and future channels.
+
+Acceptance criteria
+- Investigate the current Teams `/menu` path and document whether it is connector-specific or properly represented through the shared formatting/content DSL.
+- If the current design is not sufficiently generalized, implement or design a generalized representation for menu/question-style interactive outbound content in the DSL/formatter pipeline.
+- Connector renderers handle the generalized representation appropriately, degrading gracefully where native affordances differ.
+- At least one concrete Teams `/menu`-style flow and one adjacent interactive use case (for example button-based questions or choices) are covered by the resulting design, implementation, or tests.
+- Tests and/or documentation make the formatter/DSL contract clear enough that future interactive outbound features follow the shared path rather than adding ad hoc connector-only code.
+
+Notes
+- Related existing backlog context includes B440 (Teams `/menu` Adaptive Card) and B441 (unified rich message/content DSL investigation/design).
+- User explicitly wants this investigated as a general capability, not merely as a one-off Teams command.

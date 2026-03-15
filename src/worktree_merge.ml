@@ -4,7 +4,6 @@ type merge_result =
   | Error of string
   | No_worktree
   | Already_merged
-  | DirtyWorktree of { path : string; details : string }
 
 let repo_mutexes : (string, Lwt_mutex.t) Hashtbl.t = Hashtbl.create 8
 
@@ -19,28 +18,6 @@ let repo_mutex repo_path =
 let run_git ~cwd args =
   let argv = Array.concat [ [| "git"; "-C"; cwd |]; args ] in
   Background_task.run_simple_command ~cwd argv
-
-let worktree_is_dirty ~worktree_path =
-  let open Lwt.Syntax in
-  let* exit_code, stdout, _stderr =
-    run_git ~cwd:worktree_path
-      [| "status"; "--porcelain"; "--untracked-files=normal" |]
-  in
-  if exit_code <> 0 then
-    Lwt.return
-      (Result.Error
-         (Printf.sprintf "Failed to check worktree status in %s" worktree_path))
-  else
-    let trimmed = String.trim stdout in
-    if trimmed = "" then Lwt.return (Ok None)
-    else
-      let first_line =
-        try
-          let idx = String.index trimmed '\n' in
-          String.sub trimmed 0 idx
-        with Not_found -> trimmed
-      in
-      Lwt.return (Ok (Some first_line))
 
 let detect_target_branch ~repo_path =
   let open Lwt.Syntax in
@@ -145,34 +122,23 @@ let try_automerge ~db (task : Background_task.task) =
   | Some worktree_path ->
       Lwt_mutex.with_lock (repo_mutex task.repo_path) (fun () ->
           let open Lwt.Syntax in
-          let* dirty_check = worktree_is_dirty ~worktree_path in
-          match dirty_check with
-          | Result.Error msg -> Lwt.return (Error msg)
-          | Ok (Some first_dirty) ->
-              Background_task.set_merge_status ~db ~id:task.id
-                ~merge_status:"dirty";
-              Lwt.return
-                (DirtyWorktree
-                   { path = worktree_path; details = String.trim first_dirty })
-          | Ok None ->
-              let* result =
-                Lwt.catch
-                  (fun () ->
-                    merge_and_cleanup ~repo_path:task.repo_path ~worktree_path
-                      ~branch:task.branch)
-                  (fun exn -> Lwt.return (Error (Printexc.to_string exn)))
-              in
-              let merge_status =
-                match result with
-                | Merged _ -> "merged"
-                | Conflict _ -> "conflict"
-                | Error _ -> "error"
-                | No_worktree -> "error"
-                | Already_merged -> "merged"
-                | DirtyWorktree _ -> "dirty"
-              in
-              Background_task.set_merge_status ~db ~id:task.id ~merge_status;
-              Lwt.return result)
+          let* result =
+            Lwt.catch
+              (fun () ->
+                merge_and_cleanup ~repo_path:task.repo_path ~worktree_path
+                  ~branch:task.branch)
+              (fun exn -> Lwt.return (Error (Printexc.to_string exn)))
+          in
+          let merge_status =
+            match result with
+            | Merged _ -> "merged"
+            | Conflict _ -> "conflict"
+            | Error _ -> "error"
+            | No_worktree -> "error"
+            | Already_merged -> "merged"
+          in
+          Background_task.set_merge_status ~db ~id:task.id ~merge_status;
+          Lwt.return result)
 
 let finalize_task ~db (task : Background_task.task) =
   match task.worktree_path with
@@ -182,34 +148,23 @@ let finalize_task ~db (task : Background_task.task) =
   | Some worktree_path ->
       Lwt_mutex.with_lock (repo_mutex task.repo_path) (fun () ->
           let open Lwt.Syntax in
-          let* dirty_check = worktree_is_dirty ~worktree_path in
-          match dirty_check with
-          | Result.Error msg -> Lwt.return (Error msg)
-          | Ok (Some first_dirty) ->
-              Background_task.set_merge_status ~db ~id:task.id
-                ~merge_status:"dirty";
-              Lwt.return
-                (DirtyWorktree
-                   { path = worktree_path; details = String.trim first_dirty })
-          | Ok None ->
-              let* result =
-                Lwt.catch
-                  (fun () ->
-                    merge_and_cleanup ~repo_path:task.repo_path ~worktree_path
-                      ~branch:task.branch)
-                  (fun exn -> Lwt.return (Error (Printexc.to_string exn)))
-              in
-              let merge_status =
-                match result with
-                | Merged _ -> "merged"
-                | Conflict _ -> "conflict"
-                | Error _ -> "error"
-                | No_worktree -> "error"
-                | Already_merged -> "merged"
-                | DirtyWorktree _ -> "dirty"
-              in
-              Background_task.set_merge_status ~db ~id:task.id ~merge_status;
-              Lwt.return result)
+          let* result =
+            Lwt.catch
+              (fun () ->
+                merge_and_cleanup ~repo_path:task.repo_path ~worktree_path
+                  ~branch:task.branch)
+              (fun exn -> Lwt.return (Error (Printexc.to_string exn)))
+          in
+          let merge_status =
+            match result with
+            | Merged _ -> "merged"
+            | Conflict _ -> "conflict"
+            | Error _ -> "error"
+            | No_worktree -> "error"
+            | Already_merged -> "merged"
+          in
+          Background_task.set_merge_status ~db ~id:task.id ~merge_status;
+          Lwt.return result)
 
 let format_result = function
   | Merged { branch; commit_count } ->
@@ -225,17 +180,6 @@ let format_result = function
   | No_worktree -> "No worktree found for this task."
   | Already_merged ->
       "No new commits — branch was already up to date. Cleaned up worktree."
-  | DirtyWorktree { path; details } ->
-      Printf.sprintf
-        "Error: worktree has uncommitted changes and cannot be merged.\n\
-         Path: %s\n\
-         First dirty entry: %s\n\n\
-         Commit or clean the worktree first, then retry finalization:\n\
-         cd %s && git status\n\
-         git add -A && git commit -m \"Complete task\"\n\
-         Or discard uncommitted changes:\n\
-         git checkout -- . && git clean -fd"
-        path details path
 
 let finalize_tool ~db =
   {
