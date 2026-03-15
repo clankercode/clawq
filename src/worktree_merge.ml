@@ -4,6 +4,7 @@ type merge_result =
   | Error of string
   | No_worktree
   | Already_merged
+  | Dirty_worktree of { branch : string; details : string }
 
 let repo_mutexes : (string, Lwt_mutex.t) Hashtbl.t = Hashtbl.create 8
 
@@ -92,24 +93,45 @@ let cleanup ~repo_path ~worktree_path ~branch =
   let* _exit2, _, _ = run_git ~cwd:repo_path [| "branch"; "-d"; branch |] in
   Lwt.return_unit
 
+let check_dirty_worktree ~worktree_path =
+  let open Lwt.Syntax in
+  let* exit_code, stdout, _stderr =
+    run_git ~cwd:worktree_path [| "status"; "--porcelain" |]
+  in
+  if exit_code <> 0 then Lwt.return (Some "unable to check worktree status")
+  else
+    let trimmed = String.trim stdout in
+    if trimmed = "" then Lwt.return None
+    else
+      let first_line =
+        match String.index_opt trimmed '\n' with
+        | Some i -> String.sub trimmed 0 i
+        | None -> trimmed
+      in
+      Lwt.return (Some first_line)
+
 let merge_and_cleanup ~repo_path ~worktree_path ~branch =
   let open Lwt.Syntax in
-  let* target = detect_target_branch ~repo_path in
-  let* count = commits_ahead ~repo_path ~branch ~target in
-  if count = 0 then
-    let* () = cleanup ~repo_path ~worktree_path ~branch in
-    Lwt.return Already_merged
-  else
-    let* rebase_result = rebase_onto ~worktree_path ~target in
-    match rebase_result with
-    | Result.Error msg -> Lwt.return (Conflict { branch; message = msg })
-    | Ok () -> (
-        let* ff_result = ff_merge ~repo_path ~branch ~target in
-        match ff_result with
-        | Result.Error msg -> Lwt.return (Error msg)
-        | Ok () ->
-            let* () = cleanup ~repo_path ~worktree_path ~branch in
-            Lwt.return (Merged { branch; commit_count = count }))
+  let* dirty = check_dirty_worktree ~worktree_path in
+  match dirty with
+  | Some details -> Lwt.return (Dirty_worktree { branch; details })
+  | None -> (
+      let* target = detect_target_branch ~repo_path in
+      let* count = commits_ahead ~repo_path ~branch ~target in
+      if count = 0 then
+        let* () = cleanup ~repo_path ~worktree_path ~branch in
+        Lwt.return Already_merged
+      else
+        let* rebase_result = rebase_onto ~worktree_path ~target in
+        match rebase_result with
+        | Result.Error msg -> Lwt.return (Conflict { branch; message = msg })
+        | Ok () -> (
+            let* ff_result = ff_merge ~repo_path ~branch ~target in
+            match ff_result with
+            | Result.Error msg -> Lwt.return (Error msg)
+            | Ok () ->
+                let* () = cleanup ~repo_path ~worktree_path ~branch in
+                Lwt.return (Merged { branch; commit_count = count })))
 
 let try_automerge ~db (task : Background_task.task) =
   match task.worktree_path with
@@ -136,6 +158,7 @@ let try_automerge ~db (task : Background_task.task) =
             | Error _ -> "error"
             | No_worktree -> "error"
             | Already_merged -> "merged"
+            | Dirty_worktree _ -> "dirty"
           in
           Background_task.set_merge_status ~db ~id:task.id ~merge_status;
           Lwt.return result)
@@ -162,6 +185,7 @@ let finalize_task ~db (task : Background_task.task) =
             | Error _ -> "error"
             | No_worktree -> "error"
             | Already_merged -> "merged"
+            | Dirty_worktree _ -> "dirty"
           in
           Background_task.set_merge_status ~db ~id:task.id ~merge_status;
           Lwt.return result)
@@ -180,6 +204,11 @@ let format_result = function
   | No_worktree -> "No worktree found for this task."
   | Already_merged ->
       "No new commits — branch was already up to date. Cleaned up worktree."
+  | Dirty_worktree { branch; details } ->
+      Printf.sprintf
+        "Worktree for branch %s has uncommitted changes: %s\n\
+         Commit or discard the changes before finalizing."
+        branch details
 
 let finalize_tool ~db =
   {

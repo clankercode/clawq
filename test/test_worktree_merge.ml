@@ -369,6 +369,77 @@ let test_set_merge_status () =
           Alcotest.(check (option string))
             "merge_status" (Some "merged") task.merge_status)
 
+let test_dirty_worktree_blocks_merge () =
+  with_temp_git_repo (fun repo_path ->
+      let branch = "test-dirty-branch" in
+      let worktree_path = repo_path ^ "-wt" in
+      git_cmd repo_path
+        (Printf.sprintf "worktree add -b %s %s" branch
+           (Filename.quote worktree_path));
+      (* Stage a file but do NOT commit *)
+      let file_path = Filename.concat worktree_path "staged.txt" in
+      let oc = open_out file_path in
+      output_string oc "staged content";
+      close_out oc;
+      git_cmd worktree_path "add staged.txt";
+      let result =
+        Lwt_main.run
+          (Worktree_merge.merge_and_cleanup ~repo_path ~worktree_path ~branch)
+      in
+      (match result with
+      | Worktree_merge.Dirty_worktree { branch = b; details } ->
+          Alcotest.(check string) "dirty branch" branch b;
+          Alcotest.(check bool)
+            "details mention staged file" true
+            (contains_substring ~needle:"staged.txt" details)
+      | other ->
+          Alcotest.failf "expected Dirty_worktree, got: %s"
+            (Worktree_merge.format_result other));
+      (* Worktree should still exist *)
+      Alcotest.(check bool)
+        "worktree preserved" true
+        (Sys.file_exists worktree_path);
+      (* Clean up *)
+      git_cmd repo_path
+        (Printf.sprintf "worktree remove --force %s"
+           (Filename.quote worktree_path)))
+
+let test_dirty_worktree_unstaged_blocks_merge () =
+  with_temp_git_repo (fun repo_path ->
+      let branch = "test-unstaged-branch" in
+      let worktree_path = repo_path ^ "-wt" in
+      git_cmd repo_path
+        (Printf.sprintf "worktree add -b %s %s" branch
+           (Filename.quote worktree_path));
+      (* Create a tracked file, commit it, then modify without staging *)
+      let file_path = Filename.concat worktree_path "modified.txt" in
+      let oc = open_out file_path in
+      output_string oc "original";
+      close_out oc;
+      git_cmd worktree_path "add modified.txt";
+      git_cmd worktree_path "commit -m 'add modified.txt' -q";
+      let oc = open_out file_path in
+      output_string oc "changed";
+      close_out oc;
+      let result =
+        Lwt_main.run
+          (Worktree_merge.merge_and_cleanup ~repo_path ~worktree_path ~branch)
+      in
+      (match result with
+      | Worktree_merge.Dirty_worktree { details; _ } ->
+          Alcotest.(check bool)
+            "details mention modified file" true
+            (contains_substring ~needle:"modified.txt" details)
+      | other ->
+          Alcotest.failf "expected Dirty_worktree, got: %s"
+            (Worktree_merge.format_result other));
+      Alcotest.(check bool)
+        "worktree preserved" true
+        (Sys.file_exists worktree_path);
+      git_cmd repo_path
+        (Printf.sprintf "worktree remove --force %s"
+           (Filename.quote worktree_path)))
+
 let test_format_result () =
   let merged = Worktree_merge.Merged { branch = "b1"; commit_count = 3 } in
   let s = Worktree_merge.format_result merged in
@@ -392,7 +463,18 @@ let test_format_result () =
   let s = Worktree_merge.format_result Worktree_merge.Already_merged in
   Alcotest.(check bool)
     "already merged" true
-    (contains_substring ~needle:"already up to date" s)
+    (contains_substring ~needle:"already up to date" s);
+  let s =
+    Worktree_merge.format_result
+      (Worktree_merge.Dirty_worktree
+         { branch = "b3"; details = "A  staged.txt" })
+  in
+  Alcotest.(check bool)
+    "dirty worktree mentions uncommitted" true
+    (contains_substring ~needle:"uncommitted" s);
+  Alcotest.(check bool)
+    "dirty worktree mentions branch" true
+    (contains_substring ~needle:"b3" s)
 
 let suite =
   [
@@ -417,5 +499,9 @@ let suite =
     Alcotest.test_case "merge status conflict message" `Quick
       test_merge_status_conflict_message;
     Alcotest.test_case "set_merge_status" `Quick test_set_merge_status;
+    Alcotest.test_case "dirty worktree blocks merge" `Quick
+      test_dirty_worktree_blocks_merge;
+    Alcotest.test_case "unstaged changes block merge" `Quick
+      test_dirty_worktree_unstaged_blocks_merge;
     Alcotest.test_case "format_result" `Quick test_format_result;
   ]

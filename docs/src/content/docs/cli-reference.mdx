@@ -190,7 +190,7 @@ Background tasks are daemon-owned. The full `clawq agent` process polls the queu
 
 Once a worktree-backed task has started, `clawq background resume <id>` resumes it using the runner's native session resume support, and `clawq background message <id> ...` injects a new user message into that resumed conversation. The injected message is delivered durably and replayed FIFO for the target task.
 
-Tasks with `automerge` enabled will automatically rebase onto the target branch and fast-forward merge on success. If a conflict occurs, the parent agent is notified and can use `background finalize <id>` to retry the merge after resolving conflicts.
+Tasks with `automerge` enabled will automatically rebase onto the target branch and fast-forward merge on success. If a conflict occurs, the parent agent is notified and can use `background finalize <id>` to retry the merge after resolving conflicts. If the worktree has uncommitted changes (staged or unstaged), finalize and automerge will refuse to proceed and report the dirty state — commit or discard changes first, then retry.
 
 ### Security and auditing
 
