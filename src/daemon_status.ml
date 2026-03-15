@@ -78,7 +78,10 @@ let daemon_runtime_context_line ~pid =
   | Some pid -> (
       match daemon_uptime_suffix pid with
       | Some text -> Some ("- Daemon uptime: " ^ text)
-      | None -> None)
+      | None ->
+          Some
+            (Printf.sprintf "- Daemon uptime: unknown (pid %d, may be stale)"
+               pid))
   | None -> Some "- Daemon uptime: not running"
 
 let daemon_uptime_reply ~pid =
