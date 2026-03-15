@@ -1754,6 +1754,10 @@ let merge_status_suffix (task : task) =
   | Some "merged" -> " (automerged)"
   | Some "conflict" ->
       Printf.sprintf " (merge conflict — use `background finalize %d`)" task.id
+  | Some "dirty" ->
+      Printf.sprintf
+        " (dirty worktree — commit changes then use `background finalize %d`)"
+        task.id
   | Some s -> Printf.sprintf " (merge: %s)" s
   | None -> ""
 

@@ -513,6 +513,8 @@ let notify_background_task_finished ?continuation_delay
               { task with merge_status = Some "error" }
           | Worktree_merge.Already_merged ->
               { task with merge_status = Some "merged" }
+          | Worktree_merge.DirtyWorktree _ ->
+              { task with merge_status = Some "dirty" }
         in
         Logs.info (fun m ->
             m "Automerge result for task %d: %s" task.id
