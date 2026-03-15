@@ -613,8 +613,8 @@ let test_codex_stream_backfill_only_missing () =
   | _ -> Alcotest.fail "Expected ToolCalls response"
 
 let test_codex_message_to_input_replays_raw_output_items () =
-  (* reasoning items must be dropped (store=false — cannot reference by ID);
-     function_call items must be kept *)
+  (* reasoning items are passed through for replay (id stripped);
+     function_call items are kept *)
   let raw_items =
     {|[{"type":"reasoning","id":"rs_1"},{"type":"function_call","call_id":"call_1","name":"bash","arguments":"{}"}]|}
   in
@@ -627,15 +627,29 @@ let test_codex_message_to_input_replays_raw_output_items () =
       tool_call_id = None;
       name = None;
       provider_response_items_json = Some raw_items;
+      thinking = None;
     }
   in
   match Provider_openai_codex.message_to_input msg with
   | Some (`List items) ->
       Alcotest.(check int)
-        "reasoning dropped; function_call kept" 1 (List.length items);
-      Alcotest.(check string)
-        "surviving item is function_call" "function_call"
-        Yojson.Safe.Util.(items |> List.hd |> member "type" |> to_string)
+        "reasoning + function_call kept" 2 (List.length items);
+      let types =
+        List.map
+          (fun i -> Yojson.Safe.Util.(i |> member "type" |> to_string))
+          items
+      in
+      Alcotest.(check (list string))
+        "item types"
+        [ "reasoning"; "function_call" ]
+        types;
+      (* reasoning item should have id stripped *)
+      let reasoning_item = List.hd items in
+      Alcotest.(check bool)
+        "reasoning id stripped" true
+        (not
+           (List.mem_assoc "id"
+              (match reasoning_item with `Assoc fields -> fields | _ -> [])))
   | _ -> Alcotest.fail "Expected raw output items to be replayed"
 
 let test_codex_stream_preserves_response_output_items () =

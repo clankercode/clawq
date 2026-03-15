@@ -61,9 +61,10 @@ let sanitize_input_item item =
           in
           Some (`Assoc [ ("role", `String role); ("content", content) ])
       | "reasoning" ->
-          (* Output-only item; requires store=true to reference by ID.
-             Drop it entirely — cannot be replayed as inline input. *)
-          None
+          (* Pass reasoning items through for replay — needed for Responses API
+             correctness. Strip server-assigned id to avoid 404 with store=false. *)
+          let kept = List.filter (fun (k, _) -> k <> "id") fields in
+          Some (`Assoc kept)
       | _ ->
           (* Strip server-assigned id from unknown output-only types to avoid
              HTTP 404 when store=false and the server no longer holds the item. *)
@@ -414,6 +415,7 @@ let build_body ~model ~messages tools =
        ("stream", `Bool true);
        ("store", `Bool false);
        ("parallel_tool_calls", `Bool true);
+       ("include", `List [ `String "reasoning.encrypted_content" ]);
      ]
     @
     match tools_to_responses_tools tools with
@@ -445,7 +447,7 @@ let extract_final_output response_json =
   let open Yojson.Safe.Util in
   let output = try response_json |> member "output" |> to_list with _ -> [] in
   List.fold_left
-    (fun (text_acc, tool_acc) item ->
+    (fun (text_acc, tool_acc, thinking_acc) item ->
       let item_type = try item |> member "type" |> to_string with _ -> "" in
       if item_type = "message" then
         let content = try item |> member "content" |> to_list with _ -> [] in
@@ -460,7 +462,25 @@ let extract_final_output response_json =
               else acc)
             text_acc content
         in
-        (text, tool_acc)
+        (text, tool_acc, thinking_acc)
+      else if item_type = "reasoning" then
+        let summary =
+          try
+            let summaries = item |> member "summary" |> to_list in
+            List.fold_left
+              (fun acc s ->
+                let st = try s |> member "text" |> to_string with _ -> "" in
+                if st <> "" then if acc = "" then st else acc ^ "\n" ^ st
+                else acc)
+              "" summaries
+          with _ -> ""
+        in
+        let thinking =
+          if summary <> "" then
+            if thinking_acc = "" then summary else thinking_acc ^ "\n" ^ summary
+          else thinking_acc
+        in
+        (text_acc, tool_acc, thinking)
       else if item_type = "function_call" || item_type = "tool_call" then
         let call =
           {
@@ -473,9 +493,9 @@ let extract_final_output response_json =
               (try item |> member "arguments" |> to_string with _ -> "");
           }
         in
-        (text_acc, append_unique_tool_call tool_acc call)
-      else (text_acc, tool_acc))
-    ("", []) output
+        (text_acc, append_unique_tool_call tool_acc call, thinking_acc)
+      else (text_acc, tool_acc, thinking_acc))
+    ("", [], "") output
 
 let provider_response_items_json response_json =
   let open Yojson.Safe.Util in
@@ -485,6 +505,7 @@ let provider_response_items_json response_json =
 let process_stream stream ~on_chunk =
   let open Lwt.Syntax in
   let content_acc = Buffer.create 1024 in
+  let thinking_acc = Buffer.create 256 in
   let tool_buffers : (int, string * string * Buffer.t) Hashtbl.t =
     Hashtbl.create 8
   in
@@ -518,6 +539,17 @@ let process_stream stream ~on_chunk =
         on_chunk (Provider.Delta delta)
       end
       else Lwt.return_unit
+    else if
+      event_type = "response.reasoning.delta"
+      || event_type = "response.reasoning_summary_text.delta"
+    then begin
+      let delta = try json |> member "delta" |> to_string with _ -> "" in
+      if delta <> "" then begin
+        Buffer.add_string thinking_acc delta;
+        on_chunk (Provider.ThinkingDelta delta)
+      end
+      else Lwt.return_unit
+    end
     else if
       event_type = "response.output_item.added"
       || event_type = "response.output_item.done"
@@ -570,7 +602,11 @@ let process_stream stream ~on_chunk =
     else if event_type = "response.completed" || event_type = "response.done"
     then begin
       let response_json = json |> member "response" in
-      let fallback_text, _fallback_tools = extract_final_output response_json in
+      let fallback_text, _fallback_tools, fallback_thinking =
+        extract_final_output response_json
+      in
+      if Buffer.length thinking_acc = 0 && fallback_thinking <> "" then
+        Buffer.add_string thinking_acc fallback_thinking;
       if Buffer.length content_acc = 0 && fallback_text <> "" then
         Buffer.add_string content_acc fallback_text;
       (* Backfill tool entries using output array index, only for missing/empty *)
@@ -638,10 +674,14 @@ let process_stream stream ~on_chunk =
   in
   let model = if !model_acc = "" then "openai-codex" else !model_acc in
   let text = Buffer.contents content_acc in
+  let thinking =
+    let t = Buffer.contents thinking_acc in
+    if t = "" then None else Some t
+  in
   Lwt.return
     (Provider.make_stream_result ~tool_calls ~content:text ~model
        ~usage:!usage_acc ~provider_response_items_json:!response_items_json_acc
-       ())
+       ~thinking ())
 
 let do_request ~provider_name ~provider ~model ~messages ?tools ~on_chunk () =
   let open Lwt.Syntax in

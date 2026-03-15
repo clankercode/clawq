@@ -153,16 +153,20 @@ let complete ~(config : Runtime_config.t)
                model = resp_model;
                usage = None;
                provider_response_items_json = None;
+               thinking = None;
              })
       else
         let raw_content =
           try msg |> member "content" |> to_string with _ -> ""
         in
-        let content =
-          match Provider.thinking_style_of_provider provider with
+        let thinking_style = Provider.thinking_style_of_provider provider in
+        let content, thinking =
+          match thinking_style with
           | Provider.TaggedThinking ->
-              fst (Provider.split_tagged_text raw_content)
-          | Provider.NoThinking | Provider.ReasoningContent -> raw_content
+              let visible, thought = Provider.split_tagged_text raw_content in
+              (visible, if thought = "" then None else Some thought)
+          | Provider.NoThinking | Provider.ReasoningContent ->
+              (raw_content, None)
         in
         if content = "" && raw_content = "" then
           Lwt.fail_with "Failed to extract content from Ollama response"
@@ -174,6 +178,7 @@ let complete ~(config : Runtime_config.t)
                  model = resp_model;
                  usage = None;
                  provider_response_items_json = None;
+                 thinking;
                })
     with exn ->
       Lwt.fail_with
@@ -212,9 +217,16 @@ let complete_streaming ~(config : Runtime_config.t)
     ~on_ok:(fun stream ->
       let buf = Buffer.create 256 in
       let content_acc = Buffer.create 1024 in
+      let thinking_acc = Buffer.create 256 in
       let resp_model = ref model in
       let tool_calls_acc : Provider.tool_call list ref = ref [] in
       let tagged_state = { Provider.in_thinking = false; pending = "" } in
+      let on_chunk chunk =
+        (match chunk with
+        | Provider.ThinkingDelta text -> Buffer.add_string thinking_acc text
+        | _ -> ());
+        on_chunk chunk
+      in
       let process_line line =
         if line = "" then Lwt.return_unit
         else
@@ -272,8 +284,12 @@ let complete_streaming ~(config : Runtime_config.t)
         if remaining <> "" then process_line remaining else Lwt.return_unit
       in
       let content = Buffer.contents content_acc in
+      let thinking =
+        let t = Buffer.contents thinking_acc in
+        if t = "" then None else Some t
+      in
       let final_model = !resp_model in
       Lwt.return
         (Provider.make_stream_result ~tool_calls:!tool_calls_acc ~content
-           ~model:final_model ~usage:None ()))
+           ~thinking ~model:final_model ~usage:None ()))
     ()

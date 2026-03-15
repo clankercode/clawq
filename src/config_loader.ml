@@ -169,6 +169,10 @@ let parse_config ?(resolve_secrets = true) json =
         try ad |> member "show_thinking" |> to_bool
         with _ -> default.agent_defaults.show_thinking
       in
+      let drop_thinking =
+        try ad |> member "drop_thinking" |> to_bool
+        with _ -> default.agent_defaults.drop_thinking
+      in
       let show_tool_calls =
         try ad |> member "show_tool_calls" |> to_bool
         with _ -> default.agent_defaults.show_tool_calls
@@ -200,6 +204,7 @@ let parse_config ?(resolve_secrets = true) json =
          tool_search_enabled;
          reasoning_effort;
          show_thinking;
+         drop_thinking;
          show_tool_calls;
          tool_status_mode;
          send_continuation_checkin;

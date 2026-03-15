@@ -237,6 +237,7 @@ let make_assistant_with_tool_calls calls =
     tool_call_id = None;
     name = None;
     provider_response_items_json = None;
+    thinking = None;
   }
 
 let make_tool_call id name =

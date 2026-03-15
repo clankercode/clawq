@@ -1969,10 +1969,13 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
     track_cost ~current_request_history_len response;
     agent.last_request_history_len <- Some current_request_history_len;
     match response with
-    | Provider.Text { content; provider_response_items_json; _ } ->
+    | Provider.Text { content; provider_response_items_json; thinking; _ } ->
+        let thinking =
+          if agent.config.agent_defaults.drop_thinking then None else thinking
+        in
         agent.history <-
           Provider.make_message_full ~provider_response_items_json
-            ~role:"assistant" ~content
+            ~role:"assistant" ~content ~thinking ()
           :: agent.history;
         trim_history agent;
         Lwt.return content
@@ -2003,8 +2006,12 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
           Provider.make_message ~role:"assistant" ~content :: agent.history;
         trim_history agent;
         Lwt.return content
-    | Provider.ToolCalls { calls; provider_response_items_json; _ } -> (
+    | Provider.ToolCalls { calls; provider_response_items_json; thinking; _ }
+      -> (
         let len_before_tool_loop = List.length agent.history in
+        let thinking =
+          if agent.config.agent_defaults.drop_thinking then None else thinking
+        in
         let assistant_msg =
           {
             Provider.role = "assistant";
@@ -2014,6 +2021,7 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
             tool_call_id = None;
             name = None;
             provider_response_items_json;
+            thinking;
           }
         in
         agent.history <- assistant_msg :: agent.history;
@@ -2280,10 +2288,15 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
         track_cost ~current_request_history_len response;
         agent.last_request_history_len <- Some current_request_history_len;
         match response with
-        | Provider.Text { content; provider_response_items_json; _ } ->
+        | Provider.Text { content; provider_response_items_json; thinking; _ }
+          ->
+            let thinking =
+              if agent.config.agent_defaults.drop_thinking then None
+              else thinking
+            in
             agent.history <-
               Provider.make_message_full ~provider_response_items_json
-                ~role:"assistant" ~content
+                ~role:"assistant" ~content ~thinking ()
               :: agent.history;
             trim_history agent;
             Lwt.return content
@@ -2310,8 +2323,13 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
             trim_history agent;
             let* () = on_chunk (Provider.Delta content) in
             Lwt.return content
-        | Provider.ToolCalls { calls; provider_response_items_json; _ } -> (
+        | Provider.ToolCalls
+            { calls; provider_response_items_json; thinking; _ } -> (
             let len_before_tool_loop = List.length agent.history in
+            let thinking =
+              if agent.config.agent_defaults.drop_thinking then None
+              else thinking
+            in
             let assistant_msg =
               {
                 Provider.role = "assistant";
@@ -2321,6 +2339,7 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
                 tool_call_id = None;
                 name = None;
                 provider_response_items_json;
+                thinking;
               }
             in
             agent.history <- assistant_msg :: agent.history;

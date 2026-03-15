@@ -1,4 +1,4 @@
-let schema_version = 19
+let schema_version = 20
 
 type session_activity = Active | Inactive | Any
 
@@ -23,6 +23,7 @@ type raw_message = {
   tool_name : string option;
   tool_calls_json : string option;
   provider_response_items_json : string option;
+  thinking_content : string option;
   created_at : string;
 }
 
@@ -258,6 +259,7 @@ let init_epoch_schema db =
     \     tool_name TEXT,\n\
     \     tool_calls_json TEXT,\n\
     \     provider_response_items_json TEXT,\n\
+    \     thinking_content TEXT,\n\
     \     created_at TEXT NOT NULL,\n\
     \     PRIMARY KEY (epoch_id, ordinal),\n\
     \     FOREIGN KEY (epoch_id) REFERENCES session_log_epochs(id) ON DELETE \
@@ -288,6 +290,14 @@ let init_ec_reports_schema db =
     \     status TEXT NOT NULL DEFAULT 'pending'\n\
     \   )"
 
+let add_thinking_content_columns db =
+  (try exec_exn db "ALTER TABLE messages ADD COLUMN thinking_content TEXT"
+   with _ -> ());
+  try
+    exec_exn db
+      "ALTER TABLE session_log_epoch_messages ADD COLUMN thinking_content TEXT"
+  with _ -> ()
+
 let migrate_schema db current_version =
   match current_version with
   | 0 ->
@@ -299,6 +309,7 @@ let migrate_schema db current_version =
          exec_exn db
            "ALTER TABLE task_tree ADD COLUMN deleted_at TEXT DEFAULT NULL"
        with _ -> ());
+      add_thinking_content_columns db;
       exec_exn db
         (Printf.sprintf "INSERT INTO schema_version (version) VALUES (%d)"
            schema_version)
@@ -312,6 +323,7 @@ let migrate_schema db current_version =
          exec_exn db
            "ALTER TABLE task_tree ADD COLUMN deleted_at TEXT DEFAULT NULL"
        with _ -> ());
+      add_thinking_content_columns db;
       set_schema_version db schema_version
   | 2 ->
       init_session_schema db;
@@ -323,6 +335,7 @@ let migrate_schema db current_version =
          exec_exn db
            "ALTER TABLE task_tree ADD COLUMN deleted_at TEXT DEFAULT NULL"
        with _ -> ());
+      add_thinking_content_columns db;
       set_schema_version db schema_version
   | 3 ->
       init_session_schema db;
@@ -332,6 +345,7 @@ let migrate_schema db current_version =
          exec_exn db
            "ALTER TABLE task_tree ADD COLUMN deleted_at TEXT DEFAULT NULL"
        with _ -> ());
+      add_thinking_content_columns db;
       set_schema_version db schema_version
   | 4 ->
       init_session_schema db;
@@ -342,6 +356,7 @@ let migrate_schema db current_version =
          exec_exn db
            "ALTER TABLE task_tree ADD COLUMN deleted_at TEXT DEFAULT NULL"
        with _ -> ());
+      add_thinking_content_columns db;
       set_schema_version db schema_version
   | 5 ->
       init_session_schema db;
@@ -355,6 +370,7 @@ let migrate_schema db current_version =
          exec_exn db
            "ALTER TABLE task_tree ADD COLUMN deleted_at TEXT DEFAULT NULL"
        with _ -> ());
+      add_thinking_content_columns db;
       set_schema_version db schema_version
   | 6 ->
       init_session_schema db;
@@ -368,6 +384,7 @@ let migrate_schema db current_version =
          exec_exn db
            "ALTER TABLE task_tree ADD COLUMN deleted_at TEXT DEFAULT NULL"
        with _ -> ());
+      add_thinking_content_columns db;
       set_schema_version db schema_version
   | 7 ->
       init_session_schema db;
@@ -378,6 +395,7 @@ let migrate_schema db current_version =
          exec_exn db
            "ALTER TABLE task_tree ADD COLUMN deleted_at TEXT DEFAULT NULL"
        with _ -> ());
+      add_thinking_content_columns db;
       set_schema_version db schema_version
   | 8 ->
       init_session_schema db;
@@ -385,6 +403,7 @@ let migrate_schema db current_version =
       init_models_cache_schema db;
       init_request_stats_schema db;
       init_quota_cache_schema db;
+      add_thinking_content_columns db;
       set_schema_version db schema_version
   | 9 ->
       init_session_schema db;
@@ -394,6 +413,7 @@ let migrate_schema db current_version =
       init_quota_cache_schema db;
       exec_exn db
         "ALTER TABLE session_state ADD COLUMN model_override TEXT DEFAULT NULL";
+      add_thinking_content_columns db;
       set_schema_version db schema_version
   | 10 ->
       init_session_schema db;
@@ -402,6 +422,7 @@ let migrate_schema db current_version =
       init_request_stats_schema db;
       init_quota_cache_schema db;
       init_postmortems_schema db;
+      add_thinking_content_columns db;
       set_schema_version db schema_version
   | 11 ->
       init_session_schema db;
@@ -412,6 +433,7 @@ let migrate_schema db current_version =
       init_postmortems_schema db;
       init_model_discovery_state_schema db;
       Summary_store.init_schema db;
+      add_thinking_content_columns db;
       set_schema_version db schema_version
   | 12 ->
       init_session_schema db;
@@ -422,6 +444,7 @@ let migrate_schema db current_version =
       init_postmortems_schema db;
       init_model_discovery_state_schema db;
       Summary_store.init_schema db;
+      add_thinking_content_columns db;
       set_schema_version db schema_version
   | 13 ->
       init_session_schema db;
@@ -436,6 +459,7 @@ let migrate_schema db current_version =
          exec_exn db
            "ALTER TABLE request_stats ADD COLUMN added_prompt_tokens INTEGER"
        with _ -> ());
+      add_thinking_content_columns db;
       set_schema_version db schema_version
   | 14 ->
       init_session_schema db;
@@ -450,6 +474,7 @@ let migrate_schema db current_version =
       exec_exn db
         "ALTER TABLE session_state ADD COLUMN heartbeat_enabled INTEGER NOT \
          NULL DEFAULT 0";
+      add_thinking_content_columns db;
       set_schema_version db schema_version
   | 15 ->
       init_session_schema db;
@@ -464,6 +489,7 @@ let migrate_schema db current_version =
       exec_exn db
         "ALTER TABLE session_state ADD COLUMN heartbeat_enabled INTEGER NOT \
          NULL DEFAULT 0";
+      add_thinking_content_columns db;
       set_schema_version db schema_version
   | 16 ->
       (* Recreate session_state with CHECK constraint enforcing channel and
@@ -497,13 +523,19 @@ let migrate_schema db current_version =
       init_model_discovery_state_schema db;
       Summary_store.init_schema db;
       init_pending_questions_schema db;
+      add_thinking_content_columns db;
       set_schema_version db schema_version
   | 17 ->
       init_ec_reports_schema db;
       init_quota_history_schema db;
+      add_thinking_content_columns db;
       set_schema_version db schema_version
   | 18 ->
       init_quota_history_schema db;
+      add_thinking_content_columns db;
+      set_schema_version db schema_version
+  | 19 ->
+      add_thinking_content_columns db;
       set_schema_version db schema_version
   | n when n = schema_version ->
       init_session_schema db;
@@ -571,6 +603,7 @@ let init ~db_path ?(search_enabled = false) () =
     \     tool_name TEXT,\n\
     \     tool_calls_json TEXT,\n\
     \     provider_response_items_json TEXT,\n\
+    \     thinking_content TEXT,\n\
     \     created_at TEXT NOT NULL DEFAULT (datetime('now'))\n\
     \   )";
   migrate_schema db current_version;
@@ -619,8 +652,8 @@ let store_message ~db ~session_key (msg : Provider.message) =
   in
   let sql =
     "INSERT INTO messages (session_key, role, content, tool_call_id, \
-     tool_name, tool_calls_json, provider_response_items_json) VALUES (?, ?, \
-     ?, ?, ?, ?, ?)"
+     tool_name, tool_calls_json, provider_response_items_json, \
+     thinking_content) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
   in
   let stmt = Sqlite3.prepare db sql in
   ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT session_key));
@@ -646,6 +679,11 @@ let store_message ~db ~session_key (msg : Provider.message) =
        (match msg.provider_response_items_json with
        | Some j -> Sqlite3.Data.TEXT j
        | None -> Sqlite3.Data.NULL));
+  ignore
+    (Sqlite3.bind stmt 8
+       (match msg.thinking with
+       | Some t -> Sqlite3.Data.TEXT t
+       | None -> Sqlite3.Data.NULL));
   (match Sqlite3.step stmt with
   | Sqlite3.Rc.DONE -> ()
   | rc ->
@@ -656,8 +694,8 @@ let store_message ~db ~session_key (msg : Provider.message) =
 let load_history ~db ~session_key =
   let sql =
     "SELECT role, content, tool_call_id, tool_name, tool_calls_json, \
-     provider_response_items_json FROM messages WHERE session_key = ? ORDER BY \
-     id ASC"
+     provider_response_items_json, thinking_content FROM messages WHERE \
+     session_key = ? ORDER BY id ASC"
   in
   let stmt = Sqlite3.prepare db sql in
   ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT session_key));
@@ -700,6 +738,11 @@ let load_history ~db ~session_key =
       | Sqlite3.Data.TEXT s -> Some s
       | _ -> None
     in
+    let thinking =
+      match Sqlite3.column stmt 6 with
+      | Sqlite3.Data.TEXT s -> Some s
+      | _ -> None
+    in
     messages :=
       {
         Provider.role;
@@ -709,6 +752,7 @@ let load_history ~db ~session_key =
         tool_call_id;
         name;
         provider_response_items_json;
+        thinking;
       }
       :: !messages
   done;
@@ -738,7 +782,8 @@ let raw_messages_of_stmt stmt =
         tool_name = text_opt 4;
         tool_calls_json = text_opt 5;
         provider_response_items_json = text_opt 6;
-        created_at = text 7;
+        thinking_content = text_opt 7;
+        created_at = text 8;
       }
       :: !rows
   done;
@@ -747,8 +792,8 @@ let raw_messages_of_stmt stmt =
 let load_raw_history ~db ~session_key =
   let sql =
     "SELECT id, role, content, tool_call_id, tool_name, tool_calls_json, \
-     provider_response_items_json, created_at FROM messages WHERE session_key \
-     = ? ORDER BY id ASC"
+     provider_response_items_json, thinking_content, created_at FROM messages \
+     WHERE session_key = ? ORDER BY id ASC"
   in
   let stmt = Sqlite3.prepare db sql in
   ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT session_key));
@@ -784,8 +829,8 @@ let archive_session_epoch ~db ~session_key (rows : raw_message list) =
       let msg_sql =
         "INSERT INTO session_log_epoch_messages (epoch_id, ordinal, role, \
          content, tool_call_id, tool_name, tool_calls_json, \
-         provider_response_items_json, created_at) VALUES (?, ?, ?, ?, ?, ?, \
-         ?, ?, ?)"
+         provider_response_items_json, thinking_content, created_at) VALUES \
+         (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
       in
       List.iteri
         (fun ordinal (row : raw_message) ->
@@ -815,7 +860,12 @@ let archive_session_epoch ~db ~session_key (rows : raw_message list) =
                (match row.provider_response_items_json with
                | Some value -> Sqlite3.Data.TEXT value
                | None -> Sqlite3.Data.NULL));
-          ignore (Sqlite3.bind stmt 9 (Sqlite3.Data.TEXT row.created_at));
+          ignore
+            (Sqlite3.bind stmt 9
+               (match row.thinking_content with
+               | Some value -> Sqlite3.Data.TEXT value
+               | None -> Sqlite3.Data.NULL));
+          ignore (Sqlite3.bind stmt 10 (Sqlite3.Data.TEXT row.created_at));
           (match Sqlite3.step stmt with
           | Sqlite3.Rc.DONE -> ()
           | rc ->
@@ -1330,9 +1380,10 @@ let load_epoch_messages ~db ~session_key ~epoch =
               | Sqlite3.Data.TEXT owner when owner = session_key ->
                   let sql =
                     "SELECT ordinal, role, content, tool_call_id, tool_name, \
-                     tool_calls_json, provider_response_items_json, created_at \
-                     FROM session_log_epoch_messages WHERE epoch_id = ? ORDER \
-                     BY ordinal ASC"
+                     tool_calls_json, provider_response_items_json, \
+                     thinking_content, created_at FROM \
+                     session_log_epoch_messages WHERE epoch_id = ? ORDER BY \
+                     ordinal ASC"
                   in
                   let stmt = Sqlite3.prepare db sql in
                   ignore
@@ -1357,7 +1408,7 @@ let load_epoch_messages ~db ~session_key ~epoch =
                       match text_opt 2 with Some s -> s | None -> ""
                     in
                     let created_at =
-                      match text_opt 7 with Some s -> s | None -> ""
+                      match text_opt 8 with Some s -> s | None -> ""
                     in
                     rows :=
                       {
@@ -1368,6 +1419,7 @@ let load_epoch_messages ~db ~session_key ~epoch =
                         tool_name = text_opt 4;
                         tool_calls_json = text_opt 5;
                         provider_response_items_json = text_opt 6;
+                        thinking_content = text_opt 7;
                         created_at;
                       }
                       :: !rows
@@ -1626,6 +1678,7 @@ let search ~db ~query ?session_key ~limit () =
         tool_call_id;
         name;
         provider_response_items_json;
+        thinking = None;
       }
       :: !messages
   done;

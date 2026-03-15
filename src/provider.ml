@@ -10,6 +10,7 @@ type message = {
   tool_call_id : string option;
   name : string option;
   provider_response_items_json : string option;
+  thinking : string option;
 }
 
 and tool_call = { id : string; function_name : string; arguments : string }
@@ -20,15 +21,18 @@ type completion_response =
       model : string;
       usage : (int * int * int) option;
       provider_response_items_json : string option;
+      thinking : string option;
     }
   | ToolCalls of {
       calls : tool_call list;
       model : string;
       usage : (int * int * int) option;
       provider_response_items_json : string option;
+      thinking : string option;
     }
 
-let make_message_full ~role ~content ~provider_response_items_json =
+let make_message_full ~role ~content ~provider_response_items_json
+    ?(thinking = None) () =
   {
     role;
     content;
@@ -37,10 +41,11 @@ let make_message_full ~role ~content ~provider_response_items_json =
     tool_call_id = None;
     name = None;
     provider_response_items_json;
+    thinking;
   }
 
 let make_message ~role ~content =
-  make_message_full ~role ~content ~provider_response_items_json:None
+  make_message_full ~role ~content ~provider_response_items_json:None ()
 
 let make_message_with_parts ~role ~content ~content_parts =
   {
@@ -51,6 +56,7 @@ let make_message_with_parts ~role ~content ~content_parts =
     tool_call_id = None;
     name = None;
     provider_response_items_json = None;
+    thinking = None;
   }
 
 let make_tool_result ~tool_call_id ~name ~content =
@@ -62,6 +68,7 @@ let make_tool_result ~tool_call_id ~name ~content =
     tool_call_id = Some tool_call_id;
     name = Some name;
     provider_response_items_json = None;
+    thinking = None;
   }
 
 let make_tool_search_result ~tool_call_id ~tools_json =
@@ -82,13 +89,21 @@ let make_tool_search_result ~tool_call_id ~tools_json =
     tool_call_id = Some tool_call_id;
     name = Some "tool_search";
     provider_response_items_json = None;
+    thinking = None;
   }
 
 let make_stream_result ~tool_calls ~content ~model ~usage
-    ?(provider_response_items_json = None) () =
+    ?(provider_response_items_json = None) ?(thinking = None) () =
   if tool_calls <> [] then
-    ToolCalls { calls = tool_calls; model; usage; provider_response_items_json }
-  else Text { content; model; usage; provider_response_items_json }
+    ToolCalls
+      {
+        calls = tool_calls;
+        model;
+        usage;
+        provider_response_items_json;
+        thinking;
+      }
+  else Text { content; model; usage; provider_response_items_json; thinking }
 
 let sanitize_utf8 s =
   let len = String.length s in
@@ -245,10 +260,17 @@ type stream_event =
 
 type oai_thinking_style = NoThinking | ReasoningContent | TaggedThinking
 
-let thinking_style_of_provider (provider : Runtime_config.provider_config) =
+let thinking_style_of_provider ?(provider_name = "")
+    (provider : Runtime_config.provider_config) =
   match String.lowercase_ascii provider.oai_thinking_style with
   | "reasoning_content" -> ReasoningContent
   | "tags" -> TaggedThinking
+  | "none" -> (
+      (* Auto-detect: if the provider is ZAI and the catalog says the model
+         supports thinking, use ReasoningContent style automatically. *)
+      match String.lowercase_ascii provider_name with
+      | "zai" | "zai_coding" -> ReasoningContent
+      | _ -> NoThinking)
   | _ -> NoThinking
 
 (* Returns provider-specific extra body fields to inject into every request.
@@ -258,7 +280,8 @@ let thinking_style_of_provider (provider : Runtime_config.provider_config) =
 let provider_extra_body_fields ~provider_name
     ~(provider : Runtime_config.provider_config) =
   match
-    (String.lowercase_ascii provider_name, thinking_style_of_provider provider)
+    ( String.lowercase_ascii provider_name,
+      thinking_style_of_provider ~provider_name provider )
   with
   | ("zai" | "zai_coding"), ReasoningContent ->
       [ ("thinking", `Assoc [ ("type", `String "enabled") ]) ]
@@ -756,6 +779,7 @@ let complete ~(config : Runtime_config.t) ~messages ?tools ?session_key
                      model;
                      usage = None;
                      provider_response_items_json = None;
+                     thinking = None;
                    })
             else
               Lwt.fail_with
@@ -830,15 +854,28 @@ let complete ~(config : Runtime_config.t) ~messages ?tools ?session_key
                      model = resp_model;
                      usage;
                      provider_response_items_json = None;
+                     thinking = None;
                    })
             else
               let raw_content =
                 try choice |> member "content" |> to_string with _ -> ""
               in
-              let content =
-                match thinking_style_of_provider provider with
-                | TaggedThinking -> fst (split_tagged_text raw_content)
-                | NoThinking | ReasoningContent -> raw_content
+              let thinking_style =
+                thinking_style_of_provider ~provider_name provider
+              in
+              let content, thinking_text =
+                match thinking_style with
+                | TaggedThinking ->
+                    let visible, thought = split_tagged_text raw_content in
+                    (visible, if thought = "" then None else Some thought)
+                | ReasoningContent ->
+                    let rc =
+                      try
+                        Some (choice |> member "reasoning_content" |> to_string)
+                      with _ -> None
+                    in
+                    (raw_content, rc)
+                | NoThinking -> (raw_content, None)
               in
               if content = "" && raw_content = "" then
                 Lwt.fail_with "Failed to extract content from LLM response"
@@ -850,6 +887,7 @@ let complete ~(config : Runtime_config.t) ~messages ?tools ?session_key
                        model = resp_model;
                        usage;
                        provider_response_items_json = None;
+                       thinking = thinking_text;
                      }))
 
 let parse_sse_line line =
@@ -886,10 +924,17 @@ let process_sse_stream ?(thinking_style = NoThinking) stream ~on_chunk =
   let open Lwt.Syntax in
   let buf = Buffer.create 256 in
   let content_acc = Buffer.create 1024 in
+  let thinking_acc = Buffer.create 256 in
   let tool_calls_acc : (int * string * string * Buffer.t) list ref = ref [] in
   let resp_model = ref "" in
   let usage_acc = ref None in
   let tagged_state = { in_thinking = false; pending = "" } in
+  let on_chunk_with_thinking_acc event =
+    (match event with
+    | ThinkingDelta text -> Buffer.add_string thinking_acc text
+    | _ -> ());
+    on_chunk event
+  in
   let process_line line =
     match parse_sse_line line with
     | Some `Done ->
@@ -897,7 +942,7 @@ let process_sse_stream ?(thinking_style = NoThinking) stream ~on_chunk =
           match thinking_style with
           | TaggedThinking ->
               flush_tagged_content_delta ~state:tagged_state ~content_acc
-                ~on_chunk ()
+                ~on_chunk:on_chunk_with_thinking_acc ()
           | NoThinking | ReasoningContent -> Lwt.return_unit
         in
         on_chunk Done
@@ -931,6 +976,7 @@ let process_sse_stream ?(thinking_style = NoThinking) stream ~on_chunk =
         let* () =
           match reasoning_delta with
           | Some reasoning when reasoning <> "" ->
+              Buffer.add_string thinking_acc reasoning;
               on_chunk (ThinkingDelta reasoning)
           | _ -> Lwt.return_unit
         in
@@ -942,7 +988,7 @@ let process_sse_stream ?(thinking_style = NoThinking) stream ~on_chunk =
             match thinking_style with
             | TaggedThinking ->
                 emit_tagged_content_delta ~state:tagged_state ~content_acc
-                  ~on_chunk c
+                  ~on_chunk:on_chunk_with_thinking_acc c
             | NoThinking | ReasoningContent ->
                 Buffer.add_string content_acc c;
                 on_chunk (Delta c))
@@ -1060,8 +1106,13 @@ let process_sse_stream ?(thinking_style = NoThinking) stream ~on_chunk =
         { id; function_name = name; arguments = Buffer.contents args_buf })
       !tool_calls_acc
   in
+  let thinking =
+    let t = Buffer.contents thinking_acc in
+    if t = "" then None else Some t
+  in
   Lwt.return
-    (make_stream_result ~tool_calls ~content ~model ~usage:!usage_acc ())
+    (make_stream_result ~tool_calls ~content ~model ~usage:!usage_acc ~thinking
+       ())
 
 let complete_stream ~(config : Runtime_config.t) ~messages ?tools ?session_key
     ?preferred_provider ?quota_states ~on_chunk () =
@@ -1116,6 +1167,6 @@ let complete_stream ~(config : Runtime_config.t) ~messages ?tools ?session_key
       Http_client.post_stream_with ~uri ~headers ~body ~label:"LLM API error"
         ~on_ok:(fun stream ->
           process_sse_stream
-            ~thinking_style:(thinking_style_of_provider provider)
+            ~thinking_style:(thinking_style_of_provider ~provider_name provider)
             stream ~on_chunk)
         ()

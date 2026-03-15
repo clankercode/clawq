@@ -138,6 +138,19 @@ let parse_anthropic_response body model =
       with _ -> None
     in
     let content_list = try json |> member "content" |> to_list with _ -> [] in
+    let thinking_text =
+      List.fold_left
+        (fun acc block ->
+          try
+            let block_type = block |> member "type" |> to_string in
+            if block_type = "thinking" then
+              let t = block |> member "thinking" |> to_string in
+              if acc = "" then t else acc ^ t
+            else acc
+          with _ -> acc)
+        "" content_list
+    in
+    let thinking = if thinking_text = "" then None else Some thinking_text in
     if stop_reason = "tool_use" then
       let tool_calls =
         List.filter_map
@@ -162,6 +175,7 @@ let parse_anthropic_response body model =
                model = resp_model;
                usage;
                provider_response_items_json = None;
+               thinking;
              })
       else Error "tool_use stop reason but no tool_use blocks found"
     else
@@ -184,6 +198,7 @@ let parse_anthropic_response body model =
              model = resp_model;
              usage;
              provider_response_items_json = None;
+             thinking;
            })
   with exn ->
     Error ("Failed to parse Anthropic response: " ^ Printexc.to_string exn)
@@ -312,6 +327,7 @@ let complete_streaming ~(config : Runtime_config.t)
         *)
       let buf = Buffer.create 256 in
       let content_acc = Buffer.create 1024 in
+      let thinking_acc = Buffer.create 256 in
       let resp_model = ref model in
       let usage_acc = ref None in
       let tool_calls_acc : (int * string * string * Buffer.t) list ref
@@ -386,8 +402,10 @@ let complete_streaming ~(config : Runtime_config.t)
                   let thinking =
                     try delta |> member "thinking" |> to_string with _ -> ""
                   in
-                  if thinking <> "" then
+                  if thinking <> "" then begin
+                    Buffer.add_string thinking_acc thinking;
                     on_chunk (Provider.ThinkingDelta thinking)
+                  end
                   else Lwt.return_unit
                 end
                 else if dtype = "text_delta" then begin
@@ -480,7 +498,11 @@ let complete_streaming ~(config : Runtime_config.t)
             })
           !tool_calls_acc
       in
+      let thinking =
+        let t = Buffer.contents thinking_acc in
+        if t = "" then None else Some t
+      in
       Lwt.return
         (Provider.make_stream_result ~tool_calls ~content ~model:final_model
-           ~usage:!usage_acc ()))
+           ~usage:!usage_acc ~thinking ()))
     ()

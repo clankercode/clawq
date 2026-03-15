@@ -180,6 +180,7 @@ let parse_gemini_response body model =
              model = resp_model;
              usage;
              provider_response_items_json = None;
+             thinking = None;
            })
     else
       let text =
@@ -198,6 +199,7 @@ let parse_gemini_response body model =
              model = resp_model;
              usage;
              provider_response_items_json = None;
+             thinking = None;
            })
   with exn ->
     Error ("Failed to parse Gemini response: " ^ Printexc.to_string exn)

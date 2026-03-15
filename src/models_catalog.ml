@@ -628,7 +628,7 @@ let known_models : model_info list =
       context_window = Some 128000;
       supports_vision = false;
       supports_tools = true;
-      supports_thinking = false;
+      supports_thinking = true;
       deprecated = false;
     };
     {
@@ -638,7 +638,7 @@ let known_models : model_info list =
       context_window = Some 128000;
       supports_vision = false;
       supports_tools = true;
-      supports_thinking = false;
+      supports_thinking = true;
       deprecated = false;
     };
     {

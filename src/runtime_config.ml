@@ -46,6 +46,7 @@ type agent_defaults = {
   tool_search_enabled : bool;
   reasoning_effort : string option;
   show_thinking : bool;
+  drop_thinking : bool;
   show_tool_calls : bool;
   tool_status_mode : string;
   send_continuation_checkin : bool;
@@ -552,7 +553,8 @@ let default =
         max_tool_iterations = 10;
         tool_search_enabled = false;
         reasoning_effort = None;
-        show_thinking = false;
+        show_thinking = true;
+        drop_thinking = false;
         show_tool_calls = true;
         tool_status_mode = "consolidated";
         send_continuation_checkin = false;
@@ -1097,6 +1099,7 @@ let to_json (cfg : t) : Yojson.Safe.t =
                ("max_tool_iterations", `Int ad.max_tool_iterations);
                ("tool_search_enabled", `Bool ad.tool_search_enabled);
                ("show_thinking", `Bool ad.show_thinking);
+               ("drop_thinking", `Bool ad.drop_thinking);
                ("show_tool_calls", `Bool ad.show_tool_calls);
                ("tool_status_mode", `String ad.tool_status_mode);
                ("send_continuation_checkin", `Bool ad.send_continuation_checkin);

@@ -12,6 +12,7 @@ let make_assistant_with_calls calls =
     Provider.tool_call_id = None;
     Provider.name = None;
     Provider.provider_response_items_json = None;
+    Provider.thinking = None;
   }
 
 let make_tool_result id content =
@@ -23,6 +24,7 @@ let make_tool_result id content =
     Provider.tool_call_id = Some id;
     Provider.name = None;
     Provider.provider_response_items_json = None;
+    Provider.thinking = None;
   }
 
 let make_tool_result_with_name id name content =
@@ -34,6 +36,7 @@ let make_tool_result_with_name id name content =
     Provider.tool_call_id = Some id;
     Provider.name = Some name;
     Provider.provider_response_items_json = None;
+    Provider.thinking = None;
   }
 
 let make_tool_call id name =

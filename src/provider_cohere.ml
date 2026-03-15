@@ -89,6 +89,7 @@ let parse_cohere_response body model =
              model = resp_model;
              usage;
              provider_response_items_json = None;
+             thinking = None;
            })
     else
       let content =
@@ -111,6 +112,7 @@ let parse_cohere_response body model =
              model = resp_model;
              usage;
              provider_response_items_json = None;
+             thinking = None;
            })
   with exn ->
     Error ("Failed to parse Cohere response: " ^ Printexc.to_string exn)

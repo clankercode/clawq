@@ -171,8 +171,7 @@ let test_sanitize_message_strips_metadata () =
   | _ -> Alcotest.fail "expected Assoc"
 
 let test_sanitize_reasoning_item_dropped () =
-  (* reasoning items are output-only and require store=true to reference by ID;
-     they must be dropped (None) rather than forwarded as input *)
+  (* reasoning items are now passed through for replay with id stripped *)
   let item =
     `Assoc
       [
@@ -181,9 +180,14 @@ let test_sanitize_reasoning_item_dropped () =
         ("summary", `List []);
       ]
   in
-  Alcotest.(check bool)
-    "reasoning item dropped (None)" true
-    (Provider_openai_codex.sanitize_input_item item = None)
+  match Provider_openai_codex.sanitize_input_item item with
+  | Some (`Assoc fields) ->
+      Alcotest.(check bool) "reasoning item kept" true true;
+      Alcotest.(check bool)
+        "id stripped" true
+        (not (List.mem_assoc "id" fields));
+      Alcotest.(check bool) "type preserved" true (List.mem_assoc "type" fields)
+  | _ -> Alcotest.fail "reasoning item should be Some, not None"
 
 let test_sanitize_unknown_type_strips_id () =
   (* unknown output item types should have their server-assigned id stripped

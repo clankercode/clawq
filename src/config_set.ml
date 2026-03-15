@@ -200,6 +200,7 @@ let config_schema =
             ("tool_search_enabled", L);
             ("reasoning_effort", L);
             ("show_thinking", L);
+            ("drop_thinking", L);
             ("show_tool_calls", L);
             ("tool_status_mode", L);
             ("send_continuation_checkin", L);
@@ -555,6 +556,9 @@ let set_reasoning_effort value =
 
 let set_show_thinking value =
   set_json_value "agent_defaults.show_thinking" (`Bool value)
+
+let set_drop_thinking value =
+  set_json_value "agent_defaults.drop_thinking" (`Bool value)
 
 let set_value key value =
   match set_json_value key (infer_value value) with

@@ -87,10 +87,10 @@ let test_init_double_call () =
   ignore db1;
   ignore db2
 
-let test_init_schema_version_is_19 () =
+let test_init_schema_version_is_20 () =
   let db = Memory.init ~db_path:":memory:" () in
   Alcotest.(check int)
-    "schema version is 19" 19
+    "schema version is 20" 20
     (query_single_int db "SELECT version FROM schema_version")
 
 let test_init_creates_session_persistence_tables () =
@@ -145,7 +145,7 @@ let test_migrates_v1_db_to_v4_without_data_loss () =
       ignore (Sqlite3.db_close db);
       let migrated = Memory.init ~db_path () in
       Alcotest.(check int)
-        "schema version migrated" 19
+        "schema version migrated" 20
         (query_single_int migrated "SELECT version FROM schema_version");
       Alcotest.(check bool)
         "session_state exists after migration" true
@@ -303,6 +303,7 @@ let test_store_message_with_tool_call_id () =
       tool_call_id = Some "tcid-123";
       name = Some "file_read";
       provider_response_items_json = None;
+      thinking = None;
     }
   in
   Memory.store_message ~db ~session_key:"s1" msg;
@@ -325,6 +326,7 @@ let test_store_message_with_tool_calls () =
       tool_call_id = None;
       name = None;
       provider_response_items_json = None;
+      thinking = None;
     }
   in
   Memory.store_message ~db ~session_key:"s1" msg;
@@ -538,6 +540,7 @@ let test_tool_cycle_history_shape () =
       tool_call_id = None;
       name = None;
       provider_response_items_json = None;
+      thinking = None;
     }
   in
   Memory.store_message ~db ~session_key:"s1" assistant_with_calls;
@@ -570,7 +573,7 @@ let test_provider_response_items_roundtrip () =
       ~provider_response_items_json:
         (Some
            {|[{"type":"reasoning","id":"rs_1"},{"type":"function_call","call_id":"call_1","name":"bash","arguments":"{}"}]|})
-      ~role:"assistant" ~content:""
+      ~role:"assistant" ~content:"" ()
   in
   Memory.store_message ~db ~session_key:"s1" msg;
   let msgs = Memory.load_history ~db ~session_key:"s1" in
@@ -578,6 +581,26 @@ let test_provider_response_items_roundtrip () =
   Alcotest.(check (option string))
     "provider response items preserved" msg.provider_response_items_json
     loaded.provider_response_items_json
+
+let test_thinking_roundtrip () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let msg =
+    Provider.make_message_full ~role:"assistant" ~content:"answer"
+      ~provider_response_items_json:None ~thinking:(Some "my reasoning") ()
+  in
+  Memory.store_message ~db ~session_key:"s1" msg;
+  let msgs = Memory.load_history ~db ~session_key:"s1" in
+  let loaded = List.hd msgs in
+  Alcotest.(check (option string))
+    "thinking preserved" (Some "my reasoning") loaded.thinking
+
+let test_thinking_none_compat () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let msg = Provider.make_message ~role:"assistant" ~content:"no thinking" in
+  Memory.store_message ~db ~session_key:"s1" msg;
+  let msgs = Memory.load_history ~db ~session_key:"s1" in
+  let loaded = List.hd msgs in
+  Alcotest.(check (option string)) "thinking is None" None loaded.thinking
 
 (* --- inbound queue tests --- *)
 
@@ -868,7 +891,7 @@ let test_queue_migrate_v4_to_v5 () =
       ignore (Sqlite3.db_close db);
       let migrated = Memory.init ~db_path () in
       Alcotest.(check int)
-        "schema version is 19" 19
+        "schema version is 20" 20
         (query_single_int migrated "SELECT version FROM schema_version");
       Alcotest.(check bool)
         "inbound_queue exists after v4->v5" true
@@ -888,7 +911,7 @@ let test_init_rejects_future_schema_version () =
   with_temp_db (fun db_path ->
       let db = Sqlite3.db_open db_path in
       exec_exn db "CREATE TABLE schema_version (version INTEGER NOT NULL)";
-      exec_exn db "INSERT INTO schema_version (version) VALUES (20)";
+      exec_exn db "INSERT INTO schema_version (version) VALUES (21)";
       exec_exn db
         {|CREATE TABLE messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -914,7 +937,7 @@ let test_init_rejects_future_schema_version () =
       | `Msg msg ->
           Alcotest.(check bool)
             "rejects future version" true
-            (String.starts_with ~prefix:"DB uses future schema version 20" msg))
+            (String.starts_with ~prefix:"DB uses future schema version 21" msg))
 
 let suite =
   [
@@ -924,8 +947,8 @@ let suite =
     Alcotest.test_case "init search enabled" `Quick test_init_search_enabled;
     Alcotest.test_case "init search disabled" `Quick test_init_search_disabled;
     Alcotest.test_case "init double call" `Quick test_init_double_call;
-    Alcotest.test_case "init schema version is 19" `Quick
-      test_init_schema_version_is_19;
+    Alcotest.test_case "init schema version is 20" `Quick
+      test_init_schema_version_is_20;
     Alcotest.test_case "init creates session persistence tables" `Quick
       test_init_creates_session_persistence_tables;
     Alcotest.test_case "migrates v1 db to v4 without data loss" `Quick
@@ -985,6 +1008,8 @@ let suite =
       test_tool_cycle_history_shape;
     Alcotest.test_case "provider response items roundtrip" `Quick
       test_provider_response_items_roundtrip;
+    Alcotest.test_case "thinking roundtrip" `Quick test_thinking_roundtrip;
+    Alcotest.test_case "thinking None compat" `Quick test_thinking_none_compat;
     Alcotest.test_case "queue init creates table" `Quick
       test_queue_init_creates_table;
     Alcotest.test_case "queue enqueue and list" `Quick

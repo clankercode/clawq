@@ -867,7 +867,8 @@ let test_session_show_redacts_shell_exec_provider_response_items () =
           in
           Memory.store_message ~db ~session_key:"web:test"
             (Provider.make_message_full ~role:"assistant" ~content:""
-               ~provider_response_items_json:(Some provider_response_items_json));
+               ~provider_response_items_json:(Some provider_response_items_json)
+               ());
           let shown = Command_bridge.handle [ "session"; "show"; "web:test" ] in
           Alcotest.(check bool)
             "session show redacts shell_exec provider_response_items secret"

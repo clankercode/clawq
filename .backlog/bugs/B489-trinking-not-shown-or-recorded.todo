@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-15T13:04:21Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-15T14:07:19Z"
 complexity: medium
 depends_on: []
+duration_minutes: 62.97536811675
 estimate_hours: 1
 id: B489
 priority: high
 started_at: "2026-03-15T13:04:21Z"
-status: in_progress
+status: done
 tags: []
 title: 'Thinking not shown or recorded I think. Not sure. Search DB to find out. Note: glm-5 will always have thinking on I''m pretty sure.'
 ---

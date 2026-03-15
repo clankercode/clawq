@@ -865,6 +865,8 @@ let test_zai_thinking_extra_fields_enabled () =
   | _ -> Alcotest.fail "expected thinking:enabled field for zai_coding"
 
 let test_zai_thinking_extra_fields_none_without_style () =
+  (* ZAI providers now auto-detect thinking even when oai_thinking_style is
+     "none" (the default), so extra fields are always added for ZAI. *)
   let provider =
     { Runtime_config.default_provider_config with api_key = "sk-zai" }
   in
@@ -872,7 +874,7 @@ let test_zai_thinking_extra_fields_none_without_style () =
     Provider.provider_extra_body_fields ~provider_name:"zai_coding" ~provider
   in
   Alcotest.(check bool)
-    "no extra fields when oai_thinking_style is none" true (fields = [])
+    "extra fields present for zai even with default style" true (fields <> [])
 
 let test_zai_thinking_extra_fields_none_for_other_providers () =
   let provider =
@@ -1011,8 +1013,8 @@ let suite =
       test_sanitize_utf8_message_to_json;
     Alcotest.test_case "zai thinking extra fields enabled" `Quick
       test_zai_thinking_extra_fields_enabled;
-    Alcotest.test_case "zai thinking extra fields none without style" `Quick
-      test_zai_thinking_extra_fields_none_without_style;
+    Alcotest.test_case "zai thinking extra fields auto-detect without style"
+      `Quick test_zai_thinking_extra_fields_none_without_style;
     Alcotest.test_case "zai thinking extra fields none for other providers"
       `Quick test_zai_thinking_extra_fields_none_for_other_providers;
   ]
