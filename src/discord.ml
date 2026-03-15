@@ -518,6 +518,10 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
       | Reply text ->
           send_message_fn ~bot_token:discord_config.bot_token
             ~channel_id:msg.channel_id ~text
+      | FormattedReply fn ->
+          let text = fn Format_adapter.Discord in
+          send_message_fn ~bot_token:discord_config.bot_token
+            ~channel_id:msg.channel_id ~text
       | Help | Menu _ ->
           let text =
             Slash_commands.format_help ~connector:Format_adapter.Discord
@@ -526,9 +530,12 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
             ~channel_id:msg.channel_id ~text
       | Reset ->
           let* active_bg_tasks = Session.reset session_mgr ~key in
+          let text =
+            Slash_commands_fmt.format_reset ~connector:Format_adapter.Discord
+              ~active_bg_tasks
+          in
           send_message_fn ~bot_token:discord_config.bot_token
-            ~channel_id:msg.channel_id
-            ~text:(Slash_commands.reset_message ~active_bg_tasks ())
+            ~channel_id:msg.channel_id ~text
       | Compact -> (
           let notifier =
             make_status_notifier ~bot_token:discord_config.bot_token
@@ -548,9 +555,13 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
           send_message_fn ~bot_token:discord_config.bot_token
             ~channel_id:msg.channel_id ~text
       | Uptime ->
-          let text =
+          let raw =
             Daemon_status.daemon_uptime_reply
               ~pid:(Daemon_status.read_current_daemon_pid ())
+          in
+          let text =
+            Slash_commands_fmt.format_uptime ~connector:Format_adapter.Discord
+              raw
           in
           send_message_fn ~bot_token:discord_config.bot_token
             ~channel_id:msg.channel_id ~text
@@ -568,23 +579,28 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
           let current =
             (Session.get_config session_mgr).agent_defaults.reasoning_effort
           in
-          send_message ~bot_token:discord_config.bot_token
-            ~channel_id:msg.channel_id
-            ~text:(current_thinking_message current)
+          let text =
+            Slash_commands_fmt.format_thinking_status
+              ~connector:Format_adapter.Discord current
+          in
+          send_message_fn ~bot_token:discord_config.bot_token
+            ~channel_id:msg.channel_id ~text
       | Thinking (Slash_commands.SetThinking level) ->
-          send_message ~bot_token:discord_config.bot_token
-            ~channel_id:msg.channel_id
-            ~text:
-              (set_thinking_level ~session_mgr ~channel_id:msg.channel_id
-                 ~author_id:msg.author_id level)
+          let text =
+            set_thinking_level ~session_mgr ~channel_id:msg.channel_id
+              ~author_id:msg.author_id level
+          in
+          send_message_fn ~bot_token:discord_config.bot_token
+            ~channel_id:msg.channel_id ~text
       | ShowThinking action ->
+          let connector = Format_adapter.Discord in
           let cfg = Session.get_config session_mgr in
           let current = cfg.agent_defaults.show_thinking in
           let text =
             match action with
             | Slash_commands.ShowThinkingStatus ->
-                Printf.sprintf "Show thinking: %s"
-                  (if current then "on" else "off")
+                Slash_commands_fmt.format_show_thinking_status ~connector
+                  current
             | Slash_commands.ToggleShowThinking -> (
                 let new_val = not current in
                 match Config_set.set_show_thinking new_val with
@@ -599,28 +615,29 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                           "Discord show_thinking toggled channel_id=%s \
                            author_id=%s from=%b to=%b"
                           msg.channel_id msg.author_id current new_val);
-                    Printf.sprintf "Show thinking: %s"
-                      (if new_val then "on" else "off")
+                    Slash_commands_fmt.format_show_thinking_toggle ~connector
+                      new_val
                 | Error err -> "Failed to update show_thinking: " ^ err)
           in
-          send_message ~bot_token:discord_config.bot_token
+          send_message_fn ~bot_token:discord_config.bot_token
             ~channel_id:msg.channel_id ~text
       | Heartbeat action ->
+          let connector = Format_adapter.Discord in
           let text =
             match action with
             | Slash_commands.HeartbeatStatus ->
-                Session.session_heartbeat_status_text session_mgr ~key
+                Slash_commands_fmt.format_heartbeat_status ~connector
+                  (Session.session_heartbeat_status_text session_mgr ~key)
             | Slash_commands.SetHeartbeat enabled -> (
                 match
                   Session.set_session_heartbeat session_mgr ~key ~enabled
                 with
                 | Ok () ->
-                    Printf.sprintf "Heartbeat %s for session %s"
-                      (if enabled then "enabled" else "disabled")
+                    Slash_commands_fmt.format_heartbeat_set ~connector enabled
                       key
                 | Error err -> err)
           in
-          send_message ~bot_token:discord_config.bot_token
+          send_message_fn ~bot_token:discord_config.bot_token
             ~channel_id:msg.channel_id ~text
       | Delegate prompt ->
           let* () =
@@ -644,22 +661,30 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
           send_message_fn ~bot_token:discord_config.bot_token
             ~channel_id:msg.channel_id ~text
       | Tasks ->
-          let text =
+          let raw =
             match Session.get_db session_mgr with
             | Some db ->
                 Task_tree.init_schema db;
                 Task_tree.render_emoji_tree ~db ~session_key:key ()
             | None -> "Tasks are not available (no database)."
           in
+          let text =
+            Slash_commands_fmt.format_tasks ~connector:Format_adapter.Discord
+              raw
+          in
           send_message_fn ~bot_token:discord_config.bot_token
             ~channel_id:msg.channel_id ~text
       | TasksFull ->
-          let text =
+          let raw =
             match Session.get_db session_mgr with
             | Some db ->
                 Task_tree.init_schema db;
                 Task_tree.render_tree_with_legend ~db ~session_key:key
             | None -> "Tasks are not available (no database)."
+          in
+          let text =
+            Slash_commands_fmt.format_tasks ~connector:Format_adapter.Discord
+              raw
           in
           send_message_fn ~bot_token:discord_config.bot_token
             ~channel_id:msg.channel_id ~text

@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-15T13:54:35Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-15T14:46:43Z"
 complexity: medium
 depends_on: []
+duration_minutes: 52.14225312596667
 estimate_hours: 1
 id: B491
 priority: high
 started_at: "2026-03-15T13:54:35Z"
-status: in_progress
+status: done
 tags: []
 title: Review all slash command output and convert any old style output to use the new format adapter + dsl. Also take this as an opportunity to improve the layout, formatting, and general richness of the outputs
 ---

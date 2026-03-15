@@ -363,6 +363,14 @@ let handler ~session_manager ~require_pairing ~auth_token
                   | other -> Lwt.return (other, message, [])
                 in
                 match cmd_result with
+                | Slash_commands.FormattedReply fn ->
+                    let response = fn Format_adapter.Plain in
+                    let resp_json =
+                      `Assoc [ ("response", `String response) ]
+                      |> Yojson.Safe.to_string
+                    in
+                    Cohttp_lwt_unix.Server.respond_string ~status:`OK
+                      ~headers:json_headers ~body:resp_json ()
                 | Slash_commands.Help | Slash_commands.Menu _ ->
                     let response =
                       Slash_commands.format_help ~connector:Format_adapter.Plain
@@ -985,6 +993,8 @@ let handler ~session_manager ~require_pairing ~auth_token
                 in
                 match cmd_result with
                 | Slash_commands.Reply text -> sse_reply text
+                | Slash_commands.FormattedReply fn ->
+                    sse_reply (fn Format_adapter.Plain)
                 | Slash_commands.Help | Slash_commands.Menu _ ->
                     sse_reply
                       (Slash_commands.format_help
@@ -1089,11 +1099,9 @@ let handler ~session_manager ~require_pairing ~auth_token
                       (Session.get_config session_manager).agent_defaults
                         .reasoning_effort
                     in
-                    let text =
-                      Printf.sprintf "Current thinking level: %s"
-                        (Slash_commands.thinking_level_to_string current)
-                    in
-                    sse_reply text
+                    sse_reply
+                      (Slash_commands_fmt.format_thinking_status
+                         ~connector:Format_adapter.Plain current)
                 | Slash_commands.Thinking (Slash_commands.SetThinking level) ->
                     let cfg = Session.get_config session_manager in
                     let previous = cfg.agent_defaults.reasoning_effort in
@@ -1106,20 +1114,20 @@ let handler ~session_manager ~require_pairing ~auth_token
                           Session.update_config ~source:"gateway_api"
                             session_manager
                             { cfg with agent_defaults };
-                          Printf.sprintf "Thinking level changed from %s to %s."
-                            (Slash_commands.thinking_level_to_string previous)
-                            (Slash_commands.thinking_level_to_string level)
+                          Slash_commands_fmt.format_thinking_set
+                            ~connector:Format_adapter.Plain ~previous level
                       | Error err -> err
                     in
                     sse_reply text
                 | Slash_commands.ShowThinking action ->
+                    let connector = Format_adapter.Plain in
                     let cfg = Session.get_config session_manager in
                     let current = cfg.agent_defaults.show_thinking in
                     let text =
                       match action with
                       | Slash_commands.ShowThinkingStatus ->
-                          Printf.sprintf "Show thinking: %s"
-                            (if current then "on" else "off")
+                          Slash_commands_fmt.format_show_thinking_status
+                            ~connector current
                       | Slash_commands.ToggleShowThinking -> (
                           let new_val = not current in
                           match Config_set.set_show_thinking new_val with
@@ -1133,8 +1141,8 @@ let handler ~session_manager ~require_pairing ~auth_token
                               Session.update_config ~source:"gateway_api"
                                 session_manager
                                 { cfg with agent_defaults };
-                              Printf.sprintf "Show thinking: %s"
-                                (if new_val then "on" else "off")
+                              Slash_commands_fmt.format_show_thinking_toggle
+                                ~connector new_val
                           | Error err ->
                               "Failed to update show_thinking: " ^ err)
                     in

@@ -75,6 +75,7 @@
   channel
   channel_util
   typing_indicator
+  slash_commands_fmt
   slash_commands
   slash_commands_manifest
   totp

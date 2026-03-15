@@ -1,5 +1,12 @@
+let extract_text = function
+  | Slash_commands.Reply s -> Some s
+  | Slash_commands.FormattedReply fn -> Some (fn Format_adapter.Plain)
+  | _ -> None
+
 let result_to_string = function
   | Slash_commands.Reply s -> "Reply(" ^ s ^ ")"
+  | Slash_commands.FormattedReply fn ->
+      "FormattedReply(" ^ fn Format_adapter.Plain ^ ")"
   | Slash_commands.Help -> "Help"
   | Slash_commands.Reset -> "Reset"
   | Slash_commands.Thinking Slash_commands.ShowThinking -> "Thinking(Show)"
@@ -91,6 +98,8 @@ let result_to_string = function
 let result_eq a b =
   match (a, b) with
   | Slash_commands.Reply a, Slash_commands.Reply b -> a = b
+  | Slash_commands.FormattedReply a, Slash_commands.FormattedReply b ->
+      a Format_adapter.Plain = b Format_adapter.Plain
   | Slash_commands.Help, Slash_commands.Help -> true
   | Slash_commands.Reset, Slash_commands.Reset -> true
   | ( Slash_commands.Thinking Slash_commands.ShowThinking,
@@ -129,13 +138,21 @@ let result_testable =
     (fun fmt r -> Format.fprintf fmt "%s" (result_to_string r))
     result_eq
 
+let contains_str haystack needle =
+  try
+    ignore (Str.search_forward (Str.regexp_string needle) haystack 0);
+    true
+  with Not_found -> false
+
 let test_start () =
   match Slash_commands.handle "/start" with
-  | Slash_commands.Reply s ->
+  | Slash_commands.FormattedReply fn ->
+      let s = fn Format_adapter.Plain in
       Alcotest.(check bool) "contains ready" true (String.length s > 0)
   | other ->
       Alcotest.fail
-        (Printf.sprintf "expected Reply, got %s" (result_to_string other))
+        (Printf.sprintf "expected FormattedReply, got %s"
+           (result_to_string other))
 
 let test_help () =
   match Slash_commands.handle "/help" with
@@ -228,8 +245,8 @@ let test_thinking_case_insensitive () =
     (Slash_commands.handle "/thinking HIGH")
 
 let test_thinking_invalid_level () =
-  match Slash_commands.handle "/thinking turbo" with
-  | Slash_commands.Reply text ->
+  match extract_text (Slash_commands.handle "/thinking turbo") with
+  | Some text ->
       let contains =
         try
           ignore
@@ -240,18 +257,15 @@ let test_thinking_invalid_level () =
         with Not_found -> false
       in
       Alcotest.(check bool) "mentions invalid thinking level" true contains
-  | other ->
-      Alcotest.fail
-        (Printf.sprintf "expected Reply, got %s" (result_to_string other))
+  | None -> Alcotest.fail "expected text reply for invalid thinking level"
 
 let test_thinking_too_many_args () =
-  match Slash_commands.handle "/thinking low extra" with
-  | Slash_commands.Reply text ->
-      Alcotest.(check string)
-        "usage" "Usage: /thinking [low/medium/high/off/xhigh/max]" text
-  | other ->
-      Alcotest.fail
-        (Printf.sprintf "expected Reply, got %s" (result_to_string other))
+  match extract_text (Slash_commands.handle "/thinking low extra") with
+  | Some text ->
+      Alcotest.(check bool)
+        "mentions /thinking" true
+        (contains_str text "/thinking")
+  | None -> Alcotest.fail "expected text reply for thinking usage"
 
 let test_heartbeat_status () =
   Alcotest.check result_testable "heartbeat status"
@@ -267,9 +281,12 @@ let test_heartbeat_toggle () =
     (Slash_commands.handle "/heartbeat off")
 
 let test_heartbeat_invalid_args () =
-  Alcotest.check result_testable "heartbeat invalid args"
-    (Slash_commands.Reply "Usage: /heartbeat [on/off/status]")
-    (Slash_commands.handle "/heartbeat maybe")
+  match extract_text (Slash_commands.handle "/heartbeat maybe") with
+  | Some text ->
+      Alcotest.(check bool)
+        "mentions /heartbeat" true
+        (contains_str text "/heartbeat")
+  | None -> Alcotest.fail "expected text reply for heartbeat usage"
 
 let test_regular_message () =
   Alcotest.check result_testable "regular msg" Slash_commands.NotACommand
@@ -355,9 +372,12 @@ let test_delegate_with_prompt () =
     (Slash_commands.handle "/delegate do something")
 
 let test_delegate_no_args () =
-  Alcotest.check result_testable "delegate no args"
-    (Slash_commands.Reply "Usage: /delegate <prompt>")
-    (Slash_commands.handle "/delegate")
+  match extract_text (Slash_commands.handle "/delegate") with
+  | Some text ->
+      Alcotest.(check bool)
+        "mentions /delegate" true
+        (contains_str text "/delegate")
+  | None -> Alcotest.fail "expected text reply for delegate usage"
 
 let test_delegate_multi_word () =
   Alcotest.check result_testable "delegate multi-word"
@@ -370,9 +390,12 @@ let test_fork_and_with_prompt () =
     (Slash_commands.handle "/fork-and summarize this")
 
 let test_fork_and_no_args () =
-  Alcotest.check result_testable "fork-and no args"
-    (Slash_commands.Reply "Usage: /fork_and <prompt>")
-    (Slash_commands.handle "/fork-and")
+  match extract_text (Slash_commands.handle "/fork-and") with
+  | Some text ->
+      Alcotest.(check bool)
+        "mentions /fork_and" true
+        (contains_str text "/fork_and")
+  | None -> Alcotest.fail "expected text reply for fork_and usage"
 
 let test_fork_and_multi_word () =
   Alcotest.check result_testable "fork-and multi-word"
@@ -406,18 +429,10 @@ let test_costs_model_and_provider () =
     (Slash_commands.handle "/costs provider")
 
 let test_costs_usage_on_invalid_args () =
-  match Slash_commands.handle "/costs nope" with
-  | Slash_commands.Reply text ->
-      let contains =
-        try
-          ignore (Str.search_forward (Str.regexp_string "Usage:") text 0);
-          true
-        with Not_found -> false
-      in
-      Alcotest.(check bool) "mentions usage" true contains
-  | other ->
-      Alcotest.fail
-        (Printf.sprintf "expected Reply(Usage), got %s" (result_to_string other))
+  match extract_text (Slash_commands.handle "/costs nope") with
+  | Some text ->
+      Alcotest.(check bool) "mentions /costs" true (contains_str text "/costs")
+  | None -> Alcotest.fail "expected text reply for costs usage"
 
 let test_usage_default () =
   Alcotest.check result_testable "/usage summary"
@@ -441,18 +456,10 @@ let test_usage_model_and_provider () =
     (Slash_commands.handle "/usage provider")
 
 let test_usage_usage_on_invalid_args () =
-  match Slash_commands.handle "/usage nope" with
-  | Slash_commands.Reply text ->
-      let contains =
-        try
-          ignore (Str.search_forward (Str.regexp_string "Usage:") text 0);
-          true
-        with Not_found -> false
-      in
-      Alcotest.(check bool) "mentions usage" true contains
-  | other ->
-      Alcotest.fail
-        (Printf.sprintf "expected Reply(Usage), got %s" (result_to_string other))
+  match extract_text (Slash_commands.handle "/usage nope") with
+  | Some text ->
+      Alcotest.(check bool) "mentions /usage" true (contains_str text "/usage")
+  | None -> Alcotest.fail "expected text reply for usage usage"
 
 let test_active () =
   Alcotest.check result_testable "/active" Slash_commands.Active
@@ -498,25 +505,18 @@ let test_bg_retry () =
     (Slash_commands.handle "/bg retry 1")
 
 let test_bg_invalid_id () =
-  match Slash_commands.handle "/bg show abc" with
-  | Slash_commands.Reply s ->
+  match extract_text (Slash_commands.handle "/bg show abc") with
+  | Some s ->
       Alcotest.(check bool)
         "mentions invalid" true
         (String_util.contains s "Invalid task id")
-  | other ->
-      Alcotest.fail
-        (Printf.sprintf "expected Reply(invalid), got %s"
-           (result_to_string other))
+  | None -> Alcotest.fail "expected text reply for bg invalid id"
 
 let test_bg_unknown_subcommand () =
-  match Slash_commands.handle "/bg foobar" with
-  | Slash_commands.Reply s ->
-      Alcotest.(check bool)
-        "mentions usage" true
-        (String_util.contains s "Usage:")
-  | other ->
-      Alcotest.fail
-        (Printf.sprintf "expected Reply(usage), got %s" (result_to_string other))
+  match extract_text (Slash_commands.handle "/bg foobar") with
+  | Some s ->
+      Alcotest.(check bool) "mentions /bg" true (String_util.contains s "/bg")
+  | None -> Alcotest.fail "expected text reply for bg usage"
 
 let test_bg_background_alias () =
   Alcotest.check result_testable "/background"
@@ -539,24 +539,16 @@ let test_bg_start_alias () =
     (Slash_commands.handle "/bg start deploy it")
 
 let test_bg_create_empty_prompt () =
-  match Slash_commands.handle "/bg create" with
-  | Slash_commands.Reply s ->
+  match extract_text (Slash_commands.handle "/bg create") with
+  | Some s ->
       Alcotest.(check bool)
-        "mentions usage" true
-        (String_util.contains s "Usage:")
-  | other ->
-      Alcotest.fail
-        (Printf.sprintf "expected Reply(usage), got %s" (result_to_string other))
+        "mentions /bg create" true
+        (String_util.contains s "/bg create")
+  | None -> Alcotest.fail "expected text reply for bg create usage"
 
 let test_leading_whitespace () =
   Alcotest.check result_testable "padded status" Slash_commands.Status
     (Slash_commands.handle "  /status  ")
-
-let contains_str haystack needle =
-  try
-    ignore (Str.search_forward (Str.regexp_string needle) haystack 0);
-    true
-  with Not_found -> false
 
 let test_show_thinking_toggle () =
   Alcotest.check result_testable "show-thinking toggles"
@@ -577,28 +569,22 @@ let test_show_thinking_aliases () =
     (Slash_commands.handle "/toggle-show-thinking")
 
 let test_show_thinking_bad_args () =
-  match Slash_commands.handle "/show-thinking foo" with
-  | Slash_commands.Reply s ->
-      Alcotest.(check bool) "mentions Usage" true (contains_str s "Usage")
-  | other ->
-      Alcotest.fail
-        (Printf.sprintf "expected Reply, got %s" (result_to_string other))
+  match extract_text (Slash_commands.handle "/show-thinking foo") with
+  | Some s ->
+      Alcotest.(check bool)
+        "mentions /show_thinking" true
+        (contains_str s "/show_thinking")
+  | None -> Alcotest.fail "expected text reply for show_thinking usage"
 
 let test_config_usage () =
-  match Slash_commands.handle "/config" with
-  | Slash_commands.Reply s ->
-      Alcotest.(check bool) "mentions show" true (contains_str s "show")
-  | other ->
-      Alcotest.fail
-        (Printf.sprintf "expected Reply, got %s" (result_to_string other))
+  match extract_text (Slash_commands.handle "/config") with
+  | Some s -> Alcotest.(check bool) "mentions show" true (contains_str s "show")
+  | None -> Alcotest.fail "expected text reply for config usage"
 
 let test_config_show () =
-  match Slash_commands.handle "/config show" with
-  | Slash_commands.Reply s ->
-      Alcotest.(check bool) "non-empty" true (String.length s > 0)
-  | other ->
-      Alcotest.fail
-        (Printf.sprintf "expected Reply, got %s" (result_to_string other))
+  match extract_text (Slash_commands.handle "/config show") with
+  | Some s -> Alcotest.(check bool) "non-empty" true (String.length s > 0)
+  | None -> Alcotest.fail "expected text reply for config show"
 
 let test_config_show_provider_section () =
   Test_helpers.with_temp_home (fun home ->
@@ -623,17 +609,17 @@ let test_config_show_provider_section () =
       let oc = open_out config_path in
       output_string oc (Yojson.Safe.pretty_to_string ~std:true config_json);
       close_out oc;
-      match Slash_commands.handle "/config show providers.openai" with
-      | Slash_commands.Reply s ->
+      match
+        extract_text (Slash_commands.handle "/config show providers.openai")
+      with
+      | Some s ->
           Alcotest.(check bool)
             "mentions api_key" true (contains_str s "api_key");
           Alcotest.(check bool) "redacts api_key" true (contains_str s "***");
           Alcotest.(check bool)
             "mentions base_url" true
             (contains_str s "base_url")
-      | other ->
-          Alcotest.fail
-            (Printf.sprintf "expected Reply, got %s" (result_to_string other)))
+      | None -> Alcotest.fail "expected text reply for config show section")
 
 let test_config_get_missing () =
   match Slash_commands.handle "/config get nonexistent.key" with
@@ -646,50 +632,45 @@ let test_config_get_missing () =
         (Printf.sprintf "expected Reply, got %s" (result_to_string other))
 
 let test_config_keys () =
-  match Slash_commands.handle "/config keys" with
-  | Slash_commands.Reply s ->
+  match extract_text (Slash_commands.handle "/config keys") with
+  | Some s ->
       Alcotest.(check bool)
         "contains workspace" true
         (contains_str s "workspace")
-  | other ->
-      Alcotest.fail
-        (Printf.sprintf "expected Reply, got %s" (result_to_string other))
+  | None -> Alcotest.fail "expected text reply for config keys"
 
 let test_config_keys_prefix () =
-  match Slash_commands.handle "/config keys gateway" with
-  | Slash_commands.Reply s ->
+  match extract_text (Slash_commands.handle "/config keys gateway") with
+  | Some s ->
       Alcotest.(check bool)
         "contains gateway.host" true
         (contains_str s "gateway.host")
-  | other ->
-      Alcotest.fail
-        (Printf.sprintf "expected Reply, got %s" (result_to_string other))
+  | None -> Alcotest.fail "expected text reply for config keys prefix"
 
 let test_config_set_secret_blocked () =
-  match Slash_commands.handle "/config set channels.discord.bot_token foo" with
-  | Slash_commands.Reply s ->
+  match
+    extract_text
+      (Slash_commands.handle "/config set channels.discord.bot_token foo")
+  with
+  | Some s ->
       Alcotest.(check bool)
         "contains cannot" true
         (contains_str s "Cannot" || contains_str s "cannot")
-  | other ->
-      Alcotest.fail
-        (Printf.sprintf "expected Reply, got %s" (result_to_string other))
+  | None -> Alcotest.fail "expected text reply for secret blocked"
 
 let test_config_wizard () =
-  match Slash_commands.handle "/config wizard" with
-  | Slash_commands.Reply s ->
+  match extract_text (Slash_commands.handle "/config wizard") with
+  | Some s ->
       Alcotest.(check bool) "mentions terminal" true (contains_str s "terminal")
-  | other ->
-      Alcotest.fail
-        (Printf.sprintf "expected Reply, got %s" (result_to_string other))
+  | None -> Alcotest.fail "expected text reply for config wizard"
 
 let test_config_unknown_sub () =
-  match Slash_commands.handle "/config unknown" with
-  | Slash_commands.Reply s ->
-      Alcotest.(check bool) "mentions Unknown" true (contains_str s "Unknown")
-  | other ->
-      Alcotest.fail
-        (Printf.sprintf "expected Reply, got %s" (result_to_string other))
+  match extract_text (Slash_commands.handle "/config unknown") with
+  | Some s ->
+      Alcotest.(check bool)
+        "mentions unknown" true
+        (contains_str s "Unknown" || contains_str s "unknown")
+  | None -> Alcotest.fail "expected text reply for config unknown sub"
 
 let test_config_leaf_paths () =
   let paths = Config_set.config_leaf_paths () in
@@ -701,14 +682,13 @@ let test_config_leaf_paths () =
     (List.exists (fun p -> contains_str p "<NAME>") paths)
 
 let test_config_get_no_key () =
-  match Slash_commands.handle "/config get" with
-  | Slash_commands.Reply s ->
+  match extract_text (Slash_commands.handle "/config get") with
+  | Some s ->
       Alcotest.(check bool)
         "contains usage" true
-        (contains_str s "Usage" || contains_str s "KEY")
-  | other ->
-      Alcotest.fail
-        (Printf.sprintf "expected Reply, got %s" (result_to_string other))
+        (contains_str s "Usage" || contains_str s "KEY"
+        || contains_str s "/config get")
+  | None -> Alcotest.fail "expected text reply for config get no key"
 
 let test_config_set_invalid_path () =
   match Slash_commands.handle "/config set totally.bogus.path value" with
@@ -788,17 +768,10 @@ let test_tasks_full_command () =
     (Slash_commands.handle "/tasks full")
 
 let test_tasks_invalid_args () =
-  match Slash_commands.handle "/tasks bogus" with
-  | Slash_commands.Reply s ->
-      Alcotest.(check bool)
-        "contains usage" true
-        (try
-           ignore (Str.search_forward (Str.regexp_string "Usage") s 0);
-           true
-         with Not_found -> false)
-  | other ->
-      Alcotest.fail
-        (Printf.sprintf "expected Reply, got %s" (result_to_string other))
+  match extract_text (Slash_commands.handle "/tasks bogus") with
+  | Some s ->
+      Alcotest.(check bool) "mentions /tasks" true (contains_str s "/tasks")
+  | None -> Alcotest.fail "expected text reply for tasks usage"
 
 let test_tasks_render_empty_tree () =
   let db = Sqlite3.db_open ":memory:" in
@@ -1281,12 +1254,10 @@ let test_model_set_explicit_unchanged () =
 
 let test_model_bare_set_keyword_still_error () =
   (* "/model set" with no name: first token is "set" (known), so falls to usage *)
-  match Slash_commands.handle "/model set" with
-  | Slash_commands.Reply s ->
-      Alcotest.(check bool) "mentions Usage" true (contains_str s "Usage")
-  | other ->
-      Alcotest.fail
-        (Printf.sprintf "expected Reply(Usage), got %s" (result_to_string other))
+  match extract_text (Slash_commands.handle "/model set") with
+  | Some s ->
+      Alcotest.(check bool) "mentions /model" true (contains_str s "/model")
+  | None -> Alcotest.fail "expected text reply for /model set usage"
 
 let test_is_secret_path () =
   Alcotest.(check bool)
@@ -1532,21 +1503,16 @@ let test_menu_page () =
     (Slash_commands.handle "/menu 3")
 
 let test_menu_invalid () =
-  match Slash_commands.handle "/menu abc" with
-  | Slash_commands.Reply s ->
-      Alcotest.(check bool) "mentions Usage" true (contains_str s "Usage")
-  | other ->
-      Alcotest.fail
-        (Printf.sprintf "expected Reply, got %s" (result_to_string other))
+  match extract_text (Slash_commands.handle "/menu abc") with
+  | Some s ->
+      Alcotest.(check bool) "mentions /menu" true (contains_str s "/menu")
+  | None -> Alcotest.fail "expected text reply for menu invalid"
 
 let test_menu_zero_page () =
-  match Slash_commands.handle "/menu 0" with
-  | Slash_commands.Reply s ->
-      Alcotest.(check bool) "mentions Usage" true (contains_str s "Usage")
-  | other ->
-      Alcotest.fail
-        (Printf.sprintf "expected Reply for /menu 0, got %s"
-           (result_to_string other))
+  match extract_text (Slash_commands.handle "/menu 0") with
+  | Some s ->
+      Alcotest.(check bool) "mentions /menu" true (contains_str s "/menu")
+  | None -> Alcotest.fail "expected text reply for menu 0"
 
 let test_priority_positive () =
   List.iter
@@ -1718,14 +1684,12 @@ let test_cron_edit_message () =
     (Slash_commands.handle "/cron edit myjob --message new prompt")
 
 let test_cron_edit_nothing () =
-  match Slash_commands.handle "/cron edit myjob" with
-  | Slash_commands.Reply s ->
+  match extract_text (Slash_commands.handle "/cron edit myjob") with
+  | Some s ->
       Alcotest.(check bool)
         "edit no flags returns usage" true
         (String.length s > 0)
-  | other ->
-      Alcotest.fail
-        (Printf.sprintf "expected Reply, got %s" (result_to_string other))
+  | None -> Alcotest.fail "expected text reply for cron edit nothing"
 
 let test_cron_history () =
   Alcotest.check result_testable "/cron history"

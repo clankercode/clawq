@@ -1295,6 +1295,9 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                               user_id err);
                         Lwt.return_unit)
                 | Reply text -> send_text text
+                | FormattedReply fn ->
+                    let text = fn Format_adapter.Teams in
+                    send_text text
                 | Help ->
                     let text =
                       Slash_commands.format_help ~connector:Format_adapter.Teams
@@ -1309,7 +1312,9 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                       ~reply_to_id:activity_id ~card:card_json ()
                 | Reset ->
                     let* active_bg_tasks = Session.reset session_manager ~key in
-                    send_text (Slash_commands.reset_message ~active_bg_tasks ())
+                    send_text
+                      (Slash_commands_fmt.format_reset
+                         ~connector:Format_adapter.Teams ~active_bg_tasks)
                 | Compact -> (
                     let* compact_result =
                       Session.compact session_manager ~key ()
@@ -1324,9 +1329,13 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                     in
                     send_text text
                 | Uptime ->
+                    let raw =
+                      Daemon_status.daemon_uptime_reply
+                        ~pid:(Daemon_status.read_current_daemon_pid ())
+                    in
                     send_text
-                      (Daemon_status.daemon_uptime_reply
-                         ~pid:(Daemon_status.read_current_daemon_pid ()))
+                      (Slash_commands_fmt.format_uptime
+                         ~connector:Format_adapter.Teams raw)
                 | Status ->
                     let text =
                       Slash_commands.format_status
@@ -1344,10 +1353,12 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                         .reasoning_effort
                     in
                     send_text
-                      (Printf.sprintf "Current thinking level: %s"
-                         (Slash_commands.thinking_level_to_string current))
+                      (Slash_commands_fmt.format_thinking_status
+                         ~connector:Format_adapter.Teams current)
                 | Thinking (Slash_commands.SetThinking level) ->
+                    let connector = Format_adapter.Teams in
                     let cfg = Session.get_config session_manager in
+                    let previous = cfg.agent_defaults.reasoning_effort in
                     let text =
                       match Config_set.set_reasoning_effort level with
                       | Ok () ->
@@ -1360,19 +1371,20 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                                   reasoning_effort = level;
                                 };
                             };
-                          Printf.sprintf "Thinking set to: %s"
-                            (Slash_commands.thinking_level_to_string level)
+                          Slash_commands_fmt.format_thinking_set ~connector
+                            ~previous level
                       | Error err -> "Failed to set thinking level: " ^ err
                     in
                     send_text text
                 | ShowThinking action ->
+                    let connector = Format_adapter.Teams in
                     let cfg = Session.get_config session_manager in
                     let current = cfg.agent_defaults.show_thinking in
                     let text =
                       match action with
                       | Slash_commands.ShowThinkingStatus ->
-                          Printf.sprintf "Show thinking: %s"
-                            (if current then "on" else "off")
+                          Slash_commands_fmt.format_show_thinking_status
+                            ~connector current
                       | Slash_commands.ToggleShowThinking -> (
                           let new_val = not current in
                           match Config_set.set_show_thinking new_val with
@@ -1387,27 +1399,28 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                                       show_thinking = new_val;
                                     };
                                 };
-                              Printf.sprintf "Show thinking: %s"
-                                (if new_val then "on" else "off")
+                              Slash_commands_fmt.format_show_thinking_toggle
+                                ~connector new_val
                           | Error err ->
                               "Failed to update show_thinking: " ^ err)
                     in
                     send_text text
                 | Heartbeat action ->
+                    let connector = Format_adapter.Teams in
                     let text =
                       match action with
                       | Slash_commands.HeartbeatStatus ->
-                          Session.session_heartbeat_status_text session_manager
-                            ~key
+                          Slash_commands_fmt.format_heartbeat_status ~connector
+                            (Session.session_heartbeat_status_text
+                               session_manager ~key)
                       | Slash_commands.SetHeartbeat enabled -> (
                           match
                             Session.set_session_heartbeat session_manager ~key
                               ~enabled
                           with
                           | Ok () ->
-                              Printf.sprintf "Heartbeat %s for session %s"
-                                (if enabled then "enabled" else "disabled")
-                                key
+                              Slash_commands_fmt.format_heartbeat_set ~connector
+                                enabled key
                           | Error err -> err)
                     in
                     send_text text
@@ -1530,23 +1543,27 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                     in
                     send_text text
                 | Tasks ->
-                    let text =
+                    let raw =
                       match Session.get_db session_manager with
                       | Some db ->
                           Task_tree.init_schema db;
                           Task_tree.render_emoji_tree ~db ~session_key:key ()
                       | None -> "Tasks are not available (no database)."
                     in
-                    send_text text
+                    send_text
+                      (Slash_commands_fmt.format_tasks
+                         ~connector:Format_adapter.Teams raw)
                 | TasksFull ->
-                    let text =
+                    let raw =
                       match Session.get_db session_manager with
                       | Some db ->
                           Task_tree.init_schema db;
                           Task_tree.render_tree_with_legend ~db ~session_key:key
                       | None -> "Tasks are not available (no database)."
                     in
-                    send_text text
+                    send_text
+                      (Slash_commands_fmt.format_tasks
+                         ~connector:Format_adapter.Teams raw)
                 | Costs action ->
                     let text =
                       match Session.get_db session_manager with
