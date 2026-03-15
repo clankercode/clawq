@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B466
+priority: high
+status: pending
+tags: []
+title: 'Add slash command and cli command for showing active usage data for the 5hr usage stats (note: might have one for cli already, but need slash command)'
+---
+
+Add slash command and cli command for showing active usage data for the 5hr usage stats (note: might have one for cli already, but need slash command)

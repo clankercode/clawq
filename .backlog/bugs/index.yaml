@@ -462,3 +462,4 @@ bugs:
     - file: B463-cron-runs-can-be-marked-ok-eve.todo
     - file: B464-teams-can-emit-empty-reply-act.todo
     - file: B465-implement-heartbeat-for-teams.todo
+    - file: B466-add-slash-command-and-cli-comm.todo
