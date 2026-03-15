@@ -389,7 +389,7 @@ You have up to 42 built-in tools. 15 are always registered; `web_search`, `zai_w
 | `history_search` | Search your own session's chat history across current and archived epochs |
 | `background_task_enqueue` | Queue a background coding agent task (Codex/Claude/Kimi/Gemini/Opencode/Cursor) in a git worktree (lower-level; use delegate for simple requests) |
 | `background_task_list` | List background tasks or inspect a single task by id, including status, branch, log path, and result preview |
-| `background_task_wait` | Wait for a background task to finish (max 3 minutes). Returns status and re-wait instructions if the task is still running |
+| `background_task_wait` | Wait for a background task to finish (max 4 minutes). Returns status and re-wait instructions if the task is still running |
 | `background_task_logs` | Read the latest lines from a background task log file |
 | `background_task_resume` | Resume a previously started worktree-backed background task using the runner's native session resume support |
 | `background_task_send_message` | Queue a new user-style chat message for a previously started worktree-backed background task and resume it |
