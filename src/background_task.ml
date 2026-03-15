@@ -720,19 +720,10 @@ type wait_result =
   | Interrupted of task
   | Not_found
 
-let max_wait_seconds = 240.0
+let max_wait_seconds = 110.0
 
-let rec wait_until_terminal ?(timeout_seconds = 240.0) ?(poll_seconds = 1.0)
+let rec wait_until_terminal ?(timeout_seconds = 110.0) ?(poll_seconds = 1.0)
     ?interrupt_check ~db ~id () =
-  let should_interrupt () =
-    match interrupt_check with
-    | Some check -> (
-        match check () with
-        | Some reason when reason <> Agent.queued_message_interrupt_token ->
-            true
-        | _ -> false)
-    | None -> false
-  in
   let open Lwt.Syntax in
   match get_task ~db ~id with
   | None -> Lwt.return Not_found
@@ -741,7 +732,12 @@ let rec wait_until_terminal ?(timeout_seconds = 240.0) ?(poll_seconds = 1.0)
   | Some _ ->
       let sleep_for = Float.min poll_seconds timeout_seconds in
       let* () = Lwt_unix.sleep sleep_for in
-      if should_interrupt () then
+      let interrupted =
+        match interrupt_check with
+        | Some check -> check () <> None
+        | None -> false
+      in
+      if interrupted then
         match get_task ~db ~id with
         | None -> Lwt.return Not_found
         | Some task -> Lwt.return (Interrupted task)
@@ -2437,7 +2433,7 @@ let wait_tool ~db =
   {
     Tool.name = "background_task_wait";
     description =
-      "Wait for a background coding task to finish (max 4 minutes). If the \
+      "Wait for a background coding task to finish (max 110 seconds). If the \
        task is still running when the timeout is reached, call this tool again \
        to continue waiting.";
     parameters_schema =
@@ -2513,10 +2509,10 @@ let wait_tool ~db =
           | Interrupted task ->
               Lwt.return
                 (Printf.sprintf
-                   "Task %d is still %s. Waiting was interrupted by a system \
-                    event (e.g., daemon restart). Call background_task_wait \
-                    again with {\"id\": %d} to resume waiting. You can also \
-                    check progress with background_task_logs.\n\
+                   "Task %d is still %s. Waiting was interrupted to process a \
+                    new incoming message. Call background_task_wait again with \
+                    {\"id\": %d} to resume waiting. You can also check \
+                    progress with background_task_logs.\n\
                     runner: %s | runtime: %s | repo: %s"
                    id
                    (string_of_status task.status)

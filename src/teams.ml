@@ -303,13 +303,7 @@ let build_reply_body ~alert ~text ~mention ~mention_mode =
 let send_reply ?(alert = false) ~(config : Runtime_config.teams_config)
     ~service_url ~conversation_id ~reply_to_id ~text ?mention () =
   let open Lwt.Syntax in
-  if String.trim text = "" then begin
-    Logs.debug (fun m ->
-        m "Teams: skipping empty reply for conv=%s reply_to=%s" conversation_id
-          reply_to_id);
-    Lwt.return ""
-  end
-  else if
+  if
     service_url = ""
     || not
          (String.length service_url >= 8
@@ -374,42 +368,34 @@ let send_reply ?(alert = false) ~(config : Runtime_config.teams_config)
 let edit_activity ~(config : Runtime_config.teams_config) ~service_url
     ~conversation_id ~activity_id ~text () =
   let open Lwt.Syntax in
-  if String.trim text = "" then begin
-    Logs.debug (fun m ->
-        m "Teams: skipping empty edit for conv=%s activity=%s" conversation_id
-          activity_id);
-    Lwt.return_unit
-  end
-  else begin
-    let* token_opt = fetch_token ~config in
-    match token_opt with
-    | None ->
-        Logs.err (fun m -> m "Teams: cannot edit activity, no OAuth token");
-        Lwt.return_unit
-    | Some token ->
-        let uri =
-          Printf.sprintf "%s/v3/conversations/%s/activities/%s"
-            (String.trim service_url)
-            (Uri.pct_encode conversation_id)
-            (Uri.pct_encode activity_id)
-        in
-        let headers = [ ("Authorization", "Bearer " ^ token) ] in
-        let body =
-          `Assoc
-            [
-              ("type", `String "message");
-              ("textFormat", `String "markdown");
-              ("text", `String text);
-            ]
-          |> Yojson.Safe.to_string
-        in
-        let* status, resp = Http_client.put_json ~uri ~headers ~body in
-        if status < 200 || status >= 300 then
-          Logs.warn (fun m ->
-              m "Teams: edit_activity failed (HTTP %d) conv=%s activity=%s: %s"
-                status conversation_id activity_id resp);
-        Lwt.return_unit
-  end
+  let* token_opt = fetch_token ~config in
+  match token_opt with
+  | None ->
+      Logs.err (fun m -> m "Teams: cannot edit activity, no OAuth token");
+      Lwt.return_unit
+  | Some token ->
+      let uri =
+        Printf.sprintf "%s/v3/conversations/%s/activities/%s"
+          (String.trim service_url)
+          (Uri.pct_encode conversation_id)
+          (Uri.pct_encode activity_id)
+      in
+      let headers = [ ("Authorization", "Bearer " ^ token) ] in
+      let body =
+        `Assoc
+          [
+            ("type", `String "message");
+            ("textFormat", `String "markdown");
+            ("text", `String text);
+          ]
+        |> Yojson.Safe.to_string
+      in
+      let* status, resp = Http_client.put_json ~uri ~headers ~body in
+      if status < 200 || status >= 300 then
+        Logs.warn (fun m ->
+            m "Teams: edit_activity failed (HTTP %d) conv=%s activity=%s: %s"
+              status conversation_id activity_id resp);
+      Lwt.return_unit
 
 let delete_activity ~(config : Runtime_config.teams_config) ~service_url
     ~conversation_id ~activity_id () =

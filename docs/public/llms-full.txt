@@ -389,7 +389,7 @@ You have up to 42 built-in tools. 15 are always registered; `web_search`, `zai_w
 | `history_search` | Search your own session's chat history across current and archived epochs |
 | `background_task_enqueue` | Queue a background coding agent task (Codex/Claude/Kimi/Gemini/Opencode/Cursor) in a git worktree (lower-level; use delegate for simple requests) |
 | `background_task_list` | List background tasks or inspect a single task by id, including status, branch, log path, and result preview |
-| `background_task_wait` | Wait for a background task to finish (max 4 minutes). Returns status and re-wait instructions if the task is still running |
+| `background_task_wait` | Wait for a background task to finish (max 3 minutes). Returns status and re-wait instructions if the task is still running |
 | `background_task_logs` | Read the latest lines from a background task log file |
 | `background_task_resume` | Resume a previously started worktree-backed background task using the runner's native session resume support |
 | `background_task_send_message` | Queue a new user-style chat message for a previously started worktree-backed background task and resume it |
@@ -513,9 +513,9 @@ current queue state for a given session; `session list` appends
 - Each opted-in session is processed independently. If one target session is busy, that session's tick is skipped rather than queued; other opted-in sessions still run.
 - The heartbeat prompt content is literally the trimmed contents of `HEARTBEAT.md`.
 - In the runtime-context block, "heartbeat routing enabled for this session" means global heartbeat is enabled and this specific session is opted in for heartbeat delivery.
-- If the model replies exactly `HEARTBEAT_OK`, the daemon logs success, sends no outbound message, and prunes that no-op heartbeat turn from normal session history/context.
+- If the model replies exactly `HEARTBEAT_OK`, the daemon logs success and sends no outbound message.
 - Otherwise the daemon delivers the reply through the session's registered notifier or channel dispatch fallback for that opted-in session.
-- Heartbeat turns run inside the opted-in session's own session lock, not in `__main__`. Meaningful heartbeat activity remains in that session's history; exact no-op `HEARTBEAT_OK` turns are pruned from normal history/context.
+- Heartbeat turns run inside the opted-in session's own history and lock, not in `__main__`.
 
 ## Restart and Resume Model
 

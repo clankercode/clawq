@@ -1,0 +1,67 @@
+---
+claimed_at: "2026-03-15T09:27:57Z"
+claimed_by: cli-user
+completed_at: null
+complexity: medium
+depends_on: []
+estimate_hours: 2
+id: B474
+priority: high
+started_at: "2026-03-15T09:27:57Z"
+status: in_progress
+tags: []
+title: Teams cron delivery path reports success but message is not visible
+---
+Problem
+During live Teams cron tests on 2026-03-15, cron jobs executed, produced LLM output, attempted Teams delivery, and logged "delivery succeeded", but the user explicitly reported that the cron message was not visible in the Teams client. This means transport/API success is not equivalent to human-visible delivery for the current Teams cron path.
+
+What is known
+- Session under test: current Teams personal session / thread (`teams:personal:a:...`).
+- Temporary cron jobs used during investigation included `b465_check_10min`, `teams_thread_test`, `teams_cron_visibility_test`, and `teams_post_update_test`. They have now been cleaned up.
+- For cron jobs, `scheduler.ml` logs lines like:
+  - `Cron job <name>: starting turn for session <session_key>`
+  - `Cron job <name>: LLM turn complete (<n> chars)`
+  - `Cron job <name>: attempting delivery via teams:<service_url>|<conversation_id>`
+  - `Cron job <name>: delivery succeeded`
+- Example recent log evidence for the current session:
+  - `20:20:55.075` Cron job `teams_post_update_test`: starting turn for session `teams:personal:a:...`
+  - `20:21:03.110` LLM turn complete (878 chars)
+  - `20:21:03.110` attempting delivery via `teams:https://smba.trafficmanager.net/au/...|a:1JPV...`
+  - `20:21:03.729` delivery succeeded
+- Cron run history for `teams_post_update_test` recorded status `ok`.
+- Despite this, the user said: "I still don't see it."
+
+Important comparison
+- Ordinary post-restart / normal session messages do appear to work for the user after restart.
+- Those ordinary messages go through `rich_send_fn` in `src/daemon.ml`, which logs lines like:
+  - `rich_send_fn: delivered via direct teams dispatch (no notifier registered) session=teams:personal:a:...`
+- Cron jobs appear to use the scheduler delivery callback path in `src/scheduler.ml`, not necessarily the exact same high-level path/semantics as `rich_send_fn`.
+- We previously saw visible mismatch between agent-side inference and user-visible Teams state; the user report should be treated as ground truth over log optimism.
+
+Hypothesis / likely seam
+The cron delivery path is not equivalent to the proven ordinary direct Teams dispatch path. One of the following is likely:
+1. cron uses a different send function / endpoint / payload shape than ordinary session messages,
+2. cron uses reply-vs-new-message semantics differently,
+3. cron uses channel/conversation identifiers in a way Teams accepts but does not surface visibly,
+4. Teams returns transport success for a message that is not actually rendered to the human recipient.
+
+Relevant code areas to inspect
+- `src/scheduler.ml` (delivery callback path and cron accounting)
+- `src/daemon.ml` (`rich_send_fn` direct Teams dispatch path)
+- `src/teams.ml` (send_message / send_reply / activity construction / endpoint choice)
+- any session/channel reconstruction code used for cron delivery versus normal reply delivery
+
+Related bugs / recent fixes
+- B472: cron delivery uncertainty should notify session when visibility is uncertain (landed; introduces `ok_notifier_unconfirmed` for notifier path but does not solve this direct Teams visibility mismatch)
+- B464: empty Teams reply guard (landed)
+- B467: cron run status/history does not prove Teams delivery visibility
+
+Acceptance criteria
+- Identify the exact code-path difference between ordinary visible Teams messages and cron-triggered Teams delivery for the same session.
+- Explain why cron can log `delivery succeeded` while the user still does not see the message.
+- Fix cron delivery so it uses the same proven-visible Teams dispatch path as ordinary messages, or otherwise prove and correct the payload/addressing difference.
+- Add logging/tests sufficient to distinguish transport acceptance from user-visible delivery assumptions.
+- Re-test in the current Teams session and verify with explicit user confirmation rather than log inference alone.
+
+Notes
+Do not treat cron `ok` / `delivery succeeded` log lines as proof of visibility. The user explicitly contradicted that inference during live testing.

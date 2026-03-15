@@ -470,3 +470,4 @@ bugs:
     - file: B471-tool-output-should-redact-home.todo
     - file: B472-cron-delivery-events-should-no.todo
     - file: B473-background-task-wait-returns-a.todo
+    - file: B474-teams-cron-delivery-path-repor.todo

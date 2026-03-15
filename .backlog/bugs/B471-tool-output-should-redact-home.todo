@@ -1,15 +1,14 @@
 ---
 claimed_at: "2026-03-15T08:39:09Z"
 claimed_by: cli-user
-completed_at: "2026-03-15T08:46:53Z"
+completed_at: null
 complexity: medium
 depends_on: []
-duration_minutes: 7.743570256033333
 estimate_hours: 1
 id: B471
 priority: high
 started_at: "2026-03-15T08:39:09Z"
-status: done
+status: in_progress
 tags: []
 title: Tool output should redact home dir as ~ in path annotations
 ---

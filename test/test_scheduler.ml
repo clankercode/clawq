@@ -202,31 +202,6 @@ let test_record_run_delivery_failed () =
   Alcotest.(check string) "status" "delivery_failed" r.status;
   Alcotest.(check bool) "has preview" true (r.result_preview <> None)
 
-let test_record_run_notifier_unconfirmed () =
-  let db = Memory.init ~db_path:":memory:" () in
-  Scheduler.init_schema db;
-  ignore
-    (Scheduler.add_job ~db ~name:"nunc" ~session_key:"teams:c:u" ~message:"msg"
-       ~schedule:"every 1m");
-  let run_id = Scheduler.record_run_start ~db ~job_name:"nunc" in
-  Scheduler.record_run_finish ~db ~run_id ~status:"ok_notifier_unconfirmed"
-    ~result_preview:
-      "LLM response ready (notifier present; message visibility to user \
-       unconfirmed).\n\
-       Response: test output";
-  let runs = Scheduler.get_history ~db ~name:"nunc" ~limit:1 in
-  Alcotest.(check int) "one run" 1 (List.length runs);
-  let r = List.hd runs in
-  Alcotest.(check string) "status" "ok_notifier_unconfirmed" r.status;
-  Alcotest.(check bool) "has preview" true (r.result_preview <> None);
-  match r.result_preview with
-  | Some preview ->
-      Alcotest.(check bool)
-        "mentions unconfirmed"
-        (String.contains preview 'u')
-        true
-  | None -> Alcotest.fail "expected preview"
-
 let suite =
   [
     Alcotest.test_case "parse interval minutes" `Quick
@@ -257,6 +232,4 @@ let suite =
       test_get_session_channel_nonexistent;
     Alcotest.test_case "record_run delivery_failed status" `Quick
       test_record_run_delivery_failed;
-    Alcotest.test_case "record_run notifier_unconfirmed status" `Quick
-      test_record_run_notifier_unconfirmed;
   ]

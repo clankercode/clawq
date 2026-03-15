@@ -1529,9 +1529,6 @@ let run ~(config : Runtime_config.t) =
                         else
                           Lwt_list.iter_s
                             (fun key ->
-                              let* heartbeat_history_before =
-                                Session.snapshot_history session_manager ~key
-                              in
                               let* result =
                                 Lwt.catch
                                   (fun () ->
@@ -1564,19 +1561,6 @@ let run ~(config : Runtime_config.t) =
                               match result with
                               | None -> Lwt.return_unit
                               | Some response ->
-                                  let* () =
-                                    if String.trim response = "HEARTBEAT_OK"
-                                    then
-                                      let* _pruned =
-                                        Session.prune_noop_heartbeat_turn
-                                          session_manager ~key
-                                          ~before_history:
-                                            heartbeat_history_before
-                                          ~heartbeat_prompt:content
-                                      in
-                                      Lwt.return_unit
-                                    else Lwt.return_unit
-                                  in
                                   handle_heartbeat_response ~session_manager
                                     ~key ~response ())
                             keys

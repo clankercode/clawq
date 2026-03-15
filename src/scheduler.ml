@@ -393,16 +393,8 @@ let tick ~db ~session_mgr
                               "Cron job %s: notifier present, delivery handled \
                                during turn"
                               job.name);
-                        record_run_finish ~db ~run_id
-                          ~status:"ok_notifier_unconfirmed"
-                          ~result_preview:
-                            (Printf.sprintf
-                               "LLM response ready (notifier present; message \
-                                visibility to user unconfirmed).\n\
-                                Response: %s"
-                               (if String.length result > 200 then
-                                  String.sub result 0 200
-                                else result));
+                        record_run_finish ~db ~run_id ~status:"ok"
+                          ~result_preview:result;
                         prune_runs ~db ~job_name:job.name ~keep:20;
                         Lwt.return_unit
                       end

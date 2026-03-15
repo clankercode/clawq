@@ -1,15 +1,14 @@
 ---
-claimed_at: "2026-03-15T09:05:29Z"
+claimed_at: "2026-03-15T08:59:43Z"
 claimed_by: cli-user
-completed_at: "2026-03-15T09:05:29Z"
+completed_at: null
 complexity: medium
 depends_on: []
-duration_minutes: 0.0037740661
 estimate_hours: 2
 id: B464
 priority: high
-started_at: "2026-03-15T09:05:29Z"
-status: done
+started_at: "2026-03-15T08:59:43Z"
+status: in_progress
 tags: []
 title: Teams can emit empty reply activities causing HTTP 400 BadSyntax
 ---
