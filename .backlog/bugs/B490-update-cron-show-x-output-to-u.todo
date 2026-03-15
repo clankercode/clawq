@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-15T13:51:59Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-15T14:00:12Z"
 complexity: medium
 depends_on: []
+duration_minutes: 8.221235714483333
 estimate_hours: 1
 id: B490
 priority: high
 started_at: "2026-03-15T13:51:59Z"
-status: in_progress
+status: done
 tags: []
 title: update /cron show X output to use the new format adapter and dsl
 ---

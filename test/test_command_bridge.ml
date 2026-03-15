@@ -1193,6 +1193,52 @@ let test_handle_cron_history_missing_job () =
         "cron history returns missing-job output" true
         (String.length result > 0))
 
+let test_handle_cron_show_missing () =
+  with_temp_home (fun _home ->
+      let result = Command_bridge.handle [ "cron"; "show"; "nonexistent" ] in
+      Alcotest.(check bool)
+        "cron show missing returns not found" true
+        (try
+           ignore
+             (Str.search_forward
+                (Str.regexp_string "No cron job found")
+                result 0);
+           true
+         with Not_found -> false))
+
+let test_handle_cron_show_existing () =
+  with_temp_home (fun _home ->
+      let _add =
+        Command_bridge.handle
+          [ "cron"; "add"; "my-job"; "sess1"; "* * * * *"; "hello"; "world" ]
+      in
+      let result = Command_bridge.handle [ "cron"; "show"; "my-job" ] in
+      Alcotest.(check bool)
+        "cron show contains job name" true
+        (try
+           ignore (Str.search_forward (Str.regexp_string "my-job") result 0);
+           true
+         with Not_found -> false);
+      Alcotest.(check bool)
+        "cron show contains session" true
+        (try
+           ignore (Str.search_forward (Str.regexp_string "sess1") result 0);
+           true
+         with Not_found -> false);
+      Alcotest.(check bool)
+        "cron show contains message" true
+        (try
+           ignore
+             (Str.search_forward (Str.regexp_string "hello world") result 0);
+           true
+         with Not_found -> false);
+      Alcotest.(check bool)
+        "cron show contains schedule" true
+        (try
+           ignore (Str.search_forward (Str.regexp_string "* * * * *") result 0);
+           true
+         with Not_found -> false))
+
 let test_handle_background_list () =
   with_temp_home (fun _home ->
       let result = Command_bridge.handle [ "background"; "list" ] in
@@ -2844,6 +2890,10 @@ let suite =
     Alcotest.test_case "handle cron runs" `Quick test_handle_cron_runs;
     Alcotest.test_case "handle cron history missing job" `Quick
       test_handle_cron_history_missing_job;
+    Alcotest.test_case "handle cron show missing" `Quick
+      test_handle_cron_show_missing;
+    Alcotest.test_case "handle cron show existing" `Quick
+      test_handle_cron_show_existing;
     Alcotest.test_case "handle background list" `Quick
       test_handle_background_list;
     Alcotest.test_case "handle background bare shows commands" `Quick

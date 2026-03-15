@@ -274,6 +274,48 @@ let update_job ~db ~name ?schedule ?message () =
     if Sqlite3.changes db > 0 then Ok ()
     else Error (Printf.sprintf "No job found with name '%s'" name)
 
+let get_job ~db ~name =
+  let sql =
+    "SELECT id, name, session_key, message, schedule, enabled, agent_name FROM \
+     cron_jobs WHERE name = ?"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT name));
+  let result =
+    if Sqlite3.step stmt = Sqlite3.Rc.ROW then
+      let id =
+        match Sqlite3.column stmt 0 with
+        | Sqlite3.Data.INT i -> Int64.to_int i
+        | _ -> 0
+      in
+      let name =
+        match Sqlite3.column stmt 1 with Sqlite3.Data.TEXT s -> s | _ -> ""
+      in
+      let session_key =
+        match Sqlite3.column stmt 2 with Sqlite3.Data.TEXT s -> s | _ -> ""
+      in
+      let message =
+        match Sqlite3.column stmt 3 with Sqlite3.Data.TEXT s -> s | _ -> ""
+      in
+      let schedule_str =
+        match Sqlite3.column stmt 4 with Sqlite3.Data.TEXT s -> s | _ -> ""
+      in
+      let enabled =
+        match Sqlite3.column stmt 5 with
+        | Sqlite3.Data.INT i -> i <> 0L
+        | _ -> true
+      in
+      let agent_name =
+        match Sqlite3.column stmt 6 with
+        | Sqlite3.Data.TEXT s -> Some s
+        | _ -> None
+      in
+      Some { id; name; session_key; message; schedule_str; enabled; agent_name }
+    else None
+  in
+  ignore (Sqlite3.finalize stmt);
+  result
+
 let remove_job ~db ~name =
   let sql = "DELETE FROM cron_jobs WHERE name = ?" in
   let stmt = Sqlite3.prepare db sql in

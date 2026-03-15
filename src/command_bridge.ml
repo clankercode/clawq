@@ -128,7 +128,94 @@ let cmd_cron args =
               if show_prompt then base @ [ j.message ] else base)
             jobs
         in
-        "Cron jobs:\n" ^ Table_format.render columns rows
+        Format_adapter.bold Format_adapter.Plain "Cron Jobs"
+        ^ "\n\n"
+        ^ Format_adapter.render_table Format_adapter.Plain ~max_width:80 columns
+            rows
+  | [ "show"; name ] -> (
+      let db = get_db () in
+      Scheduler.init_schema db;
+      match Scheduler.get_job ~db ~name with
+      | None -> Printf.sprintf "No cron job found with name '%s'." name
+      | Some (job : Scheduler.job) ->
+          let connector = Format_adapter.Plain in
+          let runs = Scheduler.get_history ~db ~name ~limit:5 in
+          let doc =
+            [
+              Content_dsl.Paragraph
+                [ Bold "Cron Job"; Text " — "; Code job.name ];
+              Paragraph [ Text "Session: "; Code job.session_key ];
+              Paragraph [ Text "Schedule: "; Code job.schedule_str ];
+              Paragraph
+                [ Text "Enabled: "; Text (if job.enabled then "yes" else "no") ];
+            ]
+            @ (match job.agent_name with
+              | Some agent ->
+                  [ Content_dsl.Paragraph [ Text "Agent: "; Code agent ] ]
+              | None -> [])
+            @ [
+                Content_dsl.Separator;
+                Paragraph [ Bold "Message" ];
+                CodeBlock { language = None; content = job.message };
+              ]
+            @
+            if runs = [] then
+              [ Content_dsl.Paragraph [ Italic "No run history." ] ]
+            else
+              let history_columns =
+                Table_format.
+                  [
+                    {
+                      header = "ID";
+                      align = Right;
+                      min_width = 2;
+                      flex = false;
+                    };
+                    {
+                      header = "STARTED";
+                      align = Left;
+                      min_width = 19;
+                      flex = false;
+                    };
+                    {
+                      header = "STATUS";
+                      align = Left;
+                      min_width = 6;
+                      flex = false;
+                    };
+                    {
+                      header = "PREVIEW";
+                      align = Left;
+                      min_width = 10;
+                      flex = true;
+                    };
+                  ]
+              in
+              let history_rows =
+                List.map
+                  (fun (r : Scheduler.run) ->
+                    let preview =
+                      match r.result_preview with
+                      | Some p when String.length p > 40 ->
+                          String.sub p 0 37 ^ "..."
+                      | Some p -> p
+                      | None -> ""
+                    in
+                    [ string_of_int r.run_id; r.started_at; r.status; preview ])
+                  runs
+              in
+              [
+                Content_dsl.Separator;
+                Paragraph [ Bold "Recent Runs" ];
+                Paragraph
+                  [
+                    Text
+                      (Format_adapter.render_table connector ~max_width:70
+                         history_columns history_rows);
+                  ];
+              ]
+          in
+          Content_dsl.render_document connector doc)
   | "add" :: name :: session_key :: schedule :: message -> (
       let db = get_db () in
       Scheduler.init_schema db;
@@ -168,8 +255,11 @@ let cmd_cron args =
               ])
             runs
         in
-        Printf.sprintf "Run history for '%s':\n%s" name
-          (Table_format.render columns rows)
+        Format_adapter.bold Format_adapter.Plain
+          (Printf.sprintf "Run History — %s" name)
+        ^ "\n\n"
+        ^ Format_adapter.render_table Format_adapter.Plain ~max_width:80 columns
+            rows
   | [ "runs" ] ->
       let db = get_db () in
       Scheduler.init_schema db;
@@ -198,11 +288,15 @@ let cmd_cron args =
               ])
             runs
         in
-        "Run history:\n" ^ Table_format.render columns rows
+        Format_adapter.bold Format_adapter.Plain "Run History"
+        ^ "\n\n"
+        ^ Format_adapter.render_table Format_adapter.Plain ~max_width:80 columns
+            rows
   | _ ->
-      "Usage: clawq cron <list|add|remove|history|runs>\n\
+      "Usage: clawq cron <list|show|add|remove|history|runs>\n\
       \  cron list [--prompt|-p]                      - List all jobs \
        (--prompt shows prompt text)\n\
+      \  cron show <name>                             - Show job details\n\
       \  cron add <name> <session> <schedule> <msg>   - Add a job\n\
       \  cron remove <name>                           - Remove a job\n\
       \  cron history <name>                          - Show run history\n\

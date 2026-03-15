@@ -35,6 +35,7 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 | `costs [session [KEY]\|model\|provider]` | Show cumulative LLM costs and token usage |
 | `cron` | Manage scheduled agent messages (default: list) |
 | `cron list [--prompt\|-p]` | List all configured cron jobs (--prompt shows prompt text) |
+| `cron show NAME` | Show job details including configuration and recent run history |
 | `cron add NAME SESSION SCHEDULE MSG` | Add a cron job |
 | `cron remove NAME` | Remove a cron job by name |
 | `cron history NAME` | Show last 10 run records for a job |

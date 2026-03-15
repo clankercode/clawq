@@ -74,6 +74,8 @@ let result_to_string = function
         (Option.value ~default:"-" message)
   | Slash_commands.Cron (Slash_commands.CronRemove name) ->
       "Cron(Remove " ^ name ^ ")"
+  | Slash_commands.Cron (Slash_commands.CronShow name) ->
+      "Cron(Show " ^ name ^ ")"
   | Slash_commands.Cron (Slash_commands.CronHistory None) -> "Cron(History)"
   | Slash_commands.Cron (Slash_commands.CronHistory (Some name)) ->
       "Cron(History " ^ name ^ ")"
@@ -1735,6 +1737,11 @@ let test_cron_history_name () =
     (Slash_commands.Cron (Slash_commands.CronHistory (Some "myjob")))
     (Slash_commands.handle "/cron history myjob")
 
+let test_cron_show () =
+  Alcotest.check result_testable "/cron show"
+    (Slash_commands.Cron (Slash_commands.CronShow "myjob"))
+    (Slash_commands.handle "/cron show myjob")
+
 let test_cron_help () =
   Alcotest.check result_testable "/cron help"
     (Slash_commands.Cron Slash_commands.CronHelp)
@@ -1991,6 +1998,7 @@ let suite =
     Alcotest.test_case "/cron edit nothing" `Quick test_cron_edit_nothing;
     Alcotest.test_case "/cron history" `Quick test_cron_history;
     Alcotest.test_case "/cron history name" `Quick test_cron_history_name;
+    Alcotest.test_case "/cron show" `Quick test_cron_show;
     Alcotest.test_case "/cron help" `Quick test_cron_help;
     Alcotest.test_case "/cron unknown subcommand" `Quick
       test_cron_unknown_subcommand;
