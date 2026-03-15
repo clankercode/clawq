@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-15T07:36:51Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-15T07:45:39Z"
 complexity: medium
 depends_on: []
+duration_minutes: 8.801890288633333
 estimate_hours: 1
 id: B466
 priority: high
 started_at: "2026-03-15T07:36:51Z"
-status: in_progress
+status: done
 tags: []
 title: 'Add slash command and cli command for showing active usage data for the 5hr usage stats (note: might have one for cli already, but need slash command)'
 ---

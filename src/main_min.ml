@@ -43,6 +43,10 @@ let usage_cmd =
   simple "usage"
     "Show provider quota/usage status (requires full clawq binary)."
 
+let active_cmd =
+  simple "active"
+    "Show active 5-hour window usage (requires full clawq binary)."
+
 let channel_cmd = simple "channel" "List configured channels."
 let memory_cmd = simple "memory" "Show memory backend configuration."
 let workspace_cmd = simple "workspace" "Print the current workspace directory."
@@ -456,6 +460,7 @@ let () =
       onboard_cmd;
       models_cmd;
       usage_cmd;
+      active_cmd;
       channel_cmd;
       memory_cmd;
       workspace_cmd;

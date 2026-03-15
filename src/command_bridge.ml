@@ -1541,6 +1541,7 @@ let handle args =
   | "models" :: rest -> cmd_models rest
   | "costs" :: rest -> cmd_costs rest
   | "usage" :: rest -> cmd_usage rest
+  | "active" :: rest -> cmd_active rest
   | "provider" :: rest -> cmd_provider rest
   | "channel" :: "test" :: "teams" :: _ -> cmd_channel_test_teams ()
   | "channel" :: _ -> cmd_channel ()

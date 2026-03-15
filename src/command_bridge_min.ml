@@ -172,6 +172,9 @@ let cmd_models args =
 let cmd_usage _ =
   "Usage command requires full runtime. Use 'clawq' binary for quota fetching."
 
+let cmd_active _ =
+  "Active usage command requires full runtime. Use 'clawq' binary."
+
 let cmd_channel () =
   let cfg = get_config () in
   Printf.sprintf "Configured channels:\n  cli: %s"
@@ -548,6 +551,7 @@ let handle args =
   | "onboard" :: _ -> cmd_onboard ()
   | "models" :: rest -> cmd_models rest
   | "usage" :: rest -> cmd_usage rest
+  | "active" :: rest -> cmd_active rest
   | "channel" :: _ -> cmd_channel ()
   | "memory" :: _ -> cmd_memory ()
   | "workspace" :: rest -> cmd_workspace rest

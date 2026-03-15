@@ -157,22 +157,22 @@ let summary_for_session ~db ~session_key =
         | _ -> zero_summary)
   with _ -> zero_summary
 
+let resolve_since ~db since =
+  try
+    let stmt = Sqlite3.prepare db ("SELECT " ^ since) in
+    Fun.protect
+      ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+      (fun () ->
+        match Sqlite3.step stmt with
+        | Sqlite3.Rc.ROW -> (
+            match Sqlite3.column stmt 0 with
+            | Sqlite3.Data.TEXT s -> s
+            | _ -> since)
+        | _ -> since)
+  with _ -> since
+
 let summary_for_period ~db ~since =
-  (* Resolve the SQL expression to a literal timestamp *)
-  let resolved_since =
-    try
-      let stmt = Sqlite3.prepare db ("SELECT " ^ since) in
-      Fun.protect
-        ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
-        (fun () ->
-          match Sqlite3.step stmt with
-          | Sqlite3.Rc.ROW -> (
-              match Sqlite3.column stmt 0 with
-              | Sqlite3.Data.TEXT s -> s
-              | _ -> since)
-          | _ -> since)
-    with _ -> since
-  in
+  let resolved_since = resolve_since ~db since in
   let sql =
     "SELECT " ^ summary_sql_cols ^ " FROM request_stats WHERE requested_at >= ?"
   in
@@ -271,6 +271,75 @@ let summary_by_model ~db =
     Fun.protect
       ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
       (fun () ->
+        let rows = ref [] in
+        let rec loop () =
+          match Sqlite3.step stmt with
+          | Sqlite3.Rc.ROW ->
+              let m =
+                match Sqlite3.column stmt 0 with
+                | Sqlite3.Data.TEXT s -> s
+                | _ -> ""
+              in
+              let prov =
+                match Sqlite3.column stmt 1 with
+                | Sqlite3.Data.TEXT s -> s
+                | _ -> ""
+              in
+              let cost =
+                match Sqlite3.column stmt 2 with
+                | Sqlite3.Data.FLOAT f -> f
+                | _ -> 0.0
+              in
+              let pt =
+                Sqlite3.column stmt 3 |> Sqlite3.Data.to_int
+                |> Option.value ~default:0
+              in
+              let ct =
+                Sqlite3.column stmt 4 |> Sqlite3.Data.to_int
+                |> Option.value ~default:0
+              in
+              let apt =
+                Sqlite3.column stmt 5 |> Sqlite3.Data.to_int
+                |> Option.value ~default:0
+              in
+              let turns =
+                Sqlite3.column stmt 6 |> Sqlite3.Data.to_int
+                |> Option.value ~default:0
+              in
+              rows :=
+                {
+                  model = m;
+                  provider = prov;
+                  summary =
+                    {
+                      total_cost_usd = cost;
+                      total_prompt_tokens = pt;
+                      total_completion_tokens = ct;
+                      total_added_prompt_tokens = apt;
+                      total_turns = turns;
+                    };
+                }
+                :: !rows;
+              loop ()
+          | _ -> ()
+        in
+        loop ();
+        List.rev !rows)
+  with _ -> []
+
+let summary_by_model_for_period ~db ~since =
+  let resolved_since = resolve_since ~db since in
+  let sql =
+    "SELECT model, provider, " ^ summary_sql_cols
+    ^ " FROM request_stats WHERE requested_at >= ? GROUP BY model, provider \
+       ORDER BY COALESCE(SUM(cost_usd), 0.0) DESC"
+  in
+  try
+    let stmt = Sqlite3.prepare db sql in
+    Fun.protect
+      ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+      (fun () ->
+        ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT resolved_since));
         let rows = ref [] in
         let rec loop () =
           match Sqlite3.step stmt with

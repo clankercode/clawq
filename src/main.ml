@@ -136,6 +136,9 @@ let usage_cmd =
       `I ("--json", "Output as JSON.");
     ]
 
+let active_cmd =
+  simple "active" "Show active 5-hour window usage (cost, tokens, quota)."
+
 let provider_cmd =
   with_args "provider"
     "Inspect LLM provider configuration and live quota state."
@@ -1291,6 +1294,7 @@ let () =
       models_cmd;
       usage_cmd;
       costs_cmd;
+      active_cmd;
       provider_cmd;
       channel_cmd;
       memory_cmd;

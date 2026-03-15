@@ -52,6 +52,7 @@ let result_to_string = function
       "Model(SetDefault " ^ name ^ ")"
   | Slash_commands.Status -> "Status"
   | Slash_commands.Menu page -> "Menu(" ^ string_of_int page ^ ")"
+  | Slash_commands.Active -> "Active"
   | Slash_commands.DebugDumpChat -> "DebugDumpChat"
   | Slash_commands.SkillInvoke (name, args) ->
       "SkillInvoke(" ^ name ^ ", " ^ args ^ ")"
@@ -83,6 +84,7 @@ let result_eq a b =
   | Slash_commands.Usage a, Slash_commands.Usage b -> a = b
   | Slash_commands.Model _, Slash_commands.Model _ -> true
   | Slash_commands.Menu a, Slash_commands.Menu b -> a = b
+  | Slash_commands.Active, Slash_commands.Active -> true
   | Slash_commands.DebugDumpChat, Slash_commands.DebugDumpChat -> true
   | Slash_commands.SkillInvoke (a1, a2), Slash_commands.SkillInvoke (b1, b2) ->
       a1 = b1 && a2 = b2
@@ -418,6 +420,10 @@ let test_usage_usage_on_invalid_args () =
   | other ->
       Alcotest.fail
         (Printf.sprintf "expected Reply(Usage), got %s" (result_to_string other))
+
+let test_active () =
+  Alcotest.check result_testable "/active" Slash_commands.Active
+    (Slash_commands.handle "/active")
 
 let test_leading_whitespace () =
   Alcotest.check result_testable "padded status" Slash_commands.Status
@@ -1588,6 +1594,7 @@ let suite =
       test_usage_model_and_provider;
     Alcotest.test_case "/usage invalid args" `Quick
       test_usage_usage_on_invalid_args;
+    Alcotest.test_case "/active" `Quick test_active;
     Alcotest.test_case "/show-thinking toggle" `Quick test_show_thinking_toggle;
     Alcotest.test_case "/show-thinking status" `Quick test_show_thinking_status;
     Alcotest.test_case "/show-thinking aliases" `Quick

@@ -13,6 +13,7 @@ Every clawq command is listed below. Run `clawq COMMAND --help` for per-command 
 
 | Command | Description |
 |---------|-------------|
+| `clawq active` | Show active 5-hour window usage (cost, tokens, quota) |
 | `clawq agent` | Start the daemon (agent loop, gateway, all configured channels) |
 | `clawq audit` | View and manage the security audit log |
 | `clawq auth` | Show API key status or encrypt plaintext secrets in config |
@@ -357,6 +358,7 @@ Slash commands are available in chat-integrated channels (Telegram, Discord, Sla
 | `/model usage` | Show provider quota and usage stats |
 | `/costs [session [KEY]\|model\|provider]` | Show cost breakdowns |
 | `/usage [session [KEY]\|model\|provider]` | Show token usage breakdowns |
+| `/active` | Show active 5-hour window usage (cost, tokens, quota) |
 | `/uptime` | Show current daemon uptime |
 | `/tools` | List all available tools with parameters and risk levels |
 | `/tasks` | Show the agent's current task tree |

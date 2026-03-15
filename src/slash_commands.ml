@@ -46,6 +46,7 @@ type result =
   | Usage of usage_action
   | Model of model_action
   | Menu of int
+  | Active
   | DebugDumpChat
   | SkillInvoke of string * string
   | NotACommand
@@ -101,6 +102,11 @@ let commands =
       name = "usage";
       description = "Show token usage: /usage [session/model/provider]";
       priority = 60;
+    };
+    {
+      name = "active";
+      description = "Show active 5-hour window usage (cost, tokens, quota)";
+      priority = 63;
     };
     {
       name = "delegate";
@@ -427,6 +433,7 @@ let handle ?(skill_names = []) text =
             | [ "model" ] -> Costs CostsModel
             | [ "provider" ] -> Costs CostsProvider
             | _ -> Reply costs_usage)
+        | "active" -> Active
         | "usage" -> (
             match args with
             | [] -> Usage UsageSummary
@@ -1037,6 +1044,137 @@ let format_usage ~connector ~db action =
         ^ "\n\n"
         ^ Format_adapter.render_table connector ~max_width:60 provider_columns
             rows
+
+let format_active ~connector ~db ~(config : Runtime_config.t) () =
+  let five_hr =
+    Request_stats.summary_for_period ~db ~since:"datetime('now', '-5 hours')"
+  in
+  let five_hr_by_model =
+    Request_stats.summary_by_model_for_period ~db
+      ~since:"datetime('now', '-5 hours')"
+  in
+  Provider_quota.set_cache_ttl config.quota_cache_ttl_s;
+  let quota_results =
+    Provider_quota.get_all_cached () |> List.map (fun (_name, pq) -> pq)
+  in
+  let buf = Buffer.create 512 in
+  Buffer.add_string buf
+    (Format_adapter.bold connector "Active Usage (5h window)");
+  Buffer.add_string buf "\n\n";
+  if five_hr.total_turns = 0 && quota_results = [] then
+    Buffer.add_string buf "No usage data in the last 5 hours."
+  else begin
+    if five_hr.total_turns > 0 then begin
+      let summary_columns =
+        Table_format.
+          [
+            { header = "PERIOD"; align = Left; min_width = 12; flex = false };
+            { header = "COST"; align = Right; min_width = 8; flex = false };
+            { header = "TURNS"; align = Right; min_width = 5; flex = false };
+            { header = "PROMPT"; align = Right; min_width = 6; flex = false };
+            { header = "ADDED"; align = Right; min_width = 6; flex = false };
+            {
+              header = "COMPLETION";
+              align = Right;
+              min_width = 6;
+              flex = false;
+            };
+          ]
+      in
+      let rows =
+        [
+          [
+            "Last 5 hours";
+            Printf.sprintf "$%.4f" five_hr.total_cost_usd;
+            string_of_int five_hr.total_turns;
+            Request_stats.format_tokens five_hr.total_prompt_tokens;
+            Request_stats.format_tokens five_hr.total_added_prompt_tokens;
+            Request_stats.format_tokens five_hr.total_completion_tokens;
+          ];
+        ]
+      in
+      Buffer.add_string buf
+        (Format_adapter.render_table connector ~max_width:60 summary_columns
+           rows);
+      if five_hr_by_model <> [] then begin
+        Buffer.add_string buf "\n";
+        Buffer.add_string buf (Format_adapter.bold connector "By Model (5h)");
+        Buffer.add_string buf "\n\n";
+        let model_columns =
+          Table_format.
+            [
+              { header = "MODEL"; align = Left; min_width = 15; flex = true };
+              { header = "COST"; align = Right; min_width = 8; flex = false };
+              { header = "TURNS"; align = Right; min_width = 5; flex = false };
+              { header = "PROMPT"; align = Right; min_width = 6; flex = false };
+              {
+                header = "COMPLETION";
+                align = Right;
+                min_width = 6;
+                flex = false;
+              };
+            ]
+        in
+        let model_rows =
+          List.map
+            (fun (ms : Request_stats.model_summary) ->
+              [
+                ms.provider ^ ":" ^ ms.model;
+                Printf.sprintf "$%.4f" ms.summary.total_cost_usd;
+                string_of_int ms.summary.total_turns;
+                Request_stats.format_tokens ms.summary.total_prompt_tokens;
+                Request_stats.format_tokens ms.summary.total_completion_tokens;
+              ])
+            five_hr_by_model
+        in
+        Buffer.add_string buf
+          (Format_adapter.render_table connector ~max_width:60 model_columns
+             model_rows)
+      end
+    end;
+    if quota_results <> [] then begin
+      if five_hr.total_turns > 0 then Buffer.add_string buf "\n";
+      Buffer.add_string buf (Format_adapter.bold connector "Provider Quota");
+      Buffer.add_string buf "\n\n";
+      let quota_columns =
+        Table_format.
+          [
+            { header = "PROVIDER"; align = Left; min_width = 10; flex = false };
+            { header = "SESSION"; align = Right; min_width = 7; flex = false };
+            { header = "WEEKLY"; align = Right; min_width = 7; flex = false };
+            { header = "MONTHLY"; align = Right; min_width = 7; flex = false };
+            { header = "STATUS"; align = Left; min_width = 6; flex = false };
+          ]
+      in
+      let quota_rows =
+        List.map
+          (fun (pq : Provider_quota.provider_quota) ->
+            let sess, week, mon =
+              match pq.state with
+              | Provider_quota.Unknown _ -> ("-", "-", "-")
+              | Provider_quota.Known { session; weekly; monthly } ->
+                  let fmt_pct = function
+                    | None -> "-"
+                    | Some w ->
+                        Printf.sprintf "%.0f%%" w.Provider_quota.used_pct
+                  in
+                  (fmt_pct session, fmt_pct weekly, fmt_pct monthly)
+            in
+            let threshold =
+              match List.assoc_opt pq.provider_name config.providers with
+              | Some pc -> Option.value ~default:0.85 pc.quota_threshold
+              | None -> 0.85
+            in
+            let status = Provider_quota.status_label ~threshold pq in
+            [ pq.provider_name; sess; week; mon; status ])
+          quota_results
+      in
+      Buffer.add_string buf
+        (Format_adapter.render_table connector ~max_width:60 quota_columns
+           quota_rows)
+    end
+  end;
+  Buffer.contents buf
 
 let read_daemon_state_json () =
   try

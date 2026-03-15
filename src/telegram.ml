@@ -491,6 +491,17 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
             in
             send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
               ~text ()
+        | Active ->
+            let text =
+              match Session.get_db session_mgr with
+              | Some db ->
+                  let config = Session.get_config session_mgr in
+                  Slash_commands.format_active
+                    ~connector:Format_adapter.Telegram_html ~db ~config ()
+              | None -> "Active usage is not available (no database)."
+            in
+            send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
+              ~text ()
         | Model action -> (
             let open Slash_commands in
             match action with

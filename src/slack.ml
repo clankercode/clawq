@@ -572,6 +572,19 @@ let handle_event ~(config : Runtime_config.slack_config)
                   send_message_fn ~bot_token:config.bot_token ~channel_id ~text
                 in
                 Lwt.return "ok"
+            | Active ->
+                let text =
+                  match Session.get_db session_manager with
+                  | Some db ->
+                      let cfg = Session.get_config session_manager in
+                      Slash_commands.format_active
+                        ~connector:Format_adapter.Slack ~db ~config:cfg ()
+                  | None -> "Active usage is not available (no database)."
+                in
+                let* () =
+                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
+                in
+                Lwt.return "ok"
             | Model action -> (
                 let open Slash_commands in
                 match action with

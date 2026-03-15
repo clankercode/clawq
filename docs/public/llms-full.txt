@@ -12,6 +12,7 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 
 | Command | What it does |
 |---------|--------------|
+| `active` | Show active 5-hour window usage (cost, tokens, per-model breakdown, provider quota) |
 | `agent` | Start the daemon (agent loop, gateway, all configured channels) |
 | `audit` | View and manage the security audit log (default: list) |
 | `audit list [--limit N]` | Show recent audit entries |
@@ -156,6 +157,7 @@ Available in chat-integrated channels that support slash commands.
 - `/model usage` — show provider quota and model usage stats
 - `/costs [session [KEY]|model|provider]` — show cost breakdowns; no args shows a summary by time period (today, 7d, 30d, all)
 - `/usage [session [KEY]|model|provider]` — show token usage breakdowns; no args shows a summary by time period
+- `/active` — show active 5-hour window usage: cost/tokens summary, per-model breakdown, and provider quota percentages
 - `/uptime` — show current daemon uptime
 - `/debug_dump_chat` (alias `/debug-dump-chat`) — dump the current session state to a file and send as attachment
 - `/show_thinking` (alias `/show-thinking`, `/toggle-show-thinking`) — toggle display of model thinking blocks in responses; `/show_thinking status` to check current state

@@ -1022,6 +1022,14 @@ let cmd_usage_purge args =
   let count = Provider_quota.purge_history ~db ~before () in
   Printf.sprintf "Purged %d quota history entries." count
 
+let cmd_active _args =
+  let db = get_db () in
+  let cfg = get_config () in
+  Provider_quota.set_db db;
+  Provider_quota.set_cache_ttl cfg.quota_cache_ttl_s;
+  Slash_commands.format_active ~connector:Format_adapter.Plain ~db ~config:cfg
+    ()
+
 let cmd_usage args =
   match args with
   | "history" :: rest -> cmd_usage_history rest

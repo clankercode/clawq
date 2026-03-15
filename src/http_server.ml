@@ -438,6 +438,21 @@ let handler ~session_manager ~require_pairing ~auth_token
                     in
                     Cohttp_lwt_unix.Server.respond_string ~status:`OK
                       ~headers:json_headers ~body:resp_json ()
+                | Slash_commands.Active ->
+                    let response =
+                      match Session.get_db session_manager with
+                      | Some db ->
+                          let config = Session.get_config session_manager in
+                          Slash_commands.format_active
+                            ~connector:Format_adapter.Plain ~db ~config ()
+                      | None -> "Active usage is not available (no database)."
+                    in
+                    let resp_json =
+                      `Assoc [ ("response", `String response) ]
+                      |> Yojson.Safe.to_string
+                    in
+                    Cohttp_lwt_unix.Server.respond_string ~status:`OK
+                      ~headers:json_headers ~body:resp_json ()
                 | Slash_commands.Tools ->
                     let response =
                       match Session.get_tool_registry session_manager with
@@ -990,6 +1005,16 @@ let handler ~session_manager ~require_pairing ~auth_token
                           Slash_commands.format_usage
                             ~connector:Format_adapter.Plain ~db action
                       | None -> "Usage is not available (no database)."
+                    in
+                    sse_reply text
+                | Slash_commands.Active ->
+                    let text =
+                      match Session.get_db session_manager with
+                      | Some db ->
+                          let config = Session.get_config session_manager in
+                          Slash_commands.format_active
+                            ~connector:Format_adapter.Plain ~db ~config ()
+                      | None -> "Active usage is not available (no database)."
                     in
                     sse_reply text
                 | Slash_commands.Thinking Slash_commands.ShowThinking ->

@@ -1501,6 +1501,16 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                       | None -> "Usage is not available (no database)."
                     in
                     send_text text
+                | Active ->
+                    let text =
+                      match Session.get_db session_manager with
+                      | Some db ->
+                          let cfg = Session.get_config session_manager in
+                          Slash_commands.format_active
+                            ~connector:Format_adapter.Teams ~db ~config:cfg ()
+                      | None -> "Active usage is not available (no database)."
+                    in
+                    send_text text
                 | Model action -> (
                     let open Slash_commands in
                     match action with

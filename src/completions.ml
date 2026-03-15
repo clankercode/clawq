@@ -28,7 +28,7 @@ let bash_script =
         cur="${COMP_WORDS[COMP_CWORD]}"
         prev="${COMP_WORDS[COMP_CWORD-1]}"
     }
-    local commands="agent audit auth background benchmark capabilities channel completions config cron debug delegate doctor hardware memory mcp migrate models onboard otp-show phase2 plan provider reset-agent reset-workspace runtime service session skills status transcribe tunnel update usage version workspace"
+    local commands="active agent audit auth background benchmark capabilities channel completions config costs cron debug delegate doctor hardware memory mcp migrate models onboard otp-show phase2 plan provider reset-agent reset-workspace runtime service session skills status transcribe tunnel update usage version workspace"
     if [[ ${COMP_CWORD} -eq 1 ]]; then
         COMPREPLY=( $(compgen -W "${commands}" -- "${cur}") )
         return
@@ -100,6 +100,8 @@ _clawq() {
                 'transcribe:Transcribe an audio file'
                 'tunnel:Manage public tunnel'
                 'update:Trigger a daemon update'
+                'active:Show active 5-hour window usage'
+                'costs:Show cost breakdowns'
                 'usage:Show provider quota/usage status'
                 'version:Print version and build info'
                 'workspace:Print the current workspace directory'
@@ -133,7 +135,7 @@ _clawq
 
 let fish_script =
   {|# clawq fish completions
-set -l clawq_commands agent audit auth background benchmark capabilities channel completions config cron debug delegate doctor hardware memory mcp migrate models onboard otp-show phase2 plan provider reset-agent reset-workspace runtime service session skills status transcribe tunnel update usage version workspace
+set -l clawq_commands active agent audit auth background benchmark capabilities channel completions config costs cron debug delegate doctor hardware memory mcp migrate models onboard otp-show phase2 plan provider reset-agent reset-workspace runtime service session skills status transcribe tunnel update usage version workspace
 
 complete -c clawq -f
 for cmd in $clawq_commands

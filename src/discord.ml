@@ -683,6 +683,17 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
           in
           send_message_fn ~bot_token:discord_config.bot_token
             ~channel_id:msg.channel_id ~text
+      | Active ->
+          let text =
+            match Session.get_db session_mgr with
+            | Some db ->
+                let config = Session.get_config session_mgr in
+                Slash_commands.format_active ~connector:Format_adapter.Discord
+                  ~db ~config ()
+            | None -> "Active usage is not available (no database)."
+          in
+          send_message_fn ~bot_token:discord_config.bot_token
+            ~channel_id:msg.channel_id ~text
       | Model action -> (
           let open Slash_commands in
           match action with
