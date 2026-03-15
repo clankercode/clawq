@@ -486,3 +486,4 @@ bugs:
     - file: B487-add-to-background-tasks-as-an.todo
     - file: B488-background-tasks-should-have-a.todo
     - file: B489-trinking-not-shown-or-recorded.todo
+    - file: B490-update-cron-show-x-output-to-u.todo

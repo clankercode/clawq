@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B490
+priority: high
+status: pending
+tags: []
+title: update /cron show X output to use the new format adapter and dsl
+---
+
+update /cron show X output to use the new format adapter and dsl
