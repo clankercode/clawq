@@ -190,7 +190,14 @@ ideas:
       status: done
       tags: []
       title: Allow for backing up workspace files into versions so we can safely try destructive actions and restore if something goes wrong.
-    - file: I023-add-debug-mode-that-saves-all.todo
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 10
+      file: I023-add-debug-mode-that-saves-all.todo
       id: I023
+      priority: medium
+      status: in_progress
+      tags: []
+      title: Add debug mode that saves _all_ http requests and responses to file
     - file: I024-skills-deprecate-json-in-favor.todo
       id: I024
