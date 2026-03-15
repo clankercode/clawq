@@ -1139,6 +1139,23 @@ let load_pending_agent_sessions ~db ~max_age_seconds =
   ignore (Sqlite3.finalize stmt);
   List.rev !rows
 
+let get_session_channel ~db ~session_key =
+  let sql =
+    "SELECT channel, channel_id FROM session_state WHERE session_key = ?"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT session_key));
+  let result =
+    if Sqlite3.step stmt = Sqlite3.Rc.ROW then
+      match (Sqlite3.column stmt 0, Sqlite3.column stmt 1) with
+      | Sqlite3.Data.TEXT channel, Sqlite3.Data.TEXT channel_id ->
+          Some (channel, channel_id)
+      | _ -> None
+    else None
+  in
+  ignore (Sqlite3.finalize stmt);
+  result
+
 let list_sessions ~db =
   let sql = "SELECT DISTINCT session_key FROM messages ORDER BY session_key" in
   let stmt = Sqlite3.prepare db sql in

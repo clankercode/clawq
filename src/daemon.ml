@@ -1354,7 +1354,14 @@ let run ~(config : Runtime_config.t) =
               let last_retention_run = ref 0.0 in
               let rec loop () =
                 let open Lwt.Syntax in
-                let* () = Scheduler.tick ~db ~session_mgr:session_manager in
+                let tick_config = Session.get_config session_manager in
+                let deliver ~channel ~channel_id ~text =
+                  Daemon_util.dispatch_resumed_message ~config:tick_config
+                    ~channel ~channel_id ~text ()
+                in
+                let* () =
+                  Scheduler.tick ~db ~session_mgr:session_manager ~deliver ()
+                in
                 let now = Unix.gettimeofday () in
                 let cur_config = Session.get_config session_manager in
                 if now -. !last_memory_cleanup >= 3600.0 then begin

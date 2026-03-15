@@ -155,6 +155,53 @@ let test_get_last_run_time_parses_timestamp () =
         "parsed reasonable timestamp" true
         (ts <= now && ts > now -. 60.0)
 
+let test_get_session_channel_with_channel () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let sql =
+    "INSERT INTO session_state (session_key, channel, channel_id, turn) VALUES \
+     ('teams:conv1:u', 'teams', 'https://smba.trafficmanager.net/conv1', \
+     'idle')"
+  in
+  ignore (Sqlite3.exec db sql);
+  match Memory.get_session_channel ~db ~session_key:"teams:conv1:u" with
+  | Some (channel, channel_id) ->
+      Alcotest.(check string) "channel" "teams" channel;
+      Alcotest.(check string)
+        "channel_id" "https://smba.trafficmanager.net/conv1" channel_id
+  | None -> Alcotest.fail "expected Some (channel, channel_id)"
+
+let test_get_session_channel_without_channel () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let sql =
+    "INSERT INTO session_state (session_key, turn) VALUES ('cli:default', \
+     'idle')"
+  in
+  ignore (Sqlite3.exec db sql);
+  Alcotest.(check bool)
+    "no channel info" true
+    (Memory.get_session_channel ~db ~session_key:"cli:default" = None)
+
+let test_get_session_channel_nonexistent () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Alcotest.(check bool)
+    "nonexistent session" true
+    (Memory.get_session_channel ~db ~session_key:"nope" = None)
+
+let test_record_run_delivery_failed () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Scheduler.init_schema db;
+  ignore
+    (Scheduler.add_job ~db ~name:"dfail" ~session_key:"teams:c:u" ~message:"msg"
+       ~schedule:"every 1m");
+  let run_id = Scheduler.record_run_start ~db ~job_name:"dfail" in
+  Scheduler.record_run_finish ~db ~run_id ~status:"delivery_failed"
+    ~result_preview:"LLM ok, delivery failed: timeout";
+  let runs = Scheduler.get_history ~db ~name:"dfail" ~limit:1 in
+  Alcotest.(check int) "one run" 1 (List.length runs);
+  let r = List.hd runs in
+  Alcotest.(check string) "status" "delivery_failed" r.status;
+  Alcotest.(check bool) "has preview" true (r.result_preview <> None)
+
 let suite =
   [
     Alcotest.test_case "parse interval minutes" `Quick
@@ -177,4 +224,12 @@ let suite =
     Alcotest.test_case "run history" `Quick test_run_history;
     Alcotest.test_case "get_last_run_time parses timestamp" `Quick
       test_get_last_run_time_parses_timestamp;
+    Alcotest.test_case "get_session_channel with channel" `Quick
+      test_get_session_channel_with_channel;
+    Alcotest.test_case "get_session_channel without channel" `Quick
+      test_get_session_channel_without_channel;
+    Alcotest.test_case "get_session_channel nonexistent" `Quick
+      test_get_session_channel_nonexistent;
+    Alcotest.test_case "record_run delivery_failed status" `Quick
+      test_record_run_delivery_failed;
   ]
