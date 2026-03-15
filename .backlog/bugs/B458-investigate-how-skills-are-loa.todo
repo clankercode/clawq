@@ -10,3 +10,5 @@ title: Investigate how skills are loaded into the chat log (both from in text /m
 ---
 
 Investigate how skills are loaded into the chat log (both from in text /mentions and via use_skill(name='x'))
+Possibly we want to change how they are loaded (as system or user message, deduplication between skills for argument usage, etc). Should research how claude,opencode,codex skills handle this.
+
