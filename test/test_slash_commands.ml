@@ -64,6 +64,19 @@ let result_to_string = function
       "Bg(Retry " ^ string_of_int id ^ ")"
   | Slash_commands.Bg (Slash_commands.BgCreate prompt) ->
       "Bg(Create " ^ prompt ^ ")"
+  | Slash_commands.Cron Slash_commands.CronList -> "Cron(List)"
+  | Slash_commands.Cron Slash_commands.CronHelp -> "Cron(Help)"
+  | Slash_commands.Cron (Slash_commands.CronAdd { name; schedule; message }) ->
+      Printf.sprintf "Cron(Add %s %s %s)" name schedule message
+  | Slash_commands.Cron (Slash_commands.CronEdit { name; schedule; message }) ->
+      Printf.sprintf "Cron(Edit %s sched=%s msg=%s)" name
+        (Option.value ~default:"-" schedule)
+        (Option.value ~default:"-" message)
+  | Slash_commands.Cron (Slash_commands.CronRemove name) ->
+      "Cron(Remove " ^ name ^ ")"
+  | Slash_commands.Cron (Slash_commands.CronHistory None) -> "Cron(History)"
+  | Slash_commands.Cron (Slash_commands.CronHistory (Some name)) ->
+      "Cron(History " ^ name ^ ")"
   | Slash_commands.DebugDumpChat -> "DebugDumpChat"
   | Slash_commands.SkillInvoke (name, args) ->
       "SkillInvoke(" ^ name ^ ", " ^ args ^ ")"
@@ -97,6 +110,7 @@ let result_eq a b =
   | Slash_commands.Menu a, Slash_commands.Menu b -> a = b
   | Slash_commands.Active, Slash_commands.Active -> true
   | Slash_commands.Bg a, Slash_commands.Bg b -> a = b
+  | Slash_commands.Cron a, Slash_commands.Cron b -> a = b
   | Slash_commands.DebugDumpChat, Slash_commands.DebugDumpChat -> true
   | Slash_commands.SkillInvoke (a1, a2), Slash_commands.SkillInvoke (b1, b2) ->
       a1 = b1 && a2 = b2
@@ -1644,6 +1658,96 @@ let test_menu_adaptive_card_pagination () =
       (contains_str next_title "Page 2")
   end
 
+let test_cron_list () =
+  Alcotest.check result_testable "/cron list"
+    (Slash_commands.Cron Slash_commands.CronList)
+    (Slash_commands.handle "/cron list")
+
+let test_cron_bare () =
+  Alcotest.check result_testable "/cron bare"
+    (Slash_commands.Cron Slash_commands.CronList)
+    (Slash_commands.handle "/cron")
+
+let test_cron_add () =
+  Alcotest.check result_testable "/cron add interval"
+    (Slash_commands.Cron
+       (Slash_commands.CronAdd
+          { name = "test-job"; schedule = "every 5m"; message = "hello" }))
+    (Slash_commands.handle "/cron add test-job every 5m hello")
+
+let test_cron_add_multi_word () =
+  Alcotest.check result_testable "/cron add cron-expr"
+    (Slash_commands.Cron
+       (Slash_commands.CronAdd
+          {
+            name = "daily";
+            schedule = "0 9 * * *";
+            message = "check the dashboard";
+          }))
+    (Slash_commands.handle "/cron add daily 0 9 * * * check the dashboard")
+
+let test_cron_remove () =
+  Alcotest.check result_testable "/cron remove"
+    (Slash_commands.Cron (Slash_commands.CronRemove "myjob"))
+    (Slash_commands.handle "/cron remove myjob")
+
+let test_cron_rm_alias () =
+  Alcotest.check result_testable "/cron rm"
+    (Slash_commands.Cron (Slash_commands.CronRemove "myjob"))
+    (Slash_commands.handle "/cron rm myjob")
+
+let test_cron_edit_schedule () =
+  Alcotest.check result_testable "/cron edit schedule (interval)"
+    (Slash_commands.Cron
+       (Slash_commands.CronEdit
+          { name = "myjob"; schedule = Some "every 10m"; message = None }))
+    (Slash_commands.handle "/cron edit myjob --schedule every 10m")
+
+let test_cron_edit_message () =
+  Alcotest.check result_testable "/cron edit message"
+    (Slash_commands.Cron
+       (Slash_commands.CronEdit
+          { name = "myjob"; schedule = None; message = Some "new prompt" }))
+    (Slash_commands.handle "/cron edit myjob --message new prompt")
+
+let test_cron_edit_nothing () =
+  match Slash_commands.handle "/cron edit myjob" with
+  | Slash_commands.Reply s ->
+      Alcotest.(check bool)
+        "edit no flags returns usage" true
+        (String.length s > 0)
+  | other ->
+      Alcotest.fail
+        (Printf.sprintf "expected Reply, got %s" (result_to_string other))
+
+let test_cron_history () =
+  Alcotest.check result_testable "/cron history"
+    (Slash_commands.Cron (Slash_commands.CronHistory None))
+    (Slash_commands.handle "/cron history")
+
+let test_cron_history_name () =
+  Alcotest.check result_testable "/cron history name"
+    (Slash_commands.Cron (Slash_commands.CronHistory (Some "myjob")))
+    (Slash_commands.handle "/cron history myjob")
+
+let test_cron_help () =
+  Alcotest.check result_testable "/cron help"
+    (Slash_commands.Cron Slash_commands.CronHelp)
+    (Slash_commands.handle "/cron help")
+
+let test_cron_unknown_subcommand () =
+  Alcotest.check result_testable "/cron unknown"
+    (Slash_commands.Cron Slash_commands.CronHelp)
+    (Slash_commands.handle "/cron blah blah blah")
+
+let test_cron_in_commands_list () =
+  let has_cron =
+    List.exists
+      (fun (c : Slash_commands.command) -> c.name = "cron")
+      Slash_commands.commands
+  in
+  Alcotest.(check bool) "commands list includes /cron" true has_cron
+
 let suite =
   [
     Alcotest.test_case "handle /start" `Quick test_start;
@@ -1828,4 +1932,21 @@ let suite =
       test_menu_adaptive_card_json;
     Alcotest.test_case "menu adaptive card pagination" `Quick
       test_menu_adaptive_card_pagination;
+    Alcotest.test_case "/cron list" `Quick test_cron_list;
+    Alcotest.test_case "/cron bare" `Quick test_cron_bare;
+    Alcotest.test_case "/cron add" `Quick test_cron_add;
+    Alcotest.test_case "/cron add multi-word message" `Quick
+      test_cron_add_multi_word;
+    Alcotest.test_case "/cron remove" `Quick test_cron_remove;
+    Alcotest.test_case "/cron rm alias" `Quick test_cron_rm_alias;
+    Alcotest.test_case "/cron edit schedule" `Quick test_cron_edit_schedule;
+    Alcotest.test_case "/cron edit message" `Quick test_cron_edit_message;
+    Alcotest.test_case "/cron edit nothing" `Quick test_cron_edit_nothing;
+    Alcotest.test_case "/cron history" `Quick test_cron_history;
+    Alcotest.test_case "/cron history name" `Quick test_cron_history_name;
+    Alcotest.test_case "/cron help" `Quick test_cron_help;
+    Alcotest.test_case "/cron unknown subcommand" `Quick
+      test_cron_unknown_subcommand;
+    Alcotest.test_case "/cron in commands list" `Quick
+      test_cron_in_commands_list;
   ]

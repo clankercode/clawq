@@ -702,6 +702,16 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
           in
           send_message_fn ~bot_token:discord_config.bot_token
             ~channel_id:msg.channel_id ~text
+      | Cron action ->
+          let text =
+            match Session.get_db session_mgr with
+            | Some db ->
+                Slash_commands.format_cron ~connector:Format_adapter.Discord ~db
+                  ~session_key:key action
+            | None -> "Cron is not available (no database)."
+          in
+          send_message_fn ~bot_token:discord_config.bot_token
+            ~channel_id:msg.channel_id ~text
       | Model action -> (
           let open Slash_commands in
           match action with

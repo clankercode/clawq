@@ -34,6 +34,18 @@ type bg_action =
   | BgRetry of int
   | BgCreate of string
 
+type cron_action =
+  | CronList
+  | CronAdd of { name : string; schedule : string; message : string }
+  | CronEdit of {
+      name : string;
+      schedule : string option;
+      message : string option;
+    }
+  | CronRemove of string
+  | CronHistory of string option
+  | CronHelp
+
 type result =
   | Reply of string
   | Help
@@ -56,6 +68,7 @@ type result =
   | Menu of int
   | Active
   | Bg of bg_action
+  | Cron of cron_action
   | DebugDumpChat
   | SkillInvoke of string * string
   | NotACommand
@@ -122,6 +135,12 @@ let commands =
       description =
         "Background tasks: /bg [list/show/logs/cancel/retry/create] [id/prompt]";
       priority = 57;
+    };
+    {
+      name = "cron";
+      description =
+        "Manage cron jobs: /cron [list/add/edit/remove/history] [args]";
+      priority = 58;
     };
     {
       name = "delegate";
@@ -503,6 +522,65 @@ let handle ?(skill_names = []) text =
                        Provide a prompt describing the task to run."
                 | prompt -> Bg (BgCreate prompt))
             | _ -> Reply bg_usage)
+        | "cron" -> (
+            let parse_cron_add name rest =
+              match rest with
+              | [] -> Reply "Usage: /cron add <name> <schedule> <message>"
+              | w1 :: w2 :: remainder when String.lowercase_ascii w1 = "every"
+                ->
+                  let schedule = w1 ^ " " ^ w2 in
+                  if remainder = [] then
+                    Reply "Usage: /cron add <name> <schedule> <message>"
+                  else
+                    Cron
+                      (CronAdd
+                         {
+                           name;
+                           schedule;
+                           message = String.concat " " remainder;
+                         })
+              | f1 :: f2 :: f3 :: f4 :: f5 :: remainder when remainder <> [] ->
+                  let schedule = String.concat " " [ f1; f2; f3; f4; f5 ] in
+                  Cron
+                    (CronAdd
+                       { name; schedule; message = String.concat " " remainder })
+              | _ -> Reply "Usage: /cron add <name> <schedule> <message>"
+            in
+            match args with
+            | [] | [ "list" ] -> Cron CronList
+            | "add" :: name :: rest -> parse_cron_add name rest
+            | [ "remove"; name ] | [ "rm"; name ] | [ "delete"; name ] ->
+                Cron (CronRemove name)
+            | "edit" :: name :: rest -> (
+                let parse_edit_flags tokens =
+                  let rec aux schedule message = function
+                    | "--schedule" :: w1 :: w2 :: rest
+                      when String.lowercase_ascii w1 = "every" ->
+                        aux (Some (w1 ^ " " ^ w2)) message rest
+                    | "--schedule" :: f1 :: f2 :: f3 :: f4 :: f5 :: rest ->
+                        aux
+                          (Some (String.concat " " [ f1; f2; f3; f4; f5 ]))
+                          message rest
+                    | "--message" :: m_parts ->
+                        let m = String.concat " " m_parts in
+                        (schedule, if m = "" then None else Some m)
+                    | _ :: rest -> aux schedule message rest
+                    | [] -> (schedule, message)
+                  in
+                  aux None None tokens
+                in
+                match parse_edit_flags rest with
+                | None, None ->
+                    Reply
+                      "Usage: /cron edit <name> --schedule <expr> and/or \
+                       --message <text>"
+                | schedule, message ->
+                    Cron (CronEdit { name; schedule; message }))
+            | [ "history" ] | [ "runs" ] -> Cron (CronHistory None)
+            | [ "history"; name ] | [ "runs"; name ] ->
+                Cron (CronHistory (Some name))
+            | [ "help" ] -> Cron CronHelp
+            | _ -> Cron CronHelp)
         | "usage" -> (
             match args with
             | [] -> Usage UsageSummary
@@ -1471,3 +1549,114 @@ let format_model_usage ~connector ~(config : Runtime_config.t)
     Format_adapter.bold connector "Provider Quota/Usage"
     ^ "\n\n"
     ^ Format_adapter.render_table connector ~max_width:60 columns rows
+
+let cron_usage =
+  "Usage: /cron [list/add/edit/remove/history]\n\
+  \  /cron                                    — List all cron jobs\n\
+  \  /cron list                               — List all cron jobs\n\
+  \  /cron add <name> <schedule> <message>    — Create a cron job\n\
+  \  /cron edit <name> --schedule <expr>      — Edit schedule\n\
+  \  /cron edit <name> --message <text>       — Edit message\n\
+  \  /cron remove <name>                      — Remove a cron job\n\
+  \  /cron history [name]                     — Show recent run history\n\n\
+   Schedule formats: cron expression (e.g. \"*/5 * * * *\") or interval (e.g. \
+   \"every 30m\")"
+
+let format_cron ~connector ~db ~session_key action =
+  Scheduler.init_schema db;
+  match action with
+  | CronHelp -> cron_usage
+  | CronList ->
+      let jobs = Scheduler.list_jobs ~db in
+      if jobs = [] then "No cron jobs configured."
+      else
+        let columns =
+          Table_format.
+            [
+              { header = "NAME"; align = Left; min_width = 4; flex = false };
+              { header = "SESSION"; align = Left; min_width = 7; flex = false };
+              { header = "SCHEDULE"; align = Left; min_width = 8; flex = false };
+              { header = "ENABLED"; align = Left; min_width = 3; flex = false };
+              { header = "MESSAGE"; align = Left; min_width = 10; flex = true };
+            ]
+        in
+        let rows =
+          List.map
+            (fun (j : Scheduler.job) ->
+              let msg_preview =
+                if String.length j.message > 40 then
+                  String.sub j.message 0 37 ^ "..."
+                else j.message
+              in
+              [
+                j.name;
+                j.session_key;
+                j.schedule_str;
+                (if j.enabled then "yes" else "no");
+                msg_preview;
+              ])
+            jobs
+        in
+        Format_adapter.bold connector "Cron Jobs"
+        ^ "\n\n"
+        ^ Format_adapter.render_table connector ~max_width:80 columns rows
+  | CronAdd { name; schedule; message } -> (
+      match Scheduler.add_job ~db ~name ~session_key ~message ~schedule with
+      | Ok () -> Printf.sprintf "Added cron job '%s'." name
+      | Error e -> Printf.sprintf "Error: %s" e)
+  | CronEdit { name; schedule; message } -> (
+      match Scheduler.update_job ~db ~name ?schedule ?message () with
+      | Ok () -> Printf.sprintf "Updated cron job '%s'." name
+      | Error e -> Printf.sprintf "Error: %s" e
+      | exception Invalid_argument e -> Printf.sprintf "Error: %s" e)
+  | CronRemove name ->
+      if Scheduler.remove_job ~db ~name then
+        Printf.sprintf "Removed cron job '%s'." name
+      else Printf.sprintf "No job found with name '%s'." name
+  | CronHistory job_name ->
+      let runs =
+        match job_name with
+        | Some name -> Scheduler.get_history ~db ~name ~limit:10
+        | None -> Scheduler.list_runs ~db ~limit:20 ()
+      in
+      if runs = [] then
+        match job_name with
+        | Some name -> Printf.sprintf "No run history for '%s'." name
+        | None -> "No run history."
+      else
+        let columns =
+          Table_format.
+            [
+              { header = "ID"; align = Right; min_width = 2; flex = false };
+              { header = "JOB"; align = Left; min_width = 3; flex = false };
+              { header = "STARTED"; align = Left; min_width = 19; flex = false };
+              { header = "STATUS"; align = Left; min_width = 6; flex = false };
+              { header = "PREVIEW"; align = Left; min_width = 10; flex = true };
+            ]
+        in
+        let rows =
+          List.map
+            (fun (r : Scheduler.run) ->
+              let preview =
+                match r.result_preview with
+                | Some p when String.length p > 40 -> String.sub p 0 37 ^ "..."
+                | Some p -> p
+                | None -> ""
+              in
+              [
+                string_of_int r.run_id;
+                r.job_name;
+                r.started_at;
+                r.status;
+                preview;
+              ])
+            runs
+        in
+        let title =
+          match job_name with
+          | Some name -> Printf.sprintf "Run History — %s" name
+          | None -> "Run History"
+        in
+        Format_adapter.bold connector title
+        ^ "\n\n"
+        ^ Format_adapter.render_table connector ~max_width:80 columns rows

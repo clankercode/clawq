@@ -244,6 +244,36 @@ let list_runs ~db ?job_name ~limit () =
   ignore (Sqlite3.finalize stmt);
   List.rev !runs
 
+let update_job ~db ~name ?schedule ?message () =
+  let updates = ref [] in
+  let bindings = ref [] in
+  (match schedule with
+  | Some s -> (
+      match parse_schedule s with
+      | Error e -> raise (Invalid_argument ("Invalid schedule: " ^ e))
+      | Ok _ ->
+          updates := "schedule = ?" :: !updates;
+          bindings := Sqlite3.Data.TEXT s :: !bindings)
+  | None -> ());
+  (match message with
+  | Some m ->
+      updates := "message = ?" :: !updates;
+      bindings := Sqlite3.Data.TEXT m :: !bindings
+  | None -> ());
+  if !updates = [] then Error "Nothing to update"
+  else
+    let set_clause = String.concat ", " (List.rev !updates) in
+    let sql =
+      Printf.sprintf "UPDATE cron_jobs SET %s WHERE name = ?" set_clause
+    in
+    let stmt = Sqlite3.prepare db sql in
+    let all_bindings = List.rev !bindings @ [ Sqlite3.Data.TEXT name ] in
+    List.iteri (fun i v -> ignore (Sqlite3.bind stmt (i + 1) v)) all_bindings;
+    ignore (Sqlite3.step stmt);
+    ignore (Sqlite3.finalize stmt);
+    if Sqlite3.changes db > 0 then Ok ()
+    else Error (Printf.sprintf "No job found with name '%s'" name)
+
 let remove_job ~db ~name =
   let sql = "DELETE FROM cron_jobs WHERE name = ?" in
   let stmt = Sqlite3.prepare db sql in

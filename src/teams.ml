@@ -1583,6 +1583,16 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                           "Background tasks are not available (no database)."
                     in
                     send_text text
+                | Cron action ->
+                    let text =
+                      match Session.get_db session_manager with
+                      | Some db ->
+                          Slash_commands.format_cron
+                            ~connector:Format_adapter.Teams ~db ~session_key:key
+                            action
+                      | None -> "Cron is not available (no database)."
+                    in
+                    send_text text
                 | Model action -> (
                     let open Slash_commands in
                     match action with
