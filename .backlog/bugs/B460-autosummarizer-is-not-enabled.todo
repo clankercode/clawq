@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B460
+priority: high
+status: pending
+tags: []
+title: autosummarizer is not enabled/disabled live with config (should be). Also all other summarizer settings should be too
+---
+
+autosummarizer is not enabled/disabled live with config (should be). Also all other summarizer settings should be too
