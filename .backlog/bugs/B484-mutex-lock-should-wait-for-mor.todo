@@ -1,0 +1,27 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B484
+priority: high
+status: pending
+tags: []
+title: mutex lock should wait for more than 100s before crashing.
+---
+
+Example: [22:49:00.524] INFO  /compact requested for session teams:personal:a:1JPVFngEx3FRRVWXUe5fb97HWjfsCdtDImgKuD3u_N6IpgOD0euB5bnQHI9RsDQuK3qOG_5Jyhq4wWGr0IczaxEXPN5vIGppdngtwZucpyhDNrW1_YJCrXnHrksQ5fCuT — starting compaction
+[22:49:10.525] WARN  [session_mutex/with_session_lock[teams:personal:a:1JPVFngEx3FRRVWXUe5fb97HWjfsCdtDImgKuD3u_N6IpgOD0euB5bnQHI9RsDQuK3qOG_5Jyhq4wWGr0IczaxEXPN5vIGppdngtwZucpyhDNrW1_YJCrXnHrksQ5fCuT]] Mutex acquisition slow (>10s), retrying with 100s timeout
+[22:49:10.525] WARN  [session_mutex/with_session_lock[teams:personal:a:1JPVFngEx3FRRVWXUe5fb97HWjfsCdtDImgKuD3u_N6IpgOD0euB5bnQHI9RsDQuK3qOG_5Jyhq4wWGr0IczaxEXPN5vIGppdngtwZucpyhDNrW1_YJCrXnHrksQ5fCuT]] mutex diagnostics: is_locked=true has_no_waiters=true time=1773575350.525 pid=2099116
+[22:49:24.279] INFO  Heartbeat: processing HEARTBEAT.md (424 chars) on teams:personal:a:1JPVFngEx3FRRVWXUe5fb97HWjfsCdtDImgKuD3u_N6IpgOD0euB5bnQHI9RsDQuK3qOG_5Jyhq4wWGr0IczaxEXPN5vIGppdngtwZucpyhDNrW1_YJCrXnHrksQ5fCuT
+[22:49:24.279] INFO  Heartbeat: session teams:personal:a:1JPVFngEx3FRRVWXUe5fb97HWjfsCdtDImgKuD3u_N6IpgOD0euB5bnQHI9RsDQuK3qOG_5Jyhq4wWGr0IczaxEXPN5vIGppdngtwZucpyhDNrW1_YJCrXnHrksQ5fCuT busy, skipping this tick
+[22:49:29.655] INFO  [teams:personal:a:1JPVFngEx3FRRVWXUe5fb97HWjfsCdtDImgKuD3u_N6IpgOD0euB5bnQHI9RsDQuK3qOG_5Jyhq4wWGr0IczaxEXPN5vIGppdngtwZucpyhDNrW1_YJCrXnHrksQ5fCuT] Cost: model=glm-5 prompt=96697 completion=985 cost=$0.099849 session_total=$9.9750
+[22:49:29.667] INFO  [teams:personal:a:1JPVFngEx3FRRVWXUe5fb97HWjfsCdtDImgKuD3u_N6IpgOD0euB5bnQHI9RsDQuK3qOG_5Jyhq4wWGr0IczaxEXPN5vIGppdngtwZucpyhDNrW1_YJCrXnHrksQ5fCuT] Tool call: shell_exec (id=call_8822bc2f5c4348edb15350b3) args={}
+[22:49:29.668] INFO  [teams:personal:a:1JPVFngEx3FRRVWXUe5fb97HWjfsCdtDImgKuD3u_N6IpgOD0euB5bnQHI9RsDQuK3qOG_5Jyhq4wWGr0IczaxEXPN5vIGppdngtwZucpyhDNrW1_YJCrXnHrksQ5fCuT] Tool shell_exec completed in 0.000s
+[22:49:29.668] WARN  [teams:personal:a:1JPVFngEx3FRRVWXUe5fb97HWjfsCdtDImgKuD3u_N6IpgOD0euB5bnQHI9RsDQuK3qOG_5Jyhq4wWGr0IczaxEXPN5vIGppdngtwZucpyhDNrW1_YJCrXnHrksQ5fCuT] Tool error: shell_exec -> Error: shell_exec requires a non-empty 'command' parameter. The 'command' field is required in the tool call arguments.
+[22:49:38.704] WARN  [observer] stuck detected session=teams:personal:a:1JPVFngEx3FRRVWXUe5fb97HWjfsCdtDImgKuD3u_N6IpgOD0euB5bnQHI9RsDQuK3qOG_5Jyhq4wWGr0IczaxEXPN5vIGppdngtwZucpyhDNrW1_YJCrXnHrksQ5fCuT: SameErrorString: error repeated 3 times: Error: shell_exec requires a non-empty 'command' parameter. The 'command' field is required in the tool call arguments.
+RepeatedToolCall: "shell_exec" called 3 times with same args: {}
+[22:49:38.715] WARN  Postmortem circuit breaker open for session teams:personal:a:1JPVFngEx3FRRVWXUe5fb97HWjfsCdtDImgKuD3u_N6IpgOD0euB5bnQHI9RsDQuK3qOG_5Jyhq4wWGr0IczaxEXPN5vIGppdngtwZucpyhDNrW1_YJCrXnHrksQ5fCuT; suppressing additional launch (reason=SameErrorString: error repeated 3 times: Error: shell_exec requires a non-empty 'command' parameter. The 'command' field is required in the tool call arguments.
+RepeatedToolCall: "shell_exec" called 3 times with same args: {})
+[22:49:38.719] INFO  [teams:personal:a:1JPVFngEx3FRRVWXUe5fb97HWjfsCdtDImgKuD3u_N6IpgOD0euB5bnQHI9RsDQuK3qOG_5Jyhq4wWGr0IczaxEXPN5vIGppdngtwZucpyhDNrW1_YJCrXnHrksQ5fCuT] -> LLM provider=zai_coding model=glm-5 msgs=290 ~83k tok
+[22:50:50.526] ERROR [session_mutex/with_session_lock[teams:personal:a:1JPVFngEx3FRRVWXUe5fb97HWjfsCdtDImgKuD3u_N6IpgOD0euB5bnQHI9RsDQuK3qOG_5Jyhq4wWGr0IczaxEXPN5vIGppdngtwZucpyhDNrW1_YJCrXnHrksQ5fCuT]] FATAL: Mutex deadlock detected (>110s total wait). Aborting process.
+[22:50:50.526] ERROR [session_mutex/with_session_lock[teams:personal:a:1JPVFngEx3FRRVWXUe5fb97HWjfsCdtDImgKuD3u_N6IpgOD0euB5bnQHI9RsDQuK3qOG_5Jyhq4wWGr0IczaxEXPN5vIGppdngtwZucpyhDNrW1_YJCrXnHrksQ5fCuT]] mutex diagnostics: is_locked=true has_no_waiters=true time=1773575450.526 pid=2099116
