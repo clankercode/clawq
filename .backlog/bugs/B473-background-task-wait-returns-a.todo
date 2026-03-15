@@ -1,0 +1,21 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B473
+priority: high
+status: pending
+tags: []
+title: background_task_wait returns almost immediately instead of waiting
+---
+Problem
+background_task_wait often returns after about 1 second with an interruption/status message rather than actually waiting for a meaningful interval, which makes it poor for autonomous monitoring loops.
+
+Why this matters
+The tool is intended to block until completion or a substantive timeout. Returning almost immediately creates churn, encourages repeated tool-call loops, and weakens background-worker supervision.
+
+Acceptance criteria
+- background_task_wait normally waits for the requested interval or until task completion unless there is a genuine external interrupt.
+- Spurious near-immediate returns are eliminated or clearly distinguished from real interruptions.
+- Tool output makes the cause of early return explicit.
+- Autonomous monitoring loops can rely on the tool without generating tight repeated waits.

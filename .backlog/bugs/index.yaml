@@ -469,3 +469,4 @@ bugs:
     - file: B470-research-codex-prompt-caching.todo
     - file: B471-tool-output-should-redact-home.todo
     - file: B472-cron-delivery-events-should-no.todo
+    - file: B473-background-task-wait-returns-a.todo
