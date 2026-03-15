@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-15T10:15:39Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-15T10:26:56Z"
 complexity: medium
 depends_on: []
+duration_minutes: 11.29525994745
 estimate_hours: 1
 id: B475
 priority: high
 started_at: "2026-03-15T10:15:39Z"
-status: in_progress
+status: done
 tags: []
 title: Background task finalize should require clean committed worktree
 ---
