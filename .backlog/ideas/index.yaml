@@ -190,3 +190,5 @@ ideas:
       status: in_progress
       tags: []
       title: Allow for backing up workspace files into versions so we can safely try destructive actions and restore if something goes wrong.
+    - file: I023-add-debug-mode-that-saves-all.todo
+      id: I023
