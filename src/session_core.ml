@@ -513,7 +513,7 @@ let queued_message_prompt message =
   ^ "course.\n\nInjected message:\n" ^ message
 
 let heartbeat_supported_channel = function
-  | "telegram" | "slack" | "discord" -> true
+  | "telegram" | "slack" | "discord" | "teams" -> true
   | _ -> false
 
 let heartbeat_supported_session_key key =
@@ -523,8 +523,8 @@ let heartbeat_supported_session_key key =
 
 let heartbeat_unsupported_reason key =
   Printf.sprintf
-    "Heartbeat can only be enabled for Telegram, Slack, or Discord sessions. \
-     Session '%s' is not eligible."
+    "Heartbeat can only be enabled for Telegram, Slack, Discord, or Teams \
+     sessions. Session '%s' is not eligible."
     key
 
 let resumable_channel = function

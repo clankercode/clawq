@@ -364,8 +364,8 @@ let test_handle_session_heartbeat_rejects_unsupported_session () =
       Alcotest.(check bool)
         "rejects web session" true
         (contains result
-           "Heartbeat can only be enabled for Telegram, Slack, or Discord \
-            sessions."))
+           "Heartbeat can only be enabled for Telegram, Slack, Discord, or \
+            Teams sessions."))
 
 let test_handle_session_heartbeat_status_mentions_global_disable () =
   with_temp_home (fun home ->

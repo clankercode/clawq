@@ -121,6 +121,17 @@ let test_heartbeat_survives_upsert () =
         "heartbeat still set after upsert" true
         (List.mem "telegram:42:user" keys))
 
+let test_teams_heartbeat_supported () =
+  with_db (fun db ->
+      let key = "teams:tenant1:19:abc@thread.tacv2" in
+      Memory.set_session_heartbeat ~db ~session_key:key ~enabled:true;
+      let keys = Memory.list_heartbeat_session_keys ~db in
+      Alcotest.(check bool)
+        "teams session listed in heartbeat keys" true (List.mem key keys);
+      Alcotest.(check bool)
+        "teams heartbeat supported" true
+        (Session.heartbeat_supported_session_key key))
+
 (* --- keepalive nudge prompt constant is defined --- *)
 
 let test_nudge_prompt_hides_stay_idle () =
@@ -161,6 +172,8 @@ let suite =
       test_heartbeat_reflected_in_session_info;
     Alcotest.test_case "heartbeat survives upsert_session_state" `Quick
       test_heartbeat_survives_upsert;
+    Alcotest.test_case "teams heartbeat supported" `Quick
+      test_teams_heartbeat_supported;
     Alcotest.test_case "nudge prompt hides STAY_IDLE" `Quick
       test_nudge_prompt_hides_stay_idle;
     Alcotest.test_case "nudge prompt contains header" `Quick

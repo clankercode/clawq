@@ -505,7 +505,7 @@ let handler ~session_manager ~require_pairing ~auth_token
                 | Slash_commands.Heartbeat _ ->
                     let response =
                       "Heartbeat routing is only available for Telegram, \
-                       Slack, and Discord sessions."
+                       Slack, Discord, and Teams sessions."
                     in
                     let resp_json =
                       `Assoc [ ("response", `String response) ]
@@ -1051,7 +1051,7 @@ let handler ~session_manager ~require_pairing ~auth_token
                     ignore action;
                     sse_reply
                       "Heartbeat routing is only available for Telegram, \
-                       Slack, and Discord sessions."
+                       Slack, Discord, and Teams sessions."
                 | Slash_commands.Tools ->
                     let text =
                       match Session.get_tool_registry session_manager with

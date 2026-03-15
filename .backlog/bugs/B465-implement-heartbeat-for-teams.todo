@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-15T07:29:18Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-15T07:37:18Z"
 complexity: medium
 depends_on: []
+duration_minutes: 8.000260702533334
 estimate_hours: 1
 id: B465
 priority: high
 started_at: "2026-03-15T07:29:18Z"
-status: in_progress
+status: done
 tags: []
 title: implement heartbeat for teams sessions
 ---
