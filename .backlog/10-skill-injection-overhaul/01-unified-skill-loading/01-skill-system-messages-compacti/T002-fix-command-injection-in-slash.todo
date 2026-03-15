@@ -1,0 +1,26 @@
+---
+complexity: medium
+depends_on:
+    - P10.M1.E1.T001
+estimate_hours: 1
+id: P10.M1.E1.T002
+priority: high
+status: pending
+tags:
+    - idea
+    - planning
+title: Fix command injection in /slash and @mention pathways
+---
+/slash and @mention only call substitute_arguments, not Skills_cmd_inject.expand_injections. Skills with `!`cmd`` syntax don't work via these pathways. Fix: run expand_injections in all pathways (shared code from Task 1 makes this straightforward).
+
+## Acceptance Criteria
+
+- [ ] All 3 pathways call expand_injections
+- [ ] Test with a skill containing `!`cmd`` syntax via each pathway
+- [ ] `make test` passes
+
+## Files
+
+`src/skills.ml`
+
+Plan: ~/.claude-w/plans/stateless-orbiting-hippo.md

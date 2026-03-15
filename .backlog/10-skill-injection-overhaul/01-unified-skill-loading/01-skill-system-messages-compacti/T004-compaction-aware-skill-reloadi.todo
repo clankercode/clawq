@@ -1,0 +1,29 @@
+---
+complexity: high
+depends_on:
+    - P10.M1.E1.T001
+estimate_hours: 3
+id: P10.M1.E1.T004
+priority: medium
+status: pending
+tags:
+    - idea
+    - planning
+title: Compaction-aware skill reloading
+---
+Two changes: (1) Instruct the compaction summarizer to exclude skill instruction bodies from the summary. (2) After compaction, auto-reload eligible skills as system messages marked autoloaded. Target message order after compaction: `[system prompt] → [skill system msgs (autoloaded)] → [compaction summary] → [conversation continues]`.
+
+## Acceptance Criteria
+
+- [ ] Compaction summarizer prompt instructs LLM to exclude skill bodies
+- [ ] After compaction, active skills are re-injected as system messages
+- [ ] Re-injected skills marked as autoloaded (e.g., "[Skill: X (autoloaded after compaction)]")
+- [ ] Message order: system prompt → skills → compaction summary → rest
+- [ ] Tests for compaction with skills in history
+- [ ] `make test` passes
+
+## Files
+
+`src/agent.ml`, `src/session_turn.ml`, `src/prompt_builder.ml`
+
+Plan: ~/.claude-w/plans/stateless-orbiting-hippo.md

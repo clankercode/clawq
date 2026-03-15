@@ -1,0 +1,28 @@
+---
+complexity: low
+depends_on:
+    - P10.M1.E1.T001
+estimate_hours: 1
+id: P10.M1.E1.T005
+priority: medium
+status: pending
+tags:
+    - idea
+    - planning
+title: Connector notification for skill loading
+---
+When a skill is loaded via @mention or /slash, send "Loaded skill: X" to the user via the connector's normal send_message. NOT for use_skill (tool log shows it). Skill system messages (instructions) never sent via connector.
+
+## Acceptance Criteria
+
+- [ ] @mention triggers "Loaded skill: X" message via connector
+- [ ] /slash triggers "Loaded skill: X" message via connector
+- [ ] use_skill does NOT trigger connector notification
+- [ ] Skill instruction system messages never sent to user
+- [ ] `make test` passes
+
+## Files
+
+`src/session_turn.ml`, connector files
+
+Plan: ~/.claude-w/plans/stateless-orbiting-hippo.md

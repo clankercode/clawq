@@ -1,0 +1,35 @@
+---
+complexity: high
+depends_on: []
+estimate_hours: 4
+id: P10.M1.E1.T001
+priority: high
+status: pending
+tags:
+    - idea
+    - planning
+title: Unify all skill activation pathways to system messages
+---
+Currently @mention injects as system msg, /slash replaces the user msg, use_skill returns as tool result. Unify all three to inject skill instructions as system messages:
+- @mention (`@skill` anywhere in body): already system messages — no change to injection mechanism
+- /slash (`/skill` at start of message only, no args): leave user message as-is, inject dedupeable system message with skill body
+- /slash (with args): leave user message as-is, inject NON-dedupeable system message with $ARGUMENTS expanded
+- use_skill tool: return brief "Loaded skill X, has_args: true/false" as tool result; also inject full instructions as system message
+- Extract shared SkillInvoke handling from discord.ml, telegram.ml, http_server.ml into skills.ml
+- When loading via @mention or /slash, send connector notification "Loaded skill: X" (NOT a system message — visible user notification via connector send). use_skill doesn't need this since it shows in tool log.
+
+## Acceptance Criteria
+
+- [ ] All 3 pathways inject skill instructions as role:"system" messages
+- [ ] /slash no longer replaces the user message
+- [ ] use_skill returns brief acknowledgment as tool result, not full instructions
+- [ ] Shared skill expansion logic extracted to skills.ml (no copy-paste in connectors)
+- [ ] @mention and /slash send "Loaded skill: X" notification to user via connector
+- [ ] Existing tests updated; new tests for each pathway
+- [ ] `make test` passes
+
+## Files
+
+`src/skills.ml`, `src/session_turn.ml`, `src/discord.ml`, `src/telegram.ml`, `src/http_server.ml`, `src/slack.ml`, `src/slash_commands.ml`
+
+Plan: ~/.claude-w/plans/stateless-orbiting-hippo.md

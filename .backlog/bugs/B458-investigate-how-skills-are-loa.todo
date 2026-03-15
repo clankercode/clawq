@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-15T04:26:55Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-15T05:14:24Z"
 complexity: medium
 depends_on: []
+duration_minutes: 47.48737721095
 estimate_hours: 1
 id: B458
 priority: high
 started_at: "2026-03-15T04:26:55Z"
-status: in_progress
+status: done
 tags: []
 title: Investigate how skills are loaded into the chat log (both from in text /mentions and via use_skill(name='x'))
 ---

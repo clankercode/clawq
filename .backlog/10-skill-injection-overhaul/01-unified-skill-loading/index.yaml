@@ -1,0 +1,17 @@
+complexity: high
+depends_on: []
+epics:
+    - complexity: high
+      depends_on: []
+      description: ""
+      estimate_hours: 11
+      id: E1
+      locked: false
+      name: Skill System Messages & Compaction
+      path: 01-skill-system-messages-compacti
+      status: pending
+estimate_hours: 11
+id: P10.M1
+locked: false
+name: Unified Skill Loading
+status: pending

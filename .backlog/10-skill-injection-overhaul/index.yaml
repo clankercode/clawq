@@ -1,0 +1,18 @@
+complexity: medium
+depends_on: []
+estimate_hours: 11
+id: P10
+locked: false
+milestones:
+    - complexity: high
+      depends_on: []
+      description: ""
+      estimate_hours: 11
+      id: M1
+      locked: false
+      name: Unified Skill Loading
+      path: 01-unified-skill-loading
+      status: pending
+name: Skill Injection Overhaul
+status: pending
+weeks: 2

@@ -1,0 +1,28 @@
+---
+complexity: medium
+depends_on:
+    - P10.M1.E1.T001
+estimate_hours: 2
+id: P10.M1.E1.T003
+priority: medium
+status: pending
+tags:
+    - idea
+    - planning
+title: Cross-turn skill deduplication
+---
+When a skill is invoked without arguments (any pathway), check if the same skill system message already exists in recent history. If so, add a brief system message "User invoked skill X (already loaded) — follow those instructions." instead of re-injecting the full body. Dedup key: skill name + whether args are provided (NOT command expansion output — assume same if $ARGUMENTS not used/provided).
+
+## Acceptance Criteria
+
+- [ ] No-args invocation is deduped: second mention of same skill injects brief "already loaded" msg
+- [ ] With-args invocation is NOT deduped: each invocation injects full expanded body
+- [ ] Dedup checks recent history (not just current message)
+- [ ] Tests for dedup and non-dedup cases
+- [ ] `make test` passes
+
+## Files
+
+`src/skills.ml`, `src/session_turn.ml`
+
+Plan: ~/.claude-w/plans/stateless-orbiting-hippo.md

@@ -1,0 +1,52 @@
+complexity: high
+depends_on: []
+estimate_hours: 11
+id: P10.M1.E1
+locked: false
+name: Skill System Messages & Compaction
+status: pending
+tasks:
+    - complexity: high
+      depends_on: []
+      estimate_hours: 4
+      file: T001-unify-all-skill-activation-pat.todo
+      id: T001
+      priority: high
+      status: pending
+      title: Unify all skill activation pathways to system messages
+    - complexity: medium
+      depends_on:
+        - P10.M1.E1.T001
+      estimate_hours: 1
+      file: T002-fix-command-injection-in-slash.todo
+      id: T002
+      priority: high
+      status: pending
+      title: Fix command injection in /slash and @mention pathways
+    - complexity: medium
+      depends_on:
+        - P10.M1.E1.T001
+      estimate_hours: 2
+      file: T003-cross-turn-skill-deduplication.todo
+      id: T003
+      priority: medium
+      status: pending
+      title: Cross-turn skill deduplication
+    - complexity: high
+      depends_on:
+        - P10.M1.E1.T001
+      estimate_hours: 3
+      file: T004-compaction-aware-skill-reloadi.todo
+      id: T004
+      priority: medium
+      status: pending
+      title: Compaction-aware skill reloading
+    - complexity: low
+      depends_on:
+        - P10.M1.E1.T001
+      estimate_hours: 1
+      file: T005-connector-notification-for-ski.todo
+      id: T005
+      priority: medium
+      status: pending
+      title: Connector notification for skill loading
