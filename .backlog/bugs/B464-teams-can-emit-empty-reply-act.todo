@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 2
+id: B464
+priority: high
+status: pending
+tags: []
+title: Teams can emit empty reply activities causing HTTP 400 BadSyntax
+---
+Observed in ~/.clawq/daemon.log around 2026-03-15 18:14 local after restart-resume work. Teams send path logged: 'Teams: send_reply failed (HTTP 400) ... {"error":{"code":"BadSyntax","message":"Activity must include non empty 'text' field or at least 1 attachment"}}'. This indicates some reply construction path is attempting to send a Teams activity with neither text nor attachments. Likely related to empty assistant responses / restart-resume / status-update or other connector formatting paths. Investigate which code path builds an empty Teams reply, add guards so empty payloads are never sent, and add logging/tests to identify the origin path. Acceptance criteria:\n- Reproduce or identify exact code path producing empty Teams activity\n- Prevent empty Teams outbound activities from being sent\n- Add targeted logging and/or tests covering the failing path\n- Verify normal non-empty Teams replies still work
