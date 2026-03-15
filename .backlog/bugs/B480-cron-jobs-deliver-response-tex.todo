@@ -1,0 +1,15 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B480
+priority: high
+status: pending
+tags: []
+title: Cron jobs deliver response text instead of prompt text
+---
+User clarified intended semantics: after a cron job fires, clawq should send the cron prompt/message to the channel, not wait for the LLM turn and deliver the LLM response text. Current scheduler behavior in src/scheduler.ml calls Session.turn with job.message and then delivers result via deliver_fn ~text:result. This produced visible CRON_ACK when user expected the cron prompt itself. Acceptance criteria:
+- Scheduler/channel delivery semantics for cron are aligned with intended product behavior
+- Cron sends the configured prompt/message to the channel rather than the model response
+- Logs and run history reflect the correct delivered payload semantics
+- Tests cover the intended cron delivery behavior

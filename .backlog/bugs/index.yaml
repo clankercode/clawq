@@ -476,3 +476,4 @@ bugs:
     - file: B477-add-cron-slash-command-for-cro.todo
     - file: B478-add-bg-slash-command-for-backg.todo
     - file: B479-generalize-teams-menu-through.todo
+    - file: B480-cron-jobs-deliver-response-tex.todo
