@@ -492,3 +492,4 @@ bugs:
     - file: B493-tool-call-status-timer-continu.todo
     - file: B494-add-total-lines-output-to-shel.todo
     - file: B495-the-tool-call-progress-message.todo
+    - file: B496-group-chat-agent-responds-to-a.todo

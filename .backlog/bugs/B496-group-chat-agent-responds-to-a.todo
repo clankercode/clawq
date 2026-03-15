@@ -1,0 +1,35 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 2
+id: B496
+priority: high
+status: pending
+tags:
+    - connector
+    - teams
+    - group-chat
+title: 'Group chat: agent responds to all messages instead of only when addressed/mentioned'
+---
+Problem
+In group chats (Teams, and likely other connectors), Clawq responds to every message in the channel, regardless of whether the bot was mentioned, directly addressed, or the message was intended for it.
+
+Why this matters
+- In a shared channel, responding to every message creates noise and disrupts normal conversation flow
+- Other participants may not want bot responses to their casual messages
+- Makes the bot appear intrusive rather than helpful in group settings
+
+Acceptance criteria
+- Agent only responds in group chats when:
+  - Explicitly @mentioned
+  - Directly addressed by name (e.g., "clawq, what is...")
+  - Replied to in a thread (when the bot is the parent message)
+  - Using a command prefix (e.g., "/command")
+- Messages from other participants to each other are ignored
+- Behavior is configurable per channel/session if needed
+- Private/direct messages continue to respond to everything (current behavior preserved)
+
+Notes
+- Related to B419 (excessive @ tagging in replies) but this is about response triggering, not reply formatting
+- May need channel-type detection (group vs direct) in connector layer
+- Consider adding a config option for group chat response policy
