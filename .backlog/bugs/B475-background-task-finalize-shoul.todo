@@ -1,0 +1,21 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B475
+priority: high
+status: pending
+tags: []
+title: Background task finalize should require clean committed worktree
+---
+Problem
+Background-task worktrees can contain uncommitted or partially merged changes when finalization/merge is attempted, which risks dragging dirty state into master or obscuring what was actually reviewed.
+
+Why this matters
+A background task should only be merged once its worktree is clean and every intended change is committed. This preserves auditability, keeps merges deterministic, and avoids accidental inclusion of stray edits.
+
+Acceptance criteria
+- Finalization/merge path refuses to merge a background-task worktree if it has uncommitted changes.
+- Tooling/reporting makes the reason explicit and tells the operator to commit or clean the worktree first.
+- The background-task success contract and/or operator guidance clearly states that all intended changes must be committed before merge/finalize.
+- Update any relevant skill/operator guidance (including run-task if applicable) so the main agent treats clean committed worktree state as mandatory before finalization.
