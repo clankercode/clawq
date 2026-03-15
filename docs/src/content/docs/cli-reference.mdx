@@ -188,7 +188,7 @@ clawq background finalize 1
 
 Background tasks are daemon-owned. The full `clawq agent` process polls the queue, creates a fresh git worktree for each task under `~/.clawq/background-worktrees/`, runs the selected CLI non-interactively, and stores the task log under `~/.clawq/background-logs/`.
 
-Once a worktree-backed task has started, `clawq background resume <id>` resumes it using the runner's native session resume support, and `clawq background message <id> ...` injects a new user message into that resumed conversation. The injected message is delivered durably and replayed FIFO for the target task.
+Once a worktree-backed task has started, `clawq background resume <id>` resumes it using the runner's tracked session ID (when available) or falls back to the runner's generic continue flag. Each runner's session ID is automatically captured: Claude pre-assigns a UUID via `--session-id`, Codex parses JSONL output for `thread_id`, and OpenCode/Kimi/Cursor extract session IDs from log output. `clawq background message <id> ...` injects a new user message into that resumed conversation. The injected message is delivered durably and replayed FIFO for the target task.
 
 Tasks with `automerge` enabled will automatically rebase onto the target branch and fast-forward merge on success. If a conflict occurs, the parent agent is notified and can use `background finalize <id>` to retry the merge after resolving conflicts. If the worktree has uncommitted changes (staged or unstaged), finalize and automerge will refuse to proceed and report the dirty state — commit or discard changes first, then retry.
 

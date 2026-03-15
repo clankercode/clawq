@@ -76,6 +76,7 @@ let fake_task ?(status = Background_task.Queued) id =
     retry_count = 0;
     parent_task_id = None;
     replaced_by = None;
+    runner_session_id = None;
   }
 
 let fake_started_task ?(runner = Background_task.Codex) ?model
@@ -104,6 +105,7 @@ let fake_started_task ?(runner = Background_task.Codex) ?model
     retry_count = 0;
     parent_task_id = None;
     replaced_by = None;
+    runner_session_id = None;
   }
 
 let test_enqueue_and_list_tasks () =
@@ -300,12 +302,17 @@ let test_command_of_task_codex () =
       retry_count = 0;
       parent_task_id = None;
       replaced_by = None;
+      runner_session_id = None;
     }
   in
   Alcotest.(check (array string))
     "codex argv"
     [|
-      "codex"; "exec"; "--dangerously-bypass-approvals-and-sandbox"; "ship it";
+      "codex";
+      "exec";
+      "--json";
+      "--dangerously-bypass-approvals-and-sandbox";
+      "ship it";
     |]
     (Background_task.command_of_task task)
 
@@ -335,6 +342,7 @@ let test_command_of_task_claude () =
       retry_count = 0;
       parent_task_id = None;
       replaced_by = None;
+      runner_session_id = None;
     }
   in
   Alcotest.(check (array string))
@@ -368,6 +376,7 @@ let test_command_of_task_kimi () =
       retry_count = 0;
       parent_task_id = None;
       replaced_by = None;
+      runner_session_id = None;
     }
   in
   Alcotest.(check (array string))
@@ -401,6 +410,7 @@ let test_command_of_task_kimi_with_model () =
       retry_count = 0;
       parent_task_id = None;
       replaced_by = None;
+      runner_session_id = None;
     }
   in
   Alcotest.(check (array string))
@@ -434,6 +444,7 @@ let test_command_of_task_gemini () =
       retry_count = 0;
       parent_task_id = None;
       replaced_by = None;
+      runner_session_id = None;
     }
   in
   Alcotest.(check (array string))
@@ -467,6 +478,7 @@ let test_command_of_task_gemini_with_model () =
       retry_count = 0;
       parent_task_id = None;
       replaced_by = None;
+      runner_session_id = None;
     }
   in
   Alcotest.(check (array string))
@@ -500,6 +512,7 @@ let test_command_of_task_opencode () =
       retry_count = 0;
       parent_task_id = None;
       replaced_by = None;
+      runner_session_id = None;
     }
   in
   Alcotest.(check (array string))
@@ -533,6 +546,7 @@ let test_command_of_task_opencode_with_model () =
       retry_count = 0;
       parent_task_id = None;
       replaced_by = None;
+      runner_session_id = None;
     }
   in
   Alcotest.(check (array string))
@@ -566,6 +580,7 @@ let test_command_of_task_cursor () =
       retry_count = 0;
       parent_task_id = None;
       replaced_by = None;
+      runner_session_id = None;
     }
   in
   Alcotest.(check (array string))
@@ -599,6 +614,7 @@ let test_command_of_task_cursor_with_model () =
       retry_count = 0;
       parent_task_id = None;
       replaced_by = None;
+      runner_session_id = None;
     }
   in
   Alcotest.(check (array string))
@@ -1388,6 +1404,7 @@ let make_task ?(id = 1) ?(runner = Background_task.Claude)
     retry_count = 0;
     parent_task_id = None;
     replaced_by = None;
+    runner_session_id = None;
   }
 
 let test_elapsed_string_recent () =
@@ -1586,6 +1603,7 @@ let test_command_of_task_codex_with_model () =
       retry_count = 0;
       parent_task_id = None;
       replaced_by = None;
+      runner_session_id = None;
     }
   in
   Alcotest.(check (array string))
@@ -1593,6 +1611,7 @@ let test_command_of_task_codex_with_model () =
     [|
       "codex";
       "exec";
+      "--json";
       "--model";
       "gpt-5.4";
       "--dangerously-bypass-approvals-and-sandbox";
@@ -1626,6 +1645,7 @@ let test_command_of_task_claude_with_model () =
       retry_count = 0;
       parent_task_id = None;
       replaced_by = None;
+      runner_session_id = None;
     }
   in
   Alcotest.(check (array string))
@@ -1649,10 +1669,11 @@ let test_command_of_task_resume_codex () =
       "exec";
       "resume";
       "--last";
+      "--json";
       "--dangerously-bypass-approvals-and-sandbox";
       "resume now";
     |]
-    (Background_task.command_of_task_with_invocation task
+    (Background_task.command_argv_of_task_with_invocation task
        (Background_task.Resume "resume now"))
 
 let test_command_of_task_resume_claude () =
@@ -1660,7 +1681,7 @@ let test_command_of_task_resume_claude () =
   Alcotest.(check (array string))
     "claude resume argv"
     [| "claude"; "-c"; "-p"; "--dangerously-skip-permissions"; "resume now" |]
-    (Background_task.command_of_task_with_invocation task
+    (Background_task.command_argv_of_task_with_invocation task
        (Background_task.Resume "resume now"))
 
 let test_command_of_task_resume_kimi () =
@@ -1668,7 +1689,7 @@ let test_command_of_task_resume_kimi () =
   Alcotest.(check (array string))
     "kimi resume argv"
     [| "kimi"; "--continue"; "--print"; "--yolo"; "-p"; "resume now" |]
-    (Background_task.command_of_task_with_invocation task
+    (Background_task.command_argv_of_task_with_invocation task
        (Background_task.Resume "resume now"))
 
 let test_command_of_task_resume_gemini () =
@@ -1676,7 +1697,7 @@ let test_command_of_task_resume_gemini () =
   Alcotest.(check (array string))
     "gemini resume argv"
     [| "gemini"; "--resume"; "latest"; "--yolo"; "--prompt"; "resume now" |]
-    (Background_task.command_of_task_with_invocation task
+    (Background_task.command_argv_of_task_with_invocation task
        (Background_task.Resume "resume now"))
 
 let test_command_of_task_resume_opencode () =
@@ -1684,7 +1705,7 @@ let test_command_of_task_resume_opencode () =
   Alcotest.(check (array string))
     "opencode resume argv"
     [| "opencode"; "run"; "-c"; "resume now" |]
-    (Background_task.command_of_task_with_invocation task
+    (Background_task.command_argv_of_task_with_invocation task
        (Background_task.Resume "resume now"))
 
 let test_command_of_task_resume_cursor () =
@@ -1694,7 +1715,7 @@ let test_command_of_task_resume_cursor () =
     [|
       "cursor-agent"; "--continue"; "--print"; "--yolo"; "--trust"; "resume now";
     |]
-    (Background_task.command_of_task_with_invocation task
+    (Background_task.command_argv_of_task_with_invocation task
        (Background_task.Resume "resume now"))
 
 let test_reap_marks_dead_pid_failed () =
@@ -3202,6 +3223,7 @@ let test_terse_message_dirty_worktree () =
       retry_count = 0;
       parent_task_id = None;
       replaced_by = None;
+      runner_session_id = None;
     }
   in
   let msg = Background_task.terse_finished_message task in
@@ -3473,6 +3495,162 @@ let test_recover_runner_override () =
             "new task has claude runner" "claude"
             (Background_task.string_of_runner new_task.runner))
 
+let test_pre_generate_session_id_claude () =
+  let def = Runner_framework.runner_def_of_runner Runner_framework.Claude in
+  match Runner_framework.pre_generate_session_id def with
+  | Some uuid ->
+      Alcotest.(check bool) "uuid has dashes" true (String.contains uuid '-');
+      Alcotest.(check int) "uuid length" 36 (String.length uuid)
+  | None -> Alcotest.fail "expected Some uuid for claude"
+
+let test_pre_generate_session_id_codex () =
+  let def = Runner_framework.runner_def_of_runner Runner_framework.Codex in
+  Alcotest.(check (option string))
+    "codex returns None" None
+    (Runner_framework.pre_generate_session_id def)
+
+let test_extract_session_id_codex_jsonl () =
+  let def = Runner_framework.runner_def_of_runner Runner_framework.Codex in
+  let content =
+    {|{"type":"session.start","thread_id":"abc-123-def"}
+{"type":"message","content":"hello"}|}
+  in
+  Alcotest.(check (option string))
+    "extracts thread_id" (Some "abc-123-def")
+    (Runner_framework.extract_session_id def content)
+
+let test_extract_session_id_opencode () =
+  let def = Runner_framework.runner_def_of_runner Runner_framework.Opencode in
+  let content = "Starting opencode...\nsession: ses_abc123xyz\nReady." in
+  Alcotest.(check (option string))
+    "extracts ses_ id" (Some "ses_abc123xyz")
+    (Runner_framework.extract_session_id def content)
+
+let test_extract_session_id_kimi () =
+  let def = Runner_framework.runner_def_of_runner Runner_framework.Kimi in
+  let content = "Kimi initialized\nSession: my-session-42\nReady." in
+  Alcotest.(check (option string))
+    "extracts kimi session" (Some "my-session-42")
+    (Runner_framework.extract_session_id def content)
+
+let test_extract_session_id_gemini_returns_none () =
+  let def = Runner_framework.runner_def_of_runner Runner_framework.Gemini in
+  let content = "Gemini started\nSession index: 3\nReady." in
+  Alcotest.(check (option string))
+    "gemini returns None (index-based)" None
+    (Runner_framework.extract_session_id def content)
+
+let test_resume_with_session_id () =
+  let mode =
+    Runner_framework.resume_mode_of ~runner_session_id:(Some "abc-123")
+  in
+  match mode with
+  | Runner_framework.By_session_id sid ->
+      Alcotest.(check string) "session id" "abc-123" sid
+  | Runner_framework.By_last -> Alcotest.fail "expected By_session_id"
+
+let test_resume_without_session_id () =
+  let mode = Runner_framework.resume_mode_of ~runner_session_id:None in
+  match mode with
+  | Runner_framework.By_last -> ()
+  | Runner_framework.By_session_id _ -> Alcotest.fail "expected By_last"
+
+let test_fresh_command_codex_has_json () =
+  let def = Runner_framework.runner_def_of_runner Runner_framework.Codex in
+  let argv =
+    def.build_fresh_argv ~model:None ~prompt:"test" ~pre_session_id:None
+  in
+  Alcotest.(check bool)
+    "contains --json" true
+    (Array.exists (fun s -> s = "--json") argv)
+
+let test_fresh_command_claude_has_session_id () =
+  let def = Runner_framework.runner_def_of_runner Runner_framework.Claude in
+  let argv =
+    def.build_fresh_argv ~model:None ~prompt:"test"
+      ~pre_session_id:(Some "my-uuid")
+  in
+  Alcotest.(check bool)
+    "contains --session-id" true
+    (Array.exists (fun s -> s = "--session-id") argv);
+  Alcotest.(check bool)
+    "contains uuid" true
+    (Array.exists (fun s -> s = "my-uuid") argv)
+
+let test_resume_command_codex_with_session_id () =
+  let def = Runner_framework.runner_def_of_runner Runner_framework.Codex in
+  let argv =
+    def.build_resume_argv ~model:None
+      ~resume_mode:(Runner_framework.By_session_id "thread-abc") ~prompt:"go"
+  in
+  Alcotest.(check bool)
+    "contains session id" true
+    (Array.exists (fun s -> s = "thread-abc") argv);
+  Alcotest.(check bool)
+    "does not contain --last" true
+    (not (Array.exists (fun s -> s = "--last") argv))
+
+let test_resume_command_claude_with_session_id () =
+  let def = Runner_framework.runner_def_of_runner Runner_framework.Claude in
+  let argv =
+    def.build_resume_argv ~model:None
+      ~resume_mode:(Runner_framework.By_session_id "ses-123") ~prompt:"go"
+  in
+  Alcotest.(check bool)
+    "contains --resume" true
+    (Array.exists (fun s -> s = "--resume") argv);
+  Alcotest.(check bool)
+    "contains session id" true
+    (Array.exists (fun s -> s = "ses-123") argv);
+  Alcotest.(check bool)
+    "does not contain -c" true
+    (not (Array.exists (fun s -> s = "-c") argv))
+
+let test_resume_command_opencode_with_session_id () =
+  let def = Runner_framework.runner_def_of_runner Runner_framework.Opencode in
+  let argv =
+    def.build_resume_argv ~model:None
+      ~resume_mode:(Runner_framework.By_session_id "ses_xyz") ~prompt:"go"
+  in
+  Alcotest.(check bool)
+    "contains --session" true
+    (Array.exists (fun s -> s = "--session") argv);
+  Alcotest.(check bool)
+    "contains session id" true
+    (Array.exists (fun s -> s = "ses_xyz") argv)
+
+let test_runner_session_id_db_roundtrip () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"test session" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      (match Background_task.get_task ~db ~id with
+      | None -> Alcotest.fail "expected task"
+      | Some task ->
+          Alcotest.(check (option string))
+            "initially None" None task.runner_session_id);
+      Background_task.set_runner_session_id ~db ~id
+        ~runner_session_id:"thread-abc-123";
+      match Background_task.get_task ~db ~id with
+      | None -> Alcotest.fail "expected task"
+      | Some task ->
+          Alcotest.(check (option string))
+            "stored session id" (Some "thread-abc-123") task.runner_session_id)
+
+let test_runner_session_id_in_summary () =
+  let task = { (fake_task 1) with runner_session_id = Some "ses_abc123" } in
+  let summary = Background_task.format_task_summary task in
+  Alcotest.(check bool)
+    "summary contains runner_session" true
+    (String_util.contains summary "runner_session: ses_abc123")
+
 let suite =
   [
     Alcotest.test_case "enqueue and list tasks" `Quick
@@ -3678,4 +3856,34 @@ let suite =
     Alcotest.test_case "lineage in summary" `Quick test_lineage_in_summary;
     Alcotest.test_case "recover runner override" `Quick
       test_recover_runner_override;
+    Alcotest.test_case "pre_generate_session_id claude" `Quick
+      test_pre_generate_session_id_claude;
+    Alcotest.test_case "pre_generate_session_id codex" `Quick
+      test_pre_generate_session_id_codex;
+    Alcotest.test_case "extract session id codex jsonl" `Quick
+      test_extract_session_id_codex_jsonl;
+    Alcotest.test_case "extract session id opencode" `Quick
+      test_extract_session_id_opencode;
+    Alcotest.test_case "extract session id kimi" `Quick
+      test_extract_session_id_kimi;
+    Alcotest.test_case "extract session id gemini returns none" `Quick
+      test_extract_session_id_gemini_returns_none;
+    Alcotest.test_case "resume mode with session id" `Quick
+      test_resume_with_session_id;
+    Alcotest.test_case "resume mode without session id" `Quick
+      test_resume_without_session_id;
+    Alcotest.test_case "fresh command codex has json" `Quick
+      test_fresh_command_codex_has_json;
+    Alcotest.test_case "fresh command claude has session id" `Quick
+      test_fresh_command_claude_has_session_id;
+    Alcotest.test_case "resume command codex with session id" `Quick
+      test_resume_command_codex_with_session_id;
+    Alcotest.test_case "resume command claude with session id" `Quick
+      test_resume_command_claude_with_session_id;
+    Alcotest.test_case "resume command opencode with session id" `Quick
+      test_resume_command_opencode_with_session_id;
+    Alcotest.test_case "runner_session_id db roundtrip" `Quick
+      test_runner_session_id_db_roundtrip;
+    Alcotest.test_case "runner_session_id in summary" `Quick
+      test_runner_session_id_in_summary;
   ]

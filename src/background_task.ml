@@ -28,6 +28,7 @@ type task = {
   worktree_path : string option;
   log_path : string option;
   status : status;
+  runner_session_id : string option;
   session_key : string option;
   channel : string option;
   channel_id : string option;
@@ -318,6 +319,9 @@ let format_task_summary ?(full = false) ?(compact = false) (task : task) =
   | Some model when String.trim model <> "" ->
       add (Printf.sprintf "model: %s" model)
   | _ -> ());
+  (match task.runner_session_id with
+  | Some sid -> add (Printf.sprintf "runner_session: %s" sid)
+  | None -> ());
   add (Printf.sprintf "status: %s" (status_summary task.status));
   if task.retry_count > 0 then
     add (Printf.sprintf "retries: %d/%d" task.retry_count max_retry_count);
@@ -463,6 +467,7 @@ let task_of_stmt stmt : task =
       | _ -> 0);
     parent_task_id = Sqlite3.column stmt 21 |> sql_int;
     replaced_by = Sqlite3.column stmt 22 |> sql_int;
+    runner_session_id = Sqlite3.column stmt 23 |> sql_text;
   }
 
 let init_schema db =
@@ -527,7 +532,8 @@ let init_schema db =
     "ALTER TABLE background_tasks ADD COLUMN retry_count INTEGER NOT NULL \
      DEFAULT 0";
   try_alter "ALTER TABLE background_tasks ADD COLUMN parent_task_id INTEGER";
-  try_alter "ALTER TABLE background_tasks ADD COLUMN replaced_by INTEGER"
+  try_alter "ALTER TABLE background_tasks ADD COLUMN replaced_by INTEGER";
+  try_alter "ALTER TABLE background_tasks ADD COLUMN runner_session_id TEXT"
 
 let list_queued_messages ~db ~task_id =
   let sql =
@@ -675,7 +681,7 @@ let select_columns =
    log_path, status, session_key, channel, channel_id, pid, result_preview, \
    created_at, started_at, finished_at, COALESCE(automerge, 0), \
    COALESCE(use_worktree, 1), merge_status, COALESCE(retry_count, 0), \
-   parent_task_id, replaced_by"
+   parent_task_id, replaced_by, runner_session_id"
 
 let list_tasks ~db : task list =
   let sql =
@@ -1204,6 +1210,16 @@ let set_running ~db ~id ~branch ~worktree_path ~log_path ~pid =
       ignore (Sqlite3.step stmt);
       Sqlite3.changes db > 0)
 
+let set_runner_session_id ~db ~id ~runner_session_id =
+  let sql = "UPDATE background_tasks SET runner_session_id = ? WHERE id = ?" in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT runner_session_id));
+      ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int id)));
+      ignore (Sqlite3.step stmt))
+
 let finish ~db ~id ~status ~result_preview =
   let sql =
     "UPDATE background_tasks SET status = ?, result_preview = ?, pid = NULL, \
@@ -1658,91 +1674,44 @@ let delegate_enqueue ?context ?notify_cfg ?(check_available = true)
             | Ok id -> Ok (id, runner, chosen_repo_path)
             | Error _ as err -> err))
 
-let command_of_task_with_invocation task invocation =
-  let model_args flag =
-    match task.model with
-    | Some model when String.trim model <> "" -> [| flag; model |]
-    | _ -> [||]
-  in
-  match (task.runner, invocation) with
-  | Codex, Fresh ->
-      Array.concat
-        [
-          [| "codex"; "exec" |];
-          model_args "--model";
-          [| "--dangerously-bypass-approvals-and-sandbox"; task.prompt |];
-        ]
-  | Codex, Resume prompt ->
-      Array.concat
-        [
-          [| "codex"; "exec"; "resume"; "--last" |];
-          model_args "--model";
-          [| "--dangerously-bypass-approvals-and-sandbox"; prompt |];
-        ]
-  | Claude, Fresh ->
-      Array.concat
-        [
-          [| "claude"; "-p" |];
-          model_args "--model";
-          [| "--dangerously-skip-permissions"; task.prompt |];
-        ]
-  | Claude, Resume prompt ->
-      Array.concat
-        [
-          [| "claude"; "-c"; "-p" |];
-          model_args "--model";
-          [| "--dangerously-skip-permissions"; prompt |];
-        ]
-  | Kimi, Fresh ->
-      Array.concat
-        [
-          [| "kimi"; "--print"; "--yolo" |];
-          model_args "--model";
-          [| "-p"; task.prompt |];
-        ]
-  | Kimi, Resume prompt ->
-      Array.concat
-        [
-          [| "kimi"; "--continue"; "--print"; "--yolo" |];
-          model_args "--model";
-          [| "-p"; prompt |];
-        ]
-  | Gemini, Fresh ->
-      Array.concat
-        [
-          [| "gemini"; "--yolo" |];
-          model_args "--model";
-          [| "--prompt"; task.prompt |];
-        ]
-  | Gemini, Resume prompt ->
-      Array.concat
-        [
-          [| "gemini"; "--resume"; "latest"; "--yolo" |];
-          model_args "--model";
-          [| "--prompt"; prompt |];
-        ]
-  | Opencode, Fresh ->
-      Array.concat
-        [ [| "opencode"; "run" |]; model_args "--model"; [| task.prompt |] ]
-  | Opencode, Resume prompt ->
-      Array.concat
-        [ [| "opencode"; "run"; "-c" |]; model_args "--model"; [| prompt |] ]
-  | Cursor, Fresh ->
-      Array.concat
-        [
-          [| "cursor-agent"; "--print"; "--yolo"; "--trust" |];
-          model_args "--model";
-          [| task.prompt |];
-        ]
-  | Cursor, Resume prompt ->
-      Array.concat
-        [
-          [| "cursor-agent"; "--continue"; "--print"; "--yolo"; "--trust" |];
-          model_args "--model";
-          [| prompt |];
-        ]
+let runner_to_framework_runner (r : runner) : Runner_framework.runner =
+  match r with
+  | Codex -> Codex
+  | Claude -> Claude
+  | Kimi -> Kimi
+  | Gemini -> Gemini
+  | Opencode -> Opencode
+  | Cursor -> Cursor
 
-let command_of_task task = command_of_task_with_invocation task Fresh
+let invocation_to_framework (inv : invocation) : Runner_framework.invocation =
+  match inv with Fresh -> Fresh | Resume s -> Resume s
+
+let command_of_task_with_invocation task invocation =
+  let def =
+    Runner_framework.runner_def_of_runner
+      (runner_to_framework_runner task.runner)
+  in
+  Runner_framework.build_command_for ~model:task.model ~prompt:task.prompt
+    ~runner_session_id:task.runner_session_id def
+    (invocation_to_framework invocation)
+
+let command_argv_of_task_with_invocation task invocation =
+  let def =
+    Runner_framework.runner_def_of_runner
+      (runner_to_framework_runner task.runner)
+  in
+  match invocation_to_framework invocation with
+  | Fresh ->
+      def.build_fresh_argv ~model:task.model ~prompt:task.prompt
+        ~pre_session_id:None
+  | Resume prompt ->
+      let mode =
+        Runner_framework.resume_mode_of
+          ~runner_session_id:task.runner_session_id
+      in
+      def.build_resume_argv ~model:task.model ~resume_mode:mode ~prompt
+
+let command_of_task task = command_argv_of_task_with_invocation task Fresh
 
 let elapsed_string (task : task) =
   let now = Unix.gettimeofday () in
@@ -2012,14 +1981,21 @@ let spawn_task ?(on_task_started = fun _ -> Lwt.return_unit)
                           queued_messages))
                 else Fresh
               in
-              let command =
+              let command, pre_session_id =
                 match command_override with
-                | Some cmd -> cmd
+                | Some cmd -> (cmd, None)
                 | None ->
-                    Process_group.Exec
-                      (command_of_task_with_invocation task_for_command
-                         invocation)
+                    let result =
+                      command_of_task_with_invocation task_for_command
+                        invocation
+                    in
+                    ( Process_group.Exec result.Runner_framework.argv,
+                      result.Runner_framework.pre_generated_session_id )
               in
+              (match pre_session_id with
+              | Some sid ->
+                  set_runner_session_id ~db ~id:task.id ~runner_session_id:sid
+              | None -> ());
               let proc =
                 Process_group.start_to_file ~cwd:worktree_path
                   ~env:(Unix.environment ()) ~log_path command
@@ -2061,6 +2037,25 @@ let spawn_task ?(on_task_started = fun _ -> Lwt.return_unit)
                     Process_group.signal_group pid Sys.sigkill;
                     Lwt.return_unit);
                 let output = read_log_tail log_path preview_limit in
+                (* Extract runner session ID from log if not already set *)
+                (let current =
+                   match get_task ~db ~id:task.id with
+                   | Some t -> t.runner_session_id
+                   | None -> None
+                 in
+                 if current = None then
+                   let def =
+                     Runner_framework.runner_def_of_runner
+                       (runner_to_framework_runner task.runner)
+                   in
+                   let full_output = read_log_tail log_path (64 * 1024) in
+                   match
+                     Runner_framework.extract_session_id def full_output
+                   with
+                   | Some sid ->
+                       set_runner_session_id ~db ~id:task.id
+                         ~runner_session_id:sid
+                   | None -> ());
                 let exit_code = exit_code_of_status status in
                 ignore
                   (finalize_completed_task ~db ~id:task.id ~exit_code ~output);

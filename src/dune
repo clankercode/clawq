@@ -55,6 +55,7 @@
   memory
   rate_limiter
   scheduler
+  runner_framework
   background_task
   worktree_merge
   plan_pipeline

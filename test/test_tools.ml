@@ -1647,6 +1647,7 @@ let test_background_task_logs_truncates_large_output () =
           retry_count = 0;
           parent_task_id = None;
           replaced_by = None;
+          runner_session_id = None;
         }
       in
       let oc = open_out (Option.get task.log_path) in
@@ -1703,6 +1704,7 @@ let test_background_task_logs_truncates_pathological_long_line () =
           retry_count = 0;
           parent_task_id = None;
           replaced_by = None;
+          runner_session_id = None;
         }
       in
       let oc = open_out (Option.get task.log_path) in
@@ -1768,6 +1770,7 @@ let test_background_task_logs_clamps_excessive_lines () =
           retry_count = 0;
           parent_task_id = None;
           replaced_by = None;
+          runner_session_id = None;
         }
       in
       let oc = open_out (Option.get task.log_path) in
