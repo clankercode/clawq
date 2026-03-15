@@ -208,6 +208,44 @@ let test_estimate_tokens () =
   check "accented ceil(5/3)=2" 2 "caf\xc3\xa9s";
   check "mixed sentence" 8 "Hello, world! How are you?"
 
+let test_redact_home_path () =
+  let home = try Sys.getenv "HOME" with Not_found -> "" in
+  let check label expected input =
+    Alcotest.(check string)
+      label expected
+      (Stream_visibility.redact_home_path input)
+  in
+  if String.length home > 0 then begin
+    check "path under home" ("~" ^ "/src/project") (home ^ "/src/project");
+    check "exact home" "~" home;
+    check "path not under home" "/tmp/work" "/tmp/work";
+    check "path with home as prefix but not dir" (home ^ "extra")
+      (home ^ "extra")
+  end
+  else begin
+    check "no home env returns unchanged" "/tmp/work" "/tmp/work"
+  end
+
+let test_summarize_tool_arguments_redacts_home () =
+  let home = try Sys.getenv "HOME" with Not_found -> "" in
+  if String.length home > 0 then begin
+    Alcotest.(check (option string))
+      "shell_exec redacts home in cwd"
+      (Some ("git status in ~" ^ "/src/proj"))
+      (Stream_visibility.summarize_tool_arguments ~name:"shell_exec"
+         (Printf.sprintf {|{"command":"git status","cwd":"%s/src/proj"}|} home));
+    Alcotest.(check (option string))
+      "glob redacts home in root"
+      (Some ("*.ml in ~" ^ "/src/proj"))
+      (Stream_visibility.summarize_tool_arguments ~name:"glob"
+         (Printf.sprintf {|{"pattern":"*.ml","root":"%s/src/proj"}|} home));
+    Alcotest.(check (option string))
+      "grep redacts home in path"
+      (Some ("pattern in ~" ^ "/src/proj"))
+      (Stream_visibility.summarize_tool_arguments ~name:"grep"
+         (Printf.sprintf {|{"pattern":"pattern","path":"%s/src/proj"}|} home))
+  end
+
 let suite =
   [
     Alcotest.test_case "tool call success message" `Quick
@@ -227,4 +265,7 @@ let suite =
     Alcotest.test_case "thinking message prefixes content" `Quick
       test_thinking_message_prefixes_content;
     Alcotest.test_case "estimate tokens heuristic" `Quick test_estimate_tokens;
+    Alcotest.test_case "redact home path" `Quick test_redact_home_path;
+    Alcotest.test_case "summarize tool arguments redacts home" `Quick
+      test_summarize_tool_arguments_redacts_home;
   ]

@@ -20,6 +20,21 @@ let create () =
     tool_calls = Hashtbl.create 8;
   }
 
+let redact_home_path path =
+  let home = try Sys.getenv "HOME" with Not_found -> "" in
+  if
+    String.length home > 0
+    && String.length path >= String.length home
+    && String.sub path 0 (String.length home) = home
+  then
+    if String.length path = String.length home then "~"
+    else if String.get path (String.length home) = '/' then
+      "~"
+      ^ String.sub path (String.length home)
+          (String.length path - String.length home)
+    else path
+  else path
+
 (* Token estimation ported from johannschopplich/tokenx (MIT).
    Heuristic rules that achieve ~96% accuracy vs full BPE tokenizers. *)
 
@@ -233,7 +248,7 @@ let summarize_tool_assoc ~name fields =
       Option.bind (get_string_field fields "command") (fun command ->
           let cwd =
             match get_string_field fields "cwd" with
-            | Some cwd -> "in " ^ cwd
+            | Some cwd -> "in " ^ redact_home_path cwd
             | None -> ""
           in
           let head =
@@ -263,7 +278,7 @@ let summarize_tool_assoc ~name fields =
       Option.bind (get_string_field fields "pattern") (fun pattern ->
           let root =
             match get_string_field fields "root" with
-            | Some root -> "in " ^ root
+            | Some root -> "in " ^ redact_home_path root
             | None -> ""
           in
           Some (join_summary_parts [ shorten_for_summary pattern; root ]))
@@ -271,7 +286,7 @@ let summarize_tool_assoc ~name fields =
       Option.bind (get_string_field fields "pattern") (fun pattern ->
           let path =
             match get_string_field fields "path" with
-            | Some path -> "in " ^ path
+            | Some path -> "in " ^ redact_home_path path
             | None -> ""
           in
           let file_glob =
