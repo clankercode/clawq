@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B462
+priority: high
+status: pending
+tags: []
+title: 'postmortem sessions should be started from scratch, not reloaded -- they are one time use. example from logs: ESC[90m[09:00:14.139]ESC[0m ESC[32mINFO ESC[0m Restored 110 messages for session __postmortem_teams:personal:19:3ed169b9886a4a1faadc1dc20687cc66@thread.v2'
+---
+
+postmortem sessions should be started from scratch, not reloaded -- they are one time use. example from logs: ESC[90m[09:00:14.139]ESC[0m ESC[32mINFO ESC[0m Restored 110 messages for session __postmortem_teams:personal:19:3ed169b9886a4a1faadc1dc20687cc66@thread.v2
