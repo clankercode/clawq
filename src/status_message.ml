@@ -248,7 +248,15 @@ let to_document t =
         |> List.sort String.compare |> String.concat " "
       in
       let total_time =
+        let last_finish =
+          Hashtbl.fold
+            (fun _ (entry : tool_entry) acc ->
+              match entry.finished_at with Some f -> max acc f | None -> acc)
+            t.tools 0.0
+        in
         match t.first_tool_at with
+        | Some start when last_finish > start ->
+            format_duration (last_finish -. start)
         | Some start -> format_duration (Unix.gettimeofday () -. start)
         | None -> "0s"
       in
@@ -373,8 +381,18 @@ let tool_start t ~id ~name ~summary =
           let open Lwt.Syntax in
           let* () = Lwt.pick [ Lwt_unix.sleep 5.0; cancel_p ] in
           if Lwt.is_sleeping cancel_p then
-            let* () = send_or_edit t in
-            loop ()
+            let has_running =
+              Hashtbl.fold
+                (fun _ (e : tool_entry) acc -> acc || e.state = Running)
+                t.tools false
+            in
+            if has_running then
+              let* () = send_or_edit t in
+              loop ()
+            else begin
+              t.heartbeat_cancel <- None;
+              Lwt.return_unit
+            end
           else Lwt.return_unit
         in
         loop ())
@@ -457,7 +475,13 @@ let update_thinking t text =
 
 let finalize t =
   if t.finalized then Lwt.return_unit
-  else
+  else begin
+    (* Cancel any remaining heartbeat *)
+    (match t.heartbeat_cancel with
+    | Some (cancel_p, u) ->
+        if Lwt.is_sleeping cancel_p then Lwt.wakeup_later u ();
+        t.heartbeat_cancel <- None
+    | None -> ());
     let open Lwt.Syntax in
     let total = Hashtbl.length t.tools in
     if total = 0 then (
@@ -490,5 +514,6 @@ let finalize t =
     else (
       t.finalized <- true;
       Lwt.return_unit)
+  end
 
 let get_tool_info t ~id = Hashtbl.find_opt t.tools id

@@ -792,6 +792,82 @@ let test_invalid_send_id_does_not_poison_msg_id () =
     (Status_message.tool_start t ~id:"t1" ~name:"file_read" ~summary:None);
   Alcotest.(check (option string)) "invalid id is ignored" None t.msg_id
 
+let test_timer_stops_after_completion () =
+  (* B493: total_time in summary footer should use actual completion time,
+     not gettimeofday(), so it doesn't keep incrementing after tools finish. *)
+  let notifier, _, _, _ = mock_notifier () in
+  let t =
+    Status_message.create ~debounce_interval:0.0 ~notifier
+      ~parse_mode:"Markdown" ()
+  in
+  Lwt_main.run
+    (Lwt_list.iter_s
+       (fun i ->
+         let id = Printf.sprintf "t%d" i in
+         let name = Printf.sprintf "tool_%d" i in
+         add_completed_tool t ~id ~name)
+       (List.init 5 Fun.id));
+  (* All 5 tools are done. Render twice with a gap — total_time must be stable. *)
+  let output1 = Status_message.render t in
+  Unix.sleepf 0.05;
+  let output2 = Status_message.render t in
+  Alcotest.(check string) "total_time frozen after completion" output1 output2
+
+let test_heartbeat_self_terminates () =
+  (* B493: heartbeat should stop when no tools are running, even if
+     cancel_p was never woken by tool_result (orphaned heartbeat). *)
+  let edit_count = ref 0 in
+  let notifier : Status_message.notifier =
+    {
+      send = (fun ?parse_mode:_ _text -> Lwt.return "msg-1");
+      edit =
+        (fun _id ?parse_mode:_ _text ->
+          incr edit_count;
+          Lwt.return None);
+      delete = (fun _id -> Lwt.return_unit);
+    }
+  in
+  let t =
+    Status_message.create ~debounce_interval:0.5 ~notifier
+      ~parse_mode:"Markdown" ()
+  in
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () =
+       Status_message.tool_start t ~id:"t1" ~name:"file_read" ~summary:None
+     in
+     let* () =
+       Status_message.tool_result t ~id:"t1" ~name:"file_read" ~result:"ok"
+         ~is_error:false
+     in
+     Lwt.return_unit);
+  (* Heartbeat should have been cancelled by tool_result *)
+  Alcotest.(check bool)
+    "heartbeat cancelled after last tool" true
+    (t.heartbeat_cancel = None)
+
+let test_finalize_cancels_heartbeat () =
+  (* B493: finalize must cancel any remaining heartbeat *)
+  let notifier, _, _, _ = mock_notifier () in
+  let t =
+    Status_message.create ~debounce_interval:0.5 ~notifier
+      ~parse_mode:"Markdown" ()
+  in
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () =
+       Lwt_list.iter_s
+         (fun i ->
+           let id = Printf.sprintf "t%d" i in
+           let name = Printf.sprintf "tool_%d" i in
+           add_completed_tool t ~id ~name)
+         (List.init 5 Fun.id)
+     in
+     Status_message.finalize t);
+  Alcotest.(check bool)
+    "heartbeat cancelled after finalize" true
+    (t.heartbeat_cancel = None)
+
 let suite =
   [
     Alcotest.test_case "render empty" `Quick test_render_empty;
@@ -835,4 +911,10 @@ let suite =
       `Quick test_reanchor_preserves_visibility_until_replacement_sent;
     Alcotest.test_case "invalid send id does not poison msg id" `Quick
       test_invalid_send_id_does_not_poison_msg_id;
+    Alcotest.test_case "timer stops after completion" `Quick
+      test_timer_stops_after_completion;
+    Alcotest.test_case "heartbeat self-terminates" `Quick
+      test_heartbeat_self_terminates;
+    Alcotest.test_case "finalize cancels heartbeat" `Quick
+      test_finalize_cancels_heartbeat;
   ]
