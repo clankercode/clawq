@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B461
+priority: high
+status: pending
+tags: []
+title: summarizer uses redundancy in config paths, eg `summarizer.summarizer_enabled`; should audit the config and remove these (with backwards compatibility)
+---
+
+summarizer uses redundancy in config paths, eg `summarizer.summarizer_enabled`; should audit the config and remove these (with backwards compatibility)

@@ -457,3 +457,4 @@ bugs:
     - file: B458-investigate-how-skills-are-loa.todo
     - file: B459-add-to-system-prompt-example-o.todo
     - file: B460-autosummarizer-is-not-enabled.todo
+    - file: B461-summarizer-uses-redundancy-in.todo
