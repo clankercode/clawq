@@ -1435,6 +1435,10 @@ let build_recovery_prompt ~original_id evidence =
       "";
       "Execution contract:";
       commit_line;
+      "- Before reporting completion, rebase your branch against the parent \
+       branch (e.g., `git fetch origin && git rebase origin/main`) to ensure \
+       your changes are up to date. If the rebase has conflicts, resolve \
+       straightforward ones and continue.";
       "- Work only inside this directory/worktree.";
       "- Do not inspect or modify the original source repo path directly; use \
        only the files available in the current worktree.";
@@ -1590,6 +1594,10 @@ let build_delegate_prompt ~automerge:_ ~goal =
       "";
       "Execution contract:";
       commit_line;
+      "- Before reporting completion, rebase your branch against the parent \
+       branch (e.g., `git fetch origin && git rebase origin/main`) to ensure \
+       your changes are up to date. If the rebase has conflicts, resolve \
+       straightforward ones and continue.";
       "- Work only inside this directory/worktree.";
       "- Do not inspect or modify the original source repo path directly; use \
        only the files available in the current worktree.";
