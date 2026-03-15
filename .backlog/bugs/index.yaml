@@ -465,3 +465,4 @@ bugs:
     - file: B466-add-slash-command-and-cli-comm.todo
     - file: B467-cron-run-status-history-does-n.todo
     - file: B468-heartbeat-ok-only-heartbeat-tu.todo
+    - file: B469-send-message-results-should-sa.todo

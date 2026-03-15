@@ -1,0 +1,21 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B469
+priority: high
+status: pending
+tags: []
+title: send_message results should say not to repeat delivered info
+---
+Problem
+When `send_message` succeeds, agents often still repeat the same information synchronously in-band, bloating the conversation and interrupting autonomous flow. The tool result should explicitly instruct the agent that, assuming delivery, the information does not need to be repeated in the chat reply.
+
+Why this matters
+Successful asynchronous notification is supposed to be sufficient in many autonomous workflows. Without an explicit reminder in tool output, agents tend to duplicate progress updates and create unnecessary context bloat.
+
+Acceptance criteria
+- Successful `send_message` tool output clearly indicates the message was delivered/sent.
+- Successful `send_message` tool output explicitly tells the agent the same information usually does not need to be repeated synchronously.
+- Guidance is phrased to avoid suppressing necessary direct answers when the user explicitly requested one.
+- At least one test covers the success-path wording/behavior.
