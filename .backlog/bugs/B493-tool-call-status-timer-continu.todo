@@ -1,0 +1,24 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 1
+id: B493
+priority: high
+status: pending
+tags: []
+title: Tool call status timer continues after completion
+---
+Problem
+The timer displayed at the end of tool call status messages keeps incrementing even after all tool calls have finished executing.
+
+Why this matters
+This creates misleading UX where it appears tools are still running when they have completed. It erodes trust in the status indicator and makes it harder to reason about actual execution timing.
+
+Acceptance criteria
+- Tool call status timer stops incrementing when the last tool call completes
+- Final status message shows accurate completion time, not a continuously incrementing value
+- Test or manual verification confirms timer behavior at completion boundary
+
+Notes
+- Observed during live session: timer kept counting after all tools finished
+- Likely a timing/rendering issue in the status message update loop
