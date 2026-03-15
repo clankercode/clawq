@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B488
+priority: high
+status: pending
+tags: []
+title: 'Background tasks should have a follow up prompt option that, when the job succeeds, will be sent to the runner (resumed session) to be run. eg we can send a checklist of things to do like: tests pass, have run review using review-and-fix and it passes, have committed all changes, have rebased against master'
+---
+
+Background tasks should have a follow up prompt option that, when the job succeeds, will be sent to the runner (resumed session) to be run. eg we can send a checklist of things to do like: tests pass, have run review using review-and-fix and it passes, have committed all changes, have rebased against master
