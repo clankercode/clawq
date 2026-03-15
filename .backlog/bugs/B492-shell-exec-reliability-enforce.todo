@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-15T14:20:03Z"
+claimed_by: cli-user
+completed_at: null
 complexity: low
 depends_on: []
 estimate_hours: 0.5
 id: B492
 priority: high
-status: pending
+started_at: "2026-03-15T14:20:03Z"
+status: in_progress
 tags: []
 title: 'shell_exec reliability: enforce ''command'' parameter and improve error message'
 ---
