@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-15T12:20:54Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B486
 priority: high
-status: pending
+started_at: "2026-03-15T12:20:54Z"
+status: in_progress
 tags: []
 title: Background tasks using runners like codex, claude code, opencode, etc, should have their sessions tracked so that we can resume and reprompt them. We will need to check these tools --help and maybe search online for how to detect their session id. All runners should be implemented using a common framework that ensures they support all necessary features like getting sesison ids and the like.
 ---
