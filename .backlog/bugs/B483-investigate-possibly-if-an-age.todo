@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B483
+priority: high
+status: pending
+tags: []
+title: 'investigate: possibly if an agent stages changes but does not commit, we might not fail when finalizing the bg task when we should.'
+---
+
+investigate: possibly if an agent stages changes but does not commit, we might not fail when finalizing the bg task when we should.

@@ -477,3 +477,6 @@ bugs:
     - file: B478-add-bg-slash-command-for-backg.todo
     - file: B479-generalize-teams-menu-through.todo
     - file: B480-cron-jobs-deliver-response-tex.todo
+    - file: B481-the-bl-list-output-is-not-form.todo
+    - file: B482-background-tasks-with-no-first.todo
+    - file: B483-investigate-possibly-if-an-age.todo

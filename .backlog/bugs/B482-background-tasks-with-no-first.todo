@@ -1,0 +1,26 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B482
+priority: high
+status: pending
+tags: []
+title: Background tasks with no first 30s output should fail fast
+---
+Problem
+Background coding tasks that produce no log output in their first ~30 seconds can remain marked running/log-stale for minutes even though they are not meaningfully progressing. In practice, healthy workers should emit some startup output quickly. Silent tasks waste time, mislead the operator, and encourage premature or repeated manual cancellation/recovery.
+
+Why this matters
+The task system is supposed to make delegated work observable and manageable. When a task stays silent while still marked running, the agent cannot tell whether it is healthy, hung, blocked on permissions, or dead before first output. That ambiguity caused wasted time on B479 and contributed to poor operator decisions around task recovery/cancellation.
+
+Acceptance criteria
+- Background tasks that emit no output within roughly 30 seconds of actual start are detected as startup-failed or equivalent unhealthy state rather than remaining apparently running indefinitely.
+- The failure/health state is surfaced clearly in task status/listing output so the operator can distinguish "silent startup failure" from healthy running work.
+- The detection path avoids falsely failing tasks that do emit timely startup output and preserves normal behavior for healthy workers.
+- At least one test covers the no-initial-output timeout/detection behavior.
+
+Notes
+- User explicitly stated: background tasks that do not produce any output in the first 30s should be treated as failed.
+- Recent example: task 122 (Claude Opus, B479) stayed running/log-stale with zero log lines for several minutes and had to be cancelled manually.
+- Related but distinct from existing background-task health/finalize/recovery bugs such as B233, B234, B473, and B475.
