@@ -1561,6 +1561,25 @@ let test_with_registered_notifier_restores_previous () =
     "notifier removed after outer scope" true
     (Session.find_registered_notifier mgr ~key:"telegram:1:u" = None)
 
+let test_with_registered_notifier_preserves_factory_and_capabilities () =
+  let config = Runtime_config.default in
+  let mgr = Session.create ~config () in
+  let key = "teams:conv1:u" in
+  Session.register_connector_capabilities mgr ~key Connector_capabilities.teams;
+  Session.register_status_message_factory mgr ~key (fun () ->
+      let notifier, _, _ = mock_status_notifier () in
+      Status_message.create ~notifier ~parse_mode:"Teams" ());
+  Lwt_main.run
+    (Session.with_registered_notifier mgr ~key
+       ~notify:(fun _ -> Lwt.return_unit)
+       (fun () -> Lwt.return_unit));
+  Alcotest.(check bool)
+    "capabilities preserved after cleanup" true
+    (Option.is_some (Session.find_connector_capabilities mgr ~key));
+  Alcotest.(check bool)
+    "channel notifier removed after cleanup" true
+    (Option.is_none (Session.find_registered_notifier mgr ~key))
+
 let test_consolidated_status_on_chunk_hides_thinking_when_disabled () =
   let notifier, sent, edited = mock_status_notifier () in
   let sm =
@@ -3824,6 +3843,8 @@ let suite =
       test_interrupt_latch_skips_after_first_tool;
     Alcotest.test_case "notifier restores previous after nested registration"
       `Quick test_with_registered_notifier_restores_previous;
+    Alcotest.test_case "notifier cleanup preserves factory and capabilities"
+      `Quick test_with_registered_notifier_preserves_factory_and_capabilities;
     Alcotest.test_case "consolidated status hides thinking when disabled" `Quick
       test_consolidated_status_on_chunk_hides_thinking_when_disabled;
     Alcotest.test_case "consolidated status shows thinking when enabled" `Quick

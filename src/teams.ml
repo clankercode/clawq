@@ -1246,18 +1246,17 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                       Option.is_none
                         (Session.find_connector_capabilities session_manager
                            ~key)
-                    then begin
+                    then
                       Session.register_connector_capabilities session_manager
                         ~key Connector_capabilities.teams;
-                      Session.register_status_message_factory session_manager
-                        ~key (fun () ->
-                          let notifier =
-                            make_status_notifier ~config
-                              ~service_url:effective_service_url
-                              ~conversation_id ~reply_to_id:activity_id
-                          in
-                          Status_message.create ~notifier ~parse_mode:"Teams" ())
-                    end;
+                    Session.register_status_message_factory session_manager ~key
+                      (fun () ->
+                        let notifier =
+                          make_status_notifier ~config
+                            ~service_url:effective_service_url ~conversation_id
+                            ~reply_to_id:activity_id
+                        in
+                        Status_message.create ~notifier ~parse_mode:"Teams" ());
                     (* Register alerting notifier for ask_user_question *)
                     Session.register_alert_channel_notifier session_manager ~key
                       (fun reply_text ->

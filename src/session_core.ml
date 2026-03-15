@@ -603,7 +603,7 @@ let with_registered_notifier mgr ~key ~notify f =
   Lwt.finalize f (fun () ->
       (match prev with
       | Some old -> register_channel_notifier mgr ~key old
-      | None -> unregister_channel_notifier mgr ~key);
+      | None -> Hashtbl.remove mgr.channel_notifiers key);
       Lwt.return_unit)
 
 let compaction_notice (info : Agent.compaction_info) =
