@@ -1,0 +1,26 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 2
+id: B478
+priority: medium
+status: pending
+tags: []
+title: Add /bg slash command for background task management
+---
+Problem
+Background task operations are available in the CLI and tool layer, but not through a chat-facing `/bg` slash command that can list, show, create, monitor, and manage background jobs from conversational sessions.
+
+Why this matters
+Background jobs are a core operating surface in clawq. Without a `/bg` command, the user must rely on separate CLI usage or indirect agent mediation for routine inspection and control. That makes common workflows slower and less discoverable, especially in Teams or other chat-first sessions.
+
+Acceptance criteria
+- Add a `/bg` slash command family for background task management in chat sessions.
+- The command can at least list existing background tasks, show one task in detail, and create/start a new background task.
+- The command supports common follow-up operations such as logs/status and, where appropriate, control actions like wait/resume/cancel.
+- Help/usage text makes the supported `/bg` subcommands and arguments clear.
+- Tests cover command parsing and at least the core list/show/create behavior.
+
+Notes
+- Related UX request: B477 adds a `/cron` slash command for cron management.
+- Current background-task operations already exist in the CLI/tooling; this bug is about exposing them cleanly through a slash-command interface.
