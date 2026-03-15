@@ -202,6 +202,107 @@ let test_record_run_delivery_failed () =
   Alcotest.(check string) "status" "delivery_failed" r.status;
   Alcotest.(check bool) "has preview" true (r.result_preview <> None)
 
+let test_tick_posts_prompt_via_deliver () =
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let db = Memory.init ~db_path:":memory:" () in
+     Scheduler.init_schema db;
+     ignore
+       (Scheduler.add_job ~db ~name:"prompt_test" ~session_key:"telegram:42:u"
+          ~message:"what is the weather?" ~schedule:"every 1s");
+     (* Set channel info so deliver callback is used *)
+     let sql =
+       "INSERT INTO session_state (session_key, channel, channel_id, turn) \
+        VALUES ('telegram:42:u', 'telegram', '42', 'idle')"
+     in
+     ignore (Sqlite3.exec db sql);
+     let delivered = ref [] in
+     let deliver ~channel ~channel_id ~text =
+       delivered := (channel, channel_id, text) :: !delivered;
+       Lwt.return (Ok ())
+     in
+     let session_mgr = Session.create ~config:Runtime_config.default ~db () in
+     let* () = Scheduler.tick ~db ~session_mgr ~deliver () in
+     (* tick uses Lwt.async; give it a chance to run *)
+     let* () = Lwt_unix.sleep 0.05 in
+     (* The prompt should have been delivered first *)
+     let prompt_delivered =
+       List.exists
+         (fun (_, _, text) ->
+           String.length text > 0
+           &&
+           let prefix = "[cron:prompt_test]" in
+           String.length text >= String.length prefix
+           && String.sub text 0 (String.length prefix) = prefix)
+         !delivered
+     in
+     Alcotest.(check bool) "prompt was delivered" true prompt_delivered;
+     Lwt.return_unit)
+
+let test_tick_posts_prompt_via_notifier () =
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let db = Memory.init ~db_path:":memory:" () in
+     Scheduler.init_schema db;
+     ignore
+       (Scheduler.add_job ~db ~name:"notify_test" ~session_key:"discord:ch:u"
+          ~message:"daily standup" ~schedule:"every 1s");
+     let notified = ref [] in
+     let session_mgr = Session.create ~config:Runtime_config.default ~db () in
+     Session.register_channel_notifier session_mgr ~key:"discord:ch:u"
+       (fun text ->
+         notified := text :: !notified;
+         Lwt.return_unit);
+     let* () = Scheduler.tick ~db ~session_mgr () in
+     let* () = Lwt_unix.sleep 0.05 in
+     let prompt_notified =
+       List.exists
+         (fun text ->
+           let prefix = "[cron:notify_test]" in
+           String.length text >= String.length prefix
+           && String.sub text 0 (String.length prefix) = prefix)
+         !notified
+     in
+     Alcotest.(check bool) "prompt was notified" true prompt_notified;
+     Lwt.return_unit)
+
+let test_tick_prompt_before_response () =
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let db = Memory.init ~db_path:":memory:" () in
+     Scheduler.init_schema db;
+     ignore
+       (Scheduler.add_job ~db ~name:"order_test" ~session_key:"telegram:99:u"
+          ~message:"check status" ~schedule:"every 1s");
+     let sql =
+       "INSERT INTO session_state (session_key, channel, channel_id, turn) \
+        VALUES ('telegram:99:u', 'telegram', '99', 'idle')"
+     in
+     ignore (Sqlite3.exec db sql);
+     let delivery_order = ref [] in
+     let deliver ~channel:_ ~channel_id:_ ~text =
+       delivery_order := text :: !delivery_order;
+       Lwt.return (Ok ())
+     in
+     let session_mgr = Session.create ~config:Runtime_config.default ~db () in
+     let* () = Scheduler.tick ~db ~session_mgr ~deliver () in
+     (* Give async a chance to run (turn will fail without provider) *)
+     let* () = Lwt_unix.sleep 0.1 in
+     (* At minimum the prompt should be the first delivered message *)
+     let rev_order = List.rev !delivery_order in
+     (match rev_order with
+     | first :: _ ->
+         let prefix = "[cron:order_test]" in
+         Alcotest.(check bool)
+           "first delivery is the prompt" true
+           (String.length first >= String.length prefix
+           && String.sub first 0 (String.length prefix) = prefix)
+     | [] ->
+         (* Turn may fail before any delivery if no provider,
+            but prompt should still be delivered *)
+         Alcotest.fail "expected at least prompt delivery");
+     Lwt.return_unit)
+
 let suite =
   [
     Alcotest.test_case "parse interval minutes" `Quick
@@ -232,4 +333,10 @@ let suite =
       test_get_session_channel_nonexistent;
     Alcotest.test_case "record_run delivery_failed status" `Quick
       test_record_run_delivery_failed;
+    Alcotest.test_case "tick posts prompt via deliver callback" `Quick
+      test_tick_posts_prompt_via_deliver;
+    Alcotest.test_case "tick posts prompt via notifier" `Quick
+      test_tick_posts_prompt_via_notifier;
+    Alcotest.test_case "tick prompt delivered before response" `Quick
+      test_tick_prompt_before_response;
   ]

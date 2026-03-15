@@ -402,6 +402,56 @@ let tick ~db ~session_mgr
               Lwt.async (fun () ->
                   Lwt.catch
                     (fun () ->
+                      (* Post the cron prompt into chat before running the
+                         LLM turn, so users see what initiated the response. *)
+                      let prompt_text =
+                        Printf.sprintf "[cron:%s] %s" job.name job.message
+                      in
+                      let* () =
+                        match
+                          Session.find_registered_notifier session_mgr
+                            ~key:job.session_key
+                        with
+                        | Some notify ->
+                            Lwt.catch
+                              (fun () -> notify prompt_text)
+                              (fun exn ->
+                                Logs.warn (fun m ->
+                                    m
+                                      "Cron job %s: prompt delivery via \
+                                       notifier failed: %s"
+                                      job.name (Printexc.to_string exn));
+                                Lwt.return_unit)
+                        | None -> (
+                            match
+                              ( deliver,
+                                Memory.get_session_channel ~db
+                                  ~session_key:job.session_key )
+                            with
+                            | Some deliver_fn, Some (channel, channel_id) ->
+                                let* _result =
+                                  Lwt.catch
+                                    (fun () ->
+                                      deliver_fn ~channel ~channel_id
+                                        ~text:prompt_text)
+                                    (fun exn ->
+                                      Lwt.return
+                                        (Error (Printexc.to_string exn)))
+                                in
+                                (match _result with
+                                | Ok () ->
+                                    Logs.info (fun m ->
+                                        m "Cron job %s: prompt posted to %s:%s"
+                                          job.name channel channel_id)
+                                | Error err ->
+                                    Logs.warn (fun m ->
+                                        m
+                                          "Cron job %s: prompt delivery \
+                                           failed: %s"
+                                          job.name err));
+                                Lwt.return_unit
+                            | _ -> Lwt.return_unit)
+                      in
                       let* result =
                         Session.turn session_mgr ~key:job.session_key
                           ~message:job.message ()
