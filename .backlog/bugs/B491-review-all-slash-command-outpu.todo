@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B491
+priority: high
+status: pending
+tags: []
+title: Review all slash command output and convert any old style output to use the new format adapter + dsl. Also take this as an opportunity to improve the layout, formatting, and general richness of the outputs
+---
+
+Review all slash command output and convert any old style output to use the new format adapter + dsl. Also take this as an opportunity to improve the layout, formatting, and general richness of the outputs
