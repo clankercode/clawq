@@ -927,6 +927,7 @@ let run ~(config : Runtime_config.t) =
           Session.set_sandbox session_manager !sandbox;
           Session.update_config ~source:"config_reload" session_manager
             new_config;
+          Http_debug.sync_config new_config.log;
           (match tool_registry with
           | Some registry ->
               refresh_runtime_bound_tools ~config:new_config ~session_manager
@@ -1209,6 +1210,7 @@ let run ~(config : Runtime_config.t) =
                  Session.set_sandbox session_manager !sandbox;
                  Session.update_config ~source:"config_reload" session_manager
                    new_config;
+                 Http_debug.sync_config new_config.log;
                  (match tool_registry with
                  | Some registry ->
                      refresh_runtime_bound_tools ~config:new_config

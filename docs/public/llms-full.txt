@@ -59,6 +59,7 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 | `plan cancel ID` | Cancel a running pipeline and its current background task |
 | `debug` | Internal debugging utilities |
 | `debug html-preview [PORT]` | Serve HTML preview test pages on localhost |
+| `debug http {on\|off\|status\|clear\|tail [N]}` | Manage HTTP debug logging (HAR files in `~/.clawq/log-http-debug/`) |
 | `doctor` | Check config for common issues |
 | `hardware` | Hardware integration (deferred to Phase 2) |
 | `mcp` | Start the MCP server (JSON-RPC via stdio) |

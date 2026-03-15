@@ -372,7 +372,7 @@ let config_schema =
             ("max_age_days", L);
             ("envelope_template", L);
           ] );
-      ("log", O [ ("max_size_mb", L); ("max_files", L) ]);
+      ("log", O [ ("max_size_mb", L); ("max_files", L); ("debug_http", L) ]);
       ("interactive", O [ ("enable_question_notes", L) ]);
       ( "error_watcher",
         O

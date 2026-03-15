@@ -618,7 +618,8 @@ An array of routing bindings that dispatch messages to specific agents by patter
 {
   "log": {
     "max_size_mb": 10,
-    "max_files": 5
+    "max_files": 5,
+    "debug_http": false
   }
 }
 ```
@@ -627,6 +628,7 @@ An array of routing bindings that dispatch messages to specific agents by patter
 |-------|---------|-------------|
 | `max_size_mb` | `10` | Maximum daemon log file size before rotation |
 | `max_files` | `5` | Number of historical log files to retain |
+| `debug_http` | `false` | Save all HTTP requests/responses to HAR files in `~/.clawq/log-http-debug/`. Also activatable via `CLAWQ_DEBUG_HTTP=1` env var |
 
 ### observer
 

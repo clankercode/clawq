@@ -83,6 +83,7 @@ let () =
        ("agent_router", Test_agent_router.suite);
        ("signal", Test_signal.suite);
        ("http_client", Test_http_client.suite);
+       ("http_debug", Test_http_debug.suite);
        ("matrix", Test_matrix.suite);
        ("irc", Test_irc.suite);
        ("email", Test_email.suite);

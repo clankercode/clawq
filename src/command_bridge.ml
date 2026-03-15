@@ -1269,6 +1269,29 @@ let cmd_debug_context args =
   | Some ctx -> ctx
   | None -> "(dynamic prompt disabled — no runtime context generated)"
 
+let cmd_debug_http args =
+  match args with
+  | [ "on" ] ->
+      let _ = Config_set.set_value "log.debug_http" "true" in
+      "HTTP debug logging enabled in config. Daemon will pick up within 10s."
+  | [ "off" ] ->
+      let _ = Config_set.set_value "log.debug_http" "false" in
+      "HTTP debug logging disabled in config. Daemon will pick up within 10s."
+  | [ "status" ] -> Http_debug.status_info ()
+  | [ "clear" ] -> Http_debug.clear_logs ()
+  | [ "tail" ] -> Http_debug.tail_logs 10
+  | [ "tail"; n ] -> (
+      try Http_debug.tail_logs (int_of_string n)
+      with _ ->
+        "Usage: clawq debug http tail [N] (N must be a positive integer)")
+  | _ ->
+      "Usage: clawq debug http {on|off|status|clear|tail [N]}\n\n\
+      \  on      Enable HTTP debug logging in config\n\
+      \  off     Disable HTTP debug logging in config\n\
+      \  status  Show HTTP debug status and log dir info\n\
+      \  clear   Delete all HTTP debug log files\n\
+      \  tail    Show last N HAR files (default 10)"
+
 let cmd_debug args =
   match args with
   | "prompt" :: rest -> cmd_debug_prompt rest
@@ -1330,11 +1353,14 @@ let cmd_debug args =
            Lwt.return "debug html-preview: stopped")
       in
       "debug html-preview: stopped"
+  | "http" :: rest -> cmd_debug_http rest
   | _ ->
       "Usage: clawq debug context [SESSION_KEY]\n\
        Prints the runtime context block for a session (default: __main__).\n\n\
        Usage: clawq debug html-preview [PORT]\n\
        Serves Html_page test pages on localhost (default port 8099).\n\n\
+       Usage: clawq debug http {on|off|status|clear|tail [N]}\n\
+       Manage HTTP debug logging (HAR files).\n\n\
        Usage: clawq debug prompt [MESSAGE]\n\
        Prints the normalized logical messages for a single agent turn."
 

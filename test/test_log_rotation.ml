@@ -13,7 +13,7 @@ let test_no_rotation_under_threshold () =
       let log_path = Filename.concat dir "daemon.log" in
       write_bytes log_path 500;
       let config : Runtime_config.log_config =
-        { max_size_mb = 1; max_files = 3 }
+        { max_size_mb = 1; max_files = 3; debug_http = false }
       in
       let rotated = Log_rotation.maybe_rotate ~log_path ~config in
       Alcotest.(check bool) "should not rotate" false rotated;
@@ -28,7 +28,7 @@ let test_rotation_over_threshold () =
       (* 1 MB = 1048576 bytes; write 1.1 MB *)
       write_bytes log_path 1_100_000;
       let config : Runtime_config.log_config =
-        { max_size_mb = 1; max_files = 3 }
+        { max_size_mb = 1; max_files = 3; debug_http = false }
       in
       (* Save original stdout/stderr and restore after test *)
       let saved_stdout = Unix.dup Unix.stdout in
@@ -60,7 +60,7 @@ let test_rotation_shifts_existing () =
       write_bytes (log_path ^ ".1") 100;
       write_bytes (log_path ^ ".2") 200;
       let config : Runtime_config.log_config =
-        { max_size_mb = 1; max_files = 3 }
+        { max_size_mb = 1; max_files = 3; debug_http = false }
       in
       let saved_stdout = Unix.dup Unix.stdout in
       let saved_stderr = Unix.dup Unix.stderr in
@@ -90,7 +90,7 @@ let test_rotation_deletes_oldest () =
       write_bytes (log_path ^ ".2") 200;
       write_bytes (log_path ^ ".3") 300;
       let config : Runtime_config.log_config =
-        { max_size_mb = 1; max_files = 3 }
+        { max_size_mb = 1; max_files = 3; debug_http = false }
       in
       let saved_stdout = Unix.dup Unix.stdout in
       let saved_stderr = Unix.dup Unix.stderr in
@@ -117,7 +117,7 @@ let test_disabled_with_zero_size () =
       let log_path = Filename.concat dir "daemon.log" in
       write_bytes log_path 1_100_000;
       let config : Runtime_config.log_config =
-        { max_size_mb = 0; max_files = 3 }
+        { max_size_mb = 0; max_files = 3; debug_http = false }
       in
       let rotated = Log_rotation.maybe_rotate ~log_path ~config in
       Alcotest.(check bool) "should not rotate when disabled" false rotated)
@@ -126,7 +126,7 @@ let test_missing_log_file () =
   Test_helpers.with_temp_dir (fun dir ->
       let log_path = Filename.concat dir "daemon.log" in
       let config : Runtime_config.log_config =
-        { max_size_mb = 1; max_files = 3 }
+        { max_size_mb = 1; max_files = 3; debug_http = false }
       in
       let rotated = Log_rotation.maybe_rotate ~log_path ~config in
       Alcotest.(check bool) "should not rotate missing file" false rotated)

@@ -196,7 +196,7 @@ ideas:
       file: I023-add-debug-mode-that-saves-all.todo
       id: I023
       priority: medium
-      status: in_progress
+      status: done
       tags: []
       title: Add debug mode that saves _all_ http requests and responses to file
     - file: I024-skills-deprecate-json-in-favor.todo

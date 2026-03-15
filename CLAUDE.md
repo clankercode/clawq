@@ -91,6 +91,7 @@ Subdirectory-specific guidelines exist in `docs/CLAUDE.md`, `src/CLAUDE.md`, and
 - Do not delete or revert unrelated user changes in a dirty working tree.
 - Prefer additive, targeted edits over broad refactors unless requested.
 - Keep Makefile target behavior stable when extending command surface.
+- Keep app state in sync with config state: when config is updated at runtime (daemon file watcher, SIGHUP, `config set`), any in-memory state derived from config must be refreshed. Do not rely on restart for config changes to take effect.
 
 ## Proactive Completion
 

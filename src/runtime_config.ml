@@ -258,7 +258,7 @@ type gateway_config = {
   pair_lockout_seconds : int;
 }
 
-type log_config = { max_size_mb : int; max_files : int }
+type log_config = { max_size_mb : int; max_files : int; debug_http : bool }
 
 type runtime_config = {
   docker_image : string;
@@ -461,7 +461,8 @@ type t = {
   error_watcher : error_watcher_config;
 }
 
-let default_log_config : log_config = { max_size_mb = 10; max_files = 5 }
+let default_log_config : log_config =
+  { max_size_mb = 10; max_files = 5; debug_http = false }
 
 let default_error_watcher_config : error_watcher_config =
   let v = Build_info.version in
@@ -1641,6 +1642,7 @@ let to_json (cfg : t) : Yojson.Safe.t =
               [
                 ("max_size_mb", `Int cfg.log.max_size_mb);
                 ("max_files", `Int cfg.log.max_files);
+                ("debug_http", `Bool cfg.log.debug_http);
               ] );
         ]
     else fields

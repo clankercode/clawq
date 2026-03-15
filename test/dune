@@ -75,6 +75,7 @@
   test_session_persistence
   test_signal
   test_http_client
+  test_http_debug
   test_skills
   test_slack
   test_slack_socket

@@ -7,6 +7,15 @@
 let default_timeout_s = ref 30.0
 
 let set_default_timeout_s s = default_timeout_s := s
+let debug_init_done = ref false
+
+let ensure_debug_init () =
+  if not !debug_init_done then begin
+    debug_init_done := true;
+    Http_debug.init ()
+  end
+
+let cohttp_headers_to_list h = Cohttp.Header.to_list h
 
 let labeled_timeout ~label timeout_s f =
   Lwt.catch
@@ -19,63 +28,101 @@ let labeled_timeout ~label timeout_s f =
 
 let post_json ~uri ~headers ~body =
   let open Lwt.Syntax in
+  ensure_debug_init ();
+  let started = Unix.gettimeofday () in
+  let all_headers = ("Content-Type", "application/json") :: headers in
   labeled_timeout ~label:"post_json" !default_timeout_s (fun () ->
-      let uri = Uri.of_string uri in
-      let headers =
-        Cohttp.Header.of_list (("Content-Type", "application/json") :: headers)
+      let uri_parsed = Uri.of_string uri in
+      let cohttp_headers = Cohttp.Header.of_list all_headers in
+      let req_body = Cohttp_lwt.Body.of_string body in
+      let* response, resp_body =
+        Cohttp_lwt_unix.Client.post ~headers:cohttp_headers ~body:req_body
+          uri_parsed
       in
-      let body = Cohttp_lwt.Body.of_string body in
-      let* response, body = Cohttp_lwt_unix.Client.post ~headers ~body uri in
       let status =
         Cohttp.Response.status response |> Cohttp.Code.code_of_status
       in
-      let* body_str = Cohttp_lwt.Body.to_string body in
+      let resp_hdrs =
+        cohttp_headers_to_list (Cohttp.Response.headers response)
+      in
+      let* body_str = Cohttp_lwt.Body.to_string resp_body in
+      Http_debug.log_roundtrip ~method_:"POST" ~uri ~label:"post_json"
+        ~req_headers:all_headers ~req_body:body ~status ~resp_headers:resp_hdrs
+        ~resp_body:body_str ~started;
       Lwt.return (status, body_str))
 
 let post_json_with_timeout ~timeout_s ~uri ~headers ~body =
   let open Lwt.Syntax in
+  ensure_debug_init ();
+  let started = Unix.gettimeofday () in
+  let all_headers = ("Content-Type", "application/json") :: headers in
   labeled_timeout ~label:"post_json" timeout_s (fun () ->
-      let uri = Uri.of_string uri in
-      let headers =
-        Cohttp.Header.of_list (("Content-Type", "application/json") :: headers)
+      let uri_parsed = Uri.of_string uri in
+      let cohttp_headers = Cohttp.Header.of_list all_headers in
+      let req_body = Cohttp_lwt.Body.of_string body in
+      let* response, resp_body =
+        Cohttp_lwt_unix.Client.post ~headers:cohttp_headers ~body:req_body
+          uri_parsed
       in
-      let body = Cohttp_lwt.Body.of_string body in
-      let* response, body = Cohttp_lwt_unix.Client.post ~headers ~body uri in
       let status =
         Cohttp.Response.status response |> Cohttp.Code.code_of_status
       in
-      let* body_str = Cohttp_lwt.Body.to_string body in
+      let resp_hdrs =
+        cohttp_headers_to_list (Cohttp.Response.headers response)
+      in
+      let* body_str = Cohttp_lwt.Body.to_string resp_body in
+      Http_debug.log_roundtrip ~method_:"POST" ~uri
+        ~label:"post_json_with_timeout" ~req_headers:all_headers ~req_body:body
+        ~status ~resp_headers:resp_hdrs ~resp_body:body_str ~started;
       Lwt.return (status, body_str))
 
 let put_json ~uri ~headers ~body =
   let open Lwt.Syntax in
+  ensure_debug_init ();
+  let started = Unix.gettimeofday () in
+  let all_headers = ("Content-Type", "application/json") :: headers in
   labeled_timeout ~label:"put_json" !default_timeout_s (fun () ->
-      let uri = Uri.of_string uri in
-      let headers =
-        Cohttp.Header.of_list (("Content-Type", "application/json") :: headers)
+      let uri_parsed = Uri.of_string uri in
+      let cohttp_headers = Cohttp.Header.of_list all_headers in
+      let req_body = Cohttp_lwt.Body.of_string body in
+      let* response, resp_body =
+        Cohttp_lwt_unix.Client.put ~headers:cohttp_headers ~body:req_body
+          uri_parsed
       in
-      let body = Cohttp_lwt.Body.of_string body in
-      let* response, body = Cohttp_lwt_unix.Client.put ~headers ~body uri in
       let status =
         Cohttp.Response.status response |> Cohttp.Code.code_of_status
       in
-      let* body_str = Cohttp_lwt.Body.to_string body in
+      let resp_hdrs =
+        cohttp_headers_to_list (Cohttp.Response.headers response)
+      in
+      let* body_str = Cohttp_lwt.Body.to_string resp_body in
+      Http_debug.log_roundtrip ~method_:"PUT" ~uri ~label:"put_json"
+        ~req_headers:all_headers ~req_body:body ~status ~resp_headers:resp_hdrs
+        ~resp_body:body_str ~started;
       Lwt.return (status, body_str))
 
 let post_json_with_headers ~uri ~headers ~body =
   let open Lwt.Syntax in
+  ensure_debug_init ();
+  let started = Unix.gettimeofday () in
+  let all_headers = ("Content-Type", "application/json") :: headers in
   labeled_timeout ~label:"post_json_with_headers" !default_timeout_s (fun () ->
-      let uri = Uri.of_string uri in
-      let headers =
-        Cohttp.Header.of_list (("Content-Type", "application/json") :: headers)
+      let uri_parsed = Uri.of_string uri in
+      let cohttp_headers = Cohttp.Header.of_list all_headers in
+      let req_body = Cohttp_lwt.Body.of_string body in
+      let* response, resp_body =
+        Cohttp_lwt_unix.Client.post ~headers:cohttp_headers ~body:req_body
+          uri_parsed
       in
-      let body = Cohttp_lwt.Body.of_string body in
-      let* response, body = Cohttp_lwt_unix.Client.post ~headers ~body uri in
       let status =
         Cohttp.Response.status response |> Cohttp.Code.code_of_status
       in
       let resp_headers = Cohttp.Response.headers response in
-      let* body_str = Cohttp_lwt.Body.to_string body in
+      let resp_hdrs = cohttp_headers_to_list resp_headers in
+      let* body_str = Cohttp_lwt.Body.to_string resp_body in
+      Http_debug.log_roundtrip ~method_:"POST" ~uri
+        ~label:"post_json_with_headers" ~req_headers:all_headers ~req_body:body
+        ~status ~resp_headers:resp_hdrs ~resp_body:body_str ~started;
       Lwt.return (status, resp_headers, body_str))
 
 type multipart_part =
@@ -89,6 +136,8 @@ type multipart_part =
 
 let post_multipart ~uri ~headers ~parts =
   let open Lwt.Syntax in
+  ensure_debug_init ();
+  let started = Unix.gettimeofday () in
   labeled_timeout ~label:"post_multipart" !default_timeout_s (fun () ->
       let boundary =
         Printf.sprintf "----clawq%08x%08x" (Random.bits ()) (Random.bits ())
@@ -116,48 +165,73 @@ let post_multipart ~uri ~headers ~parts =
         parts;
       Buffer.add_string buf ("--" ^ boundary ^ "--\r\n");
       let body_str = Buffer.contents buf in
-      let uri = Uri.of_string uri in
-      let headers =
-        Cohttp.Header.of_list
-          (("Content-Type", "multipart/form-data; boundary=" ^ boundary)
-          :: headers)
+      let uri_parsed = Uri.of_string uri in
+      let all_headers =
+        ("Content-Type", "multipart/form-data; boundary=" ^ boundary) :: headers
       in
-      let body = Cohttp_lwt.Body.of_string body_str in
-      let* response, body = Cohttp_lwt_unix.Client.post ~headers ~body uri in
+      let cohttp_headers = Cohttp.Header.of_list all_headers in
+      let req_body = Cohttp_lwt.Body.of_string body_str in
+      let* response, resp_body =
+        Cohttp_lwt_unix.Client.post ~headers:cohttp_headers ~body:req_body
+          uri_parsed
+      in
       let status =
         Cohttp.Response.status response |> Cohttp.Code.code_of_status
       in
-      let* body_str = Cohttp_lwt.Body.to_string body in
-      Lwt.return (status, body_str))
+      let resp_hdrs =
+        cohttp_headers_to_list (Cohttp.Response.headers response)
+      in
+      let* resp_body_str = Cohttp_lwt.Body.to_string resp_body in
+      Http_debug.log_roundtrip ~method_:"POST" ~uri ~label:"post_multipart"
+        ~req_headers:all_headers ~req_body:body_str ~status
+        ~resp_headers:resp_hdrs ~resp_body:resp_body_str ~started;
+      Lwt.return (status, resp_body_str))
 
 let put_raw ~uri ~headers ~content_type ~body =
   let open Lwt.Syntax in
+  ensure_debug_init ();
+  let started = Unix.gettimeofday () in
+  let all_headers = ("Content-Type", content_type) :: headers in
   labeled_timeout ~label:"put_raw" !default_timeout_s (fun () ->
-      let uri = Uri.of_string uri in
-      let headers =
-        Cohttp.Header.of_list (("Content-Type", content_type) :: headers)
+      let uri_parsed = Uri.of_string uri in
+      let cohttp_headers = Cohttp.Header.of_list all_headers in
+      let req_body = Cohttp_lwt.Body.of_string body in
+      let* response, resp_body =
+        Cohttp_lwt_unix.Client.put ~headers:cohttp_headers ~body:req_body
+          uri_parsed
       in
-      let body = Cohttp_lwt.Body.of_string body in
-      let* response, body = Cohttp_lwt_unix.Client.put ~headers ~body uri in
       let status =
         Cohttp.Response.status response |> Cohttp.Code.code_of_status
       in
-      let* body_str = Cohttp_lwt.Body.to_string body in
+      let resp_hdrs =
+        cohttp_headers_to_list (Cohttp.Response.headers response)
+      in
+      let* body_str = Cohttp_lwt.Body.to_string resp_body in
+      Http_debug.log_roundtrip ~method_:"PUT" ~uri ~label:"put_raw"
+        ~req_headers:all_headers ~req_body:body ~status ~resp_headers:resp_hdrs
+        ~resp_body:body_str ~started;
       Lwt.return (status, body_str))
 
 let put_empty ~uri ~headers =
   let open Lwt.Syntax in
+  ensure_debug_init ();
+  let started = Unix.gettimeofday () in
+  let all_headers = ("Content-Length", "0") :: headers in
   labeled_timeout ~label:"put_empty" !default_timeout_s (fun () ->
-      let uri = Uri.of_string uri in
-      let headers =
-        Cohttp.Header.of_list (("Content-Length", "0") :: headers)
+      let uri_parsed = Uri.of_string uri in
+      let cohttp_headers = Cohttp.Header.of_list all_headers in
+      let* response, body =
+        Cohttp_lwt_unix.Client.put ~headers:cohttp_headers uri_parsed
       in
-      let* response, body = Cohttp_lwt_unix.Client.put ~headers uri in
       let status =
         Cohttp.Response.status response |> Cohttp.Code.code_of_status
       in
       let resp_headers = Cohttp.Response.headers response in
+      let resp_hdrs = cohttp_headers_to_list resp_headers in
       let* body_str = Cohttp_lwt.Body.to_string body in
+      Http_debug.log_roundtrip ~method_:"PUT" ~uri ~label:"put_empty"
+        ~req_headers:all_headers ~req_body:"" ~status ~resp_headers:resp_hdrs
+        ~resp_body:body_str ~started;
       Lwt.return (status, resp_headers, body_str))
 
 (** Drain remaining response body data, suppressing exceptions. Call in a
@@ -180,35 +254,81 @@ type stream_response = {
     arbitrarily long for SSE / streaming responses). *)
 let post_stream ~uri ~headers ~body =
   let open Lwt.Syntax in
+  ensure_debug_init ();
+  let started = Unix.gettimeofday () in
+  let all_headers = ("Content-Type", "application/json") :: headers in
   labeled_timeout ~label:"post_stream" !default_timeout_s (fun () ->
-      let uri = Uri.of_string uri in
-      let headers =
-        Cohttp.Header.of_list (("Content-Type", "application/json") :: headers)
-      in
+      let uri_parsed = Uri.of_string uri in
+      let cohttp_headers = Cohttp.Header.of_list all_headers in
       let req_body = Cohttp_lwt.Body.of_string body in
       let* response, resp_body =
-        Cohttp_lwt_unix.Client.post ~headers ~body:req_body uri
+        Cohttp_lwt_unix.Client.post ~headers:cohttp_headers ~body:req_body
+          uri_parsed
       in
       let status =
         Cohttp.Response.status response |> Cohttp.Code.code_of_status
       in
+      let resp_hdrs =
+        cohttp_headers_to_list (Cohttp.Response.headers response)
+      in
       let stream = Cohttp_lwt.Body.to_stream resp_body in
-      Lwt.return { status; stream; drain = make_body_drain resp_body })
+      if Http_debug.enabled () then begin
+        let buf = Buffer.create 4096 in
+        let tapped =
+          Lwt_stream.map
+            (fun chunk ->
+              Buffer.add_string buf chunk;
+              chunk)
+            stream
+        in
+        let original_drain = make_body_drain resp_body in
+        let drain =
+          Http_debug.wrap_drain ~method_:"POST" ~uri ~label:"post_stream"
+            ~req_headers:all_headers ~req_body:body ~status
+            ~resp_headers:resp_hdrs ~started ~buf original_drain
+        in
+        Lwt.return { status; stream = tapped; drain }
+      end
+      else Lwt.return { status; stream; drain = make_body_drain resp_body })
 
 (** [get_stream] applies the timeout only to the initial connection and
     response-header exchange, NOT to reading the body stream. Use this for
     long-lived responses such as SSE or long-poll-like chunked streams. *)
 let get_stream ~uri ~headers =
   let open Lwt.Syntax in
+  ensure_debug_init ();
+  let started = Unix.gettimeofday () in
   labeled_timeout ~label:"get_stream" !default_timeout_s (fun () ->
-      let uri = Uri.of_string uri in
-      let headers = Cohttp.Header.of_list headers in
-      let* response, resp_body = Cohttp_lwt_unix.Client.get ~headers uri in
+      let uri_parsed = Uri.of_string uri in
+      let cohttp_headers = Cohttp.Header.of_list headers in
+      let* response, resp_body =
+        Cohttp_lwt_unix.Client.get ~headers:cohttp_headers uri_parsed
+      in
       let status =
         Cohttp.Response.status response |> Cohttp.Code.code_of_status
       in
+      let resp_hdrs =
+        cohttp_headers_to_list (Cohttp.Response.headers response)
+      in
       let stream = Cohttp_lwt.Body.to_stream resp_body in
-      Lwt.return { status; stream; drain = make_body_drain resp_body })
+      if Http_debug.enabled () then begin
+        let buf = Buffer.create 4096 in
+        let tapped =
+          Lwt_stream.map
+            (fun chunk ->
+              Buffer.add_string buf chunk;
+              chunk)
+            stream
+        in
+        let original_drain = make_body_drain resp_body in
+        let drain =
+          Http_debug.wrap_drain ~method_:"GET" ~uri ~label:"get_stream"
+            ~req_headers:headers ~req_body:"" ~status ~resp_headers:resp_hdrs
+            ~started ~buf original_drain
+        in
+        Lwt.return { status; stream = tapped; drain }
+      end
+      else Lwt.return { status; stream; drain = make_body_drain resp_body })
 
 let collect_error_body stream =
   let open Lwt.Syntax in
@@ -247,14 +367,24 @@ let get_stream_with ~uri ~headers ~label ?on_error ~on_ok () =
 
 let get_with_timeout ~timeout_s ~uri ~headers =
   let open Lwt.Syntax in
+  ensure_debug_init ();
+  let started = Unix.gettimeofday () in
   labeled_timeout ~label:"get_with_timeout" timeout_s (fun () ->
-      let uri = Uri.of_string uri in
-      let headers = Cohttp.Header.of_list headers in
-      let* response, body = Cohttp_lwt_unix.Client.get ~headers uri in
+      let uri_parsed = Uri.of_string uri in
+      let cohttp_headers = Cohttp.Header.of_list headers in
+      let* response, body =
+        Cohttp_lwt_unix.Client.get ~headers:cohttp_headers uri_parsed
+      in
       let status =
         Cohttp.Response.status response |> Cohttp.Code.code_of_status
       in
+      let resp_hdrs =
+        cohttp_headers_to_list (Cohttp.Response.headers response)
+      in
       let* body_str = Cohttp_lwt.Body.to_string body in
+      Http_debug.log_roundtrip ~method_:"GET" ~uri ~label:"get_with_timeout"
+        ~req_headers:headers ~req_body:"" ~status ~resp_headers:resp_hdrs
+        ~resp_body:body_str ~started;
       Lwt.return (status, body_str))
 
 let get ~uri ~headers =
@@ -262,34 +392,52 @@ let get ~uri ~headers =
 
 let patch_json ~uri ~headers ~body =
   let open Lwt.Syntax in
+  ensure_debug_init ();
+  let started = Unix.gettimeofday () in
+  let all_headers = ("Content-Type", "application/json") :: headers in
   labeled_timeout ~label:"patch_json" !default_timeout_s (fun () ->
-      let uri = Uri.of_string uri in
-      let headers =
-        Cohttp.Header.of_list (("Content-Type", "application/json") :: headers)
+      let uri_parsed = Uri.of_string uri in
+      let cohttp_headers = Cohttp.Header.of_list all_headers in
+      let req_body = Cohttp_lwt.Body.of_string body in
+      let* response, resp_body =
+        Cohttp_lwt_unix.Client.patch ~headers:cohttp_headers ~body:req_body
+          uri_parsed
       in
-      let body = Cohttp_lwt.Body.of_string body in
-      let* response, body = Cohttp_lwt_unix.Client.patch ~headers ~body uri in
       let status =
         Cohttp.Response.status response |> Cohttp.Code.code_of_status
       in
-      let* body_str = Cohttp_lwt.Body.to_string body in
+      let resp_hdrs =
+        cohttp_headers_to_list (Cohttp.Response.headers response)
+      in
+      let* body_str = Cohttp_lwt.Body.to_string resp_body in
+      Http_debug.log_roundtrip ~method_:"PATCH" ~uri ~label:"patch_json"
+        ~req_headers:all_headers ~req_body:body ~status ~resp_headers:resp_hdrs
+        ~resp_body:body_str ~started;
       Lwt.return (status, body_str))
 
 let delete ~uri ~headers ~body =
   let open Lwt.Syntax in
+  ensure_debug_init ();
+  let started = Unix.gettimeofday () in
+  let all_headers = ("Content-Type", "application/json") :: headers in
   labeled_timeout ~label:"delete" !default_timeout_s (fun () ->
-      let uri = Uri.of_string uri in
-      let headers =
-        Cohttp.Header.of_list (("Content-Type", "application/json") :: headers)
-      in
-      let body =
+      let uri_parsed = Uri.of_string uri in
+      let cohttp_headers = Cohttp.Header.of_list all_headers in
+      let req_body =
         if body = "" then None else Some (Cohttp_lwt.Body.of_string body)
       in
       let* response, resp_body =
-        Cohttp_lwt_unix.Client.delete ~headers ?body uri
+        Cohttp_lwt_unix.Client.delete ~headers:cohttp_headers ?body:req_body
+          uri_parsed
       in
       let status =
         Cohttp.Response.status response |> Cohttp.Code.code_of_status
       in
+      let resp_hdrs =
+        cohttp_headers_to_list (Cohttp.Response.headers response)
+      in
       let* body_str = Cohttp_lwt.Body.to_string resp_body in
+      Http_debug.log_roundtrip ~method_:"DELETE" ~uri ~label:"delete"
+        ~req_headers:all_headers ~req_body:body ~status ~resp_headers:resp_hdrs
+        ~resp_body:body_str ~started;
       Lwt.return (status, body_str))

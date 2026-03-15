@@ -923,7 +923,11 @@ let parse_config ?(resolve_secrets = true) json =
       let max_files =
         try l |> member "max_files" |> to_int with _ -> default.log.max_files
       in
-      ({ max_size_mb; max_files } : Runtime_config.log_config)
+      let debug_http =
+        try l |> member "debug_http" |> to_bool
+        with _ -> default.log.debug_http
+      in
+      ({ max_size_mb; max_files; debug_http } : Runtime_config.log_config)
     with _ -> default.log
   in
   let tunnel =
@@ -1837,4 +1841,5 @@ let load ?(path = "") () : Runtime_config.t =
         ignore (Clawq_core.validate_config_full parsed_validation_cfg);
         backfill_config ~path:config_path ~original_json:json
           ~config:backfill_cfg;
+        Http_debug.sync_config config.log;
         config
