@@ -185,6 +185,62 @@ let verify_auth ~(config : Runtime_config.teams_config) auth_header =
       Lwt.return (Error "Missing or malformed Authorization: Bearer header")
   | Some token -> Lwt.return (check_jwt_claims ~config token)
 
+(* --- Teams Bot Framework outbound rate limiting --- *)
+(* Bot Framework enforces ~1 write/sec per conversation and returns HTTP 429
+   when exceeded. We enforce client-side throttling + server-side 429 retry.
+   Also retry on 412, 502, 504 per Microsoft recommendations. *)
+
+let conv_last_request : (string, float) Hashtbl.t = Hashtbl.create 32
+
+let throttle_for_conversation ~conversation_id =
+  let now = Unix.gettimeofday () in
+  let min_interval = 1.0 in
+  let last =
+    Option.value ~default:0.0
+      (Hashtbl.find_opt conv_last_request conversation_id)
+  in
+  let target = Float.max now (last +. min_interval) in
+  let wait = target -. now in
+  Hashtbl.replace conv_last_request conversation_id target;
+  if wait > 0.001 then Lwt_unix.sleep wait else Lwt.return_unit
+
+let is_retryable_status status =
+  status = 429 || status = 412 || status = 502 || status = 504
+
+let with_retry ?(max_retries = 3) ~conversation_id ~f () =
+  let open Lwt.Syntax in
+  let rec loop attempt =
+    let* () = throttle_for_conversation ~conversation_id in
+    let* status, result = f () in
+    if is_retryable_status status && attempt < max_retries then begin
+      let delay =
+        Float.min 10.0 (Float.max 1.0 (Float.pow 2.0 (float_of_int attempt)))
+      in
+      Logs.warn (fun m ->
+          m "Teams: HTTP %d on conv=%s, retrying in %.1fs (attempt %d/%d)"
+            status conversation_id delay (attempt + 1) max_retries);
+      let* () = Lwt_unix.sleep delay in
+      loop (attempt + 1)
+    end
+    else Lwt.return (status, result)
+  in
+  loop 0
+
+let post_json_throttled ~conversation_id ~uri ~headers ~body =
+  with_retry ~conversation_id
+    ~f:(fun () -> Http_client.post_json ~uri ~headers ~body)
+    ()
+
+let put_json_throttled ~conversation_id ~uri ~headers ~body =
+  with_retry ~conversation_id
+    ~f:(fun () -> Http_client.put_json ~uri ~headers ~body)
+    ()
+
+let delete_throttled ~conversation_id ~uri ~headers =
+  with_retry ~conversation_id
+    ~f:(fun () -> Http_client.delete ~uri ~headers ~body:"")
+    ()
+
 (* Send a typing indicator via Bot Framework REST API.
    Posts a {"type":"typing"} activity to the conversation. *)
 let send_typing_activity ~(config : Runtime_config.teams_config) ~service_url
@@ -203,6 +259,7 @@ let send_typing_activity ~(config : Runtime_config.teams_config) ~service_url
       let body =
         `Assoc [ ("type", `String "typing") ] |> Yojson.Safe.to_string
       in
+      let* () = throttle_for_conversation ~conversation_id in
       let* status, _resp = Http_client.post_json ~uri ~headers ~body in
       if status < 200 || status >= 300 then
         Logs.debug (fun m ->
@@ -345,7 +402,9 @@ let send_reply ?(alert = false) ~(config : Runtime_config.teams_config)
                 build_reply_body ~alert ~text:chunk ~mention
                   ~mention_mode:config.mention_mode
               in
-              let* status, resp = Http_client.post_json ~uri ~headers ~body in
+              let* status, resp =
+                post_json_throttled ~conversation_id ~uri ~headers ~body
+              in
               if status >= 200 && status < 300 then begin
                 try
                   let json = Yojson.Safe.from_string resp in
@@ -390,7 +449,9 @@ let edit_activity ~(config : Runtime_config.teams_config) ~service_url
           ]
         |> Yojson.Safe.to_string
       in
-      let* status, resp = Http_client.put_json ~uri ~headers ~body in
+      let* status, resp =
+        put_json_throttled ~conversation_id ~uri ~headers ~body
+      in
       if status < 200 || status >= 300 then
         Logs.warn (fun m ->
             m "Teams: edit_activity failed (HTTP %d) conv=%s activity=%s: %s"
@@ -412,20 +473,13 @@ let delete_activity ~(config : Runtime_config.teams_config) ~service_url
           (Uri.pct_encode conversation_id)
           (Uri.pct_encode activity_id)
       in
-      let headers =
-        Cohttp.Header.of_list [ ("Authorization", "Bearer " ^ token) ]
-      in
-      let uri_obj = Uri.of_string uri in
-      let* resp, resp_body = Cohttp_lwt_unix.Client.delete ~headers uri_obj in
-      let status = Cohttp.Response.status resp |> Cohttp.Code.code_of_status in
-      if status < 200 || status >= 300 then begin
-        let* body_str = Cohttp_lwt.Body.to_string resp_body in
+      let headers = [ ("Authorization", "Bearer " ^ token) ] in
+      let* status, resp = delete_throttled ~conversation_id ~uri ~headers in
+      if status < 200 || status >= 300 then
         Logs.warn (fun m ->
             m "Teams: delete_activity failed (HTTP %d) conv=%s activity=%s: %s"
-              status conversation_id activity_id body_str);
-        Lwt.return_unit
-      end
-      else Lwt.return_unit
+              status conversation_id activity_id resp);
+      Lwt.return_unit
 
 let send_adaptive_card ~(config : Runtime_config.teams_config) ~service_url
     ~conversation_id ~reply_to_id ~card () =
@@ -449,7 +503,9 @@ let send_adaptive_card ~(config : Runtime_config.teams_config) ~service_url
       in
       let headers = [ ("Authorization", "Bearer " ^ token) ] in
       let body = Yojson.Safe.to_string card in
-      let* status, resp = Http_client.post_json ~uri ~headers ~body in
+      let* status, resp =
+        post_json_throttled ~conversation_id ~uri ~headers ~body
+      in
       if status < 200 || status >= 300 then
         Logs.warn (fun m ->
             m "Teams: send_adaptive_card failed (HTTP %d) conv=%s: %s" status
@@ -506,7 +562,9 @@ let upload_attachment ~(config : Runtime_config.teams_config) ~service_url
       let body =
         build_attachment_upload_body ~filename ~content_type ~content
       in
-      let* status, resp = Http_client.post_json ~uri ~headers ~body in
+      let* status, resp =
+        post_json_throttled ~conversation_id ~uri ~headers ~body
+      in
       if status >= 200 && status < 300 then
         try
           let json = Yojson.Safe.from_string resp in
@@ -559,7 +617,9 @@ let send_file ~(config : Runtime_config.teams_config) ~service_url
           let body =
             build_message_with_attachment ~filename ~content_type ~content_url
           in
-          let* status, resp = Http_client.post_json ~uri ~headers ~body in
+          let* status, resp =
+            post_json_throttled ~conversation_id ~uri ~headers ~body
+          in
           if status >= 200 && status < 300 then Lwt.return (Ok ())
           else
             Lwt.return
@@ -718,7 +778,9 @@ let send_file_consent_card ~(config : Runtime_config.teams_config) ~service_url
       let body =
         build_file_consent_card ~filename ~description ~size_bytes ~consent_id
       in
-      let* status, resp = Http_client.post_json ~uri ~headers ~body in
+      let* status, resp =
+        post_json_throttled ~conversation_id ~uri ~headers ~body
+      in
       if status >= 200 && status < 300 then Lwt.return (Ok ())
       else
         Lwt.return
@@ -742,7 +804,9 @@ let send_file_info_card ~(config : Runtime_config.teams_config) ~service_url
       let body =
         build_file_info_card ~filename ~content_url ~unique_id ~file_type
       in
-      let* status, _resp = Http_client.post_json ~uri ~headers ~body in
+      let* status, _resp =
+        post_json_throttled ~conversation_id ~uri ~headers ~body
+      in
       if status < 200 || status >= 300 then
         Logs.warn (fun m ->
             m "Teams: FileInfoCard send failed (HTTP %d) conv=%s" status

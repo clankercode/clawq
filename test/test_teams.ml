@@ -646,6 +646,58 @@ let test_file_consent_invoke_decline () =
     "consent consumed on decline" true
     (Teams.get_pending_consent consent_id = None)
 
+let test_is_retryable_status () =
+  Alcotest.(check bool) "429 retryable" true (Teams.is_retryable_status 429);
+  Alcotest.(check bool) "412 retryable" true (Teams.is_retryable_status 412);
+  Alcotest.(check bool) "502 retryable" true (Teams.is_retryable_status 502);
+  Alcotest.(check bool) "504 retryable" true (Teams.is_retryable_status 504);
+  Alcotest.(check bool)
+    "200 not retryable" false
+    (Teams.is_retryable_status 200);
+  Alcotest.(check bool)
+    "400 not retryable" false
+    (Teams.is_retryable_status 400);
+  Alcotest.(check bool)
+    "500 not retryable" false
+    (Teams.is_retryable_status 500);
+  Alcotest.(check bool)
+    "401 not retryable" false
+    (Teams.is_retryable_status 401);
+  Alcotest.(check bool)
+    "503 not retryable" false
+    (Teams.is_retryable_status 503)
+
+let test_throttle_enforces_spacing () =
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let conv =
+       "test-throttle-conv-" ^ string_of_float (Unix.gettimeofday ())
+     in
+     let t0 = Unix.gettimeofday () in
+     let* () = Teams.throttle_for_conversation ~conversation_id:conv in
+     let t1 = Unix.gettimeofday () in
+     let* () = Teams.throttle_for_conversation ~conversation_id:conv in
+     let t2 = Unix.gettimeofday () in
+     (* First call should be near-instant *)
+     Alcotest.(check bool) "first call fast" true (t1 -. t0 < 0.5);
+     (* Second call should wait ~1s *)
+     Alcotest.(check bool) "second call waited >=0.9s" true (t2 -. t1 >= 0.9);
+     Lwt.return_unit)
+
+let test_throttle_different_conversations () =
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let ts = string_of_float (Unix.gettimeofday ()) in
+     let conv_a = "test-throttle-a-" ^ ts in
+     let conv_b = "test-throttle-b-" ^ ts in
+     let t0 = Unix.gettimeofday () in
+     let* () = Teams.throttle_for_conversation ~conversation_id:conv_a in
+     let* () = Teams.throttle_for_conversation ~conversation_id:conv_b in
+     let t1 = Unix.gettimeofday () in
+     (* Different conversations should not block each other *)
+     Alcotest.(check bool) "different convs fast" true (t1 -. t0 < 0.5);
+     Lwt.return_unit)
+
 let test_debug_dump_filename_sanitization () =
   let safe_key =
     String.map
@@ -717,6 +769,11 @@ let suite =
       test_build_attachment_upload_body;
     Alcotest.test_case "build_message_with_attachment" `Quick
       test_build_message_with_attachment;
+    Alcotest.test_case "is_retryable_status" `Quick test_is_retryable_status;
+    Alcotest.test_case "throttle enforces spacing" `Slow
+      test_throttle_enforces_spacing;
+    Alcotest.test_case "throttle different conversations" `Quick
+      test_throttle_different_conversations;
     Alcotest.test_case "debug dump filename sanitization" `Quick
       test_debug_dump_filename_sanitization;
     Alcotest.test_case "temp_downloads add and get" `Quick
