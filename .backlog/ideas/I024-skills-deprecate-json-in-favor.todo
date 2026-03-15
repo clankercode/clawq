@@ -1,0 +1,38 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 10
+id: I024
+priority: medium
+status: pending
+tags:
+    - idea
+    - planning
+title: 'Skills: Deprecate json in favor of md based skills. If we support command injection (syntax is like: ''!`cmd | grep blah | another_cmd`'' i think, research it), then we can fully deprecate json skills i think and replace with markdown? also if scripts in the skill dir are automatically added to path, or it''s run from that skills directory, then we can refer to scripts within the skill dir (which I think is part of the point of how md skills work)'
+---
+
+# Original Idea
+
+Skills: Deprecate json in favor of md based skills. If we support command injection (syntax is like: '!`cmd | grep blah | another_cmd`' i think, research it), then we can fully deprecate json skills i think and replace with markdown? also if scripts in the skill dir are automatically added to path, or it's run from that skills directory, then we can refer to scripts within the skill dir (which I think is part of the point of how md skills work)
+
+## Planning Task (Equivalent of /plan-task)
+
+- Run `/plan-task I024` to decompose this idea into actionable work.
+- Confirm placement in the current backlog hierarchy before creating work items.
+
+## Ingest Plan Into backlog
+
+- Create implementation items with `backlog add` and related hierarchy commands (`backlog add-epic`, `backlog add-milestone`, `backlog add-phase`) as needed.
+- Create follow-up defects with `backlog bug` when bug-style work is identified.
+- Record all created IDs below and wire dependencies.
+
+## Created Work Items
+
+- Add created task IDs
+- Add created bug IDs (if any)
+
+## Completion Criteria
+
+- Idea has been decomposed into concrete backlog work items.
+- New items include clear acceptance criteria and dependencies.
+- This idea intake is updated with created IDs and marked done.
