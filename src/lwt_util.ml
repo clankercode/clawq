@@ -8,16 +8,21 @@
 let default_warn_timeout = 10.0
 
 (** Default long timeout (seconds) for the second lock attempt. After this, the
-    process aborts. *)
-let default_fatal_timeout = 100.0
+    process aborts. LLM calls with large contexts (100k+ tokens) can take
+    several minutes, so this must be generous. *)
+let default_fatal_timeout = 600.0
+
+(** Shorter fatal timeout for fast-path locks (hashtable guards, etc.) that
+    should never be held for more than milliseconds. *)
+let short_fatal_timeout = 30.0
 
 (** [lock_with_timeout ~label ?warn_timeout ?fatal_timeout mutex] acquires
     [mutex] with a two-stage timeout:
 
     1. Try for [warn_timeout] seconds (default 10). On timeout, log a warning
-    with diagnostics and retry. 2. Try for [fatal_timeout] seconds (default 50).
-    On timeout, log an error with full diagnostics and abort the process (exit
-    7).
+    with diagnostics and retry. 2. Try for [fatal_timeout] seconds (default
+    600). On timeout, log an error with full diagnostics and abort the process
+    (exit 7).
 
     If the lock is acquired at either stage the function returns normally and
     the caller is responsible for unlocking (typically via [Lwt.finalize]). *)

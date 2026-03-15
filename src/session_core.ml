@@ -185,7 +185,8 @@ let clear_pending_continuation state =
   | None -> ()
 
 let with_continuation_state mgr ~key f =
-  Lwt_util.with_lock_timeout ~label:"sessions_lock" mgr.sessions_lock (fun () ->
+  Lwt_util.with_lock_timeout ~fatal_timeout:Lwt_util.short_fatal_timeout
+    ~label:"sessions_lock" mgr.sessions_lock (fun () ->
       f (continuation_state mgr ~key))
 
 let cancel_autonomous_continuation mgr ~key =
@@ -200,15 +201,16 @@ let mark_autonomous_activity_started mgr ~key =
       Lwt.return_unit)
 
 let current_live_activity mgr ~key =
-  Lwt_util.with_lock_timeout ~label:"sessions_lock" mgr.sessions_lock (fun () ->
+  Lwt_util.with_lock_timeout ~fatal_timeout:Lwt_util.short_fatal_timeout
+    ~label:"sessions_lock" mgr.sessions_lock (fun () ->
       let state = live_activity_state mgr ~key in
       Lwt.return (snapshot_live_activity state))
 
 let rec wait_for_live_activity_change mgr ~key ~after_generation =
   let open Lwt.Syntax in
   let* snapshot, changed =
-    Lwt_util.with_lock_timeout ~label:"sessions_lock" mgr.sessions_lock
-      (fun () ->
+    Lwt_util.with_lock_timeout ~fatal_timeout:Lwt_util.short_fatal_timeout
+      ~label:"sessions_lock" mgr.sessions_lock (fun () ->
         let state = live_activity_state mgr ~key in
         Lwt.return (snapshot_live_activity state, state.changed))
   in
@@ -218,7 +220,8 @@ let rec wait_for_live_activity_change mgr ~key ~after_generation =
     wait_for_live_activity_change mgr ~key ~after_generation
 
 let start_live_activity mgr ~key =
-  Lwt_util.with_lock_timeout ~label:"sessions_lock" mgr.sessions_lock (fun () ->
+  Lwt_util.with_lock_timeout ~fatal_timeout:Lwt_util.short_fatal_timeout
+    ~label:"sessions_lock" mgr.sessions_lock (fun () ->
       let state = live_activity_state mgr ~key in
       let was_inactive = state.active_scopes = 0 in
       state.active_scopes <- state.active_scopes + 1;
@@ -226,7 +229,8 @@ let start_live_activity mgr ~key =
       Lwt.return_unit)
 
 let stop_live_activity mgr ~key =
-  Lwt_util.with_lock_timeout ~label:"sessions_lock" mgr.sessions_lock (fun () ->
+  Lwt_util.with_lock_timeout ~fatal_timeout:Lwt_util.short_fatal_timeout
+    ~label:"sessions_lock" mgr.sessions_lock (fun () ->
       let state = live_activity_state mgr ~key in
       if state.active_scopes > 0 then begin
         state.active_scopes <- state.active_scopes - 1;
@@ -273,7 +277,8 @@ let set_special_command_handler mgr handler =
   mgr.special_command_handler <- Some handler
 
 let start_draining mgr =
-  Lwt_util.with_lock_timeout ~label:"sessions_lock" mgr.sessions_lock (fun () ->
+  Lwt_util.with_lock_timeout ~fatal_timeout:Lwt_util.short_fatal_timeout
+    ~label:"sessions_lock" mgr.sessions_lock (fun () ->
       mgr.draining <- true;
       (* Interrupt ALL active sessions so long-running tool calls (e.g.
          background_task_wait) can detect imminent restart and return early,
@@ -285,7 +290,8 @@ let start_draining mgr =
       Lwt.return_unit)
 
 let stop_draining mgr =
-  Lwt_util.with_lock_timeout ~label:"sessions_lock" mgr.sessions_lock (fun () ->
+  Lwt_util.with_lock_timeout ~fatal_timeout:Lwt_util.short_fatal_timeout
+    ~label:"sessions_lock" mgr.sessions_lock (fun () ->
       mgr.draining <- false;
       Lwt.return_unit)
 
@@ -395,7 +401,8 @@ let cancel_pending_question mgr ~key =
 let has_pending_question mgr ~key = Hashtbl.mem mgr.pending_questions key
 
 let enqueue_message_if_busy mgr ~key queued_message =
-  Lwt_util.with_lock_timeout ~label:"sessions_lock" mgr.sessions_lock (fun () ->
+  Lwt_util.with_lock_timeout ~fatal_timeout:Lwt_util.short_fatal_timeout
+    ~label:"sessions_lock" mgr.sessions_lock (fun () ->
       let is_bang =
         String.length queued_message.message > 0
         && queued_message.message.[0] = '!'
@@ -572,7 +579,8 @@ let session_heartbeat_status_text mgr ~key =
         (if session_enabled then "on" else "off")
 
 let interrupt_resumable_channel_sessions mgr =
-  Lwt_util.with_lock_timeout ~label:"sessions_lock" mgr.sessions_lock (fun () ->
+  Lwt_util.with_lock_timeout ~fatal_timeout:Lwt_util.short_fatal_timeout
+    ~label:"sessions_lock" mgr.sessions_lock (fun () ->
       Hashtbl.iter
         (fun key _ ->
           match
@@ -744,7 +752,7 @@ let with_session_lock ?session_warn_timeout ?session_fatal_timeout mgr ~key f =
      sessions_lock; holding it while waiting for a busy session's mutex would
      block everything. *)
   let* agent, mutex, interrupt =
-    Lwt_util.with_lock_timeout
+    Lwt_util.with_lock_timeout ~fatal_timeout:Lwt_util.short_fatal_timeout
       ~label:(Printf.sprintf "sessions_lock/with_session_lock[%s]" key)
       mgr.sessions_lock (fun () ->
         let agent, mutex, interrupt = get_or_create_locked mgr ~key in
@@ -769,7 +777,7 @@ let try_session_lock mgr ~key f =
      per-session mutex, but we still release sessions_lock first to stay
      consistent with the deadlock-avoidance pattern. *)
   let* agent, mutex, interrupt =
-    Lwt_util.with_lock_timeout
+    Lwt_util.with_lock_timeout ~fatal_timeout:Lwt_util.short_fatal_timeout
       ~label:(Printf.sprintf "sessions_lock/try_session_lock[%s]" key)
       mgr.sessions_lock (fun () ->
         let agent, mutex, interrupt = get_or_create_locked mgr ~key in
@@ -793,7 +801,7 @@ let with_session_lock_unless_draining mgr ~key ~on_draining f =
      need sessions_lock; if a session is busy with an LLM call, holding
      sessions_lock while waiting for the per-session mutex would block them. *)
   let* state =
-    Lwt_util.with_lock_timeout
+    Lwt_util.with_lock_timeout ~fatal_timeout:Lwt_util.short_fatal_timeout
       ~label:
         (Printf.sprintf "sessions_lock/with_session_lock_unless_draining[%s]"
            key) mgr.sessions_lock (fun () ->
@@ -819,7 +827,8 @@ let with_session_lock_unless_draining mgr ~key ~on_draining f =
           Lwt.return_unit)
 
 let set_interrupt_if_present mgr ~key message =
-  Lwt_util.with_lock_timeout ~label:"sessions_lock" mgr.sessions_lock (fun () ->
+  Lwt_util.with_lock_timeout ~fatal_timeout:Lwt_util.short_fatal_timeout
+    ~label:"sessions_lock" mgr.sessions_lock (fun () ->
       (match Hashtbl.find_opt mgr.sessions key with
       | Some (_, _, interrupt) -> interrupt := Some message
       | None -> ());
@@ -1058,7 +1067,8 @@ let effective_message_for_turn ~message ?channel_name ?channel_type ?sender_id
       ctx ^ "\n" ^ message
 
 let snapshot_history mgr ~key =
-  Lwt_util.with_lock_timeout ~label:"sessions_lock" mgr.sessions_lock (fun () ->
+  Lwt_util.with_lock_timeout ~fatal_timeout:Lwt_util.short_fatal_timeout
+    ~label:"sessions_lock" mgr.sessions_lock (fun () ->
       match Hashtbl.find_opt mgr.sessions key with
       | Some (agent, _, _) ->
           let history = List.rev agent.Agent.history in
@@ -1175,7 +1185,7 @@ let get_session_effective_model mgr ~key =
 let reset mgr ~key =
   let open Lwt.Syntax in
   let* held_mutex =
-    Lwt_util.with_lock_timeout
+    Lwt_util.with_lock_timeout ~fatal_timeout:Lwt_util.short_fatal_timeout
       ~label:(Printf.sprintf "sessions_lock/reset[%s]" key) mgr.sessions_lock
       (fun () ->
         let clear_db () =
