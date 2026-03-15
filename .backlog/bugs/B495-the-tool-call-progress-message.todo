@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-15T14:55:08Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B495
 priority: high
-status: pending
+started_at: "2026-03-15T14:55:08Z"
+status: in_progress
 tags: []
 title: 'The tool call progress message no longer appears (in teams at least), suspicion: this broke with the recent fix about the timer counting up forever'
 ---
