@@ -521,6 +521,13 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
             in
             send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
               ~text ()
+        | Bl action ->
+            let text =
+              Slash_commands.format_bl ~connector:Format_adapter.Telegram_html
+                action
+            in
+            send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
+              ~text ()
         | Model action -> (
             let open Slash_commands in
             match action with

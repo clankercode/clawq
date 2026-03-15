@@ -481,6 +481,17 @@ let handler ~session_manager ~require_pairing ~auth_token
                     in
                     Cohttp_lwt_unix.Server.respond_string ~status:`OK
                       ~headers:json_headers ~body:resp_json ()
+                | Slash_commands.Bl action ->
+                    let response =
+                      Slash_commands.format_bl ~connector:Format_adapter.Plain
+                        action
+                    in
+                    let resp_json =
+                      `Assoc [ ("response", `String response) ]
+                      |> Yojson.Safe.to_string
+                    in
+                    Cohttp_lwt_unix.Server.respond_string ~status:`OK
+                      ~headers:json_headers ~body:resp_json ()
                 | Slash_commands.Tools ->
                     let response =
                       match Session.get_tool_registry session_manager with
@@ -1061,6 +1072,12 @@ let handler ~session_manager ~require_pairing ~auth_token
                             ~connector:Format_adapter.Plain ~db
                             ~session_key:("web:" ^ session_id) action
                       | None -> "Cron is not available (no database)."
+                    in
+                    sse_reply text
+                | Slash_commands.Bl action ->
+                    let text =
+                      Slash_commands.format_bl ~connector:Format_adapter.Plain
+                        action
                     in
                     sse_reply text
                 | Slash_commands.Thinking Slash_commands.ShowThinking ->

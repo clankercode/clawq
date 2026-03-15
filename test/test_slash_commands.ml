@@ -77,6 +77,10 @@ let result_to_string = function
   | Slash_commands.Cron (Slash_commands.CronHistory None) -> "Cron(History)"
   | Slash_commands.Cron (Slash_commands.CronHistory (Some name)) ->
       "Cron(History " ^ name ^ ")"
+  | Slash_commands.Bl Slash_commands.BlList -> "Bl(List)"
+  | Slash_commands.Bl Slash_commands.BlBugs -> "Bl(Bugs)"
+  | Slash_commands.Bl Slash_commands.BlIdeas -> "Bl(Ideas)"
+  | Slash_commands.Bl (Slash_commands.BlShow id) -> "Bl(Show " ^ id ^ ")"
   | Slash_commands.DebugDumpChat -> "DebugDumpChat"
   | Slash_commands.SkillInvoke (name, args) ->
       "SkillInvoke(" ^ name ^ ", " ^ args ^ ")"
@@ -111,6 +115,7 @@ let result_eq a b =
   | Slash_commands.Active, Slash_commands.Active -> true
   | Slash_commands.Bg a, Slash_commands.Bg b -> a = b
   | Slash_commands.Cron a, Slash_commands.Cron b -> a = b
+  | Slash_commands.Bl a, Slash_commands.Bl b -> a = b
   | Slash_commands.DebugDumpChat, Slash_commands.DebugDumpChat -> true
   | Slash_commands.SkillInvoke (a1, a2), Slash_commands.SkillInvoke (b1, b2) ->
       a1 = b1 && a2 = b2
@@ -1748,6 +1753,48 @@ let test_cron_in_commands_list () =
   in
   Alcotest.(check bool) "commands list includes /cron" true has_cron
 
+let test_bl_list () =
+  Alcotest.check result_testable "/bl" (Slash_commands.Bl Slash_commands.BlList)
+    (Slash_commands.handle "/bl")
+
+let test_bl_list_explicit () =
+  Alcotest.check result_testable "/bl list"
+    (Slash_commands.Bl Slash_commands.BlList)
+    (Slash_commands.handle "/bl list")
+
+let test_bl_backlog_alias () =
+  Alcotest.check result_testable "/backlog"
+    (Slash_commands.Bl Slash_commands.BlList)
+    (Slash_commands.handle "/backlog")
+
+let test_bl_bugs () =
+  Alcotest.check result_testable "/bl bugs"
+    (Slash_commands.Bl Slash_commands.BlBugs)
+    (Slash_commands.handle "/bl bugs")
+
+let test_bl_ideas () =
+  Alcotest.check result_testable "/bl ideas"
+    (Slash_commands.Bl Slash_commands.BlIdeas)
+    (Slash_commands.handle "/bl ideas")
+
+let test_bl_show () =
+  Alcotest.check result_testable "/bl show B123"
+    (Slash_commands.Bl (Slash_commands.BlShow "B123"))
+    (Slash_commands.handle "/bl show B123")
+
+let test_bl_show_bare_id () =
+  Alcotest.check result_testable "/bl B456"
+    (Slash_commands.Bl (Slash_commands.BlShow "B456"))
+    (Slash_commands.handle "/bl B456")
+
+let test_bl_in_commands_list () =
+  let has_bl =
+    List.exists
+      (fun (c : Slash_commands.command) -> c.name = "bl")
+      Slash_commands.commands
+  in
+  Alcotest.(check bool) "commands list includes /bl" true has_bl
+
 let suite =
   [
     Alcotest.test_case "handle /start" `Quick test_start;
@@ -1949,4 +1996,12 @@ let suite =
       test_cron_unknown_subcommand;
     Alcotest.test_case "/cron in commands list" `Quick
       test_cron_in_commands_list;
+    Alcotest.test_case "/bl list" `Quick test_bl_list;
+    Alcotest.test_case "/bl list explicit" `Quick test_bl_list_explicit;
+    Alcotest.test_case "/backlog alias" `Quick test_bl_backlog_alias;
+    Alcotest.test_case "/bl bugs" `Quick test_bl_bugs;
+    Alcotest.test_case "/bl ideas" `Quick test_bl_ideas;
+    Alcotest.test_case "/bl show" `Quick test_bl_show;
+    Alcotest.test_case "/bl show bare id" `Quick test_bl_show_bare_id;
+    Alcotest.test_case "/bl in commands list" `Quick test_bl_in_commands_list;
   ]

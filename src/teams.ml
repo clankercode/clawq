@@ -1593,6 +1593,12 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                       | None -> "Cron is not available (no database)."
                     in
                     send_text text
+                | Bl action ->
+                    let text =
+                      Slash_commands.format_bl ~connector:Format_adapter.Teams
+                        action
+                    in
+                    send_text text
                 | Model action -> (
                     let open Slash_commands in
                     match action with

@@ -712,6 +712,12 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
           in
           send_message_fn ~bot_token:discord_config.bot_token
             ~channel_id:msg.channel_id ~text
+      | Bl action ->
+          let text =
+            Slash_commands.format_bl ~connector:Format_adapter.Discord action
+          in
+          send_message_fn ~bot_token:discord_config.bot_token
+            ~channel_id:msg.channel_id ~text
       | Model action -> (
           let open Slash_commands in
           match action with

@@ -607,6 +607,15 @@ let handle_event ~(config : Runtime_config.slack_config)
                   send_message_fn ~bot_token:config.bot_token ~channel_id ~text
                 in
                 Lwt.return "ok"
+            | Bl action ->
+                let text =
+                  Slash_commands.format_bl ~connector:Format_adapter.Slack
+                    action
+                in
+                let* () =
+                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
+                in
+                Lwt.return "ok"
             | Model action -> (
                 let open Slash_commands in
                 match action with
