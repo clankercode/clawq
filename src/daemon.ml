@@ -333,45 +333,35 @@ let run ~(config : Runtime_config.t) =
             | None -> (
                 (* Fallback: direct channel dispatch when notifier not yet
                    registered (e.g., post-restart before first inbound message) *)
-                match db with
-                | Some db' -> (
-                    match Memory.get_session_channel ~db:db' ~session_key with
-                    | Some (channel, channel_id) -> (
-                        let text = Rich_message.to_fallback_text content in
-                        let config = !current_config in
-                        let open Lwt.Syntax in
-                        let* result =
-                          dispatch_resumed_message ~config ~channel ~channel_id
-                            ~text ()
-                        in
-                        match result with
-                        | Ok () ->
-                            Logs.info (fun m ->
-                                m
-                                  "rich_send_fn: delivered via direct %s \
-                                   dispatch (no notifier registered) \
-                                   session=%s"
-                                  channel session_key);
-                            Lwt.return
-                              Rich_message.
-                                { message_id = "0"; callback_ids = [] }
-                        | Error err ->
-                            Lwt.fail_with
-                              (Printf.sprintf
-                                 "No notifier registered for session %s and \
-                                  direct %s dispatch failed: %s"
-                                 session_key channel err))
-                    | None ->
+                match Restart_notify.parse_channel_from_key session_key with
+                | Some (channel, channel_id) -> (
+                    let text = Rich_message.to_fallback_text content in
+                    let config = !current_config in
+                    let open Lwt.Syntax in
+                    let* result =
+                      dispatch_resumed_message ~config ~channel ~channel_id
+                        ~text ()
+                    in
+                    match result with
+                    | Ok () ->
+                        Logs.info (fun m ->
+                            m
+                              "rich_send_fn: delivered via direct %s dispatch \
+                               (no notifier registered) session=%s"
+                              channel session_key);
+                        Lwt.return
+                          Rich_message.{ message_id = "0"; callback_ids = [] }
+                    | Error err ->
                         Lwt.fail_with
                           (Printf.sprintf
-                             "No notifier registered for session %s and no \
-                              channel info in database"
-                             session_key))
+                             "No notifier registered for session %s and direct \
+                              %s dispatch failed: %s"
+                             session_key channel err))
                 | None ->
                     Lwt.fail_with
                       (Printf.sprintf
-                         "No notifier registered for session %s and database \
-                          not available"
+                         "No notifier registered for session %s and cannot \
+                          parse channel from key"
                          session_key))))
   in
   (match tool_registry with
@@ -1539,9 +1529,6 @@ let run ~(config : Runtime_config.t) =
                         else
                           Lwt_list.iter_s
                             (fun key ->
-                              let* heartbeat_history_before =
-                                Session.snapshot_history session_manager ~key
-                              in
                               let* result =
                                 Lwt.catch
                                   (fun () ->
@@ -1574,20 +1561,7 @@ let run ~(config : Runtime_config.t) =
                               match result with
                               | None -> Lwt.return_unit
                               | Some response ->
-                                  let* () =
-                                    if String.trim response = "HEARTBEAT_OK"
-                                    then
-                                      let* _pruned =
-                                        Session.prune_noop_heartbeat_turn
-                                          session_manager ~key
-                                          ~before_history:
-                                            heartbeat_history_before
-                                          ~heartbeat_prompt:content
-                                      in
-                                      Lwt.return_unit
-                                    else Lwt.return_unit
-                                  in
-                                  handle_heartbeat_response ~db ~session_manager
+                                  handle_heartbeat_response ~session_manager
                                     ~key ~response ())
                             keys
                       in

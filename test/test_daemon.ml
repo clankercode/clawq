@@ -1257,7 +1257,7 @@ let test_handle_heartbeat_response_keeps_idle_heartbeat_idle () =
   let session_manager = Session.create ~config:Runtime_config.default ~db () in
   let key = "__main__" in
   Lwt_main.run
-    (Daemon.handle_heartbeat_response ~db:(Some db) ~session_manager ~key
+    (Daemon.handle_heartbeat_response ~session_manager ~key
        ~response:" HEARTBEAT_OK " ());
   let state = Session.continuation_state session_manager ~key in
   Alcotest.(check bool)
@@ -1274,7 +1274,7 @@ let test_handle_heartbeat_response_disarms_stay_idle () =
   let _waiter, wakener = Lwt.wait () in
   state.Session.cancel <- Some wakener;
   Lwt_main.run
-    (Daemon.handle_heartbeat_response ~db:(Some db) ~session_manager ~key
+    (Daemon.handle_heartbeat_response ~session_manager ~key
        ~response:" STAY_IDLE " ());
   Alcotest.(check bool) "stay idle disarms continuation" true state.disarmed;
   Alcotest.(check bool)
@@ -1288,7 +1288,7 @@ let test_handle_heartbeat_response_arms_follow_up_for_non_idle_reply () =
   Lwt_main.run
     (let open Lwt.Syntax in
      let* () =
-       Daemon.handle_heartbeat_response ~db:(Some db) ~session_manager ~key
+       Daemon.handle_heartbeat_response ~session_manager ~key
          ~response:"continue_work" ()
      in
      Lwt.pause ());
@@ -1305,8 +1305,6 @@ let test_handle_heartbeat_response_sends_initial_reply_to_session () =
   let db = Memory.init ~db_path:":memory:" () in
   let session_manager = Session.create ~config:Runtime_config.default ~db () in
   let key = "telegram:42:user" in
-  Memory.upsert_session_state ~db ~session_key:key ~turn:"user"
-    ~channel:"telegram" ~channel_id:"42:user" ();
   let sent = ref [] in
   Session.register_channel_notifier session_manager ~key (fun text ->
       sent := text :: !sent;
@@ -1314,7 +1312,7 @@ let test_handle_heartbeat_response_sends_initial_reply_to_session () =
   Lwt_main.run
     (let open Lwt.Syntax in
      let* () =
-       Daemon.handle_heartbeat_response ~db:(Some db) ~session_manager ~key
+       Daemon.handle_heartbeat_response ~session_manager ~key
          ~response:"follow up on this" ()
      in
      Lwt.pause ());
