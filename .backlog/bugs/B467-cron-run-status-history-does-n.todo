@@ -1,14 +1,15 @@
 ---
+claimed_at: "2026-03-15T08:07:37Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B467
 priority: high
-status: pending
-tags:
-    - cron
-    - teams
-    - observability
+started_at: "2026-03-15T08:07:37Z"
+status: in_progress
+tags: []
 title: Cron run status/history does not prove Teams delivery visibility
 ---
 Problem
