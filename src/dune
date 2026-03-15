@@ -3,7 +3,7 @@
  (deps (universe))
  (action
   (bash
-   "hash=$(git rev-parse --short HEAD 2>/dev/null || echo unknown); bdate=$(date -u '+%Y-%m-%dT%H:%M:%SZ'); printf 'let version = \"0.1.0-dev\"\\nlet git_shorthash = \"%s\"\\nlet build_date = \"%s\"\\nlet version_string = \"0.1.0-dev (%s, %s)\"\\n' \"$hash\" \"$bdate\" \"$hash\" \"$bdate\" > %{target}")))
+   "hash=$(git rev-parse --short HEAD 2>/dev/null || echo unknown); bdate=$(date -u '+%Y-%m-%dT%H:%M:%SZ'); printf 'let version = \"0.1.1-dev\"\\nlet git_shorthash = \"%s\"\\nlet build_date = \"%s\"\\nlet version_string = \"0.1.1-dev (%s, %s)\"\\n' \"$hash\" \"$bdate\" \"$hash\" \"$bdate\" > %{target}")))
 
 (library
  (name clawq_runtime_core)

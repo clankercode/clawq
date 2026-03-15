@@ -657,7 +657,7 @@ let do_request ~provider_name ~provider ~model ~messages ?tools ~on_chunk () =
           ("Authorization", "Bearer " ^ access_token);
           ("originator", "clawq");
           ("session_id", Printf.sprintf "%d" (Openai_codex_oauth.now_ms ()));
-          ("User-Agent", "clawq/0.1.0-dev");
+          ("User-Agent", "clawq/0.1.1-dev");
         ]
         @
         match account_id with

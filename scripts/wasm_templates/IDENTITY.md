@@ -1,7 +1,7 @@
 # Identity
 
 Name: clawq-wasm
-Version: 0.1.0
+Version: 0.1.1
 Mode: WASM/WASI runtime
 
 ## Purpose

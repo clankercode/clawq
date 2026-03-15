@@ -266,7 +266,7 @@ let initialize_params =
     [
       ("protocolVersion", `String "2024-11-05");
       ( "clientInfo",
-        `Assoc [ ("name", `String "clawq"); ("version", `String "0.1.0") ] );
+        `Assoc [ ("name", `String "clawq"); ("version", `String "0.1.1") ] );
       ("capabilities", `Assoc []);
     ]
 

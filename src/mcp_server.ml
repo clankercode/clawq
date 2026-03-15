@@ -1,5 +1,5 @@
 let server_info =
-  `Assoc [ ("name", `String "clawq"); ("version", `String "0.1.0") ]
+  `Assoc [ ("name", `String "clawq"); ("version", `String "0.1.1") ]
 
 let capabilities = `Assoc [ ("tools", `Assoc []) ]
 

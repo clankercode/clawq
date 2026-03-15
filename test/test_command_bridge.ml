@@ -31,7 +31,7 @@ let test_handle_phase2 () =
 
 let test_handle_version () =
   Alcotest.(check string)
-    "handle version" "clawq 0.1.0-dev"
+    "handle version" "clawq 0.1.1-dev"
     (Command_bridge.handle [ "version" ])
 
 let test_handle_unknown () =
