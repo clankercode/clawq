@@ -1,0 +1,26 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B476
+priority: high
+status: pending
+tags: []
+title: Update delegated coder agent instructions for commit/rebase/conflicts
+---
+Problem
+Delegated worktree coder agents do not have sufficiently explicit standing instructions to commit all intended changes, rebase against the parent branch before finalization, and resolve rebase/merge conflicts when appropriate. This leaves background-task success dependent on ad hoc operator cleanup and causes avoidable finalize/rebase failures.
+
+Why this matters
+The delegated worktree flow should reliably produce merge-ready branches. If agents leave uncommitted changes, skip rebasing, or fail to carry changes through simple conflicts, finalization becomes fragile and the main branch accumulates manual cleanup work.
+
+Acceptance criteria
+- Delegated coder agent instructions explicitly require committing all intended changes before reporting success.
+- Delegated coder agent instructions explicitly require rebasing against the parent branch (or equivalent up-to-date synchronization step) before final handoff/finalization when appropriate.
+- Delegated coder agent instructions explicitly require resolving straightforward conflicts rather than stopping at the first rebase/finalize conflict.
+- Background-task success criteria and/or finalize expectations align with those instructions.
+- Tests or documentation cover the updated instruction contract so the behavior remains stable.
+
+Notes
+- Related to recent work on requiring clean committed worktrees before finalize (B475).
+- Motivated by live B474 finalize conflict handling and repeated need for manual conflict cleanup after otherwise-successful background tasks.

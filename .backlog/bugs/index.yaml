@@ -472,3 +472,4 @@ bugs:
     - file: B473-background-task-wait-returns-a.todo
     - file: B474-teams-cron-delivery-path-repor.todo
     - file: B475-background-task-finalize-shoul.todo
+    - file: B476-update-delegated-coder-agent-i.todo
