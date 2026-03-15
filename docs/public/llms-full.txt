@@ -513,9 +513,9 @@ current queue state for a given session; `session list` appends
 - Each opted-in session is processed independently. If one target session is busy, that session's tick is skipped rather than queued; other opted-in sessions still run.
 - The heartbeat prompt content is literally the trimmed contents of `HEARTBEAT.md`.
 - In the runtime-context block, "heartbeat routing enabled for this session" means global heartbeat is enabled and this specific session is opted in for heartbeat delivery.
-- If the model replies exactly `HEARTBEAT_OK`, the daemon logs success and sends no outbound message.
+- If the model replies exactly `HEARTBEAT_OK`, the daemon logs success, sends no outbound message, and prunes that no-op heartbeat turn from normal session history/context.
 - Otherwise the daemon delivers the reply through the session's registered notifier or channel dispatch fallback for that opted-in session.
-- Heartbeat turns run inside the opted-in session's own history and lock, not in `__main__`.
+- Heartbeat turns run inside the opted-in session's own session lock, not in `__main__`. Meaningful heartbeat activity remains in that session's history; exact no-op `HEARTBEAT_OK` turns are pruned from normal history/context.
 
 ## Restart and Resume Model
 

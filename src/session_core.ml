@@ -1071,6 +1071,55 @@ let snapshot_history mgr ~key =
           in
           Lwt.return history)
 
+let heartbeat_noop_suffix_matches ~heartbeat_prompt = function
+  | [ (user_msg : Provider.message); (assistant_msg : Provider.message) ] ->
+      user_msg.role = "user"
+      && user_msg.content = heartbeat_prompt
+      && user_msg.content_parts = []
+      && user_msg.tool_calls = []
+      && user_msg.tool_call_id = None
+      && assistant_msg.role = "assistant"
+      && String.trim assistant_msg.content = "HEARTBEAT_OK"
+      && assistant_msg.content_parts = []
+      && assistant_msg.tool_calls = []
+      && assistant_msg.tool_call_id = None
+  | _ -> false
+
+let split_history_at n history =
+  let rec loop i acc rest =
+    if i <= 0 then (List.rev acc, rest)
+    else
+      match rest with
+      | [] -> (List.rev acc, [])
+      | x :: xs -> loop (i - 1) (x :: acc) xs
+  in
+  loop n [] history
+
+let prune_noop_heartbeat_turn mgr ~key ~before_history ~heartbeat_prompt =
+  match mgr.db with
+  | None -> Lwt.return_false
+  | Some db ->
+      with_session_lock mgr ~key (fun agent _interrupt ->
+          let current_history = List.rev agent.Agent.history in
+          let before_len = List.length before_history in
+          let prefix, suffix = split_history_at before_len current_history in
+          if
+            prefix = before_history
+            && List.length current_history = before_len + 2
+            && heartbeat_noop_suffix_matches ~heartbeat_prompt suffix
+          then begin
+            agent.Agent.history <- List.rev before_history;
+            Memory.replace_session_messages ~db ~session_key:key before_history;
+            persist_session_workspace_state mgr ~key agent;
+            Logs.info (fun m ->
+                m
+                  "Heartbeat: pruned trivial HEARTBEAT_OK turn from normal \
+                   history for %s"
+                  key);
+            Lwt.return_true
+          end
+          else Lwt.return_false)
+
 let get_config mgr = mgr.config
 let get_tool_registry mgr = mgr.tool_registry
 let get_db mgr = mgr.db

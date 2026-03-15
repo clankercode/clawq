@@ -38,7 +38,7 @@ let make_fake_provider_config base_url : Runtime_config.provider_config =
     default_model = Some "fake-model";
   }
 
-let with_fake_chat_provider f =
+let with_fake_chat_provider ?response_for_user f =
   let port = free_port () in
   let callback _conn req body =
     let open Lwt.Syntax in
@@ -56,6 +56,11 @@ let with_fake_chat_provider f =
           with _ -> None)
     in
     let latest = match List.rev user_messages with x :: _ -> x | [] -> "" in
+    let assistant_text =
+      match response_for_user with
+      | Some response_for_user -> response_for_user latest
+      | None -> "reply:" ^ latest
+    in
     let response_body =
       Yojson.Safe.to_string
         (`Assoc
@@ -73,7 +78,7 @@ let with_fake_chat_provider f =
                          `Assoc
                            [
                              ("role", `String "assistant");
-                             ("content", `String ("reply:" ^ latest));
+                             ("content", `String assistant_text);
                            ] );
                        ("finish_reason", `String "stop");
                      ];
@@ -1323,6 +1328,112 @@ let test_handle_heartbeat_response_sends_initial_reply_to_session () =
      let* () = Session.cancel_autonomous_continuation session_manager ~key in
      Lwt.pause ())
 
+let test_noop_heartbeat_turn_is_pruned_from_history () =
+  with_fake_chat_provider
+    ~response_for_user:(fun _ -> " HEARTBEAT_OK ")
+    (fun base_config ->
+      let db = Memory.init ~db_path:":memory:" () in
+      let config = base_config in
+      let session_manager = Session.create ~config ~db () in
+      let key = "telegram:42:user" in
+      let heartbeat_prompt = "Check for urgent updates." in
+      Memory.store_message ~db ~session_key:key
+        (Provider.make_message ~role:"user" ~content:"existing");
+      let before_history =
+        Lwt_main.run (Session.snapshot_history session_manager ~key)
+      in
+      let response =
+        Lwt_main.run
+          (let open Lwt.Syntax in
+           let* result =
+             Session.with_suppressed_channel_output session_manager ~key
+               (fun () ->
+                 Session.try_turn session_manager ~key ~message:heartbeat_prompt
+                   ())
+           in
+           match result with
+           | Some text -> Lwt.return text
+           | None -> Alcotest.fail "expected heartbeat turn to run")
+      in
+      Alcotest.(check string) "heartbeat reply" " HEARTBEAT_OK " response;
+      let pruned =
+        Lwt_main.run
+          (Session.prune_noop_heartbeat_turn session_manager ~key
+             ~before_history ~heartbeat_prompt)
+      in
+      Alcotest.(check bool) "trivial heartbeat pruned" true pruned;
+      let persisted = Memory.load_history ~db ~session_key:key in
+      Alcotest.(check int)
+        "persisted history length restored"
+        (List.length before_history)
+        (List.length persisted);
+      Alcotest.(check string)
+        "persisted prior message preserved" "existing"
+        (match persisted with
+        | [ msg ] -> msg.content
+        | _ -> Alcotest.fail "expected one persisted baseline message");
+      let in_memory =
+        Lwt_main.run (Session.snapshot_history session_manager ~key)
+      in
+      Alcotest.(check int)
+        "in-memory history length restored"
+        (List.length before_history)
+        (List.length in_memory);
+      Alcotest.(check string)
+        "in-memory prior message preserved" "existing"
+        (match in_memory with
+        | [ msg ] -> msg.content
+        | _ -> Alcotest.fail "expected one in-memory baseline message"))
+
+let test_nontrivial_heartbeat_turn_remains_in_history () =
+  with_fake_chat_provider
+    ~response_for_user:(fun _ -> "Investigate inbox")
+    (fun base_config ->
+      let db = Memory.init ~db_path:":memory:" () in
+      let config = base_config in
+      let session_manager = Session.create ~config ~db () in
+      let key = "telegram:42:user" in
+      let heartbeat_prompt = "Check for urgent updates." in
+      Memory.store_message ~db ~session_key:key
+        (Provider.make_message ~role:"user" ~content:"existing");
+      let before_history =
+        Lwt_main.run (Session.snapshot_history session_manager ~key)
+      in
+      let response =
+        Lwt_main.run
+          (let open Lwt.Syntax in
+           let* result =
+             Session.with_suppressed_channel_output session_manager ~key
+               (fun () ->
+                 Session.try_turn session_manager ~key ~message:heartbeat_prompt
+                   ())
+           in
+           match result with
+           | Some text -> Lwt.return text
+           | None -> Alcotest.fail "expected heartbeat turn to run")
+      in
+      Alcotest.(check string) "heartbeat reply" "Investigate inbox" response;
+      let pruned =
+        Lwt_main.run
+          (Session.prune_noop_heartbeat_turn session_manager ~key
+             ~before_history ~heartbeat_prompt)
+      in
+      Alcotest.(check bool) "meaningful heartbeat retained" false pruned;
+      let persisted = Memory.load_history ~db ~session_key:key in
+      Alcotest.(check int)
+        "two heartbeat messages persisted"
+        (List.length before_history + 2)
+        (List.length persisted);
+      let persisted_rev = List.rev persisted in
+      match persisted_rev with
+      | assistant_msg :: user_msg :: _ ->
+          Alcotest.(check string)
+            "persisted user prompt" heartbeat_prompt user_msg.content;
+          Alcotest.(check string)
+            "persisted assistant reply" "Investigate inbox"
+            assistant_msg.content
+      | _ -> Alcotest.fail "expected persisted heartbeat turn")
+
 let make_test_task ?(id = 9) ?(session_key = Some "telegram:42:user")
     ?(channel = Some "telegram") ?(channel_id = Some "42") () :
     Background_task.task =
@@ -2079,6 +2190,10 @@ let suite =
       test_handle_heartbeat_response_arms_follow_up_for_non_idle_reply;
     Alcotest.test_case "heartbeat work reply sends initial session message"
       `Quick test_handle_heartbeat_response_sends_initial_reply_to_session;
+    Alcotest.test_case "trivial heartbeat turn is pruned from history" `Quick
+      test_noop_heartbeat_turn_is_pruned_from_history;
+    Alcotest.test_case "meaningful heartbeat turn remains in history" `Quick
+      test_nontrivial_heartbeat_turn_remains_in_history;
     Alcotest.test_case "wait for drain returns when in-flight reaches zero"
       `Quick test_wait_for_drain_returns_when_in_flight_reaches_zero;
     Alcotest.test_case "wait for drain reports timeout" `Quick
