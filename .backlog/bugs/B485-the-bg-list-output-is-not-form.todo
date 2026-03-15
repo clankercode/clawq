@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B485
+priority: high
+status: pending
+tags: []
+title: the `/bg list` output is not formatted correctly. it should use our new connector formatter and dsl
+---
+
+the `/bg list` output is not formatted correctly. it should use our new connector formatter and dsl
