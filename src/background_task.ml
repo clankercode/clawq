@@ -15,6 +15,7 @@ type health =
   | Zombie
   | Process_missing
   | Log_stale
+  | Startup_failed
   | Not_applicable
 
 type task = {
@@ -100,6 +101,7 @@ let string_of_health = function
   | Zombie -> "zombie"
   | Process_missing -> "process-missing"
   | Log_stale -> "log-stale"
+  | Startup_failed -> "startup-failed"
   | Not_applicable -> "-"
 
 let runner_binary = function
@@ -236,6 +238,11 @@ let log_mtime path =
 
 let stalled_threshold_seconds = 300.0
 let log_stale_threshold_seconds = 120.0
+let startup_timeout_seconds = 30.0
+
+let log_has_content path =
+  try (Unix.stat path).Unix.st_size > 0
+  with Unix.Unix_error _ | Sys_error _ -> false
 
 let diagnose_health ?(now = Unix.gettimeofday ())
     ?(pid_alive = fun pid -> Process_group.group_alive pid) (task : task) =
@@ -264,7 +271,13 @@ let diagnose_health ?(now = Unix.gettimeofday ())
               | None -> false)
           | None -> false
         in
-        if log_fresh then Active
+        let log_empty =
+          match task.log_path with
+          | Some path -> not (log_has_content path)
+          | None -> true
+        in
+        if log_empty && elapsed >= startup_timeout_seconds then Startup_failed
+        else if log_fresh then Active
         else if elapsed < log_stale_threshold_seconds then Active
         else if elapsed >= stalled_threshold_seconds then Stalled
         else Log_stale
@@ -1469,7 +1482,7 @@ let recover ~db ~id ?runner ?model () =
         | Failed | DirtyWorktree | Cancelled -> true
         | Running -> (
             match health with
-            | Stalled | Zombie | Process_missing -> true
+            | Stalled | Zombie | Process_missing | Startup_failed -> true
             | _ -> false)
         | Queued | Succeeded -> false
       in

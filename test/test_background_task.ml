@@ -2836,6 +2836,78 @@ let test_health_running_stalled () =
         "running with alive pid but stalled" "stalled"
         (Background_task.string_of_health health))
 
+let test_health_startup_failed_empty_log () =
+  let now = Unix.gettimeofday () in
+  let log_path = Filename.temp_file "clawq-health-test" ".log" in
+  Fun.protect
+    ~finally:(fun () -> try Sys.remove log_path with _ -> ())
+    (fun () ->
+      (* Create empty log file — no output written *)
+      let oc = open_out log_path in
+      close_out oc;
+      let started_time = now -. 5.0 in
+      let tm = Unix.gmtime started_time in
+      let started =
+        Printf.sprintf "%04d-%02d-%02d %02d:%02d:%02d" (tm.Unix.tm_year + 1900)
+          (tm.Unix.tm_mon + 1) tm.Unix.tm_mday tm.Unix.tm_hour tm.Unix.tm_min
+          tm.Unix.tm_sec
+      in
+      let task =
+        {
+          (make_task ~status:Background_task.Running ~started_at:(Some started)
+             ())
+          with
+          pid = Some 42;
+          log_path = Some log_path;
+        }
+      in
+      (* 35s elapsed with empty log => startup-failed *)
+      let fake_now = now +. 35.0 in
+      let health =
+        Background_task.diagnose_health ~now:fake_now
+          ~pid_alive:(fun _ -> true)
+          task
+      in
+      Alcotest.(check string)
+        "running with alive pid but empty log after 30s" "startup-failed"
+        (Background_task.string_of_health health))
+
+let test_health_startup_not_failed_within_30s () =
+  let now = Unix.gettimeofday () in
+  let log_path = Filename.temp_file "clawq-health-test" ".log" in
+  Fun.protect
+    ~finally:(fun () -> try Sys.remove log_path with _ -> ())
+    (fun () ->
+      (* Create empty log file — no output yet *)
+      let oc = open_out log_path in
+      close_out oc;
+      let started_time = now -. 5.0 in
+      let tm = Unix.gmtime started_time in
+      let started =
+        Printf.sprintf "%04d-%02d-%02d %02d:%02d:%02d" (tm.Unix.tm_year + 1900)
+          (tm.Unix.tm_mon + 1) tm.Unix.tm_mday tm.Unix.tm_hour tm.Unix.tm_min
+          tm.Unix.tm_sec
+      in
+      let task =
+        {
+          (make_task ~status:Background_task.Running ~started_at:(Some started)
+             ())
+          with
+          pid = Some 42;
+          log_path = Some log_path;
+        }
+      in
+      (* Only 20s elapsed with empty log => still active (within grace period) *)
+      let fake_now = now +. 20.0 in
+      let health =
+        Background_task.diagnose_health ~now:fake_now
+          ~pid_alive:(fun _ -> true)
+          task
+      in
+      Alcotest.(check string)
+        "running with alive pid and empty log within 30s is active" "active"
+        (Background_task.string_of_health health))
+
 let test_health_string_roundtrip () =
   List.iter
     (fun (health, expected) ->
@@ -2849,6 +2921,7 @@ let test_health_string_roundtrip () =
       (Zombie, "zombie");
       (Process_missing, "process-missing");
       (Log_stale, "log-stale");
+      (Startup_failed, "startup-failed");
       (Not_applicable, "-");
     ]
 
@@ -3562,6 +3635,10 @@ let suite =
       test_health_running_stale_log;
     Alcotest.test_case "health running stalled" `Quick
       test_health_running_stalled;
+    Alcotest.test_case "health startup failed empty log" `Quick
+      test_health_startup_failed_empty_log;
+    Alcotest.test_case "health startup not failed within 30s" `Quick
+      test_health_startup_not_failed_within_30s;
     Alcotest.test_case "health string roundtrip" `Quick
       test_health_string_roundtrip;
     Alcotest.test_case "health in task summary" `Quick
