@@ -1,0 +1,21 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B472
+priority: high
+status: pending
+tags: []
+title: Cron delivery events should notify session when message visibility is uncertain
+---
+Problem
+During cron tests, the system can record execution and even some delivery-side progress without clearly notifying the current session/user when Teams message visibility is uncertain or unproven. This leaves the operator unsure whether a cron result actually arrived.
+
+Why this matters
+For connector reliability work, absence of a clear notification about uncertain delivery makes live testing ambiguous and slows diagnosis. The agent should not silently rely on internal logs/history when the user expects confirmation of whether a cron message was actually visible.
+
+Acceptance criteria
+- When a cron run completes but visible delivery to the target session/channel cannot be conclusively established, the system surfaces that uncertainty explicitly rather than implying success.
+- Cron/delivery observability or notifier behavior makes it clear to the active session when a scheduled message may not have been visibly delivered.
+- The user does not need to infer missing delivery from silence or inspect raw logs to discover the uncertainty.
+- This is distinguished from ordinary successful cron execution and from outright connector send failures.
