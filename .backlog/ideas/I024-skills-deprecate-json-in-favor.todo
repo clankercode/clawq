@@ -1,13 +1,15 @@
 ---
+claimed_at: "2026-03-15T03:33:14Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 10
 id: I024
 priority: medium
-status: pending
-tags:
-    - idea
-    - planning
+started_at: "2026-03-15T03:33:14Z"
+status: in_progress
+tags: []
 title: 'Skills: Deprecate json in favor of md based skills. If we support command injection (syntax is like: ''!`cmd | grep blah | another_cmd`'' i think, research it), then we can fully deprecate json skills i think and replace with markdown? also if scripts in the skill dir are automatically added to path, or it''s run from that skills directory, then we can refer to scripts within the skill dir (which I think is part of the point of how md skills work)'
 ---
 

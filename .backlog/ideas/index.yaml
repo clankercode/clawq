@@ -199,5 +199,12 @@ ideas:
       status: done
       tags: []
       title: Add debug mode that saves _all_ http requests and responses to file
-    - file: I024-skills-deprecate-json-in-favor.todo
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 10
+      file: I024-skills-deprecate-json-in-favor.todo
       id: I024
+      priority: medium
+      status: in_progress
+      tags: []
+      title: 'Skills: Deprecate json in favor of md based skills. If we support command injection (syntax is like: ''!`cmd | grep blah | another_cmd`'' i think, research it), then we can fully deprecate json skills i think and replace with markdown? also if scripts in the skill dir are automatically added to path, or it''s run from that skills directory, then we can refer to scripts within the skill dir (which I think is part of the point of how md skills work)'
