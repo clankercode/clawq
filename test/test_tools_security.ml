@@ -1072,6 +1072,115 @@ let test_register_all_shell_path_policy_tracks_security_config () =
       (try Unix.rmdir extra_dir with _ -> ());
       try Unix.rmdir workspace with _ -> ())
 
+let test_shell_exec_rejects_missing_command () =
+  with_temp_workspace (fun workspace ->
+      let sandbox = mk_none_sandbox ~workspace () in
+      let cfg =
+        {
+          Runtime_config.default with
+          workspace;
+          security =
+            {
+              Runtime_config.default.security with
+              workspace_only = false;
+              extra_allowed_paths = [];
+            };
+        }
+      in
+      let registry = Tool_registry.create () in
+      Tools_builtin.register_all ~config:cfg ~sandbox registry;
+      let tool = find_tool_exn registry "shell_exec" in
+      let out = Lwt_main.run (tool.Tool.invoke (`Assoc [])) in
+      Alcotest.(check bool)
+        "error mentions command" true (contains out "command");
+      Alcotest.(check bool)
+        "error includes Example" true (contains out "Example"))
+
+let test_shell_exec_rejects_null_command () =
+  with_temp_workspace (fun workspace ->
+      let sandbox = mk_none_sandbox ~workspace () in
+      let cfg =
+        {
+          Runtime_config.default with
+          workspace;
+          security =
+            {
+              Runtime_config.default.security with
+              workspace_only = false;
+              extra_allowed_paths = [];
+            };
+        }
+      in
+      let registry = Tool_registry.create () in
+      Tools_builtin.register_all ~config:cfg ~sandbox registry;
+      let tool = find_tool_exn registry "shell_exec" in
+      let out =
+        Lwt_main.run (tool.Tool.invoke (`Assoc [ ("command", `Null) ]))
+      in
+      Alcotest.(check bool)
+        "error mentions command" true (contains out "command");
+      Alcotest.(check bool)
+        "error includes Example" true (contains out "Example"))
+
+let test_validate_required_params_catches_missing () =
+  let mock_tool : Tool.t =
+    {
+      name = "test_tool";
+      description = "test";
+      parameters_schema =
+        `Assoc
+          [
+            ( "properties",
+              `Assoc
+                [
+                  ("foo", `Assoc [ ("type", `String "string") ]);
+                  ("bar", `Assoc [ ("type", `String "string") ]);
+                ] );
+            ("required", `List [ `String "foo"; `String "bar" ]);
+          ];
+      invoke = (fun ?context:_ _args -> Lwt.return "ok");
+      invoke_stream = None;
+      risk_level = Tool.Low;
+      deferred = false;
+    }
+  in
+  (match Tool.validate_required_params mock_tool (`Assoc []) with
+  | Error msg ->
+      Alcotest.(check bool) "mentions foo" true (contains msg "'foo'");
+      Alcotest.(check bool) "mentions bar" true (contains msg "'bar'");
+      Alcotest.(check bool) "mentions tool name" true (contains msg "test_tool")
+  | Ok () -> Alcotest.fail "expected Error for missing required params");
+  match Tool.validate_required_params mock_tool (`Assoc [ ("foo", `Null) ]) with
+  | Error msg ->
+      Alcotest.(check bool)
+        "null treated as missing" true (contains msg "'foo'")
+  | Ok () -> Alcotest.fail "expected Error for null required param"
+
+let test_validate_required_params_passes_valid () =
+  let mock_tool : Tool.t =
+    {
+      name = "test_tool";
+      description = "test";
+      parameters_schema =
+        `Assoc
+          [
+            ( "properties",
+              `Assoc [ ("cmd", `Assoc [ ("type", `String "string") ]) ] );
+            ("required", `List [ `String "cmd" ]);
+          ];
+      invoke = (fun ?context:_ _args -> Lwt.return "ok");
+      invoke_stream = None;
+      risk_level = Tool.Low;
+      deferred = false;
+    }
+  in
+  match
+    Tool.validate_required_params mock_tool
+      (`Assoc [ ("cmd", `String "hello") ])
+  with
+  | Ok () -> ()
+  | Error msg -> Alcotest.fail ("expected Ok, got Error: " ^ msg)
+
 let test_register_all_with_db_registers_memory_and_bg_tools () =
   let db = Memory.init ~db_path:":memory:" () in
   let registry = Tool_registry.create () in
@@ -1196,4 +1305,12 @@ let suite =
       test_is_localhost_url_rejects_host_spoofing;
     Alcotest.test_case "register_all with db registers memory and bg tools"
       `Quick test_register_all_with_db_registers_memory_and_bg_tools;
+    Alcotest.test_case "shell_exec rejects missing command" `Quick
+      test_shell_exec_rejects_missing_command;
+    Alcotest.test_case "shell_exec rejects null command" `Quick
+      test_shell_exec_rejects_null_command;
+    Alcotest.test_case "validate_required_params catches missing" `Quick
+      test_validate_required_params_catches_missing;
+    Alcotest.test_case "validate_required_params passes valid" `Quick
+      test_validate_required_params_passes_valid;
   ]

@@ -305,43 +305,46 @@ let execute_tool_calls_stream ~config ~(tool_registry : Tool_registry.t option)
                                       tc.function_name tc.arguments);
                                 `Assoc []
                             in
-                            let context =
-                              {
-                                Tool.session_key;
-                                send_progress =
-                                  Some
-                                    (fun text ->
-                                      streamed_output := true;
-                                      on_chunk
-                                        (Provider.ToolOutputDelta
-                                           { id = tc.id; chunk = text }));
-                                interrupt_check;
-                                inject_system_messages =
-                                  Some
-                                    (fun msgs ->
-                                      let msgs =
-                                        Skill_dedup.dedup_skill_injections
-                                          ~history:!history_ref msgs
-                                      in
-                                      List.iter
-                                        (fun content ->
-                                          history_ref :=
-                                            Provider.make_message ~role:"system"
-                                              ~content
-                                            :: !history_ref)
-                                        msgs);
-                              }
-                            in
-                            match tool.invoke_stream with
-                            | Some invoke_stream ->
-                                invoke_stream ~context
-                                  ~on_output_chunk:(fun chunk ->
-                                    streamed_output := true;
-                                    on_chunk
-                                      (Provider.ToolOutputDelta
-                                         { id = tc.id; chunk }))
-                                  args
-                            | None -> tool.invoke ~context args)
+                            match Tool.validate_required_params tool args with
+                            | Error msg -> Lwt.return msg
+                            | Ok () -> (
+                                let context =
+                                  {
+                                    Tool.session_key;
+                                    send_progress =
+                                      Some
+                                        (fun text ->
+                                          streamed_output := true;
+                                          on_chunk
+                                            (Provider.ToolOutputDelta
+                                               { id = tc.id; chunk = text }));
+                                    interrupt_check;
+                                    inject_system_messages =
+                                      Some
+                                        (fun msgs ->
+                                          let msgs =
+                                            Skill_dedup.dedup_skill_injections
+                                              ~history:!history_ref msgs
+                                          in
+                                          List.iter
+                                            (fun content ->
+                                              history_ref :=
+                                                Provider.make_message
+                                                  ~role:"system" ~content
+                                                :: !history_ref)
+                                            msgs);
+                                  }
+                                in
+                                match tool.invoke_stream with
+                                | Some invoke_stream ->
+                                    invoke_stream ~context
+                                      ~on_output_chunk:(fun chunk ->
+                                        streamed_output := true;
+                                        on_chunk
+                                          (Provider.ToolOutputDelta
+                                             { id = tc.id; chunk }))
+                                      args
+                                | None -> tool.invoke ~context args))
                           (fun exn ->
                             Lwt.return
                               ("Error invoking tool: " ^ Printexc.to_string exn))
@@ -507,28 +510,31 @@ let execute_tool_calls ~config ~(tool_registry : Tool_registry.t option)
                                       tc.function_name tc.arguments);
                                 `Assoc []
                             in
-                            let context =
-                              {
-                                Tool.session_key;
-                                send_progress = None;
-                                interrupt_check;
-                                inject_system_messages =
-                                  Some
-                                    (fun msgs ->
-                                      let msgs =
-                                        Skill_dedup.dedup_skill_injections
-                                          ~history:!history_ref msgs
-                                      in
-                                      List.iter
-                                        (fun content ->
-                                          history_ref :=
-                                            Provider.make_message ~role:"system"
-                                              ~content
-                                            :: !history_ref)
-                                        msgs);
-                              }
-                            in
-                            tool.invoke ~context args)
+                            match Tool.validate_required_params tool args with
+                            | Error msg -> Lwt.return msg
+                            | Ok () ->
+                                let context =
+                                  {
+                                    Tool.session_key;
+                                    send_progress = None;
+                                    interrupt_check;
+                                    inject_system_messages =
+                                      Some
+                                        (fun msgs ->
+                                          let msgs =
+                                            Skill_dedup.dedup_skill_injections
+                                              ~history:!history_ref msgs
+                                          in
+                                          List.iter
+                                            (fun content ->
+                                              history_ref :=
+                                                Provider.make_message
+                                                  ~role:"system" ~content
+                                                :: !history_ref)
+                                            msgs);
+                                  }
+                                in
+                                tool.invoke ~context args)
                           (fun exn ->
                             Lwt.return
                               ("Error invoking tool: " ^ Printexc.to_string exn))

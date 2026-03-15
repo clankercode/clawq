@@ -1067,7 +1067,11 @@ let glob ~workspace ~workspace_only ~extra_allowed_paths =
         let max_files =
           try args |> member "max_files" |> to_int with _ -> 1000
         in
-        if pattern = "" then Lwt.return "Error: pattern is required"
+        if pattern = "" then
+          Lwt.return
+            "Error: glob requires a non-empty 'pattern' parameter. Example: \
+             glob(pattern=\"**/*.ml\"). The 'pattern' field must be a \
+             non-empty string."
         else
           let root =
             if root_arg = "" then workspace
@@ -1341,7 +1345,11 @@ let grep ~workspace ~workspace_only ~extra_allowed_paths =
         let max_files =
           try args |> member "max_files" |> to_int with _ -> 1000
         in
-        if pattern = "" then Lwt.return "Error: pattern is required"
+        if pattern = "" then
+          Lwt.return
+            "Error: grep requires a non-empty 'pattern' parameter. Example: \
+             grep(pattern=\"TODO|FIXME\"). The 'pattern' field must be a \
+             non-empty string."
         else
           let split_unescaped_pipes s =
             let parts = ref [] in

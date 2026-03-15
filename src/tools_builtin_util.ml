@@ -1037,8 +1037,9 @@ let shell_exec_with_hooks ~workspace ~workspace_only ~allowed_commands
     let command = try args |> member "command" |> to_string with _ -> "" in
     if String.trim command = "" then
       Lwt.return
-        "Error: shell_exec requires a non-empty 'command' parameter. The \
-         'command' field is required in the tool call arguments."
+        "Error: shell_exec requires a non-empty 'command' parameter. Example: \
+         shell_exec(command=\"ls -la\", head=100, tail=50). The 'command' \
+         field must be a non-empty string."
     else
       let cwd_arg =
         try
@@ -1065,8 +1066,7 @@ let shell_exec_with_hooks ~workspace ~workspace_only ~allowed_commands
           with
           | Error msg, _ | _, Error msg -> Lwt.return msg
           | Ok (), Ok () -> (
-              if command = "" then Lwt.return "Error: command is required"
-              else if workspace_only && has_unsafe_shell_syntax command then
+              if workspace_only && has_unsafe_shell_syntax command then
                 Lwt.return
                   "Error: command contains unsafe shell syntax in \
                    workspace_only mode"
