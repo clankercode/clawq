@@ -483,3 +483,4 @@ bugs:
     - file: B484-mutex-lock-should-wait-for-mor.todo
     - file: B485-the-bg-list-output-is-not-form.todo
     - file: B486-background-tasks-using-runners.todo
+    - file: B487-add-to-background-tasks-as-an.todo
