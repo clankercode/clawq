@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B459
+priority: high
+status: pending
+tags: []
+title: Add to system prompt example of tool call `shell_exec(command="motd")`
+---
+
+Add to system prompt example of tool call `shell_exec(command="motd")`
