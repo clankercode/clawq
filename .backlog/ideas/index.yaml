@@ -221,5 +221,12 @@ ideas:
       id: I026
     - file: I027-autoload-claude-md-and-agents.todo
       id: I027
-    - file: I028-investigate-how-we-can-tie-age.todo
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 10
+      file: I028-investigate-how-we-can-tie-age.todo
       id: I028
+      priority: medium
+      status: in_progress
+      tags: []
+      title: 'Investigate how we can tie agents into existing systems: background tasks, slash commands (or @agent maybe), etc'
