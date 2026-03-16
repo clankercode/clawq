@@ -1,4 +1,4 @@
-type runner = Codex | Claude | Kimi | Gemini | Opencode | Cursor
+type runner = Codex | Claude | Kimi | Gemini | Opencode | Cursor | Local
 
 type status =
   | Queued
@@ -59,6 +59,7 @@ let string_of_runner = function
   | Gemini -> "gemini"
   | Opencode -> "opencode"
   | Cursor -> "cursor"
+  | Local -> "local"
 
 let runner_of_string s =
   match String.lowercase_ascii (String.trim s) with
@@ -69,6 +70,7 @@ let runner_of_string s =
   | "opencode" -> Some Opencode
   | "cursor" | "cursor-cli" | "cursor_cli" | "cursor-agent" | "cursor_agent" ->
       Some Cursor
+  | "local" -> Some Local
   | _ -> None
 
 let string_of_status = function
@@ -112,6 +114,7 @@ let runner_binary = function
   | Gemini -> "gemini"
   | Opencode -> "opencode"
   | Cursor -> "cursor-agent"
+  | Local -> "clawq"
 
 let command_exists command =
   Sys.command
@@ -149,7 +152,8 @@ let validate_repo_path ?(require_git = true) repo_path =
              repo_path)
       else Ok ()
 
-let runner_available runner = command_exists (runner_binary runner)
+let runner_available runner =
+  runner = Local || command_exists (runner_binary runner)
 
 let resolve_runner ?(check_available = true) ?preferred () =
   let available runner = (not check_available) || runner_available runner in
@@ -1682,6 +1686,7 @@ let runner_to_framework_runner (r : runner) : Runner_framework.runner =
   | Gemini -> Gemini
   | Opencode -> Opencode
   | Cursor -> Cursor
+  | Local -> assert false
 
 let invocation_to_framework (inv : invocation) : Runner_framework.invocation =
   match inv with Fresh -> Fresh | Resume s -> Resume s
@@ -1763,6 +1768,12 @@ let terse_finished_message (task : task) =
   | (Failed | DirtyWorktree), Some preview ->
       let short =
         if String.length preview > 80 then String.sub preview 0 80 ^ "..."
+        else preview
+      in
+      base ^ merge_suffix ^ " -- " ^ short ^ "]"
+  | Succeeded, Some preview when task.runner = Local ->
+      let short =
+        if String.length preview > 300 then String.sub preview 0 300 ^ "..."
         else preview
       in
       base ^ merge_suffix ^ " -- " ^ short ^ "]"
@@ -2070,6 +2081,62 @@ let spawn_task ?(on_task_started = fun _ -> Lwt.return_unit)
 let default_spawn_task ~on_task_started ~on_task_finished ~db task =
   spawn_task ~on_task_started ~on_task_finished ~db task
 
+let spawn_local_task ~run_turn ~on_task_started ~on_task_finished ~db
+    (task : task) =
+  Hashtbl.replace running task.id ();
+  let _set =
+    set_running ~db ~id:task.id ~branch:"" ~worktree_path:"" ~log_path:""
+      ~pid:(-1)
+  in
+  Lwt.async (fun () ->
+      Lwt.finalize
+        (fun () ->
+          let open Lwt.Syntax in
+          let* () = on_task_started task in
+          let ephemeral_key =
+            Printf.sprintf "__cron:%d:%d" task.id
+              (int_of_float (Unix.gettimeofday ()))
+          in
+          Lwt.catch
+            (fun () ->
+              let* result =
+                run_turn ~key:ephemeral_key ~message:task.prompt ()
+              in
+              let prompt_short =
+                if String.length task.prompt > 200 then
+                  String.sub task.prompt 0 200 ^ "..."
+                else task.prompt
+              in
+              let result_short =
+                if String.length result > 300 then
+                  String.sub result 0 300 ^ "..."
+                else result
+              in
+              let rich_preview =
+                Printf.sprintf "[cron ephemeral] prompt: %s\n\nresponse: %s"
+                  prompt_short result_short
+              in
+              finish ~db ~id:task.id ~status:Succeeded
+                ~result_preview:rich_preview;
+              let* () =
+                match get_task ~db ~id:task.id with
+                | Some t -> on_task_finished t
+                | None -> Lwt.return_unit
+              in
+              Lwt.return_unit)
+            (fun exn ->
+              finish ~db ~id:task.id ~status:Failed
+                ~result_preview:(Printexc.to_string exn);
+              let* () =
+                match get_task ~db ~id:task.id with
+                | Some t -> on_task_finished t
+                | None -> Lwt.return_unit
+              in
+              Lwt.return_unit))
+        (fun () ->
+          Hashtbl.remove running task.id;
+          Lwt.return_unit))
+
 let rec take n = function
   | [] -> []
   | _ when n <= 0 -> []
@@ -2115,6 +2182,16 @@ let start_queued ?max_running_tasks ~db () =
   start_queued_with_callback ?max_running_tasks
     ~on_task_finished:(fun _ -> Lwt.return_unit)
     ~db ()
+
+let start_queued_with_local_runner ~run_turn ?max_running_tasks
+    ~on_task_finished ~on_task_started ~db () =
+  let spawn ~on_task_started ~on_task_finished ~db (task : task) =
+    if task.runner = Local then
+      spawn_local_task ~run_turn ~on_task_started ~on_task_finished ~db task
+    else default_spawn_task ~on_task_started ~on_task_finished ~db task
+  in
+  start_queued_with_callback_impl ?max_running_tasks ~spawn_task:spawn
+    ~on_task_started ~on_task_finished ~db ()
 
 let is_tracked_locally id = Hashtbl.mem running id
 let clear_all_tracked () = Hashtbl.clear running

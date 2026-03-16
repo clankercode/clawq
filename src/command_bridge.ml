@@ -99,6 +99,7 @@ let cmd_cron args =
               { header = "SESSION"; align = Left; min_width = 7; flex = false };
               { header = "SCHEDULE"; align = Left; min_width = 8; flex = false };
               { header = "ENABLED"; align = Left; min_width = 3; flex = false };
+              { header = "EPH"; align = Left; min_width = 3; flex = false };
             ]
           in
           if show_prompt then
@@ -123,6 +124,7 @@ let cmd_cron args =
                   j.session_key;
                   j.schedule_str;
                   (if j.enabled then "yes" else "no");
+                  (if j.ephemeral then "yes" else "no");
                 ]
               in
               if show_prompt then base @ [ j.message ] else base)
@@ -148,6 +150,11 @@ let cmd_cron args =
               Paragraph [ Text "Schedule: "; Code job.schedule_str ];
               Paragraph
                 [ Text "Enabled: "; Text (if job.enabled then "yes" else "no") ];
+              Paragraph
+                [
+                  Text "Ephemeral: ";
+                  Text (if job.ephemeral then "yes" else "no");
+                ];
             ]
             @ (match job.agent_name with
               | Some agent ->
@@ -219,8 +226,13 @@ let cmd_cron args =
   | "add" :: name :: session_key :: schedule :: message -> (
       let db = get_db () in
       Scheduler.init_schema db;
+      let ephemeral = List.mem "--ephemeral" message in
+      let message = List.filter (fun s -> s <> "--ephemeral") message in
       let msg = String.concat " " message in
-      match Scheduler.add_job ~db ~name ~session_key ~message:msg ~schedule with
+      match
+        Scheduler.add_job ~db ~name ~session_key ~message:msg ~schedule
+          ~ephemeral ()
+      with
       | Ok () -> Printf.sprintf "Added cron job '%s'" name
       | Error e -> Printf.sprintf "Error: %s" e)
   | [ "remove"; name ] ->
@@ -297,7 +309,7 @@ let cmd_cron args =
       \  cron list [--prompt|-p]                      - List all jobs \
        (--prompt shows prompt text)\n\
       \  cron show <name>                             - Show job details\n\
-      \  cron add <name> <session> <schedule> <msg>   - Add a job\n\
+      \  cron add <name> <session> <schedule> <msg> [--ephemeral] - Add a job\n\
       \  cron remove <name>                           - Remove a job\n\
       \  cron history <name>                          - Show run history\n\
       \  cron runs [name]                             - Show all run history"

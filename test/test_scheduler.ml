@@ -96,7 +96,7 @@ let test_crud_jobs () =
   Alcotest.(check int) "no jobs initially" 0 (List.length jobs);
   (match
      Scheduler.add_job ~db ~name:"test" ~session_key:"default" ~message:"hello"
-       ~schedule:"every 5m"
+       ~schedule:"every 5m" ()
    with
   | Ok () -> ()
   | Error e -> Alcotest.fail ("add_job failed: " ^ e));
@@ -119,7 +119,7 @@ let test_add_invalid_schedule () =
   Scheduler.init_schema db;
   match
     Scheduler.add_job ~db ~name:"bad" ~session_key:"x" ~message:"msg"
-      ~schedule:"garbage"
+      ~schedule:"garbage" ()
   with
   | Error _ -> ()
   | Ok () -> Alcotest.fail "expected Error for invalid schedule"
@@ -129,7 +129,7 @@ let test_run_history () =
   Scheduler.init_schema db;
   ignore
     (Scheduler.add_job ~db ~name:"hist" ~session_key:"s" ~message:"m"
-       ~schedule:"every 1m");
+       ~schedule:"every 1m" ());
   let run_id = Scheduler.record_run_start ~db ~job_name:"hist" in
   Scheduler.record_run_finish ~db ~run_id ~status:"ok" ~result_preview:"done";
   let runs = Scheduler.get_history ~db ~name:"hist" ~limit:10 in
@@ -145,7 +145,7 @@ let test_get_last_run_time_parses_timestamp () =
   Scheduler.init_schema db;
   ignore
     (Scheduler.add_job ~db ~name:"last" ~session_key:"s" ~message:"m"
-       ~schedule:"every 1m");
+       ~schedule:"every 1m" ());
   ignore (Scheduler.record_run_start ~db ~job_name:"last");
   match Scheduler.get_last_run_time ~db ~job_name:"last" with
   | None -> Alcotest.fail "expected last_run timestamp"
@@ -192,7 +192,7 @@ let test_record_run_delivery_failed () =
   Scheduler.init_schema db;
   ignore
     (Scheduler.add_job ~db ~name:"dfail" ~session_key:"teams:c:u" ~message:"msg"
-       ~schedule:"every 1m");
+       ~schedule:"every 1m" ());
   let run_id = Scheduler.record_run_start ~db ~job_name:"dfail" in
   Scheduler.record_run_finish ~db ~run_id ~status:"delivery_failed"
     ~result_preview:"LLM ok, delivery failed: timeout";
@@ -209,7 +209,7 @@ let test_tick_posts_prompt_via_deliver () =
      Scheduler.init_schema db;
      ignore
        (Scheduler.add_job ~db ~name:"prompt_test" ~session_key:"telegram:42:u"
-          ~message:"what is the weather?" ~schedule:"every 1s");
+          ~message:"what is the weather?" ~schedule:"every 1s" ());
      (* Set channel info so deliver callback is used *)
      let sql =
        "INSERT INTO session_state (session_key, channel, channel_id, turn) \
@@ -246,7 +246,7 @@ let test_tick_posts_prompt_via_notifier () =
      Scheduler.init_schema db;
      ignore
        (Scheduler.add_job ~db ~name:"notify_test" ~session_key:"discord:ch:u"
-          ~message:"daily standup" ~schedule:"every 1s");
+          ~message:"daily standup" ~schedule:"every 1s" ());
      let notified = ref [] in
      let session_mgr = Session.create ~config:Runtime_config.default ~db () in
      Session.register_channel_notifier session_mgr ~key:"discord:ch:u"
@@ -273,7 +273,7 @@ let test_tick_prompt_before_response () =
      Scheduler.init_schema db;
      ignore
        (Scheduler.add_job ~db ~name:"order_test" ~session_key:"telegram:99:u"
-          ~message:"check status" ~schedule:"every 1s");
+          ~message:"check status" ~schedule:"every 1s" ());
      let sql =
        "INSERT INTO session_state (session_key, channel, channel_id, turn) \
         VALUES ('telegram:99:u', 'telegram', '99', 'idle')"
@@ -301,6 +301,77 @@ let test_tick_prompt_before_response () =
          (* Turn may fail before any delivery if no provider,
             but prompt should still be delivered *)
          Alcotest.fail "expected at least prompt delivery");
+     Lwt.return_unit)
+
+let test_add_ephemeral_job () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Scheduler.init_schema db;
+  (match
+     Scheduler.add_job ~db ~name:"eph" ~session_key:"default" ~message:"hello"
+       ~schedule:"every 5m" ~ephemeral:true ()
+   with
+  | Ok () -> ()
+  | Error e -> Alcotest.fail ("add_job failed: " ^ e));
+  match Scheduler.get_job ~db ~name:"eph" with
+  | None -> Alcotest.fail "expected job"
+  | Some j -> Alcotest.(check bool) "ephemeral" true j.ephemeral
+
+let test_add_non_ephemeral_default () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Scheduler.init_schema db;
+  (match
+     Scheduler.add_job ~db ~name:"regular" ~session_key:"default"
+       ~message:"hello" ~schedule:"every 5m" ()
+   with
+  | Ok () -> ()
+  | Error e -> Alcotest.fail ("add_job failed: " ^ e));
+  match Scheduler.get_job ~db ~name:"regular" with
+  | None -> Alcotest.fail "expected job"
+  | Some j -> Alcotest.(check bool) "not ephemeral by default" false j.ephemeral
+
+let test_list_jobs_ephemeral () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Scheduler.init_schema db;
+  ignore
+    (Scheduler.add_job ~db ~name:"e1" ~session_key:"s" ~message:"m"
+       ~schedule:"every 1m" ~ephemeral:true ());
+  ignore
+    (Scheduler.add_job ~db ~name:"e2" ~session_key:"s" ~message:"m"
+       ~schedule:"every 1m" ());
+  let jobs = Scheduler.list_jobs ~db in
+  Alcotest.(check int) "two jobs" 2 (List.length jobs);
+  let j1 = List.find (fun (j : Scheduler.job) -> j.name = "e1") jobs in
+  let j2 = List.find (fun (j : Scheduler.job) -> j.name = "e2") jobs in
+  Alcotest.(check bool) "e1 ephemeral" true j1.ephemeral;
+  Alcotest.(check bool) "e2 not ephemeral" false j2.ephemeral
+
+let test_tick_ephemeral_enqueues_bg_task () =
+  Lwt_main.run
+    (let db = Memory.init ~db_path:":memory:" () in
+     Scheduler.init_schema db;
+     Background_task.init_schema db;
+     ignore
+       (Scheduler.add_job ~db ~name:"eph_tick" ~session_key:"telegram:42:u"
+          ~message:"check status" ~schedule:"every 1s" ~ephemeral:true ());
+     let session_mgr = Session.create ~config:Runtime_config.default ~db () in
+     let open Lwt.Syntax in
+     let* () = Scheduler.tick ~db ~session_mgr () in
+     let runs = Scheduler.get_history ~db ~name:"eph_tick" ~limit:1 in
+     Alcotest.(check int) "one run" 1 (List.length runs);
+     let r = List.hd runs in
+     Alcotest.(check string) "delegated status" "delegated" r.status;
+     Alcotest.(check bool)
+       "preview mentions bg task" true
+       (match r.result_preview with
+       | Some p -> String.length p >= 7 && String.sub p 0 7 = "bg task"
+       | None -> false);
+     let tasks = Background_task.list_tasks ~db in
+     let local_tasks =
+       List.filter
+         (fun (t : Background_task.task) -> t.runner = Background_task.Local)
+         tasks
+     in
+     Alcotest.(check int) "one local bg task" 1 (List.length local_tasks);
      Lwt.return_unit)
 
 let suite =
@@ -339,4 +410,10 @@ let suite =
       test_tick_posts_prompt_via_notifier;
     Alcotest.test_case "tick prompt delivered before response" `Quick
       test_tick_prompt_before_response;
+    Alcotest.test_case "add ephemeral job" `Quick test_add_ephemeral_job;
+    Alcotest.test_case "add non-ephemeral default" `Quick
+      test_add_non_ephemeral_default;
+    Alcotest.test_case "list jobs ephemeral" `Quick test_list_jobs_ephemeral;
+    Alcotest.test_case "tick ephemeral enqueues bg task" `Quick
+      test_tick_ephemeral_enqueues_bg_task;
   ]

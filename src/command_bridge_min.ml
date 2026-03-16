@@ -393,7 +393,9 @@ let cmd_cron args =
       let db = get_db () in
       Scheduler.init_schema db;
       let msg = String.concat " " message in
-      match Scheduler.add_job ~db ~name ~session_key ~message:msg ~schedule with
+      match
+        Scheduler.add_job ~db ~name ~session_key ~message:msg ~schedule ()
+      with
       | Ok () -> Printf.sprintf "Added cron job '%s'" name
       | Error e -> Printf.sprintf "Error: %s" e)
   | [ "remove"; name ] ->

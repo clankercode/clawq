@@ -1892,7 +1892,7 @@ let format_cron ~connector ~db ~session_key action =
         ^ "\n\n"
         ^ Format_adapter.render_table connector ~max_width:80 columns rows
   | CronAdd { name; schedule; message } -> (
-      match Scheduler.add_job ~db ~name ~session_key ~message ~schedule with
+      match Scheduler.add_job ~db ~name ~session_key ~message ~schedule () with
       | Ok () -> format_cron_confirm ~connector "added" name
       | Error e ->
           Format_adapter.bold connector "Error"

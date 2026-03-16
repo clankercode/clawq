@@ -3651,6 +3651,47 @@ let test_runner_session_id_in_summary () =
     "summary contains runner_session" true
     (String_util.contains summary "runner_session: ses_abc123")
 
+let test_local_runner_string_roundtrip () =
+  Alcotest.(check string)
+    "string_of_runner Local" "local"
+    (Background_task.string_of_runner Local);
+  Alcotest.(
+    check
+      (option
+         (Alcotest.testable
+            (fun fmt r ->
+              Format.pp_print_string fmt (Background_task.string_of_runner r))
+            (fun a b ->
+              Background_task.string_of_runner a
+              = Background_task.string_of_runner b))))
+    "runner_of_string local" (Some Background_task.Local)
+    (Background_task.runner_of_string "local")
+
+let test_local_runner_enqueue () =
+  let dir = Filename.temp_dir "clawq-bg-local" "" in
+  Fun.protect
+    (fun () ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      match
+        Background_task.enqueue ~db ~runner:Background_task.Local
+          ~require_git:false ~use_worktree:false ~repo_path:dir
+          ~prompt:"test local" ()
+      with
+      | Ok id -> (
+          match Background_task.get_task ~db ~id with
+          | None -> Alcotest.fail "expected task"
+          | Some task ->
+              Alcotest.(check string)
+                "runner is local" "local"
+                (Background_task.string_of_runner task.runner);
+              Alcotest.(check string)
+                "status is queued" "queued"
+                (Background_task.string_of_status task.status))
+      | Error msg -> Alcotest.fail msg)
+    ~finally:(fun () ->
+      ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote dir))))
+
 let suite =
   [
     Alcotest.test_case "enqueue and list tasks" `Quick
@@ -3886,4 +3927,7 @@ let suite =
       test_runner_session_id_db_roundtrip;
     Alcotest.test_case "runner_session_id in summary" `Quick
       test_runner_session_id_in_summary;
+    Alcotest.test_case "local runner string roundtrip" `Quick
+      test_local_runner_string_roundtrip;
+    Alcotest.test_case "local runner enqueue" `Quick test_local_runner_enqueue;
   ]

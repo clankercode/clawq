@@ -1450,7 +1450,10 @@ let run ~(config : Runtime_config.t) =
                        (notify_background_task_finished ~session_manager ~config
                           ~db));
                 let () =
-                  Background_task.start_queued_with_callback ~db
+                  Background_task.start_queued_with_local_runner
+                    ~run_turn:(fun ~key ~message () ->
+                      Session.turn session_manager ~key ~message ())
+                    ~db
                     ~on_task_finished:
                       (notify_background_task_finished ~session_manager ~config
                          ~db)
