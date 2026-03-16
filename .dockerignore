@@ -1,0 +1,13 @@
+_build
+_build*/
+dist/
+_opam
+.git
+node_modules/
+docs/node_modules/
+reviews/
+_coverage/
+memory/
+*.vo
+*.vos
+*.vok

@@ -3,7 +3,7 @@ SHELL := opam exec --switch=$(SHELL_SWITCH) -- /usr/bin/env bash
 .SHELLFLAGS := -c
 export OPAM_SWITCH := $(SHELL_SWITCH)
 
-.PHONY: bootstrap build restart build-restart build-minimal build-wasm build-opt build-opt-all build-opt-speed build-opt-size build-opt-minimal build-opt-stripped build-opt-stripped-all build-opt-speed-stripped build-opt-size-stripped binary-size-report binary-size-check dependency-audit native-size-report packaging-report flambda-experiment extract extract-check coq-verify coq-check run phase2 benchmark benchmark-quick test test-all test-docker test-run fmt fmt-check ui ui-dev ui-check clean release docker-build docker-run verify-report coverage coverage-summary coverage-switch-setup embed-ui update-fv fv-all
+.PHONY: bootstrap build restart build-restart build-minimal build-wasm build-opt build-opt-all build-opt-speed build-opt-size build-opt-minimal build-opt-stripped build-opt-stripped-all build-opt-speed-stripped build-opt-size-stripped binary-size-report binary-size-check dependency-audit native-size-report packaging-report flambda-experiment extract extract-check coq-verify coq-check run phase2 benchmark benchmark-quick test test-nocontainer test-all test-all-nocontainer test-docker test-run docker-test-image docker-test-clean fmt fmt-check ui ui-dev ui-check clean release docker-build docker-run verify-report coverage coverage-summary coverage-switch-setup embed-ui update-fv fv-all
 
 LOCAL_DUNE_BUILD_DIRS := _build _build_opt_speed _build_opt_size _build_opt_min
 
@@ -22,6 +22,10 @@ BINARY_SIZE_THRESHOLDS := ci/binary-size-thresholds.tsv
 FLAMBDA_BASE_SWITCH ?= clawq-5.1
 FLAMBDA_SWITCH ?= clawq-5.1-flambda
 FLAMBDA_COMPILER ?= ocaml-variants.5.1.1+options
+
+DOCKER_TEST_IMAGE ?= clawq-test:latest
+DOCKER_TEST_BUILD_VOL ?= clawq-test-build
+DOCKER_TEST_SWITCH ?= 5.1
 
 bootstrap:
 	./scripts/bootstrap_coq.sh
@@ -180,14 +184,36 @@ build-wasm:
 	@echo "WASM bytecode built: _build/default/src/main_wasm_exe.bc"
 	@echo "Run with: ocamlrun _build/default/src/main_wasm_exe.bc help"
 
-test:
+test-nocontainer:
 	$(call check_dune_lock,_build)
 	dune exec test/test_main.exe -- test --quick-tests
 
-test-all:
+test-all-nocontainer:
 	$(call check_dune_lock,_build)
 	dune build src/main.exe
 	dune exec test/test_main.exe -- test
+
+docker-test-image:
+	docker build -f Dockerfile.test -t $(DOCKER_TEST_IMAGE) .
+
+test: docker-test-image
+	docker run --rm \
+		-v "$(CURDIR):/home/opam/clawq" \
+		-v $(DOCKER_TEST_BUILD_VOL):/home/opam/_build \
+		-e DUNE_BUILD_DIR=/home/opam/_build \
+		$(DOCKER_TEST_IMAGE) \
+		make test-nocontainer SHELL_SWITCH=$(DOCKER_TEST_SWITCH)
+
+test-all: docker-test-image
+	docker run --rm \
+		-v "$(CURDIR):/home/opam/clawq" \
+		-v $(DOCKER_TEST_BUILD_VOL):/home/opam/_build \
+		-e DUNE_BUILD_DIR=/home/opam/_build \
+		$(DOCKER_TEST_IMAGE) \
+		make test-all-nocontainer SHELL_SWITCH=$(DOCKER_TEST_SWITCH)
+
+docker-test-clean:
+	docker volume rm $(DOCKER_TEST_BUILD_VOL) 2>/dev/null || true
 
 test-docker:
 	$(call check_dune_lock,_build)

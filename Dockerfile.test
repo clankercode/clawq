@@ -1,0 +1,14 @@
+FROM ocaml/opam:ubuntu-24.04-ocaml-5.1
+
+RUN sudo apt-get update && \
+    sudo apt-get install -y libsqlite3-dev libgmp-dev pkg-config && \
+    sudo rm -rf /var/lib/apt/lists/*
+
+WORKDIR /home/opam/clawq
+
+COPY --chown=opam:opam clawq.opam dune-project ./
+
+RUN opam install . --deps-only --with-test -y
+
+# Pre-create build dir so named volume inherits opam ownership
+RUN mkdir -p /home/opam/_build
