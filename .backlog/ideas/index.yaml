@@ -208,7 +208,14 @@ ideas:
       status: done
       tags: []
       title: 'Skills: Deprecate json in favor of md based skills. If we support command injection (syntax is like: ''!`cmd | grep blah | another_cmd`'' i think, research it), then we can fully deprecate json skills i think and replace with markdown? also if scripts in the skill dir are automatically added to path, or it''s run from that skills directory, then we can refer to scripts within the skill dir (which I think is part of the point of how md skills work)'
-    - file: I025-add-support-for-agents-synthes.todo
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 10
+      file: I025-add-support-for-agents-synthes.todo
       id: I025
+      priority: medium
+      status: in_progress
+      tags: []
+      title: Add support for agents -- synthesize agent templates using reference projects (opencode, codex, etc in ~/src/ or ~/src/pag-server/ref-projects/), search online for best templates for planning, coding, etc, use the relevant `better-*` skills, and add these as builtins. We need to support user-supplied agent templates too.
     - file: I026-pair-coding-use-agents-support.todo
       id: I026
