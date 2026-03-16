@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B500
+priority: high
+status: pending
+tags: []
+title: Write a Dockerfile used for running tests/build in isolation (mostly tests). It should have all needed dependencies, and we should be able to run eg `make test` and have it automatically run in docker. We should move the current `make test` to `make test-nocontainer` (which CI can use)
+---
+
+Write a Dockerfile used for running tests/build in isolation (mostly tests). It should have all needed dependencies, and we should be able to run eg `make test` and have it automatically run in docker. We should move the current `make test` to `make test-nocontainer` (which CI can use)

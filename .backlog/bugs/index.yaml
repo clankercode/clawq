@@ -496,3 +496,4 @@ bugs:
     - file: B497-tools-skills-table-shows-stale.todo
     - file: B498-add-acp-agent-client-protocol.todo
     - file: B499-tool-call-sometimes-not-sent-t.todo
+    - file: B500-write-a-dockerfile-used-for-ru.todo
