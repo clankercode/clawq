@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-16T01:52:04Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B501
 priority: high
-status: pending
+started_at: "2026-03-16T01:52:04Z"
+status: in_progress
 tags: []
 title: Cron jobs should have an option to run in an ephemeral thread and have the result sent over to the 'main' thread. We should reuse the bg task system ith a local runner (ie one that is run by clawq and so the session is accessible in the DB)
 ---
