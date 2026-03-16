@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B506
+priority: high
+status: pending
+tags: []
+title: bump verison to 0.2.0
+---
+
+bump verison to 0.2.0

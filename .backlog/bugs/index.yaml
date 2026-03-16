@@ -502,3 +502,4 @@ bugs:
     - file: B503-more-setup-wizards-have-subage.todo
     - file: B504-docker-tests-take-3x-longer-th.todo
     - file: B505-fix-tests-failing-in-docker-at.todo
+    - file: B506-bump-verison-to-0-2-0.todo
