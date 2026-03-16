@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-16T02:08:33Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B502
 priority: high
-status: pending
+started_at: "2026-03-16T02:08:33Z"
+status: in_progress
 tags: []
 title: Have 3+ subagents (claude-sonnet-4-6) research the codebase and brainstorm improvements to docs/ and README.md (and any other docs, help messages, etc). Present these to the user for review and implement what the user decides.
 ---
