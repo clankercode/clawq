@@ -1198,6 +1198,7 @@ let reset mgr ~key =
                       "Session reset cleared %d pending inbound queue rows for \
                        %s"
                       pending_cleared key);
+              Memory.archive_session ~db ~session_key:key;
               Memory.clear_session ~db ~session_key:key
           | None -> ()
         in

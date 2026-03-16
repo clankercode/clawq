@@ -149,6 +149,45 @@ let purge_older_than ~db ~max_age_days =
   in
   match Sqlite3.exec db sql with Sqlite3.Rc.OK -> Sqlite3.changes db | _ -> 0
 
+let list_for_session ~db ~session_key =
+  let sql =
+    "SELECT summary_id, session_key, tool_name, original_content, \
+     summary_content, context_snippet, original_bytes, original_lines, \
+     original_tokens_est, summary_bytes, summary_lines, summary_tokens_est, \
+     model_used, created_at FROM summaries WHERE session_key = ? ORDER BY \
+     created_at ASC"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT session_key));
+      let rows = ref [] in
+      while Sqlite3.step stmt = Sqlite3.Rc.ROW do
+        let col i = Sqlite3.column stmt i in
+        let to_s = function Sqlite3.Data.TEXT s -> s | _ -> "" in
+        let to_i = function Sqlite3.Data.INT n -> Int64.to_int n | _ -> 0 in
+        rows :=
+          {
+            summary_id = to_s (col 0);
+            session_key = to_s (col 1);
+            tool_name = to_s (col 2);
+            original_content = to_s (col 3);
+            summary_content = to_s (col 4);
+            context_snippet = to_s (col 5);
+            original_bytes = to_i (col 6);
+            original_lines = to_i (col 7);
+            original_tokens_est = to_i (col 8);
+            summary_bytes = to_i (col 9);
+            summary_lines = to_i (col 10);
+            summary_tokens_est = to_i (col 11);
+            model_used = to_s (col 12);
+            created_at = to_s (col 13);
+          }
+          :: !rows
+      done;
+      List.rev !rows)
+
 let generate_id () =
   let bytes = Mirage_crypto_rng.generate 6 in
   let buf = Buffer.create 16 in

@@ -1,4 +1,4 @@
-let schema_version = 21
+let schema_version = 22
 
 type session_activity = Active | Inactive | Any
 
@@ -61,6 +61,16 @@ type queue_row = {
 }
 
 type queue_claim_result = Claim_ok of queue_row | Claim_empty
+
+type session_archive_info = {
+  archive_id : int;
+  session_key : string;
+  archived_at : string;
+  message_count : int;
+  epoch_count : int;
+  first_message_at : string option;
+  last_message_at : string option;
+}
 
 let queue_state_to_string = function
   | Pending -> "pending"
@@ -289,6 +299,75 @@ let init_ec_reports_schema db =
     \     winning_plan TEXT,\n\
     \     fix_task_id INTEGER,\n\
     \     status TEXT NOT NULL DEFAULT 'pending'\n\
+    \   )"
+
+let init_session_archive_schema db =
+  exec_exn db
+    "CREATE TABLE IF NOT EXISTS session_archives (\n\
+    \     archive_id INTEGER PRIMARY KEY AUTOINCREMENT,\n\
+    \     session_key TEXT NOT NULL,\n\
+    \     archived_at TEXT NOT NULL DEFAULT (datetime('now')),\n\
+    \     message_count INTEGER NOT NULL DEFAULT 0,\n\
+    \     epoch_count INTEGER NOT NULL DEFAULT 0,\n\
+    \     first_message_at TEXT,\n\
+    \     last_message_at TEXT\n\
+    \   )";
+  exec_exn db
+    "CREATE INDEX IF NOT EXISTS idx_session_archives_key ON \
+     session_archives(session_key, archive_id DESC)";
+  exec_exn db
+    "CREATE TABLE IF NOT EXISTS session_archive_messages (\n\
+    \     archive_id INTEGER NOT NULL,\n\
+    \     ordinal INTEGER NOT NULL,\n\
+    \     role TEXT NOT NULL,\n\
+    \     content TEXT NOT NULL,\n\
+    \     tool_call_id TEXT,\n\
+    \     tool_name TEXT,\n\
+    \     tool_calls_json TEXT,\n\
+    \     provider_response_items_json TEXT,\n\
+    \     thinking_content TEXT,\n\
+    \     created_at TEXT NOT NULL,\n\
+    \     PRIMARY KEY (archive_id, ordinal),\n\
+    \     FOREIGN KEY (archive_id) REFERENCES session_archives(archive_id) ON \
+     DELETE CASCADE\n\
+    \   )";
+  exec_exn db
+    "CREATE TABLE IF NOT EXISTS session_archive_epochs (\n\
+    \     id INTEGER PRIMARY KEY AUTOINCREMENT,\n\
+    \     archive_id INTEGER NOT NULL,\n\
+    \     orig_epoch_id INTEGER,\n\
+    \     ordinal INTEGER NOT NULL,\n\
+    \     message_count INTEGER NOT NULL DEFAULT 0,\n\
+    \     first_message_at TEXT,\n\
+    \     last_message_at TEXT,\n\
+    \     orig_archived_at TEXT,\n\
+    \     FOREIGN KEY (archive_id) REFERENCES session_archives(archive_id) ON \
+     DELETE CASCADE\n\
+    \   )";
+  exec_exn db
+    "CREATE TABLE IF NOT EXISTS session_archive_epoch_messages (\n\
+    \     archive_epoch_id INTEGER NOT NULL,\n\
+    \     ordinal INTEGER NOT NULL,\n\
+    \     role TEXT NOT NULL,\n\
+    \     content TEXT NOT NULL,\n\
+    \     tool_call_id TEXT,\n\
+    \     tool_name TEXT,\n\
+    \     tool_calls_json TEXT,\n\
+    \     provider_response_items_json TEXT,\n\
+    \     thinking_content TEXT,\n\
+    \     created_at TEXT NOT NULL,\n\
+    \     PRIMARY KEY (archive_epoch_id, ordinal),\n\
+    \     FOREIGN KEY (archive_epoch_id) REFERENCES session_archive_epochs(id) \
+     ON DELETE CASCADE\n\
+    \   )";
+  exec_exn db
+    "CREATE TABLE IF NOT EXISTS session_archive_metadata (\n\
+    \     archive_id INTEGER PRIMARY KEY,\n\
+    \     session_state_json TEXT,\n\
+    \     workspace_state_json TEXT,\n\
+    \     summaries_json TEXT,\n\
+    \     FOREIGN KEY (archive_id) REFERENCES session_archives(archive_id) ON \
+     DELETE CASCADE\n\
     \   )"
 
 let add_thinking_content_columns db =
@@ -552,6 +631,9 @@ let migrate_schema db current_version =
            "ALTER TABLE request_stats ADD COLUMN cached_tokens INTEGER"
        with _ -> ());
       set_schema_version db schema_version
+  | 21 ->
+      init_session_archive_schema db;
+      set_schema_version db schema_version
   | n when n = schema_version ->
       init_session_schema db;
       init_inbound_queue_schema db;
@@ -563,7 +645,8 @@ let migrate_schema db current_version =
       init_model_discovery_state_schema db;
       Summary_store.init_schema db;
       init_pending_questions_schema db;
-      init_ec_reports_schema db
+      init_ec_reports_schema db;
+      init_session_archive_schema db
   | n ->
       failwith
         (Printf.sprintf "DB uses future schema version %d (current=%d)" n
@@ -646,6 +729,7 @@ let init ~db_path ?(search_enabled = false) () =
   init_quota_cache_schema db;
   init_postmortems_schema db;
   Summary_store.init_schema db;
+  init_session_archive_schema db;
   db
 
 let store_message ~db ~session_key (msg : Provider.message) =
@@ -954,6 +1038,419 @@ let clear_session ~db ~session_key =
   clear "DELETE FROM session_workspace_state WHERE session_key = ?";
   clear "DELETE FROM inbound_queue WHERE session_key = ?";
   Summary_store.delete_for_session ~db ~session_key
+
+let insert_archive_raw_message ~db ~table_name ~id_column ~id_value ~ordinal
+    (row : raw_message) =
+  let sql =
+    Printf.sprintf
+      "INSERT INTO %s (%s, ordinal, role, content, tool_call_id, tool_name, \
+       tool_calls_json, provider_response_items_json, thinking_content, \
+       created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      table_name id_column
+  in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.INT (Int64.of_int id_value)));
+      ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int ordinal)));
+      ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.TEXT row.role));
+      ignore (Sqlite3.bind stmt 4 (Sqlite3.Data.TEXT row.content));
+      ignore
+        (Sqlite3.bind stmt 5
+           (match row.tool_call_id with
+           | Some v -> Sqlite3.Data.TEXT v
+           | None -> Sqlite3.Data.NULL));
+      ignore
+        (Sqlite3.bind stmt 6
+           (match row.tool_name with
+           | Some v -> Sqlite3.Data.TEXT v
+           | None -> Sqlite3.Data.NULL));
+      ignore
+        (Sqlite3.bind stmt 7
+           (match row.tool_calls_json with
+           | Some v -> Sqlite3.Data.TEXT v
+           | None -> Sqlite3.Data.NULL));
+      ignore
+        (Sqlite3.bind stmt 8
+           (match row.provider_response_items_json with
+           | Some v -> Sqlite3.Data.TEXT v
+           | None -> Sqlite3.Data.NULL));
+      ignore
+        (Sqlite3.bind stmt 9
+           (match row.thinking_content with
+           | Some v -> Sqlite3.Data.TEXT v
+           | None -> Sqlite3.Data.NULL));
+      ignore (Sqlite3.bind stmt 10 (Sqlite3.Data.TEXT row.created_at));
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.DONE -> ()
+      | rc ->
+          failwith
+            (Printf.sprintf "SQLite error: %s (sql: INSERT INTO %s ...)"
+               (Sqlite3.Rc.to_string rc) table_name))
+
+let archive_session ~db ~session_key =
+  let live_messages = load_raw_history ~db ~session_key in
+  let epoch_sql =
+    "SELECT id, message_count, first_message_at, last_message_at, archived_at \
+     FROM session_log_epochs WHERE session_key = ? ORDER BY id ASC"
+  in
+  let epoch_stmt = Sqlite3.prepare db epoch_sql in
+  ignore (Sqlite3.bind epoch_stmt 1 (Sqlite3.Data.TEXT session_key));
+  let epochs = ref [] in
+  while Sqlite3.step epoch_stmt = Sqlite3.Rc.ROW do
+    let text_opt i =
+      match Sqlite3.column epoch_stmt i with
+      | Sqlite3.Data.TEXT s -> Some s
+      | _ -> None
+    in
+    let epoch_id =
+      match Sqlite3.column epoch_stmt 0 with
+      | Sqlite3.Data.INT n -> Int64.to_int n
+      | _ -> 0
+    in
+    let message_count =
+      match Sqlite3.column epoch_stmt 1 with
+      | Sqlite3.Data.INT n -> Int64.to_int n
+      | _ -> 0
+    in
+    epochs :=
+      (epoch_id, message_count, text_opt 2, text_opt 3, text_opt 4) :: !epochs
+  done;
+  ignore (Sqlite3.finalize epoch_stmt);
+  let epochs = List.rev !epochs in
+  let session_state_json =
+    let sql =
+      "SELECT turn, channel, channel_id, response_sent_at, last_active, \
+       keepalive_enabled, heartbeat_enabled, model_override FROM session_state \
+       WHERE session_key = ?"
+    in
+    let stmt = Sqlite3.prepare db sql in
+    ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT session_key));
+    let result =
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.ROW ->
+          let text_opt i =
+            match Sqlite3.column stmt i with
+            | Sqlite3.Data.TEXT s -> Some s
+            | _ -> None
+          in
+          let int_opt i =
+            match Sqlite3.column stmt i with
+            | Sqlite3.Data.INT n -> Some (Int64.to_int n)
+            | _ -> None
+          in
+          let json_opt key = function
+            | Some v -> (key, `String v)
+            | None -> (key, `Null)
+          in
+          Some
+            (Yojson.Safe.to_string
+               (`Assoc
+                  [
+                    json_opt "turn" (text_opt 0);
+                    json_opt "channel" (text_opt 1);
+                    json_opt "channel_id" (text_opt 2);
+                    json_opt "response_sent_at" (text_opt 3);
+                    json_opt "last_active" (text_opt 4);
+                    ( "keepalive_enabled",
+                      `Int (Option.value ~default:0 (int_opt 5)) );
+                    ( "heartbeat_enabled",
+                      `Int (Option.value ~default:0 (int_opt 6)) );
+                    json_opt "model_override" (text_opt 7);
+                  ]))
+      | _ -> None
+    in
+    ignore (Sqlite3.finalize stmt);
+    result
+  in
+  let workspace_state_json =
+    let sql =
+      "SELECT observed_files_json FROM session_workspace_state WHERE \
+       session_key = ?"
+    in
+    let stmt = Sqlite3.prepare db sql in
+    ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT session_key));
+    let result =
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.ROW -> (
+          match Sqlite3.column stmt 0 with
+          | Sqlite3.Data.TEXT s -> Some s
+          | _ -> None)
+      | _ -> None
+    in
+    ignore (Sqlite3.finalize stmt);
+    result
+  in
+  let summaries = Summary_store.list_for_session ~db ~session_key in
+  if
+    live_messages = [] && epochs = [] && session_state_json = None
+    && workspace_state_json = None
+    && summaries = []
+  then ()
+  else begin
+    exec_exn db "BEGIN TRANSACTION";
+    try
+      let first_at =
+        match live_messages with msg :: _ -> Some msg.created_at | [] -> None
+      in
+      let last_at =
+        match List.rev live_messages with
+        | msg :: _ -> Some msg.created_at
+        | [] -> None
+      in
+      let ins_sql =
+        "INSERT INTO session_archives (session_key, message_count, \
+         epoch_count, first_message_at, last_message_at) VALUES (?, ?, ?, ?, \
+         ?)"
+      in
+      let ins_stmt = Sqlite3.prepare db ins_sql in
+      Fun.protect
+        ~finally:(fun () -> ignore (Sqlite3.finalize ins_stmt))
+        (fun () ->
+          ignore (Sqlite3.bind ins_stmt 1 (Sqlite3.Data.TEXT session_key));
+          ignore
+            (Sqlite3.bind ins_stmt 2
+               (Sqlite3.Data.INT (Int64.of_int (List.length live_messages))));
+          ignore
+            (Sqlite3.bind ins_stmt 3
+               (Sqlite3.Data.INT (Int64.of_int (List.length epochs))));
+          ignore
+            (Sqlite3.bind ins_stmt 4
+               (match first_at with
+               | Some s -> Sqlite3.Data.TEXT s
+               | None -> Sqlite3.Data.NULL));
+          ignore
+            (Sqlite3.bind ins_stmt 5
+               (match last_at with
+               | Some s -> Sqlite3.Data.TEXT s
+               | None -> Sqlite3.Data.NULL));
+          match Sqlite3.step ins_stmt with
+          | Sqlite3.Rc.DONE -> ()
+          | rc ->
+              failwith
+                (Printf.sprintf
+                   "SQLite error: %s (sql: INSERT INTO session_archives ...)"
+                   (Sqlite3.Rc.to_string rc)));
+      let archive_id = Sqlite3.last_insert_rowid db |> Int64.to_int in
+      List.iteri
+        (fun ordinal row ->
+          insert_archive_raw_message ~db ~table_name:"session_archive_messages"
+            ~id_column:"archive_id" ~id_value:archive_id ~ordinal row)
+        live_messages;
+      List.iteri
+        (fun ordinal
+             ( orig_epoch_id,
+               message_count,
+               first_msg_at,
+               last_msg_at,
+               orig_archived_at ) ->
+          let ep_sql =
+            "INSERT INTO session_archive_epochs (archive_id, orig_epoch_id, \
+             ordinal, message_count, first_message_at, last_message_at, \
+             orig_archived_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+          in
+          let ep_stmt = Sqlite3.prepare db ep_sql in
+          Fun.protect
+            ~finally:(fun () -> ignore (Sqlite3.finalize ep_stmt))
+            (fun () ->
+              ignore
+                (Sqlite3.bind ep_stmt 1
+                   (Sqlite3.Data.INT (Int64.of_int archive_id)));
+              ignore
+                (Sqlite3.bind ep_stmt 2
+                   (Sqlite3.Data.INT (Int64.of_int orig_epoch_id)));
+              ignore
+                (Sqlite3.bind ep_stmt 3
+                   (Sqlite3.Data.INT (Int64.of_int ordinal)));
+              ignore
+                (Sqlite3.bind ep_stmt 4
+                   (Sqlite3.Data.INT (Int64.of_int message_count)));
+              ignore
+                (Sqlite3.bind ep_stmt 5
+                   (match first_msg_at with
+                   | Some s -> Sqlite3.Data.TEXT s
+                   | None -> Sqlite3.Data.NULL));
+              ignore
+                (Sqlite3.bind ep_stmt 6
+                   (match last_msg_at with
+                   | Some s -> Sqlite3.Data.TEXT s
+                   | None -> Sqlite3.Data.NULL));
+              ignore
+                (Sqlite3.bind ep_stmt 7
+                   (match orig_archived_at with
+                   | Some s -> Sqlite3.Data.TEXT s
+                   | None -> Sqlite3.Data.NULL));
+              match Sqlite3.step ep_stmt with
+              | Sqlite3.Rc.DONE -> ()
+              | rc ->
+                  failwith
+                    (Printf.sprintf
+                       "SQLite error: %s (sql: INSERT INTO \
+                        session_archive_epochs ...)"
+                       (Sqlite3.Rc.to_string rc)));
+          let archive_epoch_id = Sqlite3.last_insert_rowid db |> Int64.to_int in
+          let msg_sql =
+            "SELECT ordinal, role, content, tool_call_id, tool_name, \
+             tool_calls_json, provider_response_items_json, thinking_content, \
+             created_at FROM session_log_epoch_messages WHERE epoch_id = ? \
+             ORDER BY ordinal ASC"
+          in
+          let msg_stmt = Sqlite3.prepare db msg_sql in
+          ignore
+            (Sqlite3.bind msg_stmt 1
+               (Sqlite3.Data.INT (Int64.of_int orig_epoch_id)));
+          while Sqlite3.step msg_stmt = Sqlite3.Rc.ROW do
+            let text_opt i =
+              match Sqlite3.column msg_stmt i with
+              | Sqlite3.Data.TEXT s -> Some s
+              | _ -> None
+            in
+            let ord =
+              match Sqlite3.column msg_stmt 0 with
+              | Sqlite3.Data.INT n -> Int64.to_int n
+              | _ -> 0
+            in
+            let row =
+              {
+                id = ord;
+                role = (match text_opt 1 with Some s -> s | None -> "");
+                content = (match text_opt 2 with Some s -> s | None -> "");
+                tool_call_id = text_opt 3;
+                tool_name = text_opt 4;
+                tool_calls_json = text_opt 5;
+                provider_response_items_json = text_opt 6;
+                thinking_content = text_opt 7;
+                created_at = (match text_opt 8 with Some s -> s | None -> "");
+              }
+            in
+            insert_archive_raw_message ~db
+              ~table_name:"session_archive_epoch_messages"
+              ~id_column:"archive_epoch_id" ~id_value:archive_epoch_id
+              ~ordinal:ord row
+          done;
+          ignore (Sqlite3.finalize msg_stmt))
+        epochs;
+      let summaries_json =
+        if summaries = [] then None
+        else
+          Some
+            (Yojson.Safe.to_string
+               (`List
+                  (List.map
+                     (fun (s : Summary_store.summary_record) ->
+                       `Assoc
+                         [
+                           ("summary_id", `String s.summary_id);
+                           ("tool_name", `String s.tool_name);
+                           ("original_bytes", `Int s.original_bytes);
+                           ("summary_bytes", `Int s.summary_bytes);
+                           ("model_used", `String s.model_used);
+                           ("created_at", `String s.created_at);
+                         ])
+                     summaries)))
+      in
+      let meta_sql =
+        "INSERT INTO session_archive_metadata (archive_id, session_state_json, \
+         workspace_state_json, summaries_json) VALUES (?, ?, ?, ?)"
+      in
+      let meta_stmt = Sqlite3.prepare db meta_sql in
+      Fun.protect
+        ~finally:(fun () -> ignore (Sqlite3.finalize meta_stmt))
+        (fun () ->
+          ignore
+            (Sqlite3.bind meta_stmt 1
+               (Sqlite3.Data.INT (Int64.of_int archive_id)));
+          ignore
+            (Sqlite3.bind meta_stmt 2
+               (match session_state_json with
+               | Some s -> Sqlite3.Data.TEXT s
+               | None -> Sqlite3.Data.NULL));
+          ignore
+            (Sqlite3.bind meta_stmt 3
+               (match workspace_state_json with
+               | Some s -> Sqlite3.Data.TEXT s
+               | None -> Sqlite3.Data.NULL));
+          ignore
+            (Sqlite3.bind meta_stmt 4
+               (match summaries_json with
+               | Some s -> Sqlite3.Data.TEXT s
+               | None -> Sqlite3.Data.NULL));
+          match Sqlite3.step meta_stmt with
+          | Sqlite3.Rc.DONE -> ()
+          | rc ->
+              failwith
+                (Printf.sprintf
+                   "SQLite error: %s (sql: INSERT INTO \
+                    session_archive_metadata ...)"
+                   (Sqlite3.Rc.to_string rc)));
+      exec_exn db "COMMIT"
+    with exn ->
+      (try exec_exn db "ROLLBACK" with _ -> ());
+      Logs.warn (fun m ->
+          m "Failed to archive session %s: %s" session_key
+            (Printexc.to_string exn))
+  end
+
+let list_archive_sessions ~db () =
+  let sql =
+    "SELECT session_key, COUNT(*) FROM session_archives GROUP BY session_key \
+     ORDER BY MAX(archive_id) DESC"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  let rows = ref [] in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      while Sqlite3.step stmt = Sqlite3.Rc.ROW do
+        let key =
+          match Sqlite3.column stmt 0 with Sqlite3.Data.TEXT s -> s | _ -> ""
+        in
+        let count =
+          match Sqlite3.column stmt 1 with
+          | Sqlite3.Data.INT n -> Int64.to_int n
+          | _ -> 0
+        in
+        if key <> "" then rows := (key, count) :: !rows
+      done;
+      List.rev !rows)
+
+let list_archives_for_session ~db ~session_key =
+  let sql =
+    "SELECT archive_id, session_key, archived_at, message_count, epoch_count, \
+     first_message_at, last_message_at FROM session_archives WHERE session_key \
+     = ? ORDER BY archive_id DESC"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT session_key));
+  let rows = ref [] in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      while Sqlite3.step stmt = Sqlite3.Rc.ROW do
+        let text_opt i =
+          match Sqlite3.column stmt i with
+          | Sqlite3.Data.TEXT s -> Some s
+          | _ -> None
+        in
+        let int_val i =
+          match Sqlite3.column stmt i with
+          | Sqlite3.Data.INT n -> Int64.to_int n
+          | _ -> 0
+        in
+        rows :=
+          {
+            archive_id = int_val 0;
+            session_key = (match text_opt 1 with Some s -> s | None -> "");
+            archived_at = (match text_opt 2 with Some s -> s | None -> "");
+            message_count = int_val 3;
+            epoch_count = int_val 4;
+            first_message_at = text_opt 5;
+            last_message_at = text_opt 6;
+          }
+          :: !rows
+      done;
+      List.rev !rows)
 
 let store_session_workspace_state ~db ~session_key
     ~observed_active_workspace_files =

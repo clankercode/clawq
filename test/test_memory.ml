@@ -90,7 +90,7 @@ let test_init_double_call () =
 let test_init_schema_version_is_20 () =
   let db = Memory.init ~db_path:":memory:" () in
   Alcotest.(check int)
-    "schema version is 21" 21
+    "schema version is 22" 22
     (query_single_int db "SELECT version FROM schema_version")
 
 let test_init_creates_session_persistence_tables () =
@@ -121,7 +121,22 @@ let test_init_creates_session_persistence_tables () =
     (table_exists db "request_stats");
   Alcotest.(check bool)
     "quota_cache exists" true
-    (table_exists db "quota_cache")
+    (table_exists db "quota_cache");
+  Alcotest.(check bool)
+    "session_archives exists" true
+    (table_exists db "session_archives");
+  Alcotest.(check bool)
+    "session_archive_messages exists" true
+    (table_exists db "session_archive_messages");
+  Alcotest.(check bool)
+    "session_archive_epochs exists" true
+    (table_exists db "session_archive_epochs");
+  Alcotest.(check bool)
+    "session_archive_epoch_messages exists" true
+    (table_exists db "session_archive_epoch_messages");
+  Alcotest.(check bool)
+    "session_archive_metadata exists" true
+    (table_exists db "session_archive_metadata")
 
 let test_migrates_v1_db_to_v4_without_data_loss () =
   with_temp_db (fun db_path ->
@@ -145,7 +160,7 @@ let test_migrates_v1_db_to_v4_without_data_loss () =
       ignore (Sqlite3.db_close db);
       let migrated = Memory.init ~db_path () in
       Alcotest.(check int)
-        "schema version migrated" 21
+        "schema version migrated" 22
         (query_single_int migrated "SELECT version FROM schema_version");
       Alcotest.(check bool)
         "session_state exists after migration" true
@@ -891,7 +906,7 @@ let test_queue_migrate_v4_to_v5 () =
       ignore (Sqlite3.db_close db);
       let migrated = Memory.init ~db_path () in
       Alcotest.(check int)
-        "schema version is 21" 21
+        "schema version is 22" 22
         (query_single_int migrated "SELECT version FROM schema_version");
       Alcotest.(check bool)
         "inbound_queue exists after v4->v5" true
@@ -911,7 +926,7 @@ let test_init_rejects_future_schema_version () =
   with_temp_db (fun db_path ->
       let db = Sqlite3.db_open db_path in
       exec_exn db "CREATE TABLE schema_version (version INTEGER NOT NULL)";
-      exec_exn db "INSERT INTO schema_version (version) VALUES (22)";
+      exec_exn db "INSERT INTO schema_version (version) VALUES (23)";
       exec_exn db
         {|CREATE TABLE messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -937,7 +952,116 @@ let test_init_rejects_future_schema_version () =
       | `Msg msg ->
           Alcotest.(check bool)
             "rejects future version" true
-            (String.starts_with ~prefix:"DB uses future schema version 22" msg))
+            (String.starts_with ~prefix:"DB uses future schema version 23" msg))
+
+(* --- session archive tests --- *)
+
+let test_archive_session_captures_messages () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Memory.store_message ~db ~session_key:"s1" (mk_msg "user" "hello");
+  Memory.store_message ~db ~session_key:"s1" (mk_msg "assistant" "hi back");
+  Memory.archive_session ~db ~session_key:"s1";
+  let count =
+    query_single_int db
+      "SELECT COUNT(*) FROM session_archive_messages WHERE archive_id = \
+       (SELECT archive_id FROM session_archives WHERE session_key = 's1')"
+  in
+  Alcotest.(check int) "archived 2 messages" 2 count;
+  let archive_msg_count =
+    query_single_int db
+      "SELECT message_count FROM session_archives WHERE session_key = 's1'"
+  in
+  Alcotest.(check int) "archive header message_count" 2 archive_msg_count
+
+let test_archive_session_captures_epochs () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Memory.store_message ~db ~session_key:"s1" (mk_msg "user" "old msg");
+  Memory.store_message ~db ~session_key:"s1" (mk_msg "assistant" "old reply");
+  Memory.replace_session_messages ~db ~session_key:"s1"
+    [ mk_msg "assistant" "[compacted]" ];
+  Memory.archive_session ~db ~session_key:"s1";
+  let epoch_count =
+    query_single_int db
+      "SELECT epoch_count FROM session_archives WHERE session_key = 's1'"
+  in
+  Alcotest.(check int) "archived 1 epoch" 1 epoch_count;
+  let epoch_msg_count =
+    query_single_int db
+      "SELECT COUNT(*) FROM session_archive_epoch_messages ae JOIN \
+       session_archive_epochs e ON ae.archive_epoch_id = e.id JOIN \
+       session_archives a ON e.archive_id = a.archive_id WHERE a.session_key = \
+       's1'"
+  in
+  Alcotest.(check int) "epoch messages archived" 2 epoch_msg_count
+
+let test_archive_session_captures_metadata () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Memory.store_message ~db ~session_key:"s1" (mk_msg "user" "hi");
+  Memory.upsert_session_state ~db ~session_key:"s1" ~turn:"agent"
+    ~channel:"telegram" ~channel_id:"42" ();
+  Memory.store_session_workspace_state ~db ~session_key:"s1"
+    ~observed_active_workspace_files:[ ("foo.ml", Some "abc123") ];
+  Memory.archive_session ~db ~session_key:"s1";
+  let state_json =
+    query_single_text_option db
+      "SELECT session_state_json FROM session_archive_metadata WHERE \
+       archive_id = (SELECT archive_id FROM session_archives WHERE session_key \
+       = 's1')"
+  in
+  Alcotest.(check bool) "session state archived" true (state_json <> None);
+  let ws_json =
+    query_single_text_option db
+      "SELECT workspace_state_json FROM session_archive_metadata WHERE \
+       archive_id = (SELECT archive_id FROM session_archives WHERE session_key \
+       = 's1')"
+  in
+  Alcotest.(check bool) "workspace state archived" true (ws_json <> None)
+
+let test_archive_session_empty_is_noop () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Memory.archive_session ~db ~session_key:"empty";
+  let count =
+    query_single_int db
+      "SELECT COUNT(*) FROM session_archives WHERE session_key = 'empty'"
+  in
+  Alcotest.(check int) "no archive for empty session" 0 count
+
+let test_archive_session_multiple_accumulate () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Memory.store_message ~db ~session_key:"s1" (mk_msg "user" "round1");
+  Memory.archive_session ~db ~session_key:"s1";
+  Memory.clear_session ~db ~session_key:"s1";
+  Memory.store_message ~db ~session_key:"s1" (mk_msg "user" "round2");
+  Memory.archive_session ~db ~session_key:"s1";
+  let count =
+    query_single_int db
+      "SELECT COUNT(*) FROM session_archives WHERE session_key = 's1'"
+  in
+  Alcotest.(check int) "two archives accumulated" 2 count
+
+let test_list_archives_for_session () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Memory.store_message ~db ~session_key:"s1" (mk_msg "user" "msg1");
+  Memory.archive_session ~db ~session_key:"s1";
+  Memory.clear_session ~db ~session_key:"s1";
+  Memory.store_message ~db ~session_key:"s1" (mk_msg "user" "msg2");
+  Memory.archive_session ~db ~session_key:"s1";
+  let rows = Memory.list_archives_for_session ~db ~session_key:"s1" in
+  Alcotest.(check int) "two archive rows" 2 (List.length rows);
+  let first = List.hd rows in
+  Alcotest.(check int) "first listed has higher id (DESC)" 1 first.message_count
+
+let test_list_archive_sessions () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Memory.store_message ~db ~session_key:"s1" (mk_msg "user" "a");
+  Memory.archive_session ~db ~session_key:"s1";
+  Memory.store_message ~db ~session_key:"s2" (mk_msg "user" "b");
+  Memory.archive_session ~db ~session_key:"s2";
+  let rows = Memory.list_archive_sessions ~db () in
+  Alcotest.(check int) "two session groups" 2 (List.length rows);
+  let keys = List.map fst rows in
+  Alcotest.(check bool) "s1 present" true (List.mem "s1" keys);
+  Alcotest.(check bool) "s2 present" true (List.mem "s2" keys)
 
 let suite =
   [
@@ -947,7 +1071,7 @@ let suite =
     Alcotest.test_case "init search enabled" `Quick test_init_search_enabled;
     Alcotest.test_case "init search disabled" `Quick test_init_search_disabled;
     Alcotest.test_case "init double call" `Quick test_init_double_call;
-    Alcotest.test_case "init schema version is 21" `Quick
+    Alcotest.test_case "init schema version is 22" `Quick
       test_init_schema_version_is_20;
     Alcotest.test_case "init creates session persistence tables" `Quick
       test_init_creates_session_persistence_tables;
@@ -1040,4 +1164,17 @@ let suite =
       test_queue_migrate_v4_to_v5;
     Alcotest.test_case "init rejects future schema version" `Quick
       test_init_rejects_future_schema_version;
+    Alcotest.test_case "archive session captures messages" `Quick
+      test_archive_session_captures_messages;
+    Alcotest.test_case "archive session captures epochs" `Quick
+      test_archive_session_captures_epochs;
+    Alcotest.test_case "archive session captures metadata" `Quick
+      test_archive_session_captures_metadata;
+    Alcotest.test_case "archive session empty is noop" `Quick
+      test_archive_session_empty_is_noop;
+    Alcotest.test_case "archive session multiple accumulate" `Quick
+      test_archive_session_multiple_accumulate;
+    Alcotest.test_case "list archives for session" `Quick
+      test_list_archives_for_session;
+    Alcotest.test_case "list archive sessions" `Quick test_list_archive_sessions;
   ]

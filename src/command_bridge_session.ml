@@ -132,6 +132,33 @@ let cmd_session args =
                      row.archived_epoch_count pending_suffix keepalive_suffix
                      heartbeat_suffix cost_suffix)
                  sessions))
+  | [ "archives" ] ->
+      let rows = Memory.list_archive_sessions ~db () in
+      if rows = [] then "No session archives found"
+      else
+        String.concat "\n"
+          (List.map
+             (fun (key, count) -> Printf.sprintf "%s  archives=%d" key count)
+             rows)
+  | [ "archives"; session_key ] ->
+      let rows = Memory.list_archives_for_session ~db ~session_key in
+      if rows = [] then
+        Printf.sprintf "No archives found for session %s" session_key
+      else
+        String.concat "\n"
+          (List.map
+             (fun (info : Memory.session_archive_info) ->
+               let time_range =
+                 match (info.first_message_at, info.last_message_at) with
+                 | Some first, Some last ->
+                     Printf.sprintf "  range=%s..%s" first last
+                 | Some first, None -> Printf.sprintf "  from=%s" first
+                 | _ -> ""
+               in
+               Printf.sprintf "#%d  archived_at=%s  messages=%d  epochs=%d%s"
+                 info.archive_id info.archived_at info.message_count
+                 info.epoch_count time_range)
+             rows)
   | [ "epochs"; session_key ] ->
       let epochs = Memory.list_session_epochs ~db ~session_key in
       if
@@ -572,6 +599,7 @@ let cmd_session args =
       "Usage: clawq session <subcommand>\n\
       \  session list [--channel NAME] [--prefix PREFIX] [--active|--inactive] \
        [--main|--non-main]\n\
+      \  session archives [SESSION]\n\
       \  session epochs SESSION\n\
       \  session show SESSION [--epoch current|ID] [--offset N] [--limit N]\n\
       \  session pending SESSION\n\

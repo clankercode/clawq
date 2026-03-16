@@ -714,7 +714,7 @@ let test_schema_migration_12_to_13 () =
             | _ -> -1)
         | _ -> -1)
   in
-  Alcotest.(check int) "schema version 21" 21 version;
+  Alcotest.(check int) "schema version 22" 22 version;
   ignore (Sqlite3.db_close db2);
   try Unix.unlink path with _ -> ()
 
