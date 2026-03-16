@@ -1,0 +1,38 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 10
+id: I027
+priority: medium
+status: pending
+tags:
+    - idea
+    - planning
+title: Autoload CLAUDE.md and AGENTS.md -- be smart about deduplication (often there might be a simlink or direct copy)
+---
+
+# Original Idea
+
+Autoload CLAUDE.md and AGENTS.md -- be smart about deduplication (often there might be a simlink or direct copy)
+
+## Planning Task (Equivalent of /plan-task)
+
+- Run `/plan-task I027` to decompose this idea into actionable work.
+- Confirm placement in the current backlog hierarchy before creating work items.
+
+## Ingest Plan Into backlog
+
+- Create implementation items with `backlog add` and related hierarchy commands (`backlog add-epic`, `backlog add-milestone`, `backlog add-phase`) as needed.
+- Create follow-up defects with `backlog bug` when bug-style work is identified.
+- Record all created IDs below and wire dependencies.
+
+## Created Work Items
+
+- Add created task IDs
+- Add created bug IDs (if any)
+
+## Completion Criteria
+
+- Idea has been decomposed into concrete backlog work items.
+- New items include clear acceptance criteria and dependencies.
+- This idea intake is updated with created IDs and marked done.

@@ -219,3 +219,5 @@ ideas:
       title: Add support for agents -- synthesize agent templates using reference projects (opencode, codex, etc in ~/src/ or ~/src/pag-server/ref-projects/), search online for best templates for planning, coding, etc, use the relevant `better-*` skills, and add these as builtins. We need to support user-supplied agent templates too.
     - file: I026-pair-coding-use-agents-support.todo
       id: I026
+    - file: I027-autoload-claude-md-and-agents.todo
+      id: I027
