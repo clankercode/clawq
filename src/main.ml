@@ -376,6 +376,10 @@ let config_cmd =
       `I ("get KEY", "Get a config value by dot-path.");
       `I ("show [SECTION]", "Display current config (secrets redacted).");
       `I ("search QUERY", "Search config keys matching QUERY.");
+      `S "EXAMPLES";
+      `P "clawq config set providers.openrouter.api_key \"sk-...\"";
+      `P "clawq config set agent_defaults.primary_model \"openrouter:gpt-5.4\"";
+      `P "clawq config set security.tools_enabled true";
     ]
 
 let phase2_cmd = simple "phase2" "Show Phase 2 feature status."
@@ -429,6 +433,13 @@ let cron_cmd =
            1-5\")." );
       `I ("remove NAME", "Remove a cron job by name.");
       `I ("history NAME", "Show the last 10 run records for a job.");
+      `S "EXAMPLES";
+      `P "clawq cron list";
+      `P
+        "clawq cron add morning chat \"0 9 * * 1-5\" \"Good morning, what's \
+         the plan?\"";
+      `P "clawq cron show morning";
+      `P "clawq cron history morning";
     ]
 
 let background_list_cmd =
@@ -630,7 +641,16 @@ let background_cmd =
     (Cmd.info "background"
        ~doc:
          "Manage background coding tasks that run a coding agent in git \
-          worktrees.")
+          worktrees."
+       ~man:
+         [
+           `S "EXAMPLES";
+           `P "clawq background list";
+           `P "clawq background add codex /path/to/repo \"implement feature X\"";
+           `P "clawq background show 3";
+           `P "clawq background logs 3 --follow";
+           `P "clawq background message 3 \"please also fix the tests\"";
+         ])
     [
       background_list_cmd;
       background_show_cmd;
@@ -684,6 +704,12 @@ let delegate_cmd =
           runners."
        ~man:
          [
+           `S "EXAMPLES";
+           `P "clawq delegate \"implement the feature from TODO.md\"";
+           `P
+             "clawq delegate --runner codex --model gpt-5.4 \"fix all failing \
+              tests\"";
+           `P "clawq delegate --repo /path/to/repo \"refactor the auth module\"";
            `S "RELATED";
            `I
              ("background list", "Inspect queued and completed delegated tasks.");

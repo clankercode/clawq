@@ -1,0 +1,168 @@
+---
+title: "Skills"
+description: "Extend clawq with custom SKILL.md definitions"
+section: "runtime"
+order: 6
+---
+
+import Callout from '../../components/Callout.astro';
+
+Skills are user-defined tools that extend the agent without modifying clawq's source code. A skill is described in a `SKILL.md` file with a YAML frontmatter header and a Markdown body. When the agent loads a skill, its instructions are injected as a system message, letting you define reusable prompting patterns, workflows, or shell-assisted operations.
+
+## Discovery Paths
+
+clawq scans for skills at startup and every 10 seconds in the background. The scan checks these directories in order:
+
+1. `<workspace>/.claude-p/skills/` — workspace-local personal skills
+2. `<workspace>/.claude/skills/` — workspace-local shared skills
+3. `~/.clawq/skills/` — personal global skills
+
+Skills found earlier in the list take precedence when names conflict. Each directory is scanned for two patterns:
+- `<name>/SKILL.md` — a subdirectory containing a single skill file
+- `<name>.md` — a flat Markdown file with valid frontmatter
+
+The cache refreshes when a directory's mtime changes, so dropping a new SKILL.md file into place makes it available without restarting the daemon.
+
+## Creating a Skill
+
+A minimal SKILL.md file requires `name` and `description` in the frontmatter:
+
+```markdown
+---
+name: review-and-fix
+description: Review the last diff and fix any issues found
+---
+
+Review the most recent changes in this repository. Look for:
+- Logic errors or edge cases not covered by tests
+- Missing error handling
+- Style inconsistencies
+
+After identifying issues, fix them directly in the affected files.
+```
+
+Save this to `~/.clawq/skills/review-and-fix/SKILL.md` (or as `~/.clawq/skills/review-and-fix.md`).
+
+### Frontmatter Fields
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `name` | Yes | Skill identifier (alphanumeric, underscores, hyphens; max 64 chars) |
+| `description` | Yes | Short description shown to the agent when listing skills |
+| `allowed-tools` | No | Comma-separated list of tool names this skill may use |
+| `model` | No | Override the session model for this skill invocation |
+
+### The `$ARGUMENTS` Placeholder
+
+Use `$ARGUMENTS` in the skill body to accept user-provided input at invocation time:
+
+```markdown
+---
+name: explain-file
+description: Explain what a source file does
+---
+
+Read and explain the file at path: $ARGUMENTS
+
+Cover its purpose, key functions, and how it fits into the broader codebase.
+```
+
+When invoked as `@explain-file src/agent.ml`, the `$ARGUMENTS` token is replaced with `src/agent.ml` before the instructions are injected.
+
+### Command Injections
+
+Use `` !`command` `` in the skill body to embed the output of a shell command directly into the injected instructions:
+
+```markdown
+---
+name: git-status-review
+description: Review current git status and staged changes
+---
+
+Current repository state:
+
+!`git status`
+
+!`git diff --staged`
+
+Based on the above, summarize what changes are staged and whether anything looks wrong.
+```
+
+<Callout type="warning">
+Command injections run at skill invocation time in the agent's workspace. They are subject to the same shell allowlist and workspace_only restrictions as the `shell_exec` tool.
+</Callout>
+
+## Invoking Skills
+
+### @mention syntax
+
+Type `@skill-name` anywhere in a message to inject the skill's instructions alongside your message:
+
+```
+@review-and-fix please also check the migration files
+```
+
+clawq detects the `@` prefix (preceded by whitespace or at the start of the message), looks up the skill by name (case-insensitive), and prepends the expanded instructions as a system message before the agent turn runs.
+
+Multiple skill references in a single message are each expanded and injected.
+
+### /slash command syntax
+
+Skills can also be invoked as slash commands from the web UI or any channel:
+
+```
+/review-and-fix
+/explain-file src/daemon.ml
+```
+
+The part after the skill name becomes `$ARGUMENTS`.
+
+### use_skill tool
+
+The agent can invoke skills programmatically using the `use_skill` built-in tool:
+
+```json
+{
+  "name": "use_skill",
+  "arguments": {
+    "name": "review-and-fix",
+    "arguments": "focus on the auth module"
+  }
+}
+```
+
+## CLI Commands
+
+```bash
+clawq skills list            # List all discovered skills
+clawq skills path            # Show the personal skills directory path
+clawq skills init            # Create the skills directory if it doesn't exist
+```
+
+## Legacy JSON Format
+
+An older JSON skill format is still loaded for backward compatibility. JSON skills are automatically deprecated with a warning at load time:
+
+```json
+{
+  "name": "git_status",
+  "description": "Show git repository status",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "path": {
+        "type": "string",
+        "description": "Repository path (default: current directory)"
+      }
+    }
+  },
+  "command": "git -C {{path}} status",
+  "risk_level": "low"
+}
+```
+
+JSON skills use `{{param_name}}` template substitution and are stored as `.json` files in `~/.clawq/skills/`. Convert them to SKILL.md format when possible — JSON skill support may be removed in a future release.
+
+<Callout type="info">
+The `skill_create` built-in tool creates SKILL.md skills directly from an agent conversation. Use it to persist reusable patterns discovered during a session: `skill_create(name="...", description="...", command="...")`.
+</Callout>

@@ -1,0 +1,189 @@
+---
+title: "Security"
+description: "Security model, sandboxing, and audit logging"
+section: "runtime"
+order: 7
+---
+
+import Callout from '../../components/Callout.astro';
+
+clawq applies layered security controls to tool execution, filesystem access, secret storage, and audit logging. Each layer is designed to be independently verifiable and to fail closed.
+
+## Security Philosophy
+
+The security model prioritizes:
+- **Formal verification** for the most critical path checks (path safety, shell syntax safety)
+- **Defense-in-depth** by running independent OCaml checks alongside the Coq-extracted ones
+- **Least privilege** via workspace isolation and explicit allowlists
+- **Auditability** through tamper-evident logging of every tool invocation
+
+Gaps are explicitly logged as warnings rather than silently permitted.
+
+## Dual Path Safety
+
+File operations (read, write, append, edit) go through two independent path checks before any I/O is performed:
+
+**Coq-extracted check** (`is_path_safe_coq` in `src/tools_builtin_util.ml`): Uses the formally verified `is_path_safe_segs` function extracted from `coq/theories/Clawq/PathSafety.v`. This function operates on path segments and is proven immune to `..` traversal attacks in the segment domain.
+
+**OCaml realpath check** (`is_path_safe_ocaml`): Calls `Unix.realpath` to resolve the canonical filesystem path, then verifies the resolved path starts with the workspace root. This handles symlink-based escapes that operate outside the segment domain.
+
+Both checks must pass for a path to be considered safe:
+
+```
+is_path_safe = is_path_safe_coq AND is_path_safe_ocaml
+```
+
+When the two checks disagree, a warning is logged with the path and discrepancy direction. Disagreement counts are tracked in drift counters and can be inspected for auditing purposes.
+
+## Workspace Isolation
+
+Set `security.workspace_only: true` in config to restrict all tool operations to the configured workspace directory (default: current working directory).
+
+In `workspace_only` mode:
+- File reads and writes are rejected if the resolved path escapes the workspace root
+- `http_get` is restricted to `localhost` addresses only
+- Shell commands are restricted to the default allowlist
+- Unsafe shell syntax is rejected
+- Skills and MCP tools are subject to the same allowlist and syntax checks
+
+## Shell Allowlist
+
+The `shell_exec` tool enforces a fixed allowlist in workspace_only mode. The default allowed commands are:
+
+```
+ls  cat  head  tail  grep  find  wc  sort  uniq  echo  pwd  date
+whoami  which  file  stat  diff  patch  mkdir  touch  git  make
+dune  opam  npm  yarn  jq  sed  awk  tr  cut  tee  tar  zip
+unzip  gzip  gunzip
+```
+
+Commands outside this list are rejected before execution.
+
+Additionally, the following shell syntax characters are rejected to prevent injection via command arguments:
+
+```
+; | & > < ` $ ! \n \r $(...)
+```
+
+Both the allowlist check and the unsafe-syntax check use the dual-check pattern: a Coq-extracted `is_shell_safe` function from `coq/theories/Clawq/ShellSafety.v` runs alongside an independent OCaml regex check. Both must agree for a command to be permitted.
+
+The allowlist can be extended via the `security.extra_allowed_commands` config field.
+
+## Sandbox Backends
+
+When `workspace_only` is enabled and a sandbox backend is available, shell commands are wrapped in a filesystem sandbox. Configure with `security.sandbox_backend`:
+
+**Firejail** (`"firejail"`):
+```
+firejail --private=<workspace> --net=none --quiet --noprofile -- /bin/sh -c <cmd>
+```
+Extra allowed paths are added with `--whitelist=<path>`.
+
+**Bubblewrap** (`"bubblewrap"` or `"bwrap"`):
+```
+bwrap --ro-bind /usr /usr --unshare-all --bind <workspace> <workspace>
+      [extra binds] --tmpfs /tmp --die-with-parent -- /bin/sh -c <cmd>
+```
+System paths `/lib`, `/lib64`, `/bin`, `/etc`, `/dev/null`, `/dev/urandom` are bound read-only. The workspace is bound read-write. Extra allowed paths from config are added as additional bind mounts.
+
+**None** (`"none"`): No sandbox. Used as fallback when neither Firejail nor Bubblewrap is installed.
+
+Auto-detection order: Firejail → Bubblewrap → None. Set `sandbox_backend` explicitly to override.
+
+<Callout type="warning">
+Sandboxing only applies when `workspace_only: true`. With `workspace_only: false` and `sandbox_backend: "none"`, shell commands have full filesystem and network access.
+</Callout>
+
+## Landlock OS Sandboxing
+
+On Linux kernels that support it, clawq can activate Landlock filesystem sandboxing via a C FFI layer in `src/landlock.ml` and `src/landlock_stubs.c`. Landlock operates at the kernel level, independently of Firejail/Bubblewrap.
+
+When `security.landlock_enabled: true` is set, `Landlock.sandbox_workspace` is called at daemon startup:
+
+- **Workspace** (`~/.clawq/workspace` or the configured path): read-write
+- **Config directory** (`~/.clawq/`): read-write
+- **System paths** (`/usr`, `/lib`, `/lib64`, `/etc/ssl`, `/etc/resolv.conf`, `/proc/self`): read-only
+- **`/tmp`**: read-write
+- **Extra read paths** from `security.landlock_extra_read_paths`: read-only
+
+If the kernel does not support Landlock (older than 5.13), a warning is logged and the daemon continues without the sandbox.
+
+<Callout type="info">
+Landlock complements Firejail/Bubblewrap rather than replacing them. Landlock applies to the entire daemon process; Firejail/Bubblewrap wrap individual shell commands.
+</Callout>
+
+## Secret Encryption
+
+Sensitive config values (API keys, bot tokens) can be encrypted at rest using AES-256-GCM. Set `CLAWQ_MASTER_KEY` in your environment and enable encryption:
+
+```bash
+export CLAWQ_MASTER_KEY="your-passphrase"
+
+# Encrypt all secrets in config
+clawq auth encrypt
+
+# Or encrypt a specific value interactively
+clawq config set providers.openai.api_key "<your-key>"
+# clawq will encrypt it automatically if encrypt_secrets=true
+```
+
+Encryption details (`src/secret_store.ml`):
+- Master key is derived from `CLAWQ_MASTER_KEY` via **PBKDF2-SHA256** with 100,000 iterations and a fixed salt `"clawq-secret-store-v1"`
+- Each secret is encrypted with AES-256-GCM using a fresh 12-byte random nonce
+- Encrypted values are stored with the prefix `$ENC:` followed by base64-encoded `nonce || ciphertext`
+- Config values beginning with `$` are treated as environment variable references (`$MY_ENV_VAR`) or encrypted secrets (`$ENC:...`)
+
+<Callout type="warning">
+If `CLAWQ_MASTER_KEY` is not set and the config contains `$ENC:` values, those secrets will fail to decrypt and the affected providers/channels will be unavailable. Set the environment variable before starting the daemon.
+</Callout>
+
+## Audit Log
+
+Every chat message, tool invocation, tool result, config change, and daemon event is written to the `audit_log` table in `~/.clawq/memory.db`. Each row carries:
+
+| Column | Content |
+|--------|---------|
+| `id` | Auto-incremented row ID |
+| `timestamp` | UTC datetime |
+| `event_type` | `chat_message`, `tool_invocation`, `tool_result`, `config_change`, `daemon_event` |
+| `session_key` | Session identifier (where applicable) |
+| `tool_name` | Tool name for invocation/result events |
+| `risk_level` | Risk level of the tool (`low`, `medium`, `high`) |
+| `details` | Preview of message content or argument summary (truncated to 200 chars) |
+| `signature` | HMAC-SHA256 signature of the row content |
+| `prev_hash` | Hash of the previous row for chain integrity |
+
+The signature and chained hash fields enable tamper detection. Use `clawq audit verify` to check the chain integrity:
+
+```bash
+clawq audit list                        # Recent entries
+clawq audit list --limit 100            # More entries
+clawq audit verify                      # Verify chain integrity
+clawq audit export --output audit.json  # Export to JSON
+clawq audit purge --before 2026-01-01   # Purge old entries
+```
+
+Retention is controlled by `security.audit_retention_days` (default: 90 days). The daemon runs periodic cleanup to remove rows older than the retention window.
+
+## Rate Limiting
+
+The HTTP gateway and channel integrations enforce token-bucket rate limiting per IP address, session, and chat ID. The rate limiter (`src/rate_limiter.ml`) is a token bucket implementation verified against the Coq-extracted `Clawq_core.RateLimiter` specification:
+
+- **Rate**: configurable via `security.rate_limit_rpm` (requests per minute, default: 60)
+- **Burst**: `rate_limit_rpm × burst_multiplier` tokens (burst_multiplier defaults to 2)
+- **Scopes**: separate buckets for IP address, session key, and channel chat ID
+- **Cleanup**: idle buckets (no activity for 1 hour) are purged periodically
+
+When a request exceeds the rate limit, it is rejected with HTTP 429. Telegram, Discord, and Slack channels enforce per-chat-ID limits via the same token bucket.
+
+## TOTP Channel Pairing
+
+Browser access to the web UI and Telegram channel pairing use TOTP-based authentication. A TOTP secret is generated during `clawq auth setup` and stored in the config. Pairing tokens are time-limited 6-digit codes compatible with standard authenticator apps (Google Authenticator, Authy, etc.).
+
+```bash
+clawq auth setup          # Generate TOTP secret and show QR code
+clawq auth pair           # Show current pairing token (for CLI-to-channel linking)
+clawq auth status         # Show current auth/encryption configuration
+```
+
+Channel pairing links a Telegram chat or Discord user to a named session without requiring the user to have direct access to the server.

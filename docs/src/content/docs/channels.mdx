@@ -580,16 +580,76 @@ See the [Microsoft Teams bot documentation](https://learn.microsoft.com/en-us/mi
 
 ## Web Gateway
 
-The HTTP gateway (`http_server.ml`) exposes a REST endpoint for direct
-programmatic access:
+The HTTP gateway (`http_server.ml`) exposes a REST API and serves the embedded
+web chat UI. It is always active when the daemon runs and also handles the Slack
+Events API integration.
+
+### Endpoints
+
+#### `POST /chat`
+
+Send a message to the agent.
 
 ```
-POST /chat   — send a message to the agent
-GET  /health — health check
+Body:    { "message": "...", "session_key": "..." }
+Headers: Authorization: Bearer <auth_token>
+      OR x-api-key: <auth_token>
 ```
 
-This is always available when the daemon runs and serves as the foundation for
-the Slack Events API integration.
+When `gateway.require_pairing` is enabled, browser clients must first pair via
+`/pair`. API clients with a valid `auth_token` bypass pairing entirely.
+
+#### `GET /chat/stream`
+
+SSE streaming endpoint. Emits events as the agent processes a turn:
+
+| Event | Payload |
+|-------|---------|
+| `message` | Text chunk from the model |
+| `thinking` | Model reasoning block (when thinking is enabled) |
+| `tool_call` | Tool invocation update |
+| `done` | Turn complete |
+| `error` | Error during the turn |
+
+#### `GET /health`
+
+Health check. Returns `{"status":"ok"}` when the daemon is running.
+
+#### `GET /commands`
+
+Returns slash command metadata used for autocomplete in the web UI.
+
+#### `GET /ui-version`
+
+Returns the current embedded UI version hash. The web UI polls this to detect
+when a reload is needed after a daemon update.
+
+#### `POST /pair`
+
+Browser pairing endpoint. Takes a 6-digit OTP code (shown by `clawq otp-show`)
+and returns a session token on success.
+
+```
+Body:    { "code": "123456" }
+Returns: { "token": "..." }
+```
+
+#### `GET /`
+
+Serves the embedded web chat UI.
+
+### Auth vs Pairing
+
+There are two ways to authenticate with the gateway:
+
+- **`auth_token`** — a static bearer token configured in `gateway.auth_token`.
+  Suitable for programmatic API access (scripts, integrations). Bypasses pairing.
+- **Browser pairing** — used by the web UI. The user obtains a 6-digit OTP via
+  `clawq otp-show` or a Telegram `/pair` command, submits it to `POST /pair`,
+  and receives a session token valid for the configured pairing TTL.
+
+Set `gateway.require_pairing = true` to require browser clients to pair before
+chatting. This does not affect clients that provide a valid `auth_token`.
 
 ## Adding a New Channel
 

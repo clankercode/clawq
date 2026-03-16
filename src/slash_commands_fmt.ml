@@ -1859,7 +1859,8 @@ let format_cron ~connector ~db ~session_key action =
           Content_dsl.render_document connector doc)
   | CronList ->
       let jobs = Scheduler.list_jobs ~db in
-      if jobs = [] then "No cron jobs configured."
+      if jobs = [] then
+        "No cron jobs configured. Use 'clawq cron add' to create one."
       else
         let columns =
           Table_format.

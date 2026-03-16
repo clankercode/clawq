@@ -8,8 +8,12 @@
 - [Quick Start](https://clawq.org/quickstart): Build from source, configure a provider, open the web UI, add a channel — 5 minutes
 - [Configuration](https://clawq.org/configuration): Full config reference — providers, channels, security, gateway, memory, resilience, MCP, tunnels
 - [CLI Reference](https://clawq.org/cli-reference): Complete command reference for all clawq commands and subcommands
-- [Channels](https://clawq.org/channels): Telegram, Discord, Slack, WhatsApp, LINE, Lark, GitHub setup and Channel.S interface
+- [Channels](https://clawq.org/channels): Telegram, Discord, Slack, GitHub, MS Teams setup and Channel.S interface
 - [Architecture](https://clawq.org/architecture): Coq-to-OCaml build pipeline, runtime module map, library dependency structure
+- [Tools](https://clawq.org/tools): Built-in tools reference, MCP server/client, skills overview, sandbox backends, shell allowlist
+- [Background Tasks](https://clawq.org/background-tasks): Delegate coding tasks to background agent runners with git worktree isolation
+- [Skills](https://clawq.org/skills): SKILL.md definitions, discovery paths, @mention and /slash syntax, custom skill walkthrough
+- [Security](https://clawq.org/security): Security model, dual path safety, sandbox backends, Landlock, secret encryption, audit log, rate limiting
 
 ## Integrations
 

@@ -87,6 +87,11 @@ Structural changes that affect startup (enabling/disabling channels, changing ga
 |----------|---------|
 | `CLAWQ_HOME` | Override the clawq data directory (default: `~/.clawq`). All config, database, logs, and state files are stored here. Propagated through daemon restarts. |
 | `CLAWQ_MASTER_KEY` | Passphrase for encrypting/decrypting API keys at rest (AES-256-GCM via PBKDF2) |
+| `CLAWQ_UPDATE_BINARY_URL` | URL for fetching binary updates when `clawq update` is used. Supports direct binary download or GitHub release URLs. |
+| `CLAWQ_TUNNEL_COMMAND` | Full command to invoke for custom tunnel provider (used when `tunnel.provider` is `"custom"`) |
+| `CLAWQ_TUNNEL_URL_REGEX` | Regex with a capture group used to extract the public URL from the custom tunnel command's output |
+| `CLAWQ_TUNNEL_URL` | Static URL override for Cloudflare quick tunnels when URL extraction is not needed |
+| `CLAWQ_DEBUG_HTTP` | Set to `1` to enable HTTP debug logging (saves all requests/responses to HAR files). Same effect as `log.debug_http: true` in config. |
 
 When `security.encrypt_secrets` is `true` and `CLAWQ_MASTER_KEY` is set, API keys are automatically decrypted at runtime. Encrypted values are stored with a `$ENC:` prefix.
 
@@ -353,6 +358,49 @@ The gateway root `/` serves the embedded web UI. Supporting endpoints include `/
 | `enabled` | `false` | Enable the MCP server (JSON-RPC via stdio) |
 | `exposed_tools` | all | Array of tool names to expose (omit for all) |
 
+### mcp_servers (MCP Client)
+
+Connect clawq to external MCP servers to discover and invoke their tools. Configuration is read from a separate file at `~/.clawq/mcp_servers.json` (a JSON array of server entries):
+
+```json
+[
+  {
+    "name": "my-server",
+    "command": "node",
+    "args": ["/path/to/server.js"],
+    "env": {
+      "MY_VAR": "value"
+    }
+  },
+  {
+    "name": "remote-server",
+    "url": "http://localhost:3000/mcp",
+    "headers": {
+      "Authorization": "Bearer mytoken"
+    }
+  }
+]
+```
+
+**stdio-based server fields:**
+
+| Field | Description |
+|-------|-------------|
+| `name` | Unique identifier for the server |
+| `command` | Executable to spawn |
+| `args` | Array of arguments passed to the command |
+| `env` | Object of extra environment variables injected into the process |
+
+**HTTP-based server fields:**
+
+| Field | Description |
+|-------|-------------|
+| `name` | Unique identifier for the server |
+| `url` | HTTP or HTTPS URL of the MCP endpoint |
+| `headers` | Object of extra request headers (e.g. `Authorization`) |
+
+Tools discovered from external MCP servers are automatically registered and available to the agent during turns.
+
 ### tunnel
 
 ```json
@@ -610,7 +658,37 @@ The daemon reads `HEARTBEAT.md` from the workspace root on each tick.
 
 ### agent_bindings
 
-An array of routing bindings that dispatch messages to specific agents by pattern matching. Each binding specifies a pattern to match against incoming messages and routes matching messages to a named agent configuration.
+An array of routing rules that dispatch incoming messages to named agent configurations by matching against a user or channel identifier.
+
+```json
+{
+  "agent_bindings": [
+    {
+      "pattern": "user:123456789",
+      "agent_name": "coder",
+      "priority": 10
+    },
+    {
+      "pattern": "channel:987654321",
+      "agent_name": "ops",
+      "priority": 5
+    },
+    {
+      "pattern": "default",
+      "agent_name": "default",
+      "priority": 0
+    }
+  ]
+}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `pattern` | Yes | Match target. Use `user:<id>` to match a sender, `channel:<id>` to match a channel, `guild:<id>` to match a Discord server, or `default` to match all unmatched messages |
+| `agent_name` | Yes | Named agent configuration to route to |
+| `priority` | No | Integer priority; higher values are evaluated first. Defaults to `0` |
+
+Bindings are evaluated in priority order (highest first). The first matching pattern wins. The `default` pattern serves as a catch-all when no other binding matches.
 
 ### log
 
@@ -674,6 +752,23 @@ An array of routing bindings that dispatch messages to specific agents by patter
 | `context_window_messages` | `4` | Messages of context to include |
 | `excluded_tools` | `["tool_search", ...]` | Tools exempt from summarization |
 | `max_age_days` | `30` | Days before summaries expire |
+
+## Workspace Files
+
+The workspace directory (`~/.clawq/workspace/` by default, or `$CLAWQ_HOME/workspace/`) contains Markdown files that are read at the start of each agent turn and included in the system prompt context.
+
+| File | Purpose |
+|------|---------|
+| `EGO.md` | Agent identity and core principles. Takes highest precedence when instructions conflict. |
+| `AGENTS.md` | Operating protocol and routing instructions. Read on every turn. |
+| `SOUL.md` | Extended personality and behavioral guidelines. |
+| `TOOLS.md` | Agent-specific tool notes and usage guidance. |
+| `IDENTITY.md` | Optional supplementary identity context. |
+| `USER.md` | User profile, preferences, and working style. |
+| `HEARTBEAT.md` | Instructions read and executed on each heartbeat tick. |
+| `MEMORY.md` | Curated long-term memory. Loaded only in direct, private sessions. |
+
+These files are created with sensible defaults by `clawq workspace init`. Edit them to customize agent behavior without changing `config.json`. The `workspace_only` security setting restricts file tool operations to this directory.
 
 ## Full Example
 

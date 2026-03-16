@@ -41,7 +41,7 @@ clawq channel                      # list active channels
 clawq config show security         # inspect a specific config section
 ```
 
-See [old-docs/QUICKSTART.md](old-docs/QUICKSTART.md) for a full walkthrough.
+See the [Quick Start guide](https://clawq.org/quickstart) for a full walkthrough.
 
 ## Quick Start
 
@@ -89,8 +89,12 @@ This launches a full interactive TUI wizard (when run in a terminal) to configur
   },
   "channels": {
     "telegram": {
-      "enabled": true,
-      "bot_token": "123456:ABC-..."
+      "accounts": {
+        "main": {
+          "bot_token": "123456:ABC-...",
+          "allow_from": ["*"]
+        }
+      }
     }
   }
 }
@@ -104,7 +108,7 @@ For ChatGPT/Codex subscription auth instead of an API key, add a provider like t
     "openai-codex": {
       "kind": "openai-codex",
       "base_url": "https://chatgpt.com/backend-api/codex",
-      "default_model": "openai-codex/gpt-5.3-codex"
+      "default_model": "openai-codex:gpt-5.3-codex"
     }
   }
 }
@@ -135,15 +139,22 @@ For live UI development, run `make ui-dev`, create `~/.clawq/ui/DEV`, and point 
 ## CLI Commands
 
 ```
-clawq agent           Start the daemon (agent loop, gateway, all configured channels)
+clawq active           Show active 5-hour window usage (cost, tokens, quota)
+clawq agent            Start the daemon (agent loop, gateway, all configured channels)
 clawq audit            View and manage the security audit log
 clawq auth             Show provider auth status, run Codex OAuth login, or encrypt secrets
+clawq background       Inspect and control background coding worktree tasks
+clawq benchmark        Measure tool invocation latency
 clawq capabilities     List all active runtime capabilities
 clawq channel          List configured channels
+clawq completions      Generate shell tab-completion scripts (bash, zsh, fish)
 clawq config           Manage configuration (wizard, get/set/show)
-clawq background       Inspect and control background coding worktree tasks
+clawq costs            Show cumulative LLM costs and token usage
 clawq cron             Manage cron jobs for scheduled agent messages
+clawq debug            Debug utilities (html-preview, http)
+clawq delegate         Queue a high-level background coding handoff
 clawq doctor           Check configuration for common issues
+clawq manifest         Generate connector command manifests (Teams, Telegram)
 clawq mcp              Start the MCP server (Model Context Protocol)
 clawq memory           Show memory backend configuration
 clawq migrate          Run database migrations
@@ -151,16 +162,23 @@ clawq models           List configured LLM providers and their default models
 clawq onboard          Interactive setup wizard (or template when not in a TTY)
 clawq otp-show         Show the current browser pairing code and Telegram TOTP codes
 clawq phase2           Show Phase 2 feature status
+clawq plan             Manage multi-stage planning pipelines
+clawq provider         Inspect LLM provider configuration and quota state
 clawq reset-agent      Wipe all session history, cron jobs, and workspace files
+clawq reset-workspace  Reset workspace files without clearing sessions
 clawq runtime          Manage native and Docker runtimes
 clawq service          Manage the clawq system service (start/stop/restart)
+clawq session          Manage agent sessions (list, show, inject, pending, keepalive, heartbeat, epochs, compact)
+clawq setup            Interactive setup wizards for individual integrations
 clawq skills           Manage agent skills (shell-script tool extensions)
 clawq status           Show runtime configuration and daemon status
-clawq delegate         Queue a high-level background coding handoff
 clawq transcribe       Transcribe an audio file using the configured STT provider
 clawq tunnel           Manage a public tunnel to the local gateway (start/stop/status/apply/restart)
-clawq manifest         Generate connector command manifests (Teams, Telegram)
-clawq workspace        Print the current workspace directory
+clawq update           Request a live daemon update and graceful restart
+clawq usage            Show provider quota/usage status
+clawq version          Print version and build info
+clawq watcher          Manage the error correction watcher
+clawq workspace        Print the current workspace directory or manage backups (backup/versions/restore/delete)
 ```
 
 ### Config subcommands
@@ -234,11 +252,16 @@ Once a worktree-backed task has started, `clawq background resume <id>` uses the
 | `make build-opt-speed-stripped` | Stripped optimized speed build |
 | `make build-opt-size-stripped` | Stripped optimized size build |
 | `make build-opt-minimal` | Optimized minimal binary |
-| `make test` | Run all tests |
+| `make test` | Run quick tests (skips Slow-tagged integration tests) |
+| `make test-all` | Run all tests including Slow-tagged integration tests |
+| `make test-nocontainer` | Run tests without Docker container |
+| `make test-run ARGS="..."` | Run specific test suite/cases (see CLAUDE.md for syntax) |
 | `make fmt` | Format code with ocamlformat |
 | `make fmt-check` | Check formatting |
 | `make extract` | Regenerate OCaml from Coq theories |
 | `make extract-check` | Check for extraction drift |
+| `make coq-verify` | Check Coq proofs compile |
+| `make coq-check` | Verify Coq source consistency |
 | `make ui` | Build the web UI and regenerate embedded assets |
 | `make ui-dev` | Run the Bun watcher for web UI development |
 | `make ui-check` | Verify embedded web UI assets are current |
@@ -247,6 +270,11 @@ Once a worktree-backed task has started, `clawq background resume <id>` uses the
 | `make clean` | Clean build artifacts |
 | `make docker-build` | Build Docker image |
 | `make docker-run` | Run daemon in Docker |
+| `make docker-test-image` | Build Docker test isolation image |
+| `make dependency-audit` | Audit opam dependencies |
+| `make fv-all` | Refresh formal verification stats, data, and badges |
+| `make binary-size-report` | Report binary sizes for all build profiles |
+| `make binary-size-check` | Check binary sizes against thresholds |
 | `make verify-report` | Generate formal verification report and badge |
 | `make release` | Build release artifacts |
 

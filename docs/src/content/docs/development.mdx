@@ -281,6 +281,75 @@ Normal daemon startup extracts the embedded bundle into `~/.clawq/ui/` when the 
 5. Run `make extract-check` if Coq/extraction files changed.
 6. Summarize behavior changes in your commit message.
 
+## Adding a New CLI Command
+
+1. **Define the Cmdliner command** in `src/main.ml` — use `simple` for no-arg commands or `with_args` for commands that forward positional args.
+2. **Wire the handler** in `src/command_bridge.ml` — add a match arm in the `handle` function.
+3. **Add a minimal-build stub** in `src/command_bridge_min.ml` — for integration-only commands, return `"<Command> is not available in the minimal build. Use the full clawq binary for this feature."`.
+4. **Decide core vs integrations** — commands that need network (HTTP, WebSocket) belong in `clawq_runtime_integrations`. Pure-CLI commands belong in `clawq_runtime_core`.
+5. **Add tests** in `test/test_command_bridge.ml` or a dedicated test file.
+
+## Adding a New LLM Provider
+
+1. **Create `src/provider_<name>.ml`** implementing the provider interface. See `src/provider_openai.ml` for the standard pattern.
+2. **Register in `src/provider_init.ml`** — add the provider to the initialization map.
+3. **Add pricing** to `src/cost_tracker.ml` — add model entries with input/output token costs.
+4. **Add to models catalog** in `src/models_catalog.ml` if the provider should appear in `clawq models list`.
+5. **Canonical format** — models use `provider:model` format (see `src/pmodel.ml`). The provider name in the canonical format must match the key used in `config.json`.
+
+## Running Individual Tests
+
+The `make test-run` target provides a convenient shorthand for running specific test suites or cases:
+
+```bash
+# List all test suites and cases
+make test-run ARGS="list"
+
+# Run a specific test suite by regex
+make test-run ARGS="test command_bridge"
+
+# Run a specific test case by index
+make test-run ARGS="test command_bridge 20"
+
+# Run multiple indices or ranges
+make test-run ARGS="test scheduler 0,3,8-10"
+```
+
+### Docker Test Isolation
+
+`make test` and `make test-all` automatically run tests inside Docker for a clean, reproducible environment. The image is built from `Dockerfile.test`.
+
+```bash
+# Build the test image (done automatically by make test)
+make docker-test-image
+
+# Run quick tests in container
+make test
+
+# Run all tests (including Slow-tagged) in container
+make test-all
+
+# Run tests outside Docker (faster iteration, skips isolation)
+make test-nocontainer
+
+# Clean the build volume used by Docker test runs
+make docker-test-clean
+```
+
+## Maintenance Notes
+
+### llms-full.txt Updates
+
+When adding, removing, or renaming CLI commands, config fields, tools, gateway endpoints, or channels, update `docs/public/llms-full.txt` to reflect the changes. This file is the complete self-knowledge reference that clawq uses to understand itself.
+
+### Binary Size CI
+
+Optimized builds enforce size thresholds. After adding dependencies or significant code, run `make binary-size-report` to check impact. Update thresholds in `ci/binary-size-thresholds.tsv` if a size increase is justified.
+
+### WASM Build Target
+
+An experimental WASM target exists via `wasm_of_ocaml-compiler`. Build with `make build-wasm`. This is not actively maintained but is preserved for future exploration.
+
 ## Docker
 
 Build and run clawq in a container:
@@ -318,7 +387,12 @@ docker run -it --rm -p 13451:13451 \
 | `make build-opt-speed-stripped` | Stripped optimized speed build |
 | `make build-opt-size-stripped` | Stripped optimized size build |
 | `make build-opt-minimal` | Optimized minimal binary |
-| `make test` | Run all tests |
+| `make test` | Run quick tests in Docker |
+| `make test-all` | Run all tests (including Slow) in Docker |
+| `make test-nocontainer` | Run quick tests without Docker |
+| `make test-run ARGS="..."` | Run specific test suite or case |
+| `make docker-test-image` | Build the Docker test image |
+| `make docker-test-clean` | Remove cached Docker build volume |
 | `make fmt` | Format code |
 | `make fmt-check` | Check formatting |
 | `make extract` | Regenerate OCaml from Coq |

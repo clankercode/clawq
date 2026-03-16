@@ -1,11 +1,11 @@
 opam-version: "2.0"
-synopsis: "Coq port scaffold of nullclaw"
+synopsis: "Formally verified personal AI assistant runtime"
 description: "Coq-first assistant runtime scaffold with extraction to OCaml."
 maintainer: ["xertrov"]
 authors: ["xertrov"]
-license: "MIT"
-homepage: "https://example.invalid/clawq"
-bug-reports: "https://example.invalid/clawq/issues"
+license: "Unlicense"
+homepage: "https://clawq.org"
+bug-reports: "https://github.com/nicholasgasior/clawq/issues"
 depends: [
   "ocaml" {>= "5.1.0"}
   "dune" {>= "3.21"}

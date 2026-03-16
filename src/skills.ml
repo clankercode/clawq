@@ -914,7 +914,10 @@ let skill_list_tool ?workspace_dir () =
             mds
         in
         let all = json_entries @ md_entries in
-        if all = [] then Lwt.return "No skills found."
+        if all = [] then
+          Lwt.return
+            "No skills found. Use 'clawq skills init' to create an example \
+             skill."
         else Lwt.return (Printf.sprintf "Skills:\n%s" (String.concat "\n" all)));
     invoke_stream = None;
     risk_level = Low;

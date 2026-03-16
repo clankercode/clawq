@@ -1,0 +1,178 @@
+---
+title: "Background Tasks & Delegation"
+description: "Delegate coding tasks to background agents with worktree isolation"
+section: "runtime"
+order: 5
+---
+
+import Callout from '../../components/Callout.astro';
+
+Background tasks let you dispatch long-running coding work to an external AI agent runner (Claude, Codex, Kimi, Gemini, Opencode, or Cursor) in a git worktree isolated from your main branch. The task runs asynchronously while clawq tracks its state, captures logs, and optionally merges the result back when complete.
+
+## delegate vs background
+
+`clawq delegate` is the high-level shortcut. It picks a runner automatically, resolves the repo, and queues a single task:
+
+```bash
+clawq delegate "Refactor the scheduler module to use a priority queue"
+```
+
+`clawq background add` gives you full control — explicit runner, model, repo, and branch:
+
+```bash
+clawq background add claude --model anthropic:claude-sonnet-4-6 \
+  ~/src/myproject --branch feature/scheduler-refactor \
+  "Refactor the scheduler module to use a priority queue"
+```
+
+Use `delegate` for quick ad-hoc tasks and `background add` when you need to specify the runner or branch explicitly.
+
+## Runners
+
+Six runners are supported. The daemon selects from available runners when none is specified:
+
+| Runner | Binary | Session ID Strategy | Auto Order |
+|--------|--------|---------------------|------------|
+| `claude` | `claude` | Pre-generated UUID | 1st |
+| `codex` | `codex` | Parse JSONL field `thread_id` | 2nd |
+| `kimi` | `kimi` | Parse log regex `Session=...` | 3rd |
+| `gemini` | `gemini` | Index-based | 4th |
+| `opencode` | `opencode` | Parse log regex `session=ses_...` | 5th |
+| `cursor` | `cursor-agent` | Parse log regex `chat...=...` | 6th |
+
+All runners are invoked with their respective `--yolo`/`--dangerously-*` flags to enable non-interactive operation. Runner definitions live in `src/runner_framework.ml`.
+
+## Worktree Lifecycle
+
+When a task is created with a branch name (or when `delegate` creates one automatically), clawq provisions a git worktree:
+
+1. A new branch is created off the current HEAD of the repo
+2. A worktree is checked out at `~/.clawq/background-worktrees/task-<id>/`
+3. The runner is launched with the worktree as its working directory
+4. Logs are written to `~/.clawq/background-logs/task-<id>.log`
+5. On completion, the worktree can be merged and removed via `background finalize`
+
+Tasks without a branch name run in the repo root directly and have no worktree.
+
+```bash
+# Show worktree path for a task
+clawq background show 42
+```
+
+## Session ID Tracking
+
+Each runner uses a different mechanism to capture its session ID for later resume:
+
+- **Claude**: The session ID is pre-generated as a UUID by clawq before launching the process and passed via `--session-id`. This ID is known before the runner starts.
+- **Codex**: The JSONL output is scanned for the first JSON object containing a `thread_id` field.
+- **Kimi**: The log output is scanned with the regex `Session[=: ]+([^ \t\n\r]+)`.
+- **Opencode**: The log output is scanned with the regex `session[=: ]+(ses_[^ \t\n\r]+)`.
+- **Cursor**: The log output is scanned with the regex `chat[A-Za-z]*[=: ]+([^ \t\n\r]+)`.
+- **Gemini**: Uses index-based tracking (no session ID extracted from output).
+
+The captured session ID is stored in the `background_tasks` table and used for resume operations.
+
+## Resume and Message
+
+Once a task has started and a session ID is captured, you can send follow-up messages to the running agent:
+
+```bash
+# Resume a paused/stopped task using the runner's native session support
+clawq background resume 42
+
+# Send a message and resume (injects the message into the agent's conversation)
+clawq background message 42 "Also update the test suite"
+```
+
+`background resume` uses `By_session_id` mode when a session ID was captured, or `By_last` (resume most recent session) as fallback.
+
+`background message` appends the message to the runner's prompt and resumes, letting you steer an in-progress task without losing context.
+
+## Automerge
+
+When a task is queued with `--automerge` (or via `delegate` with automerge enabled in config), clawq automatically attempts to merge the worktree branch into the repo's main branch on task completion:
+
+1. The worktree is checked for uncommitted changes (dirty check)
+2. The branch is rebased onto the current HEAD of the target branch
+3. If rebase succeeds, the branch is merged and the worktree is removed
+4. If conflicts are detected, the task is marked `dirty_worktree` and the worktree is left intact
+
+To manually finalize after automerge failure or when automerge was not enabled:
+
+```bash
+clawq background finalize 42
+```
+
+This performs the same rebase + merge + cleanup sequence interactively.
+
+## Recovery
+
+If a task fails, gets stuck, or a runner crashes mid-task, use `background recover` to create a new task with the same context but a fresh invocation:
+
+```bash
+# Recover with the same runner
+clawq background recover 42
+
+# Recover with a different runner
+clawq background recover 42 --runner claude
+
+# Recover with a different model
+clawq background recover 42 --model anthropic:claude-opus-4-6
+```
+
+Recovery loads the original task's prompt, repo path, and branch, then queues a new task. The original task is marked as superseded. Tasks support up to 3 automatic retries before requiring manual intervention.
+
+<Callout type="info">
+`background retry` re-queues a failed task unchanged (max 3 retries). `background recover` lets you override the runner or model when retrying — useful when a specific runner is consistently failing on a task.
+</Callout>
+
+## Full Command Reference
+
+```bash
+clawq background list                              # List all tasks
+clawq background show <id>                         # Show task details
+clawq background add <runner> [--model M] <repo>   # Queue a task
+              [--branch <name>] <prompt>
+clawq background wait <id> [--timeout <secs>]      # Wait for completion
+clawq background logs <id> [--lines N]             # Show log lines
+              [--offset N] [--follow]
+clawq background resume <id>                       # Resume a task
+clawq background message <id> <message...>         # Send message and resume
+clawq background cancel <id>                       # Cancel a task
+clawq background retry <id>                        # Re-queue failed task
+clawq background recover <id> [--runner R]         # Recover with new runner
+              [--model M]
+clawq background finalize <id>                     # Rebase, merge, clean up
+```
+
+## Plan Pipeline
+
+`clawq plan` is a higher-level abstraction that chains multiple background agent invocations into a structured pipeline:
+
+1. **Planner** — an agent turn that produces a written plan for the goal
+2. **Plan review** — a review agent that critiques and refines the plan (up to `max_plan_review_iters` iterations)
+3. **Coder** — a background runner that implements the plan in a worktree
+4. **Code review** — a review agent that checks the implementation (up to `max_code_review_iters` iterations)
+
+```bash
+# Start a plan pipeline
+clawq plan start "Add pagination to the sessions list endpoint"
+
+# With options
+clawq plan start "Add pagination" --repo ~/src/myproject --runner claude
+
+# Check progress
+clawq plan show <id>
+
+# View stage logs
+clawq plan logs <id>
+
+# Cancel
+clawq plan cancel <id>
+```
+
+Each pipeline stage runs sequentially. The plan is written to a file (shown in `plan start` output) before the coder stage begins, so you can inspect or edit it before coding starts.
+
+<Callout type="info">
+Use `delegate` for single-shot tasks and `plan` when the goal is complex enough to benefit from an explicit planning and review loop.
+</Callout>

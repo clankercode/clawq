@@ -5,7 +5,7 @@
 
 (package
  (name clawq)
- (synopsis "Coq port scaffold of nullclaw")
+ (synopsis "Formally verified personal AI assistant runtime")
  (description "Coq-first assistant runtime with OCaml extraction pipeline")
   (depends
    dune

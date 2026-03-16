@@ -89,7 +89,8 @@ let cmd_cron args =
       let db = get_db () in
       Scheduler.init_schema db;
       let jobs = Scheduler.list_jobs ~db in
-      if jobs = [] then "No cron jobs configured."
+      if jobs = [] then
+        "No cron jobs configured. Use 'clawq cron add' to create one."
       else
         let columns =
           let base =
@@ -312,7 +313,9 @@ let cmd_cron args =
       \  cron add <name> <session> <schedule> <msg> [--ephemeral] - Add a job\n\
       \  cron remove <name>                           - Remove a job\n\
       \  cron history <name>                          - Show run history\n\
-      \  cron runs [name]                             - Show all run history"
+      \  cron runs [name]                             - Show all run history\n\
+       Schedule format: standard 5-field cron (e.g. \"0 9 * * 1-5\" for \
+       weekdays at 9am)"
 
 let cmd_background args =
   match args with
@@ -583,7 +586,9 @@ let cmd_delegate args =
       | Error msg -> "Error: " ^ msg)
 
 let format_audit_table rows =
-  if rows = [] then "No audit log entries."
+  if rows = [] then
+    "No audit log entries. Entries are created when tools are invoked or \
+     security events occur."
   else
     let columns =
       Table_format.
@@ -723,7 +728,8 @@ let cmd_skills args =
           (Printf.sprintf "Legacy JSON skills (in %s):" (Skills.skills_dir ()));
         List.iter (fun f -> add ("  " ^ f)) json_files
       end;
-      if md_skills = [] && json_files = [] then "No skills found."
+      if md_skills = [] && json_files = [] then
+        "No skills found. Use 'clawq skills init' to create an example skill."
       else String.concat "\n" (List.rev !lines)
   | [ "path" ] ->
       let dirs = Skills.skill_search_dirs ~workspace_dir:workspace () in
@@ -977,9 +983,9 @@ let cmd_tunnel args =
             try Sys.getenv "CLAWQ_TUNNEL_COMMAND" with Not_found -> ""
           in
           if custom_command = "" then begin
-            Printf.eprintf
-              "Custom tunnel requires CLAWQ_TUNNEL_COMMAND env var\n";
-            (None, None)
+            failwith
+              "Custom tunnel requires the CLAWQ_TUNNEL_COMMAND environment \
+               variable to be set."
           end
           else
             let t =
@@ -991,23 +997,38 @@ let cmd_tunnel args =
             in
             Lwt_main.run (Tunnel_custom.start t);
             (Tunnel_custom.get_pid t, Tunnel_custom.get_url t)
-      | _ ->
-          Printf.eprintf "Unknown tunnel provider: %s\n" provider_name;
-          (None, None)
+      | _ -> (None, None)
+    in
+    let is_known_provider =
+      match provider_name with
+      | p
+        when p = Tunnel_cloudflare.name || p = "cf" || p = Tunnel_tailscale.name
+             || p = Tunnel_ngrok.name || p = Tunnel_custom.name ->
+          true
+      | _ -> false
     in
     match args with
     | [ "start" ] -> (
-        let pid_url = tunnel_start () in
-        match pid_url with
-        | Some pid, Some url -> (
-            match save_tunnel_state ~pid ~port:cfg.gateway.port ~url with
-            | Ok () -> Printf.sprintf "Tunnel started: %s (pid %d)" url pid
-            | Error err ->
-                Printf.sprintf
-                  "Tunnel started: %s (pid %d)\n\
-                   Warning: failed to save state: %s"
-                  url pid err)
-        | _ -> "Tunnel started but URL or PID not available")
+        if not is_known_provider then
+          Printf.sprintf
+            "Unknown tunnel provider: %s. Supported: cloudflare, tailscale, \
+             ngrok, custom."
+            provider_name
+        else
+          match try Ok (tunnel_start ()) with Failure msg -> Error msg with
+          | Error msg -> "Error: " ^ msg
+          | Ok pid_url -> (
+              match pid_url with
+              | Some pid, Some url -> (
+                  match save_tunnel_state ~pid ~port:cfg.gateway.port ~url with
+                  | Ok () ->
+                      Printf.sprintf "Tunnel started: %s (pid %d)" url pid
+                  | Error err ->
+                      Printf.sprintf
+                        "Tunnel started: %s (pid %d)\n\
+                         Warning: failed to save state: %s"
+                        url pid err)
+              | _ -> "Tunnel started but URL or PID not available"))
     | [ "stop" ] -> (
         match read_tunnel_state () with
         | None -> "No running tunnel state found"

@@ -1,0 +1,165 @@
+---
+title: "Tools"
+description: "Built-in tools, MCP integration, and custom skills"
+section: "runtime"
+order: 4
+---
+
+import Callout from '../../components/Callout.astro';
+
+The clawq agent loop exposes a set of built-in tools to the LLM during every turn. Tools follow the OpenAI function-calling schema and are registered in a per-session registry. External tools can be added via MCP servers or SKILL.md skill definitions.
+
+## Built-in Tools
+
+The following tools are registered in `src/tools_builtin.ml` and are available to the agent by default when `security.tools_enabled` is `true`.
+
+| Tool | Description | Risk Level |
+|------|-------------|------------|
+| `shell_exec` | Execute a shell command from the allowlist in the workspace | High |
+| `file_read` | Read a file's contents | Low |
+| `file_write` | Write or overwrite a file | Medium |
+| `file_append` | Append content to a file | Medium |
+| `file_edit` | Apply a targeted search-and-replace edit to a file | Medium |
+| `file_edit_lines` | Edit a file by line range | Medium |
+| `http_get` | Perform an HTTP GET request (localhost-only in workspace_only mode) | Medium |
+| `transcribe` | Transcribe an audio file to text via the configured STT provider | Low |
+| `memory_store` | Store a key-value entry in long-term memory | Low |
+| `memory_recall` | Recall entries from long-term memory by keyword | Low |
+| `memory_forget` | Delete a memory entry by key | Low |
+| `memory_list` | List all stored memory entries | Low |
+| `send_message` | Send a message to the user via the current session or notification channel | Low |
+| `send_poll` | Send a poll with options to the user | Low |
+| `doc_write` | Write or update a workspace document that persists across sessions | Medium |
+| `compact_history` | Summarize and compact older conversation history to free context | Low |
+| `models` | List available models, get the current model, or set the session model | Low |
+| `provider_usage` | Check quota and usage information for configured LLM providers | Low |
+| `use_skill` | Invoke a named SKILL.md skill by loading its instructions as a system message | Low |
+| `skill_create` | Create a new SKILL.md skill saved to `~/.clawq/skills/<name>/SKILL.md` | Medium |
+| `skill_list` | List all available skills (SKILL.md and legacy JSON) | Low |
+
+Additional tools may be registered from MCP servers or skill definitions at session startup.
+
+## Tool Risk Levels
+
+Each tool carries a risk level used to gate execution under certain security policies:
+
+| Level | Meaning |
+|-------|---------|
+| `Low` | Read-only or notification operations with no persistent side effects |
+| `Medium` | Writes to local files or workspace documents; limited network access |
+| `High` | Shell command execution; broad filesystem and process access |
+
+<Callout type="info">
+There is no `Critical` risk level in the current implementation. Risk levels are stored as `Low | Medium | High` in `src/tool.ml` and are surfaced in the audit log for every tool invocation.
+</Callout>
+
+## Deferred Tool Discovery
+
+When the tool registry contains tools marked `deferred = true`, the agent receives a synthetic `tool_search` function alongside the deferred tools' names and descriptions (but not their full parameter schemas). This prevents context bloat from large registries.
+
+When the model calls `tool_search(query)`, the registry searches deferred tools by keyword and returns their full JSON schemas. The model can then call the discovered tool normally.
+
+This mechanism is implemented in `src/tool_registry.ml`:
+- `to_openai_json_with_search` injects the `tool_search` stub when any deferred tool exists
+- `search` scores deferred tools by keyword match against name and description
+
+## Shell Allowlist
+
+The `shell_exec` tool enforces a fixed allowlist of permitted commands when `workspace_only` mode is active. The default allowlist (`default_shell_allowlist` in `src/tools_builtin_util.ml`) contains:
+
+```
+ls  cat  head  tail  grep  find  wc  sort  uniq  echo  pwd  date
+whoami  which  file  stat  diff  patch  mkdir  touch  git  make
+dune  opam  npm  yarn  jq  sed  awk  tr  cut  tee  tar  zip
+unzip  gzip  gunzip
+```
+
+Commands outside this list are rejected with an error. Unsafe shell syntax is also rejected — specifically: `;`, `|`, `&`, `>`, `<`, backticks, `$`, `!`, newline, and `$()` substitution.
+
+Both checks use dual-layer validation:
+- **Coq-extracted check**: formally verified `is_shell_safe` from `coq/theories/Clawq/ShellSafety.v`
+- **OCaml check**: independent regex-based check for defense-in-depth
+
+Divergence between the two is logged as a warning.
+
+## Sandbox Backends
+
+The `shell_exec` tool can wrap commands in a filesystem sandbox via `src/sandbox.ml`. The backend is selected by the `security.sandbox_backend` config key:
+
+| Backend | Config value | Description |
+|---------|-------------|-------------|
+| **Firejail** | `"firejail"` | Uses `firejail --private=<workspace>` with `--net=none`. Detected automatically if `firejail` is in `PATH`. |
+| **Bubblewrap** | `"bubblewrap"` or `"bwrap"` | Uses `bwrap --unshare-all` with explicit bind mounts for `/usr`, `/lib`, `/lib64`, `/bin`, `/etc`, `/dev`, and the workspace. Detected automatically if `bwrap` is in `PATH`. |
+| **None** | `"none"` | No filesystem isolation. Used as fallback when neither Firejail nor Bubblewrap is available. |
+
+When `workspace_only` is `true` and a backend is available, every shell command is wrapped before execution. `extra_allowed_paths` from config are added as additional bind/whitelist entries.
+
+<Callout type="warning">
+Setting `sandbox_backend: "none"` while `workspace_only: false` disables all filesystem isolation for shell commands. Use this only in trusted environments.
+</Callout>
+
+## MCP Server
+
+`clawq mcp` starts a Model Context Protocol server that exposes the tool registry over JSON-RPC on stdio. This lets any MCP-compatible client (such as Claude Desktop or another LLM framework) invoke clawq's tools directly.
+
+```bash
+clawq mcp
+```
+
+Requirements:
+- `mcp.enabled: true` in config
+- `security.tools_enabled: true` in config
+
+The server implements MCP protocol version `2024-11-05` and handles three methods:
+- `initialize` — handshake and capability negotiation
+- `tools/list` — returns all registered tools with name, description, and input schema
+- `tools/call` — invokes a tool by name with provided arguments
+
+To limit which tools are exposed, set `mcp.exposed_tools` in config to an array of tool names:
+
+```json
+{
+  "mcp": {
+    "enabled": true,
+    "exposed_tools": ["file_read", "shell_exec", "memory_recall"]
+  }
+}
+```
+
+When `exposed_tools` is set, only those tools appear in `tools/list` responses.
+
+## MCP Client
+
+clawq can connect to external MCP servers to discover and use their tools. Configure external servers in `~/.clawq/mcp_servers.json`:
+
+```json
+[
+  {
+    "name": "my-server",
+    "command": "/usr/local/bin/my-mcp-server",
+    "args": ["--port", "3000"],
+    "env": {
+      "MY_API_KEY": "..."
+    }
+  },
+  {
+    "name": "remote-server",
+    "url": "https://my-mcp-server.example.com/mcp",
+    "headers": {
+      "Authorization": "Bearer my-token"
+    }
+  }
+]
+```
+
+Each entry supports either a local process (`command` + `args`) or an HTTP endpoint (`url`). At session startup the MCP client:
+1. Spawns or connects to the server
+2. Performs the MCP initialize handshake
+3. Calls `tools/list` to discover available tools
+4. Registers discovered tools in the session registry with `risk_level = Medium`
+
+Discovered tools proxy their invocations back to the upstream server via `tools/call`.
+
+## Skills
+
+Skills are user-defined tools backed by SKILL.md files. They extend the agent without requiring code changes. See the [Skills](/skills) page for the full reference.

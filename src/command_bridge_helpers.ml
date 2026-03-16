@@ -573,7 +573,7 @@ let cmd_status () =
   add (Printf.sprintf "  memory backend: %s" cfg.memory.backend);
   add (Printf.sprintf "  providers: %d configured" (List.length cfg.providers));
   (match read_daemon_state () with
-  | None -> add "  daemon: not running"
+  | None -> add "  daemon: not running (start with 'clawq agent')"
   | Some json -> (
       let open Yojson.Safe.Util in
       try

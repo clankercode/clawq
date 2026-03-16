@@ -170,10 +170,12 @@ let cmd_models args =
       \  set-default MODEL       Set default model"
 
 let cmd_usage _ =
-  "Usage command requires full runtime. Use 'clawq' binary for quota fetching."
+  "Usage is not available in the minimal build. Use the full clawq binary for \
+   this feature."
 
 let cmd_active _ =
-  "Active usage command requires full runtime. Use 'clawq' binary."
+  "Active is not available in the minimal build. Use the full clawq binary for \
+   this feature."
 
 let cmd_channel () =
   let cfg = get_config () in
@@ -275,8 +277,8 @@ let cmd_auth args =
   | [ "codex-login"; _ ]
   | [ "codex-status"; _ ]
   | [ "codex-logout"; _ ] ->
-      "Codex OAuth auth commands are disabled in minimal build. Use full \
-       'clawq' binary."
+      "Codex OAuth is not available in the minimal build. Use the full clawq \
+       binary for this feature."
   | [ "encrypt" ] ->
       if not (get_config ()).security.encrypt_secrets then
         "Secret encryption is disabled. Set security.encrypt_secrets to true \
@@ -349,7 +351,8 @@ let cmd_cron args =
       let db = get_db () in
       Scheduler.init_schema db;
       let jobs = Scheduler.list_jobs ~db in
-      if jobs = [] then "No cron jobs configured."
+      if jobs = [] then
+        "No cron jobs configured. Use 'clawq cron add' to create one."
       else
         let columns =
           let base =
@@ -404,15 +407,18 @@ let cmd_cron args =
       if Scheduler.remove_job ~db ~name then
         Printf.sprintf "Removed job '%s'" name
       else Printf.sprintf "No job found with name '%s'" name
-  | _ -> "Usage: clawq-min cron <list|add|remove>"
+  | _ ->
+      "Usage: clawq-min cron <list|add|remove>\n\
+       Schedule format: standard 5-field cron (e.g. \"0 9 * * 1-5\" for \
+       weekdays at 9am)"
 
 let cmd_background _args =
-  "Background task execution is disabled in the minimal build. Use the full \
-   clawq binary."
+  "Background tasks are not available in the minimal build. Use the full clawq \
+   binary for this feature."
 
 let cmd_delegate _args =
-  "Background task delegation is disabled in the minimal build. Use the full \
-   clawq binary."
+  "Delegation is not available in the minimal build. Use the full clawq binary \
+   for this feature."
 
 let cmd_audit args =
   let cfg = get_config () in
@@ -424,7 +430,9 @@ let cmd_audit args =
     match args with
     | [ "list" ] | [] ->
         let rows = Audit.query ~db ~limit:20 () in
-        if rows = [] then "No audit log entries."
+        if rows = [] then
+          "No audit log entries. Entries are created when tools are invoked or \
+           security events occur."
         else
           let columns =
             Table_format.
@@ -496,7 +504,8 @@ let cmd_skills args =
           (Printf.sprintf "Legacy JSON skills (in %s):" (Skills.skills_dir ()));
         List.iter (fun f -> add ("  " ^ f)) json_files
       end;
-      if md_skills = [] && json_files = [] then "No skills found."
+      if md_skills = [] && json_files = [] then
+        "No skills found. Use 'clawq skills init' to create an example skill."
       else String.concat "\n" (List.rev !lines)
   | [ "path" ] ->
       let dirs = Skills.skill_search_dirs ~workspace_dir:workspace () in
@@ -540,8 +549,8 @@ let cmd_manifest = function
 
 let unsupported cmd =
   Printf.sprintf
-    "%s is disabled in minimal build. Use full 'clawq' binary for \
-     server/network integrations."
+    "%s is not available in the minimal build. Use the full clawq binary for \
+     this feature."
     cmd
 
 let handle args =

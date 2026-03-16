@@ -16,6 +16,11 @@ Every clawq command is listed below. Run `clawq COMMAND --help` for per-command 
 | `clawq active` | Show active 5-hour window usage (cost, tokens, quota) |
 | `clawq agent` | Start the daemon (agent loop, gateway, all configured channels) |
 | `clawq audit` | View and manage the security audit log |
+| `clawq audit list [--limit N]` | List recent audit log entries (default 20) |
+| `clawq audit verify` | Verify audit log integrity (HMAC chain) |
+| `clawq audit export [PATH]` | Export audit log to file |
+| `clawq audit import PATH` | Import audit log from file |
+| `clawq audit purge` | Purge old audit entries per retention policy |
 | `clawq auth` | Show API key status or encrypt plaintext secrets in config |
 | `clawq auth codex-login [PROVIDER]` | Start ChatGPT/Codex OAuth login for a configured provider |
 | `clawq auth codex-status [PROVIDER]` | Show saved Codex OAuth status |
@@ -38,7 +43,11 @@ Every clawq command is listed below. Run `clawq COMMAND --help` for per-command 
 | `clawq channel` | List configured channels |
 | `clawq config` | Manage configuration (wizard, get/set/show) |
 | `clawq cron` | Manage cron jobs for scheduled agent messages |
+| `clawq debug html-preview` | Preview HTML rendering |
+| `clawq debug http on\|off\|status\|clear\|tail` | Manage HTTP debug logging |
 | `clawq doctor` | Check configuration for common issues |
+| `clawq manifest teams` | Generate Teams bot manifest commands |
+| `clawq manifest telegram` | Generate Telegram setMyCommands payload |
 | `clawq mcp` | Start the MCP server (Model Context Protocol) |
 | `clawq memory` | Show memory backend configuration |
 | `clawq migrate` | Run database migrations |
@@ -51,6 +60,15 @@ Every clawq command is listed below. Run `clawq COMMAND --help` for per-command 
 | `clawq reset-agent` | Wipe all session history, cron jobs, and workspace files |
 | `clawq runtime` | Manage native and Docker runtimes |
 | `clawq service` | Manage the clawq system service (start/stop/restart) |
+| `clawq session` | Inspect and control agent sessions |
+| `clawq session list` | List active sessions with state, channel, and pending queue counts |
+| `clawq session show KEY` | Show session details and message history |
+| `clawq session inject SESSION MSG` | Inject a message into a session's durable inbound queue |
+| `clawq session pending SESSION` | Show pending inbound queue entries for a session |
+| `clawq session keepalive SESSION on\|off` | Toggle session keepalive |
+| `clawq session heartbeat SESSION on\|off` | Toggle heartbeat routing for a session |
+| `clawq session epochs SESSION` | Show session epoch boundaries |
+| `clawq session compact SESSION` | Compact session history by summarizing older messages |
 | `clawq skills` | Manage agent skills (SKILL.md and shell-script definitions) |
 | `clawq setup` | Interactive setup wizards for channel integrations |
 | `clawq status` | Show runtime configuration and daemon status |
