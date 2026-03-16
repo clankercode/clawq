@@ -515,6 +515,22 @@ let find_skill_md name =
   | Some meta -> load_skill_md meta.md_source_path
   | None -> None
 
+let skill_md_to_tool (meta : skill_md_meta) : Tool.t =
+  {
+    Tool.name = meta.md_name;
+    Tool.description = meta.md_description;
+    Tool.parameters_schema =
+      `Assoc [ ("type", `String "object"); ("properties", `Assoc []) ];
+    Tool.invoke =
+      (fun ?context:_ _ -> Lwt.return "Skills are not directly invocable");
+    Tool.invoke_stream = None;
+    Tool.risk_level = Tool.Low;
+    Tool.deferred = false;
+  }
+
+let available_skills_as_tools () =
+  List.map skill_md_to_tool (available_skills ())
+
 (* ── @skill-name extraction ── *)
 
 let extract_skill_refs (skills : skill_md_meta list) message =
