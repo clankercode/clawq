@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B503
+priority: high
+status: pending
+tags: []
+title: More setup wizards -- have subagents browse the code and brainstorm a list of features for which we do not have setup wizards but should have setup wizards. Ask the user which ones we should implement, then implement what the user chooses
+---
+
+More setup wizards -- have subagents browse the code and brainstorm a list of features for which we do not have setup wizards but should have setup wizards. Ask the user which ones we should implement, then implement what the user chooses
