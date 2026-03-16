@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B505
+priority: high
+status: pending
+tags: []
+title: fix tests (failing in docker at least)
+---
+
+fix tests (failing in docker at least)
