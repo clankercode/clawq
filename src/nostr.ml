@@ -309,6 +309,8 @@ let listen_relay ~(config : Runtime_config.nostr_config) relay ~since_ts
                         Lwt.return_unit
                     | Some text -> (
                         let key = "nostr:" ^ sender in
+                        Session.register_connector_capabilities session_mgr ~key
+                          Connector_capabilities.nostr;
                         let* result =
                           Session.with_registered_notifier session_mgr ~key
                             ~notify:(fun text ->

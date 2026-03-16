@@ -178,6 +178,8 @@ let run_clawq_command ~(github_config : Runtime_config.github_config)
               Lwt.return_unit)
         else Lwt.return_unit);
   (* Run agent turn *)
+  Session.register_connector_capabilities session_manager ~key
+    Connector_capabilities.github;
   let* result =
     Lwt.catch
       (fun () ->

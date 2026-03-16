@@ -56,17 +56,18 @@ monitors them for failures.
 | **Web** | HTTP gateway | REST | Implemented |
 | **CLI** | stdin/stdout | Local | Implemented |
 | **MS Teams** | Bot Framework webhook | HTTPS | Implemented |
-| IRC | IRC protocol | TCP/TLS | Planned |
-| Matrix | Client-Server API | HTTPS | Planned |
-| Mattermost | WebSocket + REST | WSS | Planned |
-| Email | IMAP/SMTP | TCP/TLS | Planned |
-| DingTalk | Bot webhook | HTTPS | Planned |
-| Lark/Feishu | Bot webhook | HTTPS | Planned |
-| LINE | Messaging API | HTTPS | Planned |
-| Nostr | NIP-01 relay | WSS | Planned |
-| OneBot | OneBot 11/12 | WS/HTTP | Planned |
-| WhatsApp | Cloud API | HTTPS | Planned |
-| iMessage | AppleScript bridge | Local | Planned |
+| **IRC** | IRC protocol (RFC 2812) | TCP/TLS | Implemented |
+| **Matrix** | Client-Server API | HTTPS | Implemented |
+| **Mattermost** | WebSocket + REST | WSS + REST | Implemented |
+| **Email** | IMAP/SMTP | TCP/TLS | Implemented |
+| **DingTalk** | Stream Mode | HTTPS | Implemented |
+| **Lark/Feishu** | Bot Event Callback | HTTPS | Implemented |
+| **LINE** | Messaging API | HTTPS | Implemented |
+| **Nostr** | NIP-01 relay + NIP-04 DMs | WSS | Implemented |
+| **OneBot** | OneBot v11 | WS + HTTP | Implemented |
+| **WhatsApp** | Cloud API | HTTPS | Implemented |
+| **iMessage** | AppleScript + SQLite | Local | Implemented |
+| **Signal** | signal-cli REST | HTTPS | Implemented |
 
 ## Telegram
 
@@ -650,6 +651,534 @@ There are two ways to authenticate with the gateway:
 
 Set `gateway.require_pairing = true` to require browser clients to pair before
 chatting. This does not affect clients that provide a valid `auth_token`.
+
+## Matrix
+
+Clawq connects to Matrix homeservers via the **Client-Server API**, using
+long-polling `/sync` to receive events and the room send endpoint for replies.
+
+### Configuration
+
+```json
+{
+  "channels": {
+    "matrix": {
+      "homeserver_url": "https://matrix.example.com",
+      "access_token": "syt_...",
+      "user_id": "@clawq:example.com",
+      "allow_rooms": ["*"],
+      "allow_users": ["*"]
+    }
+  }
+}
+```
+
+### Setup
+
+```bash
+clawq setup matrix
+```
+
+Or manually: create a Matrix account for your bot, generate an access token,
+and configure the homeserver URL and credentials.
+
+### Key Features
+
+- **Sync-based polling** --- uses the `/sync` endpoint with a `since` token for
+  incremental event retrieval.
+- **Room and user allowlists** --- restrict which rooms and users can interact
+  with the bot.
+- **Message editing** --- supports editing previous messages in-place.
+- **Markdown rendering** --- messages support standard Markdown formatting.
+
+## IRC
+
+Clawq connects to IRC servers via raw TCP or TLS sockets, implementing the core
+IRC protocol (RFC 2812) for sending and receiving messages.
+
+### Configuration
+
+```json
+{
+  "channels": {
+    "irc": {
+      "host": "irc.libera.chat",
+      "port": 6697,
+      "tls": true,
+      "nick": "clawq-bot",
+      "password": null,
+      "sasl": false,
+      "channels": ["#mychannel"],
+      "allow_from": ["*"]
+    }
+  }
+}
+```
+
+### Setup
+
+```bash
+clawq setup irc
+```
+
+Or manually: configure the IRC server host, port, TLS setting, bot nickname,
+and channel list.
+
+### Key Features
+
+- **TCP/TLS connections** --- supports both plaintext and TLS-encrypted
+  connections.
+- **SASL authentication** --- optional SASL PLAIN authentication for registered
+  nicks.
+- **PING/PONG keepalive** --- responds to server PINGs to maintain the
+  connection.
+- **Channel and DM support** --- handles both channel messages and private
+  messages.
+- **Message chunking** --- responses are split at the 512-byte IRC message limit.
+- **User allowlist** --- restrict which IRC users can trigger the bot.
+
+## Mattermost
+
+Clawq connects to Mattermost servers using the **WebSocket API** for receiving
+events and the **REST API v4** for sending messages.
+
+### Configuration
+
+```json
+{
+  "channels": {
+    "mattermost": {
+      "url": "https://mattermost.example.com",
+      "access_token": "your-personal-access-token",
+      "team_id": "team-id-here",
+      "channel_ids": ["channel-id-1"],
+      "allow_users": ["*"]
+    }
+  }
+}
+```
+
+### Setup
+
+```bash
+clawq setup mattermost
+```
+
+Or manually: create a personal access token in Mattermost, find your team and
+channel IDs, and configure the connection.
+
+### Key Features
+
+- **WebSocket event stream** --- real-time message delivery via the Mattermost
+  WebSocket API.
+- **Markdown support** --- responses are formatted with standard Markdown,
+  which Mattermost renders natively.
+- **Message editing** --- supports editing previous messages in-place.
+- **Channel and user allowlists** --- restrict which channels and users the bot
+  responds to.
+
+## Email
+
+Clawq monitors an email inbox via **IMAP** and replies via **SMTP**, enabling
+email-based agent interactions.
+
+### Configuration
+
+```json
+{
+  "channels": {
+    "email": {
+      "imap_host": "imap.gmail.com",
+      "imap_port": 993,
+      "smtp_host": "smtp.gmail.com",
+      "smtp_port": 587,
+      "username": "bot@example.com",
+      "password": "app-password",
+      "from_address": "bot@example.com",
+      "allow_from": ["*"],
+      "poll_interval_s": 30.0
+    }
+  }
+}
+```
+
+### Setup
+
+```bash
+clawq setup email
+```
+
+Or manually: configure IMAP and SMTP credentials for the bot's email account.
+For Gmail, use an App Password.
+
+### Key Features
+
+- **IMAP polling** --- periodically checks for new messages with configurable
+  poll interval.
+- **SMTP replies** --- sends responses as email replies with proper threading
+  headers (`In-Reply-To`, `References`).
+- **Sender allowlist** --- restrict which email addresses can trigger the bot.
+- **Subject threading** --- replies preserve the email subject with `Re:` prefix
+  for clean threading in email clients.
+
+## DingTalk
+
+Clawq connects to DingTalk (aka DingDing) using the **Stream Mode** protocol
+for receiving robot messages and the REST API for sending replies.
+
+### Configuration
+
+```json
+{
+  "channels": {
+    "dingtalk": {
+      "app_key": "your-app-key",
+      "app_secret": "your-app-secret",
+      "agent_id": "your-agent-id",
+      "allow_from": ["*"],
+      "webhook_url": null
+    }
+  }
+}
+```
+
+### Setup
+
+```bash
+clawq setup dingtalk
+```
+
+Or manually: create a DingTalk robot in the developer console, enable Stream
+Mode, and configure the app credentials.
+
+### Key Features
+
+- **Stream Mode** --- receives messages via the DingTalk stream protocol,
+  no public URL required.
+- **Conversation replies** --- sends replies to the originating conversation
+  using the `openConversationId`.
+- **Group and DM support** --- handles both group chat and 1-on-1 conversations.
+- **User allowlist** --- restrict which DingTalk users can interact with the bot.
+
+## Lark/Feishu
+
+Clawq integrates with Lark (Feishu) using the **Event Callback** mechanism for
+receiving messages and the REST API for sending replies.
+
+### Configuration
+
+```json
+{
+  "channels": {
+    "lark": {
+      "enabled": true,
+      "app_id": "cli_...",
+      "app_secret": "your-app-secret",
+      "verification_token": "your-verification-token",
+      "endpoint": "/lark/webhook",
+      "mode": "webhook",
+      "allow_users": ["*"]
+    }
+  }
+}
+```
+
+### Setup
+
+```bash
+clawq setup lark
+```
+
+Or manually: create a Lark app in the developer console, configure event
+subscriptions, and set the webhook URL to your clawq gateway endpoint.
+
+### Key Features
+
+- **Event callbacks** --- receives messages via Lark's event subscription system.
+- **Tenant access token** --- authenticates API calls using auto-refreshed
+  tenant tokens.
+- **Group and P2P support** --- handles both group chat and peer-to-peer
+  conversations.
+- **User allowlist** --- restrict which Lark users can interact with the bot.
+
+## LINE
+
+Clawq connects to LINE using the **Messaging API** with webhook-based event
+delivery and both reply and push message endpoints for responses.
+
+### Configuration
+
+```json
+{
+  "channels": {
+    "line": {
+      "channel_access_token": "your-channel-access-token",
+      "channel_secret": "your-channel-secret",
+      "allow_from": ["*"]
+    }
+  }
+}
+```
+
+### Setup
+
+```bash
+clawq setup line
+```
+
+Or manually: create a LINE Messaging API channel in the LINE Developers Console,
+configure the webhook URL to your clawq gateway, and copy the channel access
+token and secret.
+
+### Key Features
+
+- **Webhook events** --- receives messages via LINE's webhook push mechanism.
+- **Reply tokens** --- uses one-time reply tokens for immediate responses;
+  falls back to push messages for delayed replies.
+- **Signature verification** --- validates webhook payloads using HMAC-SHA256
+  with the channel secret.
+- **User allowlist** --- restrict which LINE users can interact with the bot.
+
+## Nostr
+
+Clawq connects to Nostr relays via WebSocket, using **NIP-04 encrypted direct
+messages** for private agent conversations.
+
+### Configuration
+
+```json
+{
+  "channels": {
+    "nostr": {
+      "relays": ["wss://relay.damus.io", "wss://nos.lol"],
+      "private_key": "nsec1...",
+      "pubkey": "npub1...",
+      "nak_path": "/usr/local/bin/nak",
+      "allow_from": ["*"]
+    }
+  }
+}
+```
+
+### Setup
+
+```bash
+clawq setup nostr
+```
+
+Or manually: generate a Nostr keypair, configure relay URLs, and install the
+`nak` CLI tool for event signing and encryption.
+
+### Key Features
+
+- **Multi-relay support** --- connects to multiple relays simultaneously for
+  redundancy.
+- **NIP-04 encrypted DMs** --- messages are encrypted end-to-end using the
+  NIP-04 standard.
+- **Event signing** --- all outgoing events are signed with the bot's private
+  key via the `nak` tool.
+- **Subscription filters** --- subscribes to DM events addressed to the bot's
+  public key.
+- **User allowlist** --- restrict which Nostr pubkeys can interact with the bot.
+
+## OneBot
+
+Clawq connects to QQ and other Chinese IM platforms via the **OneBot v11**
+protocol, supporting both WebSocket and HTTP transports.
+
+### Configuration
+
+```json
+{
+  "channels": {
+    "onebot": {
+      "ws_url": "ws://127.0.0.1:6700",
+      "http_url": "http://127.0.0.1:5700",
+      "access_token": null,
+      "allow_from": ["*"],
+      "allow_groups": ["*"]
+    }
+  }
+}
+```
+
+### Setup
+
+```bash
+clawq setup onebot
+```
+
+Or manually: install a OneBot-compatible bot framework (e.g., go-cqhttp,
+Lagrange), configure the WebSocket and HTTP endpoints, and optionally set
+an access token for authentication.
+
+### Key Features
+
+- **WebSocket event stream** --- receives events via the OneBot v11 WebSocket
+  forward connection.
+- **HTTP API** --- sends messages via the OneBot HTTP API (`send_private_msg`,
+  `send_group_msg`).
+- **Group and private chat** --- handles both private messages and group
+  conversations.
+- **Message recall** --- supports deleting (recalling) messages via the API.
+- **User and group allowlists** --- restrict which users and groups can interact
+  with the bot.
+
+## WhatsApp
+
+Clawq integrates with WhatsApp using the **Cloud API** (Meta Business Platform)
+for sending and receiving messages.
+
+### Configuration
+
+```json
+{
+  "channels": {
+    "whatsapp": {
+      "phone_number_id": "123456789",
+      "access_token": "EAAx...",
+      "verify_token": "my-verify-token",
+      "allow_from": ["*"]
+    }
+  }
+}
+```
+
+### Setup
+
+```bash
+clawq setup whatsapp
+```
+
+Or manually: create a WhatsApp Business app in the Meta Developer Portal,
+configure the webhook URL to your clawq gateway, set the verify token for
+the webhook handshake, and copy the access token.
+
+### Key Features
+
+- **Cloud API** --- sends and receives messages through Meta's WhatsApp Cloud
+  API.
+- **Webhook verification** --- handles the GET challenge/response handshake
+  required by Meta.
+- **Webhook events** --- receives incoming messages via POST webhook delivery.
+- **Phone number allowlist** --- restrict which phone numbers can interact with
+  the bot.
+
+## iMessage
+
+Clawq integrates with iMessage on macOS using **AppleScript** for sending
+messages and **SQLite** for reading incoming messages from the Messages database.
+
+### Configuration
+
+```json
+{
+  "channels": {
+    "imessage": {
+      "poll_interval_s": 2.0,
+      "allow_from": ["*"]
+    }
+  }
+}
+```
+
+### Setup
+
+```bash
+clawq setup imessage
+```
+
+This channel only works on macOS. Grant clawq Full Disk Access in System
+Preferences to allow reading the Messages SQLite database.
+
+### Key Features
+
+- **SQLite polling** --- monitors `~/Library/Messages/chat.db` for new incoming
+  messages at a configurable poll interval.
+- **AppleScript sending** --- sends replies via `osascript` using the Messages
+  AppleScript interface.
+- **Handle-based sessions** --- each contact (phone number or email) maps to a
+  stable session key.
+- **Contact allowlist** --- restrict which iMessage handles can interact with
+  the bot.
+
+<Callout type="note" title="macOS only">
+  This channel requires macOS with Full Disk Access permissions. It will not
+  work on Linux or Windows.
+</Callout>
+
+## Signal
+
+Clawq connects to Signal via the **signal-cli REST API**, which runs as a
+separate service that bridges Signal's protocol to HTTP.
+
+### Configuration
+
+```json
+{
+  "channels": {
+    "signal": {
+      "base_url": "http://127.0.0.1:8080",
+      "account": "+1234567890",
+      "api_mode": "json-rpc",
+      "allow_from": ["*"],
+      "max_chunk_bytes": 6000
+    }
+  }
+}
+```
+
+### Setup
+
+```bash
+clawq setup signal
+```
+
+Or manually: install and configure [signal-cli-rest-api](https://github.com/bbernhard/signal-cli-rest-api),
+register or link a phone number, and point clawq at the REST API endpoint.
+
+### Key Features
+
+- **signal-cli REST bridge** --- communicates with Signal through the signal-cli
+  REST API service.
+- **Group and DM support** --- handles both group messages and direct messages.
+- **Message chunking** --- long responses are split at configurable byte
+  boundaries (`max_chunk_bytes`).
+- **Reactions** --- supports sending emoji reactions to messages.
+- **Contact allowlist** --- restrict which Signal numbers can interact with the
+  bot.
+
+## Web Channel
+
+The web channel provides a simple **HTTP REST API** for programmatic access to
+clawq sessions, separate from the main web gateway.
+
+### Configuration
+
+```json
+{
+  "web_channel": {
+    "enabled": true,
+    "path_prefix": "/web",
+    "totp_secret": null,
+    "token_ttl_hours": 24
+  }
+}
+```
+
+### Setup
+
+Enable the web channel in your config and optionally configure TOTP
+authentication. The channel is served by the main HTTP gateway.
+
+### Key Features
+
+- **REST API** --- simple JSON request/response interface for sending messages
+  and receiving replies.
+- **Session management** --- supports custom session IDs for maintaining
+  conversation context.
+- **Optional TOTP auth** --- can require TOTP-based authentication for access.
+- **CORS support** --- includes CORS headers for browser-based access.
 
 ## Adding a New Channel
 

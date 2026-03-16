@@ -118,6 +118,8 @@ let handle_message t req body_str =
               with _ -> entry.session_id
             in
             let key = session_id in
+            Session.register_connector_capabilities t.session_manager ~key
+              Connector_capabilities.web_channel;
             let* result =
               Lwt.catch
                 (fun () ->

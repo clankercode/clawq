@@ -261,6 +261,8 @@ let run_session ~(cfg : Runtime_config.irc_config) ~conn
                             ("PRIVMSG " ^ reply_target ^ " :" ^ chunk))
                         chunks
                     in
+                    Session.register_connector_capabilities session_manager ~key
+                      Connector_capabilities.irc;
                     let* result =
                       Session.with_registered_notifier session_manager ~key
                         ~notify (fun () ->

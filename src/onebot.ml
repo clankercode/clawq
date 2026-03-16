@@ -231,6 +231,9 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
                                       send_private_msg ~config:ob_config
                                         ~user_id ~text
                                 in
+                                Session.register_connector_capabilities
+                                  session_manager ~key
+                                  Connector_capabilities.onebot;
                                 let* result =
                                   Session.with_registered_notifier
                                     session_manager ~key ~notify (fun () ->

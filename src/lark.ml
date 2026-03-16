@@ -196,6 +196,8 @@ let handle_webhook_body ~(config : Runtime_config.lark_config)
             else
               let channel_type = if chat_type = "p2p" then "dm" else "group" in
               let key = "lark:" ^ chat_id ^ ":" ^ user_id in
+              Session.register_connector_capabilities session_mgr ~key
+                Connector_capabilities.lark;
               let* result =
                 Session.with_registered_notifier session_mgr ~key
                   ~notify:(fun text -> send_message ~config ~chat_id ~text)

@@ -96,12 +96,24 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 | `skills list` | List available skills (both SKILL.md and JSON formats) |
 | `skills path` | Print skill search directories (workspace + personal) |
 | `skills init` | Create an example skill file |
-| `setup` | Interactive setup wizards for channel integrations (discord, github, slack, teams, telegram, tunnel, summarizer) |
+| `setup` | Interactive setup wizards for channel integrations and other features |
 | `setup discord` | Configure Discord bot token, allowed guilds/users, and gateway intents |
 | `setup telegram` | Configure Telegram bot token and allowed users |
 | `setup slack` | Configure Slack bot token, app token, and signing secret |
 | `setup github` | Configure GitHub PAT, repos, and webhook paths |
 | `setup teams` | Configure MS Teams app credentials |
+| `setup irc` | Configure IRC server, TLS, nick, SASL, and channels |
+| `setup matrix` | Configure Matrix homeserver URL, access token, and allowed rooms/users |
+| `setup mattermost` | Configure Mattermost URL, access token, team/channel IDs |
+| `setup email` | Configure IMAP/SMTP credentials for email channel |
+| `setup dingtalk` | Configure DingTalk app credentials and agent ID |
+| `setup lark` | Configure Lark/Feishu app credentials and event callback |
+| `setup line` | Configure LINE channel access token and secret |
+| `setup nostr` | Configure Nostr relay URLs, keypair, and nak path |
+| `setup onebot` | Configure OneBot WebSocket/HTTP endpoints |
+| `setup whatsapp` | Configure WhatsApp Cloud API credentials |
+| `setup imessage` | Configure iMessage poll interval and allowed contacts |
+| `setup signal` | Configure Signal via signal-cli REST API endpoint |
 | `setup tunnel` | Configure tunnel provider (Cloudflare, Tailscale, ngrok) |
 | `setup summarizer` | Configure autosummarizer settings |
 | `session compact SESSION` | Compact session history by summarizing older messages |
@@ -708,7 +720,7 @@ Tell users:
 2. `git clone <repo> clawq && cd clawq`
 3. `make bootstrap` — creates opam switch clawq-5.1, installs deps
 4. `make build` — builds the project
-5. `clawq onboard` — creates initial config; in a TTY it runs onboarding, otherwise it writes a starter template. Use `clawq config wizard` later for full reconfiguration. For individual channels, use `clawq setup <channel>` (discord, telegram, slack, github, teams, tunnel, summarizer).
+5. `clawq onboard` — creates initial config; in a TTY it runs onboarding, otherwise it writes a starter template. Use `clawq config wizard` later for full reconfiguration. For individual channels, use `clawq setup <channel>` (discord, telegram, slack, github, teams, irc, matrix, mattermost, email, dingtalk, lark, line, nostr, onebot, whatsapp, imessage, signal, tunnel, summarizer).
 6. `clawq doctor` — validate configuration
 7. `clawq agent` — start the daemon
 8. Open `http://127.0.0.1:13451/` for the web UI

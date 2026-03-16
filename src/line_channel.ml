@@ -112,6 +112,8 @@ let handle_webhook ~(config : Runtime_config.line_config)
               if reply_token <> "" then send_reply ~config ~reply_token ~text
               else send_push ~config ~user_id ~text
             in
+            Session.register_connector_capabilities session_mgr ~key
+              Connector_capabilities.line;
             let* result =
               Session.with_registered_notifier session_mgr ~key ~notify
                 (fun () ->

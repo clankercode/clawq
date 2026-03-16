@@ -594,6 +594,8 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
                           ~subject:reply_subject ~body:text ?in_reply_to
                           ?references:in_reply_to ()
                       in
+                      Session.register_connector_capabilities session_manager
+                        ~key Connector_capabilities.email;
                       let* result =
                         Session.with_registered_notifier session_manager ~key
                           ~notify (fun () ->

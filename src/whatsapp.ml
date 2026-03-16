@@ -94,7 +94,9 @@ let handle_inbound ~(config : Runtime_config.whatsapp_config)
             m "WhatsApp: ignoring message from unauthorized number=%s" from);
         Lwt.return_unit
       end
-      else
+      else begin
+        Session.register_connector_capabilities session_mgr ~key
+          Connector_capabilities.whatsapp;
         let* result =
           Session.with_registered_notifier session_mgr ~key
             ~notify:(fun text -> send_message ~config ~to_:from ~text)
@@ -115,7 +117,8 @@ let handle_inbound ~(config : Runtime_config.whatsapp_config)
         | Error err ->
             Logs.err (fun m ->
                 m "WhatsApp: agent error for from=%s: %s" from err);
-            Lwt.return_unit)
+            Lwt.return_unit
+      end)
     messages
 
 (* Verify GET token handshake *)

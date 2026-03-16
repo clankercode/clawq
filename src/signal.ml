@@ -297,6 +297,8 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
           let channel_type =
             match group_id_opt with Some _ -> "group" | None -> "dm"
           in
+          Session.register_connector_capabilities session_manager ~key
+            Connector_capabilities.signal;
           let* result =
             Session.with_registered_notifier session_manager ~key
               ~notify:(fun text ->

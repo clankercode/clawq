@@ -148,6 +148,9 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
                                 let key =
                                   "mattermost:" ^ channel_id ^ ":" ^ user_id
                                 in
+                                Session.register_connector_capabilities
+                                  session_manager ~key
+                                  Connector_capabilities.mattermost;
                                 let* result =
                                   Session.with_registered_notifier
                                     session_manager ~key

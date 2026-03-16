@@ -219,6 +219,9 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
                                   "dingtalk:" ^ conversation_id ^ ":"
                                   ^ sender_id
                                 in
+                                Session.register_connector_capabilities
+                                  session_manager ~key
+                                  Connector_capabilities.dingtalk;
                                 let* result =
                                   Session.with_registered_notifier
                                     session_manager ~key
