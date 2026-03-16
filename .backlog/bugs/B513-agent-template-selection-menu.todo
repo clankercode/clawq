@@ -1,0 +1,27 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 1
+id: B513
+priority: high
+status: pending
+tags: []
+title: Agent template selection menu lacks pagination
+---
+Problem
+When selecting an agent template (e.g., via --agent-name or interactive selection), the menu displays all available templates in a single unbounded list. With many templates, this becomes unwieldy and can overflow message limits or UI space, particularly in constrained channels like Teams.
+
+Why this matters
+- Users with many templates (builtins + custom) get an unusable wall of text
+- Teams/Telegram channel limits may truncate the menu
+- Poor UX compared to paginated alternatives (e.g., /menu handling)
+
+Acceptance criteria
+- Agent template menu pages results (e.g., 5-10 per page)
+- Navigation controls (next/prev) are available where supported
+- Full list remains accessible via sequential browsing
+- Works across channels (Teams, Telegram, CLI)
+
+Notes
+- Related: B479 (Generalize Teams /menu through shared formatter/DSL)
+- Consider reusing pagination infrastructure from /menu Adaptive Card work (P2.M4.E3.T004)

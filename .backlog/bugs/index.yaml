@@ -509,3 +509,4 @@ bugs:
     - file: B510-look-through-all-the-setup-wiz.todo
     - file: B511-look-through-all-the-setup-wiz.todo
     - file: B512-look-through-all-the-setup-wiz.todo
+    - file: B513-agent-template-selection-menu.todo
