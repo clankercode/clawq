@@ -392,3 +392,20 @@ let init_dir () =
      end
    with _ -> ());
   dir
+
+let filter_tool_registry registry (tmpl : t) =
+  let tools = Tool_registry.list registry in
+  let filtered =
+    match tmpl.allowed_tools with
+    | [] -> tools
+    | allowed -> List.filter (fun (t : Tool.t) -> List.mem t.name allowed) tools
+  in
+  let filtered =
+    match tmpl.disallowed_tools with
+    | [] -> filtered
+    | denied ->
+        List.filter (fun (t : Tool.t) -> not (List.mem t.name denied)) filtered
+  in
+  let new_reg = Tool_registry.create () in
+  List.iter (Tool_registry.register new_reg) filtered;
+  new_reg

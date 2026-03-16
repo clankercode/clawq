@@ -473,12 +473,21 @@ let background_add_cmd =
       & opt (some string) None
       & info [ "branch" ] ~docv:"NAME" ~doc:"Branch name for the new worktree.")
   in
+  let agent =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "agent" ] ~docv:"NAME"
+          ~doc:
+            "Agent template name to use (e.g. coder, reviewer). Applies the \
+             agent's system prompt, tool restrictions, and model override.")
+  in
   let prompt = required_trailing_args 1 "PROMPT" in
   Cmd.v
     (Cmd.info "add" ~doc:"Queue a background coding task for a repository.")
     Term.(
       ret
-        (const (fun runner repo model branch prompt ->
+        (const (fun runner repo model branch agent prompt ->
              let args = [ "add"; runner; repo ] in
              let args =
                match model with
@@ -490,8 +499,13 @@ let background_add_cmd =
                | Some name -> args @ [ "--branch"; name ]
                | None -> args
              in
+             let args =
+               match agent with
+               | Some name -> args @ [ "--agent"; name ]
+               | None -> args
+             in
              run "background" (args @ prompt))
-        $ runner $ repo $ model $ branch $ prompt))
+        $ runner $ repo $ model $ branch $ agent $ prompt))
 
 let background_wait_cmd =
   let id = Arg.(required & pos 0 (some string) None & info [] ~docv:"ID") in

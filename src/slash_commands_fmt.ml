@@ -39,7 +39,7 @@ type bg_action =
   | BgLogs of int
   | BgCancel of int
   | BgRetry of int
-  | BgCreate of string
+  | BgCreate of string option * string
 
 type cron_action =
   | CronList
@@ -68,8 +68,8 @@ type result =
   | Thinking of thinking_action
   | ShowThinking of show_thinking_action
   | Heartbeat of heartbeat_action
-  | Delegate of string
-  | ForkAnd of string
+  | Delegate of string option * string
+  | ForkAnd of string option * string
   | Tools
   | Tasks
   | TasksFull
@@ -82,6 +82,8 @@ type result =
   | Cron of cron_action
   | Bl of bl_action
   | DebugDumpChat
+  | AgentInvoke of string * string
+  | AgentMenu
   | SkillInvoke of string * string
   | NotACommand
 
@@ -141,7 +143,8 @@ let commands =
     {
       name = "bg";
       description =
-        "Background tasks: /bg [list/show/logs/cancel/retry/create] [id/prompt]";
+        "Background tasks: /bg [list/show/logs/cancel/retry/create] \
+         [id/@agent/prompt]";
       priority = 57;
     };
     {
@@ -157,14 +160,18 @@ let commands =
     };
     {
       name = "delegate";
-      description =
-        "Delegate a prompt to a temporary subagent: /delegate <prompt>";
+      description = "Delegate to a subagent: /delegate [@agent] <prompt>";
       priority = 55;
     };
     {
-      name = "fork_and";
+      name = "agent";
       description =
-        "Fork the current session and run a prompt: /fork_and <prompt>";
+        "Invoke an agent template: /agent <name> <prompt> or /agent list";
+      priority = 54;
+    };
+    {
+      name = "fork_and";
+      description = "Fork session and run a prompt: /fork_and [@agent] <prompt>";
       priority = 75;
     };
     {
@@ -295,10 +302,71 @@ let format_heartbeat_usage ~connector =
   "Usage: " ^ Format_adapter.code connector "/heartbeat" ^ " [on/off/status]"
 
 let format_delegate_usage ~connector =
-  "Usage: " ^ Format_adapter.code connector "/delegate" ^ " <prompt>"
+  "Usage: "
+  ^ Format_adapter.code connector "/delegate [@agent] <prompt>"
+  ^ "\n\nOptionally prefix with "
+  ^ Format_adapter.code connector "@agent_name"
+  ^ " to use that agent's system prompt and tool restrictions."
+
+let format_agent_usage ~connector =
+  "Usage: "
+  ^ Format_adapter.code connector "/agent <name> <prompt>"
+  ^ "\n\nSubcommands:\n"
+  ^ Format_adapter.code connector "/agent list"
+  ^ " — list available agent templates\n"
+  ^ Format_adapter.code connector "/agent menu"
+  ^ " — interactive agent menu\n"
+  ^ Format_adapter.code connector "/agent <name> <prompt>"
+  ^ " — invoke a named agent template"
+
+let format_agent_list ~connector =
+  let all = Agent_template.available_templates () in
+  if all = [] then "No agent templates available."
+  else
+    let lines =
+      List.map
+        (fun (t : Agent_template.t) ->
+          Format_adapter.bold connector t.name ^ " — " ^ t.description)
+        all
+    in
+    "Available agent templates:\n" ^ String.concat "\n" lines
+
+let format_agent_menu ~connector =
+  let all = Agent_template.available_templates () in
+  if all = [] then "No agent templates available."
+  else
+    let lines =
+      List.map
+        (fun (t : Agent_template.t) ->
+          Format_adapter.code connector (Printf.sprintf "/agent %s" t.name)
+          ^ " — " ^ t.description)
+        all
+    in
+    Format_adapter.bold connector "Agent Templates"
+    ^ "\n\n" ^ String.concat "\n" lines ^ "\n\nUsage: "
+    ^ Format_adapter.code connector "/agent <name> <prompt>"
+
+let format_agent_not_found ~connector name =
+  let all = Agent_template.available_templates () in
+  let names =
+    List.map (fun (t : Agent_template.t) -> t.name) all
+    |> List.sort String.compare
+  in
+  "Agent template "
+  ^ Format_adapter.code connector (Printf.sprintf "'%s'" name)
+  ^ " not found."
+  ^
+  if names = [] then ""
+  else
+    "\nAvailable: "
+    ^ String.concat ", " (List.map (Format_adapter.code connector) names)
 
 let format_fork_and_usage ~connector =
-  "Usage: " ^ Format_adapter.code connector "/fork_and" ^ " <prompt>"
+  "Usage: "
+  ^ Format_adapter.code connector "/fork_and [@agent] <prompt>"
+  ^ "\n\nOptionally prefix with "
+  ^ Format_adapter.code connector "@agent_name"
+  ^ " to apply that agent's tool restrictions."
 
 let format_tasks_usage ~connector =
   "Usage: " ^ Format_adapter.code connector "/tasks" ^ " [full]"
@@ -363,8 +431,8 @@ let format_bg_usage ~connector =
   ^ "        - Cancel a running or queued task\n  "
   ^ Format_adapter.code connector "/bg retry <id>"
   ^ "         - Retry a failed task\n  "
-  ^ Format_adapter.code connector "/bg create <prompt>"
-  ^ "    - Create a new background task"
+  ^ Format_adapter.code connector "/bg create [@agent] <prompt>"
+  ^ " - Create a new background task"
 
 let format_bg_invalid_id ~connector id_str =
   "Invalid task id "
@@ -1350,19 +1418,25 @@ let format_bg ~connector ~db action =
       match Background_task.retry ~db ~id with
       | Ok msg -> msg
       | Error msg -> msg)
-  | BgCreate prompt -> (
+  | BgCreate (agent_name, prompt) -> (
       match Background_task.resolve_runner () with
       | Error msg -> Printf.sprintf "Cannot create task: %s" msg
       | Ok (runner, default_model) -> (
           let repo_path = Sys.getcwd () in
           let result =
             Background_task.enqueue ~db ~runner ?model:default_model ~repo_path
-              ~prompt ()
+              ?agent_name ~prompt ()
           in
           match result with
           | Ok id ->
-              Printf.sprintf "Background task #%d created (runner: %s)." id
+              let agent_suffix =
+                match agent_name with
+                | Some name -> Printf.sprintf " [agent: %s]" name
+                | None -> ""
+              in
+              Printf.sprintf "Background task #%d created (runner: %s)%s." id
                 (Background_task.string_of_runner runner)
+                agent_suffix
           | Error msg -> Printf.sprintf "Failed to create task: %s" msg))
 
 (* ── Existing format: bl ───────────────────────────────────────────────── *)

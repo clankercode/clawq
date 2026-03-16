@@ -1352,6 +1352,7 @@ let make_test_task ?(id = 9) ?(session_key = Some "telegram:42:user")
     replaced_by = None;
     runner_session_id = None;
     acp = false;
+    agent_name = None;
   }
 
 let test_notify_background_task_finished_dispatches_and_injects_wakeup () =

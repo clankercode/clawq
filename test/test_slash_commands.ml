@@ -27,8 +27,12 @@ let result_to_string = function
       "Heartbeat(On)"
   | Slash_commands.Heartbeat (Slash_commands.SetHeartbeat false) ->
       "Heartbeat(Off)"
-  | Slash_commands.Delegate s -> "Delegate(" ^ s ^ ")"
-  | Slash_commands.ForkAnd s -> "ForkAnd(" ^ s ^ ")"
+  | Slash_commands.Delegate (None, s) -> "Delegate(" ^ s ^ ")"
+  | Slash_commands.Delegate (Some agent, s) ->
+      "Delegate(@" ^ agent ^ ", " ^ s ^ ")"
+  | Slash_commands.ForkAnd (None, s) -> "ForkAnd(" ^ s ^ ")"
+  | Slash_commands.ForkAnd (Some agent, s) ->
+      "ForkAnd(@" ^ agent ^ ", " ^ s ^ ")"
   | Slash_commands.Tools -> "Tools"
   | Slash_commands.Tasks -> "Tasks"
   | Slash_commands.TasksFull -> "TasksFull"
@@ -69,8 +73,11 @@ let result_to_string = function
       "Bg(Cancel " ^ string_of_int id ^ ")"
   | Slash_commands.Bg (Slash_commands.BgRetry id) ->
       "Bg(Retry " ^ string_of_int id ^ ")"
-  | Slash_commands.Bg (Slash_commands.BgCreate prompt) ->
-      "Bg(Create " ^ prompt ^ ")"
+  | Slash_commands.Bg (Slash_commands.BgCreate (agent_name, prompt)) ->
+      let agent_str =
+        match agent_name with Some n -> "@" ^ n ^ " " | None -> ""
+      in
+      "Bg(Create " ^ agent_str ^ prompt ^ ")"
   | Slash_commands.Cron Slash_commands.CronList -> "Cron(List)"
   | Slash_commands.Cron Slash_commands.CronHelp -> "Cron(Help)"
   | Slash_commands.Cron (Slash_commands.CronAdd { name; schedule; message }) ->
@@ -91,6 +98,9 @@ let result_to_string = function
   | Slash_commands.Bl Slash_commands.BlIdeas -> "Bl(Ideas)"
   | Slash_commands.Bl (Slash_commands.BlShow id) -> "Bl(Show " ^ id ^ ")"
   | Slash_commands.DebugDumpChat -> "DebugDumpChat"
+  | Slash_commands.AgentInvoke (name, prompt) ->
+      "AgentInvoke(" ^ name ^ ", " ^ prompt ^ ")"
+  | Slash_commands.AgentMenu -> "AgentMenu"
   | Slash_commands.SkillInvoke (name, args) ->
       "SkillInvoke(" ^ name ^ ", " ^ args ^ ")"
   | Slash_commands.NotACommand -> "NotACommand"
@@ -114,8 +124,10 @@ let result_eq a b =
   | Slash_commands.Status, Slash_commands.Status -> true
   | Slash_commands.ShowThinking a, Slash_commands.ShowThinking b -> a = b
   | Slash_commands.Heartbeat a, Slash_commands.Heartbeat b -> a = b
-  | Slash_commands.Delegate a, Slash_commands.Delegate b -> a = b
-  | Slash_commands.ForkAnd a, Slash_commands.ForkAnd b -> a = b
+  | Slash_commands.Delegate (a1, a2), Slash_commands.Delegate (b1, b2) ->
+      a1 = b1 && a2 = b2
+  | Slash_commands.ForkAnd (a1, a2), Slash_commands.ForkAnd (b1, b2) ->
+      a1 = b1 && a2 = b2
   | Slash_commands.Tools, Slash_commands.Tools -> true
   | Slash_commands.Tasks, Slash_commands.Tasks -> true
   | Slash_commands.TasksFull, Slash_commands.TasksFull -> true
@@ -130,6 +142,9 @@ let result_eq a b =
   | Slash_commands.DebugDumpChat, Slash_commands.DebugDumpChat -> true
   | Slash_commands.SkillInvoke (a1, a2), Slash_commands.SkillInvoke (b1, b2) ->
       a1 = b1 && a2 = b2
+  | Slash_commands.AgentInvoke (a1, a2), Slash_commands.AgentInvoke (b1, b2) ->
+      a1 = b1 && a2 = b2
+  | Slash_commands.AgentMenu, Slash_commands.AgentMenu -> true
   | Slash_commands.NotACommand, Slash_commands.NotACommand -> true
   | _ -> false
 
@@ -368,7 +383,7 @@ let test_whitespace_only () =
 
 let test_delegate_with_prompt () =
   Alcotest.check result_testable "delegate with prompt"
-    (Slash_commands.Delegate "do something")
+    (Slash_commands.Delegate (None, "do something"))
     (Slash_commands.handle "/delegate do something")
 
 let test_delegate_no_args () =
@@ -381,12 +396,12 @@ let test_delegate_no_args () =
 
 let test_delegate_multi_word () =
   Alcotest.check result_testable "delegate multi-word"
-    (Slash_commands.Delegate "a b c d")
+    (Slash_commands.Delegate (None, "a b c d"))
     (Slash_commands.handle "/delegate a b c d")
 
 let test_fork_and_with_prompt () =
   Alcotest.check result_testable "fork-and with prompt"
-    (Slash_commands.ForkAnd "summarize this")
+    (Slash_commands.ForkAnd (None, "summarize this"))
     (Slash_commands.handle "/fork-and summarize this")
 
 let test_fork_and_no_args () =
@@ -399,12 +414,12 @@ let test_fork_and_no_args () =
 
 let test_fork_and_multi_word () =
   Alcotest.check result_testable "fork-and multi-word"
-    (Slash_commands.ForkAnd "a b c d")
+    (Slash_commands.ForkAnd (None, "a b c d"))
     (Slash_commands.handle "/fork-and a b c d")
 
 let test_fork_and_underscore_alias () =
   Alcotest.check result_testable "fork_and underscore alias"
-    (Slash_commands.ForkAnd "do something")
+    (Slash_commands.ForkAnd (None, "do something"))
     (Slash_commands.handle "/fork_and do something")
 
 let test_costs_default () =
@@ -530,12 +545,12 @@ let test_bg_log_alias () =
 
 let test_bg_create () =
   Alcotest.check result_testable "/bg create fix the bug"
-    (Slash_commands.Bg (Slash_commands.BgCreate "fix the bug"))
+    (Slash_commands.Bg (Slash_commands.BgCreate (None, "fix the bug")))
     (Slash_commands.handle "/bg create fix the bug")
 
 let test_bg_start_alias () =
   Alcotest.check result_testable "/bg start deploy it"
-    (Slash_commands.Bg (Slash_commands.BgCreate "deploy it"))
+    (Slash_commands.Bg (Slash_commands.BgCreate (None, "deploy it")))
     (Slash_commands.handle "/bg start deploy it")
 
 let test_bg_create_empty_prompt () =
@@ -1766,6 +1781,132 @@ let test_bl_in_commands_list () =
   in
   Alcotest.(check bool) "commands list includes /bl" true has_bl
 
+(* ── Agent dispatch tests ───────────────────────────────────────────── *)
+
+let test_agent_invoke () =
+  Alcotest.check result_testable "/agent reviewer check code"
+    (Slash_commands.AgentInvoke ("reviewer", "check code"))
+    (Slash_commands.handle "/agent reviewer check code")
+
+let test_agent_invoke_multi_word () =
+  Alcotest.check result_testable "/agent coder implement the thing"
+    (Slash_commands.AgentInvoke ("coder", "implement the thing"))
+    (Slash_commands.handle "/agent coder implement the thing")
+
+let test_agent_list () =
+  match extract_text (Slash_commands.handle "/agent list") with
+  | Some _s -> () (* just ensure it returns a FormattedReply *)
+  | None -> Alcotest.fail "expected text reply for /agent list"
+
+let test_agent_usage () =
+  match extract_text (Slash_commands.handle "/agent") with
+  | Some s ->
+      Alcotest.(check bool) "mentions /agent" true (contains_str s "/agent")
+  | None -> Alcotest.fail "expected text reply for /agent usage"
+
+let test_agent_name_no_prompt () =
+  match extract_text (Slash_commands.handle "/agent reviewer") with
+  | Some s ->
+      Alcotest.(check bool) "mentions /agent" true (contains_str s "/agent")
+  | None -> Alcotest.fail "expected text reply for /agent name-only"
+
+let test_delegate_with_agent () =
+  Alcotest.check result_testable "/delegate @reviewer check it"
+    (Slash_commands.Delegate (Some "reviewer", "check it"))
+    (Slash_commands.handle "/delegate @reviewer check it")
+
+let test_delegate_without_agent () =
+  Alcotest.check result_testable "/delegate do the thing"
+    (Slash_commands.Delegate (None, "do the thing"))
+    (Slash_commands.handle "/delegate do the thing")
+
+let test_fork_and_with_agent () =
+  Alcotest.check result_testable "/fork_and @coder build it"
+    (Slash_commands.ForkAnd (Some "coder", "build it"))
+    (Slash_commands.handle "/fork_and @coder build it")
+
+let test_fork_and_without_agent () =
+  Alcotest.check result_testable "/fork-and review code"
+    (Slash_commands.ForkAnd (None, "review code"))
+    (Slash_commands.handle "/fork-and review code")
+
+let test_bg_create_with_agent () =
+  Alcotest.check result_testable "/bg create @coder implement X"
+    (Slash_commands.Bg (Slash_commands.BgCreate (Some "coder", "implement X")))
+    (Slash_commands.handle "/bg create @coder implement X")
+
+let test_bg_create_without_agent () =
+  Alcotest.check result_testable "/bg create fix the bug"
+    (Slash_commands.Bg (Slash_commands.BgCreate (None, "fix the bug")))
+    (Slash_commands.handle "/bg create fix the bug")
+
+let test_bg_new_with_agent () =
+  Alcotest.check result_testable "/bg new @reviewer review"
+    (Slash_commands.Bg (Slash_commands.BgCreate (Some "reviewer", "review")))
+    (Slash_commands.handle "/bg new @reviewer review")
+
+let test_agent_mention_parsing () =
+  let available = [ "reviewer"; "coder"; "team-lead" ] in
+  let result =
+    Group_chat_filter.parse_agent_mention ~available_agents:available
+      "@reviewer check this code"
+  in
+  Alcotest.(check (option (pair string string)))
+    "@reviewer parsed"
+    (Some ("reviewer", "check this code"))
+    result
+
+let test_agent_mention_no_match () =
+  let available = [ "reviewer"; "coder" ] in
+  let result =
+    Group_chat_filter.parse_agent_mention ~available_agents:available
+      "@unknown do something"
+  in
+  Alcotest.(check (option (pair string string)))
+    "@unknown not matched" None result
+
+let test_agent_mention_case_insensitive () =
+  let available = [ "Reviewer"; "Coder" ] in
+  let result =
+    Group_chat_filter.parse_agent_mention ~available_agents:available
+      "@reviewer check this"
+  in
+  Alcotest.(check (option (pair string string)))
+    "case insensitive match"
+    (Some ("Reviewer", "check this"))
+    result
+
+let test_agent_mention_no_prompt () =
+  let available = [ "reviewer" ] in
+  let result =
+    Group_chat_filter.parse_agent_mention ~available_agents:available
+      "@reviewer"
+  in
+  Alcotest.(check (option (pair string string)))
+    "@reviewer with no prompt"
+    (Some ("reviewer", ""))
+    result
+
+let test_agent_mention_not_at_prefix () =
+  let available = [ "reviewer" ] in
+  let result =
+    Group_chat_filter.parse_agent_mention ~available_agents:available
+      "hello @reviewer"
+  in
+  Alcotest.(check (option (pair string string))) "not at start" None result
+
+let test_agent_menu () =
+  Alcotest.check result_testable "/agent menu" Slash_commands.AgentMenu
+    (Slash_commands.handle "/agent menu")
+
+let test_agent_in_commands_list () =
+  let has_agent =
+    List.exists
+      (fun (c : Slash_commands.command) -> c.name = "agent")
+      Slash_commands.commands
+  in
+  Alcotest.(check bool) "commands list includes /agent" true has_agent
+
 let suite =
   [
     Alcotest.test_case "handle /start" `Quick test_start;
@@ -1976,4 +2117,32 @@ let suite =
     Alcotest.test_case "/bl show" `Quick test_bl_show;
     Alcotest.test_case "/bl show bare id" `Quick test_bl_show_bare_id;
     Alcotest.test_case "/bl in commands list" `Quick test_bl_in_commands_list;
+    Alcotest.test_case "/agent invoke" `Quick test_agent_invoke;
+    Alcotest.test_case "/agent invoke multi-word" `Quick
+      test_agent_invoke_multi_word;
+    Alcotest.test_case "/agent list" `Quick test_agent_list;
+    Alcotest.test_case "/agent usage" `Quick test_agent_usage;
+    Alcotest.test_case "/agent name no prompt" `Quick test_agent_name_no_prompt;
+    Alcotest.test_case "/delegate @agent" `Quick test_delegate_with_agent;
+    Alcotest.test_case "/delegate without agent" `Quick
+      test_delegate_without_agent;
+    Alcotest.test_case "/fork_and @agent" `Quick test_fork_and_with_agent;
+    Alcotest.test_case "/fork-and without agent" `Quick
+      test_fork_and_without_agent;
+    Alcotest.test_case "/bg create @agent" `Quick test_bg_create_with_agent;
+    Alcotest.test_case "/bg create without agent" `Quick
+      test_bg_create_without_agent;
+    Alcotest.test_case "/bg new @agent" `Quick test_bg_new_with_agent;
+    Alcotest.test_case "@agent mention parsed" `Quick test_agent_mention_parsing;
+    Alcotest.test_case "@agent mention no match" `Quick
+      test_agent_mention_no_match;
+    Alcotest.test_case "@agent mention case insensitive" `Quick
+      test_agent_mention_case_insensitive;
+    Alcotest.test_case "@agent mention no prompt" `Quick
+      test_agent_mention_no_prompt;
+    Alcotest.test_case "@agent mention not at prefix" `Quick
+      test_agent_mention_not_at_prefix;
+    Alcotest.test_case "/agent menu" `Quick test_agent_menu;
+    Alcotest.test_case "/agent in commands list" `Quick
+      test_agent_in_commands_list;
   ]

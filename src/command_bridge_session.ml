@@ -615,6 +615,7 @@ type background_add_args = {
   model : string option;
   repo_path : string;
   branch : string option;
+  agent_name : string option;
   prompt : string;
 }
 
@@ -646,7 +647,7 @@ let default_delegate_repo_path (cfg : Runtime_config.t) =
   if path_is_git_repo cwd then cwd else Runtime_config.effective_workspace cfg
 
 let parse_background_add_args args =
-  let rec loop model branch positionals = function
+  let rec loop model branch agent_name positionals = function
     | [] -> (
         let positionals = List.rev positionals in
         match positionals with
@@ -659,17 +660,22 @@ let parse_background_add_args args =
             | Some runner ->
                 let prompt = String.concat " " prompt_parts |> String.trim in
                 if prompt = "" then Error "Prompt is required"
-                else Ok { runner; model; repo_path; branch; prompt })
+                else Ok { runner; model; repo_path; branch; agent_name; prompt }
+            )
         | _ ->
             Error
               "Usage: clawq background add \
                <codex|claude|kimi|gemini|opencode|cursor> [--model <name>] \
-               <repo> [--branch <name>] <prompt>")
-    | "--model" :: value :: rest -> loop (Some value) branch positionals rest
-    | "--branch" :: value :: rest -> loop model (Some value) positionals rest
-    | arg :: rest -> loop model branch (arg :: positionals) rest
+               [--agent <name>] <repo> [--branch <name>] <prompt>")
+    | "--model" :: value :: rest ->
+        loop (Some value) branch agent_name positionals rest
+    | "--branch" :: value :: rest ->
+        loop model (Some value) agent_name positionals rest
+    | "--agent" :: value :: rest ->
+        loop model branch (Some value) positionals rest
+    | arg :: rest -> loop model branch agent_name (arg :: positionals) rest
   in
-  loop None None [] args
+  loop None None None [] args
 
 let parse_background_wait_args args =
   let rec loop timeout id = function

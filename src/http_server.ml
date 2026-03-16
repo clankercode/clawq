@@ -584,6 +584,30 @@ let handler ~session_manager ~require_pairing ~auth_token
                     in
                     Cohttp_lwt_unix.Server.respond_string ~status:`OK
                       ~headers:json_headers ~body:resp_json ()
+                | Slash_commands.AgentInvoke (agent_name, prompt) ->
+                    let waiter, resolver = Lwt.wait () in
+                    Session.agent_invoke_turn session_manager ~agent_name
+                      ~prompt ~send_reply:(fun text ->
+                        Lwt.wakeup_later resolver text;
+                        Lwt.return_unit);
+                    let* response = waiter in
+                    let resp_json =
+                      `Assoc [ ("response", `String response) ]
+                      |> Yojson.Safe.to_string
+                    in
+                    Cohttp_lwt_unix.Server.respond_string ~status:`OK
+                      ~headers:json_headers ~body:resp_json ()
+                | Slash_commands.AgentMenu ->
+                    let text =
+                      Slash_commands_fmt.format_agent_menu
+                        ~connector:Format_adapter.Plain
+                    in
+                    let resp_json =
+                      `Assoc [ ("response", `String text) ]
+                      |> Yojson.Safe.to_string
+                    in
+                    Cohttp_lwt_unix.Server.respond_string ~status:`OK
+                      ~headers:json_headers ~body:resp_json ()
                 | _ -> (
                     let* result =
                       Lwt.catch
@@ -1182,7 +1206,7 @@ let handler ~session_manager ~require_pairing ~auth_token
                       | None -> "Tasks are not available (no database)."
                     in
                     sse_reply text
-                | Slash_commands.Delegate prompt ->
+                | Slash_commands.Delegate (agent_name, prompt) ->
                     let stream, push = Lwt_stream.create () in
                     let push_sse text =
                       let data =
@@ -1192,8 +1216,37 @@ let handler ~session_manager ~require_pairing ~auth_token
                       push (Some (Printf.sprintf "data: %s\n\n" data))
                     in
                     push_sse "Delegating...";
-                    Session.delegate_turn session_manager ~prompt
+                    Session.delegate_turn session_manager ?agent_name ~prompt
                       ~send_reply:(fun text ->
+                        push_sse text;
+                        push (Some "data: [DONE]\n\n");
+                        push None;
+                        Lwt.return_unit)
+                      ();
+                    let headers =
+                      Cohttp.Header.of_list
+                        [
+                          ("Content-Type", "text/event-stream");
+                          ("Cache-Control", "no-cache");
+                          ("Connection", "keep-alive");
+                        ]
+                    in
+                    Cohttp_lwt_unix.Server.respond ~status:`OK ~headers
+                      ~body:(Cohttp_lwt.Body.of_stream stream)
+                      ()
+                | Slash_commands.AgentInvoke (agent_name, prompt) ->
+                    let stream, push = Lwt_stream.create () in
+                    let push_sse text =
+                      let data =
+                        Yojson.Safe.to_string
+                          (json_of_stream_event (Provider.Delta text))
+                      in
+                      push (Some (Printf.sprintf "data: %s\n\n" data))
+                    in
+                    push_sse
+                      (Printf.sprintf "Invoking agent '%s'..." agent_name);
+                    Session.agent_invoke_turn session_manager ~agent_name
+                      ~prompt ~send_reply:(fun text ->
                         push_sse text;
                         push (Some "data: [DONE]\n\n");
                         push None;
@@ -1209,7 +1262,31 @@ let handler ~session_manager ~require_pairing ~auth_token
                     Cohttp_lwt_unix.Server.respond ~status:`OK ~headers
                       ~body:(Cohttp_lwt.Body.of_stream stream)
                       ()
-                | Slash_commands.ForkAnd prompt ->
+                | Slash_commands.AgentMenu ->
+                    let text =
+                      Slash_commands_fmt.format_agent_menu
+                        ~connector:Format_adapter.Plain
+                    in
+                    let stream, push = Lwt_stream.create () in
+                    let data =
+                      Yojson.Safe.to_string
+                        (json_of_stream_event (Provider.Delta text))
+                    in
+                    push (Some (Printf.sprintf "data: %s\n\n" data));
+                    push (Some "data: [DONE]\n\n");
+                    push None;
+                    let headers =
+                      Cohttp.Header.of_list
+                        [
+                          ("Content-Type", "text/event-stream");
+                          ("Cache-Control", "no-cache");
+                          ("Connection", "keep-alive");
+                        ]
+                    in
+                    Cohttp_lwt_unix.Server.respond ~status:`OK ~headers
+                      ~body:(Cohttp_lwt.Body.of_stream stream)
+                      ()
+                | Slash_commands.ForkAnd (agent_name, prompt) ->
                     let key = "web:" ^ session_id in
                     let stream, push = Lwt_stream.create () in
                     let push_sse text =
@@ -1220,12 +1297,14 @@ let handler ~session_manager ~require_pairing ~auth_token
                       push (Some (Printf.sprintf "data: %s\n\n" data))
                     in
                     push_sse "Forking session...";
-                    Session.fork_and_run session_manager ~parent_key:key ~prompt
+                    Session.fork_and_run session_manager ~parent_key:key
+                      ?agent_name ~prompt
                       ~send_reply:(fun text ->
                         push_sse text;
                         push (Some "data: [DONE]\n\n");
                         push None;
-                        Lwt.return_unit);
+                        Lwt.return_unit)
+                      ();
                     let headers =
                       Cohttp.Header.of_list
                         [
@@ -1429,74 +1508,120 @@ let handler ~session_manager ~require_pairing ~auth_token
                         sse_reply text)
                 | Slash_commands.SkillInvoke _ ->
                     sse_reply "Error: unexpected SkillInvoke"
-                | Slash_commands.NotACommand ->
-                    let key = "web:" ^ session_id in
-                    let stream, push = Lwt_stream.create () in
-                    Lwt.async (fun () ->
-                        Session.with_registered_notifier session_manager ~key
-                          ~notify:(fun text ->
-                            let data =
-                              Yojson.Safe.to_string
-                                (json_of_stream_event (Provider.Delta text))
-                            in
-                            push (Some (Printf.sprintf "data: %s\n\n" data));
-                            Lwt.return_unit)
-                          (fun () ->
-                            Lwt.catch
-                              (fun () ->
-                                let* _response =
-                                  Session.turn_stream session_manager ~key
-                                    ~message ~skill_injections
-                                    ~on_chunk:(fun chunk ->
-                                      let data =
-                                        Yojson.Safe.to_string
-                                          (json_of_stream_event chunk)
-                                      in
-                                      push
-                                        (Some
-                                           (Printf.sprintf "data: %s\n\n" data));
-                                      Lwt.return_unit)
-                                    ()
-                                in
-                                if
-                                  not
-                                    (Session.take_response_deferred
-                                       session_manager ~key)
-                                then
-                                  Session.mark_response_sent session_manager
-                                    ~key;
-                                push (Some "data: [DONE]\n\n");
-                                push None;
-                                Lwt.return_unit)
-                              (fun exn ->
-                                let err = Printexc.to_string exn in
-                                if
-                                  not
-                                    (Session.take_response_deferred
-                                       session_manager ~key)
-                                then
-                                  Session.mark_response_sent session_manager
-                                    ~key;
-                                push
-                                  (Some
-                                     (Printf.sprintf
-                                        "data: \
-                                         {\"type\":\"error\",\"message\":%s}\n\n"
-                                        (Yojson.Safe.to_string (`String err))));
-                                push (Some "data: [DONE]\n\n");
-                                push None;
-                                Lwt.return_unit)));
-                    let headers =
-                      Cohttp.Header.of_list
-                        [
-                          ("Content-Type", "text/event-stream");
-                          ("Cache-Control", "no-cache");
-                          ("Connection", "keep-alive");
-                        ]
+                | Slash_commands.NotACommand -> (
+                    let available_agents =
+                      List.map
+                        (fun (t : Agent_template.t) -> t.name)
+                        (Agent_template.available_templates ())
                     in
-                    Cohttp_lwt_unix.Server.respond ~status:`OK ~headers
-                      ~body:(Cohttp_lwt.Body.of_stream stream)
-                      ()))
+                    match
+                      Group_chat_filter.parse_agent_mention ~available_agents
+                        message
+                    with
+                    | Some (agent_name, prompt) when prompt <> "" ->
+                        let stream, push = Lwt_stream.create () in
+                        let push_sse text =
+                          let data =
+                            Yojson.Safe.to_string
+                              (json_of_stream_event (Provider.Delta text))
+                          in
+                          push (Some (Printf.sprintf "data: %s\n\n" data))
+                        in
+                        push_sse
+                          (Printf.sprintf "Invoking agent '%s'..." agent_name);
+                        Session.agent_invoke_turn session_manager ~agent_name
+                          ~prompt ~send_reply:(fun text ->
+                            push_sse text;
+                            push (Some "data: [DONE]\n\n");
+                            push None;
+                            Lwt.return_unit);
+                        let headers =
+                          Cohttp.Header.of_list
+                            [
+                              ("Content-Type", "text/event-stream");
+                              ("Cache-Control", "no-cache");
+                              ("Connection", "keep-alive");
+                            ]
+                        in
+                        Cohttp_lwt_unix.Server.respond ~status:`OK ~headers
+                          ~body:(Cohttp_lwt.Body.of_stream stream)
+                          ()
+                    | Some (agent_name, _) ->
+                        sse_reply
+                          (Printf.sprintf
+                             "Usage: @%s <prompt> — provide a prompt for the \
+                              agent."
+                             agent_name)
+                    | None ->
+                        let key = "web:" ^ session_id in
+                        let stream, push = Lwt_stream.create () in
+                        Lwt.async (fun () ->
+                            Session.with_registered_notifier session_manager
+                              ~key
+                              ~notify:(fun text ->
+                                let data =
+                                  Yojson.Safe.to_string
+                                    (json_of_stream_event (Provider.Delta text))
+                                in
+                                push (Some (Printf.sprintf "data: %s\n\n" data));
+                                Lwt.return_unit)
+                              (fun () ->
+                                Lwt.catch
+                                  (fun () ->
+                                    let* _response =
+                                      Session.turn_stream session_manager ~key
+                                        ~message ~skill_injections
+                                        ~on_chunk:(fun chunk ->
+                                          let data =
+                                            Yojson.Safe.to_string
+                                              (json_of_stream_event chunk)
+                                          in
+                                          push
+                                            (Some
+                                               (Printf.sprintf "data: %s\n\n"
+                                                  data));
+                                          Lwt.return_unit)
+                                        ()
+                                    in
+                                    if
+                                      not
+                                        (Session.take_response_deferred
+                                           session_manager ~key)
+                                    then
+                                      Session.mark_response_sent session_manager
+                                        ~key;
+                                    push (Some "data: [DONE]\n\n");
+                                    push None;
+                                    Lwt.return_unit)
+                                  (fun exn ->
+                                    let err = Printexc.to_string exn in
+                                    if
+                                      not
+                                        (Session.take_response_deferred
+                                           session_manager ~key)
+                                    then
+                                      Session.mark_response_sent session_manager
+                                        ~key;
+                                    push
+                                      (Some
+                                         (Printf.sprintf
+                                            "data: \
+                                             {\"type\":\"error\",\"message\":%s}\n\n"
+                                            (Yojson.Safe.to_string (`String err))));
+                                    push (Some "data: [DONE]\n\n");
+                                    push None;
+                                    Lwt.return_unit)));
+                        let headers =
+                          Cohttp.Header.of_list
+                            [
+                              ("Content-Type", "text/event-stream");
+                              ("Cache-Control", "no-cache");
+                              ("Connection", "keep-alive");
+                            ]
+                        in
+                        Cohttp_lwt_unix.Server.respond ~status:`OK ~headers
+                          ~body:(Cohttp_lwt.Body.of_stream stream)
+                          ())))
   | `POST, path
     when match slack_config with
          | Some sc -> path = sc.Runtime_config.events_path

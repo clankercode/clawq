@@ -32,4 +32,32 @@ let should_respond ~is_group ~bot_mentioned ~is_reply_to_bot ~bot_name text =
     bot_mentioned || is_reply_to_bot || is_slash_command text
     || is_addressed_by_name ~bot_name text
 
+let parse_agent_mention ~available_agents text =
+  let t = String.trim text in
+  if String.length t < 2 || t.[0] <> '@' then None
+  else
+    let rest = String.sub t 1 (String.length t - 1) in
+    let name_end =
+      match String.index_opt rest ' ' with
+      | Some i -> i
+      | None -> String.length rest
+    in
+    let name = String.sub rest 0 name_end in
+    let name_lower = String.lowercase_ascii name in
+    match
+      List.find_opt
+        (fun agent_name -> String.lowercase_ascii agent_name = name_lower)
+        available_agents
+    with
+    | None -> None
+    | Some matched_name ->
+        let remaining =
+          if name_end >= String.length rest then ""
+          else
+            String.trim
+              (String.sub rest (name_end + 1)
+                 (String.length rest - name_end - 1))
+        in
+        Some (matched_name, remaining)
+
 let is_no_reply text = String.trim text = "[NO_REPLY]"

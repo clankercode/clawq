@@ -165,3 +165,70 @@ let menu_adaptive_card_json ?(page = 1) () =
               ];
           ] );
     ]
+
+let agent_menu_adaptive_card_json () =
+  let agents = Agent_template.available_templates () in
+  let agent_actions =
+    List.map
+      (fun (t : Agent_template.t) ->
+        `Assoc
+          [
+            ("type", `String "Action.Submit");
+            ("title", `String (Printf.sprintf "%s — %s" t.name t.description));
+            ( "data",
+              `Assoc
+                [
+                  ( "msteams",
+                    `Assoc
+                      [
+                        ("type", `String "messageBack");
+                        ("displayText", `String ("Using agent: " ^ t.name));
+                        ("text", `String (Printf.sprintf "/agent %s " t.name));
+                      ] );
+                ] );
+          ])
+      agents
+  in
+  let body =
+    [
+      `Assoc
+        [
+          ("type", `String "TextBlock");
+          ( "text",
+            `String (Printf.sprintf "Agent Templates (%d)" (List.length agents))
+          );
+          ("weight", `String "bolder");
+          ("size", `String "medium");
+        ];
+      `Assoc
+        [
+          ("type", `String "TextBlock");
+          ("text", `String "Select an agent to start composing a prompt:");
+          ("wrap", `Bool true);
+          ("spacing", `String "small");
+        ];
+      `Assoc [ ("type", `String "ActionSet"); ("actions", `List agent_actions) ];
+    ]
+  in
+  let card =
+    `Assoc
+      [
+        ("type", `String "AdaptiveCard");
+        ("version", `String "1.4");
+        ("body", `List body);
+      ]
+  in
+  `Assoc
+    [
+      ("type", `String "message");
+      ( "attachments",
+        `List
+          [
+            `Assoc
+              [
+                ( "contentType",
+                  `String "application/vnd.microsoft.card.adaptive" );
+                ("content", card);
+              ];
+          ] );
+    ]

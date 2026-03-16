@@ -44,6 +44,7 @@ type task = {
   parent_task_id : int option;
   replaced_by : int option;
   acp : bool;
+  agent_name : string option;
 }
 
 type queued_message = {
@@ -328,6 +329,9 @@ let format_task_summary ?(full = false) ?(compact = false) (task : task) =
   | Some sid -> add (Printf.sprintf "runner_session: %s" sid)
   | None -> ());
   if task.acp then add "mode: acp";
+  (match task.agent_name with
+  | Some name -> add (Printf.sprintf "agent: %s" name)
+  | None -> ());
   add (Printf.sprintf "status: %s" (status_summary task.status));
   if task.retry_count > 0 then
     add (Printf.sprintf "retries: %d/%d" task.retry_count max_retry_count);
@@ -475,6 +479,7 @@ let task_of_stmt stmt : task =
     replaced_by = Sqlite3.column stmt 22 |> sql_int;
     runner_session_id = Sqlite3.column stmt 23 |> sql_text;
     acp = sql_bool stmt 24;
+    agent_name = Sqlite3.column stmt 25 |> sql_text;
   }
 
 let init_schema db =
@@ -543,6 +548,7 @@ let init_schema db =
   try_alter "ALTER TABLE background_tasks ADD COLUMN runner_session_id TEXT";
   try_alter
     "ALTER TABLE background_tasks ADD COLUMN acp INTEGER NOT NULL DEFAULT 0";
+  try_alter "ALTER TABLE background_tasks ADD COLUMN agent_name TEXT";
   Acp_history.init_schema db
 
 let list_queued_messages ~db ~task_id =
@@ -641,7 +647,7 @@ type invocation = Fresh | Resume of string
 
 let enqueue ~db ~runner ?model ?(require_git = true) ?(automerge = false)
     ?(use_worktree = true) ?(acp = false) ~repo_path ~prompt ?branch
-    ?session_key ?channel ?channel_id ?parent_task_id () =
+    ?session_key ?channel ?channel_id ?parent_task_id ?agent_name () =
   if acp && runner = Local then
     Error "ACP mode is not supported with the Local runner"
   else
@@ -651,7 +657,8 @@ let enqueue ~db ~runner ?model ?(require_git = true) ?(automerge = false)
         let sql =
           "INSERT INTO background_tasks (runner, model, repo_path, prompt, \
            branch, session_key, channel, channel_id, automerge, use_worktree, \
-           parent_task_id, acp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+           parent_task_id, acp, agent_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, \
+           ?, ?, ?, ?)"
         in
         let stmt = Sqlite3.prepare db sql in
         Fun.protect
@@ -685,6 +692,7 @@ let enqueue ~db ~runner ?model ?(require_git = true) ?(automerge = false)
             | None -> ignore (Sqlite3.bind stmt 11 Sqlite3.Data.NULL));
             ignore
               (Sqlite3.bind stmt 12 (Sqlite3.Data.INT (if acp then 1L else 0L)));
+            bind_opt 13 agent_name;
             match Sqlite3.step stmt with
             | Sqlite3.Rc.DONE ->
                 Ok (Int64.to_int (Sqlite3.last_insert_rowid db))
@@ -698,7 +706,8 @@ let select_columns =
    log_path, status, session_key, channel, channel_id, pid, result_preview, \
    created_at, started_at, finished_at, COALESCE(automerge, 0), \
    COALESCE(use_worktree, 1), merge_status, COALESCE(retry_count, 0), \
-   parent_task_id, replaced_by, runner_session_id, COALESCE(acp, 0)"
+   parent_task_id, replaced_by, runner_session_id, COALESCE(acp, 0), \
+   agent_name"
 
 let list_tasks ~db : task list =
   let sql =
@@ -2178,7 +2187,8 @@ let spawn_local_task ~run_turn ~on_task_started ~on_task_finished ~db
           Lwt.catch
             (fun () ->
               let* result =
-                run_turn ~key:ephemeral_key ~message:task.prompt ()
+                run_turn ~key:ephemeral_key ~message:task.prompt
+                  ?agent_name:task.agent_name ()
               in
               let prompt_short =
                 if String.length task.prompt > 200 then
@@ -2484,6 +2494,17 @@ let enqueue_tool_with_notify ~notify_cfg ~db =
                            bidirectional JSON-RPC communication. Default: \
                            false." );
                     ] );
+                ( "agent_name",
+                  `Assoc
+                    [
+                      ("type", `String "string");
+                      ( "description",
+                        `String
+                          "Optional agent template name to use for the task \
+                           (e.g. 'coder', 'reviewer'). When set, the task uses \
+                           that agent's system prompt, tool restrictions, and \
+                           model override." );
+                    ] );
               ] );
           ( "required",
             `List [ `String "runner"; `String "repo_path"; `String "prompt" ] );
@@ -2531,6 +2552,13 @@ let enqueue_tool_with_notify ~notify_cfg ~db =
             |> Option.value ~default:false
           with _ -> false
         in
+        let agent_name =
+          try
+            match args |> member "agent_name" with
+            | `String s when String.trim s <> "" -> Some (String.trim s)
+            | _ -> None
+          with _ -> None
+        in
         match runner_of_string runner_s with
         | None ->
             Lwt.return
@@ -2546,7 +2574,8 @@ let enqueue_tool_with_notify ~notify_cfg ~db =
             in
             match
               enqueue ~db ~runner ?model ~automerge ~use_worktree ~acp
-                ~repo_path ~prompt ?branch ?session_key ?channel ?channel_id ()
+                ?agent_name ~repo_path ~prompt ?branch ?session_key ?channel
+                ?channel_id ()
             with
             | Ok id ->
                 Lwt.return

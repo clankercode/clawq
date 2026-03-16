@@ -339,7 +339,8 @@ let cmd_background args =
         \  background show <id>                                    - Show task \
          details\n\
         \  background add <codex|claude|kimi|gemini|opencode|cursor> [--model \
-         <model>] <repo> [--branch <name>] <prompt> - Queue a task\n\
+         <model>] [--agent <name>] <repo> [--branch <name>] <prompt> - Queue a \
+         task\n\
         \  background wait <id> [--timeout <seconds>]              - Wait for \
          completion\n\
         \  background logs <id> [--lines N] [--offset N] [--follow] - Show \
@@ -378,9 +379,9 @@ let cmd_background args =
           in
           match
             Background_task.enqueue ~db ~runner:parsed.runner
-              ?model:parsed.model ~repo_path:parsed.repo_path
-              ~prompt:parsed.prompt ?branch:parsed.branch ?session_key ?channel
-              ?channel_id ()
+              ?model:parsed.model ?agent_name:parsed.agent_name
+              ~repo_path:parsed.repo_path ~prompt:parsed.prompt
+              ?branch:parsed.branch ?session_key ?channel ?channel_id ()
           with
           | Ok id ->
               Printf.sprintf
@@ -555,7 +556,8 @@ let cmd_background args =
       \  background show <id>                                    - Show task \
        details\n\
       \  background add <codex|claude|kimi|gemini|opencode|cursor> [--model \
-       <model>] <repo> [--branch <name>] <prompt> - Queue a worktree runner\n\
+       <model>] [--agent <name>] <repo> [--branch <name>] <prompt> - Queue a \
+       worktree runner\n\
       \  background wait <id> [--timeout <seconds>]              - Wait for a \
        task to finish\n\
       \  background logs <id> [--lines N] [--offset N] [--follow] - Show task \

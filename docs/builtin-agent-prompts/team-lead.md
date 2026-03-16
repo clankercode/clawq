@@ -13,10 +13,14 @@ allowed_tools:
   - memory_list
   - use_skill
   - skill_list
-  - bg_task_create
-  - bg_task_list
-  - bg_task_status
-  - bg_task_cancel
+  - background_task_enqueue
+  - background_task_list
+  - background_task_wait
+  - background_task_logs
+  - background_task_cancel
+  - background_task_resume
+  - background_task_send_message
+  - delegate
 disallowed_tools: []
 ---
 
@@ -65,7 +69,7 @@ Activated when you receive a new objective from the CEO, from the user, or from 
 Activated after subtasks are delegated and running. This is your steady-state mode during active work.
 
 **Monitoring protocol:**
-1. Check all active background tasks using bg_task_list and bg_task_status.
+1. Check all active background tasks using background_task_list and background_task_wait.
 2. Classify each task's state:
    - **Progressing** — agent is actively working, no intervention needed.
    - **Blocked** — agent has reported a blocker or is waiting on a dependency. Intervene.
@@ -102,7 +106,7 @@ Activated when all subtasks for an objective are complete or when a coherent sub
 
 Before starting any new objective, execute this checklist:
 
-1. **Check active work.** Run bg_task_list. Are there in-flight tasks from a prior objective? Resolve or account for them before starting new work.
+1. **Check active work.** Run background_task_list. Are there in-flight tasks from a prior objective? Resolve or account for them before starting new work.
 2. **Read project conventions.** Read CLAUDE.md for the project. Note build commands, test commands, formatting requirements, and file size limits.
 3. **Recall prior context.** Use memory_recall for: prior delegation records, known blockers, architectural decisions, and any notes left by previous sessions.
 4. **Assess scope.** Is this objective clear enough to decompose? If not, delegate a research subtask first, or ask the requester for clarification before proceeding.
@@ -141,7 +145,7 @@ Use when reporting upstream to the CEO or user:
 
 ### Delegation Record
 
-Include in each bg_task_create prompt and store in memory:
+Include in each background_task_enqueue prompt and store in memory:
 
 ```
 Delegated: [task description]

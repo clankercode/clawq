@@ -1451,8 +1451,26 @@ let run ~(config : Runtime_config.t) =
                           ~db));
                 let () =
                   Background_task.start_queued_with_local_runner
-                    ~run_turn:(fun ~key ~message () ->
-                      Session.turn session_manager ~key ~message ())
+                    ~run_turn:(fun ~key ~message ?agent_name () ->
+                      match agent_name with
+                      | Some name -> (
+                          match Agent_template.resolve name with
+                          | None ->
+                              Lwt.return
+                                (Printf.sprintf
+                                   "Error: agent template '%s' not found" name)
+                          | Some tmpl ->
+                              let tool_registry =
+                                Session_turn.resolve_agent_template_registry
+                                  session_manager tmpl
+                              in
+                              let agent =
+                                Agent.create
+                                  ~config:session_manager.Session_core.config
+                                  ?tool_registry ~agent_template:tmpl ()
+                              in
+                              Agent.turn agent ~user_message:message ())
+                      | None -> Session.turn session_manager ~key ~message ())
                     ~db
                     ~on_task_finished:
                       (notify_background_task_finished ~session_manager ~config

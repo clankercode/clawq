@@ -684,13 +684,34 @@ let notify_channel_sessions mgr message =
           Lwt.return_unit))
     notifiers
 
+let resolve_agent_template_for_key mgr ~key =
+  let bindings = mgr.config.Runtime_config.agent_bindings in
+  if bindings = [] then None
+  else
+    let channel_id, sender_id =
+      match Restart_notify.parse_channel_from_key key with
+      | Some (_channel, cid) -> (cid, "")
+      | None -> ("", "")
+    in
+    let agent_name =
+      Agent_router.resolve ~bindings ~channel_id ~sender_id ~guild_id:None
+    in
+    if agent_name = "default" then None else Agent_template.resolve agent_name
+
 let get_or_create_locked mgr ~key =
   let key = sanitize_session_key key in
   match Hashtbl.find_opt mgr.sessions key with
   | Some triple -> triple
   | None ->
+      let agent_template = resolve_agent_template_for_key mgr ~key in
+      let tool_registry =
+        match (agent_template, mgr.tool_registry) with
+        | Some tmpl, Some reg ->
+            Some (Agent_template.filter_tool_registry reg tmpl)
+        | _ -> mgr.tool_registry
+      in
       let agent =
-        Agent.create ~config:mgr.config ?tool_registry:mgr.tool_registry ()
+        Agent.create ~config:mgr.config ?tool_registry ?agent_template ()
       in
       let is_postmortem =
         let plen = String.length postmortem_session_prefix in

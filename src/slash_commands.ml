@@ -57,12 +57,32 @@ let handle ?(skill_names = []) text =
             | _ ->
                 FormattedReply
                   (fun connector -> format_heartbeat_usage ~connector))
+        | "agent" -> (
+            match args with
+            | [] ->
+                FormattedReply (fun connector -> format_agent_usage ~connector)
+            | [ "list" ] ->
+                FormattedReply (fun connector -> format_agent_list ~connector)
+            | [ "menu" ] -> AgentMenu
+            | name :: rest ->
+                let prompt = String.concat " " rest in
+                if prompt = "" then
+                  FormattedReply
+                    (fun connector -> format_agent_usage ~connector)
+                else AgentInvoke (name, prompt))
         | "delegate" -> (
             match args with
             | [] ->
                 FormattedReply
                   (fun connector -> format_delegate_usage ~connector)
-            | _ -> Delegate (String.concat " " args))
+            | first :: rest when String.length first > 1 && first.[0] = '@' ->
+                let name = String.sub first 1 (String.length first - 1) in
+                let prompt = String.concat " " rest in
+                if prompt = "" then
+                  FormattedReply
+                    (fun connector -> format_delegate_usage ~connector)
+                else Delegate (Some name, prompt)
+            | _ -> Delegate (None, String.concat " " args))
         | "config" -> (
             match args with
             | [] | [ "help" ] ->
@@ -178,7 +198,14 @@ let handle ?(skill_names = []) text =
             | [] ->
                 FormattedReply
                   (fun connector -> format_fork_and_usage ~connector)
-            | _ -> ForkAnd (String.concat " " args))
+            | first :: rest when String.length first > 1 && first.[0] = '@' ->
+                let name = String.sub first 1 (String.length first - 1) in
+                let prompt = String.concat " " rest in
+                if prompt = "" then
+                  FormattedReply
+                    (fun connector -> format_fork_and_usage ~connector)
+                else ForkAnd (Some name, prompt)
+            | _ -> ForkAnd (None, String.concat " " args))
         | "tools" -> Tools
         | "tasks" -> (
             match args with
@@ -224,15 +251,30 @@ let handle ?(skill_names = []) text =
                     FormattedReply
                       (fun connector -> format_bg_invalid_id ~connector id_str))
             | "create" :: rest | "start" :: rest | "new" :: rest -> (
-                let prompt = String.concat " " rest in
-                match String.trim prompt with
-                | "" ->
-                    FormattedReply
-                      (fun connector ->
-                        "Usage: "
-                        ^ Format_adapter.code connector "/bg create <prompt>"
-                        ^ "\nProvide a prompt describing the task to run.")
-                | prompt -> Bg (BgCreate prompt))
+                match rest with
+                | first :: remaining
+                  when String.length first > 1 && first.[0] = '@' ->
+                    let name = String.sub first 1 (String.length first - 1) in
+                    let prompt = String.concat " " remaining in
+                    if String.trim prompt = "" then
+                      FormattedReply
+                        (fun connector ->
+                          "Usage: "
+                          ^ Format_adapter.code connector
+                              "/bg create [@agent] <prompt>"
+                          ^ "\nProvide a prompt describing the task to run.")
+                    else Bg (BgCreate (Some name, prompt))
+                | _ -> (
+                    let prompt = String.concat " " rest in
+                    match String.trim prompt with
+                    | "" ->
+                        FormattedReply
+                          (fun connector ->
+                            "Usage: "
+                            ^ Format_adapter.code connector
+                                "/bg create [@agent] <prompt>"
+                            ^ "\nProvide a prompt describing the task to run.")
+                    | prompt -> Bg (BgCreate (None, prompt))))
             | _ -> FormattedReply (fun connector -> format_bg_usage ~connector))
         | "cron" -> (
             let parse_cron_add name rest =
