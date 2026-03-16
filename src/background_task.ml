@@ -43,6 +43,7 @@ type task = {
   retry_count : int;
   parent_task_id : int option;
   replaced_by : int option;
+  acp : bool;
 }
 
 type queued_message = {
@@ -326,6 +327,7 @@ let format_task_summary ?(full = false) ?(compact = false) (task : task) =
   (match task.runner_session_id with
   | Some sid -> add (Printf.sprintf "runner_session: %s" sid)
   | None -> ());
+  if task.acp then add "mode: acp";
   add (Printf.sprintf "status: %s" (status_summary task.status));
   if task.retry_count > 0 then
     add (Printf.sprintf "retries: %d/%d" task.retry_count max_retry_count);
@@ -472,6 +474,7 @@ let task_of_stmt stmt : task =
     parent_task_id = Sqlite3.column stmt 21 |> sql_int;
     replaced_by = Sqlite3.column stmt 22 |> sql_int;
     runner_session_id = Sqlite3.column stmt 23 |> sql_text;
+    acp = sql_bool stmt 24;
   }
 
 let init_schema db =
@@ -537,7 +540,10 @@ let init_schema db =
      DEFAULT 0";
   try_alter "ALTER TABLE background_tasks ADD COLUMN parent_task_id INTEGER";
   try_alter "ALTER TABLE background_tasks ADD COLUMN replaced_by INTEGER";
-  try_alter "ALTER TABLE background_tasks ADD COLUMN runner_session_id TEXT"
+  try_alter "ALTER TABLE background_tasks ADD COLUMN runner_session_id TEXT";
+  try_alter
+    "ALTER TABLE background_tasks ADD COLUMN acp INTEGER NOT NULL DEFAULT 0";
+  Acp_history.init_schema db
 
 let list_queued_messages ~db ~task_id =
   let sql =
@@ -634,58 +640,65 @@ let resume_prompt_of_messages messages =
 type invocation = Fresh | Resume of string
 
 let enqueue ~db ~runner ?model ?(require_git = true) ?(automerge = false)
-    ?(use_worktree = true) ~repo_path ~prompt ?branch ?session_key ?channel
-    ?channel_id ?parent_task_id () =
-  match validate_repo_path ~require_git repo_path with
-  | Error _ as err -> err
-  | Ok () ->
-      let sql =
-        "INSERT INTO background_tasks (runner, model, repo_path, prompt, \
-         branch, session_key, channel, channel_id, automerge, use_worktree, \
-         parent_task_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-      in
-      let stmt = Sqlite3.prepare db sql in
-      Fun.protect
-        ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
-        (fun () ->
-          ignore
-            (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT (string_of_runner runner)));
-          let bind_opt index = function
-            | Some value when String.trim value <> "" ->
-                ignore (Sqlite3.bind stmt index (Sqlite3.Data.TEXT value))
-            | _ -> ignore (Sqlite3.bind stmt index Sqlite3.Data.NULL)
-          in
-          bind_opt 2 model;
-          ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.TEXT repo_path));
-          ignore (Sqlite3.bind stmt 4 (Sqlite3.Data.TEXT prompt));
-          bind_opt 5 branch;
-          bind_opt 6 session_key;
-          bind_opt 7 channel;
-          bind_opt 8 channel_id;
-          ignore
-            (Sqlite3.bind stmt 9
-               (Sqlite3.Data.INT (if automerge then 1L else 0L)));
-          ignore
-            (Sqlite3.bind stmt 10
-               (Sqlite3.Data.INT (if use_worktree then 1L else 0L)));
-          (match parent_task_id with
-          | Some pid ->
-              ignore
-                (Sqlite3.bind stmt 11 (Sqlite3.Data.INT (Int64.of_int pid)))
-          | None -> ignore (Sqlite3.bind stmt 11 Sqlite3.Data.NULL));
-          match Sqlite3.step stmt with
-          | Sqlite3.Rc.DONE -> Ok (Int64.to_int (Sqlite3.last_insert_rowid db))
-          | rc ->
-              Error
-                (Printf.sprintf "Failed to enqueue background task: %s"
-                   (Sqlite3.Rc.to_string rc)))
+    ?(use_worktree = true) ?(acp = false) ~repo_path ~prompt ?branch
+    ?session_key ?channel ?channel_id ?parent_task_id () =
+  if acp && runner = Local then
+    Error "ACP mode is not supported with the Local runner"
+  else
+    match validate_repo_path ~require_git repo_path with
+    | Error _ as err -> err
+    | Ok () ->
+        let sql =
+          "INSERT INTO background_tasks (runner, model, repo_path, prompt, \
+           branch, session_key, channel, channel_id, automerge, use_worktree, \
+           parent_task_id, acp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        in
+        let stmt = Sqlite3.prepare db sql in
+        Fun.protect
+          ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+          (fun () ->
+            ignore
+              (Sqlite3.bind stmt 1
+                 (Sqlite3.Data.TEXT (string_of_runner runner)));
+            let bind_opt index = function
+              | Some value when String.trim value <> "" ->
+                  ignore (Sqlite3.bind stmt index (Sqlite3.Data.TEXT value))
+              | _ -> ignore (Sqlite3.bind stmt index Sqlite3.Data.NULL)
+            in
+            bind_opt 2 model;
+            ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.TEXT repo_path));
+            ignore (Sqlite3.bind stmt 4 (Sqlite3.Data.TEXT prompt));
+            bind_opt 5 branch;
+            bind_opt 6 session_key;
+            bind_opt 7 channel;
+            bind_opt 8 channel_id;
+            ignore
+              (Sqlite3.bind stmt 9
+                 (Sqlite3.Data.INT (if automerge then 1L else 0L)));
+            ignore
+              (Sqlite3.bind stmt 10
+                 (Sqlite3.Data.INT (if use_worktree then 1L else 0L)));
+            (match parent_task_id with
+            | Some pid ->
+                ignore
+                  (Sqlite3.bind stmt 11 (Sqlite3.Data.INT (Int64.of_int pid)))
+            | None -> ignore (Sqlite3.bind stmt 11 Sqlite3.Data.NULL));
+            ignore
+              (Sqlite3.bind stmt 12 (Sqlite3.Data.INT (if acp then 1L else 0L)));
+            match Sqlite3.step stmt with
+            | Sqlite3.Rc.DONE ->
+                Ok (Int64.to_int (Sqlite3.last_insert_rowid db))
+            | rc ->
+                Error
+                  (Printf.sprintf "Failed to enqueue background task: %s"
+                     (Sqlite3.Rc.to_string rc)))
 
 let select_columns =
   "id, runner, model, repo_path, prompt, COALESCE(branch, ''), worktree_path, \
    log_path, status, session_key, channel, channel_id, pid, result_preview, \
    created_at, started_at, finished_at, COALESCE(automerge, 0), \
    COALESCE(use_worktree, 1), merge_status, COALESCE(retry_count, 0), \
-   parent_task_id, replaced_by, runner_session_id"
+   parent_task_id, replaced_by, runner_session_id, COALESCE(acp, 0)"
 
 let list_tasks ~db : task list =
   let sql =
@@ -951,98 +964,108 @@ let render_background_task_log_lines indexed_lines =
   in
   (rendered_lines, truncated_by_budget, !truncated_any_line)
 
-let log_excerpt ?(offset = 0) ?(lines = 20) task =
-  match task.log_path with
-  | None -> Error (Printf.sprintf "Task %d has no log file yet" task.id)
-  | Some path when not (Sys.file_exists path) ->
-      Error (Printf.sprintf "Log file does not exist yet: %s" path)
-  | Some path ->
-      if offset > 0 then
-        read_lines_window path ~offset ~limit:lines
-        |> Result.map (fun (indexed_lines, total) ->
-            let header =
-              Printf.sprintf "Log excerpt for task %d (%s)\npath: %s" task.id
-                (string_of_status task.status)
-                path
-            in
-            if indexed_lines = [] then
-              header
-              ^ Printf.sprintf
-                  "\n\n(No lines in requested range. Log has %d lines.)" total
-            else
-              let rendered_lines, truncated, truncated_any_line =
-                render_background_task_log_lines indexed_lines
-              in
-              let rendered = String.concat "\n" rendered_lines in
-              let last_line = fst (List.hd (List.rev indexed_lines)) in
-              let suffix =
-                if truncated then
-                  let next_offset = offset + List.length rendered_lines in
-                  Printf.sprintf
-                    "\n\n\
-                     (Output truncated by size budget. Showing lines %d-%d of \
-                     %d. Use offset=%d to continue.)"
-                    offset
-                    (offset + List.length rendered_lines - 1)
-                    total next_offset
-                else if last_line < total then
-                  Printf.sprintf
-                    "\n\n\
-                     (Showing lines %d-%d of %d. Use offset=%d to continue.)"
-                    offset last_line total (last_line + 1)
-                else Printf.sprintf "\n\n(End of log - total %d lines)" total
-              in
-              let trunc_suffix =
-                if truncated_any_line then
-                  Printf.sprintf
-                    "\n\n(Note: long log lines are truncated to %d chars.)"
-                    background_task_logs_max_line_chars
-                else ""
-              in
-              header ^ "\n\n" ^ rendered ^ suffix ^ trunc_suffix)
-      else
-        read_last_lines path ~lines
-        |> Result.map (fun chunks ->
-            let header =
-              Printf.sprintf "Log excerpt for task %d (%s)\npath: %s" task.id
-                (string_of_status task.status)
-                path
-            in
-            if chunks = [] then header ^ "\n\n(log file is empty)"
-            else
-              let total = count_lines path in
-              let n_returned = List.length chunks in
-              let start_num = max 1 (total - n_returned + 1) in
-              let indexed_lines =
-                List.mapi (fun i line -> (start_num + i, line)) chunks
-              in
-              let rendered_lines, truncated, truncated_any_line =
-                render_background_task_log_lines indexed_lines
-              in
-              let rendered = String.concat "\n" rendered_lines in
-              let shown = List.length rendered_lines in
-              let shown_start = start_num in
-              let shown_end = start_num + shown - 1 in
-              let footer =
-                if truncated then
-                  Printf.sprintf
-                    "\n\n\
-                     (Output truncated by size budget. Showing lines %d-%d of \
-                     %d. Use offset=%d to continue.)"
-                    shown_start shown_end total (shown_end + 1)
+let log_excerpt ?db ?(offset = 0) ?(lines = 20) task =
+  match (task.acp, db) with
+  | true, Some db when Acp_history.has_history ~db ~task_id:task.id ->
+      Ok
+        (Acp_history.format_for_display ~db ~task_id:task.id ~max_lines:lines ())
+  | _ -> (
+      match task.log_path with
+      | None -> Error (Printf.sprintf "Task %d has no log file yet" task.id)
+      | Some path when not (Sys.file_exists path) ->
+          Error (Printf.sprintf "Log file does not exist yet: %s" path)
+      | Some path ->
+          if offset > 0 then
+            read_lines_window path ~offset ~limit:lines
+            |> Result.map (fun (indexed_lines, total) ->
+                let header =
+                  Printf.sprintf "Log excerpt for task %d (%s)\npath: %s"
+                    task.id
+                    (string_of_status task.status)
+                    path
+                in
+                if indexed_lines = [] then
+                  header
+                  ^ Printf.sprintf
+                      "\n\n(No lines in requested range. Log has %d lines.)"
+                      total
                 else
-                  Printf.sprintf
-                    "\n\n(Showing last %d lines, lines %d-%d of %d.)" shown
-                    shown_start shown_end total
-              in
-              let trunc_suffix =
-                if truncated_any_line then
-                  Printf.sprintf
-                    "\n\n(Note: long log lines are truncated to %d chars.)"
-                    background_task_logs_max_line_chars
-                else ""
-              in
-              header ^ "\n\n" ^ rendered ^ footer ^ trunc_suffix)
+                  let rendered_lines, truncated, truncated_any_line =
+                    render_background_task_log_lines indexed_lines
+                  in
+                  let rendered = String.concat "\n" rendered_lines in
+                  let last_line = fst (List.hd (List.rev indexed_lines)) in
+                  let suffix =
+                    if truncated then
+                      let next_offset = offset + List.length rendered_lines in
+                      Printf.sprintf
+                        "\n\n\
+                         (Output truncated by size budget. Showing lines %d-%d \
+                         of %d. Use offset=%d to continue.)"
+                        offset
+                        (offset + List.length rendered_lines - 1)
+                        total next_offset
+                    else if last_line < total then
+                      Printf.sprintf
+                        "\n\n\
+                         (Showing lines %d-%d of %d. Use offset=%d to \
+                         continue.)"
+                        offset last_line total (last_line + 1)
+                    else
+                      Printf.sprintf "\n\n(End of log - total %d lines)" total
+                  in
+                  let trunc_suffix =
+                    if truncated_any_line then
+                      Printf.sprintf
+                        "\n\n(Note: long log lines are truncated to %d chars.)"
+                        background_task_logs_max_line_chars
+                    else ""
+                  in
+                  header ^ "\n\n" ^ rendered ^ suffix ^ trunc_suffix)
+          else
+            read_last_lines path ~lines
+            |> Result.map (fun chunks ->
+                let header =
+                  Printf.sprintf "Log excerpt for task %d (%s)\npath: %s"
+                    task.id
+                    (string_of_status task.status)
+                    path
+                in
+                if chunks = [] then header ^ "\n\n(log file is empty)"
+                else
+                  let total = count_lines path in
+                  let n_returned = List.length chunks in
+                  let start_num = max 1 (total - n_returned + 1) in
+                  let indexed_lines =
+                    List.mapi (fun i line -> (start_num + i, line)) chunks
+                  in
+                  let rendered_lines, truncated, truncated_any_line =
+                    render_background_task_log_lines indexed_lines
+                  in
+                  let rendered = String.concat "\n" rendered_lines in
+                  let shown = List.length rendered_lines in
+                  let shown_start = start_num in
+                  let shown_end = start_num + shown - 1 in
+                  let footer =
+                    if truncated then
+                      Printf.sprintf
+                        "\n\n\
+                         (Output truncated by size budget. Showing lines %d-%d \
+                         of %d. Use offset=%d to continue.)"
+                        shown_start shown_end total (shown_end + 1)
+                    else
+                      Printf.sprintf
+                        "\n\n(Showing last %d lines, lines %d-%d of %d.)" shown
+                        shown_start shown_end total
+                  in
+                  let trunc_suffix =
+                    if truncated_any_line then
+                      Printf.sprintf
+                        "\n\n(Note: long log lines are truncated to %d chars.)"
+                        background_task_logs_max_line_chars
+                    else ""
+                  in
+                  header ^ "\n\n" ^ rendered ^ footer ^ trunc_suffix))
 
 let read_lines_range path ~offset ~lines =
   if lines <= 0 then Ok ([], 0)
@@ -1645,8 +1668,8 @@ let build_delegate_prompt ~automerge:_ ~goal =
     ]
 
 let delegate_enqueue ?context ?notify_cfg ?(check_available = true)
-    ?(automerge = false) ?(use_worktree = true) ~db ?preferred_runner ?model
-    ?repo_path ?branch ~default_repo_path ~goal () =
+    ?(automerge = false) ?(use_worktree = true) ?(acp = false) ~db
+    ?preferred_runner ?model ?repo_path ?branch ~default_repo_path ~goal () =
   let chosen_repo_path =
     match repo_path with
     | Some path when String.trim path <> "" -> path
@@ -1672,8 +1695,8 @@ let delegate_enqueue ?context ?notify_cfg ?(check_available = true)
             in
             match
               enqueue ~db ~runner ?model:effective_model ~require_git:false
-                ~automerge ~use_worktree ~repo_path:chosen_repo_path ~prompt
-                ?branch ?session_key ?channel ?channel_id ()
+                ~automerge ~use_worktree ~acp ~repo_path:chosen_repo_path
+                ~prompt ?branch ?session_key ?channel ?channel_id ()
             with
             | Ok id -> Ok (id, runner, chosen_repo_path)
             | Error _ as err -> err))
@@ -1992,42 +2015,42 @@ let spawn_task ?(on_task_started = fun _ -> Lwt.return_unit)
                           queued_messages))
                 else Fresh
               in
-              let command, pre_session_id =
-                match command_override with
-                | Some cmd -> (cmd, None)
-                | None ->
-                    let result =
-                      command_of_task_with_invocation task_for_command
-                        invocation
-                    in
-                    ( Process_group.Exec result.Runner_framework.argv,
-                      result.Runner_framework.pre_generated_session_id )
-              in
-              (match pre_session_id with
-              | Some sid ->
-                  set_runner_session_id ~db ~id:task.id ~runner_session_id:sid
-              | None -> ());
-              let proc =
-                Process_group.start_to_file ~cwd:worktree_path
-                  ~env:(Unix.environment ()) ~log_path command
-              in
-              let pid = proc.file_pid in
-              if
-                not
-                  (set_running ~db ~id:task.id ~branch ~worktree_path ~log_path
-                     ~pid)
-              then
-                let* () = Process_group.terminate_immediately pid in
-                let* _ = Process_group.wait pid in
+              if task.acp && task.runner = Local then begin
+                Logs.err (fun m ->
+                    m "ACP mode is not supported with the Local runner");
+                let () =
+                  ignore
+                    (finalize_completed_task ~db ~id:task.id ~exit_code:1
+                       ~output:
+                         "Error: ACP mode is not supported with the Local \
+                          runner")
+                in
                 Lwt.return_unit
-              else
+              end
+              else if task.acp && command_override = None then begin
+                (* ACP interactive path *)
+                let acp_command =
+                  Runner_framework.acp_argv_of_runner
+                    (runner_to_framework_runner task.runner)
+                in
+                let effective_prompt =
+                  match invocation with
+                  | Fresh -> task_for_command.prompt
+                  | Resume resume_text -> resume_text
+                in
+                ignore
+                  (set_running ~db ~id:task.id ~branch ~worktree_path ~log_path
+                     ~pid:0);
                 let* () =
                   match get_task ~db ~id:task.id with
                   | Some t -> on_task_started t
                   | None -> Lwt.return_unit
                 in
-                let* status = Process_group.wait pid in
-                let exit_code = exit_code_of_status status in
+                let* exit_code, output =
+                  Acp_client.run_task ~db ~task_id:task.id ~log_path
+                    ~cwd:worktree_path ~prompt_text:effective_prompt
+                    ~command:acp_command ()
+                in
                 let () =
                   if exit_code = 0 then
                     List.iter
@@ -2035,39 +2058,6 @@ let spawn_task ?(on_task_started = fun _ -> Lwt.return_unit)
                         delete_queued_message ~db ~queue_id:msg.id)
                       queued_messages
                 in
-                (* B210 watchdog: after child exits, give process group
-                   2s then kill remaining members (e.g. grandchildren) *)
-                Lwt.async (fun () ->
-                    let open Lwt.Syntax in
-                    let* () = Lwt_unix.sleep 2.0 in
-                    Logs.info (fun m ->
-                        m
-                          "Background task %d: child exited, killing remaining \
-                           process group members"
-                          task.id);
-                    Process_group.signal_group pid Sys.sigkill;
-                    Lwt.return_unit);
-                let output = read_log_tail log_path preview_limit in
-                (* Extract runner session ID from log if not already set *)
-                (let current =
-                   match get_task ~db ~id:task.id with
-                   | Some t -> t.runner_session_id
-                   | None -> None
-                 in
-                 if current = None then
-                   let def =
-                     Runner_framework.runner_def_of_runner
-                       (runner_to_framework_runner task.runner)
-                   in
-                   let full_output = read_log_tail log_path (64 * 1024) in
-                   match
-                     Runner_framework.extract_session_id def full_output
-                   with
-                   | Some sid ->
-                       set_runner_session_id ~db ~id:task.id
-                         ~runner_session_id:sid
-                   | None -> ());
-                let exit_code = exit_code_of_status status in
                 ignore
                   (finalize_completed_task ~db ~id:task.id ~exit_code ~output);
                 let* () =
@@ -2075,7 +2065,95 @@ let spawn_task ?(on_task_started = fun _ -> Lwt.return_unit)
                   | Some finished_task -> on_task_finished finished_task
                   | None -> Lwt.return_unit
                 in
-                Lwt.return_unit)
+                Lwt.return_unit
+              end
+              else begin
+                (* Legacy CLI-argument spawn path *)
+                let command, pre_session_id =
+                  match command_override with
+                  | Some cmd -> (cmd, None)
+                  | None ->
+                      let result =
+                        command_of_task_with_invocation task_for_command
+                          invocation
+                      in
+                      ( Process_group.Exec result.Runner_framework.argv,
+                        result.Runner_framework.pre_generated_session_id )
+                in
+                (match pre_session_id with
+                | Some sid ->
+                    set_runner_session_id ~db ~id:task.id ~runner_session_id:sid
+                | None -> ());
+                let proc =
+                  Process_group.start_to_file ~cwd:worktree_path
+                    ~env:(Unix.environment ()) ~log_path command
+                in
+                let pid = proc.file_pid in
+                if
+                  not
+                    (set_running ~db ~id:task.id ~branch ~worktree_path
+                       ~log_path ~pid)
+                then
+                  let* () = Process_group.terminate_immediately pid in
+                  let* _ = Process_group.wait pid in
+                  Lwt.return_unit
+                else
+                  let* () =
+                    match get_task ~db ~id:task.id with
+                    | Some t -> on_task_started t
+                    | None -> Lwt.return_unit
+                  in
+                  let* status = Process_group.wait pid in
+                  let exit_code = exit_code_of_status status in
+                  let () =
+                    if exit_code = 0 then
+                      List.iter
+                        (fun (msg : queued_message) ->
+                          delete_queued_message ~db ~queue_id:msg.id)
+                        queued_messages
+                  in
+                  (* B210 watchdog: after child exits, give process group
+                     2s then kill remaining members (e.g. grandchildren) *)
+                  Lwt.async (fun () ->
+                      let open Lwt.Syntax in
+                      let* () = Lwt_unix.sleep 2.0 in
+                      Logs.info (fun m ->
+                          m
+                            "Background task %d: child exited, killing \
+                             remaining process group members"
+                            task.id);
+                      Process_group.signal_group pid Sys.sigkill;
+                      Lwt.return_unit);
+                  let output = read_log_tail log_path preview_limit in
+                  (* Extract runner session ID from log if not set *)
+                  (let current =
+                     match get_task ~db ~id:task.id with
+                     | Some t -> t.runner_session_id
+                     | None -> None
+                   in
+                   if current = None then
+                     let def =
+                       Runner_framework.runner_def_of_runner
+                         (runner_to_framework_runner task.runner)
+                     in
+                     let full_output = read_log_tail log_path (64 * 1024) in
+                     match
+                       Runner_framework.extract_session_id def full_output
+                     with
+                     | Some sid ->
+                         set_runner_session_id ~db ~id:task.id
+                           ~runner_session_id:sid
+                     | None -> ());
+                  let exit_code = exit_code_of_status status in
+                  ignore
+                    (finalize_completed_task ~db ~id:task.id ~exit_code ~output);
+                  let* () =
+                    match get_task ~db ~id:task.id with
+                    | Some finished_task -> on_task_finished finished_task
+                    | None -> Lwt.return_unit
+                  in
+                  Lwt.return_unit
+              end)
         finalize)
 
 let default_spawn_task ~on_task_started ~on_task_finished ~db task =
@@ -2396,6 +2474,16 @@ let enqueue_tool_with_notify ~notify_cfg ~db =
                           "Run in a git worktree (default: true). Set false to \
                            run directly in the repo directory." );
                     ] );
+                ( "acp",
+                  `Assoc
+                    [
+                      ("type", `String "boolean");
+                      ( "description",
+                        `String
+                          "Use ACP (Agent Client Protocol) mode for \
+                           bidirectional JSON-RPC communication. Default: \
+                           false." );
+                    ] );
               ] );
           ( "required",
             `List [ `String "runner"; `String "repo_path"; `String "prompt" ] );
@@ -2437,6 +2525,12 @@ let enqueue_tool_with_notify ~notify_cfg ~db =
             |> Option.value ~default:true
           with _ -> true
         in
+        let acp =
+          try
+            args |> member "acp" |> to_bool_option
+            |> Option.value ~default:false
+          with _ -> false
+        in
         match runner_of_string runner_s with
         | None ->
             Lwt.return
@@ -2451,8 +2545,8 @@ let enqueue_tool_with_notify ~notify_cfg ~db =
               routing_from_context ?context ?notify_cfg ()
             in
             match
-              enqueue ~db ~runner ?model ~automerge ~use_worktree ~repo_path
-                ~prompt ?branch ?session_key ?channel ?channel_id ()
+              enqueue ~db ~runner ?model ~automerge ~use_worktree ~acp
+                ~repo_path ~prompt ?branch ?session_key ?channel ?channel_id ()
             with
             | Ok id ->
                 Lwt.return
@@ -2803,6 +2897,16 @@ let delegate_tool_with_notify ?(check_available = true) ~db ~default_repo_path
                           "Run in a git worktree (default: true). Set false to \
                            run directly in the repo directory." );
                     ] );
+                ( "acp",
+                  `Assoc
+                    [
+                      ("type", `String "boolean");
+                      ( "description",
+                        `String
+                          "Use ACP (Agent Client Protocol) mode for \
+                           bidirectional JSON-RPC communication. Default: \
+                           false." );
+                    ] );
               ] );
           ("required", `List [ `String "goal" ]);
           ("additionalProperties", `Bool false);
@@ -2859,13 +2963,19 @@ let delegate_tool_with_notify ?(check_available = true) ~db ~default_repo_path
             |> Option.value ~default:true
           with _ -> true
         in
+        let acp =
+          try
+            args |> member "acp" |> to_bool_option
+            |> Option.value ~default:false
+          with _ -> false
+        in
         if String.trim goal = "" then Lwt.return "Error: goal is required"
         else if runner_error <> None then
           Lwt.return ("Error: " ^ Option.get runner_error)
         else
           match
             delegate_enqueue ?context ?notify_cfg ~check_available ~db
-              ~automerge ~use_worktree ?preferred_runner:runner_pref ?model
+              ~automerge ~use_worktree ~acp ?preferred_runner:runner_pref ?model
               ?repo_path ?branch ~default_repo_path ~goal ()
           with
           | Ok (id, runner, repo) ->

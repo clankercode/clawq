@@ -77,6 +77,7 @@ let fake_task ?(status = Background_task.Queued) id =
     parent_task_id = None;
     replaced_by = None;
     runner_session_id = None;
+    acp = false;
   }
 
 let fake_started_task ?(runner = Background_task.Codex) ?model
@@ -106,6 +107,7 @@ let fake_started_task ?(runner = Background_task.Codex) ?model
     parent_task_id = None;
     replaced_by = None;
     runner_session_id = None;
+    acp = false;
   }
 
 let test_enqueue_and_list_tasks () =
@@ -303,6 +305,7 @@ let test_command_of_task_codex () =
       parent_task_id = None;
       replaced_by = None;
       runner_session_id = None;
+      acp = false;
     }
   in
   Alcotest.(check (array string))
@@ -343,6 +346,7 @@ let test_command_of_task_claude () =
       parent_task_id = None;
       replaced_by = None;
       runner_session_id = None;
+      acp = false;
     }
   in
   Alcotest.(check (array string))
@@ -377,6 +381,7 @@ let test_command_of_task_kimi () =
       parent_task_id = None;
       replaced_by = None;
       runner_session_id = None;
+      acp = false;
     }
   in
   Alcotest.(check (array string))
@@ -411,6 +416,7 @@ let test_command_of_task_kimi_with_model () =
       parent_task_id = None;
       replaced_by = None;
       runner_session_id = None;
+      acp = false;
     }
   in
   Alcotest.(check (array string))
@@ -445,6 +451,7 @@ let test_command_of_task_gemini () =
       parent_task_id = None;
       replaced_by = None;
       runner_session_id = None;
+      acp = false;
     }
   in
   Alcotest.(check (array string))
@@ -479,6 +486,7 @@ let test_command_of_task_gemini_with_model () =
       parent_task_id = None;
       replaced_by = None;
       runner_session_id = None;
+      acp = false;
     }
   in
   Alcotest.(check (array string))
@@ -513,6 +521,7 @@ let test_command_of_task_opencode () =
       parent_task_id = None;
       replaced_by = None;
       runner_session_id = None;
+      acp = false;
     }
   in
   Alcotest.(check (array string))
@@ -547,6 +556,7 @@ let test_command_of_task_opencode_with_model () =
       parent_task_id = None;
       replaced_by = None;
       runner_session_id = None;
+      acp = false;
     }
   in
   Alcotest.(check (array string))
@@ -581,6 +591,7 @@ let test_command_of_task_cursor () =
       parent_task_id = None;
       replaced_by = None;
       runner_session_id = None;
+      acp = false;
     }
   in
   Alcotest.(check (array string))
@@ -615,6 +626,7 @@ let test_command_of_task_cursor_with_model () =
       parent_task_id = None;
       replaced_by = None;
       runner_session_id = None;
+      acp = false;
     }
   in
   Alcotest.(check (array string))
@@ -1405,6 +1417,7 @@ let make_task ?(id = 1) ?(runner = Background_task.Claude)
     parent_task_id = None;
     replaced_by = None;
     runner_session_id = None;
+    acp = false;
   }
 
 let test_elapsed_string_recent () =
@@ -1604,6 +1617,7 @@ let test_command_of_task_codex_with_model () =
       parent_task_id = None;
       replaced_by = None;
       runner_session_id = None;
+      acp = false;
     }
   in
   Alcotest.(check (array string))
@@ -1646,6 +1660,7 @@ let test_command_of_task_claude_with_model () =
       parent_task_id = None;
       replaced_by = None;
       runner_session_id = None;
+      acp = false;
     }
   in
   Alcotest.(check (array string))
@@ -3224,6 +3239,7 @@ let test_terse_message_dirty_worktree () =
       parent_task_id = None;
       replaced_by = None;
       runner_session_id = None;
+      acp = false;
     }
   in
   let msg = Background_task.terse_finished_message task in

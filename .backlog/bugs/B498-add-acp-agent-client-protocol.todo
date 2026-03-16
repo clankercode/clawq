@@ -25,15 +25,44 @@ ACP (Agent Client Protocol) is an emerging standard from Zed Industries and JetB
 Acceptance criteria
 - Research ACP spec at https://agentclientprotocol.com/get-started/introduction and document integration requirements
 - Implement ACP client capability (clawq acts as ACP client to spawn/control agents)
-- Local agent support via JSON-RPC over stdio
+- Local agent support via JSON-RPC over stdio (newline-delimited, not Content-Length framing)
 - Remote agent support via HTTP/WebSocket (optional initially)
 - Tool calls, file system access, and terminal operations work via ACP
 - At least one existing runner migrated to ACP as proof of concept
 - Documentation updated to explain ACP mode
+- ACP is an optional boolean flag on existing runners (not a new runner type)
+- All 6 runners (Claude, Codex, Kimi, Gemini, Opencode, Cursor) have correct ACP CLI argv generation
+- New files: acp_types.ml, acp_transport.ml, acp_client.ml, acp_terminals.ml, acp_history.ml (all in clawq_runtime_core)
+- acp_types.ml: Pure protocol types + JSON serde for all ACP types (stop_reason, tool_kind, content_block, tool_call, session_update, etc.)
+- acp_transport.ml: Newline-delimited JSON-RPC transport (read_message, write_message, jsonrpc_* helpers)
+- acp_client.ml: Core client with connect/create_session/prompt/cancel/disconnect/run_task lifecycle
+- acp_client.ml: Read loop dispatches responses, notifications (session/update), and requests from agent
+- acp_client.ml: Client-side request handlers for session/request_permission, fs/read_text_file, fs/write_text_file, terminal/*
+- acp_client.ml: Auto-approve permissions when auto_approve_permissions=true
+- acp_terminals.ml: Terminal management (create, get_output, wait_for_exit, kill, release)
+- acp_history.ml: SQLite acp_history table (task_id, seq, direction, msg_type, update_type, role, content_text, raw_json, tool_call_id)
+- acp_history.ml: Functions for init_schema, record, get_history, export_jsonl, has_history, format_for_display
+- background_task.ml: acp boolean field on task record, DB migration via try_alter, acp column in schema
+- background_task.ml: enqueue and delegate_enqueue accept ~acp parameter
+- background_task.ml: spawn_task branches on task.acp to use Acp_client.run_task vs Process_group.start_to_file
+- background_task.ml: log_excerpt detects ACP tasks and uses Acp_history.format_for_display
+- background_task.ml: export-acp subcommand outputs JSONL via Acp_history.export_jsonl
+- command_bridge.ml: acp boolean parameter in enqueue and delegate tool schemas
+- command_bridge.ml: export-acp subcommand handler
+- runner_framework.ml: acp_argv_of_runner returns correct CLI for each runner, runner_supports_acp returns true for all
+- docs/src/lib/chat-viewer/normalizer.ts: ACP JSONL format detection and normalization to ChatLog
+- Log file format: nicely formatted ASCII text for human reading (timestamps, role headers, tool call details)
+- test_acp.ml: Tests for transport, types, history, runner framework, background task integration
+- make build succeeds
+- make build-minimal succeeds (ACP in core)
+- make fmt-check passes
+- make test passes (all tests including new ACP tests)
+- make ui-check passes (chat viewer normalizer valid)
 
 Notes
 - ACP reuses MCP JSON representations where possible
 - Default text format is Markdown
 - See also: existing MCP support in clawq (P1.M3.E1.T001)
-- This is a larger feature - consider breaking into phases
 - Related to B129 (/delegate slash command)
+- Protocol reference: docs/ACP_PROTOCOL_REFERENCE.md
+- Schema reference: docs/research/acp_schema.json

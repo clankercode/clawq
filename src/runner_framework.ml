@@ -260,6 +260,17 @@ let runner_def_of_runner (runner : runner) : runner_def =
                   ]);
       }
 
+let acp_argv_of_runner (runner : runner) : string array =
+  match runner with
+  | Claude -> [| "claude"; "--acp" |]
+  | Codex -> [| "codex"; "--acp" |]
+  | Kimi -> [| "kimi"; "acp" |]
+  | Gemini -> [| "gemini"; "--experimental-acp" |]
+  | Opencode -> [| "opencode"; "acp" |]
+  | Cursor -> [| "cursor-agent"; "acp" |]
+
+let runner_supports_acp (_runner : runner) : bool = true
+
 let pre_generate_session_id (def : runner_def) : string option =
   match def.session_strategy with
   | Pre_generate_uuid -> Some (generate_uuid ())

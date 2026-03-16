@@ -123,7 +123,8 @@
   test_connector_capabilities
   test_status_update
   test_content_dsl
-  test_workspace_version)
+  test_workspace_version
+  test_acp)
  (libraries
   clawq_extracted
   clawq_runtime_core

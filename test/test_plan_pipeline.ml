@@ -157,6 +157,7 @@ let test_check_plan_stable_hash_unchanged () =
               parent_task_id = None;
               replaced_by = None;
               runner_session_id = None;
+              acp = false;
             }
           in
           let stable =
@@ -202,6 +203,7 @@ let test_check_plan_stable_marker () =
               parent_task_id = None;
               replaced_by = None;
               runner_session_id = None;
+              acp = false;
             }
           in
           let stable =
@@ -245,6 +247,7 @@ let test_stage_transitions () =
       parent_task_id = None;
       replaced_by = None;
       runner_session_id = None;
+      acp = false;
     }
   in
   with_temp_git_repo (fun repo ->
@@ -323,6 +326,7 @@ let test_stage_force_stop_at_max () =
       parent_task_id = None;
       replaced_by = None;
       runner_session_id = None;
+      acp = false;
     }
   in
   with_temp_git_repo (fun repo ->

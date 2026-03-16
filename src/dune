@@ -116,7 +116,12 @@
   log_rotation
   table_format
   markdown_util
-  error_watcher)
+  error_watcher
+  acp_types
+  acp_transport
+  acp_terminals
+  acp_history
+  acp_client)
  (foreign_stubs
   (language c)
   (names landlock_stubs))

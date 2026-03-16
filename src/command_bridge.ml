@@ -354,7 +354,9 @@ let cmd_background args =
         \  background recover <id> [--runner R] [--model M]        - Recover a \
          failed/stuck task with full context\n\
         \  background finalize <id>                                - Rebase, \
-         merge and clean up worktree"
+         merge and clean up worktree\n\
+        \  background export-acp <id>                              - Export \
+         ACP session history as JSONL"
   | [ "show"; id_s ] -> (
       let db = get_db () in
       Background_task.init_schema db;
@@ -448,8 +450,9 @@ let cmd_background args =
               Printf.sprintf "Error: No background task found with id %d"
                 parsed.id
           | Some task -> (
+              let db = get_db () in
               match
-                Background_task.log_excerpt ~offset:parsed.offset
+                Background_task.log_excerpt ~db ~offset:parsed.offset
                   ~lines:parsed.lines task
               with
               | Ok text -> text
@@ -522,6 +525,14 @@ let cmd_background args =
               (Background_task.string_of_runner effective_runner)
               new_id
         | Error msg -> "Error: " ^ msg)
+  | [ "export-acp"; id_s ] ->
+      let db = get_db () in
+      Background_task.init_schema db;
+      let id = try int_of_string id_s with _ -> -1 in
+      if id < 0 then "Error: background task id must be an integer"
+      else if not (Acp_history.has_history ~db ~task_id:id) then
+        Printf.sprintf "No ACP history found for task %d" id
+      else Acp_history.export_jsonl ~db ~task_id:id
   | [ "finalize"; id_s ] | "finalize" :: id_s :: _ -> (
       let db = get_db () in
       Background_task.init_schema db;
@@ -538,7 +549,7 @@ let cmd_background args =
             Worktree_merge.format_result result)
   | _ ->
       "Usage: clawq background \
-       <list|show|add|wait|logs|resume|message|cancel|retry|recover|finalize>\n\
+       <list|show|add|wait|logs|resume|message|cancel|retry|recover|finalize|export-acp>\n\
       \  background list                                         - List queued \
        and completed tasks\n\
       \  background show <id>                                    - Show task \
@@ -560,7 +571,9 @@ let cmd_background args =
       \  background recover <id> [--runner R] [--model M]        - Recover a \
        failed/stuck task with full context\n\
       \  background finalize <id>                                - Rebase, \
-       merge and clean up a task's worktree"
+       merge and clean up a task's worktree\n\
+      \  background export-acp <id>                              - Export ACP \
+       session history as JSONL"
 
 let cmd_delegate args =
   let cfg = get_config () in

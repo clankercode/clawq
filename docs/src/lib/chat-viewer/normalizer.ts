@@ -16,6 +16,12 @@ function normalizeArray(items: unknown[]): ChatLog {
     return { messages: [] };
   }
 
+  // Detect ACP (Agent Client Protocol) JSONL: entries are JSON-RPC messages
+  // with "jsonrpc": "2.0" and methods like "session/update", "session/prompt"
+  if (isAcpJsonl(items)) {
+    return { messages: normalizeAcpMessages(items) };
+  }
+
   // Detect Claude Code session JSONL: entries have a top-level "type" field
   // like "user", "assistant", "file-history-snapshot", "progress", etc.
   // Actual messages are nested under .message with .message.role
@@ -263,6 +269,129 @@ function extractThinkingFromProviderItems(raw: string | null | undefined): strin
   } catch {
     return "";
   }
+}
+
+/** ACP JSONL: lines are JSON-RPC 2.0 messages with "jsonrpc": "2.0" */
+function isAcpJsonl(items: unknown[]): boolean {
+  return items.some((item) => {
+    const msg = item as Record<string, unknown>;
+    return msg.jsonrpc === "2.0" && (
+      typeof msg.method === "string" ||
+      msg.result !== undefined ||
+      msg.error !== undefined
+    );
+  });
+}
+
+/** Normalize ACP JSON-RPC messages into ChatLog messages */
+function normalizeAcpMessages(items: unknown[]): NormalizedMessage[] {
+  const messages: NormalizedMessage[] = [];
+  let index = 0;
+  let currentAssistantText = "";
+
+  for (const item of items) {
+    const msg = item as Record<string, unknown>;
+    const method = msg.method as string | undefined;
+    const params = msg.params as Record<string, unknown> | undefined;
+
+    if (method === "session/prompt" && params) {
+      // User prompt
+      const promptBlocks = params.prompt as Record<string, unknown>[] | undefined;
+      let text = "";
+      if (Array.isArray(promptBlocks)) {
+        text = promptBlocks
+          .filter((b) => b.type === "text")
+          .map((b) => b.text as string)
+          .join("\n\n");
+      }
+      if (text) {
+        // Flush any accumulated assistant text
+        if (currentAssistantText) {
+          messages.push({ index: index++, role: "assistant", content: currentAssistantText });
+          currentAssistantText = "";
+        }
+        messages.push({ index: index++, role: "user", content: text });
+      }
+    } else if (method === "session/update" && params) {
+      const update = params.update as Record<string, unknown> | undefined;
+      if (!update) continue;
+
+      const sessionUpdate = update.sessionUpdate as string;
+      switch (sessionUpdate) {
+        case "agent_message_chunk": {
+          const content = update.content as Record<string, unknown> | undefined;
+          if (content?.type === "text") {
+            currentAssistantText += content.text as string;
+          }
+          break;
+        }
+        case "thought_message_chunk": {
+          // Emit accumulated text first
+          if (currentAssistantText) {
+            messages.push({ index: index++, role: "assistant", content: currentAssistantText });
+            currentAssistantText = "";
+          }
+          const content = update.content as Record<string, unknown> | undefined;
+          if (content?.type === "text") {
+            messages.push({
+              index: index++,
+              role: "assistant",
+              content: "",
+              thinking: content.text as string,
+            });
+          }
+          break;
+        }
+        case "tool_call": {
+          // Flush assistant text
+          if (currentAssistantText) {
+            messages.push({ index: index++, role: "assistant", content: currentAssistantText });
+            currentAssistantText = "";
+          }
+          const toolCalls: NormalizedToolCall[] = [{
+            id: update.toolCallId as string || "",
+            name: update.title as string || "",
+            arguments: update.rawInput ? JSON.stringify(update.rawInput, null, 2) : "{}",
+          }];
+          messages.push({ index: index++, role: "assistant", content: "", toolCalls });
+          break;
+        }
+        case "tool_call_update": {
+          const status = update.status as string | undefined;
+          const toolCallId = update.toolCallId as string || "";
+          const contentBlocks = update.content as Record<string, unknown>[] | undefined;
+          let resultText = "";
+          if (Array.isArray(contentBlocks)) {
+            resultText = contentBlocks
+              .map((c) => {
+                if (c.type === "content") {
+                  const inner = c.content as Record<string, unknown>;
+                  return inner?.type === "text" ? inner.text as string : JSON.stringify(inner);
+                }
+                return JSON.stringify(c);
+              })
+              .join("\n");
+          }
+          if (status === "completed" || status === "failed") {
+            messages.push({
+              index: index++,
+              role: "tool",
+              content: resultText || `[${status}]`,
+              toolCallId,
+            });
+          }
+          break;
+        }
+      }
+    }
+  }
+
+  // Flush remaining assistant text
+  if (currentAssistantText) {
+    messages.push({ index: index++, role: "assistant", content: currentAssistantText });
+  }
+
+  return messages;
 }
 
 function mapRole(role: string): NormalizedMessage["role"] {
