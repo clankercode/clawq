@@ -24,6 +24,7 @@ type teams_activity = {
   team_id : string;
   text : string;
   is_group : bool;
+  mentioned_ids : string list;
 }
 
 type mention = { mention_id : string; mention_name : string }
@@ -1057,6 +1058,17 @@ let parse_activity body_str =
       let is_group =
         try conversation_obj |> member "isGroup" |> to_bool with _ -> false
       in
+      let mentioned_ids =
+        try
+          json |> member "entities" |> to_list
+          |> List.filter_map (fun entity ->
+              try
+                if entity |> member "type" |> to_string = "mention" then
+                  Some (entity |> member "mentioned" |> member "id" |> to_string)
+                else None
+              with _ -> None)
+        with _ -> []
+      in
       let team_id =
         try
           json |> member "channelData" |> member "team" |> member "id"
@@ -1075,6 +1087,7 @@ let parse_activity body_str =
             team_id;
             text;
             is_group;
+            mentioned_ids;
           }
   with _ -> None
 
@@ -1138,685 +1151,727 @@ let handle_webhook ~(config : Runtime_config.teams_config)
             team_id;
             text = raw_text;
             is_group;
+            mentioned_ids;
           } -> (
           if dedup_seen activity_id then Lwt.return_unit
           else
             let text = strip_at_mentions raw_text in
             if text = "" then Lwt.return_unit
             else
-              let effective_team_id =
-                if team_id = "" then "personal" else team_id
+              (* In group chats, only process if bot was mentioned or
+                 addressed *)
+              let bot_mentioned =
+                if is_group then
+                  let bot_id_prefix = "28:" ^ config.app_id in
+                  List.exists
+                    (fun mid -> mid = config.app_id || mid = bot_id_prefix)
+                    mentioned_ids
+                else false
               in
-              Logs.info (fun m ->
-                  m "Teams: message from user=%s (id=%s) team=%s conv=%s"
-                    (if user_name <> "" then user_name else user_id)
-                    user_id effective_team_id conversation_id);
-              if not (is_team_allowed ~config ~team_id:effective_team_id) then (
-                Logs.warn (fun m ->
-                    m "Teams: ignoring message from unauthorized team=%s"
-                      effective_team_id);
-                Lwt.return_unit)
-              else if not (is_user_allowed ~config ~user_id) then (
-                Logs.warn (fun m ->
+              if
+                not
+                  (Group_chat_filter.should_respond ~is_group ~bot_mentioned
+                     ~is_reply_to_bot:false ~bot_name:"clawq" text)
+              then begin
+                Logs.debug (fun m ->
                     m
-                      "Teams: ignoring message from unauthorized user=%s \
-                       (id=%s)"
-                      (if user_name <> "" then user_name else user_id)
-                      user_id);
-                Lwt.return_unit)
+                      "Teams: ignoring unaddressed group message conv=%s \
+                       user=%s"
+                      conversation_id user_id);
+                Lwt.return_unit
+              end
               else
-                let effective_service_url =
-                  if service_url = "" then config.service_url else service_url
+                let effective_team_id =
+                  if team_id = "" then "personal" else team_id
                 in
-                let key =
-                  session_key ~team_id:effective_team_id ~conversation_id
-                in
-                let sender_name =
-                  if user_name = "" then None else Some user_name
-                in
-                (* @mention the sender in group chats so they get a
+                Logs.info (fun m ->
+                    m "Teams: message from user=%s (id=%s) team=%s conv=%s"
+                      (if user_name <> "" then user_name else user_id)
+                      user_id effective_team_id conversation_id);
+                if not (is_team_allowed ~config ~team_id:effective_team_id) then (
+                  Logs.warn (fun m ->
+                      m "Teams: ignoring message from unauthorized team=%s"
+                        effective_team_id);
+                  Lwt.return_unit)
+                else if not (is_user_allowed ~config ~user_id) then (
+                  Logs.warn (fun m ->
+                      m
+                        "Teams: ignoring message from unauthorized user=%s \
+                         (id=%s)"
+                        (if user_name <> "" then user_name else user_id)
+                        user_id);
+                  Lwt.return_unit)
+                else
+                  let effective_service_url =
+                    if service_url = "" then config.service_url else service_url
+                  in
+                  let key =
+                    session_key ~team_id:effective_team_id ~conversation_id
+                  in
+                  let sender_name =
+                    if user_name = "" then None else Some user_name
+                  in
+                  (* @mention the sender in group chats so they get a
                    notification. Only on final responses and ask_user_question
                    prompts — not on intermediate streaming updates (notify). *)
-                let mention =
-                  if
-                    is_group && user_name <> "" && config.mention_mode <> "none"
-                  then Some { mention_id = user_id; mention_name = user_name }
-                  else None
-                in
-                let send_text text =
-                  let open Lwt.Syntax in
-                  let* _id =
-                    send_reply ~alert:true ~config
-                      ~service_url:effective_service_url ~conversation_id
-                      ~reply_to_id:activity_id ~text ?mention ()
+                  let mention =
+                    if
+                      is_group && user_name <> ""
+                      && config.mention_mode <> "none"
+                    then Some { mention_id = user_id; mention_name = user_name }
+                    else None
                   in
-                  Lwt.return_unit
-                in
-                (* Ensure a typing indicator watcher is running for this
+                  let send_text text =
+                    let open Lwt.Syntax in
+                    let* _id =
+                      send_reply ~alert:true ~config
+                        ~service_url:effective_service_url ~conversation_id
+                        ~reply_to_id:activity_id ~text ?mention ()
+                    in
+                    Lwt.return_unit
+                  in
+                  (* Ensure a typing indicator watcher is running for this
                    session. The watcher tracks Session live_activity and
                    sends typing activities while the session is active. *)
-                let typing_watcher =
-                  Typing_indicator.ensure_session_typing_watcher
-                    ~session_mgr:session_manager ~key
-                    ~send_action:(fun () ->
-                      send_typing_activity ~config
-                        ~service_url:effective_service_url ~conversation_id)
-                    ~interval:3.0 ~idle_timeout:300.0
-                in
-                let refresh_typing () = typing_watcher.refresh () in
-                let skill_names =
-                  List.map
-                    (fun (s : Skills.skill_md_meta) -> s.md_name)
-                    (Skills.available_skills ())
-                in
-                let* cmd_result, text, skill_injections, loaded_skill_name =
-                  match Slash_commands.handle ~skill_names text with
-                  | Slash_commands.SkillInvoke (name, args) -> (
-                      let* result = Skills.expand_slash_skill ~name ~args () in
-                      match result with
-                      | Ok r ->
-                          Lwt.return
-                            ( Slash_commands.NotACommand,
-                              text,
-                              [ r.skill_injection ],
-                              Some name )
-                      | Error err_msg ->
-                          Lwt.return
-                            (Slash_commands.Reply err_msg, text, [], None))
-                  | other -> Lwt.return (other, text, [], None)
-                in
-                let* () =
-                  match loaded_skill_name with
-                  | Some name ->
-                      let* _id =
-                        send_reply ~config ~service_url:effective_service_url
-                          ~conversation_id ~reply_to_id:activity_id
-                          ~text:(Printf.sprintf "Loaded skill: %s" name)
-                          ()
-                      in
-                      Lwt.return_unit
-                  | None -> Lwt.return_unit
-                in
-                match cmd_result with
-                | SkillInvoke _ ->
-                    Lwt.return_unit (* unreachable: preprocessed above *)
-                | NotACommand -> (
-                    (* Register status message factory and capabilities *)
-                    if
-                      Option.is_none
-                        (Session.find_connector_capabilities session_manager
-                           ~key)
-                    then
-                      Session.register_connector_capabilities session_manager
-                        ~key Connector_capabilities.teams;
-                    Session.register_status_message_factory session_manager ~key
-                      (fun () ->
-                        let notifier =
-                          make_status_notifier ~config
-                            ~service_url:effective_service_url ~conversation_id
-                            ~reply_to_id:activity_id
+                  let typing_watcher =
+                    Typing_indicator.ensure_session_typing_watcher
+                      ~session_mgr:session_manager ~key
+                      ~send_action:(fun () ->
+                        send_typing_activity ~config
+                          ~service_url:effective_service_url ~conversation_id)
+                      ~interval:3.0 ~idle_timeout:300.0
+                  in
+                  let refresh_typing () = typing_watcher.refresh () in
+                  let skill_names =
+                    List.map
+                      (fun (s : Skills.skill_md_meta) -> s.md_name)
+                      (Skills.available_skills ())
+                  in
+                  let* cmd_result, text, skill_injections, loaded_skill_name =
+                    match Slash_commands.handle ~skill_names text with
+                    | Slash_commands.SkillInvoke (name, args) -> (
+                        let* result =
+                          Skills.expand_slash_skill ~name ~args ()
                         in
-                        Status_message.create ~notifier ~parse_mode:"Teams" ());
-                    (* Register alerting notifier for ask_user_question *)
-                    Session.register_alert_channel_notifier session_manager ~key
-                      (fun reply_text ->
+                        match result with
+                        | Ok r ->
+                            Lwt.return
+                              ( Slash_commands.NotACommand,
+                                text,
+                                [ r.skill_injection ],
+                                Some name )
+                        | Error err_msg ->
+                            Lwt.return
+                              (Slash_commands.Reply err_msg, text, [], None))
+                    | other -> Lwt.return (other, text, [], None)
+                  in
+                  let* () =
+                    match loaded_skill_name with
+                    | Some name ->
                         let* _id =
-                          send_reply ~alert:true ~config
-                            ~service_url:effective_service_url ~conversation_id
-                            ~reply_to_id:activity_id ~text:reply_text ?mention
+                          send_reply ~config ~service_url:effective_service_url
+                            ~conversation_id ~reply_to_id:activity_id
+                            ~text:(Printf.sprintf "Loaded skill: %s" name)
                             ()
                         in
-                        refresh_typing ();
-                        Lwt.return_unit);
-                    let* result =
-                      Session.with_registered_notifier session_manager ~key
-                        ~notify:(fun reply_text ->
-                          (* No mention on intermediate updates — mention only
-                             on the final response to avoid repeated tagging. *)
-                          let* _id =
-                            send_reply ~alert:false ~config
+                        Lwt.return_unit
+                    | None -> Lwt.return_unit
+                  in
+                  match cmd_result with
+                  | SkillInvoke _ ->
+                      Lwt.return_unit (* unreachable: preprocessed above *)
+                  | NotACommand -> (
+                      (* Register status message factory and capabilities *)
+                      if
+                        Option.is_none
+                          (Session.find_connector_capabilities session_manager
+                             ~key)
+                      then
+                        Session.register_connector_capabilities session_manager
+                          ~key Connector_capabilities.teams;
+                      Session.register_status_message_factory session_manager
+                        ~key (fun () ->
+                          let notifier =
+                            make_status_notifier ~config
                               ~service_url:effective_service_url
                               ~conversation_id ~reply_to_id:activity_id
-                              ~text:reply_text ()
                           in
-                          refresh_typing ();
-                          Lwt.return_unit)
-                        (fun () ->
-                          Lwt.catch
-                            (fun () ->
-                              let* response =
-                                Session.turn session_manager ~key ~message:text
-                                  ~skill_injections ~channel_name:"teams"
-                                  ~channel_type:"webhook" ~channel:"teams"
-                                  ~channel_id:
-                                    (encode_channel_id
-                                       ~service_url:effective_service_url
-                                       ~conversation_id)
-                                  ~sender_id:user_id ?sender_name ()
-                              in
-                              Lwt.return (Ok response))
-                            (fun exn ->
-                              Lwt.return (Error (Printexc.to_string exn))))
-                    in
-                    match result with
-                    | Ok response ->
-                        if Session.is_queued_message_response response then
-                          Lwt.return_unit
-                        else
+                          Status_message.create ~notifier ~parse_mode:"Teams" ());
+                      (* Register alerting notifier for ask_user_question *)
+                      Session.register_alert_channel_notifier session_manager
+                        ~key (fun reply_text ->
                           let* _id =
                             send_reply ~alert:true ~config
                               ~service_url:effective_service_url
                               ~conversation_id ~reply_to_id:activity_id
-                              ~text:response ?mention ()
+                              ~text:reply_text ?mention ()
                           in
-                          Lwt.return_unit
-                    | Error err ->
-                        Logs.err (fun m ->
-                            m
-                              "Teams: agent error for conv=%s user=%s (id=%s): \
-                               %s"
-                              conversation_id
-                              (if user_name <> "" then user_name else user_id)
-                              user_id err);
-                        Lwt.return_unit)
-                | Reply text -> send_text text
-                | FormattedReply fn ->
-                    let text = fn Format_adapter.Teams in
-                    send_text text
-                | Help ->
-                    let text =
-                      Slash_commands.format_help ~connector:Format_adapter.Teams
-                    in
-                    send_text text
-                | Menu page ->
-                    let card_json =
-                      Slash_commands_manifest.menu_adaptive_card_json ~page ()
-                    in
-                    send_adaptive_card ~config
-                      ~service_url:effective_service_url ~conversation_id
-                      ~reply_to_id:activity_id ~card:card_json ()
-                | Reset ->
-                    let* active_bg_tasks = Session.reset session_manager ~key in
-                    send_text
-                      (Slash_commands_fmt.format_reset
-                         ~connector:Format_adapter.Teams ~active_bg_tasks)
-                | Compact -> (
-                    let* compact_result =
-                      Session.compact session_manager ~key ()
-                    in
-                    match compact_result with
-                    | Ok _ -> Lwt.return_unit
-                    | Error err ->
-                        send_text (Printf.sprintf "Compaction failed: %s" err))
-                | RuntimeCtx ->
-                    let* text =
-                      Session.runtime_context_block session_manager ~key
-                    in
-                    send_text text
-                | Uptime ->
-                    let raw =
-                      Daemon_status.daemon_uptime_reply
-                        ~pid:(Daemon_status.read_current_daemon_pid ())
-                    in
-                    send_text
-                      (Slash_commands_fmt.format_uptime
-                         ~connector:Format_adapter.Teams raw)
-                | Status ->
-                    let text =
-                      Slash_commands.format_status
-                        ~connector:Format_adapter.Teams
-                        ~db:(Session.get_db session_manager)
-                        ~session_count:(Session.session_count session_manager)
-                        ~active_count:
-                          (Session.active_session_count session_manager)
-                        ()
-                    in
-                    send_text text
-                | Thinking Slash_commands.ShowThinking ->
-                    let current =
-                      (Session.get_config session_manager).agent_defaults
-                        .reasoning_effort
-                    in
-                    send_text
-                      (Slash_commands_fmt.format_thinking_status
-                         ~connector:Format_adapter.Teams current)
-                | Thinking (Slash_commands.SetThinking level) ->
-                    let connector = Format_adapter.Teams in
-                    let cfg = Session.get_config session_manager in
-                    let previous = cfg.agent_defaults.reasoning_effort in
-                    let text =
-                      match Config_set.set_reasoning_effort level with
-                      | Ok () ->
-                          Session.update_config ~source:"teams" session_manager
-                            {
-                              cfg with
-                              agent_defaults =
-                                {
-                                  cfg.agent_defaults with
-                                  reasoning_effort = level;
-                                };
-                            };
-                          Slash_commands_fmt.format_thinking_set ~connector
-                            ~previous level
-                      | Error err -> "Failed to set thinking level: " ^ err
-                    in
-                    send_text text
-                | ShowThinking action ->
-                    let connector = Format_adapter.Teams in
-                    let cfg = Session.get_config session_manager in
-                    let current = cfg.agent_defaults.show_thinking in
-                    let text =
-                      match action with
-                      | Slash_commands.ShowThinkingStatus ->
-                          Slash_commands_fmt.format_show_thinking_status
-                            ~connector current
-                      | Slash_commands.ToggleShowThinking -> (
-                          let new_val = not current in
-                          match Config_set.set_show_thinking new_val with
-                          | Ok () ->
-                              Session.update_config ~source:"teams"
-                                session_manager
-                                {
-                                  cfg with
-                                  agent_defaults =
-                                    {
-                                      cfg.agent_defaults with
-                                      show_thinking = new_val;
-                                    };
-                                };
-                              Slash_commands_fmt.format_show_thinking_toggle
-                                ~connector new_val
-                          | Error err ->
-                              "Failed to update show_thinking: " ^ err)
-                    in
-                    send_text text
-                | Heartbeat action ->
-                    let connector = Format_adapter.Teams in
-                    let text =
-                      match action with
-                      | Slash_commands.HeartbeatStatus ->
-                          Slash_commands_fmt.format_heartbeat_status ~connector
-                            (Session.session_heartbeat_status_text
-                               session_manager ~key)
-                      | Slash_commands.SetHeartbeat enabled -> (
-                          match
-                            Session.set_session_heartbeat session_manager ~key
-                              ~enabled
-                          with
-                          | Ok () ->
-                              Slash_commands_fmt.format_heartbeat_set ~connector
-                                enabled key
-                          | Error err -> err)
-                    in
-                    send_text text
-                | Delegate prompt ->
-                    let* () =
-                      send_text "Delegating to a temporary session..."
-                    in
-                    Session.delegate_turn session_manager ~prompt
-                      ~send_reply:send_text;
-                    Lwt.return_unit
-                | ForkAnd prompt ->
-                    let* () = send_text "Forking session..." in
-                    Session.fork_and_run session_manager ~parent_key:key ~prompt
-                      ~send_reply:send_text;
-                    Lwt.return_unit
-                | DebugDumpChat ->
-                    let content = Session.dump_json session_manager ~key in
-                    let timestamp =
-                      Int64.to_int (Int64.of_float (Unix.gettimeofday ()))
-                    in
-                    let safe_key =
-                      String.map
-                        (fun c ->
-                          match c with
-                          | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '-' -> c
-                          | _ -> '_')
-                        key
-                    in
-                    let filename =
-                      Printf.sprintf "session_%s_%d.json" safe_key timestamp
-                    in
-                    let send_temp_download ?prefix () =
-                      let token =
-                        Temp_downloads.add ~content
-                          ~content_type:"application/json" ~filename
-                          ~ttl_s:3600.0
-                      in
-                      let msg =
-                        match Temp_downloads.download_url token with
-                        | Some url ->
-                            Printf.sprintf
-                              "Session dump available for download (%d bytes, \
-                               expires in 1 hour):\n\n\
-                               %s"
-                              (String.length content) url
-                        | None ->
-                            let max_len = 25000 in
-                            if String.length content <= max_len then content
-                            else
-                              Printf.sprintf
-                                "Session dump (truncated — configure \
-                                 tunnel.url for full file download):\n\
-                                 %s\n\
-                                 ...\n\n\
-                                 Full dump: %d bytes"
-                                (String.sub content 0 max_len)
-                                (String.length content)
-                      in
-                      let msg =
-                        match prefix with
-                        | None -> msg
-                        | Some prefix -> prefix ^ "\n\n" ^ msg
-                      in
-                      send_text msg
-                    in
-                    begin match
-                      select_file_upload_delivery
-                        ~file_consent_cards:config.file_consent_cards ~team_id
-                        ~is_group
-                    with
-                    | File_consent_card -> (
-                        (* Try FileConsentCard flow (OneDrive upload) *)
-                        let consent_id =
-                          store_pending_consent ~content ~filename
-                            ~content_type:"application/json" ~ttl_s:600.0
-                        in
-                        let* result =
-                          send_file_consent_card ~config
-                            ~service_url:effective_service_url ~conversation_id
-                            ~reply_to_id:activity_id ~filename
-                            ~description:"Session debug dump"
-                            ~size_bytes:(String.length content) ~consent_id ()
-                        in
-                        match result with
-                        | Ok () -> Lwt.return_unit
-                        | Error err ->
-                            Logs.warn (fun m ->
-                                m
-                                  "Teams: FileConsentCard failed (%s), falling \
-                                   back to temp download"
-                                  err);
-                            send_temp_download ())
-                    | Temp_download_url ->
-                        if config.file_consent_cards then
-                          Logs.info (fun m ->
-                              m
-                                "Teams: using temp download fallback for debug \
-                                 dump in non-personal scope team=%s \
-                                 is_group=%b conv=%s"
-                                effective_team_id is_group conversation_id);
-                        let prefix =
-                          if
-                            config.file_consent_cards
-                            && (team_id <> "" || is_group)
-                          then
-                            Some
-                              "Teams file consent cards only work in personal \
-                               1:1 chats. Sending a download link instead."
-                          else None
-                        in
-                        send_temp_download ?prefix ()
-                    end
-                | Tools ->
-                    let text =
-                      match Session.get_tool_registry session_manager with
-                      | Some reg ->
-                          let tools, _ = Tool_registry.partition_skills reg in
-                          let skills = Skills.available_skills_as_tools () in
-                          Slash_commands.format_tools
-                            ~connector:Format_adapter.Teams tools skills
-                      | None -> "Tools are not enabled."
-                    in
-                    send_text text
-                | Tasks ->
-                    let raw =
-                      match Session.get_db session_manager with
-                      | Some db ->
-                          Task_tree.init_schema db;
-                          Task_tree.render_emoji_tree ~db ~session_key:key ()
-                      | None -> "Tasks are not available (no database)."
-                    in
-                    send_text
-                      (Slash_commands_fmt.format_tasks
-                         ~connector:Format_adapter.Teams raw)
-                | TasksFull ->
-                    let raw =
-                      match Session.get_db session_manager with
-                      | Some db ->
-                          Task_tree.init_schema db;
-                          Task_tree.render_tree_with_legend ~db ~session_key:key
-                      | None -> "Tasks are not available (no database)."
-                    in
-                    send_text
-                      (Slash_commands_fmt.format_tasks
-                         ~connector:Format_adapter.Teams raw)
-                | Costs action ->
-                    let text =
-                      match Session.get_db session_manager with
-                      | Some db ->
-                          Slash_commands.format_costs
-                            ~connector:Format_adapter.Teams ~db action
-                      | None -> "Costs are not available (no database)."
-                    in
-                    send_text text
-                | Usage action ->
-                    let text =
-                      match Session.get_db session_manager with
-                      | Some db ->
-                          Slash_commands.format_usage
-                            ~connector:Format_adapter.Teams ~db action
-                      | None -> "Usage is not available (no database)."
-                    in
-                    send_text text
-                | Active ->
-                    let text =
-                      match Session.get_db session_manager with
-                      | Some db ->
-                          let cfg = Session.get_config session_manager in
-                          Slash_commands.format_active
-                            ~connector:Format_adapter.Teams ~db ~config:cfg ()
-                      | None -> "Active usage is not available (no database)."
-                    in
-                    send_text text
-                | Bg action ->
-                    let text =
-                      match Session.get_db session_manager with
-                      | Some db ->
-                          Slash_commands.format_bg
-                            ~connector:Format_adapter.Teams ~db action
-                      | None ->
-                          "Background tasks are not available (no database)."
-                    in
-                    send_text text
-                | Cron action ->
-                    let text =
-                      match Session.get_db session_manager with
-                      | Some db ->
-                          Slash_commands.format_cron
-                            ~connector:Format_adapter.Teams ~db ~session_key:key
-                            action
-                      | None -> "Cron is not available (no database)."
-                    in
-                    send_text text
-                | Bl action ->
-                    let text =
-                      Slash_commands.format_bl ~connector:Format_adapter.Teams
-                        action
-                    in
-                    send_text text
-                | Model action -> (
-                    let open Slash_commands in
-                    match action with
-                    | ModelShow ->
-                        let current =
-                          Session.get_session_effective_model session_manager
-                            ~key
-                        in
-                        let prefs = Model_preferences.load () in
-                        let usage_ranked =
-                          List.filter_map
-                            (fun (m, c) ->
-                              if List.mem m prefs.favorites then None
-                              else Some (m, c))
-                            prefs.usage_counts
-                        in
-                        let text =
-                          format_model_show ~connector:Format_adapter.Teams
-                            ~current ~favorites:prefs.favorites ~usage_ranked
-                        in
-                        send_text text
-                    | ModelSet name -> (
-                        let provider, model_id, fmt =
-                          Models_catalog.split_name name
-                        in
-                        match fmt with
-                        | Models_catalog.Canonical | Models_catalog.Legacy ->
-                            let hint =
-                              match fmt with
-                              | Models_catalog.Legacy ->
-                                  Printf.sprintf
-                                    "\nHint: use %s:%s format instead of %s/%s."
-                                    provider model_id provider model_id
-                              | _ -> ""
+                          refresh_typing ();
+                          Lwt.return_unit);
+                      let* result =
+                        Session.with_registered_notifier session_manager ~key
+                          ~notify:(fun reply_text ->
+                            (* No mention on intermediate updates — mention only
+                             on the final response to avoid repeated tagging. *)
+                            let* _id =
+                              send_reply ~alert:false ~config
+                                ~service_url:effective_service_url
+                                ~conversation_id ~reply_to_id:activity_id
+                                ~text:reply_text ()
                             in
-                            let cfg = Session.get_config session_manager in
-                            let provider_in_config =
-                              List.mem_assoc provider cfg.providers
-                            in
-                            let warn =
-                              if not provider_in_config then
-                                Printf.sprintf
-                                  "\n\
-                                   Warning: provider '%s' not found in config. \
-                                   Add it to your config.json to use this \
-                                   model."
-                                  provider
-                              else ""
-                            in
-                            Session.set_session_model session_manager ~key
-                              ~model:name;
-                            send_text
-                              (Printf.sprintf
-                                 "Model set to: %s (provider: %s)%s%s\n\
-                                  Persisted for this session across restarts. \
-                                  Use /model set-default to change the global \
-                                  default."
-                                 model_id provider hint warn)
-                        | Models_catalog.Plain -> (
-                            let model_info =
-                              Models_catalog.find_by_full_name name
-                            in
-                            match model_info with
-                            | None ->
-                                Session.set_session_model session_manager ~key
-                                  ~model:name;
-                                send_text
-                                  (Printf.sprintf
-                                     "Warning: '%s' not found in model \
-                                      catalog. Setting anyway.\n\
-                                      Persisted for this session across \
-                                      restarts. Use /model set-default to \
-                                      change the global default."
-                                     name)
-                            | Some m ->
-                                Session.set_session_model session_manager ~key
-                                  ~model:name;
-                                let display =
-                                  if m.Models_catalog.provider <> "" then
-                                    Printf.sprintf
-                                      "Model set to: %s (provider: %s)\n\
-                                       Persisted for this session across \
-                                       restarts. Use /model set-default to \
-                                       change the global default."
-                                      m.Models_catalog.id
-                                      m.Models_catalog.provider
-                                  else
-                                    Printf.sprintf
-                                      "Model set to: %s\n\
-                                       Persisted for this session across \
-                                       restarts. Use /model set-default to \
-                                       change the global default."
-                                      name
+                            refresh_typing ();
+                            Lwt.return_unit)
+                          (fun () ->
+                            Lwt.catch
+                              (fun () ->
+                                let* response =
+                                  Session.turn session_manager ~key
+                                    ~message:text ~skill_injections
+                                    ~channel_name:"teams"
+                                    ~channel_type:
+                                      (if is_group then "group" else "dm")
+                                    ~channel:"teams"
+                                    ~channel_id:
+                                      (encode_channel_id
+                                         ~service_url:effective_service_url
+                                         ~conversation_id)
+                                    ~sender_id:user_id ?sender_name ()
                                 in
-                                send_text display))
-                    | ModelSetDefault name -> (
-                        let provider, model_id, fmt =
-                          Models_catalog.split_name name
-                        in
-                        let hint =
-                          match fmt with
-                          | Models_catalog.Legacy ->
-                              Printf.sprintf "\nHint: use %s:%s format instead."
-                                provider model_id
-                          | _ -> ""
-                        in
-                        let result =
-                          Config_set.set_json_value
-                            "agent_defaults.primary_model" (`String name)
-                        in
-                        match result with
-                        | Error e ->
-                            send_text
-                              (Printf.sprintf "Error writing config: %s" e)
-                        | Ok () ->
-                            let reply_text =
-                              match fmt with
-                              | Models_catalog.Canonical | Models_catalog.Legacy
-                                ->
-                                  Printf.sprintf
-                                    "Default model set to: %s (provider: %s)%s\n\
-                                     Applies to new sessions."
-                                    model_id provider hint
-                              | Models_catalog.Plain ->
-                                  Printf.sprintf
-                                    "Default model set to: %s\n\
-                                     Applies to new sessions."
-                                    name
+                                Lwt.return (Ok response))
+                              (fun exn ->
+                                Lwt.return (Error (Printexc.to_string exn))))
+                      in
+                      match result with
+                      | Ok response ->
+                          if Session.should_suppress_response response then
+                            Lwt.return_unit
+                          else
+                            let* _id =
+                              send_reply ~alert:true ~config
+                                ~service_url:effective_service_url
+                                ~conversation_id ~reply_to_id:activity_id
+                                ~text:response ?mention ()
                             in
-                            send_text reply_text)
-                    | ModelFav name ->
-                        let prefs = Model_preferences.toggle_favorite name in
-                        let status =
-                          if List.mem name prefs.favorites then "added to"
-                          else "removed from"
+                            Lwt.return_unit
+                      | Error err ->
+                          Logs.err (fun m ->
+                              m
+                                "Teams: agent error for conv=%s user=%s \
+                                 (id=%s): %s"
+                                conversation_id
+                                (if user_name <> "" then user_name else user_id)
+                                user_id err);
+                          Lwt.return_unit)
+                  | Reply text -> send_text text
+                  | FormattedReply fn ->
+                      let text = fn Format_adapter.Teams in
+                      send_text text
+                  | Help ->
+                      let text =
+                        Slash_commands.format_help
+                          ~connector:Format_adapter.Teams
+                      in
+                      send_text text
+                  | Menu page ->
+                      let card_json =
+                        Slash_commands_manifest.menu_adaptive_card_json ~page ()
+                      in
+                      send_adaptive_card ~config
+                        ~service_url:effective_service_url ~conversation_id
+                        ~reply_to_id:activity_id ~card:card_json ()
+                  | Reset ->
+                      let* active_bg_tasks =
+                        Session.reset session_manager ~key
+                      in
+                      send_text
+                        (Slash_commands_fmt.format_reset
+                           ~connector:Format_adapter.Teams ~active_bg_tasks)
+                  | Compact -> (
+                      let* compact_result =
+                        Session.compact session_manager ~key ()
+                      in
+                      match compact_result with
+                      | Ok _ -> Lwt.return_unit
+                      | Error err ->
+                          send_text (Printf.sprintf "Compaction failed: %s" err)
+                      )
+                  | RuntimeCtx ->
+                      let* text =
+                        Session.runtime_context_block session_manager ~key
+                      in
+                      send_text text
+                  | Uptime ->
+                      let raw =
+                        Daemon_status.daemon_uptime_reply
+                          ~pid:(Daemon_status.read_current_daemon_pid ())
+                      in
+                      send_text
+                        (Slash_commands_fmt.format_uptime
+                           ~connector:Format_adapter.Teams raw)
+                  | Status ->
+                      let text =
+                        Slash_commands.format_status
+                          ~connector:Format_adapter.Teams
+                          ~db:(Session.get_db session_manager)
+                          ~session_count:(Session.session_count session_manager)
+                          ~active_count:
+                            (Session.active_session_count session_manager)
+                          ()
+                      in
+                      send_text text
+                  | Thinking Slash_commands.ShowThinking ->
+                      let current =
+                        (Session.get_config session_manager).agent_defaults
+                          .reasoning_effort
+                      in
+                      send_text
+                        (Slash_commands_fmt.format_thinking_status
+                           ~connector:Format_adapter.Teams current)
+                  | Thinking (Slash_commands.SetThinking level) ->
+                      let connector = Format_adapter.Teams in
+                      let cfg = Session.get_config session_manager in
+                      let previous = cfg.agent_defaults.reasoning_effort in
+                      let text =
+                        match Config_set.set_reasoning_effort level with
+                        | Ok () ->
+                            Session.update_config ~source:"teams"
+                              session_manager
+                              {
+                                cfg with
+                                agent_defaults =
+                                  {
+                                    cfg.agent_defaults with
+                                    reasoning_effort = level;
+                                  };
+                              };
+                            Slash_commands_fmt.format_thinking_set ~connector
+                              ~previous level
+                        | Error err -> "Failed to set thinking level: " ^ err
+                      in
+                      send_text text
+                  | ShowThinking action ->
+                      let connector = Format_adapter.Teams in
+                      let cfg = Session.get_config session_manager in
+                      let current = cfg.agent_defaults.show_thinking in
+                      let text =
+                        match action with
+                        | Slash_commands.ShowThinkingStatus ->
+                            Slash_commands_fmt.format_show_thinking_status
+                              ~connector current
+                        | Slash_commands.ToggleShowThinking -> (
+                            let new_val = not current in
+                            match Config_set.set_show_thinking new_val with
+                            | Ok () ->
+                                Session.update_config ~source:"teams"
+                                  session_manager
+                                  {
+                                    cfg with
+                                    agent_defaults =
+                                      {
+                                        cfg.agent_defaults with
+                                        show_thinking = new_val;
+                                      };
+                                  };
+                                Slash_commands_fmt.format_show_thinking_toggle
+                                  ~connector new_val
+                            | Error err ->
+                                "Failed to update show_thinking: " ^ err)
+                      in
+                      send_text text
+                  | Heartbeat action ->
+                      let connector = Format_adapter.Teams in
+                      let text =
+                        match action with
+                        | Slash_commands.HeartbeatStatus ->
+                            Slash_commands_fmt.format_heartbeat_status
+                              ~connector
+                              (Session.session_heartbeat_status_text
+                                 session_manager ~key)
+                        | Slash_commands.SetHeartbeat enabled -> (
+                            match
+                              Session.set_session_heartbeat session_manager ~key
+                                ~enabled
+                            with
+                            | Ok () ->
+                                Slash_commands_fmt.format_heartbeat_set
+                                  ~connector enabled key
+                            | Error err -> err)
+                      in
+                      send_text text
+                  | Delegate prompt ->
+                      let* () =
+                        send_text "Delegating to a temporary session..."
+                      in
+                      Session.delegate_turn session_manager ~prompt
+                        ~send_reply:send_text;
+                      Lwt.return_unit
+                  | ForkAnd prompt ->
+                      let* () = send_text "Forking session..." in
+                      Session.fork_and_run session_manager ~parent_key:key
+                        ~prompt ~send_reply:send_text;
+                      Lwt.return_unit
+                  | DebugDumpChat ->
+                      let content = Session.dump_json session_manager ~key in
+                      let timestamp =
+                        Int64.to_int (Int64.of_float (Unix.gettimeofday ()))
+                      in
+                      let safe_key =
+                        String.map
+                          (fun c ->
+                            match c with
+                            | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '-' -> c
+                            | _ -> '_')
+                          key
+                      in
+                      let filename =
+                        Printf.sprintf "session_%s_%d.json" safe_key timestamp
+                      in
+                      let send_temp_download ?prefix () =
+                        let token =
+                          Temp_downloads.add ~content
+                            ~content_type:"application/json" ~filename
+                            ~ttl_s:3600.0
                         in
-                        send_text (Printf.sprintf "%s %s favorites" name status)
-                    | ModelUnfav name ->
-                        let _ = Model_preferences.remove_favorite name in
-                        send_text
-                          (Printf.sprintf "Removed from favorites: %s" name)
-                    | ModelList provider ->
-                        let db_extras =
-                          match Session.get_db session_manager with
-                          | None -> []
-                          | Some db ->
-                              Model_discovery.get_db_only_models ~db
-                                ~provider_filter:provider
+                        let msg =
+                          match Temp_downloads.download_url token with
+                          | Some url ->
+                              Printf.sprintf
+                                "Session dump available for download (%d \
+                                 bytes, expires in 1 hour):\n\n\
+                                 %s"
+                                (String.length content) url
+                          | None ->
+                              let max_len = 25000 in
+                              if String.length content <= max_len then content
+                              else
+                                Printf.sprintf
+                                  "Session dump (truncated — configure \
+                                   tunnel.url for full file download):\n\
+                                   %s\n\
+                                   ...\n\n\
+                                   Full dump: %d bytes"
+                                  (String.sub content 0 max_len)
+                                  (String.length content)
                         in
-                        let models =
-                          Models_catalog.to_plain_list ~provider_filter:provider
-                            ~db_extras ()
-                          |> String.split_on_char '\n'
-                          |> List.filter (fun s -> s <> "")
+                        let msg =
+                          match prefix with
+                          | None -> msg
+                          | Some prefix -> prefix ^ "\n\n" ^ msg
                         in
-                        let text =
-                          format_model_list ~connector:Format_adapter.Teams
-                            ~models ~provider
-                        in
-                        send_text text
-                    | ModelUsage ->
-                        let cfg = Session.get_config session_manager in
-                        Provider_quota.set_cache_ttl cfg.quota_cache_ttl_s;
-                        let results =
-                          Provider_quota.get_all_cached ()
-                          |> List.map (fun (_name, pq) -> pq)
-                        in
-                        let text =
-                          Slash_commands.format_model_usage
-                            ~connector:Format_adapter.Teams ~config:cfg results
-                        in
-                        send_text text)))
+                        send_text msg
+                      in
+                      begin match
+                        select_file_upload_delivery
+                          ~file_consent_cards:config.file_consent_cards ~team_id
+                          ~is_group
+                      with
+                      | File_consent_card -> (
+                          (* Try FileConsentCard flow (OneDrive upload) *)
+                          let consent_id =
+                            store_pending_consent ~content ~filename
+                              ~content_type:"application/json" ~ttl_s:600.0
+                          in
+                          let* result =
+                            send_file_consent_card ~config
+                              ~service_url:effective_service_url
+                              ~conversation_id ~reply_to_id:activity_id
+                              ~filename ~description:"Session debug dump"
+                              ~size_bytes:(String.length content) ~consent_id ()
+                          in
+                          match result with
+                          | Ok () -> Lwt.return_unit
+                          | Error err ->
+                              Logs.warn (fun m ->
+                                  m
+                                    "Teams: FileConsentCard failed (%s), \
+                                     falling back to temp download"
+                                    err);
+                              send_temp_download ())
+                      | Temp_download_url ->
+                          if config.file_consent_cards then
+                            Logs.info (fun m ->
+                                m
+                                  "Teams: using temp download fallback for \
+                                   debug dump in non-personal scope team=%s \
+                                   is_group=%b conv=%s"
+                                  effective_team_id is_group conversation_id);
+                          let prefix =
+                            if
+                              config.file_consent_cards
+                              && (team_id <> "" || is_group)
+                            then
+                              Some
+                                "Teams file consent cards only work in \
+                                 personal 1:1 chats. Sending a download link \
+                                 instead."
+                            else None
+                          in
+                          send_temp_download ?prefix ()
+                      end
+                  | Tools ->
+                      let text =
+                        match Session.get_tool_registry session_manager with
+                        | Some reg ->
+                            let tools, _ = Tool_registry.partition_skills reg in
+                            let skills = Skills.available_skills_as_tools () in
+                            Slash_commands.format_tools
+                              ~connector:Format_adapter.Teams tools skills
+                        | None -> "Tools are not enabled."
+                      in
+                      send_text text
+                  | Tasks ->
+                      let raw =
+                        match Session.get_db session_manager with
+                        | Some db ->
+                            Task_tree.init_schema db;
+                            Task_tree.render_emoji_tree ~db ~session_key:key ()
+                        | None -> "Tasks are not available (no database)."
+                      in
+                      send_text
+                        (Slash_commands_fmt.format_tasks
+                           ~connector:Format_adapter.Teams raw)
+                  | TasksFull ->
+                      let raw =
+                        match Session.get_db session_manager with
+                        | Some db ->
+                            Task_tree.init_schema db;
+                            Task_tree.render_tree_with_legend ~db
+                              ~session_key:key
+                        | None -> "Tasks are not available (no database)."
+                      in
+                      send_text
+                        (Slash_commands_fmt.format_tasks
+                           ~connector:Format_adapter.Teams raw)
+                  | Costs action ->
+                      let text =
+                        match Session.get_db session_manager with
+                        | Some db ->
+                            Slash_commands.format_costs
+                              ~connector:Format_adapter.Teams ~db action
+                        | None -> "Costs are not available (no database)."
+                      in
+                      send_text text
+                  | Usage action ->
+                      let text =
+                        match Session.get_db session_manager with
+                        | Some db ->
+                            Slash_commands.format_usage
+                              ~connector:Format_adapter.Teams ~db action
+                        | None -> "Usage is not available (no database)."
+                      in
+                      send_text text
+                  | Active ->
+                      let text =
+                        match Session.get_db session_manager with
+                        | Some db ->
+                            let cfg = Session.get_config session_manager in
+                            Slash_commands.format_active
+                              ~connector:Format_adapter.Teams ~db ~config:cfg ()
+                        | None -> "Active usage is not available (no database)."
+                      in
+                      send_text text
+                  | Bg action ->
+                      let text =
+                        match Session.get_db session_manager with
+                        | Some db ->
+                            Slash_commands.format_bg
+                              ~connector:Format_adapter.Teams ~db action
+                        | None ->
+                            "Background tasks are not available (no database)."
+                      in
+                      send_text text
+                  | Cron action ->
+                      let text =
+                        match Session.get_db session_manager with
+                        | Some db ->
+                            Slash_commands.format_cron
+                              ~connector:Format_adapter.Teams ~db
+                              ~session_key:key action
+                        | None -> "Cron is not available (no database)."
+                      in
+                      send_text text
+                  | Bl action ->
+                      let text =
+                        Slash_commands.format_bl ~connector:Format_adapter.Teams
+                          action
+                      in
+                      send_text text
+                  | Model action -> (
+                      let open Slash_commands in
+                      match action with
+                      | ModelShow ->
+                          let current =
+                            Session.get_session_effective_model session_manager
+                              ~key
+                          in
+                          let prefs = Model_preferences.load () in
+                          let usage_ranked =
+                            List.filter_map
+                              (fun (m, c) ->
+                                if List.mem m prefs.favorites then None
+                                else Some (m, c))
+                              prefs.usage_counts
+                          in
+                          let text =
+                            format_model_show ~connector:Format_adapter.Teams
+                              ~current ~favorites:prefs.favorites ~usage_ranked
+                          in
+                          send_text text
+                      | ModelSet name -> (
+                          let provider, model_id, fmt =
+                            Models_catalog.split_name name
+                          in
+                          match fmt with
+                          | Models_catalog.Canonical | Models_catalog.Legacy ->
+                              let hint =
+                                match fmt with
+                                | Models_catalog.Legacy ->
+                                    Printf.sprintf
+                                      "\n\
+                                       Hint: use %s:%s format instead of %s/%s."
+                                      provider model_id provider model_id
+                                | _ -> ""
+                              in
+                              let cfg = Session.get_config session_manager in
+                              let provider_in_config =
+                                List.mem_assoc provider cfg.providers
+                              in
+                              let warn =
+                                if not provider_in_config then
+                                  Printf.sprintf
+                                    "\n\
+                                     Warning: provider '%s' not found in \
+                                     config. Add it to your config.json to use \
+                                     this model."
+                                    provider
+                                else ""
+                              in
+                              Session.set_session_model session_manager ~key
+                                ~model:name;
+                              send_text
+                                (Printf.sprintf
+                                   "Model set to: %s (provider: %s)%s%s\n\
+                                    Persisted for this session across \
+                                    restarts. Use /model set-default to change \
+                                    the global default."
+                                   model_id provider hint warn)
+                          | Models_catalog.Plain -> (
+                              let model_info =
+                                Models_catalog.find_by_full_name name
+                              in
+                              match model_info with
+                              | None ->
+                                  Session.set_session_model session_manager ~key
+                                    ~model:name;
+                                  send_text
+                                    (Printf.sprintf
+                                       "Warning: '%s' not found in model \
+                                        catalog. Setting anyway.\n\
+                                        Persisted for this session across \
+                                        restarts. Use /model set-default to \
+                                        change the global default."
+                                       name)
+                              | Some m ->
+                                  Session.set_session_model session_manager ~key
+                                    ~model:name;
+                                  let display =
+                                    if m.Models_catalog.provider <> "" then
+                                      Printf.sprintf
+                                        "Model set to: %s (provider: %s)\n\
+                                         Persisted for this session across \
+                                         restarts. Use /model set-default to \
+                                         change the global default."
+                                        m.Models_catalog.id
+                                        m.Models_catalog.provider
+                                    else
+                                      Printf.sprintf
+                                        "Model set to: %s\n\
+                                         Persisted for this session across \
+                                         restarts. Use /model set-default to \
+                                         change the global default."
+                                        name
+                                  in
+                                  send_text display))
+                      | ModelSetDefault name -> (
+                          let provider, model_id, fmt =
+                            Models_catalog.split_name name
+                          in
+                          let hint =
+                            match fmt with
+                            | Models_catalog.Legacy ->
+                                Printf.sprintf
+                                  "\nHint: use %s:%s format instead." provider
+                                  model_id
+                            | _ -> ""
+                          in
+                          let result =
+                            Config_set.set_json_value
+                              "agent_defaults.primary_model" (`String name)
+                          in
+                          match result with
+                          | Error e ->
+                              send_text
+                                (Printf.sprintf "Error writing config: %s" e)
+                          | Ok () ->
+                              let reply_text =
+                                match fmt with
+                                | Models_catalog.Canonical
+                                | Models_catalog.Legacy ->
+                                    Printf.sprintf
+                                      "Default model set to: %s (provider: %s)%s\n\
+                                       Applies to new sessions."
+                                      model_id provider hint
+                                | Models_catalog.Plain ->
+                                    Printf.sprintf
+                                      "Default model set to: %s\n\
+                                       Applies to new sessions."
+                                      name
+                              in
+                              send_text reply_text)
+                      | ModelFav name ->
+                          let prefs = Model_preferences.toggle_favorite name in
+                          let status =
+                            if List.mem name prefs.favorites then "added to"
+                            else "removed from"
+                          in
+                          send_text
+                            (Printf.sprintf "%s %s favorites" name status)
+                      | ModelUnfav name ->
+                          let _ = Model_preferences.remove_favorite name in
+                          send_text
+                            (Printf.sprintf "Removed from favorites: %s" name)
+                      | ModelList provider ->
+                          let db_extras =
+                            match Session.get_db session_manager with
+                            | None -> []
+                            | Some db ->
+                                Model_discovery.get_db_only_models ~db
+                                  ~provider_filter:provider
+                          in
+                          let models =
+                            Models_catalog.to_plain_list
+                              ~provider_filter:provider ~db_extras ()
+                            |> String.split_on_char '\n'
+                            |> List.filter (fun s -> s <> "")
+                          in
+                          let text =
+                            format_model_list ~connector:Format_adapter.Teams
+                              ~models ~provider
+                          in
+                          send_text text
+                      | ModelUsage ->
+                          let cfg = Session.get_config session_manager in
+                          Provider_quota.set_cache_ttl cfg.quota_cache_ttl_s;
+                          let results =
+                            Provider_quota.get_all_cached ()
+                            |> List.map (fun (_name, pq) -> pq)
+                          in
+                          let text =
+                            Slash_commands.format_model_usage
+                              ~connector:Format_adapter.Teams ~config:cfg
+                              results
+                          in
+                          send_text text)))
 
 (* Channel.S start — webhook-only, no polling loop needed *)
 let start ~(config : Runtime_config.t) ~(_session_manager : Session.t) =

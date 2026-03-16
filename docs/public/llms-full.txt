@@ -585,7 +585,7 @@ current queue state for a given session; `session list` appends
 |---------|----------------|--------|
 | Web UI | HTTP gateway at host:port, SSE streaming | Implemented |
 | Telegram | Bot API long polling — no public IP needed | Implemented |
-| Discord | Gateway v10 WebSocket + REST API — auto heartbeat/resume/reconnect | Implemented |
+| Discord | Gateway v10 WebSocket + REST API — auto heartbeat/resume/reconnect; guild messages filtered to @mention/name/command only | Implemented |
 | Slack (Socket Mode) | WSS via app_token — no public IP needed | Implemented |
 | Slack (Events API) | HTTP push to configurable path (default /slack/events) | Implemented |
 | WhatsApp | Cloud API webhook at /whatsapp/webhook | Implemented |
@@ -654,7 +654,7 @@ current queue state for a given session; `session list` appends
 
 Session key format: `teams:<team_id_or_personal>:<conversation_id>` (shared per-channel; sender identity via context headers)
 
-In group chats (`conversation.isGroup`), replies @mention the sender using Bot Framework mention entities so they receive a notification.
+In group chats (`conversation.isGroup`), the bot only responds when explicitly @mentioned, addressed by name (e.g. "clawq, ..."), or sent a slash command. When it does reply, the sender is @mentioned using Bot Framework mention entities so they receive a notification.
 
 Note: JWT RS256 signature verification is not implemented (no RSA lib available). Claim-only validation (`aud`, `iss`, `exp`, `nbf`) is performed.
 

@@ -463,7 +463,7 @@ let inject_background_task_completion
         Session.turn session_manager ~key:session_key ~message ?channel
           ?channel_id ()
       in
-      if Session.is_queued_message_response response then begin
+      if Session.should_suppress_response response then begin
         Logs.info (fun m ->
             m
               "Background task completion injected into busy session %s; \

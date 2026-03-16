@@ -173,8 +173,8 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
                           in
                           match result with
                           | Ok response ->
-                              if Session.is_queued_message_response response
-                              then Lwt.return_unit
+                              if Session.should_suppress_response response then
+                                Lwt.return_unit
                               else
                                 send_imessage ~recipient:handle_id
                                   ~text:response

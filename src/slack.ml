@@ -1006,7 +1006,7 @@ let handle_event ~(config : Runtime_config.slack_config)
                 in
                 let response_sent = ref false in
                 let before_drain response =
-                  if Session.is_queued_message_response response then
+                  if Session.should_suppress_response response then
                     Lwt.return_unit
                   else
                     let open Lwt.Syntax in
@@ -1052,7 +1052,7 @@ let handle_event ~(config : Runtime_config.slack_config)
                 in
                 match result with
                 | Ok response ->
-                    if Session.is_queued_message_response response then
+                    if Session.should_suppress_response response then
                       Lwt.return "ok"
                     else if !response_sent then (
                       let* () =

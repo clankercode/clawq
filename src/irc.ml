@@ -280,7 +280,7 @@ let run_session ~(cfg : Runtime_config.irc_config) ~conn
                     in
                     match result with
                     | Ok response ->
-                        if Session.is_queued_message_response response then
+                        if Session.should_suppress_response response then
                           Lwt.return_unit
                         else
                           let chunks = chunk_text response in

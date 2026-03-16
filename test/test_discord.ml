@@ -235,6 +235,62 @@ let test_parse_dispatch_message_dm () =
       Alcotest.(check bool) "author_bot" false msg.author_bot;
       Alcotest.(check string) "content" "dm test" msg.content
 
+let test_parse_message_create_with_mentions () =
+  let json =
+    Yojson.Safe.from_string
+      {|{
+    "t": "MESSAGE_CREATE",
+    "d": {
+      "id": "123",
+      "channel_id": "456",
+      "guild_id": "789",
+      "author": {"id": "111", "username": "user", "bot": false},
+      "content": "<@bot-id> hello",
+      "mentions": [{"id": "bot-id", "username": "clawq"}]
+    }
+  }|}
+  in
+  match Discord.parse_message_create json with
+  | None -> Alcotest.fail "expected Some message"
+  | Some msg ->
+      Alcotest.(check int) "mention_ids count" 1 (List.length msg.mention_ids);
+      Alcotest.(check string) "mention_id" "bot-id" (List.hd msg.mention_ids)
+
+let test_parse_dispatch_message_with_mentions () =
+  let d =
+    Yojson.Safe.from_string
+      {|{"id":"msg3","channel_id":"ch1","guild_id":"g1","author":{"id":"u1","bot":false},"content":"test","mentions":[{"id":"bot1"},{"id":"bot2"}]}|}
+  in
+  match Discord.parse_dispatch_message d with
+  | None -> Alcotest.fail "expected Some message"
+  | Some msg ->
+      Alcotest.(check int) "mention_ids count" 2 (List.length msg.mention_ids);
+      Alcotest.(check bool)
+        "bot1 in mentions" true
+        (List.mem "bot1" msg.mention_ids);
+      Alcotest.(check bool)
+        "bot2 in mentions" true
+        (List.mem "bot2" msg.mention_ids)
+
+let test_parse_message_create_empty_mentions () =
+  let json =
+    Yojson.Safe.from_string
+      {|{
+    "t": "MESSAGE_CREATE",
+    "d": {
+      "id": "123",
+      "channel_id": "456",
+      "author": {"id": "111", "bot": false},
+      "content": "hello",
+      "mentions": []
+    }
+  }|}
+  in
+  match Discord.parse_message_create json with
+  | None -> Alcotest.fail "expected Some message"
+  | Some msg ->
+      Alcotest.(check int) "empty mentions" 0 (List.length msg.mention_ids)
+
 let suite : unit Alcotest.test_case list =
   [
     Alcotest.test_case "is_allowed wildcard" `Quick test_is_allowed_wildcard;
@@ -263,4 +319,10 @@ let suite : unit Alcotest.test_case list =
       test_parse_dispatch_message;
     Alcotest.test_case "parse dispatch message dm" `Quick
       test_parse_dispatch_message_dm;
+    Alcotest.test_case "parse_message_create with mentions" `Quick
+      test_parse_message_create_with_mentions;
+    Alcotest.test_case "parse_dispatch_message with mentions" `Quick
+      test_parse_dispatch_message_with_mentions;
+    Alcotest.test_case "parse_message_create empty mentions" `Quick
+      test_parse_message_create_empty_mentions;
   ]

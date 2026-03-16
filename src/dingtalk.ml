@@ -242,8 +242,8 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
                                 in
                                 match result with
                                 | Ok response
-                                  when Session.is_queued_message_response
-                                         response ->
+                                  when Session.should_suppress_response response
+                                  ->
                                     Lwt.return_unit
                                 | Ok response ->
                                     send_message ~config:dt_config

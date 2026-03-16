@@ -126,7 +126,7 @@ let handle_webhook ~(config : Runtime_config.line_config)
             in
             match result with
             | Ok response ->
-                if Session.is_queued_message_response response then
+                if Session.should_suppress_response response then
                   Lwt.return_unit
                 else if reply_token <> "" then
                   send_reply ~config ~reply_token ~text:response

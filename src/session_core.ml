@@ -378,6 +378,9 @@ let take_response_deferred mgr ~key =
 let clear_response_deferred mgr ~key = Hashtbl.remove mgr.deferred_responses key
 let is_queued_message_response response = response = queued_message_response
 
+let should_suppress_response response =
+  is_queued_message_response response || Group_chat_filter.is_no_reply response
+
 let queueable_channel_key key =
   match Restart_notify.parse_channel_from_key key with
   | Some ("web", _) -> false

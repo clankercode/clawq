@@ -1127,8 +1127,8 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                         Lwt.catch
                           (fun () ->
                             let before_drain response =
-                              if Session.is_queued_message_response response
-                              then Lwt.return_unit
+                              if Session.should_suppress_response response then
+                                Lwt.return_unit
                               else
                                 let open Lwt.Syntax in
                                 let* () =
@@ -1226,7 +1226,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
               in
               match result with
               | Ok response ->
-                  if Session.is_queued_message_response response then
+                  if Session.should_suppress_response response then
                     Lwt.return_unit
                   else if !response_sent then (
                     let* () =
@@ -1587,7 +1587,7 @@ let poll_account ~bot_token ~(account : Runtime_config.telegram_account) ~name
                                         in
                                         if
                                           not
-                                            (Session.is_queued_message_response
+                                            (Session.should_suppress_response
                                                response)
                                         then
                                           send_chunked
@@ -1659,7 +1659,7 @@ let poll_account ~bot_token ~(account : Runtime_config.telegram_account) ~name
                                 in
                                 if
                                   not
-                                    (Session.is_queued_message_response response)
+                                    (Session.should_suppress_response response)
                                 then
                                   send_chunked ~disable_notification:false
                                     ~bot_token:poll_bot_token ~chat_id

@@ -154,10 +154,11 @@ let test_discord_handle_message_emits_tool_call_notifications () =
         {
           id = "msg123";
           channel_id = "ch1";
-          guild_id = Some "g1";
+          guild_id = None;
           author_id = "u1";
           author_bot = false;
           content = "hello";
+          mention_ids = [];
         }
       in
       Lwt_main.run

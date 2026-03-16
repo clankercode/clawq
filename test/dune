@@ -33,6 +33,7 @@
   test_email
   test_format_adapter
   test_github
+  test_group_chat_filter
   test_helpers
   test_history_search
   test_http_server

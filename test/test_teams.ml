@@ -1,10 +1,19 @@
+let mention_entity ~id ~name =
+  `Assoc
+    [
+      ("type", `String "mention");
+      ("mentioned", `Assoc [ ("id", `String id); ("name", `String name) ]);
+      ("text", `String (Printf.sprintf "<at>%s</at>" name));
+    ]
+
 let activity_json ~activity_type ~text ~activity_id ~service_url ~user_id
-    ~user_name ~conversation_id ~team_id ?(is_group = false) () =
+    ~user_name ~conversation_id ~team_id ?(is_group = false) ?(entities = []) ()
+    =
   let team_data =
     if team_id = "" then `Null
     else `Assoc [ ("team", `Assoc [ ("id", `String team_id) ]) ]
   in
-  `Assoc
+  let fields =
     [
       ("type", `String activity_type);
       ("id", `String activity_id);
@@ -16,7 +25,11 @@ let activity_json ~activity_type ~text ~activity_id ~service_url ~user_id
       );
       ("channelData", team_data);
     ]
-  |> Yojson.Safe.to_string
+  in
+  let fields =
+    if entities = [] then fields else fields @ [ ("entities", `List entities) ]
+  in
+  `Assoc fields |> Yojson.Safe.to_string
 
 let test_teams_config () : Runtime_config.teams_config =
   {
@@ -776,6 +789,43 @@ let test_throttle_different_conversations () =
      Alcotest.(check bool) "different convs fast" true (t1 -. t0 < 0.5);
      Lwt.return_unit)
 
+let test_parse_activity_with_entities () =
+  let entities =
+    [
+      mention_entity ~id:"28:test-app" ~name:"clawq";
+      mention_entity ~id:"user-2" ~name:"Alice";
+    ]
+  in
+  let body =
+    activity_json ~activity_type:"message" ~text:"<at>clawq</at> hello"
+      ~activity_id:"act-e" ~service_url:"https://svc" ~user_id:"u1"
+      ~user_name:"Bob" ~conversation_id:"conv-e" ~team_id:"t1" ~is_group:true
+      ~entities ()
+  in
+  match Teams.parse_activity body with
+  | None -> Alcotest.fail "expected Some"
+  | Some a ->
+      Alcotest.(check int) "mentioned_ids count" 2 (List.length a.mentioned_ids);
+      Alcotest.(check bool)
+        "bot id in mentioned_ids" true
+        (List.mem "28:test-app" a.mentioned_ids);
+      Alcotest.(check bool)
+        "user id in mentioned_ids" true
+        (List.mem "user-2" a.mentioned_ids)
+
+let test_parse_activity_no_entities () =
+  let body =
+    activity_json ~activity_type:"message" ~text:"hello" ~activity_id:"act-ne"
+      ~service_url:"https://svc" ~user_id:"u1" ~user_name:"Alice"
+      ~conversation_id:"conv-ne" ~team_id:"t1" ()
+  in
+  match Teams.parse_activity body with
+  | None -> Alcotest.fail "expected Some"
+  | Some a ->
+      Alcotest.(check int)
+        "no entities = empty mentioned_ids" 0
+        (List.length a.mentioned_ids)
+
 let test_debug_dump_filename_sanitization () =
   let safe_key =
     String.map
@@ -815,6 +865,10 @@ let suite =
       test_strip_at_mentions_no_tags;
     Alcotest.test_case "parse_activity group chat" `Quick
       test_parse_activity_group_chat;
+    Alcotest.test_case "parse_activity with entities" `Quick
+      test_parse_activity_with_entities;
+    Alcotest.test_case "parse_activity no entities" `Quick
+      test_parse_activity_no_entities;
     Alcotest.test_case "build_reply_body no mention" `Quick
       test_build_reply_body_no_mention;
     Alcotest.test_case "build_reply_body with mention" `Quick

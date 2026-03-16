@@ -619,7 +619,7 @@ let inject_session_message_async ?turn_override ~(session_mgr : Session.t)
       let* response =
         turn session_mgr ~key:session_key ~message ?channel ?channel_id ()
       in
-      if Session.is_queued_message_response response then
+      if Session.should_suppress_response response then
         Logs.info (fun m ->
             m "CI watch queued follow-up for busy session %s" session_key)
       else

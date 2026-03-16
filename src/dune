@@ -74,6 +74,7 @@
   rich_message
   channel
   channel_util
+  group_chat_filter
   typing_indicator
   slash_commands_fmt
   slash_commands

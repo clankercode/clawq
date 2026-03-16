@@ -110,7 +110,7 @@ let handle_inbound ~(config : Runtime_config.whatsapp_config)
         in
         match result with
         | Ok response ->
-            if Session.is_queued_message_response response then Lwt.return_unit
+            if Session.should_suppress_response response then Lwt.return_unit
             else send_message ~config ~to_:from ~text:response
         | Error err ->
             Logs.err (fun m ->

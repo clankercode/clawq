@@ -662,7 +662,7 @@ let handler ~session_manager ~require_pairing ~auth_token
                             ()
                         in
                         let queued =
-                          Session.is_queued_message_response response
+                          Session.should_suppress_response response
                         in
                         if
                           (not queued)

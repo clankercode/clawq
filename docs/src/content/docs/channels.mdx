@@ -178,6 +178,9 @@ The wizard walks through setting the bot token, allowed guilds/users, and gatewa
 
 - **WebSocket gateway** with automatic heartbeat, session resume, and
   reconnect on disconnect.
+- **Group chat filtering** --- in guild channels, the bot only responds when
+  explicitly @mentioned, addressed by name (e.g. "clawq, ..."), or sent a
+  slash command. DMs are always processed.
 - **Guild and user allowlists** --- restrict which servers and users can
   interact with the bot.
 - **REST rate limit tracking** --- server-driven rate limits are parsed from
@@ -430,7 +433,7 @@ Framework REST API using OAuth 2.0 bearer tokens.
    `teams:<team_id>:<conversation_id>`, and runs the agent turn. Sessions are shared per-channel; sender identity is passed via context headers.
 4. The reply is posted back via
    `{serviceUrl}/v3/conversations/{conversation_id}/activities/{activity_id}`.
-   In group chats, the sender is @mentioned in the reply so they receive a notification.
+   In group chats, the bot only responds when explicitly @mentioned, addressed by name, or sent a slash command. When it does reply, the sender is @mentioned so they receive a notification.
 
 ### Configuration
 
@@ -556,9 +559,12 @@ clawq channel              # confirm teams shows as configured
   with the bot via `allow_teams` and `allow_users`.
 - **Activity deduplication** --- duplicate Bot Framework deliveries are
   suppressed via an in-memory LRU set.
-- **@mention in group chats** --- replies in group conversations automatically
-  @mention the sender using Bot Framework mention entities, ensuring they
-  receive a notification.
+- **Group chat filtering** --- in group conversations, the bot only responds
+  when explicitly @mentioned, addressed by name (e.g. "clawq, ..."), or sent a
+  slash command. 1:1 chats always receive a response.
+- **@mention in group chats** --- when the bot does respond in group
+  conversations, it automatically @mentions the sender using Bot Framework
+  mention entities, ensuring they receive a notification.
 - **Native markdown tables** --- slash commands like `/status`, `/costs`, and
   `/usage` render with native markdown tables in Teams for clean formatting.
 - **File uploads** --- `/debug_dump_chat` sends session state as a JSON file.
