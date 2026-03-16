@@ -466,7 +466,8 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
             let text =
               match Session.get_tool_registry session_mgr with
               | Some reg ->
-                  let tools, skills = Tool_registry.partition_skills reg in
+                  let tools, _ = Tool_registry.partition_skills reg in
+                  let skills = Skills.available_skills_as_tools () in
                   Slash_commands.format_tools
                     ~connector:Format_adapter.Telegram_html tools skills
               | None -> "Tools are not enabled."

@@ -534,7 +534,8 @@ let handle_event ~(config : Runtime_config.slack_config)
                 let text =
                   match Session.get_tool_registry session_manager with
                   | Some reg ->
-                      let tools, skills = Tool_registry.partition_skills reg in
+                      let tools, _ = Tool_registry.partition_skills reg in
+                      let skills = Skills.available_skills_as_tools () in
                       Slash_commands.format_tools
                         ~connector:Format_adapter.Slack tools skills
                   | None -> "Tools are not enabled."
