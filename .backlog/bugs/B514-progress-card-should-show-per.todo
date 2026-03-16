@@ -1,0 +1,29 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 1.5
+id: B514
+priority: medium
+status: pending
+tags: []
+title: Progress card should show per-tool execution time
+---
+Problem
+The tool-use status progress card (Teams/Telegram) currently shows which tools are in-flight or completed, but does not display how long each individual tool call took to execute. Users cannot see which tools are slow vs fast.
+
+Why this matters
+- Observability: Knowing which tools are slow helps diagnose performance issues and understand agent behavior
+- User experience: Users can see progress and understand if the agent is stuck on a slow tool or making steady progress
+- Debugging: When reporting performance issues, precise per-tool timing is essential evidence
+
+Acceptance criteria
+- Progress card shows execution time for each completed tool call (e.g., "file_read: 0.3s" or "shell_exec: 12.1s")
+- In-flight tools show elapsed time updating in real-time (optional but valuable)
+- Timing format is concise and readable (not excessive precision)
+- Works on both Teams and Telegram progress cards
+- Does not regress existing progress card behavior (status indicators, ordering, etc.)
+
+Notes
+- Related: B142 (Telegram timing summary), B493 (timer continues after completion)
+- May need to instrument tool execution layer to capture start/end times per tool
+- Consider total-elapsed for in-flight tools vs final-duration for completed tools

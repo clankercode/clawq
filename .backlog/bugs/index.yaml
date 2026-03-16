@@ -510,3 +510,4 @@ bugs:
     - file: B511-look-through-all-the-setup-wiz.todo
     - file: B512-look-through-all-the-setup-wiz.todo
     - file: B513-agent-template-selection-menu.todo
+    - file: B514-progress-card-should-show-per.todo
