@@ -1562,6 +1562,56 @@ let test_notify_background_task_finished_dirty_worktree_dispatches_finalize_hint
        true
      with Not_found -> false)
 
+let test_inject_bg_task_completion_registers_notifier () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let telegram_account =
+    { Runtime_config.bot_token = "tg-token"; allow_from = []; totp = None }
+  in
+  let config =
+    {
+      Runtime_config.default with
+      channels =
+        {
+          Runtime_config.default.channels with
+          telegram =
+            Some
+              {
+                accounts = [ ("main", telegram_account) ];
+                text_coalesce_ms = 150;
+              };
+        };
+    }
+  in
+  let session_manager = Session.create ~config ~db () in
+  let notifier_present_during_turn = ref false in
+  let senders =
+    {
+      Daemon.default_resume_senders with
+      send_telegram = (fun ~bot_token:_ ~chat_id:_ ~text:_ -> Lwt.return_unit);
+    }
+  in
+  Session.set_special_command_handler session_manager
+    (fun ~key ~message:_ ~send_progress:_ ~interrupt_check:_ ->
+      if key = "telegram:42:user" then begin
+        notifier_present_during_turn :=
+          Option.is_some (Session.find_registered_notifier session_manager ~key);
+        Lwt.return_some "handled"
+      end
+      else Lwt.return_none);
+  let task = make_test_task () in
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () =
+       Daemon.inject_background_task_completion ~continuation_delay:100.0
+         ~senders ~session_manager ~config ~session_key:"telegram:42:user"
+         ~channel:"telegram" ~channel_id:"42" task
+     in
+     Session.cancel_autonomous_continuation session_manager
+       ~key:"telegram:42:user");
+  Alcotest.(check bool)
+    "notifier registered during bg task turn" true
+    !notifier_present_during_turn
+
 let test_background_task_wakeup_arms_autonomous_continuation () =
   let db = Memory.init ~db_path:":memory:" () in
   let telegram_account =
@@ -2109,6 +2159,8 @@ let suite =
       test_maybe_emit_date_banner_logs_first_entry_date;
     Alcotest.test_case "date banner logs on day rollover" `Quick
       test_maybe_emit_date_banner_logs_when_day_advances;
+    Alcotest.test_case "inject bg task completion registers notifier" `Quick
+      test_inject_bg_task_completion_registers_notifier;
     Alcotest.test_case "background task wakeup arms autonomous continuation"
       `Quick test_background_task_wakeup_arms_autonomous_continuation;
     Alcotest.test_case "background task wakeup STAY_IDLE disarms" `Quick

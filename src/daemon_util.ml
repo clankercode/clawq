@@ -459,9 +459,28 @@ let inject_background_task_completion
   Lwt.catch
     (fun () ->
       let open Lwt.Syntax in
-      let* response =
+      let notify_fn =
+        match (channel, channel_id) with
+        | Some ch, Some cid ->
+            Some
+              (fun text ->
+                let* result =
+                  dispatch_resumed_message ~senders ~config ~channel:ch
+                    ~channel_id:cid ~text ()
+                in
+                match result with Ok () | Error _ -> Lwt.return_unit)
+        | _ -> None
+      in
+      let run_turn () =
         Session.turn session_manager ~key:session_key ~message ?channel
           ?channel_id ()
+      in
+      let* response =
+        match notify_fn with
+        | Some notify ->
+            Session.with_registered_notifier session_manager ~key:session_key
+              ~notify run_turn
+        | None -> run_turn ()
       in
       if Session.should_suppress_response response then begin
         Logs.info (fun m ->

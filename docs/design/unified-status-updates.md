@@ -374,7 +374,7 @@ This eliminates the ~80-line and ~65-line duplicated dispatch blocks in Discord 
 
 8. **~~Add `make_status_notifier` to `src/teams.ml`~~**: Done. Builds a `Status_message.notifier` using `send_reply` (send), `edit_activity` (edit), and `delete_activity` (delete).
 
-9. **~~Register capabilities and factory~~**: Done. Capabilities registered once per session key; factory re-registered unconditionally per message (captures current `reply_to_id`). B495 fixed a bug where `with_registered_notifier` cleanup was wiping these registrations.
+9. **~~Register capabilities and factory~~**: Done. Capabilities registered once per session key; factory re-registered unconditionally per message (captures current `reply_to_id`). B495 fixed a bug where `with_registered_notifier` cleanup was wiping these registrations. B499 fixed a related issue where background task completion turns ran without any notifier, causing tool call visibility notifications to be silently dropped; `inject_background_task_completion` now wraps `Session.turn` in `with_registered_notifier` using `dispatch_resumed_message` as the notifier.
 
 ### Phase 4: Onboard Matrix
 

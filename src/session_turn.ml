@@ -390,17 +390,17 @@ let rec drain_queued_messages_loop mgr ~key agent interrupt ?on_drain_progress
       drain_queued_messages_loop mgr ~key agent interrupt ?on_drain_progress
         ~drained_any:true ()
   | Some queued, None ->
-      Logs.warn (fun m ->
+      Logs.info (fun m ->
           m
-            "Dropping queued message for session %s: no notifier registered \
-             (message: %s)"
-            key
-            (if String.length queued.message > 80 then
-               String.sub queued.message 0 80 ^ "..."
-             else queued.message));
-      (match (queued.inbound_queue_id, mgr.Session_core.db) with
-      | Some qid, Some db -> ignore (Memory.queue_delete ~db ~queue_id:qid)
-      | _ -> ());
+            "Pausing drain for session %s: no notifier registered; message \
+             preserved in queue"
+            key);
+      let existing =
+        match Hashtbl.find_opt mgr.Session_core.queued_messages key with
+        | Some msgs -> msgs
+        | None -> []
+      in
+      Hashtbl.replace mgr.Session_core.queued_messages key (queued :: existing);
       Lwt.return_unit
   | None, _ ->
       if drained_any then

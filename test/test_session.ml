@@ -3619,6 +3619,43 @@ let test_drain_queued_messages_deletes_sqlite_row () =
                    (Memory.queue_count ~db ~session_key:key);
                  Lwt.return_unit))))
 
+let test_drain_preserves_messages_without_notifier () =
+  with_fake_chat_provider (fun config ->
+      let db = Memory.init ~db_path:":memory:" () in
+      let mgr = Session.create ~config ~db () in
+      let key = "telegram:99:testuser" in
+      Lwt_main.run
+        (Session.with_session_lock mgr ~key (fun agent interrupt ->
+             let open Lwt.Syntax in
+             (* Register notifier so enqueue succeeds *)
+             Session.register_channel_notifier mgr ~key (fun _ ->
+                 Lwt.return_unit);
+             let* queued =
+               Session.enqueue_message_if_busy mgr ~key
+                 (queued_message ~channel_name:"telegram" ~channel:"telegram"
+                    ~channel_id:"99" "preserve me")
+             in
+             Alcotest.(check bool) "message queued" true queued;
+             Alcotest.(check int)
+               "1 sqlite row before drain" 1
+               (Memory.queue_count ~db ~session_key:key);
+             (* Remove notifier to simulate suppressed output *)
+             Hashtbl.remove mgr.channel_notifiers key;
+             let* () =
+               Session.drain_queued_messages mgr ~key agent interrupt ()
+             in
+             (* Message should be preserved, not dropped *)
+             (match Session.take_next_queued_message mgr ~key with
+             | None -> Alcotest.fail "expected message to be preserved in queue"
+             | Some msg ->
+                 Alcotest.(check string)
+                   "preserved message content" "preserve me" msg.message);
+             (* SQLite row should NOT be deleted *)
+             Alcotest.(check int)
+               "sqlite row preserved" 1
+               (Memory.queue_count ~db ~session_key:key);
+             Lwt.return_unit)))
+
 let test_with_session_lock_warns_on_slow_mutex_acquisition () =
   let mgr =
     Session.create ~config:Runtime_config.default
@@ -3938,6 +3975,8 @@ let suite =
     Alcotest.test_case
       "drain_queued_messages deletes sqlite row after successful turn" `Quick
       test_drain_queued_messages_deletes_sqlite_row;
+    Alcotest.test_case "drain preserves messages without notifier" `Quick
+      test_drain_preserves_messages_without_notifier;
     Alcotest.test_case "sanitize_session_key replaces forward slash" `Quick
       (fun () ->
         Alcotest.(check string)

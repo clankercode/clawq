@@ -207,3 +207,5 @@ Hashtbl.replace channel_notifiers session_key (fun msg ->
 
 This can be passed into channel start functions or threaded through session.ml.
 The simplest approach: add an optional `on_session_active` callback to channel start signatures.
+
+Note: B499 extended this pattern beyond drain warnings. Background task completion turns (`inject_background_task_completion` in `daemon_util.ml`) now also register a channel notifier via `with_registered_notifier` so that tool call visibility (ToolStart/ToolResult) is sent to channels during automated bg-task follow-up turns. Additionally, `drain_queued_messages_loop` now preserves messages when no notifier is registered (re-queues instead of dropping), ensuring at-least-once delivery.
