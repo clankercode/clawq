@@ -8,12 +8,12 @@ status: pending
 tags:
     - idea
     - planning
-title: Autoload CLAUDE.md and AGENTS.md -- be smart about deduplication (often there might be a simlink or direct copy)
+title: (For non-self agents) Autoload CLAUDE.md and AGENTS.md -- be smart about deduplication (often there might be a simlink or direct copy)
 ---
 
 # Original Idea
 
-Autoload CLAUDE.md and AGENTS.md -- be smart about deduplication (often there might be a simlink or direct copy)
+Excluding the default agent/personality (so only agents we mention like @coder), Autoload CLAUDE.md and AGENTS.md -- be smart about deduplication (often there might be a simlink or direct copy)
 
 ## Planning Task (Equivalent of /plan-task)
 
