@@ -98,6 +98,7 @@
   config_wizard_tui
   tui_input
   setup_common
+  setup_tui
   restart_exec
   restart_notify
   daemon_status
@@ -211,6 +212,34 @@
   setup_telegram
   setup_tunnel
   setup_summarizer
+  setup_provider
+  setup_web_search
+  setup_voice
+  setup_cron
+  setup_main
+  setup_imessage
+  setup_security
+  setup_gateway
+  setup_totp
+  setup_line
+  setup_whatsapp
+  setup_mattermost
+  setup_dingtalk
+  setup_signal_channel
+  setup_matrix
+  setup_irc
+  setup_email
+  setup_nostr
+  setup_lark
+  setup_onebot
+  setup_notify
+  setup_error_watcher
+  setup_observer
+  setup_zai_mcp
+  setup_memory
+  setup_prompt
+  setup_resilience
+  setup_heartbeat
   ec_process
   ec_diagnosis)
  (wrapped false)

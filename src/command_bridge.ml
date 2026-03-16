@@ -1506,6 +1506,7 @@ let cmd_debug args =
 
 let cmd_setup args =
   match args with
+  | [] -> Setup_main.run ()
   | [ "discord" ] -> Setup_discord.run ()
   | [ "github" ] -> Setup_github.run ()
   | [ "slack" ] -> Setup_slack.run ()
@@ -1513,17 +1514,56 @@ let cmd_setup args =
   | [ "telegram" ] -> Setup_telegram.run ()
   | [ "tunnel" ] -> Setup_tunnel.run ()
   | [ "summarizer" ] -> Setup_summarizer.run ()
+  | [ "matrix" ] -> Setup_matrix.run ()
+  | [ "irc" ] -> Setup_irc.run ()
+  | [ "email" ] -> Setup_email.run ()
+  | [ "signal" ] -> Setup_signal_channel.run ()
+  | [ "whatsapp" ] -> Setup_whatsapp.run ()
+  | [ "nostr" ] -> Setup_nostr.run ()
+  | [ "lark" ] -> Setup_lark.run ()
+  | [ "line" ] -> Setup_line.run ()
+  | [ "onebot" ] -> Setup_onebot.run ()
+  | [ "mattermost" ] -> Setup_mattermost.run ()
+  | [ "dingtalk" ] -> Setup_dingtalk.run ()
+  | [ "imessage" ] -> Setup_imessage.run ()
+  | [ "provider" ] -> Setup_provider.run ()
+  | [ "web-search" ] | [ "websearch" ] -> Setup_web_search.run ()
+  | [ "voice" ] | [ "tts" ] -> Setup_voice.run ()
+  | [ "cron" ] -> Setup_cron.run ()
+  | [ "security" ] -> Setup_security.run ()
+  | [ "gateway" ] -> Setup_gateway.run ()
+  | [ "totp" ] | [ "2fa" ] -> Setup_totp.run ()
+  | [ "memory" ] -> Setup_memory.run ()
+  | [ "prompt" ] -> Setup_prompt.run ()
+  | [ "resilience" ] -> Setup_resilience.run ()
+  | [ "heartbeat" ] -> Setup_heartbeat.run ()
+  | [ "notify" ] | [ "notifications" ] -> Setup_notify.run ()
+  | [ "error-watcher" ] | [ "ec" ] -> Setup_error_watcher.run ()
+  | [ "observer" ] -> Setup_observer.run ()
+  | [ "zai-mcp" ] | [ "zai" ] -> Setup_zai_mcp.run ()
   | _ ->
-      "Usage: clawq setup <channel>\n\n\
-       Available channels:\n\
-      \  discord     Configure Discord bot integration\n\
-      \  github      Configure GitHub webhook integration\n\
-      \  slack       Configure Slack integration\n\
-      \  summarizer  Configure autosummarizer settings\n\
-      \  teams       Configure MS Teams bot integration\n\
-      \  telegram    Configure Telegram bot integration\n\
-      \  tunnel      Configure Cloudflare tunnel\n\n\
-       Documentation: https://clawq.org/channels/\n"
+      let buf = Buffer.create 2048 in
+      Buffer.add_string buf
+        "Usage: clawq setup [<wizard>]\n\n\
+         Run without arguments for the interactive wizard hub.\n";
+      List.iter
+        (fun (cat : Setup_main.category) ->
+          Buffer.add_string buf (Printf.sprintf "\n  %s:\n" cat.title);
+          List.iter
+            (fun (e : Setup_main.wizard_entry) ->
+              let padded =
+                let n = String.length e.name in
+                if n >= 16 then e.name ^ " "
+                else e.name ^ String.make (16 - n) ' '
+              in
+              Buffer.add_string buf (Printf.sprintf "    %s%s\n" padded e.label))
+            cat.entries)
+        Setup_main.all_categories;
+      Buffer.add_string buf
+        "\n\
+        \  Tip: run `clawq setup` with no arguments for an interactive menu.\n\
+        \  Documentation: https://clawq.org/setup/\n";
+      Buffer.contents buf
 
 let cmd_watcher args =
   let cfg = get_config () in

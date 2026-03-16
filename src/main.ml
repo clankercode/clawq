@@ -1187,54 +1187,22 @@ let completions_cmd =
        ~doc:"Generate and install shell tab-completion scripts.")
     [ completions_print_cmd; completions_install_cmd ]
 
-let setup_discord_cmd =
-  Cmd.v
-    (Cmd.info "discord" ~doc:"Configure Discord bot integration.")
-    Term.(ret (const (run "setup") $ const [ "discord" ]))
-
-let setup_github_cmd =
-  Cmd.v
-    (Cmd.info "github" ~doc:"Configure GitHub webhook integration.")
-    Term.(ret (const (run "setup") $ const [ "github" ]))
-
-let setup_slack_cmd =
-  Cmd.v
-    (Cmd.info "slack" ~doc:"Configure Slack integration.")
-    Term.(ret (const (run "setup") $ const [ "slack" ]))
-
-let setup_teams_cmd =
-  Cmd.v
-    (Cmd.info "teams" ~doc:"Configure MS Teams bot integration.")
-    Term.(ret (const (run "setup") $ const [ "teams" ]))
-
-let setup_telegram_cmd =
-  Cmd.v
-    (Cmd.info "telegram" ~doc:"Configure Telegram bot integration.")
-    Term.(ret (const (run "setup") $ const [ "telegram" ]))
-
-let setup_tunnel_cmd =
-  Cmd.v
-    (Cmd.info "tunnel" ~doc:"Configure Cloudflare tunnel.")
-    Term.(ret (const (run "setup") $ const [ "tunnel" ]))
-
-let setup_summarizer_cmd =
-  Cmd.v
-    (Cmd.info "summarizer" ~doc:"Configure autosummarizer settings.")
-    Term.(ret (const (run "setup") $ const [ "summarizer" ]))
+let setup_sub name doc =
+  Cmd.v (Cmd.info name ~doc) Term.(ret (const (run "setup") $ const [ name ]))
 
 let setup_cmd =
+  let subs =
+    List.concat_map
+      (fun (cat : Setup_main.category) ->
+        List.map
+          (fun (e : Setup_main.wizard_entry) -> setup_sub e.name e.label)
+          cat.entries)
+      Setup_main.all_categories
+  in
   Cmd.group
     ~default:Term.(ret (const (run "setup") $ const []))
-    (Cmd.info "setup" ~doc:"Interactive setup wizards for channel integrations.")
-    [
-      setup_discord_cmd;
-      setup_github_cmd;
-      setup_slack_cmd;
-      setup_summarizer_cmd;
-      setup_teams_cmd;
-      setup_telegram_cmd;
-      setup_tunnel_cmd;
-    ]
+    (Cmd.info "setup" ~doc:"Interactive setup wizards for clawq features.")
+    subs
 
 let watcher_cmd =
   with_args "watcher"

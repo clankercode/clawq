@@ -360,6 +360,22 @@ let remove_job ~db ~name =
   ignore (Sqlite3.finalize stmt);
   Sqlite3.changes db > 0
 
+let toggle_job ~db ~name =
+  let sql =
+    "UPDATE cron_jobs SET enabled = CASE WHEN enabled = 1 THEN 0 ELSE 1 END \
+     WHERE name = ?"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT name));
+  match Sqlite3.step stmt with
+  | Sqlite3.Rc.DONE ->
+      ignore (Sqlite3.finalize stmt);
+      if Sqlite3.changes db > 0 then Ok ()
+      else Error (Printf.sprintf "Job '%s' not found." name)
+  | rc ->
+      ignore (Sqlite3.finalize stmt);
+      Error (Printf.sprintf "SQLite error: %s" (Sqlite3.Rc.to_string rc))
+
 let get_history ~db ~name ~limit =
   let sql =
     "SELECT id, job_name, started_at, finished_at, status, result_preview FROM \

@@ -113,7 +113,35 @@
   test_setup_telegram
   test_setup_tunnel
   test_setup_summarizer
+  test_setup_tui
+  test_setup_provider
+  test_setup_web_search
+  test_setup_voice
+  test_setup_cron
   test_summarizer
+  test_setup_imessage
+  test_setup_security
+  test_setup_gateway
+  test_setup_totp
+  test_setup_line
+  test_setup_whatsapp
+  test_setup_mattermost
+  test_setup_dingtalk
+  test_setup_signal_channel
+  test_setup_matrix
+  test_setup_irc
+  test_setup_email
+  test_setup_nostr
+  test_setup_lark
+  test_setup_onebot
+  test_setup_notify
+  test_setup_error_watcher
+  test_setup_observer
+  test_setup_zai_mcp
+  test_setup_memory
+  test_setup_prompt
+  test_setup_resilience
+  test_setup_heartbeat
   test_ask_user_question
   test_log_rotation
   test_worktree_merge
