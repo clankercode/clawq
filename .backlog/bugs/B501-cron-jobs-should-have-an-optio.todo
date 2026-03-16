@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B501
+priority: high
+status: pending
+tags: []
+title: Cron jobs should have an option to run in an ephemeral thread and have the result sent over to the 'main' thread. We should reuse the bg task system ith a local runner (ie one that is run by clawq and so the session is accessible in the DB)
+---
+
+Cron jobs should have an option to run in an ephemeral thread and have the result sent over to the 'main' thread. We should reuse the bg task system ith a local runner (ie one that is run by clawq and so the session is accessible in the DB)
