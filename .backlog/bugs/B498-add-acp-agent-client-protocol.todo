@@ -1,0 +1,39 @@
+---
+complexity: high
+depends_on: []
+estimate_hours: 8
+id: B498
+priority: medium
+status: pending
+tags:
+    - acp
+    - protocol
+    - subagent
+    - integration
+title: Add ACP (Agent Client Protocol) support for coder subagents
+---
+Problem
+Clawq's coder subagents (delegate, background_task_enqueue, etc.) currently use custom integrations for each runner (codex, claude, kimi, opencode, cursor). There is no standardized protocol for editor/IDE integration with these agents.
+
+Why this matters
+ACP (Agent Client Protocol) is an emerging standard from Zed Industries and JetBrains that standardizes communication between code editors/IDEs and coding agents - similar to how LSP standardized language server integration. Supporting ACP would:
+- Enable clawq subagents to work with any ACP-compatible editor
+- Reduce per-runner integration overhead
+- Position clawq in the emerging ACP ecosystem
+- Allow remote agent hosting scenarios
+
+Acceptance criteria
+- Research ACP spec at https://agentclientprotocol.com/get-started/introduction and document integration requirements
+- Implement ACP client capability (clawq acts as ACP client to spawn/control agents)
+- Local agent support via JSON-RPC over stdio
+- Remote agent support via HTTP/WebSocket (optional initially)
+- Tool calls, file system access, and terminal operations work via ACP
+- At least one existing runner migrated to ACP as proof of concept
+- Documentation updated to explain ACP mode
+
+Notes
+- ACP reuses MCP JSON representations where possible
+- Default text format is Markdown
+- See also: existing MCP support in clawq (P1.M3.E1.T001)
+- This is a larger feature - consider breaking into phases
+- Related to B129 (/delegate slash command)

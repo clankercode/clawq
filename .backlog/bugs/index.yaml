@@ -494,3 +494,4 @@ bugs:
     - file: B495-the-tool-call-progress-message.todo
     - file: B496-group-chat-agent-responds-to-a.todo
     - file: B497-tools-skills-table-shows-stale.todo
+    - file: B498-add-acp-agent-client-protocol.todo
