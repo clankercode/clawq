@@ -1,14 +1,15 @@
 ---
+claimed_at: "2026-03-16T00:25:47Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 2
 id: B496
 priority: high
-status: pending
-tags:
-    - connector
-    - teams
-    - group-chat
+started_at: "2026-03-16T00:25:47Z"
+status: in_progress
+tags: []
 title: 'Group chat: agent responds to all messages instead of only when addressed/mentioned'
 ---
 Problem
