@@ -1,0 +1,38 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 10
+id: I026
+priority: medium
+status: pending
+tags:
+    - idea
+    - planning
+title: 'Pair Coding: Use agents support to introduece a new type of dual agent dual-session where two agents do ''pair coding''. ~/src/pag-server has an implementation (which might not work) which we can use as a starting point.'
+---
+
+# Original Idea
+
+Pair Coding: Use agents support to introduece a new type of dual agent dual-session where two agents do 'pair coding'. ~/src/pag-server has an implementation (which might not work) which we can use as a starting point.
+
+## Planning Task (Equivalent of /plan-task)
+
+- Run `/plan-task I026` to decompose this idea into actionable work.
+- Confirm placement in the current backlog hierarchy before creating work items.
+
+## Ingest Plan Into backlog
+
+- Create implementation items with `backlog add` and related hierarchy commands (`backlog add-epic`, `backlog add-milestone`, `backlog add-phase`) as needed.
+- Create follow-up defects with `backlog bug` when bug-style work is identified.
+- Record all created IDs below and wire dependencies.
+
+## Created Work Items
+
+- Add created task IDs
+- Add created bug IDs (if any)
+
+## Completion Criteria
+
+- Idea has been decomposed into concrete backlog work items.
+- New items include clear acceptance criteria and dependencies.
+- This idea intake is updated with created IDs and marked done.
