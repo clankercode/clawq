@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B507
+priority: high
+status: pending
+tags: []
+title: Do a thorough audit (using subagents) of all of our connectors (excluding Teams). Ensure they are implemented correctly (validate against API & update local API docs), ensure they use our new format_adapter and dsl, and ensure docs/ is up to date with info about them including wizards.
+---
+
+Do a thorough audit (using subagents) of all of our connectors (excluding Teams). Ensure they are implemented correctly (validate against API & update local API docs), ensure they use our new format_adapter and dsl, and ensure docs/ is up to date with info about them including wizards.
