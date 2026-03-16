@@ -498,3 +498,4 @@ bugs:
     - file: B499-tool-call-sometimes-not-sent-t.todo
     - file: B500-write-a-dockerfile-used-for-ru.todo
     - file: B501-cron-jobs-should-have-an-optio.todo
+    - file: B502-have-3-subagents-claude-sonnet.todo

@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B502
+priority: high
+status: pending
+tags: []
+title: Have 3+ subagents (claude-sonnet-4-6) research the codebase and brainstorm improvements to docs/ and README.md (and any other docs, help messages, etc). Present these to the user for review and implement what the user decides.
+---
+
+Have 3+ subagents (claude-sonnet-4-6) research the codebase and brainstorm improvements to docs/ and README.md (and any other docs, help messages, etc). Present these to the user for review and implement what the user decides.
