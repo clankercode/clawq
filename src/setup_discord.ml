@@ -89,55 +89,11 @@ let load_existing () =
     cfg.channels.discord
   with _ -> None
 
-(* ── TUI drawing ─────────────────────────────────────────────────── *)
-
-let draw_dashboard ~bot_token ~allow_guilds ~allow_users ~intents =
-  let open Setup_common in
-  let w = terminal_width () in
-  clear_screen ();
-  Printf.printf "\n";
-  let active_intents = intent_names intents in
-  let intents_str =
-    if active_intents = [] then dim "(none)"
-    else String.concat ", " active_intents
-  in
-  draw_box ~width:w
-    [
-      bold " Discord Bot Configuration ";
-      "";
-      Printf.sprintf "  Bot Token:      %s"
-        (if bot_token = "" then dim "(not set)"
-         else green (Tui_input.redact bot_token));
-      Printf.sprintf "  Allow Guilds:   %s" (String.concat ", " allow_guilds);
-      Printf.sprintf "  Allow Users:    %s" (String.concat ", " allow_users);
-      Printf.sprintf "  Intents:        %s %s"
-        (cyan (string_of_int intents))
-        (dim ("(" ^ intents_str ^ ")"));
-      "";
-    ];
-  print_docs_link "https://clawq.org/channels/#discord";
-  Printf.printf "\n";
-  draw_separator ~width:w
-
-(* ── Save helper ─────────────────────────────────────────────────── *)
-
-let save_discord_config ~bot_token ~allow_guilds ~allow_users ~intents =
-  let open Setup_common in
-  let json =
-    build_discord_json ~bot_token ~allow_guilds ~allow_users ~intents
-  in
-  match merge_and_write_config json with
-  | Ok path ->
-      print_success (Printf.sprintf "Saved to %s" path);
-      true
-  | Error e ->
-      print_error (Printf.sprintf "Failed to write config: %s" e);
-      false
-
 (* ── Intent toggler ──────────────────────────────────────────────── *)
 
-let prompt_toggle_intents ~current_intents =
+let prompt_toggle_intents ~intents_field =
   let open Setup_common in
+  let current_intents = Setup_tui.get_int intents_field in
   Printf.printf "\n";
   Printf.printf "  %s\n\n" (bold "Toggle Gateway Intents");
   Printf.printf "  %s\n\n"
@@ -158,160 +114,81 @@ let prompt_toggle_intents ~current_intents =
   match int_of_string_opt line with
   | Some idx when idx >= 1 && idx <= List.length intent_flags ->
       let _, bit = List.nth intent_flags (idx - 1) in
-      current_intents lxor bit
-  | _ -> current_intents
+      intents_field.value := string_of_int (current_intents lxor bit)
+  | _ -> ()
 
-(* ── Main menu loop ──────────────────────────────────────────────── *)
+(* ── Main wizard ─────────────────────────────────────────────────── *)
 
 let run () =
-  match Setup_common.check_tty () with
-  | Error e -> e
-  | Ok () ->
-      let existing = load_existing () in
-      let bot_token =
-        ref
-          (match existing with
-          | Some d -> d.Runtime_config.bot_token
-          | None -> "")
-      in
-      let allow_guilds =
-        ref
-          (match existing with
-          | Some d -> d.Runtime_config.allow_guilds
-          | None -> [ "*" ])
-      in
-      let allow_users =
-        ref
-          (match existing with
-          | Some d -> d.Runtime_config.allow_users
-          | None -> [ "*" ])
-      in
-      let intents =
-        ref
-          (match existing with
-          | Some d -> d.Runtime_config.intents
-          | None -> default_intents)
-      in
-      let dirty = ref false in
-      let quit = ref false in
-      while not !quit do
-        draw_dashboard ~bot_token:!bot_token ~allow_guilds:!allow_guilds
-          ~allow_users:!allow_users ~intents:!intents;
-        let options =
-          [ ("t", "Set bot token") ]
-          @ [ ("g", "Set allowed guilds") ]
-          @ [ ("u", "Set allowed users") ]
-          @ [ ("i", "Toggle intents") ]
-          @ [ ("h", "Show setup instructions") ]
-          @
-          if !dirty then [ ("s", Setup_common.bold "Save configuration") ]
-          else []
-        in
-        let choice =
-          Setup_common.prompt_menu ~title:"Actions" ~options
-            ~shortcut_exit:"q/Enter" ()
-        in
-        match String.lowercase_ascii choice with
-        | "q" | "" ->
-            if !dirty then begin
-              let save =
-                Setup_common.prompt_yn
-                  ~prompt:"You have unsaved changes. Save before exiting?"
-                  ~default:true ()
-              in
-              if save then begin
-                if !bot_token = "" then (
-                  Setup_common.print_warning
-                    "Bot token is not set. Set it before saving.";
-                  Setup_common.press_enter_to_continue ())
-                else (
-                  ignore
-                    (save_discord_config ~bot_token:!bot_token
-                       ~allow_guilds:!allow_guilds ~allow_users:!allow_users
-                       ~intents:!intents);
-                  quit := true)
-              end
-              else quit := true
-            end
-            else quit := true
-        | "t" ->
-            Printf.printf "\n";
-            Printf.printf "  %s\n"
-              (Setup_common.dim
-                 "Get your bot token from: \
-                  https://discord.com/developers/applications");
-            Printf.printf "  %s\n\n"
-              (Setup_common.dim "Select your application > Bot > Copy token");
-            (if !bot_token <> "" then (
-               Printf.printf "  Current token: %s\n\n"
-                 (Setup_common.green (Tui_input.redact !bot_token));
-               let change =
-                 Setup_common.prompt_yn ~prompt:"Change bot token?"
-                   ~default:false ()
-               in
-               if change then
-                 match Setup_common.prompt_secret ~prompt:"Bot token" () with
-                 | Ok tok -> (
-                     match validate_bot_token tok with
-                     | Ok t ->
-                         bot_token := t;
-                         dirty := true
-                     | Error e -> Setup_common.print_error e)
-                 | Error e -> Setup_common.print_error e)
-             else
-               match Setup_common.prompt_secret ~prompt:"Bot token" () with
-               | Ok tok -> (
-                   match validate_bot_token tok with
-                   | Ok t ->
-                       bot_token := t;
-                       dirty := true
-                   | Error e -> Setup_common.print_error e)
-               | Error e -> Setup_common.print_error e);
-            Setup_common.press_enter_to_continue ()
-        | "g" ->
-            Printf.printf "\n";
-            Printf.printf "  %s\n"
-              (Setup_common.dim "Comma-separated guild/server IDs, or * for all");
-            let default = String.concat "," !allow_guilds in
-            let input =
-              Setup_common.prompt_string ~prompt:"Allowed guilds" ~default ()
-            in
-            allow_guilds := Setup_common.parse_csv_list input;
-            dirty := true;
-            Setup_common.press_enter_to_continue ()
-        | "u" ->
-            Printf.printf "\n";
-            Printf.printf "  %s\n"
-              (Setup_common.dim "Comma-separated user IDs, or * for all");
-            let default = String.concat "," !allow_users in
-            let input =
-              Setup_common.prompt_string ~prompt:"Allowed users" ~default ()
-            in
-            allow_users := Setup_common.parse_csv_list input;
-            dirty := true;
-            Setup_common.press_enter_to_continue ()
-        | "i" ->
-            let new_intents = prompt_toggle_intents ~current_intents:!intents in
-            if new_intents <> !intents then (
-              intents := new_intents;
-              dirty := true)
-        | "h" ->
-            Printf.printf "%s" post_setup_instructions;
-            Setup_common.press_enter_to_continue ()
-        | "s" when !dirty ->
-            if !bot_token = "" then (
-              Setup_common.print_warning "Bot token is required before saving.";
-              Setup_common.press_enter_to_continue ())
-            else (
-              if
-                save_discord_config ~bot_token:!bot_token
-                  ~allow_guilds:!allow_guilds ~allow_users:!allow_users
-                  ~intents:!intents
-              then dirty := false;
-              Setup_common.press_enter_to_continue ())
-        | s ->
-            Setup_common.print_warning (Printf.sprintf "Unknown option: %s" s);
-            Setup_common.press_enter_to_continue ()
-      done;
-      if !dirty then "Exited with unsaved changes."
-      else "Discord setup complete."
+  let existing = load_existing () in
+  let bot_token =
+    Setup_tui.make_secret_field ~key:"t" ~label:"Bot Token"
+      ~menu_label:"Set bot token"
+      ~description:
+        "Discord bot token. Get it from: \
+         https://discord.com/developers/applications > Bot > Copy token"
+      ~validate:validate_bot_token
+      ~default:
+        (match existing with
+        | Some d -> d.Runtime_config.bot_token
+        | None -> "")
+      ()
+  in
+  let allow_guilds =
+    Setup_tui.make_list_field ~key:"g" ~label:"Allow Guilds"
+      ~menu_label:"Set allowed guilds"
+      ~description:"Comma-separated guild/server IDs, or * for all."
+      ~default:
+        (match existing with
+        | Some d -> d.Runtime_config.allow_guilds
+        | None -> [ "*" ])
+      ()
+  in
+  let allow_users =
+    Setup_tui.make_list_field ~key:"u" ~label:"Allow Users"
+      ~menu_label:"Set allowed users"
+      ~description:"Comma-separated user IDs, or * for all."
+      ~default:
+        (match existing with
+        | Some d -> d.Runtime_config.allow_users
+        | None -> [ "*" ])
+      ()
+  in
+  let intents_field =
+    Setup_tui.make_int_field ~key:"n" ~label:"Intents (raw)"
+      ~menu_label:"Set intents value"
+      ~description:
+        "Gateway intents bitmask. Use the toggle action for easier editing."
+      ~default:
+        (match existing with
+        | Some d -> d.Runtime_config.intents
+        | None -> default_intents)
+      ()
+  in
+  let spec : Setup_tui.wizard_spec =
+    {
+      title = "Discord Bot Configuration";
+      docs_url = "https://clawq.org/channels/#discord";
+      fields = [ bot_token; allow_guilds; allow_users; intents_field ];
+      extra_actions =
+        [
+          ( "i",
+            "Toggle individual intents",
+            fun () -> prompt_toggle_intents ~intents_field );
+        ];
+      build_json =
+        (fun () ->
+          build_discord_json
+            ~bot_token:(Setup_tui.get_str bot_token)
+            ~allow_guilds:(Setup_tui.get_str_list allow_guilds)
+            ~allow_users:(Setup_tui.get_str_list allow_users)
+            ~intents:(Setup_tui.get_int intents_field));
+      pre_save_check =
+        (fun () ->
+          if Setup_tui.get_str bot_token = "" then
+            Error "Bot token is required before saving."
+          else Ok ());
+      post_instructions = (fun () -> post_setup_instructions);
+    }
+  in
+  Setup_tui.run_wizard spec

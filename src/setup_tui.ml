@@ -341,6 +341,7 @@ let run_wizard spec =
             Setup_common.press_enter_to_continue ()
         | _, Some (_, _, handler) ->
             handler ();
+            dirty := true;
             Setup_common.press_enter_to_continue ()
         | None, None -> (
             match key with

@@ -106,58 +106,7 @@ let load_existing () =
     cfg.channels.slack
   with _ -> None
 
-(* ── TUI drawing ─────────────────────────────────────────────────── *)
-
-let draw_dashboard ~(cfg : Runtime_config.slack_config) =
-  let open Setup_common in
-  let w = terminal_width () in
-  clear_screen ();
-  Printf.printf "\n";
-  draw_box ~width:w
-    [
-      bold " Slack Configuration ";
-      "";
-      Printf.sprintf "  Bot Token:       %s"
-        (if cfg.bot_token = "" then dim "(not set)"
-         else green (Tui_input.redact cfg.bot_token));
-      Printf.sprintf "  Signing Secret:  %s"
-        (if cfg.signing_secret = "" then dim "(not set)"
-         else green (Tui_input.redact cfg.signing_secret));
-      Printf.sprintf "  Events Path:     %s" cfg.events_path;
-      Printf.sprintf "  Allow Channels:  %s"
-        (String.concat ", " cfg.allow_channels);
-      Printf.sprintf "  Allow Users:     %s"
-        (String.concat ", " cfg.allow_users);
-      Printf.sprintf "  App Token:       %s"
-        (if cfg.app_token = "" then dim "(not set)"
-         else green (Tui_input.redact cfg.app_token));
-      Printf.sprintf "  Socket Mode:     %s"
-        (if cfg.socket_mode then green "enabled" else dim "disabled");
-      "";
-    ];
-  print_docs_link "https://clawq.org/channels/#slack";
-  Printf.printf "\n";
-  draw_separator ~width:w
-
-(* ── Save helper ─────────────────────────────────────────────────── *)
-
-let save_slack_config ~(cfg : Runtime_config.slack_config) =
-  let open Setup_common in
-  let json =
-    build_slack_json ~bot_token:cfg.bot_token ~signing_secret:cfg.signing_secret
-      ~events_path:cfg.events_path ~allow_channels:cfg.allow_channels
-      ~allow_users:cfg.allow_users ~app_token:cfg.app_token
-      ~socket_mode:cfg.socket_mode
-  in
-  match merge_and_write_config json with
-  | Ok path ->
-      print_success (Printf.sprintf "Saved to %s" path);
-      true
-  | Error e ->
-      print_error (Printf.sprintf "Failed to write config: %s" e);
-      false
-
-(* ── Main menu loop ──────────────────────────────────────────────── *)
+(* ── Main wizard ─────────────────────────────────────────────────── *)
 
 let default_slack_config : Runtime_config.slack_config =
   {
@@ -171,151 +120,99 @@ let default_slack_config : Runtime_config.slack_config =
   }
 
 let run () =
-  match Setup_common.check_tty () with
-  | Error e -> e
-  | Ok () ->
-      let existing = load_existing () in
-      let cfg =
-        ref (match existing with Some c -> c | None -> default_slack_config)
-      in
-      let dirty = ref false in
-      let quit = ref false in
-      while not !quit do
-        draw_dashboard ~cfg:!cfg;
-        let options =
-          [
-            ("b", "Set bot token");
-            ("s", "Set signing secret");
-            ("e", "Set events path");
-            ("c", "Set allowed channels");
-            ("u", "Set allowed users");
-            ("a", "Set app token");
-            ( "m",
-              Printf.sprintf "Toggle socket mode (%s)"
-                (if !cfg.socket_mode then "currently on" else "currently off")
-            );
-            ("i", "Show setup instructions");
-          ]
-          @
-          if !dirty then [ ("w", Setup_common.bold "Save configuration") ]
-          else []
-        in
-        let choice =
-          Setup_common.prompt_menu ~title:"Actions" ~options
-            ~shortcut_exit:"q/Enter" ()
-        in
-        match String.lowercase_ascii choice with
-        | "q" | "" ->
-            if !dirty then begin
-              let save =
-                Setup_common.prompt_yn
-                  ~prompt:"You have unsaved changes. Save before exiting?"
-                  ~default:true ()
-              in
-              if save then begin
-                ignore (save_slack_config ~cfg:!cfg);
-                quit := true
-              end
-              else quit := true
-            end
-            else quit := true
-        | "b" -> (
-            Printf.printf "\n";
-            match Setup_common.prompt_secret ~prompt:"Slack Bot Token" () with
-            | Ok tok -> (
-                match validate_bot_token tok with
-                | Ok t ->
-                    cfg := { !cfg with bot_token = t };
-                    dirty := true
-                | Error e ->
-                    Setup_common.print_error e;
-                    Setup_common.press_enter_to_continue ())
-            | Error e ->
-                Setup_common.print_error e;
-                Setup_common.press_enter_to_continue ())
-        | "s" -> (
-            Printf.printf "\n";
-            match
-              Setup_common.prompt_secret ~prompt:"Slack Signing Secret" ()
-            with
-            | Ok sec -> (
-                match validate_signing_secret sec with
-                | Ok s ->
-                    cfg := { !cfg with signing_secret = s };
-                    dirty := true
-                | Error e ->
-                    Setup_common.print_error e;
-                    Setup_common.press_enter_to_continue ())
-            | Error e ->
-                Setup_common.print_error e;
-                Setup_common.press_enter_to_continue ())
-        | "e" ->
-            let path =
-              Setup_common.prompt_string ~prompt:"Events path"
-                ~default:!cfg.events_path ()
-            in
-            cfg := { !cfg with events_path = path };
-            dirty := true
-        | "c" ->
-            let current = String.concat "," !cfg.allow_channels in
-            let input =
-              Setup_common.prompt_string
-                ~prompt:"Allowed channels (* = all, comma-separated)"
-                ~default:current ()
-            in
-            let channels = Setup_common.parse_csv_list input in
-            cfg := { !cfg with allow_channels = channels };
-            dirty := true
-        | "u" ->
-            let current = String.concat "," !cfg.allow_users in
-            let input =
-              Setup_common.prompt_string
-                ~prompt:"Allowed users (* = all, comma-separated)"
-                ~default:current ()
-            in
-            let users = Setup_common.parse_csv_list input in
-            cfg := { !cfg with allow_users = users };
-            dirty := true
-        | "a" -> (
-            Printf.printf "\n";
-            match
-              Setup_common.prompt_secret ~prompt:"Slack App Token (xapp-...)" ()
-            with
-            | Ok tok -> (
-                match validate_app_token tok with
-                | Ok t ->
-                    cfg := { !cfg with app_token = t };
-                    dirty := true
-                | Error e ->
-                    Setup_common.print_error e;
-                    Setup_common.press_enter_to_continue ())
-            | Error e ->
-                Setup_common.print_error e;
-                Setup_common.press_enter_to_continue ())
-        | "m" ->
-            cfg := { !cfg with socket_mode = not !cfg.socket_mode };
-            dirty := true
-        | "i" ->
-            let rcfg =
-              try Config_loader.load () with _ -> Runtime_config.default
-            in
-            let gateway_port = rcfg.gateway.port in
-            let tunnel_url =
-              if rcfg.tunnel.enabled && String.trim rcfg.tunnel.url <> "" then
-                Some rcfg.tunnel.url
-              else None
-            in
-            let instructions =
-              post_setup_instructions ~events_path:!cfg.events_path
-                ~socket_mode:!cfg.socket_mode ~gateway_port ~tunnel_url
-            in
-            Printf.printf "%s" instructions;
-            Setup_common.press_enter_to_continue ()
-        | "w" when !dirty ->
-            if save_slack_config ~cfg:!cfg then dirty := false;
-            Setup_common.press_enter_to_continue ()
-        | s ->
-            Setup_common.print_warning (Printf.sprintf "Unknown option: %s" s);
-            Setup_common.press_enter_to_continue ()
-      done;
-      if !dirty then "Exited with unsaved changes." else "Slack setup complete."
+  let existing = load_existing () in
+  let d = match existing with Some c -> c | None -> default_slack_config in
+  let bot_token =
+    Setup_tui.make_secret_field ~key:"b" ~label:"Bot Token"
+      ~menu_label:"Set bot token"
+      ~description:"Slack Bot User OAuth Token (starts with xoxb-)."
+      ~validate:validate_bot_token ~default:d.bot_token ()
+  in
+  let signing_secret =
+    Setup_tui.make_secret_field ~key:"s" ~label:"Signing Secret"
+      ~menu_label:"Set signing secret"
+      ~description:
+        "Slack signing secret for verifying webhook requests. Found in Basic \
+         Information."
+      ~validate:validate_signing_secret ~default:d.signing_secret ()
+  in
+  let events_path =
+    Setup_tui.make_field ~key:"e" ~label:"Events Path"
+      ~menu_label:"Set events path"
+      ~description:"URL path for Slack event subscriptions."
+      ~default:d.events_path ()
+  in
+  let allow_channels =
+    Setup_tui.make_list_field ~key:"c" ~label:"Allow Channels"
+      ~menu_label:"Set allowed channels"
+      ~description:"Comma-separated Slack channel IDs, or * for all."
+      ~default:d.allow_channels ()
+  in
+  let allow_users =
+    Setup_tui.make_list_field ~key:"u" ~label:"Allow Users"
+      ~menu_label:"Set allowed users"
+      ~description:"Comma-separated Slack user IDs, or * for all."
+      ~default:d.allow_users ()
+  in
+  let app_token =
+    Setup_tui.make_secret_field ~key:"a" ~label:"App Token"
+      ~menu_label:"Set app token"
+      ~description:
+        "Slack App-Level Token (starts with xapp-). Required for Socket Mode."
+      ~validate:validate_app_token ~default:d.app_token ()
+  in
+  let socket_mode =
+    Setup_tui.make_bool_field ~key:"m" ~label:"Socket Mode"
+      ~menu_label:"Toggle socket mode"
+      ~description:
+        "Use WebSocket connection instead of HTTP webhooks. Recommended — no \
+         public URL needed."
+      ~default:d.socket_mode ()
+  in
+  let live_instructions () =
+    let rcfg = try Config_loader.load () with _ -> Runtime_config.default in
+    let gateway_port = rcfg.gateway.port in
+    let tunnel_url =
+      if rcfg.tunnel.enabled && String.trim rcfg.tunnel.url <> "" then
+        Some rcfg.tunnel.url
+      else None
+    in
+    post_setup_instructions
+      ~events_path:(Setup_tui.get_str events_path)
+      ~socket_mode:(Setup_tui.get_bool socket_mode)
+      ~gateway_port ~tunnel_url
+  in
+  let spec : Setup_tui.wizard_spec =
+    {
+      title = "Slack Configuration";
+      docs_url = "https://clawq.org/channels/#slack";
+      fields =
+        [
+          bot_token;
+          signing_secret;
+          events_path;
+          allow_channels;
+          allow_users;
+          app_token;
+          socket_mode;
+        ];
+      extra_actions = [];
+      build_json =
+        (fun () ->
+          build_slack_json
+            ~bot_token:(Setup_tui.get_str bot_token)
+            ~signing_secret:(Setup_tui.get_str signing_secret)
+            ~events_path:(Setup_tui.get_str events_path)
+            ~allow_channels:(Setup_tui.get_str_list allow_channels)
+            ~allow_users:(Setup_tui.get_str_list allow_users)
+            ~app_token:(Setup_tui.get_str app_token)
+            ~socket_mode:(Setup_tui.get_bool socket_mode));
+      pre_save_check =
+        (fun () ->
+          if Setup_tui.get_str bot_token = "" then
+            Error "Bot token is required."
+          else Ok ());
+      post_instructions = live_instructions;
+    }
+  in
+  Setup_tui.run_wizard spec

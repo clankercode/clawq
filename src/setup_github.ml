@@ -356,6 +356,36 @@ let save_github_config ~pat_token ~repos =
       print_error (Printf.sprintf "Failed to write config: %s" e);
       false
 
+(* ── Editing helper (shared between "e" command and numeric shortcut) *)
+
+let edit_repo_at ~repos ~idx =
+  let (existing_repo : Runtime_config.github_repo_config) =
+    List.nth !repos (idx - 1)
+  in
+  Printf.printf "\n  %s %s\n\n"
+    (Setup_common.bold "Editing")
+    (Setup_common.cyan existing_repo.name);
+  let updated = prompt_repo_fields ~existing:existing_repo () in
+  repos := List.mapi (fun i r -> if i = idx - 1 then updated else r) !repos;
+  Setup_common.print_success (Printf.sprintf "Updated %s" updated.name)
+
+(* ── Show instructions for a specific repo ──────────────────────── *)
+
+let show_repo_instructions repos idx =
+  let (r : Runtime_config.github_repo_config) = List.nth !repos (idx - 1) in
+  let cfg = try Config_loader.load () with _ -> Runtime_config.default in
+  let gateway_port = cfg.gateway.port in
+  let tunnel_url =
+    if cfg.tunnel.enabled && String.trim cfg.tunnel.url <> "" then
+      Some cfg.tunnel.url
+    else None
+  in
+  let instructions =
+    post_setup_instructions ~repo_name:r.name ~webhook_path:r.webhook_path
+      ~webhook_secret:r.webhook_secret ~gateway_port ~tunnel_url
+  in
+  Printf.printf "%s" instructions
+
 (* ── Main menu loop ──────────────────────────────────────────────── *)
 
 let run () =
@@ -432,18 +462,8 @@ let run () =
             let idx_str = String.trim (Tui_input.read_line_clean p) in
             match int_of_string_opt idx_str with
             | Some idx when idx >= 1 && idx <= n_repos ->
-                let existing_repo = List.nth !repos (idx - 1) in
-                Printf.printf "\n  %s %s\n\n"
-                  (Setup_common.bold "Editing")
-                  (Setup_common.cyan existing_repo.name);
-                let updated = prompt_repo_fields ~existing:existing_repo () in
-                repos :=
-                  List.mapi
-                    (fun i r -> if i = idx - 1 then updated else r)
-                    !repos;
+                edit_repo_at ~repos ~idx;
                 dirty := true;
-                Setup_common.print_success
-                  (Printf.sprintf "Updated %s" updated.name);
                 Setup_common.press_enter_to_continue ()
             | _ ->
                 Setup_common.print_warning "Invalid selection.";
@@ -477,22 +497,7 @@ let run () =
             let idx_str = String.trim (Tui_input.read_line_clean p) in
             match int_of_string_opt idx_str with
             | Some idx when idx >= 1 && idx <= n_repos ->
-                let r = List.nth !repos (idx - 1) in
-                let cfg =
-                  try Config_loader.load () with _ -> Runtime_config.default
-                in
-                let gateway_port = cfg.gateway.port in
-                let tunnel_url =
-                  if cfg.tunnel.enabled && String.trim cfg.tunnel.url <> "" then
-                    Some cfg.tunnel.url
-                  else None
-                in
-                let instructions =
-                  post_setup_instructions ~repo_name:r.name
-                    ~webhook_path:r.webhook_path
-                    ~webhook_secret:r.webhook_secret ~gateway_port ~tunnel_url
-                in
-                Printf.printf "%s" instructions;
+                show_repo_instructions repos idx;
                 Setup_common.press_enter_to_continue ()
             | _ ->
                 Setup_common.print_warning "Invalid selection.";
@@ -507,21 +512,10 @@ let run () =
                 dirty := false;
               Setup_common.press_enter_to_continue ())
         | s -> (
-            (* Allow typing a number to jump straight to editing that repo *)
             match int_of_string_opt s with
             | Some idx when idx >= 1 && idx <= n_repos ->
-                let existing_repo = List.nth !repos (idx - 1) in
-                Printf.printf "\n  %s %s\n\n"
-                  (Setup_common.bold "Editing")
-                  (Setup_common.cyan existing_repo.name);
-                let updated = prompt_repo_fields ~existing:existing_repo () in
-                repos :=
-                  List.mapi
-                    (fun i r -> if i = idx - 1 then updated else r)
-                    !repos;
+                edit_repo_at ~repos ~idx;
                 dirty := true;
-                Setup_common.print_success
-                  (Printf.sprintf "Updated %s" updated.name);
                 Setup_common.press_enter_to_continue ()
             | _ ->
                 Setup_common.print_warning

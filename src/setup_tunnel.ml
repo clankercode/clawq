@@ -96,182 +96,76 @@ let load_existing () =
     cfg.tunnel
   with _ -> Runtime_config.default.tunnel
 
-(* ── TUI drawing ─────────────────────────────────────────────────── *)
-
-let draw_dashboard ~(tc : Runtime_config.tunnel_config) =
-  let open Setup_common in
-  let w = terminal_width () in
-  clear_screen ();
-  Printf.printf "\n";
-  let enabled_str = if tc.enabled then green "enabled" else dim "disabled" in
-  let mode_str =
-    if tc.managed then "managed"
-    else if tc.url <> "" then "static URL"
-    else "quick"
-  in
-  draw_box ~width:w
-    [
-      bold " Cloudflare Tunnel Configuration ";
-      "";
-      Printf.sprintf "  Provider:    %s" (cyan tc.provider);
-      Printf.sprintf "  Enabled:     %s" enabled_str;
-      Printf.sprintf "  Mode:        %s" (cyan mode_str);
-      Printf.sprintf "  URL:         %s"
-        (if tc.url = "" then dim "(auto / not set)" else tc.url);
-      Printf.sprintf "  Managed:     %s"
-        (if tc.managed then green "yes" else dim "no");
-      Printf.sprintf "  Tunnel name: %s"
-        (if tc.tunnel_name = "" then dim "(not set)" else tc.tunnel_name);
-      Printf.sprintf "  Config dir:  %s"
-        (if tc.config_dir = "" then dim "(default)" else tc.config_dir);
-      "";
-    ];
-  print_docs_link "https://clawq.org/configuration/#tunnel";
-  Printf.printf "\n";
-  draw_separator ~width:w
-
-(* ── Save helper ─────────────────────────────────────────────────── *)
-
-let save_tunnel_config ~(tc : Runtime_config.tunnel_config) =
-  let open Setup_common in
-  let json = build_tunnel_json ~tc in
-  match merge_and_write_config json with
-  | Ok path ->
-      print_success (Printf.sprintf "Saved to %s" path);
-      true
-  | Error e ->
-      print_error (Printf.sprintf "Failed to write config: %s" e);
-      false
-
-(* ── Main menu loop ──────────────────────────────────────────────── *)
+(* ── Main wizard ─────────────────────────────────────────────────── *)
 
 let run () =
-  match Setup_common.check_tty () with
-  | Error e -> e
-  | Ok () ->
-      let existing = load_existing () in
-      let tc = ref existing in
-      let dirty = ref false in
-      let quit = ref false in
-      while not !quit do
-        draw_dashboard ~tc:!tc;
-        let options =
-          [
-            ( "e",
-              Printf.sprintf "Toggle enabled (%s)"
-                (if !tc.enabled then "currently on" else "currently off") );
-            ("p", Printf.sprintf "Set provider (currently: %s)" !tc.provider);
-            ("u", "Set static URL");
-            ( "m",
-              Printf.sprintf "Toggle managed mode (%s)"
-                (if !tc.managed then "currently on" else "currently off") );
-            ("n", "Set tunnel name");
-            ("d", "Set config directory");
-            ("i", "Show post-setup instructions");
-          ]
-          @
-          if !dirty then [ ("s", Setup_common.bold "Save configuration") ]
-          else []
-        in
-        let choice =
-          Setup_common.prompt_menu ~title:"Actions" ~options
-            ~shortcut_exit:"q/Enter" ()
-        in
-        match String.lowercase_ascii choice with
-        | "q" | "" ->
-            if !dirty then begin
-              let save =
-                Setup_common.prompt_yn
-                  ~prompt:"You have unsaved changes. Save before exiting?"
-                  ~default:true ()
-              in
-              if save then begin
-                ignore (save_tunnel_config ~tc:!tc);
-                quit := true
-              end
-              else quit := true
-            end
-            else quit := true
-        | "e" ->
-            tc := { !tc with enabled = not !tc.enabled };
-            dirty := true
-        | "p" ->
-            let rec get_provider () =
-              let p =
-                Setup_common.prompt_string ~prompt:"Provider"
-                  ~default:!tc.provider ()
-              in
-              match validate_provider p with
-              | Ok prov ->
-                  tc := { !tc with provider = prov };
-                  dirty := true
-              | Error e ->
-                  Setup_common.print_warning e;
-                  get_provider ()
-            in
-            get_provider ()
-        | "u" ->
-            let rec get_url () =
-              let u =
-                Setup_common.prompt_string ~prompt:"Static URL (empty to clear)"
-                  ~default:!tc.url ()
-              in
-              match Setup_common.validate_url u with
-              | Ok url ->
-                  tc := { !tc with url };
-                  dirty := true
-              | Error e ->
-                  Setup_common.print_warning e;
-                  get_url ()
-            in
-            get_url ()
-        | "m" ->
-            tc := { !tc with managed = not !tc.managed };
-            dirty := true
-        | "n" ->
-            let rec get_name () =
-              let n =
-                Setup_common.prompt_string
-                  ~prompt:"Tunnel name (empty to clear)"
-                  ~default:!tc.tunnel_name ()
-              in
-              match validate_tunnel_name n with
-              | Ok name ->
-                  tc := { !tc with tunnel_name = name };
-                  dirty := true
-              | Error e ->
-                  Setup_common.print_warning e;
-                  get_name ()
-            in
-            get_name ()
-        | "d" ->
-            let dir =
-              Setup_common.prompt_string
-                ~prompt:"Config directory (empty for default)"
-                ~default:!tc.config_dir ()
-            in
-            tc := { !tc with config_dir = dir };
-            dirty := true
-        | "i" ->
-            let cfg =
-              try Config_loader.load () with _ -> Runtime_config.default
-            in
-            let gateway_port = cfg.gateway.port in
-            let instructions = post_setup_instructions ~tc:!tc ~gateway_port in
-            Printf.printf "%s" instructions;
-            Setup_common.press_enter_to_continue ()
-        | "s" when !dirty ->
-            if save_tunnel_config ~tc:!tc then dirty := false;
-            Setup_common.press_enter_to_continue ()
-        | s ->
-            Setup_common.print_warning (Printf.sprintf "Unknown option: %s" s);
-            Setup_common.press_enter_to_continue ()
-      done;
-      if !dirty then "Exited with unsaved changes."
-      else if !tc.enabled then
-        Printf.sprintf "Tunnel setup complete. Provider: %s, mode: %s."
-          !tc.provider
-          (if !tc.managed then "managed"
-           else if !tc.url <> "" then "static"
-           else "quick")
-      else "Tunnel setup complete (tunnel disabled)."
+  let d = load_existing () in
+  let enabled =
+    Setup_tui.make_bool_field ~key:"e" ~label:"Enabled"
+      ~menu_label:"Toggle enabled" ~description:"Enable or disable the tunnel."
+      ~default:d.enabled ()
+  in
+  let provider =
+    Setup_tui.make_choice_field ~key:"p" ~label:"Provider"
+      ~menu_label:"Set provider" ~choices:valid_providers
+      ~description:"Tunnel provider: cloudflare, tailscale, ngrok, or custom."
+      ~validate:validate_provider ~default:d.provider ()
+  in
+  let url =
+    Setup_tui.make_field ~key:"u" ~label:"Static URL"
+      ~menu_label:"Set static URL"
+      ~description:
+        "Static tunnel URL (e.g. https://my-tunnel.example.com). Leave empty \
+         for auto/quick tunnel."
+      ~validate:Setup_common.validate_url ~default:d.url ()
+  in
+  let managed =
+    Setup_tui.make_bool_field ~key:"m" ~label:"Managed"
+      ~menu_label:"Toggle managed mode"
+      ~description:
+        "When enabled, cloudflared manages the tunnel lifecycle automatically."
+      ~default:d.managed ()
+  in
+  let tunnel_name =
+    Setup_tui.make_field ~key:"n" ~label:"Tunnel Name"
+      ~menu_label:"Set tunnel name"
+      ~description:
+        "Named tunnel identifier. Only used in managed mode. Letters, digits, \
+         hyphens, underscores."
+      ~validate:validate_tunnel_name ~default:d.tunnel_name ()
+  in
+  let config_dir =
+    Setup_tui.make_field ~key:"d" ~label:"Config Directory"
+      ~menu_label:"Set config directory"
+      ~description:
+        "Custom config directory for the tunnel binary. Leave empty for \
+         default."
+      ~default:d.config_dir ()
+  in
+  let build_tc () : Runtime_config.tunnel_config =
+    {
+      provider = Setup_tui.get_str provider;
+      enabled = Setup_tui.get_bool enabled;
+      url = Setup_tui.get_str url;
+      managed = Setup_tui.get_bool managed;
+      tunnel_name = Setup_tui.get_str tunnel_name;
+      config_dir = Setup_tui.get_str config_dir;
+    }
+  in
+  let live_instructions () =
+    let cfg = try Config_loader.load () with _ -> Runtime_config.default in
+    let gateway_port = cfg.gateway.port in
+    post_setup_instructions ~tc:(build_tc ()) ~gateway_port
+  in
+  let spec : Setup_tui.wizard_spec =
+    {
+      title = "Cloudflare Tunnel Configuration";
+      docs_url = "https://clawq.org/configuration/#tunnel";
+      fields = [ enabled; provider; url; managed; tunnel_name; config_dir ];
+      extra_actions = [];
+      build_json = (fun () -> build_tunnel_json ~tc:(build_tc ()));
+      pre_save_check = (fun () -> Ok ());
+      post_instructions = live_instructions;
+    }
+  in
+  Setup_tui.run_wizard spec

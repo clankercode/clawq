@@ -124,399 +124,256 @@ let load_existing () =
     cfg.summarizer
   with _ -> Runtime_config.default_summarizer_config
 
-(* ── TUI drawing ─────────────────────────────────────────────────── *)
-
-let draw_dashboard ~(sc : Runtime_config.summarizer_config) =
-  let open Setup_common in
-  let w = terminal_width () in
-  clear_screen ();
-  Printf.printf "\n";
-  let enabled_str = if sc.enabled then green "enabled" else dim "disabled" in
-  let model_str = Pmodel.to_string sc.model in
-  let esc_str =
-    match sc.escalation_model with
-    | None -> dim "(none)"
-    | Some m -> cyan (Pmodel.to_string m)
-  in
-  let excluded_str =
-    if sc.excluded_tools = [] then dim "(none)"
-    else String.concat ", " sc.excluded_tools
-  in
-  let envelope_str =
-    match sc.envelope_template with
-    | None -> dim "(not set)"
-    | Some _ -> green "set"
-  in
-  draw_box ~width:w
-    [
-      bold " Autosummarizer Configuration ";
-      dim
-        "  Automatically summarizes large tool results to reduce context usage.";
-      "";
-      Printf.sprintf "  Enabled:           %s" enabled_str;
-      Printf.sprintf "  Model:             %s" (cyan model_str);
-      Printf.sprintf "  Escalation model:  %s" esc_str;
-      Printf.sprintf "  Threshold:         %d chars" sc.threshold_chars;
-      Printf.sprintf "  P1 max:            %d chars" sc.p1_max_chars;
-      Printf.sprintf "  P2 max:            %d chars" sc.p2_max_chars;
-      Printf.sprintf "  Context window:    %d messages"
-        sc.context_window_messages;
-      Printf.sprintf "  Excluded tools:    %s" excluded_str;
-      Printf.sprintf "  Max age:           %d days" sc.max_age_days;
-      Printf.sprintf "  Envelope template: %s" envelope_str;
-      "";
-    ];
-  print_docs_link "https://clawq.org/configuration/#summarizer";
-  Printf.printf "\n";
-  draw_separator ~width:w
-
-(* ── Save helper ─────────────────────────────────────────────────── *)
-
-let save_summarizer_config ~(sc : Runtime_config.summarizer_config) =
-  let open Setup_common in
-  let json = build_summarizer_json ~sc in
-  match merge_and_write_config json with
-  | Ok path ->
-      print_success (Printf.sprintf "Saved to %s" path);
-      true
-  | Error e ->
-      print_error (Printf.sprintf "Failed to write config: %s" e);
-      false
-
-(* ── Main menu loop ──────────────────────────────────────────────── *)
+(* ── Main wizard ─────────────────────────────────────────────────── *)
 
 let run () =
-  match Setup_common.check_tty () with
-  | Error e -> e
-  | Ok () ->
-      let existing = load_existing () in
-      let sc = ref existing in
-      let dirty = ref false in
-      let quit = ref false in
-      while not !quit do
-        draw_dashboard ~sc:!sc;
-        let options =
-          [
-            ( "e",
-              Printf.sprintf "Toggle enabled (%s)"
-                (if !sc.enabled then "currently on" else "currently off") );
-            ( "m",
-              Printf.sprintf "Set model (currently: %s)"
-                (Pmodel.to_string !sc.model) );
-            ("x", "Set escalation model (empty to clear)");
-            ( "t",
-              Printf.sprintf "Set threshold chars (currently: %d)"
-                !sc.threshold_chars );
-            ( "1",
-              Printf.sprintf "Set P1 max chars (currently: %d)" !sc.p1_max_chars
-            );
-            ( "2",
-              Printf.sprintf "Set P2 max chars (currently: %d)" !sc.p2_max_chars
-            );
-            ( "c",
-              Printf.sprintf "Set context window messages (currently: %d)"
-                !sc.context_window_messages );
-            ("a", "Add excluded tool");
-            ("r", "Remove excluded tool");
-            ( "d",
-              Printf.sprintf "Set max age days (currently: %d)" !sc.max_age_days
-            );
-            ("v", "Set envelope template (empty to clear)");
-            ("i", "Show post-setup instructions");
-          ]
-          @
-          if !dirty then [ ("s", Setup_common.bold "Save configuration") ]
-          else []
-        in
-        let choice =
-          Setup_common.prompt_menu ~title:"Actions" ~options
-            ~shortcut_exit:"q/Enter" ()
-        in
-        match String.lowercase_ascii choice with
-        | "q" | "" ->
-            if !dirty then begin
-              let save =
-                Setup_common.prompt_yn
-                  ~prompt:"You have unsaved changes. Save before exiting?"
-                  ~default:true ()
-              in
-              if save then begin
-                ignore (save_summarizer_config ~sc:!sc);
-                quit := true
-              end
-              else quit := true
-            end
-            else quit := true
-        | "e" ->
-            sc := { !sc with enabled = not !sc.enabled };
-            dirty := true
-        | "m" ->
-            let rec get_model () =
-              let s =
-                Setup_common.prompt_string ~prompt:"Model (provider:model)"
-                  ~default:(Pmodel.to_string !sc.model)
-                  ()
-              in
-              match validate_model s with
-              | Ok m ->
-                  sc := { !sc with model = m };
-                  dirty := true
-              | Error e ->
-                  Setup_common.print_warning e;
-                  get_model ()
-            in
-            get_model ()
-        | "x" ->
-            let s =
-              Setup_common.prompt_string
-                ~prompt:"Escalation model (empty to clear)"
-                ~default:
-                  (match !sc.escalation_model with
-                  | None -> ""
-                  | Some m -> Pmodel.to_string m)
-                ()
-            in
-            let trimmed = String.trim s in
-            if trimmed = "" then begin
-              sc := { !sc with escalation_model = None };
-              dirty := true
-            end
-            else
-              let rec get_esc_model input =
-                match validate_model input with
-                | Ok m ->
-                    sc := { !sc with escalation_model = Some m };
-                    dirty := true
-                | Error e ->
-                    Setup_common.print_warning e;
-                    let s2 =
-                      Setup_common.prompt_string
-                        ~prompt:"Escalation model (empty to clear)" ~default:""
-                        ()
-                    in
-                    let t2 = String.trim s2 in
-                    if t2 = "" then begin
-                      sc := { !sc with escalation_model = None };
-                      dirty := true
-                    end
-                    else get_esc_model t2
-              in
-              get_esc_model trimmed
-        | "t" ->
-            let rec get_threshold () =
-              let s =
-                Setup_common.prompt_string ~prompt:"Threshold (chars)"
-                  ~default:(string_of_int !sc.threshold_chars)
-                  ()
-              in
-              match validate_threshold_chars s with
-              | Ok (n, warning) ->
-                  (match warning with
-                  | Some w -> Setup_common.print_warning w
-                  | None -> ());
-                  sc := { !sc with threshold_chars = n };
-                  dirty := true
-              | Error e ->
-                  Setup_common.print_warning e;
-                  get_threshold ()
-            in
-            get_threshold ()
-        | "1" ->
-            let rec get_p1 () =
-              let s =
-                Setup_common.prompt_string ~prompt:"P1 max (chars)"
-                  ~default:(string_of_int !sc.p1_max_chars)
-                  ()
-              in
-              match validate_p1_max_chars ~p2_max:!sc.p2_max_chars s with
-              | Ok n ->
-                  sc := { !sc with p1_max_chars = n };
-                  dirty := true
-              | Error e ->
-                  Setup_common.print_warning e;
-                  get_p1 ()
-            in
-            get_p1 ()
-        | "2" ->
-            let rec get_p2 () =
-              let s =
-                Setup_common.prompt_string ~prompt:"P2 max (chars)"
-                  ~default:(string_of_int !sc.p2_max_chars)
-                  ()
-              in
-              match validate_p2_max_chars ~p1_max:!sc.p1_max_chars s with
-              | Ok n ->
-                  sc := { !sc with p2_max_chars = n };
-                  dirty := true
-              | Error e ->
-                  Setup_common.print_warning e;
-                  get_p2 ()
-            in
-            get_p2 ()
-        | "c" ->
-            let rec get_ctx () =
-              let s =
-                Setup_common.prompt_string ~prompt:"Context window (messages)"
-                  ~default:(string_of_int !sc.context_window_messages)
-                  ()
-              in
-              match validate_non_negative_int s with
-              | Ok n ->
-                  sc := { !sc with context_window_messages = n };
-                  dirty := true
-              | Error e ->
-                  Setup_common.print_warning e;
-                  get_ctx ()
-            in
-            get_ctx ()
-        | "a" ->
-            let rec get_tool () =
-              let s =
-                Setup_common.prompt_string ~prompt:"Tool name to exclude"
-                  ~default:"" ()
-              in
-              match validate_tool_name s with
-              | Ok name ->
-                  if List.mem name !sc.excluded_tools then
-                    Setup_common.print_warning
-                      (Printf.sprintf "%S is already excluded." name)
-                  else begin
-                    sc :=
-                      {
-                        !sc with
-                        excluded_tools = !sc.excluded_tools @ [ name ];
-                      };
-                    dirty := true
-                  end
-              | Error e ->
-                  Setup_common.print_warning e;
-                  get_tool ()
-            in
-            get_tool ()
-        | "r" ->
-            if !sc.excluded_tools = [] then
-              Setup_common.print_warning "No excluded tools to remove."
-            else begin
-              Printf.printf "\n  Excluded tools:\n";
-              List.iteri
-                (fun i name -> Printf.printf "    %d. %s\n" (i + 1) name)
-                !sc.excluded_tools;
-              Printf.printf "\n";
-              let s =
-                Setup_common.prompt_string
-                  ~prompt:"Number to remove (or empty to cancel)" ~default:"" ()
-              in
-              match int_of_string_opt (String.trim s) with
-              | Some idx when idx >= 1 && idx <= List.length !sc.excluded_tools
-                ->
-                  let tools =
-                    List.filteri (fun i _ -> i <> idx - 1) !sc.excluded_tools
-                  in
-                  sc := { !sc with excluded_tools = tools };
-                  dirty := true
-              | _ ->
-                  if String.trim s <> "" then
-                    Setup_common.print_warning "Invalid selection."
-            end
-        | "d" ->
-            let rec get_days () =
-              let s =
-                Setup_common.prompt_string ~prompt:"Max age (days)"
-                  ~default:(string_of_int !sc.max_age_days)
-                  ()
-              in
-              match validate_positive_int s with
-              | Ok n ->
-                  sc := { !sc with max_age_days = n };
-                  dirty := true
-              | Error e ->
-                  Setup_common.print_warning e;
-                  get_days ()
-            in
-            get_days ()
-        | "v" ->
-            let open Setup_common in
-            let placeholders =
-              [
-                ("{summary}", "The summary text");
-                ("{sum_id}", "Summary ID (for unsummarize)");
-                ("{tool_name}", "Tool that produced the result");
-                ("{model}", "Model used for summarization");
-                ("{orig_lines}", "Original line count");
-                ("{orig_bytes}", "Original byte count");
-                ("{orig_tokens}", "Original token estimate");
-                ("{sum_lines}", "Summary line count");
-                ("{sum_bytes}", "Summary byte count");
-                ("{sum_tokens}", "Summary token estimate");
-                ("{timestamp}", "When summarization occurred");
-              ]
-            in
-            Printf.printf "\n";
-            Printf.printf "  %s\n" (bold "Current envelope template:");
-            (match !sc.envelope_template with
-            | None -> Printf.printf "    %s\n" (dim "(using built-in default)")
-            | Some t ->
-                let lines = String.split_on_char '\n' t in
-                List.iter
-                  (fun line -> Printf.printf "    %s\n" (cyan line))
-                  lines);
-            Printf.printf "\n";
-            Printf.printf "  %s\n"
-              (bold "The envelope template wraps each summarized tool result.");
-            Printf.printf
-              "  Use %s for newlines. Leave empty to use the built-in default.\n\n"
-              (cyan "\\n");
-            Printf.printf "  %s\n" (bold "Available placeholders:");
-            let max_ph_len =
-              List.fold_left
-                (fun acc (ph, _) -> max acc (String.length ph))
-                0 placeholders
-            in
-            List.iter
-              (fun (ph, desc) ->
-                let pad = String.make (max_ph_len - String.length ph) ' ' in
-                Printf.printf "    %s%s  %s\n" (green ph) pad (dim desc))
-              placeholders;
-            Printf.printf "\n  %s\n" (bold "Default (when not set):");
-            List.iter
-              (fun line -> Printf.printf "    %s\n" (dim line))
-              Summarizer.default_envelope_template_lines;
-            Printf.printf "\n";
-            let current_default =
-              match !sc.envelope_template with
-              | None -> ""
-              | Some t -> String_util.escape_newlines t
-            in
-            let rec get_template default =
-              let s =
-                Setup_common.prompt_string
-                  ~prompt:"Envelope template (empty to clear)" ~default ()
-              in
-              let trimmed = String.trim s in
-              if trimmed = "" then None
-              else if not (String_util.contains trimmed "{summary}") then begin
-                Setup_common.print_error
-                  "Template must contain {summary} placeholder.";
-                get_template trimmed
-              end
-              else Some (String_util.unescape_newlines trimmed)
-            in
-            let value = get_template current_default in
-            sc := { !sc with envelope_template = value };
-            dirty := true
-        | "i" ->
-            let instructions = post_setup_instructions ~sc:!sc in
-            Printf.printf "%s" instructions;
-            Setup_common.press_enter_to_continue ()
-        | "s" when !dirty ->
-            if save_summarizer_config ~sc:!sc then dirty := false;
-            Setup_common.press_enter_to_continue ()
-        | s ->
-            Setup_common.print_warning (Printf.sprintf "Unknown option: %s" s);
-            Setup_common.press_enter_to_continue ()
-      done;
-      if !dirty then "Exited with unsaved changes."
-      else if !sc.enabled then
-        Printf.sprintf "Summarizer setup complete. Model: %s."
-          (Pmodel.to_string !sc.model)
-      else "Summarizer setup complete (summarizer disabled)."
+  let d = load_existing () in
+  (* Mutable state for excluded_tools and envelope_template, managed by
+     extra_actions rather than Setup_tui fields *)
+  let excluded_tools_ref = ref d.excluded_tools in
+  let envelope_template_ref = ref d.envelope_template in
+  let enabled =
+    Setup_tui.make_bool_field ~key:"e" ~label:"Enabled"
+      ~menu_label:"Toggle enabled"
+      ~description:"Enable or disable the autosummarizer." ~default:d.enabled ()
+  in
+  let model =
+    Setup_tui.make_field ~key:"m" ~label:"Model" ~menu_label:"Set model"
+      ~description:"Model for summarization (provider:model format)."
+      ~validate:(fun s ->
+        match validate_model s with
+        | Ok m -> Ok (Pmodel.to_string m)
+        | Error e -> Error e)
+      ~default:(Pmodel.to_string d.model) ()
+  in
+  let escalation_model =
+    Setup_tui.make_field ~key:"x" ~label:"Escalation Model"
+      ~menu_label:"Set escalation model"
+      ~description:
+        "Fallback model for large summaries (provider:model). Leave empty for \
+         none."
+      ~validate:(fun s ->
+        let trimmed = String.trim s in
+        if trimmed = "" then Ok ""
+        else
+          match validate_model trimmed with
+          | Ok m -> Ok (Pmodel.to_string m)
+          | Error e -> Error e)
+      ~default:
+        (match d.escalation_model with
+        | None -> ""
+        | Some m -> Pmodel.to_string m)
+      ()
+  in
+  let threshold_chars =
+    Setup_tui.make_int_field ~key:"t" ~label:"Threshold (chars)"
+      ~menu_label:"Set threshold chars"
+      ~description:
+        "Tool results exceeding this character count will be summarized."
+      ~validate:(fun s ->
+        match validate_threshold_chars s with
+        | Ok (_, Some w) ->
+            Setup_common.print_warning w;
+            Ok s
+        | Ok (_, None) -> Ok s
+        | Error e -> Error e)
+      ~default:d.threshold_chars ()
+  in
+  let p1_max_chars =
+    Setup_tui.make_int_field ~key:"1" ~label:"P1 Max (chars)"
+      ~menu_label:"Set P1 max chars"
+      ~description:
+        "Maximum characters for the primary (detailed) summary. Must be > P2 \
+         max."
+      ~validate:(fun s ->
+        match validate_positive_int s with Ok _ -> Ok s | Error e -> Error e)
+      ~default:d.p1_max_chars ()
+  in
+  let p2_max_chars =
+    Setup_tui.make_int_field ~key:"2" ~label:"P2 Max (chars)"
+      ~menu_label:"Set P2 max chars"
+      ~description:
+        "Maximum characters for the secondary (compact) summary. Must be < P1 \
+         max."
+      ~validate:(fun s ->
+        match validate_positive_int s with Ok _ -> Ok s | Error e -> Error e)
+      ~default:d.p2_max_chars ()
+  in
+  let context_window =
+    Setup_tui.make_int_field ~key:"c" ~label:"Context Window (messages)"
+      ~menu_label:"Set context window"
+      ~description:
+        "Number of recent messages to include as context for summarization."
+      ~validate:(fun s ->
+        match validate_non_negative_int s with
+        | Ok _ -> Ok s
+        | Error e -> Error e)
+      ~default:d.context_window_messages ()
+  in
+  let max_age_days =
+    Setup_tui.make_int_field ~key:"d" ~label:"Max Age (days)"
+      ~menu_label:"Set max age days"
+      ~description:"Maximum age in days for stored summaries."
+      ~validate:(fun s ->
+        match validate_positive_int s with Ok _ -> Ok s | Error e -> Error e)
+      ~default:d.max_age_days ()
+  in
+  let add_excluded_tool () =
+    let rec get_tool () =
+      let s =
+        Setup_common.prompt_string ~prompt:"Tool name to exclude" ~default:"" ()
+      in
+      match validate_tool_name s with
+      | Ok name ->
+          if List.mem name !excluded_tools_ref then
+            Setup_common.print_warning
+              (Printf.sprintf "%S is already excluded." name)
+          else excluded_tools_ref := !excluded_tools_ref @ [ name ]
+      | Error e ->
+          Setup_common.print_warning e;
+          get_tool ()
+    in
+    get_tool ()
+  in
+  let remove_excluded_tool () =
+    if !excluded_tools_ref = [] then
+      Setup_common.print_warning "No excluded tools to remove."
+    else begin
+      Printf.printf "\n  Excluded tools:\n";
+      List.iteri
+        (fun i name -> Printf.printf "    %d. %s\n" (i + 1) name)
+        !excluded_tools_ref;
+      Printf.printf "\n";
+      let s =
+        Setup_common.prompt_string
+          ~prompt:"Number to remove (or empty to cancel)" ~default:"" ()
+      in
+      match int_of_string_opt (String.trim s) with
+      | Some idx when idx >= 1 && idx <= List.length !excluded_tools_ref ->
+          excluded_tools_ref :=
+            List.filteri (fun i _ -> i <> idx - 1) !excluded_tools_ref
+      | _ ->
+          if String.trim s <> "" then
+            Setup_common.print_warning "Invalid selection."
+    end
+  in
+  let set_envelope_template () =
+    let open Setup_common in
+    let placeholders =
+      [
+        ("{summary}", "The summary text");
+        ("{sum_id}", "Summary ID (for unsummarize)");
+        ("{tool_name}", "Tool that produced the result");
+        ("{model}", "Model used for summarization");
+        ("{orig_lines}", "Original line count");
+        ("{orig_bytes}", "Original byte count");
+        ("{orig_tokens}", "Original token estimate");
+        ("{sum_lines}", "Summary line count");
+        ("{sum_bytes}", "Summary byte count");
+        ("{sum_tokens}", "Summary token estimate");
+        ("{timestamp}", "When summarization occurred");
+      ]
+    in
+    Printf.printf "\n";
+    Printf.printf "  %s\n" (bold "Current envelope template:");
+    (match !envelope_template_ref with
+    | None -> Printf.printf "    %s\n" (dim "(using built-in default)")
+    | Some t ->
+        let lines = String.split_on_char '\n' t in
+        List.iter (fun line -> Printf.printf "    %s\n" (cyan line)) lines);
+    Printf.printf "\n";
+    Printf.printf "  %s\n"
+      (bold "The envelope template wraps each summarized tool result.");
+    Printf.printf
+      "  Use %s for newlines. Leave empty to use the built-in default.\n\n"
+      (cyan "\\n");
+    Printf.printf "  %s\n" (bold "Available placeholders:");
+    let max_ph_len =
+      List.fold_left
+        (fun acc (ph, _) -> max acc (String.length ph))
+        0 placeholders
+    in
+    List.iter
+      (fun (ph, desc) ->
+        let pad = String.make (max_ph_len - String.length ph) ' ' in
+        Printf.printf "    %s%s  %s\n" (green ph) pad (dim desc))
+      placeholders;
+    Printf.printf "\n  %s\n" (bold "Default (when not set):");
+    List.iter
+      (fun line -> Printf.printf "    %s\n" (dim line))
+      Summarizer.default_envelope_template_lines;
+    Printf.printf "\n";
+    let current_default =
+      match !envelope_template_ref with
+      | None -> ""
+      | Some t -> String_util.escape_newlines t
+    in
+    let rec get_template default =
+      let s =
+        Setup_common.prompt_string ~prompt:"Envelope template (empty to clear)"
+          ~default ()
+      in
+      let trimmed = String.trim s in
+      if trimmed = "" then None
+      else if not (String_util.contains trimmed "{summary}") then begin
+        Setup_common.print_error "Template must contain {summary} placeholder.";
+        get_template trimmed
+      end
+      else Some (String_util.unescape_newlines trimmed)
+    in
+    envelope_template_ref := get_template current_default
+  in
+  let build_sc () : Runtime_config.summarizer_config =
+    let model_str = Setup_tui.get_str model in
+    let esc_str = Setup_tui.get_str escalation_model in
+    {
+      enabled = Setup_tui.get_bool enabled;
+      model =
+        (match Pmodel.parse model_str with Ok m -> m | Error _ -> d.model);
+      escalation_model =
+        (if esc_str = "" then None
+         else match Pmodel.parse esc_str with Ok m -> Some m | Error _ -> None);
+      threshold_chars = Setup_tui.get_int threshold_chars;
+      p1_max_chars = Setup_tui.get_int p1_max_chars;
+      p2_max_chars = Setup_tui.get_int p2_max_chars;
+      context_window_messages = Setup_tui.get_int context_window;
+      excluded_tools = !excluded_tools_ref;
+      max_age_days = Setup_tui.get_int max_age_days;
+      envelope_template = !envelope_template_ref;
+    }
+  in
+  let spec : Setup_tui.wizard_spec =
+    {
+      title = "Autosummarizer Configuration";
+      docs_url = "https://clawq.org/configuration/#summarizer";
+      fields =
+        [
+          enabled;
+          model;
+          escalation_model;
+          threshold_chars;
+          p1_max_chars;
+          p2_max_chars;
+          context_window;
+          max_age_days;
+        ];
+      extra_actions =
+        [
+          ("a", "Add excluded tool", add_excluded_tool);
+          ("r", "Remove excluded tool", remove_excluded_tool);
+          ("v", "Set envelope template", set_envelope_template);
+        ];
+      build_json = (fun () -> build_summarizer_json ~sc:(build_sc ()));
+      pre_save_check =
+        (fun () ->
+          let p1 = Setup_tui.get_int p1_max_chars in
+          let p2 = Setup_tui.get_int p2_max_chars in
+          if p1 <= p2 then
+            Error
+              (Printf.sprintf "P1 max (%d) must be greater than P2 max (%d)." p1
+                 p2)
+          else Ok ());
+      post_instructions = (fun () -> post_setup_instructions ~sc:(build_sc ()));
+    }
+  in
+  Setup_tui.run_wizard spec

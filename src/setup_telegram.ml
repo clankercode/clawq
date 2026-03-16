@@ -213,6 +213,34 @@ let save_telegram_config ~accounts ~text_coalesce_ms =
       print_error (Printf.sprintf "Failed to write config: %s" e);
       false
 
+(* ── Editing helper (shared between "e" command and numeric shortcut) *)
+
+let edit_account_at ~accounts ~idx =
+  let existing_pair = List.nth !accounts (idx - 1) in
+  let ename, _ = existing_pair in
+  Printf.printf "\n  %s %s\n\n"
+    (Setup_common.bold "Editing")
+    (Setup_common.cyan ename);
+  let name, acct = prompt_account_fields ~existing:existing_pair () in
+  accounts :=
+    List.mapi (fun i a -> if i = idx - 1 then (name, acct) else a) !accounts;
+  Setup_common.print_success (Printf.sprintf "Updated account '%s'" name)
+
+(* ── Pre-save validation ────────────────────────────────────────── *)
+
+let check_has_token accounts =
+  if accounts <> [] then
+    let has_token =
+      List.exists
+        (fun (_, (a : Runtime_config.telegram_account)) -> a.bot_token <> "")
+        accounts
+    in
+    if not has_token then (
+      Setup_common.print_warning "No account has a bot token set.";
+      false)
+    else true
+  else true
+
 (* ── Main menu loop ──────────────────────────────────────────────── *)
 
 let run () =
@@ -261,20 +289,12 @@ let run () =
                   ~default:true ()
               in
               if save then begin
-                let has_token =
-                  List.exists
-                    (fun (_, (a : Runtime_config.telegram_account)) ->
-                      a.bot_token <> "")
-                    !accounts
-                in
-                if (not has_token) && !accounts <> [] then (
-                  Setup_common.print_warning "No account has a bot token set.";
-                  Setup_common.press_enter_to_continue ())
-                else (
+                if check_has_token !accounts then (
                   ignore
                     (save_telegram_config ~accounts:!accounts
                        ~text_coalesce_ms:!text_coalesce_ms);
                   quit := true)
+                else Setup_common.press_enter_to_continue ()
               end
               else quit := true
             else quit := true
@@ -293,21 +313,8 @@ let run () =
             let idx_str = String.trim (Tui_input.read_line_clean p) in
             match int_of_string_opt idx_str with
             | Some idx when idx >= 1 && idx <= n_accounts ->
-                let existing_pair = List.nth !accounts (idx - 1) in
-                let ename, _ = existing_pair in
-                Printf.printf "\n  %s %s\n\n"
-                  (Setup_common.bold "Editing")
-                  (Setup_common.cyan ename);
-                let name, acct =
-                  prompt_account_fields ~existing:existing_pair ()
-                in
-                accounts :=
-                  List.mapi
-                    (fun i a -> if i = idx - 1 then (name, acct) else a)
-                    !accounts;
+                edit_account_at ~accounts ~idx;
                 dirty := true;
-                Setup_common.print_success
-                  (Printf.sprintf "Updated account '%s'" name);
                 Setup_common.press_enter_to_continue ()
             | _ ->
                 Setup_common.print_warning "Invalid selection.";
@@ -357,40 +364,18 @@ let run () =
             Printf.printf "%s" instructions;
             Setup_common.press_enter_to_continue ()
         | "s" when !dirty ->
-            let has_token =
-              List.exists
-                (fun (_, (a : Runtime_config.telegram_account)) ->
-                  a.bot_token <> "")
-                !accounts
-            in
-            if (not has_token) && !accounts <> [] then (
-              Setup_common.print_warning
-                "No account has a bot token. Add a token before saving.";
-              Setup_common.press_enter_to_continue ())
-            else (
+            if check_has_token !accounts then (
               if
                 save_telegram_config ~accounts:!accounts
                   ~text_coalesce_ms:!text_coalesce_ms
               then dirty := false;
               Setup_common.press_enter_to_continue ())
+            else Setup_common.press_enter_to_continue ()
         | s -> (
             match int_of_string_opt s with
             | Some idx when idx >= 1 && idx <= n_accounts ->
-                let existing_pair = List.nth !accounts (idx - 1) in
-                let ename, _ = existing_pair in
-                Printf.printf "\n  %s %s\n\n"
-                  (Setup_common.bold "Editing")
-                  (Setup_common.cyan ename);
-                let name, acct =
-                  prompt_account_fields ~existing:existing_pair ()
-                in
-                accounts :=
-                  List.mapi
-                    (fun i a -> if i = idx - 1 then (name, acct) else a)
-                    !accounts;
+                edit_account_at ~accounts ~idx;
                 dirty := true;
-                Setup_common.print_success
-                  (Printf.sprintf "Updated account '%s'" name);
                 Setup_common.press_enter_to_continue ()
             | _ ->
                 Setup_common.print_warning

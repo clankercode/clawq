@@ -174,11 +174,26 @@ let rec deep_merge_json base overlay =
 
 let config_path () = Dot_dir.config_path ()
 
+let ensure_config_dir () =
+  let config_dir = Filename.dirname (config_path ()) in
+  try if not (Sys.file_exists config_dir) then Unix.mkdir config_dir 0o755
+  with _ -> ()
+
+let write_json_file path json =
+  let s = Yojson.Safe.pretty_to_string ~std:true json in
+  try
+    let oc = open_out path in
+    Fun.protect
+      ~finally:(fun () -> close_out oc)
+      (fun () ->
+        output_string oc s;
+        output_char oc '\n');
+    Ok path
+  with Sys_error msg -> Error msg
+
 let merge_and_write_config new_json =
   let cp = config_path () in
-  let config_dir = Filename.dirname cp in
-  (try if not (Sys.file_exists config_dir) then Unix.mkdir config_dir 0o755
-   with _ -> ());
+  ensure_config_dir ();
   let final =
     if Sys.file_exists cp then
       try
@@ -187,32 +202,12 @@ let merge_and_write_config new_json =
       with _ -> new_json
     else new_json
   in
-  let s = Yojson.Safe.pretty_to_string ~std:true final in
-  try
-    let oc = open_out cp in
-    Fun.protect
-      ~finally:(fun () -> close_out oc)
-      (fun () ->
-        output_string oc s;
-        output_char oc '\n');
-    Ok cp
-  with Sys_error msg -> Error msg
+  write_json_file cp final
 
 let write_config_json json =
   let cp = config_path () in
-  let config_dir = Filename.dirname cp in
-  (try if not (Sys.file_exists config_dir) then Unix.mkdir config_dir 0o755
-   with _ -> ());
-  let s = Yojson.Safe.pretty_to_string ~std:true json in
-  try
-    let oc = open_out cp in
-    Fun.protect
-      ~finally:(fun () -> close_out oc)
-      (fun () ->
-        output_string oc s;
-        output_char oc '\n');
-    Ok cp
-  with Sys_error msg -> Error msg
+  ensure_config_dir ();
+  write_json_file cp json
 
 let load_config_json () =
   let cp = config_path () in
@@ -256,6 +251,11 @@ let validate_positive_int s =
   | Some v when v > 0 -> Ok s
   | Some _ -> Error "Value must be a positive integer."
   | None -> Error "Value must be a valid integer."
+
+let validate_non_empty ~what s =
+  let trimmed = String.trim s in
+  if trimmed = "" then Error (Printf.sprintf "%s cannot be empty." what)
+  else Ok trimmed
 
 let validate_url s =
   let trimmed = String.trim s in
