@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B509
+priority: high
+status: pending
+tags: []
+title: 'Look through all the setup wizards and identify any opportunities for refactoring to reduce code duplication, find suboptimal patterns, identify opportunities for refactoring to improve elegance, maintainability, etc. Goal: do a pass over the code and clean it up to be as nice and maintainable as possible.'
+---
+
+Look through all the setup wizards and identify any opportunities for refactoring to reduce code duplication, find suboptimal patterns, identify opportunities for refactoring to improve elegance, maintainability, etc. Goal: do a pass over the code and clean it up to be as nice and maintainable as possible.
