@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B504
+priority: high
+status: pending
+tags: []
+title: docker tests take 3x longer than on main system to run
+---
+
+docker tests take 3x longer than on main system to run

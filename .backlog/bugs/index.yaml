@@ -500,3 +500,4 @@ bugs:
     - file: B501-cron-jobs-should-have-an-optio.todo
     - file: B502-have-3-subagents-claude-sonnet.todo
     - file: B503-more-setup-wizards-have-subage.todo
+    - file: B504-docker-tests-take-3x-longer-th.todo
