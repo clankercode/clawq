@@ -221,3 +221,5 @@ ideas:
       id: I026
     - file: I027-autoload-claude-md-and-agents.todo
       id: I027
+    - file: I028-investigate-how-we-can-tie-age.todo
+      id: I028
