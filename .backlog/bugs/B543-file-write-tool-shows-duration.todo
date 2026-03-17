@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B543
+priority: high
+status: pending
+tags: []
+title: file write tool shows duration as 0ms (I guess maybe that's right -- we should hide all durations that are 0ms)
+---
+
+file write tool shows duration as 0ms (I guess maybe that's right -- we should hide all durations that are 0ms)

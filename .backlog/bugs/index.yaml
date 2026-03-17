@@ -539,3 +539,4 @@ bugs:
     - file: B540-in-addition-to-cron-should-hav.todo
     - file: B541-pre-compaction-memory-flush-fa.todo
     - file: B542-use-skill-keeps-counting-up-ti.todo
+    - file: B543-file-write-tool-shows-duration.todo
