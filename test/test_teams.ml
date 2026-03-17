@@ -280,6 +280,13 @@ let test_select_file_upload_delivery_team_channel () =
     | Teams.Temp_download_url -> true
     | Teams.File_consent_card -> false)
 
+let test_select_file_upload_delivery_disabled () =
+  Alcotest.(check bool)
+    "disabled → temp download" true
+    (Teams.select_file_upload_delivery ~file_consent_cards:false ~team_id:""
+       ~is_group:false
+    = Teams.Temp_download_url)
+
 let test_encode_decode_channel_id () =
   let service_url = "https://smba.trafficmanager.net/amer/" in
   let conversation_id = "19:3ed169b9@thread.v2" in
@@ -885,6 +892,8 @@ let suite =
       test_select_file_upload_delivery_group_chat;
     Alcotest.test_case "select file upload delivery team channel" `Quick
       test_select_file_upload_delivery_team_channel;
+    Alcotest.test_case "select file upload delivery disabled" `Quick
+      test_select_file_upload_delivery_disabled;
     Alcotest.test_case "encode_decode channel_id roundtrip" `Quick
       test_encode_decode_channel_id;
     Alcotest.test_case "decode channel_id with pipe in conversation_id" `Quick

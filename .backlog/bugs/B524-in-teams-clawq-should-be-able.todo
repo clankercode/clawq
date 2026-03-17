@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-17T02:37:59Z"
+claimed_by: cli-user
+completed_at: "2026-03-17T03:27:55Z"
 complexity: medium
 depends_on: []
+duration_minutes: 49.93877136623333
 estimate_hours: 1
 id: B524
 priority: high
-status: pending
+started_at: "2026-03-17T02:37:59Z"
+status: done
 tags: []
 title: in Teams, clawq should be able to request to upload a file and it should work (eg, the /debug_dump_chat is meant to work like that.
 ---

@@ -1637,7 +1637,7 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                       Session.fork_and_run session_manager ~parent_key:key
                         ?agent_name ~prompt ~send_reply:send_text ();
                       Lwt.return_unit
-                  | DebugDumpChat ->
+                  | DebugDumpChat -> (
                       let content = Session.dump_json session_manager ~key in
                       let timestamp =
                         Int64.to_int (Int64.of_float (Unix.gettimeofday ()))
@@ -1682,9 +1682,35 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                         in
                         send_text msg
                       in
-                      (* Always use temp download link — file consent
-                         card flow is broken in Teams (see B523/B524). *)
-                      send_temp_download ()
+                      let delivery =
+                        select_file_upload_delivery
+                          ~file_consent_cards:config.file_consent_cards ~team_id
+                          ~is_group
+                      in
+                      match delivery with
+                      | File_consent_card -> (
+                          let size_bytes = String.length content in
+                          let consent_id =
+                            store_pending_consent ~content ~filename
+                              ~content_type:"application/json" ~ttl_s:600.0
+                          in
+                          let* result =
+                            send_file_consent_card ~config
+                              ~service_url:effective_service_url
+                              ~conversation_id ~reply_to_id:activity_id
+                              ~filename ~description:"Session debug dump"
+                              ~size_bytes ~consent_id ()
+                          in
+                          match result with
+                          | Ok () -> Lwt.return_unit
+                          | Error err ->
+                              Logs.warn (fun m ->
+                                  m
+                                    "Teams: file consent card failed (%s), \
+                                     falling back to temp download"
+                                    err);
+                              send_temp_download ())
+                      | Temp_download_url -> send_temp_download ())
                   | Tools ->
                       let text =
                         match Session.get_tool_registry session_manager with

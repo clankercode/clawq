@@ -322,6 +322,21 @@ Pending consent data is stored in memory with a 10-minute TTL. Invoke activities
 an immediate HTTP 200 invoke response — the actual upload runs asynchronously via `Lwt.async`.
 Regular message activities use HTTP 202 + async processing.
 
+#### Troubleshooting FileConsentCard
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| "This card action is not supported by clawq" | `supportsFiles: false` in manifest | Set `supportsFiles: true` and republish the app |
+| Consent card sent but no invoke received | Known Teams platform bug (intermittent) | Retry, or set `file_consent_cards: false` in config |
+| Consent card fails in group/channel chat | File consent only works in personal 1:1 scope | Expected — clawq auto-falls back to temp download |
+| "File consent expired or already processed" | User waited >10 minutes to click Accept | Re-run `/debug_dump_chat` |
+
+**Known platform issues**: Some Teams environments intermittently drop
+`fileConsent/invoke` activities even with correct configuration. If this persists,
+set `file_consent_cards: false` in config to use temp download links instead.
+The Bot Framework SDK is deprecated as of Dec 2025; the file consent card API is
+not deprecated but has a history of intermittent server-side bugs.
+
 ### Temp Download URL (Fallback, or `file_consent_cards: false`)
 
 1. Content is stored in `Temp_downloads` with a random token and 1-hour TTL.
@@ -350,9 +365,9 @@ Regular message activities use HTTP 202 + async processing.
    - Set Messaging Endpoint to `https://your-domain/teams/webhook` (or your configured path).
    - Set the Microsoft App ID to the AAD app ID above.
 6. Add the bot to a Teams channel in the Bot Service resource.
-7. In the Teams app manifest, set the bot's `supportsFiles` field to `true`
-   if you want file uploads (note: file consent card uploads are currently
-   broken; `/debug_dump_chat` always uses a temporary download link instead).
+7. In the Teams app manifest, set the bot's `supportsFiles` field to `true` to enable
+   file uploads. **Required** for the FileConsentCard flow — without it, Teams shows
+   "This card action is not supported by clawq" when the user clicks Accept/Decline.
 8. In Teams: add the bot to a team or use it in a personal chat.
 
 ## Session Key Format
