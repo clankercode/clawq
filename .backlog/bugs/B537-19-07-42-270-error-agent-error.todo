@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-17T08:13:56Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B537
 priority: high
-status: pending
+started_at: "2026-03-17T08:13:56Z"
+status: in_progress
 tags: []
 title: '[19:07:42.270] ERROR Agent error for chat_id=58495225: Sqlite3.Error(Sqlite3.prepare: no such column: effective_cwd)'
 ---
