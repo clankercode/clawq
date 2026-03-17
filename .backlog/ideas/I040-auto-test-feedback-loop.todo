@@ -1,0 +1,15 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 10
+id: I040
+priority: high
+status: pending
+tags:
+    - self-building
+    - agent
+    - testing
+    - automation
+title: Auto-Test Feedback Loop
+---
+After every agent file edit, automatically run the project's test suite (make test), parse failures, feed error output back to the agent, and iterate until tests pass (configurable max retries). This is Aider's killer pattern and the single most important self-building primitive. clawq already has shell_exec and test infrastructure — this wires them into a tight edit-test-fix loop. Combined with structured retry policies, the agent never ships broken code. Essential for autonomous/overnight development runs.

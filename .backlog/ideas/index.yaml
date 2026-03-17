@@ -280,3 +280,5 @@ ideas:
       title: Browser Automation Tool
     - file: I039-a2a-protocol-endpoints.todo
       id: I039
+    - file: I040-auto-test-feedback-loop.todo
+      id: I040
