@@ -7,8 +7,8 @@ let mention_entity ~id ~name =
     ]
 
 let activity_json ~activity_type ~text ~activity_id ~service_url ~user_id
-    ~user_name ~conversation_id ~team_id ?(is_group = false) ?(entities = []) ()
-    =
+    ~user_name ~conversation_id ~team_id ?(is_group = false) ?(entities = [])
+    ?(attachments = []) () =
   let team_data =
     if team_id = "" then `Null
     else `Assoc [ ("team", `Assoc [ ("id", `String team_id) ]) ]
@@ -28,6 +28,10 @@ let activity_json ~activity_type ~text ~activity_id ~service_url ~user_id
   in
   let fields =
     if entities = [] then fields else fields @ [ ("entities", `List entities) ]
+  in
+  let fields =
+    if attachments = [] then fields
+    else fields @ [ ("attachments", `List attachments) ]
   in
   `Assoc fields |> Yojson.Safe.to_string
 
@@ -853,6 +857,79 @@ let test_debug_dump_filename_sanitization () =
         | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '_' | '-' | '.' -> true
         | _ -> false))
 
+let test_parse_activity_with_attachments () =
+  let att =
+    `Assoc
+      [
+        ("contentType", `String "application/pdf");
+        ("contentUrl", `String "https://example.com/doc.pdf");
+        ("name", `String "report.pdf");
+      ]
+  in
+  let body =
+    activity_json ~activity_type:"message" ~text:"See attached"
+      ~activity_id:"a1" ~service_url:"https://svc" ~user_id:"u1"
+      ~user_name:"User" ~conversation_id:"c1" ~team_id:"t1" ~attachments:[ att ]
+      ()
+  in
+  match Teams.parse_activity body with
+  | Some act ->
+      Alcotest.(check int) "one attachment" 1 (List.length act.attachments);
+      let a = List.hd act.attachments in
+      Alcotest.(check string) "name" "report.pdf" a.name;
+      Alcotest.(check string) "content_type" "application/pdf" a.content_type;
+      Alcotest.(check string)
+        "content_url" "https://example.com/doc.pdf" a.content_url
+  | None -> Alcotest.fail "expected Some"
+
+let test_parse_activity_card_filtered () =
+  let card =
+    `Assoc
+      [
+        ("contentType", `String "application/vnd.microsoft.card.adaptive");
+        ("content", `Assoc []);
+      ]
+  in
+  let real =
+    `Assoc
+      [
+        ("contentType", `String "text/plain");
+        ("contentUrl", `String "https://example.com/file.txt");
+        ("name", `String "file.txt");
+      ]
+  in
+  let body =
+    activity_json ~activity_type:"message" ~text:"hello" ~activity_id:"a2"
+      ~service_url:"https://svc" ~user_id:"u1" ~user_name:"User"
+      ~conversation_id:"c1" ~team_id:"t1" ~attachments:[ card; real ] ()
+  in
+  match Teams.parse_activity body with
+  | Some act ->
+      Alcotest.(check int) "card filtered out" 1 (List.length act.attachments);
+      Alcotest.(check string)
+        "kept name" "file.txt" (List.hd act.attachments).name
+  | None -> Alcotest.fail "expected Some"
+
+let test_parse_activity_attachment_only () =
+  let att =
+    `Assoc
+      [
+        ("contentType", `String "image/png");
+        ("contentUrl", `String "https://example.com/img.png");
+        ("name", `String "screenshot.png");
+      ]
+  in
+  let body =
+    activity_json ~activity_type:"message" ~text:"" ~activity_id:"a3"
+      ~service_url:"https://svc" ~user_id:"u1" ~user_name:"User"
+      ~conversation_id:"c1" ~team_id:"t1" ~attachments:[ att ] ()
+  in
+  match Teams.parse_activity body with
+  | Some act ->
+      Alcotest.(check string) "text empty" "" act.text;
+      Alcotest.(check int) "has attachment" 1 (List.length act.attachments)
+  | None -> Alcotest.fail "attachment-only should return Some"
+
 let suite =
   [
     Alcotest.test_case "parse_activity returns record" `Quick
@@ -958,4 +1035,10 @@ let suite =
       test_handle_invoke_file_consent_decline;
     Alcotest.test_case "handle_invoke unknown name returns ok" `Quick
       test_handle_invoke_unknown_name_returns_ok;
+    Alcotest.test_case "parse_activity with attachments" `Quick
+      test_parse_activity_with_attachments;
+    Alcotest.test_case "parse_activity card filtered" `Quick
+      test_parse_activity_card_filtered;
+    Alcotest.test_case "parse_activity attachment only" `Quick
+      test_parse_activity_attachment_only;
   ]

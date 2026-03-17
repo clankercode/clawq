@@ -1,3 +1,10 @@
+type slack_file = {
+  url_private_download : string;
+  file_name : string;
+  mimetype : string;
+  file_size : int;
+}
+
 type event =
   | UrlVerification of string
   | Message of {
@@ -6,6 +13,7 @@ type event =
       text : string;
       bot_id : string option;
       ts : string;
+      files : slack_file list;
     }
   | Other
 
@@ -198,7 +206,30 @@ let parse_event body =
               try Some (evt |> member "bot_id" |> to_string) with _ -> None
             in
             let ts = try evt |> member "ts" |> to_string with _ -> "" in
-            Some (Message { channel_id; user_id; text; bot_id; ts })
+            let files =
+              try
+                evt |> member "files" |> to_list
+                |> List.filter_map (fun f ->
+                    try
+                      let url_private_download =
+                        f |> member "url_private_download" |> to_string
+                      in
+                      let file_name =
+                        try f |> member "name" |> to_string with _ -> "file"
+                      in
+                      let mimetype =
+                        try f |> member "mimetype" |> to_string
+                        with _ -> "application/octet-stream"
+                      in
+                      let file_size =
+                        try f |> member "size" |> to_int with _ -> 0
+                      in
+                      Some
+                        { url_private_download; file_name; mimetype; file_size }
+                    with _ -> None)
+              with _ -> []
+            in
+            Some (Message { channel_id; user_id; text; bot_id; ts; files })
         | _ -> Some Other)
     | _ -> Some Other
   with _ -> None
@@ -214,7 +245,7 @@ let handle_event ~(config : Runtime_config.slack_config)
       in
       Lwt.return resp
   | Some (Message { bot_id = Some _; _ }) -> Lwt.return "ok"
-  | Some (Message { channel_id; user_id; text; bot_id = None; ts }) ->
+  | Some (Message { channel_id; user_id; text; bot_id = None; ts; files }) ->
       if not (is_allowed ~config ~channel_id ~user_id) then begin
         Logs.warn (fun m ->
             m "Slack: ignoring message from unauthorized channel=%s user=%s"
@@ -1173,13 +1204,65 @@ let handle_event ~(config : Runtime_config.slack_config)
                     (fun () ->
                       Lwt.catch
                         (fun () ->
+                          let full_config =
+                            Session.get_config session_manager
+                          in
+                          let* content_parts, att_list, message =
+                            if
+                              files <> []
+                              && full_config.security
+                                   .attachment_downloads_enabled
+                            then
+                              let workspace =
+                                Runtime_config.effective_workspace full_config
+                              in
+                              let headers =
+                                [
+                                  ("Authorization", "Bearer " ^ config.bot_token);
+                                ]
+                              in
+                              let metas =
+                                List.map
+                                  (fun (f : slack_file) ->
+                                    Attachment_download.
+                                      {
+                                        url = f.url_private_download;
+                                        filename = f.file_name;
+                                        mime_type = Some f.mimetype;
+                                        size = Some f.file_size;
+                                      })
+                                  files
+                              in
+                              Attachment_download.process_attachments metas
+                                ~headers ~workspace
+                                ~db:(Session.get_db session_manager)
+                                ~session_key:key ~source:"slack"
+                                ~content_parts:[] ~attachments:[] ~message:text
+                            else
+                              let placeholder =
+                                if files <> [] then
+                                  let names =
+                                    List.map
+                                      (fun (f : slack_file) ->
+                                        Printf.sprintf
+                                          "\n\
+                                           [Attachment: %s (download disabled)]"
+                                          f.file_name)
+                                      files
+                                  in
+                                  text ^ String.concat "" names
+                                else text
+                              in
+                              Lwt.return ([], [], placeholder)
+                          in
                           let* response =
-                            Session.turn_stream session_manager ~key
-                              ~message:text ~skill_injections
-                              ~channel_name:channel_id ~channel_type:"group"
-                              ~sender_id:user_id ~user_group ~channel:"slack"
-                              ~channel_id ~message_id:ts ~on_drain_progress
-                              ~before_drain ~on_chunk ()
+                            Session.turn_stream session_manager ~key ~message
+                              ~content_parts ~attachments:att_list
+                              ~skill_injections ~channel_name:channel_id
+                              ~channel_type:"group" ~sender_id:user_id
+                              ~user_group ~channel:"slack" ~channel_id
+                              ~message_id:ts ~on_drain_progress ~before_drain
+                              ~on_chunk ()
                           in
                           Lwt.return (Ok response))
                         (fun exn -> Lwt.return (Error (Printexc.to_string exn))))

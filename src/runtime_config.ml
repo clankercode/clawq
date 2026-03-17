@@ -330,6 +330,7 @@ type security_config = {
           Supports $CLAWQ_WORKSPACE and $USER_HOME pseudo-variables. *)
   sandbox_backend : string;
       (** Sandbox backend: "auto", "firejail", "bubblewrap", or "none" *)
+  attachment_downloads_enabled : bool;
 }
 
 type stt_config = {
@@ -673,6 +674,7 @@ let default =
             "/clawq/path/to/somewhere/else/**";
           ];
         sandbox_backend = "auto";
+        attachment_downloads_enabled = true;
       };
     stt = None;
     mcp = { enabled = true; exposed_tools = None };
@@ -1597,6 +1599,8 @@ let to_json (cfg : t) : Yojson.Safe.t =
                      (fun s -> `String s)
                      cfg.security.allowed_cwd_patterns) );
               ("sandbox_backend", `String cfg.security.sandbox_backend);
+              ( "attachment_downloads_enabled",
+                `Bool cfg.security.attachment_downloads_enabled );
             ] );
       ]
   in

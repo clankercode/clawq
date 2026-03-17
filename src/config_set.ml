@@ -292,6 +292,7 @@ let config_schema =
             ("landlock_extra_read_paths", L);
             ("extra_allowed_paths", L);
             ("sandbox_backend", L);
+            ("attachment_downloads_enabled", L);
           ] );
       ("stt", O [ ("provider", L); ("model", L); ("language", L) ]);
       ("mcp", O [ ("enabled", L); ("exposed_tools", L) ]);

@@ -1,4 +1,4 @@
-let schema_version = 24
+let schema_version = 25
 
 type session_activity = Active | Inactive | Any
 
@@ -389,6 +389,40 @@ let init_connector_history_schema db =
     "CREATE INDEX IF NOT EXISTS idx_connector_history_created ON \
      connector_history (created_at)"
 
+let init_attachment_log_schema db =
+  exec_exn db
+    "CREATE TABLE IF NOT EXISTS attachment_log (\n\
+    \     id INTEGER PRIMARY KEY AUTOINCREMENT,\n\
+    \     session_key TEXT NOT NULL,\n\
+    \     source TEXT NOT NULL,\n\
+    \     filename TEXT NOT NULL,\n\
+    \     mime_type TEXT NOT NULL,\n\
+    \     size_bytes INTEGER NOT NULL,\n\
+    \     saved_path TEXT NOT NULL,\n\
+    \     created_at TEXT NOT NULL DEFAULT (datetime('now'))\n\
+    \   )";
+  exec_exn db
+    "CREATE INDEX IF NOT EXISTS idx_attachment_log_session ON \
+     attachment_log(session_key)"
+
+let log_attachment_download ~db ~session_key ~source ~filename ~mime_type
+    ~size_bytes ~saved_path =
+  let stmt =
+    Sqlite3.prepare db
+      "INSERT INTO attachment_log (session_key, source, filename, mime_type, \
+       size_bytes, saved_path) VALUES (?, ?, ?, ?, ?, ?)"
+  in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind_text stmt 1 session_key);
+      ignore (Sqlite3.bind_text stmt 2 source);
+      ignore (Sqlite3.bind_text stmt 3 filename);
+      ignore (Sqlite3.bind_text stmt 4 mime_type);
+      ignore (Sqlite3.bind_int stmt 5 size_bytes);
+      ignore (Sqlite3.bind_text stmt 6 saved_path);
+      ignore (Sqlite3.step stmt))
+
 let add_thinking_content_columns db =
   (try exec_exn db "ALTER TABLE messages ADD COLUMN thinking_content TEXT"
    with _ -> ());
@@ -653,14 +687,20 @@ let migrate_schema db current_version =
   | 21 ->
       init_session_archive_schema db;
       init_connector_history_schema db;
+      init_attachment_log_schema db;
       set_schema_version db schema_version
   | 22 ->
       init_connector_history_schema db;
+      init_attachment_log_schema db;
       set_schema_version db 23;
       Admin.init_schema db;
       set_schema_version db schema_version
   | 23 ->
       Admin.init_schema db;
+      init_attachment_log_schema db;
+      set_schema_version db schema_version
+  | 24 ->
+      init_attachment_log_schema db;
       set_schema_version db schema_version
   | n when n = schema_version ->
       init_session_schema db;
@@ -676,6 +716,7 @@ let migrate_schema db current_version =
       init_ec_reports_schema db;
       init_session_archive_schema db;
       init_connector_history_schema db;
+      init_attachment_log_schema db;
       Admin.init_schema db
   | n ->
       failwith
@@ -760,6 +801,7 @@ let init ~db_path ?(search_enabled = false) () =
   init_postmortems_schema db;
   Summary_store.init_schema db;
   init_session_archive_schema db;
+  init_attachment_log_schema db;
   Admin.init_schema db;
   db
 

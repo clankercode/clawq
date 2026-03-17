@@ -291,6 +291,87 @@ let test_parse_message_create_empty_mentions () =
   | Some msg ->
       Alcotest.(check int) "empty mentions" 0 (List.length msg.mention_ids)
 
+let test_parse_message_create_with_attachments () =
+  let json =
+    Yojson.Safe.from_string
+      {|{
+    "t": "MESSAGE_CREATE",
+    "d": {
+      "id": "m1",
+      "channel_id": "c1",
+      "guild_id": "g1",
+      "author": {"id": "u1", "bot": false},
+      "content": "check this out",
+      "attachments": [
+        {
+          "id": "att1",
+          "filename": "report.pdf",
+          "url": "https://cdn.discord.com/att/report.pdf",
+          "content_type": "application/pdf",
+          "size": 12345
+        }
+      ]
+    }
+  }|}
+  in
+  match Discord.parse_message_create json with
+  | None -> Alcotest.fail "expected Some"
+  | Some msg ->
+      Alcotest.(check int) "one attachment" 1 (List.length msg.attachments);
+      let a = List.hd msg.attachments in
+      Alcotest.(check string) "att_filename" "report.pdf" a.att_filename;
+      Alcotest.(check string)
+        "att_url" "https://cdn.discord.com/att/report.pdf" a.att_url;
+      Alcotest.(check (option string))
+        "att_content_type" (Some "application/pdf") a.att_content_type;
+      Alcotest.(check int) "att_size" 12345 a.att_size
+
+let test_parse_dispatch_message_with_attachments () =
+  let d =
+    Yojson.Safe.from_string
+      {|{
+    "id": "m2",
+    "channel_id": "c2",
+    "guild_id": "g2",
+    "author": {"id": "u2", "bot": false},
+    "content": "image",
+    "attachments": [
+      {
+        "id": "att2",
+        "filename": "photo.jpg",
+        "url": "https://cdn.discord.com/att/photo.jpg",
+        "content_type": "image/jpeg",
+        "size": 54321
+      }
+    ]
+  }|}
+  in
+  match Discord.parse_dispatch_message d with
+  | None -> Alcotest.fail "expected Some"
+  | Some msg ->
+      Alcotest.(check int) "one attachment" 1 (List.length msg.attachments);
+      let a = List.hd msg.attachments in
+      Alcotest.(check string) "att_filename" "photo.jpg" a.att_filename;
+      Alcotest.(check int) "att_size" 54321 a.att_size
+
+let test_parse_message_create_no_attachments () =
+  let json =
+    Yojson.Safe.from_string
+      {|{
+    "t": "MESSAGE_CREATE",
+    "d": {
+      "id": "m3",
+      "channel_id": "c3",
+      "author": {"id": "u3", "bot": false},
+      "content": "no files"
+    }
+  }|}
+  in
+  match Discord.parse_message_create json with
+  | None -> Alcotest.fail "expected Some"
+  | Some msg ->
+      Alcotest.(check int) "no attachments" 0 (List.length msg.attachments)
+
 let suite : unit Alcotest.test_case list =
   [
     Alcotest.test_case "is_allowed wildcard" `Quick test_is_allowed_wildcard;
@@ -325,4 +406,10 @@ let suite : unit Alcotest.test_case list =
       test_parse_dispatch_message_with_mentions;
     Alcotest.test_case "parse_message_create empty mentions" `Quick
       test_parse_message_create_empty_mentions;
+    Alcotest.test_case "parse_message_create with attachments" `Quick
+      test_parse_message_create_with_attachments;
+    Alcotest.test_case "parse_dispatch_message with attachments" `Quick
+      test_parse_dispatch_message_with_attachments;
+    Alcotest.test_case "parse_message_create no attachments" `Quick
+      test_parse_message_create_no_attachments;
   ]

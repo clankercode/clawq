@@ -1178,6 +1178,10 @@ let parse_config ?(resolve_secrets = true) json =
       let sandbox_backend =
         try s |> member "sandbox_backend" |> to_string with _ -> "auto"
       in
+      let attachment_downloads_enabled =
+        try s |> member "attachment_downloads_enabled" |> to_bool
+        with _ -> default.security.attachment_downloads_enabled
+      in
       ({
          workspace_only;
          audit_enabled;
@@ -1191,6 +1195,7 @@ let parse_config ?(resolve_secrets = true) json =
          extra_allowed_paths;
          allowed_cwd_patterns;
          sandbox_backend;
+         attachment_downloads_enabled;
        }
         : Runtime_config.security_config)
     with _ -> default.security

@@ -155,7 +155,8 @@
   test_content_dsl
   test_workspace_version
   test_acp
-  test_admin)
+  test_admin
+  test_attachment_download)
  (libraries
   clawq_extracted
   clawq_runtime_core

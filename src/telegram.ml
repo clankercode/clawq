@@ -146,6 +146,10 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                 Lwt.return
                   Rich_message.{ message_id = msg_id; callback_ids = [] });
       let image_content_parts = ref [] in
+      let doc_attachments = ref [] in
+      let config = Session.get_config session_mgr in
+      let workspace = Runtime_config.effective_workspace config in
+      let downloads_enabled = config.security.attachment_downloads_enabled in
       let* user_text =
         match update.voice_file_id with
         | Some file_id ->
@@ -201,6 +205,18 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                       | _ -> None))
             in
             match image_file_id with
+            | Some _file_id when not downloads_enabled ->
+                let name =
+                  if update.photo_file_id <> None then "photo"
+                  else if update.sticker_file_id <> None then "sticker"
+                  else "image"
+                in
+                let cap =
+                  match update.caption with Some c -> " — " ^ c | None -> ""
+                in
+                Lwt.return
+                  (Printf.sprintf "[Attachment: %s (download disabled)%s]" name
+                     cap)
             | Some file_id ->
                 Lwt.catch
                   (fun () ->
@@ -216,6 +232,31 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                     in
                     image_content_parts :=
                       [ Provider.Image_base64 { data = b64; media_type } ];
+                    let ext =
+                      match media_type with
+                      | "image/png" -> ".png"
+                      | "image/gif" -> ".gif"
+                      | "image/webp" -> ".webp"
+                      | _ -> ".jpg"
+                    in
+                    let filename = "image" ^ ext in
+                    let path =
+                      Attachment_download.save_to_downloads ~workspace ~filename
+                        ~data:image_data
+                    in
+                    doc_attachments := ("image", path) :: !doc_attachments;
+                    Logs.info (fun m ->
+                        m
+                          "telegram: saved image attachment (%s, %d bytes) -> \
+                           %s"
+                          media_type (String.length image_data) path);
+                    (match Session.get_db session_mgr with
+                    | Some db ->
+                        Memory.log_attachment_download ~db ~session_key:key
+                          ~source:"telegram" ~filename ~mime_type:media_type
+                          ~size_bytes:(String.length image_data)
+                          ~saved_path:path
+                    | None -> ());
                     Lwt.return text)
                   (fun exn ->
                     Logs.err (fun m ->
@@ -232,18 +273,112 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                     else Lwt.return ("[Image document received" ^ cap ^ "]"))
             | None -> (
                 match update.document_file_id with
+                | Some file_id when downloads_enabled ->
+                    Lwt.catch
+                      (fun () ->
+                        let* data =
+                          download_telegram_file ~bot_token ~file_id
+                        in
+                        let filename =
+                          match update.document_name with
+                          | Some n -> n
+                          | None -> "document"
+                        in
+                        let mime_hint =
+                          match update.document_mime_type with
+                          | Some m -> m
+                          | None -> ""
+                        in
+                        let result =
+                          Attachment_download.classify_downloaded ~data
+                            ~filename ~mime_hint ~workspace
+                        in
+                        (match Session.get_db session_mgr with
+                        | Some db ->
+                            let mime =
+                              Attachment_download.detect_mime_type data
+                            in
+                            let path =
+                              match result with
+                              | ImagePart { path; _ }
+                              | InlineText { path; _ }
+                              | SavedFile { path; _ } ->
+                                  path
+                              | Skipped _ -> ""
+                            in
+                            if path <> "" then
+                              Memory.log_attachment_download ~db
+                                ~session_key:key ~source:"telegram" ~filename
+                                ~mime_type:mime ~size_bytes:(String.length data)
+                                ~saved_path:path
+                        | None -> ());
+                        let cap =
+                          match update.caption with Some c -> c | None -> ""
+                        in
+                        match result with
+                        | Attachment_download.ImagePart { content_part; path }
+                          ->
+                            image_content_parts := [ content_part ];
+                            doc_attachments :=
+                              ("image", path) :: !doc_attachments;
+                            Logs.info (fun m ->
+                                m
+                                  "telegram: downloaded attachment %s (%d \
+                                   bytes) -> %s"
+                                  filename (String.length data) path);
+                            Lwt.return
+                              (if cap <> "" then cap
+                               else "[Image: " ^ filename ^ "]")
+                        | Attachment_download.InlineText
+                            { filename = fn; content; path } ->
+                            doc_attachments :=
+                              ("text", path) :: !doc_attachments;
+                            Logs.info (fun m ->
+                                m
+                                  "telegram: downloaded attachment %s (%d \
+                                   bytes) -> %s"
+                                  fn (String.length data) path);
+                            let prefix = if cap <> "" then cap ^ "\n" else "" in
+                            Lwt.return
+                              (Printf.sprintf "%s[File: %s]\n```\n%s\n```"
+                                 prefix fn content)
+                        | Attachment_download.SavedFile { file_type; path } ->
+                            doc_attachments :=
+                              (file_type, path) :: !doc_attachments;
+                            Logs.info (fun m ->
+                                m
+                                  "telegram: downloaded attachment %s (%d \
+                                   bytes) -> %s"
+                                  filename (String.length data) path);
+                            Lwt.return
+                              (if cap <> "" then cap
+                               else Printf.sprintf "[Attachment: %s]" filename)
+                        | Attachment_download.Skipped placeholder ->
+                            Lwt.return placeholder)
+                      (fun exn ->
+                        Logs.err (fun m ->
+                            m "Telegram document download failed: %s"
+                              (Printexc.to_string exn));
+                        let name =
+                          match update.document_name with
+                          | Some n -> ": " ^ n
+                          | None -> ""
+                        in
+                        let cap =
+                          match update.caption with
+                          | Some c -> " — " ^ c
+                          | None -> ""
+                        in
+                        Lwt.return ("[Document" ^ name ^ cap ^ "]"))
                 | Some _ ->
                     let name =
                       match update.document_name with
-                      | Some n -> ": " ^ n
-                      | None -> ""
+                      | Some n -> n
+                      | None -> "document"
                     in
-                    let cap =
-                      match update.caption with
-                      | Some c -> " — " ^ c
-                      | None -> ""
-                    in
-                    Lwt.return ("[Document" ^ name ^ cap ^ "]")
+                    Lwt.return
+                      (Printf.sprintf "[Attachment: %s (download disabled)]"
+                         name)
                 | None -> Lwt.return update.text))
       in
       if user_text = "" then Lwt.return_unit
@@ -1313,10 +1448,10 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                             let turn_p =
                               Session.turn_stream session_mgr ~key ~message:msg
                                 ~content_parts:!image_content_parts
-                                ~skill_injections ~channel_name:"telegram"
-                                ~channel_type:"dm" ~sender_id:update.user_id
-                                ~user_group ~channel:"telegram"
-                                ~channel_id:update.chat_id
+                                ~attachments:!doc_attachments ~skill_injections
+                                ~channel_name:"telegram" ~channel_type:"dm"
+                                ~sender_id:update.user_id ~user_group
+                                ~channel:"telegram" ~channel_id:update.chat_id
                                 ~message_id:(string_of_int update.message_id)
                                 ~on_drain_progress ~before_drain ~on_chunk ()
                             in

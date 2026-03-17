@@ -15,6 +15,12 @@ let decode_channel_id channel_id =
   | service_url :: rest -> (service_url, String.concat "|" rest)
   | [] -> ("", channel_id)
 
+type teams_attachment = {
+  content_type : string;
+  content_url : string;
+  name : string;
+}
+
 type teams_activity = {
   activity_id : string;
   service_url : string;
@@ -25,6 +31,7 @@ type teams_activity = {
   text : string;
   is_group : bool;
   mentioned_ids : string list;
+  attachments : teams_attachment list;
 }
 
 type mention = { mention_id : string; mention_name : string }
@@ -1075,7 +1082,28 @@ let parse_activity body_str =
           |> to_string
         with _ -> ""
       in
-      if text = "" || conversation_id = "" || user_id = "" then None
+      let attachments =
+        try
+          json |> member "attachments" |> to_list
+          |> List.filter_map (fun att ->
+              try
+                let ct = att |> member "contentType" |> to_string in
+                if
+                  String.length ct >= 28
+                  && String.sub ct 0 28 = "application/vnd.microsoft."
+                then None
+                else
+                  let content_url = att |> member "contentUrl" |> to_string in
+                  let name =
+                    try att |> member "name" |> to_string
+                    with _ -> "attachment"
+                  in
+                  Some { content_type = ct; content_url; name }
+              with _ -> None)
+        with _ -> []
+      in
+      if (text = "" && attachments = []) || conversation_id = "" || user_id = ""
+      then None
       else
         Some
           {
@@ -1088,6 +1116,7 @@ let parse_activity body_str =
             text;
             is_group;
             mentioned_ids;
+            attachments;
           }
   with _ -> None
 
@@ -1152,11 +1181,12 @@ let handle_webhook ~(config : Runtime_config.teams_config)
             text = raw_text;
             is_group;
             mentioned_ids;
+            attachments = parsed_attachments;
           } -> (
           if dedup_seen activity_id then Lwt.return_unit
           else
             let text = strip_at_mentions raw_text in
-            if text = "" then Lwt.return_unit
+            if text = "" && parsed_attachments = [] then Lwt.return_unit
             else
               (* In group chats, only process if bot was mentioned or
                  addressed *)
@@ -1419,10 +1449,66 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                           (fun () ->
                             Lwt.catch
                               (fun () ->
+                                let full_config =
+                                  Session.get_config session_manager
+                                in
+                                let* content_parts, att_list, message =
+                                  if
+                                    parsed_attachments <> []
+                                    && full_config.security
+                                         .attachment_downloads_enabled
+                                  then
+                                    let* token_opt = fetch_token ~config in
+                                    let headers =
+                                      match token_opt with
+                                      | Some tok ->
+                                          [ ("Authorization", "Bearer " ^ tok) ]
+                                      | None -> []
+                                    in
+                                    let workspace =
+                                      Runtime_config.effective_workspace
+                                        full_config
+                                    in
+                                    let metas =
+                                      List.map
+                                        (fun (a : teams_attachment) ->
+                                          Attachment_download.
+                                            {
+                                              url = a.content_url;
+                                              filename = a.name;
+                                              mime_type = Some a.content_type;
+                                              size = None;
+                                            })
+                                        parsed_attachments
+                                    in
+                                    Attachment_download.process_attachments
+                                      metas ~headers ~workspace
+                                      ~db:(Session.get_db session_manager)
+                                      ~session_key:key ~source:"teams"
+                                      ~content_parts:[] ~attachments:[]
+                                      ~message:text
+                                  else
+                                    let placeholder =
+                                      if parsed_attachments <> [] then
+                                        let names =
+                                          List.map
+                                            (fun (a : teams_attachment) ->
+                                              Printf.sprintf
+                                                "\n\
+                                                 [Attachment: %s (download \
+                                                 disabled)]"
+                                                a.name)
+                                            parsed_attachments
+                                        in
+                                        text ^ String.concat "" names
+                                      else text
+                                    in
+                                    Lwt.return ([], [], placeholder)
+                                in
                                 let* response =
-                                  Session.turn session_manager ~key
-                                    ~message:text ~skill_injections
-                                    ~channel_name:"teams"
+                                  Session.turn session_manager ~key ~message
+                                    ~content_parts ~attachments:att_list
+                                    ~skill_injections ~channel_name:"teams"
                                     ~channel_type:
                                       (if is_group then "group" else "dm")
                                     ~user_group ~channel:"teams"

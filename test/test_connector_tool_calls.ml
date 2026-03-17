@@ -159,6 +159,7 @@ let test_discord_handle_message_emits_tool_call_notifications () =
           author_bot = false;
           content = "hello";
           mention_ids = [];
+          attachments = [];
         }
       in
       Lwt_main.run

@@ -162,6 +162,32 @@ let test_handle_event_update_returns_before_restart_finishes () =
   Alcotest.(check (list string))
     "progress and final message sent" [ "Starting update..." ] (List.rev !sent)
 
+let test_parse_event_with_files () =
+  let body =
+    {|{"type":"event_callback","event":{"type":"message","channel":"C1","user":"U1","text":"see file","ts":"1234.5","files":[{"url_private_download":"https://files.slack.com/f1","name":"data.csv","mimetype":"text/csv","size":1024}]}}|}
+  in
+  match Slack.parse_event body with
+  | Some (Slack.Message { channel_id; text; files; _ }) ->
+      Alcotest.(check string) "channel" "C1" channel_id;
+      Alcotest.(check string) "text" "see file" text;
+      Alcotest.(check int) "one file" 1 (List.length files);
+      let f = List.hd files in
+      Alcotest.(check string) "file name" "data.csv" f.file_name;
+      Alcotest.(check string) "mimetype" "text/csv" f.mimetype;
+      Alcotest.(check int) "file size" 1024 f.file_size;
+      Alcotest.(check string)
+        "url" "https://files.slack.com/f1" f.url_private_download
+  | _ -> Alcotest.fail "expected Message with files"
+
+let test_parse_event_no_files () =
+  let body =
+    {|{"type":"event_callback","event":{"type":"message","channel":"C2","user":"U2","text":"no files"}}|}
+  in
+  match Slack.parse_event body with
+  | Some (Slack.Message { files; _ }) ->
+      Alcotest.(check int) "no files" 0 (List.length files)
+  | _ -> Alcotest.fail "expected Message"
+
 let suite =
   [
     Alcotest.test_case "is_allowed wildcard" `Quick test_is_allowed_wildcard;
@@ -185,4 +211,7 @@ let suite =
     Alcotest.test_case "session key format" `Quick test_session_key_format;
     Alcotest.test_case "handle event update returns before restart finishes"
       `Quick test_handle_event_update_returns_before_restart_finishes;
+    Alcotest.test_case "parse event with files" `Quick
+      test_parse_event_with_files;
+    Alcotest.test_case "parse event no files" `Quick test_parse_event_no_files;
   ]

@@ -90,7 +90,7 @@ let test_init_double_call () =
 let test_init_schema_version_is_20 () =
   let db = Memory.init ~db_path:":memory:" () in
   Alcotest.(check int)
-    "schema version is 24" 24
+    "schema version is 25" 25
     (query_single_int db "SELECT version FROM schema_version")
 
 let test_init_creates_session_persistence_tables () =
@@ -160,7 +160,7 @@ let test_migrates_v1_db_to_v4_without_data_loss () =
       ignore (Sqlite3.db_close db);
       let migrated = Memory.init ~db_path () in
       Alcotest.(check int)
-        "schema version migrated" 24
+        "schema version migrated" 25
         (query_single_int migrated "SELECT version FROM schema_version");
       Alcotest.(check bool)
         "session_state exists after migration" true
@@ -906,7 +906,7 @@ let test_queue_migrate_v4_to_v5 () =
       ignore (Sqlite3.db_close db);
       let migrated = Memory.init ~db_path () in
       Alcotest.(check int)
-        "schema version is 24" 24
+        "schema version is 25" 25
         (query_single_int migrated "SELECT version FROM schema_version");
       Alcotest.(check bool)
         "inbound_queue exists after v4->v5" true
@@ -926,7 +926,7 @@ let test_init_rejects_future_schema_version () =
   with_temp_db (fun db_path ->
       let db = Sqlite3.db_open db_path in
       exec_exn db "CREATE TABLE schema_version (version INTEGER NOT NULL)";
-      exec_exn db "INSERT INTO schema_version (version) VALUES (25)";
+      exec_exn db "INSERT INTO schema_version (version) VALUES (26)";
       exec_exn db
         {|CREATE TABLE messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -952,7 +952,7 @@ let test_init_rejects_future_schema_version () =
       | `Msg msg ->
           Alcotest.(check bool)
             "rejects future version" true
-            (String.starts_with ~prefix:"DB uses future schema version 25" msg))
+            (String.starts_with ~prefix:"DB uses future schema version 26" msg))
 
 (* --- session archive tests --- *)
 

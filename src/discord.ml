@@ -38,6 +38,14 @@ let set_thinking_level ~(session_mgr : Session.t) ~channel_id ~author_id level =
             channel_id author_id err);
       "Failed to update thinking level: " ^ err
 
+type discord_attachment = {
+  att_id : string;
+  att_filename : string;
+  att_url : string;
+  att_content_type : string option;
+  att_size : int;
+}
+
 type message = {
   id : string;
   channel_id : string;
@@ -46,6 +54,7 @@ type message = {
   author_bot : bool;
   content : string;
   mention_ids : string list;
+  attachments : discord_attachment list;
 }
 
 type resume_state = {
@@ -391,6 +400,24 @@ let make_resume_refs ~db =
         ref (Some state.resume_gateway_url) )
   | None -> (ref None, ref None, ref None)
 
+let parse_attachments_json d =
+  let open Yojson.Safe.Util in
+  try
+    d |> member "attachments" |> to_list
+    |> List.filter_map (fun att ->
+        try
+          let att_id = att |> member "id" |> to_string in
+          let att_filename = att |> member "filename" |> to_string in
+          let att_url = att |> member "url" |> to_string in
+          let att_content_type =
+            try Some (att |> member "content_type" |> to_string)
+            with _ -> None
+          in
+          let att_size = try att |> member "size" |> to_int with _ -> 0 in
+          Some { att_id; att_filename; att_url; att_content_type; att_size }
+        with _ -> None)
+  with _ -> []
+
 let parse_message_create json =
   let open Yojson.Safe.Util in
   try
@@ -416,6 +443,7 @@ let parse_message_create json =
               try Some (m |> member "id" |> to_string) with _ -> None)
         with _ -> []
       in
+      let attachments = parse_attachments_json d in
       Some
         {
           id;
@@ -425,6 +453,7 @@ let parse_message_create json =
           author_bot;
           content;
           mention_ids;
+          attachments;
         }
   with _ -> None
 
@@ -447,8 +476,18 @@ let parse_dispatch_message d =
             try Some (m |> member "id" |> to_string) with _ -> None)
       with _ -> []
     in
+    let attachments = parse_attachments_json d in
     Some
-      { id; channel_id; guild_id; author_id; author_bot; content; mention_ids }
+      {
+        id;
+        channel_id;
+        guild_id;
+        author_id;
+        author_bot;
+        content;
+        mention_ids;
+        attachments;
+      }
   with _ -> None
 
 let is_bot_message json =
@@ -1343,9 +1382,51 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                 (fun () ->
                   Lwt.catch
                     (fun () ->
+                      let config = Session.get_config session_mgr in
+                      let* content_parts, att_list, message =
+                        if
+                          msg.attachments <> []
+                          && config.security.attachment_downloads_enabled
+                        then
+                          let workspace =
+                            Runtime_config.effective_workspace config
+                          in
+                          let metas =
+                            List.map
+                              (fun (a : discord_attachment) ->
+                                Attachment_download.
+                                  {
+                                    url = a.att_url;
+                                    filename = a.att_filename;
+                                    mime_type = a.att_content_type;
+                                    size = Some a.att_size;
+                                  })
+                              msg.attachments
+                          in
+                          Attachment_download.process_attachments metas
+                            ~headers:[] ~workspace
+                            ~db:(Session.get_db session_mgr)
+                            ~session_key:key ~source:"discord" ~content_parts:[]
+                            ~attachments:[] ~message:msg.content
+                        else
+                          let placeholder =
+                            if msg.attachments <> [] then
+                              let names =
+                                List.map
+                                  (fun (a : discord_attachment) ->
+                                    Printf.sprintf
+                                      "\n[Attachment: %s (download disabled)]"
+                                      a.att_filename)
+                                  msg.attachments
+                              in
+                              msg.content ^ String.concat "" names
+                            else msg.content
+                          in
+                          Lwt.return ([], [], placeholder)
+                      in
                       let* response =
-                        Session.turn_stream session_mgr ~key
-                          ~message:msg.content ~skill_injections
+                        Session.turn_stream session_mgr ~key ~message
+                          ~content_parts ~attachments:att_list ~skill_injections
                           ~channel_name:msg.channel_id
                           ~channel_type:discord_channel_type
                           ~sender_id:msg.author_id ~user_group

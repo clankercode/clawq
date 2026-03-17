@@ -72,6 +72,7 @@ let () =
        ("rate_limiter", Test_rate_limiter.suite);
        ("slack", Test_slack.suite);
        ("discord", Test_discord.suite);
+       ("attachment_download", Test_attachment_download.suite);
        ("group_chat_filter", Test_group_chat_filter.suite);
        ("dot_dir", Test_dot_dir.suite);
        ("discord_gateway", Test_discord_gateway.suite);

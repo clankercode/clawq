@@ -200,6 +200,7 @@
   line_channel
   onebot
   teams
+  attachment_download
   temp_downloads
   provider_anthropic
   provider_openai_codex
