@@ -271,6 +271,379 @@ let send_poll
     deferred = false;
   }
 
+let guess_content_type filename =
+  let ext =
+    match Filename.extension filename with
+    | "" -> ""
+    | e -> String.lowercase_ascii (String.sub e 1 (String.length e - 1))
+  in
+  match ext with
+  | "txt" -> "text/plain"
+  | "json" -> "application/json"
+  | "csv" -> "text/csv"
+  | "html" | "htm" -> "text/html"
+  | "xml" -> "application/xml"
+  | "pdf" -> "application/pdf"
+  | "png" -> "image/png"
+  | "jpg" | "jpeg" -> "image/jpeg"
+  | "gif" -> "image/gif"
+  | "svg" -> "image/svg+xml"
+  | "webp" -> "image/webp"
+  | "zip" -> "application/zip"
+  | "gz" | "gzip" -> "application/gzip"
+  | "tar" -> "application/x-tar"
+  | "md" -> "text/markdown"
+  | "py" -> "text/x-python"
+  | "ml" | "mli" -> "text/x-ocaml"
+  | "js" -> "text/javascript"
+  | "ts" -> "text/typescript"
+  | "css" -> "text/css"
+  | "yaml" | "yml" -> "text/yaml"
+  | "toml" -> "application/toml"
+  | "sh" -> "text/x-shellscript"
+  | "sql" -> "application/sql"
+  | "log" -> "text/plain"
+  | _ -> "application/octet-stream"
+
+let send_file ~workspace ~workspace_only ~extra_allowed_paths
+    ~(send_fn : (text:string -> unit Lwt.t) option)
+    ~(rich_send_fn :
+       (session_key:string -> Rich_message.t -> Rich_message.send_result Lwt.t)
+       option)
+    ~(store_file :
+       (content:string ->
+       content_type:string ->
+       filename:string ->
+       string option)
+       option) =
+  {
+    Tool.name = "send_file";
+    description =
+      "Send a file to the user via the current channel. On Telegram, the file \
+       is uploaded natively; on other channels a download link is sent. A \
+       download link is always sent as a separate message. Provide either a \
+       workspace file path or inline content.";
+    parameters_schema =
+      `Assoc
+        [
+          ("type", `String "object");
+          ( "properties",
+            `Assoc
+              [
+                ( "path",
+                  `Assoc
+                    [
+                      ("type", `String "string");
+                      ( "description",
+                        `String
+                          "Path to a workspace file to send. Mutually \
+                           exclusive with 'content'." );
+                    ] );
+                ( "content",
+                  `Assoc
+                    [
+                      ("type", `String "string");
+                      ( "description",
+                        `String
+                          "Inline file content to send. Mutually exclusive \
+                           with 'path'. Requires 'filename'." );
+                    ] );
+                ( "filename",
+                  `Assoc
+                    [
+                      ("type", `String "string");
+                      ( "description",
+                        `String
+                          "Filename for the file. Required with 'content', \
+                           optional with 'path' (defaults to basename)." );
+                    ] );
+                ( "content_type",
+                  `Assoc
+                    [
+                      ("type", `String "string");
+                      ( "description",
+                        `String
+                          "MIME type (e.g., 'text/plain', 'application/pdf'). \
+                           Auto-detected from extension if omitted." );
+                    ] );
+                ( "description",
+                  `Assoc
+                    [
+                      ("type", `String "string");
+                      ( "description",
+                        `String "Description shown to the user with the file."
+                      );
+                    ] );
+              ] );
+        ];
+    invoke =
+      (fun ?context args ->
+        let open Yojson.Safe.Util in
+        let path =
+          try
+            match args |> member "path" with
+            | `Null -> None
+            | v -> Some (to_string v)
+          with _ -> None
+        in
+        let inline_content =
+          try
+            match args |> member "content" with
+            | `Null -> None
+            | v -> Some (to_string v)
+          with _ -> None
+        in
+        let explicit_filename =
+          try
+            match args |> member "filename" with
+            | `Null -> None
+            | v -> Some (to_string v)
+          with _ -> None
+        in
+        let content_type_param =
+          try
+            match args |> member "content_type" with
+            | `Null -> None
+            | v -> Some (to_string v)
+          with _ -> None
+        in
+        let description =
+          try
+            match args |> member "description" with
+            | `Null -> ""
+            | v -> to_string v
+          with _ -> ""
+        in
+        match (path, inline_content) with
+        | None, None ->
+            Lwt.return
+              "Error: either 'path' or 'content' is required. Use 'path' to \
+               send an existing workspace file, or 'content' to send inline \
+               data (requires 'filename')."
+        | Some _, Some _ ->
+            Lwt.return
+              "Error: 'path' and 'content' are mutually exclusive. Provide \
+               exactly one: 'path' for an existing file, or 'content' for \
+               inline data."
+        | Some file_path, None -> (
+            let resolved =
+              if Filename.is_relative file_path then
+                let cwd =
+                  match context with
+                  | Some ctx -> (
+                      match ctx.Tool.effective_cwd with
+                      | Some d -> d
+                      | None -> workspace)
+                  | None -> workspace
+                in
+                Filename.concat cwd file_path
+              else file_path
+            in
+            if
+              workspace_only
+              && not
+                   (is_path_allowed ~workspace ~workspace_only
+                      ~extra_allowed_paths resolved)
+            then
+              Lwt.return
+                "Error: path is outside workspace. Use an absolute path within \
+                 the workspace, or check 'extra_allowed_paths' in config."
+            else
+              match canonicalize_for_read resolved with
+              | Error msg -> Lwt.return msg
+              | Ok canonical_path ->
+                  if
+                    workspace_only
+                    && not
+                         (is_path_allowed ~workspace ~workspace_only
+                            ~extra_allowed_paths canonical_path)
+                  then
+                    Lwt.return
+                      "Error: path resolves outside workspace. The resolved \
+                       path is outside the allowed workspace boundaries."
+                  else
+                    Lwt.catch
+                      (fun () ->
+                        let open Lwt.Syntax in
+                        let* content =
+                          Lwt_io.with_file ~mode:Lwt_io.Input canonical_path
+                            Lwt_io.read
+                        in
+                        let filename =
+                          match explicit_filename with
+                          | Some f -> f
+                          | None -> Filename.basename canonical_path
+                        in
+                        let content_type =
+                          match content_type_param with
+                          | Some ct -> ct
+                          | None -> guess_content_type filename
+                        in
+                        let size = String.length content in
+                        match store_file with
+                        | None ->
+                            Lwt.return
+                              "Error: no public base URL configured (tunnel \
+                               not active). A download link cannot be \
+                               generated. Configure a tunnel or set \
+                               'public_base_url' to enable file sending."
+                        | Some store_fn -> (
+                            let download_url =
+                              store_fn ~content ~content_type ~filename
+                            in
+                            match download_url with
+                            | None ->
+                                Lwt.return
+                                  "Error: no public base URL configured \
+                                   (tunnel not active). A download link cannot \
+                                   be generated. Configure a tunnel or set \
+                                   'public_base_url' to enable file sending."
+                            | Some _ ->
+                                let attachment =
+                                  Rich_message.FileAttachment
+                                    {
+                                      filename;
+                                      content;
+                                      content_type;
+                                      description;
+                                      download_url;
+                                    }
+                                in
+                                let session_key =
+                                  match context with
+                                  | Some ctx -> ctx.Tool.session_key
+                                  | None -> None
+                                in
+                                let* upload_warning =
+                                  match (rich_send_fn, session_key) with
+                                  | Some rsf, Some sk ->
+                                      Lwt.catch
+                                        (fun () ->
+                                          let* _result =
+                                            rsf ~session_key:sk attachment
+                                          in
+                                          Lwt.return "")
+                                        (fun exn ->
+                                          Lwt.return
+                                            (Printf.sprintf
+                                               " (native upload failed: %s)"
+                                               (Printexc.to_string exn)))
+                                  | _ -> Lwt.return ""
+                                in
+                                let* () =
+                                  match (send_fn, download_url) with
+                                  | Some f, Some url ->
+                                      let desc =
+                                        if description <> "" then description
+                                        else filename
+                                      in
+                                      f ~text:(desc ^ "\n\nDownload: " ^ url)
+                                  | _ -> Lwt.return_unit
+                                in
+                                let url_str =
+                                  match download_url with
+                                  | Some u -> u
+                                  | None -> "(no URL)"
+                                in
+                                Lwt.return
+                                  (Printf.sprintf
+                                     "File sent: %s (%d bytes). Download: %s%s"
+                                     filename size url_str upload_warning)))
+                      (fun exn ->
+                        Lwt.return
+                          (Printf.sprintf
+                             "Error: could not read file '%s': %s. Check that \
+                              the path exists and is readable."
+                             file_path (Printexc.to_string exn))))
+        | None, Some content -> (
+            match explicit_filename with
+            | None | Some "" ->
+                Lwt.return
+                  "Error: 'filename' is required when using 'content'. Specify \
+                   a filename (e.g., 'report.csv') so the recipient knows what \
+                   the file is."
+            | Some filename -> (
+                let content_type =
+                  match content_type_param with
+                  | Some ct -> ct
+                  | None -> guess_content_type filename
+                in
+                let size = String.length content in
+                match store_file with
+                | None ->
+                    Lwt.return
+                      "Error: no public base URL configured (tunnel not \
+                       active). A download link cannot be generated. Configure \
+                       a tunnel or set 'public_base_url' to enable file \
+                       sending."
+                | Some store_fn -> (
+                    let download_url =
+                      store_fn ~content ~content_type ~filename
+                    in
+                    match download_url with
+                    | None ->
+                        Lwt.return
+                          "Error: no public base URL configured (tunnel not \
+                           active). A download link cannot be generated. \
+                           Configure a tunnel or set 'public_base_url' to \
+                           enable file sending."
+                    | Some _ ->
+                        let attachment =
+                          Rich_message.FileAttachment
+                            {
+                              filename;
+                              content;
+                              content_type;
+                              description;
+                              download_url;
+                            }
+                        in
+                        let session_key =
+                          match context with
+                          | Some ctx -> ctx.Tool.session_key
+                          | None -> None
+                        in
+                        let open Lwt.Syntax in
+                        let* upload_warning =
+                          match (rich_send_fn, session_key) with
+                          | Some rsf, Some sk ->
+                              Lwt.catch
+                                (fun () ->
+                                  let* _result =
+                                    rsf ~session_key:sk attachment
+                                  in
+                                  Lwt.return "")
+                                (fun exn ->
+                                  Lwt.return
+                                    (Printf.sprintf
+                                       " (native upload failed: %s)"
+                                       (Printexc.to_string exn)))
+                          | _ -> Lwt.return ""
+                        in
+                        let* () =
+                          match (send_fn, download_url) with
+                          | Some f, Some url ->
+                              let desc =
+                                if description <> "" then description
+                                else filename
+                              in
+                              f ~text:(desc ^ "\n\nDownload: " ^ url)
+                          | _ -> Lwt.return_unit
+                        in
+                        let url_str =
+                          match download_url with
+                          | Some u -> u
+                          | None -> "(no URL)"
+                        in
+                        Lwt.return
+                          (Printf.sprintf
+                             "File sent: %s (%d bytes). Download: %s%s" filename
+                             size url_str upload_warning)))));
+    invoke_stream = None;
+    risk_level = Low;
+    deferred = false;
+  }
+
 let doc_write ~workspace ~workspace_files =
   let known_files = String.concat ", " workspace_files in
   {
@@ -1011,7 +1384,10 @@ let register_all ~(config : Runtime_config.t) ~sandbox ?(db = None)
   (match send_fn with
   | Some _ ->
       Tool_registry.register registry (send_message ~send_fn ~rich_send_fn);
-      Tool_registry.register registry (send_poll ~rich_send_fn ~send_fn)
+      Tool_registry.register registry (send_poll ~rich_send_fn ~send_fn);
+      Tool_registry.register registry
+        (send_file ~workspace ~workspace_only ~extra_allowed_paths ~send_fn
+           ~rich_send_fn ~store_file:None)
   | None -> ());
   if config.stt <> None then
     Tool_registry.register registry (transcribe ~config);

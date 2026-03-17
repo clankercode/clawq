@@ -144,7 +144,40 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                   (key, update.chat_id, bot_token, options, Unix.gettimeofday ());
                 refresh_typing ();
                 Lwt.return
-                  Rich_message.{ message_id = msg_id; callback_ids = [] });
+                  Rich_message.{ message_id = msg_id; callback_ids = [] }
+            | Rich_message.FileAttachment
+                {
+                  filename;
+                  content;
+                  description;
+                  download_url;
+                  content_type = _;
+                } ->
+                let* _upload_ok =
+                  Lwt.catch
+                    (fun () ->
+                      let* _r =
+                        Telegram_api.send_document ~bot_token
+                          ~chat_id:update.chat_id ~filename ~content ()
+                      in
+                      Lwt.return true)
+                    (fun exn ->
+                      Logs.warn (fun m ->
+                          m "Telegram send_document failed: %s"
+                            (Printexc.to_string exn));
+                      Lwt.return false)
+                in
+                let* () =
+                  match download_url with
+                  | Some url ->
+                      let desc =
+                        if description <> "" then description else filename
+                      in
+                      send_to_chat (desc ^ "\n\nDownload: " ^ url)
+                  | None -> Lwt.return_unit
+                in
+                refresh_typing ();
+                Lwt.return Rich_message.{ message_id = "0"; callback_ids = [] });
       let image_content_parts = ref [] in
       let doc_attachments = ref [] in
       let config = Session.get_config session_mgr in

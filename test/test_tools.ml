@@ -835,6 +835,253 @@ let test_rich_message_to_fallback_text () =
     "poll fallback has 3. Z" true
     (contains poll_text "3. Z")
 
+let test_file_attachment_fallback_text_with_url () =
+  let msg =
+    Rich_message.FileAttachment
+      {
+        filename = "report.csv";
+        content = "a,b,c";
+        content_type = "text/csv";
+        description = "Monthly report";
+        download_url = Some "https://example.com/downloads/abc123";
+      }
+  in
+  let text = Rich_message.to_fallback_text msg in
+  Alcotest.(check bool)
+    "has description and filename" true
+    (contains text "Monthly report (report.csv)");
+  Alcotest.(check bool) "has download URL" true (contains text "Download: ");
+  Alcotest.(check bool)
+    "has actual URL" true
+    (contains text "https://example.com/downloads/abc123")
+
+let test_file_attachment_fallback_text_no_url () =
+  let msg =
+    Rich_message.FileAttachment
+      {
+        filename = "data.json";
+        content = "{}";
+        content_type = "application/json";
+        description = "";
+        download_url = None;
+      }
+  in
+  let text = Rich_message.to_fallback_text msg in
+  Alcotest.(check bool) "uses filename as desc" true (contains text "data.json");
+  Alcotest.(check bool)
+    "says file attached" true
+    (contains text "(file attached)")
+
+let test_file_attachment_fallback_text_empty_desc () =
+  let msg =
+    Rich_message.FileAttachment
+      {
+        filename = "output.txt";
+        content = "hello";
+        content_type = "text/plain";
+        description = "";
+        download_url = Some "https://example.com/dl/xyz";
+      }
+  in
+  let text = Rich_message.to_fallback_text msg in
+  Alcotest.(check bool)
+    "uses filename when no description" true
+    (contains text "output.txt");
+  Alcotest.(check bool)
+    "has download URL" true
+    (contains text "https://example.com/dl/xyz")
+
+let test_send_file_with_content () =
+  let sent_text = ref [] in
+  let rich_sent = ref [] in
+  let store_url = ref None in
+  let tool =
+    Tools_builtin.send_file ~workspace:"/workspace" ~workspace_only:false
+      ~extra_allowed_paths:[]
+      ~send_fn:
+        (Some
+           (fun ~text ->
+             sent_text := text :: !sent_text;
+             Lwt.return_unit))
+      ~rich_send_fn:
+        (Some
+           (fun ~session_key:_ msg ->
+             rich_sent := msg :: !rich_sent;
+             Lwt.return Rich_message.{ message_id = "0"; callback_ids = [] }))
+      ~store_file:
+        (Some
+           (fun ~content:_ ~content_type:_ ~filename:_ ->
+             let url = "https://example.com/downloads/test123" in
+             store_url := Some url;
+             Some url))
+  in
+  let result =
+    Lwt_main.run
+      (tool.invoke
+         ~context:
+           {
+             Tool.session_key = Some "telegram:1:1";
+             send_progress = None;
+             interrupt_check = None;
+             inject_system_messages = None;
+             effective_cwd = None;
+             request_cwd_change = None;
+           }
+         (`Assoc
+            [
+              ("content", `String "hello world");
+              ("filename", `String "test.txt");
+              ("description", `String "A test file");
+            ]))
+  in
+  Alcotest.(check bool)
+    "result mentions file sent" true
+    (contains result "File sent: test.txt");
+  Alcotest.(check bool)
+    "result has download URL" true
+    (contains result "https://example.com/downloads/test123");
+  Alcotest.(check bool) "result has size" true (contains result "11 bytes");
+  Alcotest.(check bool)
+    "send_fn called with download link" true
+    (List.exists (fun t -> contains t "Download:") !sent_text);
+  Alcotest.(check bool) "rich_send_fn called" true (List.length !rich_sent = 1)
+
+let test_send_file_with_workspace_path () =
+  let dir = make_tmp_workspace () in
+  let file_path = Filename.concat dir "hello.txt" in
+  let oc = open_out file_path in
+  output_string oc "file content here";
+  close_out oc;
+  let sent_text = ref [] in
+  let tool =
+    Tools_builtin.send_file ~workspace:dir ~workspace_only:false
+      ~extra_allowed_paths:[]
+      ~send_fn:
+        (Some
+           (fun ~text ->
+             sent_text := text :: !sent_text;
+             Lwt.return_unit))
+      ~rich_send_fn:None
+      ~store_file:
+        (Some
+           (fun ~content:_ ~content_type:_ ~filename:_ ->
+             Some "https://example.com/downloads/abc"))
+  in
+  let result =
+    Lwt_main.run (tool.invoke (`Assoc [ ("path", `String file_path) ]))
+  in
+  Alcotest.(check bool)
+    "result mentions file sent" true
+    (contains result "File sent: hello.txt");
+  Alcotest.(check bool)
+    "result has download URL" true
+    (contains result "https://example.com/downloads/abc");
+  Alcotest.(check bool) "result has size" true (contains result "17 bytes");
+  Alcotest.(check bool) "send_fn called" true (List.length !sent_text = 1);
+  Sys.remove file_path;
+  try Unix.rmdir dir with _ -> ()
+
+let test_send_file_validation_neither () =
+  let tool =
+    Tools_builtin.send_file ~workspace:"/workspace" ~workspace_only:false
+      ~extra_allowed_paths:[] ~send_fn:None ~rich_send_fn:None ~store_file:None
+  in
+  let result = Lwt_main.run (tool.invoke (`Assoc [])) in
+  Alcotest.(check bool)
+    "error mentions path or content" true
+    (contains result "'path' or 'content' is required")
+
+let test_send_file_validation_both () =
+  let tool =
+    Tools_builtin.send_file ~workspace:"/workspace" ~workspace_only:false
+      ~extra_allowed_paths:[] ~send_fn:None ~rich_send_fn:None ~store_file:None
+  in
+  let result =
+    Lwt_main.run
+      (tool.invoke
+         (`Assoc [ ("path", `String "/some/file"); ("content", `String "data") ]))
+  in
+  Alcotest.(check bool)
+    "error mentions mutually exclusive" true
+    (contains result "mutually exclusive")
+
+let test_send_file_content_requires_filename () =
+  let tool =
+    Tools_builtin.send_file ~workspace:"/workspace" ~workspace_only:false
+      ~extra_allowed_paths:[] ~send_fn:None ~rich_send_fn:None
+      ~store_file:
+        (Some (fun ~content:_ ~content_type:_ ~filename:_ -> Some "url"))
+  in
+  let result =
+    Lwt_main.run (tool.invoke (`Assoc [ ("content", `String "some data") ]))
+  in
+  Alcotest.(check bool)
+    "error mentions filename required" true
+    (contains result "'filename' is required")
+
+let test_send_file_no_store () =
+  let tool =
+    Tools_builtin.send_file ~workspace:"/workspace" ~workspace_only:false
+      ~extra_allowed_paths:[]
+      ~send_fn:(Some (fun ~text:_ -> Lwt.return_unit))
+      ~rich_send_fn:None ~store_file:None
+  in
+  let result =
+    Lwt_main.run
+      (tool.invoke
+         (`Assoc
+            [ ("content", `String "data"); ("filename", `String "test.txt") ]))
+  in
+  Alcotest.(check bool)
+    "error mentions no public base URL" true
+    (contains result "no public base URL")
+
+let test_guess_content_type () =
+  Alcotest.(check string)
+    "txt" "text/plain"
+    (Tools_builtin.guess_content_type "file.txt");
+  Alcotest.(check string)
+    "json" "application/json"
+    (Tools_builtin.guess_content_type "data.json");
+  Alcotest.(check string)
+    "csv" "text/csv"
+    (Tools_builtin.guess_content_type "report.csv");
+  Alcotest.(check string)
+    "pdf" "application/pdf"
+    (Tools_builtin.guess_content_type "doc.pdf");
+  Alcotest.(check string)
+    "png" "image/png"
+    (Tools_builtin.guess_content_type "image.png");
+  Alcotest.(check string)
+    "jpg" "image/jpeg"
+    (Tools_builtin.guess_content_type "photo.jpg");
+  Alcotest.(check string)
+    "html" "text/html"
+    (Tools_builtin.guess_content_type "page.html");
+  Alcotest.(check string)
+    "ml" "text/x-ocaml"
+    (Tools_builtin.guess_content_type "main.ml");
+  Alcotest.(check string)
+    "zip" "application/zip"
+    (Tools_builtin.guess_content_type "archive.zip");
+  Alcotest.(check string)
+    "unknown" "application/octet-stream"
+    (Tools_builtin.guess_content_type "file.xyz123")
+
+let test_connector_capabilities_can_send_files () =
+  Alcotest.(check bool)
+    "telegram can_send_files" true
+    Connector_capabilities.telegram.can_send_files;
+  Alcotest.(check bool)
+    "teams can_send_files" true Connector_capabilities.teams.can_send_files;
+  Alcotest.(check bool)
+    "discord cannot send files" false
+    Connector_capabilities.discord.can_send_files;
+  Alcotest.(check bool)
+    "slack cannot send files" false Connector_capabilities.slack.can_send_files;
+  Alcotest.(check bool)
+    "plain cannot send files" false Connector_capabilities.plain.can_send_files
+
 let test_doc_write_known_file () =
   let dir = make_tmp_workspace () in
   let tool =
@@ -2900,6 +3147,26 @@ let suite =
     Alcotest.test_case "send_poll validation" `Quick test_send_poll_validation;
     Alcotest.test_case "rich_message to_fallback_text" `Quick
       test_rich_message_to_fallback_text;
+    Alcotest.test_case "file_attachment fallback with URL" `Quick
+      test_file_attachment_fallback_text_with_url;
+    Alcotest.test_case "file_attachment fallback no URL" `Quick
+      test_file_attachment_fallback_text_no_url;
+    Alcotest.test_case "file_attachment fallback empty desc" `Quick
+      test_file_attachment_fallback_text_empty_desc;
+    Alcotest.test_case "send_file with inline content" `Quick
+      test_send_file_with_content;
+    Alcotest.test_case "send_file with workspace path" `Quick
+      test_send_file_with_workspace_path;
+    Alcotest.test_case "send_file validation neither path nor content" `Quick
+      test_send_file_validation_neither;
+    Alcotest.test_case "send_file validation both path and content" `Quick
+      test_send_file_validation_both;
+    Alcotest.test_case "send_file content requires filename" `Quick
+      test_send_file_content_requires_filename;
+    Alcotest.test_case "send_file no store_file" `Quick test_send_file_no_store;
+    Alcotest.test_case "guess_content_type" `Quick test_guess_content_type;
+    Alcotest.test_case "connector capabilities can_send_files" `Quick
+      test_connector_capabilities_can_send_files;
     Alcotest.test_case "doc_write creates file" `Quick test_doc_write_creates;
     Alcotest.test_case "doc_write appends" `Quick test_doc_write_appends;
     Alcotest.test_case "doc_write rejects traversal" `Quick

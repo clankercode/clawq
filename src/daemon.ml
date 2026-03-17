@@ -382,6 +382,24 @@ let run ~(config : Runtime_config.t) =
                 (fun ~text ->
                   Session.notify_channel_sessions session_manager text)));
       Tool_registry.register registry
+        (Tools_builtin.send_file
+           ~workspace:(Runtime_config.effective_workspace !current_config)
+           ~workspace_only:config.security.workspace_only
+           ~extra_allowed_paths:config.security.extra_allowed_paths
+           ~rich_send_fn
+           ~send_fn:
+             (Some
+                (fun ~text ->
+                  Session.notify_channel_sessions session_manager text))
+           ~store_file:
+             (Some
+                (fun ~content ~content_type ~filename ->
+                  let token =
+                    Temp_downloads.add ~content ~content_type ~filename
+                      ~ttl_s:3600.0
+                  in
+                  Temp_downloads.download_url token)));
+      Tool_registry.register registry
         (Tools_builtin.compact_history ~compact_fn:(fun ~session_key ->
              match Hashtbl.find_opt session_manager.sessions session_key with
              | None -> Lwt.return "Error: session not found"

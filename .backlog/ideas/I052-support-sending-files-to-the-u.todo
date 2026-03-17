@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-17T15:48:40Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-17T16:29:40Z"
 complexity: medium
 depends_on: []
+duration_minutes: 41.00202615115
 estimate_hours: 10
 id: I052
 priority: medium
 started_at: "2026-03-17T15:48:40Z"
-status: in_progress
+status: done
 tags: []
 title: 'Support sending files to the user generally (priority: teams and telegram). We should *always* send a link to the user as well.'
 ---
