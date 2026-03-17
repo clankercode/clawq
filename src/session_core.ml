@@ -1234,53 +1234,63 @@ let get_session_effective_model mgr ~key =
 
 let reset mgr ~key =
   let open Lwt.Syntax in
-  let* held_mutex =
+  (* Two-phase reset to avoid deadlock.  Phase 1 holds sessions_lock (quick,
+     no blocking on per-session mutex) to clean DB and remove the session from
+     all hashtables.  Phase 2 releases sessions_lock first, then waits for an
+     in-progress turn by acquiring the per-session mutex, and does a second
+     DB cleanup to catch any writes the old turn persisted between phases. *)
+  let clear_db () =
+    match mgr.db with
+    | Some db ->
+        let pending_cleared = Memory.queue_clear ~db ~session_key:key in
+        if pending_cleared > 0 then
+          Logs.info (fun m ->
+              m "Session reset cleared %d pending inbound queue rows for %s"
+                pending_cleared key);
+        Memory.archive_session ~db ~session_key:key;
+        Memory.clear_session ~db ~session_key:key
+    | None -> ()
+  in
+  let remove_from_tables () =
+    Hashtbl.remove mgr.deferred_responses key;
+    Hashtbl.remove mgr.queued_messages key;
+    Hashtbl.remove mgr.continuation_checks key;
+    Hashtbl.remove mgr.observer_last_checked key;
+    Hashtbl.remove mgr.postmortem_circuit_breakers
+      (root_postmortem_session_key key);
+    unregister_channel_notifier mgr ~key;
+    unregister_rich_notifier mgr ~key;
+    Hashtbl.remove mgr.sessions key
+  in
+  (* Phase 1: under sessions_lock — get mutex ref, clean DB, remove session *)
+  let* mutex_opt =
     Lwt_util.with_lock_timeout ~fatal_timeout:Lwt_util.short_fatal_timeout
       ~label:(Printf.sprintf "sessions_lock/reset[%s]" key) mgr.sessions_lock
       (fun () ->
-        let clear_db () =
-          match mgr.db with
-          | Some db ->
-              let pending_cleared = Memory.queue_clear ~db ~session_key:key in
-              if pending_cleared > 0 then
-                Logs.info (fun m ->
-                    m
-                      "Session reset cleared %d pending inbound queue rows for \
-                       %s"
-                      pending_cleared key);
-              Memory.archive_session ~db ~session_key:key;
-              Memory.clear_session ~db ~session_key:key
-          | None -> ()
+        let m =
+          match Hashtbl.find_opt mgr.sessions key with
+          | Some (_, mutex, _) -> Some mutex
+          | None -> None
         in
-        match Hashtbl.find_opt mgr.sessions key with
-        | Some (_, mutex, _) ->
-            let* () =
-              Lwt_util.lock_with_timeout
-                ~label:(Printf.sprintf "session_mutex/reset[%s]" key)
-                mutex
-            in
-            clear_db ();
-            Hashtbl.remove mgr.deferred_responses key;
-            Hashtbl.remove mgr.queued_messages key;
-            Hashtbl.remove mgr.continuation_checks key;
-            Hashtbl.remove mgr.observer_last_checked key;
-            Hashtbl.remove mgr.postmortem_circuit_breakers
-              (root_postmortem_session_key key);
-            unregister_channel_notifier mgr ~key;
-            unregister_rich_notifier mgr ~key;
-            Hashtbl.remove mgr.sessions key;
-            Lwt.return (Some mutex)
-        | None ->
-            clear_db ();
-            Hashtbl.remove mgr.deferred_responses key;
-            Hashtbl.remove mgr.queued_messages key;
-            Hashtbl.remove mgr.continuation_checks key;
-            Hashtbl.remove mgr.observer_last_checked key;
-            Hashtbl.remove mgr.postmortem_circuit_breakers
-              (root_postmortem_session_key key);
-            unregister_channel_notifier mgr ~key;
-            unregister_rich_notifier mgr ~key;
-            Lwt.return None)
+        clear_db ();
+        remove_from_tables ();
+        Lwt.return m)
+  in
+  (* Phase 2: outside sessions_lock — wait for in-progress turn, re-clear DB *)
+  let* () =
+    match mutex_opt with
+    | Some mutex ->
+        let* () =
+          Lwt_util.lock_with_timeout
+            ~label:(Printf.sprintf "session_mutex/reset[%s]" key)
+            mutex
+        in
+        (match mgr.db with
+        | Some db -> Memory.clear_session ~db ~session_key:key
+        | None -> ());
+        Lwt_mutex.unlock mutex;
+        Lwt.return_unit
+    | None -> Lwt.return_unit
   in
   let active_bg_tasks =
     match mgr.db with
@@ -1291,11 +1301,7 @@ let reset mgr ~key =
         with _ -> 0)
     | None -> 0
   in
-  match held_mutex with
-  | Some mutex ->
-      Lwt_mutex.unlock mutex;
-      Lwt.return active_bg_tasks
-  | None -> Lwt.return active_bg_tasks
+  Lwt.return active_bg_tasks
 
 (* Step tuple: (name, emoji, started_at option, done_at option)
    None/None = Pending, Some t0/None = Running, Some t0/Some t1 = Done *)

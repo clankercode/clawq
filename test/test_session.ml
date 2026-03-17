@@ -600,14 +600,17 @@ let test_reset_waits_for_session_lock () =
         let* () = Lwt_mutex.lock mutex in
         let reset_p = Session.reset mgr ~key:"s1" in
         let* () = Lwt.pause () in
+        (* Phase 1 completes immediately (sessions_lock is free), removing
+           the session from the hashtable *)
         Alcotest.(check bool)
-          "session still present while locked" true
+          "session removed after phase 1" false
           (Hashtbl.mem mgr.sessions "s1");
+        (* Phase 2 is waiting on the per-session mutex *)
+        Alcotest.(check bool)
+          "reset still sleeping (phase 2 blocked)" true
+          (Lwt.is_sleeping reset_p);
         Lwt_mutex.unlock mutex;
         reset_p));
-  Alcotest.(check bool)
-    "session removed after unlock" false
-    (Hashtbl.mem mgr.sessions "s1");
   Alcotest.(check int)
     "history cleared after unlock" 0
     (List.length (Memory.load_history ~db ~session_key:"s1"))
