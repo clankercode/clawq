@@ -244,3 +244,5 @@ ideas:
       status: in_progress
       tags: []
       title: 'Investigate how we can tie agents into existing systems: background tasks, slash commands (or @agent maybe), etc'
+    - file: I029-verified-policy-engine.todo
+      id: I029

@@ -1,0 +1,14 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 10
+id: I029
+priority: high
+status: pending
+tags:
+    - coq
+    - security
+    - differentiator
+title: Verified Policy Engine
+---
+Write access-control and safety policies in Coq (e.g., 'this agent can never write files outside /home/user/projects', 'shell commands cannot use sudo', 'API costs cannot exceed $X/day'), extract them to OCaml, and enforce them at the tool-call boundary with mathematical proof. Policies are not runtime checks that might have bugs — they are theorems. 'clawq policy verify' reports which safety properties hold for the current configuration. No other AI assistant in the world can make formally verified safety guarantees. This is clawq's existential differentiator: the reason to choose a Coq-first runtime over everything else.
