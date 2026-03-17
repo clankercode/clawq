@@ -1,0 +1,15 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 10
+id: I042
+priority: high
+status: pending
+tags:
+    - self-building
+    - code-review
+    - tools
+    - quality
+title: Diff-Aware Code Review Tool
+---
+'git diff HEAD | clawq review' pipes a diff into a structured code review agent that outputs comments keyed to file:line, categorized by severity (bug, style, performance, security). Output formats: plain text, GitHub review JSON, or inline PR comments via gh. The agent reviews its own changes before committing — self-QA. Combined with multi-model debate (I031), this creates adversarial self-review where bugs the implementing model is blind to get caught before they land.

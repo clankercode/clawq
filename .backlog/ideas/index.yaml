@@ -284,3 +284,5 @@ ideas:
       id: I040
     - file: I041-local-codebase-semantic-index.todo
       id: I041
+    - file: I042-diff-aware-code-review-tool.todo
+      id: I042
