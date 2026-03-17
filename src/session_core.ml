@@ -13,6 +13,7 @@ type queued_message = {
   channel_type : string option;
   sender_id : string option;
   sender_name : string option;
+  user_group : string option;
   channel : string option;
   channel_id : string option;
   message_id : string option;
@@ -986,8 +987,8 @@ let runtime_context_block mgr ~key =
       in
       Lwt.return text)
 
-let format_context_block ?channel_name ?channel_type ?sender_id ?sender_name ()
-    =
+let format_context_block ?channel_name ?channel_type ?sender_id ?sender_name
+    ?user_group () =
   let cn = match channel_name with Some n -> n | None -> "cli" in
   let ct = match channel_type with Some t -> t | None -> "dm" in
   let sender_part =
@@ -997,7 +998,13 @@ let format_context_block ?channel_name ?channel_type ?sender_id ?sender_name ()
     | None, Some name -> Printf.sprintf " sender=%s" name
     | None, None -> ""
   in
-  Printf.sprintf "[Context: channel=%s type=%s%s]" cn ct sender_part
+  let group_part =
+    match user_group with
+    | Some g -> Printf.sprintf " user_group=%s" g
+    | None -> ""
+  in
+  Printf.sprintf "[Context: channel=%s type=%s%s%s]" cn ct sender_part
+    group_part
 
 let inject_attachment_context agent attachments =
   match Prompt_builder.attachment_syntax_block attachments with
@@ -1080,15 +1087,21 @@ let respond_if_draining ?on_chunk mgr =
   else Lwt.return_none
 
 let effective_message_for_turn ~message ?channel_name ?channel_type ?sender_id
-    ?sender_name () =
-  match (channel_name, channel_type, sender_id, sender_name) with
-  | None, None, None, None -> message
+    ?sender_name ?user_group () =
+  match (channel_name, channel_type, sender_id, sender_name, user_group) with
+  | None, None, None, None, None -> message
   | _ ->
       let ctx =
         format_context_block ?channel_name ?channel_type ?sender_id ?sender_name
-          ()
+          ?user_group ()
       in
-      ctx ^ "\n" ^ message
+      let trust_msg =
+        match user_group with
+        | Some "admin" -> "\n" ^ Admin.trust_description_admin
+        | Some "guest" -> "\n" ^ Admin.trust_description_guest
+        | _ -> ""
+      in
+      ctx ^ trust_msg ^ "\n" ^ message
 
 let snapshot_history mgr ~key =
   Lwt_util.with_lock_timeout ~fatal_timeout:Lwt_util.short_fatal_timeout

@@ -1,9 +1,14 @@
-let extract_text = function
+let unwrap_admin = function
+  | Slash_commands.AdminRequired inner -> inner
+  | other -> other
+
+let rec extract_text = function
   | Slash_commands.Reply s -> Some s
   | Slash_commands.FormattedReply fn -> Some (fn Format_adapter.Plain)
+  | Slash_commands.AdminRequired inner -> extract_text inner
   | _ -> None
 
-let result_to_string = function
+let rec result_to_string = function
   | Slash_commands.Reply s -> "Reply(" ^ s ^ ")"
   | Slash_commands.FormattedReply fn ->
       "FormattedReply(" ^ fn Format_adapter.Plain ^ ")"
@@ -111,9 +116,14 @@ let result_to_string = function
       "InjectConnectorHistory(" ^ string_of_int n ^ ")"
   | Slash_commands.SkillInvoke (name, args) ->
       "SkillInvoke(" ^ name ^ ", " ^ args ^ ")"
+  | Slash_commands.AdminRequired inner ->
+      "AdminRequired(" ^ result_to_string inner ^ ")"
+  | Slash_commands.RegisterAsAdminOtc None -> "RegisterAsAdminOtc(None)"
+  | Slash_commands.RegisterAsAdminOtc (Some code) ->
+      "RegisterAsAdminOtc(Some " ^ code ^ ")"
   | Slash_commands.NotACommand -> "NotACommand"
 
-let result_eq a b =
+let rec result_eq a b =
   match (a, b) with
   | Slash_commands.Reply a, Slash_commands.Reply b -> a = b
   | Slash_commands.FormattedReply a, Slash_commands.FormattedReply b ->
@@ -161,6 +171,10 @@ let result_eq a b =
   | Slash_commands.BgMenu, Slash_commands.BgMenu -> true
   | ( Slash_commands.InjectConnectorHistory a,
       Slash_commands.InjectConnectorHistory b ) ->
+      a = b
+  | Slash_commands.AdminRequired a, Slash_commands.AdminRequired b ->
+      result_eq a b
+  | Slash_commands.RegisterAsAdminOtc a, Slash_commands.RegisterAsAdminOtc b ->
       a = b
   | Slash_commands.NotACommand, Slash_commands.NotACommand -> true
   | _ -> false
@@ -654,7 +668,7 @@ let test_config_show_provider_section () =
       | None -> Alcotest.fail "expected text reply for config show section")
 
 let test_config_get_missing () =
-  match Slash_commands.handle "/config get nonexistent.key" with
+  match unwrap_admin (Slash_commands.handle "/config get nonexistent.key") with
   | Slash_commands.Reply s ->
       Alcotest.(check bool)
         "contains not found" true
@@ -723,7 +737,9 @@ let test_config_get_no_key () =
   | None -> Alcotest.fail "expected text reply for config get no key"
 
 let test_config_set_invalid_path () =
-  match Slash_commands.handle "/config set totally.bogus.path value" with
+  match
+    unwrap_admin (Slash_commands.handle "/config set totally.bogus.path value")
+  with
   | Slash_commands.Reply s ->
       Alcotest.(check bool)
         "mentions unknown key" true
@@ -733,7 +749,9 @@ let test_config_set_invalid_path () =
         (Printf.sprintf "expected Reply, got %s" (result_to_string other))
 
 let test_config_set_section_path_rejected () =
-  match Slash_commands.handle "/config set providers.openai value" with
+  match
+    unwrap_admin (Slash_commands.handle "/config set providers.openai value")
+  with
   | Slash_commands.Reply s ->
       Alcotest.(check string)
         "section path rejected"
@@ -775,11 +793,11 @@ let test_model_set_default () =
            (result_to_string other))
 
 let test_debug_dump_chat_command () =
-  Alcotest.check result_testable "/debug_dump_chat returns DebugDumpChat"
-    Slash_commands.DebugDumpChat
+  Alcotest.check result_testable "/debug_dump_chat returns AdminRequired"
+    (Slash_commands.AdminRequired Slash_commands.DebugDumpChat)
     (Slash_commands.handle "/debug_dump_chat");
   Alcotest.check result_testable "/debug-dump-chat alias"
-    Slash_commands.DebugDumpChat
+    (Slash_commands.AdminRequired Slash_commands.DebugDumpChat)
     (Slash_commands.handle "/debug-dump-chat")
 
 let test_tools_command () =
@@ -2078,11 +2096,13 @@ let test_thinking_menu () =
     (Slash_commands.handle "/thinking menu")
 
 let test_config_menu () =
-  Alcotest.check result_testable "/config menu" (Slash_commands.ConfigMenu 1)
+  Alcotest.check result_testable "/config menu"
+    (Slash_commands.AdminRequired (Slash_commands.ConfigMenu 1))
     (Slash_commands.handle "/config menu")
 
 let test_config_menu_page () =
-  Alcotest.check result_testable "/config menu 2" (Slash_commands.ConfigMenu 2)
+  Alcotest.check result_testable "/config menu 2"
+    (Slash_commands.AdminRequired (Slash_commands.ConfigMenu 2))
     (Slash_commands.handle "/config menu 2")
 
 let test_skills_menu () =
@@ -2202,6 +2222,45 @@ let test_inject_connector_history_clamp_high () =
   Alcotest.(check result_testable)
     "clamp 200 to 128" (Slash_commands.InjectConnectorHistory 128)
     (Slash_commands.handle "/inject_connector_history 200")
+
+let test_register_as_admin_otc_no_args () =
+  Alcotest.(check result_testable)
+    "no args" (Slash_commands.RegisterAsAdminOtc None)
+    (Slash_commands.handle "/register_as_admin_otc")
+
+let test_register_as_admin_otc_with_code () =
+  Alcotest.(check result_testable)
+    "with code" (Slash_commands.RegisterAsAdminOtc (Some "ABC123"))
+    (Slash_commands.handle "/register_as_admin_otc ABC123")
+
+let test_register_as_admin_otc_hyphen () =
+  Alcotest.(check result_testable)
+    "hyphen alias" (Slash_commands.RegisterAsAdminOtc None)
+    (Slash_commands.handle "/register-as-admin-otc")
+
+let test_register_as_admin_otc_too_many_args () =
+  match Slash_commands.handle "/register_as_admin_otc A B" with
+  | Slash_commands.FormattedReply _ -> ()
+  | other ->
+      Alcotest.fail
+        (Printf.sprintf "expected FormattedReply, got %s"
+           (result_to_string other))
+
+let test_config_is_admin_required () =
+  match Slash_commands.handle "/config show" with
+  | Slash_commands.AdminRequired _ -> ()
+  | other ->
+      Alcotest.fail
+        (Printf.sprintf "expected AdminRequired, got %s"
+           (result_to_string other))
+
+let test_debug_dump_chat_is_admin_required () =
+  match Slash_commands.handle "/debug_dump_chat" with
+  | Slash_commands.AdminRequired Slash_commands.DebugDumpChat -> ()
+  | other ->
+      Alcotest.fail
+        (Printf.sprintf "expected AdminRequired(DebugDumpChat), got %s"
+           (result_to_string other))
 
 let suite =
   [
@@ -2481,4 +2540,16 @@ let suite =
       test_inject_connector_history_clamp_low;
     Alcotest.test_case "/inject_connector_history clamp high" `Quick
       test_inject_connector_history_clamp_high;
+    Alcotest.test_case "/register_as_admin_otc no args" `Quick
+      test_register_as_admin_otc_no_args;
+    Alcotest.test_case "/register_as_admin_otc with code" `Quick
+      test_register_as_admin_otc_with_code;
+    Alcotest.test_case "/register-as-admin-otc hyphen" `Quick
+      test_register_as_admin_otc_hyphen;
+    Alcotest.test_case "/register_as_admin_otc too many args" `Quick
+      test_register_as_admin_otc_too_many_args;
+    Alcotest.test_case "/config is AdminRequired" `Quick
+      test_config_is_admin_required;
+    Alcotest.test_case "/debug_dump_chat is AdminRequired" `Quick
+      test_debug_dump_chat_is_admin_required;
   ]

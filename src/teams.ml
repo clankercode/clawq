@@ -1340,7 +1340,37 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                         Lwt.return_unit
                     | None -> Lwt.return_unit
                   in
+                  let is_admin =
+                    match Session.get_db session_manager with
+                    | Some db ->
+                        Admin.is_admin ~db ~channel:"teams" ~sender_id:user_id
+                    | None -> false
+                  in
+                  let user_group = if is_admin then "admin" else "guest" in
+                  let cmd_result =
+                    Slash_commands.gate_admin ~is_admin cmd_result
+                  in
                   match cmd_result with
+                  | RegisterAsAdminOtc None ->
+                      let _code =
+                        Admin.generate_otc ~channel:"teams" ~sender_id:user_id
+                      in
+                      send_text
+                        "Admin registration initiated. Check the daemon \
+                         console/logs for your one-time code, then run: \
+                         /register_as_admin_otc CODE"
+                  | RegisterAsAdminOtc (Some code) -> (
+                      match Session.get_db session_manager with
+                      | Some db -> (
+                          match
+                            Admin.verify_otc ~db ~channel:"teams"
+                              ~sender_id:user_id ~code
+                          with
+                          | Ok () ->
+                              send_text "Successfully registered as admin."
+                          | Error err_msg -> send_text err_msg)
+                      | None -> send_text "Database not available.")
+                  | AdminRequired _ -> assert false
                   | InjectConnectorHistory _ ->
                       Lwt.return_unit (* unreachable: preprocessed above *)
                   | SkillInvoke _ ->
@@ -1395,7 +1425,7 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                                     ~channel_name:"teams"
                                     ~channel_type:
                                       (if is_group then "group" else "dm")
-                                    ~channel:"teams"
+                                    ~user_group ~channel:"teams"
                                     ~channel_id:
                                       (encode_channel_id
                                          ~service_url:effective_service_url

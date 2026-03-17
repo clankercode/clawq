@@ -92,121 +92,127 @@ let handle ?(skill_names = []) text =
                     (fun connector -> format_delegate_usage ~connector)
                 else Delegate (Some name, prompt)
             | _ -> Delegate (None, String.concat " " args))
-        | "config" -> (
-            match args with
-            | [] | [ "help" ] ->
-                FormattedReply (fun connector -> format_config_help ~connector)
-            | [ "menu" ] -> ConfigMenu 1
-            | [ "menu"; n ] -> (
-                match int_of_string_opt n with
-                | Some page when page >= 1 -> ConfigMenu page
-                | _ -> ConfigMenu 1)
-            | [ "show" ] ->
-                let output = Config_show.show None in
-                if String.length output > 1500 then
-                  let sections =
-                    match
-                      try Some (Yojson.Safe.from_string output) with _ -> None
-                    with
-                    | Some (`Assoc fields) ->
-                        List.map fst fields |> String.concat ", "
-                    | _ -> "(unable to list sections)"
+        | "config" ->
+            AdminRequired
+              (match args with
+              | [] | [ "help" ] ->
+                  FormattedReply
+                    (fun connector -> format_config_help ~connector)
+              | [ "menu" ] -> ConfigMenu 1
+              | [ "menu"; n ] -> (
+                  match int_of_string_opt n with
+                  | Some page when page >= 1 -> ConfigMenu page
+                  | _ -> ConfigMenu 1)
+              | [ "show" ] ->
+                  let output = Config_show.show None in
+                  if String.length output > 1500 then
+                    let sections =
+                      match
+                        try Some (Yojson.Safe.from_string output)
+                        with _ -> None
+                      with
+                      | Some (`Assoc fields) ->
+                          List.map fst fields |> String.concat ", "
+                      | _ -> "(unable to list sections)"
+                    in
+                    FormattedReply
+                      (fun connector ->
+                        "Config is too large to display in chat. Available \
+                         sections:\n"
+                        ^ Format_adapter.code connector sections
+                        ^ "\n\nUse: "
+                        ^ Format_adapter.code connector "/config show <section>"
+                        ^ "\nExample: "
+                        ^ Format_adapter.code connector "/config show gateway")
+                  else
+                    FormattedReply
+                      (fun connector -> format_config_show ~connector output)
+              | [ "show"; section ] ->
+                  FormattedReply
+                    (fun connector ->
+                      format_config_show ~connector
+                        (Config_show.show (Some section)))
+              | [ "get" ] ->
+                  FormattedReply
+                    (fun connector ->
+                      "Usage: "
+                      ^ Format_adapter.code connector "/config get KEY")
+              | [ "get"; key ] -> Reply (Config_set.get_value_redacted key)
+              | "set" :: key :: value_parts when value_parts <> [] ->
+                  let segments = Config_set.split_path key in
+                  if
+                    segments <> [ "" ]
+                    && not
+                         (Config_set.validate_path segments
+                            Config_set.config_schema)
+                  then Reply (Config_set.suggest_key key segments)
+                  else if
+                    segments <> [ "" ]
+                    && not
+                         (Config_set.validate_set_path segments
+                            Config_set.config_schema)
+                  then
+                    Reply
+                      (Config_set.section_not_settable_error
+                         ~show_cmd:"/config show" key)
+                  else if Config_set.is_secret_path key then
+                    FormattedReply
+                      (fun connector ->
+                        "Cannot set secret key "
+                        ^ Format_adapter.code connector
+                            (Printf.sprintf "'%s'" key)
+                        ^ " via chat. Use the terminal: "
+                        ^ Format_adapter.code connector
+                            (Printf.sprintf "clawq config set %s <value>" key))
+                  else
+                    let value = String.concat " " value_parts in
+                    let result = Config_set.set_value key value in
+                    FormattedReply
+                      (fun connector ->
+                        Format_adapter.escape connector result
+                        ^ "\n\
+                           Note: restart the daemon for changes to take effect.")
+              | [ "set" ] | [ "set"; _ ] ->
+                  FormattedReply
+                    (fun connector ->
+                      "Usage: "
+                      ^ Format_adapter.code connector "/config set KEY VALUE")
+              | [ "keys" ] ->
+                  let paths = Config_set.config_leaf_paths () in
+                  FormattedReply
+                    (fun connector -> format_config_keys ~connector paths)
+              | [ "keys"; prefix ] ->
+                  let paths = Config_set.config_leaf_paths () in
+                  let prefix_lower = String.lowercase_ascii prefix in
+                  let matches =
+                    List.filter
+                      (fun p ->
+                        let p_lower = String.lowercase_ascii p in
+                        String.length p_lower >= String.length prefix_lower
+                        && String.sub p_lower 0 (String.length prefix_lower)
+                           = prefix_lower)
+                      paths
                   in
+                  if matches = [] then
+                    FormattedReply
+                      (fun connector ->
+                        "No config keys matching prefix "
+                        ^ Format_adapter.code connector
+                            (Printf.sprintf "'%s'" prefix)
+                        ^ ".")
+                  else
+                    FormattedReply
+                      (fun connector -> format_config_keys ~connector matches)
+              | [ "wizard" ] ->
                   FormattedReply
                     (fun connector ->
-                      "Config is too large to display in chat. Available \
-                       sections:\n"
-                      ^ Format_adapter.code connector sections
-                      ^ "\n\nUse: "
-                      ^ Format_adapter.code connector "/config show <section>"
-                      ^ "\nExample: "
-                      ^ Format_adapter.code connector "/config show gateway")
-                else
-                  FormattedReply
-                    (fun connector -> format_config_show ~connector output)
-            | [ "show"; section ] ->
-                FormattedReply
-                  (fun connector ->
-                    format_config_show ~connector
-                      (Config_show.show (Some section)))
-            | [ "get" ] ->
-                FormattedReply
-                  (fun connector ->
-                    "Usage: " ^ Format_adapter.code connector "/config get KEY")
-            | [ "get"; key ] -> Reply (Config_set.get_value_redacted key)
-            | "set" :: key :: value_parts when value_parts <> [] ->
-                let segments = Config_set.split_path key in
-                if
-                  segments <> [ "" ]
-                  && not
-                       (Config_set.validate_path segments
-                          Config_set.config_schema)
-                then Reply (Config_set.suggest_key key segments)
-                else if
-                  segments <> [ "" ]
-                  && not
-                       (Config_set.validate_set_path segments
-                          Config_set.config_schema)
-                then
-                  Reply
-                    (Config_set.section_not_settable_error
-                       ~show_cmd:"/config show" key)
-                else if Config_set.is_secret_path key then
+                      "The config wizard requires an interactive terminal.\n\
+                       Run: "
+                      ^ Format_adapter.code connector "clawq config wizard")
+              | sub :: _ ->
                   FormattedReply
                     (fun connector ->
-                      "Cannot set secret key "
-                      ^ Format_adapter.code connector
-                          (Printf.sprintf "'%s'" key)
-                      ^ " via chat. Use the terminal: "
-                      ^ Format_adapter.code connector
-                          (Printf.sprintf "clawq config set %s <value>" key))
-                else
-                  let value = String.concat " " value_parts in
-                  let result = Config_set.set_value key value in
-                  FormattedReply
-                    (fun connector ->
-                      Format_adapter.escape connector result
-                      ^ "\nNote: restart the daemon for changes to take effect.")
-            | [ "set" ] | [ "set"; _ ] ->
-                FormattedReply
-                  (fun connector ->
-                    "Usage: "
-                    ^ Format_adapter.code connector "/config set KEY VALUE")
-            | [ "keys" ] ->
-                let paths = Config_set.config_leaf_paths () in
-                FormattedReply
-                  (fun connector -> format_config_keys ~connector paths)
-            | [ "keys"; prefix ] ->
-                let paths = Config_set.config_leaf_paths () in
-                let prefix_lower = String.lowercase_ascii prefix in
-                let matches =
-                  List.filter
-                    (fun p ->
-                      let p_lower = String.lowercase_ascii p in
-                      String.length p_lower >= String.length prefix_lower
-                      && String.sub p_lower 0 (String.length prefix_lower)
-                         = prefix_lower)
-                    paths
-                in
-                if matches = [] then
-                  FormattedReply
-                    (fun connector ->
-                      "No config keys matching prefix "
-                      ^ Format_adapter.code connector
-                          (Printf.sprintf "'%s'" prefix)
-                      ^ ".")
-                else
-                  FormattedReply
-                    (fun connector -> format_config_keys ~connector matches)
-            | [ "wizard" ] ->
-                FormattedReply
-                  (fun connector ->
-                    "The config wizard requires an interactive terminal.\nRun: "
-                    ^ Format_adapter.code connector "clawq config wizard")
-            | sub :: _ ->
-                FormattedReply
-                  (fun connector ->
-                    format_config_unknown_subcommand ~connector sub))
+                      format_config_unknown_subcommand ~connector sub))
         | "fork-and" | "fork_and" -> (
             match args with
             | [] ->
@@ -444,7 +450,17 @@ let handle ?(skill_names = []) text =
                 in
                 InjectConnectorHistory count
             | _ -> InjectConnectorHistory 20)
-        | "debug-dump-chat" | "debug_dump_chat" -> DebugDumpChat
+        | "debug-dump-chat" | "debug_dump_chat" -> AdminRequired DebugDumpChat
+        | "register_as_admin_otc" | "register-as-admin-otc" -> (
+            match args with
+            | [] -> RegisterAsAdminOtc None
+            | [ code ] -> RegisterAsAdminOtc (Some code)
+            | _ ->
+                FormattedReply
+                  (fun connector ->
+                    "Usage: "
+                    ^ Format_adapter.code connector
+                        "/register_as_admin_otc [CODE]"))
         | "" -> NotACommand
         | _ -> (
             match

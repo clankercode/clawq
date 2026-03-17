@@ -183,6 +183,7 @@ let () =
     @ [ ("content_dsl", Test_content_dsl.tests) ]
     @ [ ("workspace_version", Test_workspace_version.suite) ]
     @ [ ("acp", Test_acp.suite) ]
+    @ [ ("admin", Test_admin.suite) ]
     @ Test_github.suites
     @ [
         ( "config_isolation",

@@ -190,7 +190,7 @@ let handle_agent_mention mgr ?notify message =
 let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
     ?(attachments = []) ?(skill_injections = [])
     ?(md_skills : (string * string) list = []) ?channel_name ?channel_type
-    ?sender_id ?sender_name ?channel ?channel_id () =
+    ?sender_id ?sender_name ?user_group ?channel ?channel_id () =
   let open Lwt.Syntax in
   let interrupt_check () = !interrupt in
   interrupt := None;
@@ -238,7 +238,7 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
         skill_injections;
       let effective_message =
         Session_core.effective_message_for_turn ~message ?channel_name
-          ?channel_type ?sender_id ?sender_name ()
+          ?channel_type ?sender_id ?sender_name ?user_group ()
       in
       let history_before = List.length agent.history in
       let notify = Session_core.find_registered_notifier mgr ~key in
@@ -303,7 +303,8 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
             Session_core.queued_message_prompt
               (Session_core.effective_message_for_turn ~message:qm.message
                  ?channel_name:qm.channel_name ?channel_type:qm.channel_type
-                 ?sender_id:qm.sender_id ?sender_name:qm.sender_name ()))
+                 ?sender_id:qm.sender_id ?sender_name:qm.sender_name
+                 ?user_group:qm.user_group ()))
           msgs
       in
       let on_stuck signals =
@@ -455,14 +456,15 @@ let rec drain_queued_messages_loop mgr ~key agent interrupt ?on_drain_progress
         Session_core.queued_message_prompt
           (Session_core.effective_message_for_turn ~message:queued.message
              ?channel_name:queued.channel_name ?channel_type:queued.channel_type
-             ?sender_id:queued.sender_id ?sender_name:queued.sender_name ())
+             ?sender_id:queued.sender_id ?sender_name:queued.sender_name
+             ?user_group:queued.user_group ())
       in
       let* response =
         run_locked_turn mgr ~key agent interrupt ~message:injected_message
           ~content_parts:queued.content_parts ?channel_name:queued.channel_name
           ?channel_type:queued.channel_type ?sender_id:queued.sender_id
-          ?sender_name:queued.sender_name ?channel:queued.channel
-          ?channel_id:queued.channel_id ()
+          ?sender_name:queued.sender_name ?user_group:queued.user_group
+          ?channel:queued.channel ?channel_id:queued.channel_id ()
       in
       let* () = notify response in
       (match (queued.inbound_queue_id, mgr.Session_core.db) with
@@ -508,7 +510,7 @@ let drain_queued_messages mgr ~key agent interrupt ?on_drain_progress () =
 
 let rec turn mgr ~key ~message ?(content_parts = []) ?(attachments = [])
     ?(skill_injections = []) ?channel_name ?channel_type ?sender_id ?sender_name
-    ?channel ?channel_id ?message_id ?before_drain () =
+    ?user_group ?channel ?channel_id ?message_id ?before_drain () =
   Session_core.with_live_activity mgr ~key (fun () ->
       let open Lwt.Syntax in
       let* () = Session_core.mark_autonomous_activity_started mgr ~key in
@@ -531,6 +533,7 @@ let rec turn mgr ~key ~message ?(content_parts = []) ?(attachments = [])
               channel_type;
               sender_id;
               sender_name;
+              user_group;
               channel;
               channel_id;
               message_id;
@@ -554,7 +557,7 @@ let rec turn mgr ~key ~message ?(content_parts = []) ?(attachments = [])
                       run_locked_turn mgr ~key agent interrupt ~message
                         ~content_parts ~attachments ~skill_injections
                         ?channel_name ?channel_type ?sender_id ?sender_name
-                        ?channel ?channel_id ()
+                        ?user_group ?channel ?channel_id ()
                     in
                     let* () =
                       match before_drain with
@@ -568,7 +571,7 @@ let rec turn mgr ~key ~message ?(content_parts = []) ?(attachments = [])
 
 let try_turn mgr ~key ~message ?(content_parts = []) ?(attachments = [])
     ?(skill_injections = []) ?channel_name ?channel_type ?sender_id ?sender_name
-    ?channel ?channel_id ?message_id ?before_drain () =
+    ?user_group ?channel ?channel_id ?message_id ?before_drain () =
   Session_core.with_live_activity mgr ~key (fun () ->
       let open Lwt.Syntax in
       let* () = Session_core.mark_autonomous_activity_started mgr ~key in
@@ -588,7 +591,7 @@ let try_turn mgr ~key ~message ?(content_parts = []) ?(attachments = [])
                     run_locked_turn mgr ~key agent interrupt ~message
                       ~content_parts ~attachments ~skill_injections
                       ?channel_name ?channel_type ?sender_id ?sender_name
-                      ?channel ?channel_id ()
+                      ?user_group ?channel ?channel_id ()
                   in
                   let* () =
                     match before_drain with
@@ -818,8 +821,8 @@ let fork_and_run mgr ~parent_key ?agent_name ~prompt ~send_reply () =
 
 let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
     ?(skill_injections = []) ?channel_name ?channel_type ?sender_id ?sender_name
-    ?channel ?channel_id ?message_id ?on_drain_progress ?before_drain ~on_chunk
-    () =
+    ?user_group ?channel ?channel_id ?message_id ?on_drain_progress
+    ?before_drain ~on_chunk () =
   Session_core.with_live_activity mgr ~key (fun () ->
       let open Lwt.Syntax in
       let* () = Session_core.mark_autonomous_activity_started mgr ~key in
@@ -845,6 +848,7 @@ let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
               channel_type;
               sender_id;
               sender_name;
+              user_group;
               channel;
               channel_id;
               message_id;
@@ -916,16 +920,9 @@ let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
                               :: agent.Agent.history)
                           all_injections;
                         let effective_message =
-                          match
-                            (channel_name, channel_type, sender_id, sender_name)
-                          with
-                          | None, None, None, None -> message
-                          | _ ->
-                              let ctx =
-                                Session_core.format_context_block ?channel_name
-                                  ?channel_type ?sender_id ?sender_name ()
-                              in
-                              ctx ^ "\n" ^ message
+                          Session_core.effective_message_for_turn ~message
+                            ?channel_name ?channel_type ?sender_id ?sender_name
+                            ?user_group ()
                         in
                         let history_before = List.length agent.history in
                         let notify =

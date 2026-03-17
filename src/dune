@@ -125,7 +125,8 @@
   acp_transport
   acp_terminals
   acp_history
-  acp_client)
+  acp_client
+  admin)
  (foreign_stubs
   (language c)
   (names landlock_stubs))

@@ -606,6 +606,7 @@ let notify_background_task_started ~(session_manager : Session.t)
             channel_type = None;
             sender_id = None;
             sender_name = None;
+            user_group = None;
             channel = task.channel;
             channel_id = task.channel_id;
             message_id = None;

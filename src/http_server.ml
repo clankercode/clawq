@@ -362,7 +362,25 @@ let handler ~session_manager ~require_pairing ~auth_token
                       )
                   | other -> Lwt.return (other, message, [])
                 in
+                let cmd_result =
+                  Slash_commands.gate_admin ~is_admin:true cmd_result
+                in
                 match cmd_result with
+                | Slash_commands.RegisterAsAdminOtc _ ->
+                    let resp_json =
+                      `Assoc
+                        [
+                          ( "response",
+                            `String
+                              "Admin registration is only available via \
+                               channel connectors (Telegram, Discord, Slack, \
+                               etc.)." );
+                        ]
+                      |> Yojson.Safe.to_string
+                    in
+                    Cohttp_lwt_unix.Server.respond_string ~status:`OK
+                      ~headers:json_headers ~body:resp_json ()
+                | Slash_commands.AdminRequired _ -> assert false
                 | Slash_commands.FormattedReply fn ->
                     let response = fn Format_adapter.Plain in
                     let resp_json =
@@ -695,7 +713,7 @@ let handler ~session_manager ~require_pairing ~auth_token
                         (fun () ->
                           let* response =
                             Session.turn session_manager ~key ~message
-                              ~skill_injections ()
+                              ~skill_injections ~user_group:"admin" ()
                           in
                           Lwt.return (Ok response))
                         (fun exn -> Lwt.return (Error (Printexc.to_string exn)))
@@ -1095,7 +1113,15 @@ let handler ~session_manager ~require_pairing ~auth_token
                       )
                   | other -> Lwt.return (other, message, [])
                 in
+                let cmd_result =
+                  Slash_commands.gate_admin ~is_admin:true cmd_result
+                in
                 match cmd_result with
+                | Slash_commands.RegisterAsAdminOtc _ ->
+                    sse_reply
+                      "Admin registration is only available via channel \
+                       connectors (Telegram, Discord, Slack, etc.)."
+                | Slash_commands.AdminRequired _ -> assert false
                 | Slash_commands.Reply text -> sse_reply text
                 | Slash_commands.FormattedReply fn ->
                     sse_reply (fn Format_adapter.Plain)
@@ -1637,6 +1663,7 @@ let handler ~session_manager ~require_pairing ~auth_token
                                 let* _response =
                                   Session.turn_stream session_manager ~key
                                     ~message ~skill_injections
+                                    ~user_group:"admin"
                                     ~on_chunk:(fun chunk ->
                                       let data =
                                         Yojson.Safe.to_string

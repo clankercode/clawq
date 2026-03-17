@@ -366,7 +366,54 @@ let handle_event ~(config : Runtime_config.slack_config)
                     ~text:(Printf.sprintf "Loaded skill: %s" name)
               | None -> Lwt.return_unit
             in
+            let is_admin =
+              match Session.get_db session_manager with
+              | Some db ->
+                  Admin.is_admin ~db ~channel:"slack" ~sender_id:user_id
+              | None -> false
+            in
+            let user_group = if is_admin then "admin" else "guest" in
+            let cmd_result = Slash_commands.gate_admin ~is_admin cmd_result in
             match cmd_result with
+            | RegisterAsAdminOtc None ->
+                let _code =
+                  Admin.generate_otc ~channel:"slack" ~sender_id:user_id
+                in
+                let* () =
+                  send_message_fn ~bot_token:config.bot_token ~channel_id
+                    ~text:
+                      "Admin registration initiated. Check the daemon \
+                       console/logs for your one-time code, then run: \
+                       /register_as_admin_otc CODE"
+                in
+                Lwt.return "ok"
+            | RegisterAsAdminOtc (Some code) -> (
+                match Session.get_db session_manager with
+                | Some db -> (
+                    match
+                      Admin.verify_otc ~db ~channel:"slack" ~sender_id:user_id
+                        ~code
+                    with
+                    | Ok () ->
+                        let* () =
+                          send_message_fn ~bot_token:config.bot_token
+                            ~channel_id
+                            ~text:"Successfully registered as admin."
+                        in
+                        Lwt.return "ok"
+                    | Error err_msg ->
+                        let* () =
+                          send_message_fn ~bot_token:config.bot_token
+                            ~channel_id ~text:err_msg
+                        in
+                        Lwt.return "ok")
+                | None ->
+                    let* () =
+                      send_message_fn ~bot_token:config.bot_token ~channel_id
+                        ~text:"Database not available."
+                    in
+                    Lwt.return "ok")
+            | AdminRequired _ -> assert false
             | Reply reply_text ->
                 let* () =
                   send_message_fn ~bot_token:config.bot_token ~channel_id
@@ -1130,9 +1177,9 @@ let handle_event ~(config : Runtime_config.slack_config)
                             Session.turn_stream session_manager ~key
                               ~message:text ~skill_injections
                               ~channel_name:channel_id ~channel_type:"group"
-                              ~sender_id:user_id ~channel:"slack" ~channel_id
-                              ~message_id:ts ~on_drain_progress ~before_drain
-                              ~on_chunk ()
+                              ~sender_id:user_id ~user_group ~channel:"slack"
+                              ~channel_id ~message_id:ts ~on_drain_progress
+                              ~before_drain ~on_chunk ()
                           in
                           Lwt.return (Ok response))
                         (fun exn -> Lwt.return (Error (Printexc.to_string exn))))

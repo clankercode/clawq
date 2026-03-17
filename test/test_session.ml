@@ -1089,6 +1089,7 @@ let test_drain_queued_messages_marks_live_activity () =
                    channel_type = None;
                    sender_id = None;
                    sender_name = None;
+                   user_group = None;
                    channel = Some "telegram";
                    channel_id = Some "1";
                    message_id = None;
@@ -1128,6 +1129,7 @@ let queued_message ?channel_name ?channel_type ?sender_id ?sender_name ?channel
     channel_type;
     sender_id;
     sender_name;
+    user_group = None;
     channel;
     channel_id;
     message_id;
@@ -2987,6 +2989,7 @@ let test_drain_queued_messages_drains_all_pending_without_relock () =
       channel_type = None;
       sender_id = None;
       sender_name = None;
+      user_group = None;
       channel = Some "telegram";
       channel_id = Some "1";
       message_id = None;

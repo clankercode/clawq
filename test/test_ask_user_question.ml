@@ -47,6 +47,7 @@ let dummy_queued_message message : Session.queued_message =
     channel_type = None;
     sender_id = None;
     sender_name = None;
+    user_group = None;
     channel = None;
     channel_id = None;
     message_id = None;

@@ -92,6 +92,8 @@ type result =
   | BgMenu
   | InjectConnectorHistory of int
   | SkillInvoke of string * string
+  | AdminRequired of result
+  | RegisterAsAdminOtc of string option
   | NotACommand
 
 (* ── Thinking helpers ──────────────────────────────────────────────────── *)
@@ -108,6 +110,18 @@ let parse_thinking_level value =
   | "xhigh" -> Some (Some "xhigh")
   | "max" -> Some (Some "max")
   | _ -> None
+
+(* ── Admin gating ─────────────────────────────────────────────────────── *)
+
+let gate_admin ~is_admin result =
+  match result with
+  | AdminRequired inner ->
+      if is_admin then inner
+      else
+        Reply
+          "This command requires admin privileges. Use /register_as_admin_otc \
+           to register as an admin."
+  | other -> other
 
 (* ── Commands list ─────────────────────────────────────────────────────── *)
 
@@ -233,6 +247,11 @@ let commands =
       name = "debug_dump_chat";
       description = "Dump session to file and send as attachment";
       priority = 3;
+    };
+    {
+      name = "register_as_admin_otc";
+      description = "Register as admin via one-time code";
+      priority = 2;
     };
   ]
 

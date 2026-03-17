@@ -327,7 +327,41 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                 ()
           | None -> Lwt.return_unit
         in
+        let is_admin =
+          match Session.get_db session_mgr with
+          | Some db ->
+              Admin.is_admin ~db ~channel:"telegram" ~sender_id:update.user_id
+          | None -> false
+        in
+        let user_group = if is_admin then "admin" else "guest" in
+        let cmd_result = Slash_commands.gate_admin ~is_admin cmd_result in
         match cmd_result with
+        | RegisterAsAdminOtc None ->
+            let _code =
+              Admin.generate_otc ~channel:"telegram" ~sender_id:update.user_id
+            in
+            send_message ~bot_token ~chat_id:update.chat_id
+              ~text:
+                "Admin registration initiated. Check the daemon console/logs \
+                 for your one-time code, then run: /register_as_admin_otc CODE"
+              ()
+        | RegisterAsAdminOtc (Some code) -> (
+            match Session.get_db session_mgr with
+            | Some db -> (
+                match
+                  Admin.verify_otc ~db ~channel:"telegram"
+                    ~sender_id:update.user_id ~code
+                with
+                | Ok () ->
+                    send_message ~bot_token ~chat_id:update.chat_id
+                      ~text:"Successfully registered as admin." ()
+                | Error msg ->
+                    send_message ~bot_token ~chat_id:update.chat_id ~text:msg ()
+                )
+            | None ->
+                send_message ~bot_token ~chat_id:update.chat_id
+                  ~text:"Database not available." ())
+        | AdminRequired _ -> assert false
         | Reply text -> send_message ~bot_token ~chat_id:update.chat_id ~text ()
         | FormattedReply fn ->
             let text = fn Format_adapter.Telegram_html in
@@ -863,8 +897,9 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                    attachments = [];
                    channel_name = Some "telegram";
                    channel_type = Some "dm";
-                   sender_id = None;
+                   sender_id = Some update.user_id;
                    sender_name = None;
+                   user_group = Some user_group;
                    channel = Some "telegram";
                    channel_id = Some update.chat_id;
                    message_id = Some (string_of_int update.message_id);
@@ -1279,7 +1314,8 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                               Session.turn_stream session_mgr ~key ~message:msg
                                 ~content_parts:!image_content_parts
                                 ~skill_injections ~channel_name:"telegram"
-                                ~channel_type:"dm" ~channel:"telegram"
+                                ~channel_type:"dm" ~sender_id:update.user_id
+                                ~user_group ~channel:"telegram"
                                 ~channel_id:update.chat_id
                                 ~message_id:(string_of_int update.message_id)
                                 ~on_drain_progress ~before_drain ~on_chunk ()
