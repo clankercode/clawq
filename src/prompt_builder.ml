@@ -18,11 +18,15 @@ let now_utc_iso8601 () =
     (tm.Unix.tm_mon + 1) tm.Unix.tm_mday tm.Unix.tm_hour tm.Unix.tm_min
     tm.Unix.tm_sec
 
+let day_of_week_abbrev wday =
+  [| "Sun"; "Mon"; "Tue"; "Wed"; "Thu"; "Fri"; "Sat" |].(wday)
+
 let now_local_iso8601 () =
   let tm = Unix.localtime (Unix.gettimeofday ()) in
-  Printf.sprintf "%04d-%02d-%02dT%02d:%02d:%02d" (tm.Unix.tm_year + 1900)
-    (tm.Unix.tm_mon + 1) tm.Unix.tm_mday tm.Unix.tm_hour tm.Unix.tm_min
-    tm.Unix.tm_sec
+  Printf.sprintf "%s %04d-%02d-%02dT%02d:%02d:%02d"
+    (day_of_week_abbrev tm.Unix.tm_wday)
+    (tm.Unix.tm_year + 1900) (tm.Unix.tm_mon + 1) tm.Unix.tm_mday
+    tm.Unix.tm_hour tm.Unix.tm_min tm.Unix.tm_sec
 
 let local_timezone_label () =
   match Sys.getenv_opt "TZ" with
