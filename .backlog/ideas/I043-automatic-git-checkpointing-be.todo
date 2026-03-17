@@ -1,0 +1,15 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 10
+id: I043
+priority: high
+status: pending
+tags:
+    - self-building
+    - git
+    - safety
+    - undo
+title: Automatic Git Checkpointing Before File Writes
+---
+Before any file_write or file_edit tool invocation, automatically create a git stash or lightweight commit on a checkpoint branch. If the agent's edits break tests, 'clawq undo' or git checkout restores the pre-edit state. This is the safety net that makes fully autonomous editing safe — you can give the agent more autonomy because recovery is always one command away. Essential for overnight/CI-style self-building runs. Combined with auto-test feedback loop (I040), creates: checkpoint -> edit -> test -> revert-if-fail cycle.

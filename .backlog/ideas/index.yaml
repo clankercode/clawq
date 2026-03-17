@@ -286,3 +286,5 @@ ideas:
       id: I041
     - file: I042-diff-aware-code-review-tool.todo
       id: I042
+    - file: I043-automatic-git-checkpointing-be.todo
+      id: I043
