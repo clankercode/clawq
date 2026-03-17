@@ -433,206 +433,73 @@ let add_thinking_content_columns db =
       "ALTER TABLE session_log_epoch_messages ADD COLUMN thinking_content TEXT"
   with _ -> ()
 
-let migrate_schema db current_version =
-  match current_version with
-  | 0 ->
-      init_session_schema db;
-      init_epoch_schema db;
-      init_inbound_queue_schema db;
-      init_pending_questions_schema db;
-      (try
-         exec_exn db
-           "ALTER TABLE task_tree ADD COLUMN deleted_at TEXT DEFAULT NULL"
-       with _ -> ());
-      add_thinking_content_columns db;
-      exec_exn db
-        (Printf.sprintf "INSERT INTO schema_version (version) VALUES (%d)"
-           schema_version)
-  | 1 ->
-      init_session_schema db;
-      init_epoch_schema db;
-      init_inbound_queue_schema db;
-      exec_exn db
-        "ALTER TABLE messages ADD COLUMN provider_response_items_json TEXT";
-      (try
-         exec_exn db
-           "ALTER TABLE task_tree ADD COLUMN deleted_at TEXT DEFAULT NULL"
-       with _ -> ());
-      add_thinking_content_columns db;
-      set_schema_version db schema_version
-  | 2 ->
-      init_session_schema db;
-      init_epoch_schema db;
-      init_inbound_queue_schema db;
-      exec_exn db
-        "ALTER TABLE messages ADD COLUMN provider_response_items_json TEXT";
-      (try
-         exec_exn db
-           "ALTER TABLE task_tree ADD COLUMN deleted_at TEXT DEFAULT NULL"
-       with _ -> ());
-      add_thinking_content_columns db;
-      set_schema_version db schema_version
+(* Ensure all tables that are only created inside migrate_schema exist.
+   Uses CREATE TABLE IF NOT EXISTS throughout, so safe to call at any point. *)
+let ensure_all_tables db =
+  init_session_schema db;
+  init_inbound_queue_schema db;
+  init_models_cache_schema db;
+  init_request_stats_schema db;
+  init_quota_cache_schema db;
+  init_quota_history_schema db;
+  init_postmortems_schema db;
+  init_model_discovery_state_schema db;
+  Summary_store.init_schema db;
+  init_pending_questions_schema db;
+  init_ec_reports_schema db;
+  init_session_archive_schema db;
+  init_connector_history_schema db;
+  init_attachment_log_schema db;
+  Admin.init_schema db;
+  Pair_coding_state.init_schema db
+
+(* Each step migrates from version [v] to [v + 1].
+   All ALTER TABLE operations use try/catch for idempotency.
+   The caller bumps schema_version after each step. *)
+let migrate_step db v =
+  match v with
+  | 1 -> (
+      try
+        exec_exn db
+          "ALTER TABLE messages ADD COLUMN provider_response_items_json TEXT"
+      with _ -> ())
+  | 2 | 5 | 6 | 11 | 14 | 17 | 18 | 21 | 23 | 25 -> ()
   | 3 ->
-      init_session_schema db;
-      init_epoch_schema db;
-      init_inbound_queue_schema db;
-      (try
-         exec_exn db
-           "ALTER TABLE task_tree ADD COLUMN deleted_at TEXT DEFAULT NULL"
-       with _ -> ());
-      add_thinking_content_columns db;
-      set_schema_version db schema_version
-  | 4 ->
-      init_session_schema db;
-      init_inbound_queue_schema db;
       init_models_cache_schema db;
-      init_request_stats_schema db;
-      (try
-         exec_exn db
-           "ALTER TABLE task_tree ADD COLUMN deleted_at TEXT DEFAULT NULL"
-       with _ -> ());
-      add_thinking_content_columns db;
-      set_schema_version db schema_version
-  | 5 ->
-      init_session_schema db;
-      init_inbound_queue_schema db;
-      init_models_cache_schema db;
-      init_request_stats_schema db;
-      exec_exn db
-        "ALTER TABLE session_state ADD COLUMN keepalive_enabled INTEGER NOT \
-         NULL DEFAULT 0";
-      (try
-         exec_exn db
-           "ALTER TABLE task_tree ADD COLUMN deleted_at TEXT DEFAULT NULL"
-       with _ -> ());
-      add_thinking_content_columns db;
-      set_schema_version db schema_version
-  | 6 ->
-      init_session_schema db;
-      init_inbound_queue_schema db;
-      init_models_cache_schema db;
-      init_request_stats_schema db;
-      exec_exn db
-        "ALTER TABLE session_state ADD COLUMN keepalive_enabled INTEGER NOT \
-         NULL DEFAULT 0";
-      (try
-         exec_exn db
-           "ALTER TABLE task_tree ADD COLUMN deleted_at TEXT DEFAULT NULL"
-       with _ -> ());
-      add_thinking_content_columns db;
-      set_schema_version db schema_version
-  | 7 ->
-      init_session_schema db;
-      init_inbound_queue_schema db;
-      init_models_cache_schema db;
-      init_request_stats_schema db;
-      (try
-         exec_exn db
-           "ALTER TABLE task_tree ADD COLUMN deleted_at TEXT DEFAULT NULL"
-       with _ -> ());
-      add_thinking_content_columns db;
-      set_schema_version db schema_version
-  | 8 ->
-      init_session_schema db;
-      init_inbound_queue_schema db;
-      init_models_cache_schema db;
-      init_request_stats_schema db;
-      init_quota_cache_schema db;
-      add_thinking_content_columns db;
-      set_schema_version db schema_version
-  | 9 ->
-      init_session_schema db;
-      init_inbound_queue_schema db;
-      init_models_cache_schema db;
-      init_request_stats_schema db;
-      init_quota_cache_schema db;
-      exec_exn db
-        "ALTER TABLE session_state ADD COLUMN model_override TEXT DEFAULT NULL";
-      add_thinking_content_columns db;
-      set_schema_version db schema_version
+      init_request_stats_schema db
+  | 4 -> (
+      try
+        exec_exn db
+          "ALTER TABLE session_state ADD COLUMN keepalive_enabled INTEGER NOT \
+           NULL DEFAULT 0"
+      with _ -> ())
+  | 7 -> init_quota_cache_schema db
+  | 8 -> (
+      try
+        exec_exn db
+          "ALTER TABLE session_state ADD COLUMN model_override TEXT DEFAULT \
+           NULL"
+      with _ -> ())
+  | 9 -> init_postmortems_schema db
   | 10 ->
-      init_session_schema db;
-      init_inbound_queue_schema db;
-      init_models_cache_schema db;
-      init_request_stats_schema db;
-      init_quota_cache_schema db;
-      init_postmortems_schema db;
-      add_thinking_content_columns db;
-      set_schema_version db schema_version
-  | 11 ->
-      init_session_schema db;
-      init_inbound_queue_schema db;
-      init_models_cache_schema db;
-      init_request_stats_schema db;
-      init_quota_cache_schema db;
-      init_postmortems_schema db;
       init_model_discovery_state_schema db;
-      Summary_store.init_schema db;
-      add_thinking_content_columns db;
-      set_schema_version db schema_version
-  | 12 ->
-      init_session_schema db;
-      init_inbound_queue_schema db;
-      init_models_cache_schema db;
-      init_request_stats_schema db;
-      init_quota_cache_schema db;
-      init_postmortems_schema db;
-      init_model_discovery_state_schema db;
-      Summary_store.init_schema db;
-      add_thinking_content_columns db;
-      set_schema_version db schema_version
-  | 13 ->
-      init_session_schema db;
-      init_inbound_queue_schema db;
-      init_models_cache_schema db;
-      init_request_stats_schema db;
-      init_quota_cache_schema db;
-      init_postmortems_schema db;
-      init_model_discovery_state_schema db;
-      Summary_store.init_schema db;
-      (try
-         exec_exn db
-           "ALTER TABLE request_stats ADD COLUMN added_prompt_tokens INTEGER"
-       with _ -> ());
-      add_thinking_content_columns db;
-      set_schema_version db schema_version
-  | 14 ->
-      init_session_schema db;
-      init_inbound_queue_schema db;
-      init_models_cache_schema db;
-      init_request_stats_schema db;
-      init_quota_cache_schema db;
-      init_postmortems_schema db;
-      init_model_discovery_state_schema db;
-      Summary_store.init_schema db;
+      Summary_store.init_schema db
+  | 12 -> (
+      try
+        exec_exn db
+          "ALTER TABLE request_stats ADD COLUMN added_prompt_tokens INTEGER"
+      with _ -> ())
+  | 13 -> (
       init_pending_questions_schema db;
-      exec_exn db
-        "ALTER TABLE session_state ADD COLUMN heartbeat_enabled INTEGER NOT \
-         NULL DEFAULT 0";
-      add_thinking_content_columns db;
-      set_schema_version db schema_version
+      try
+        exec_exn db
+          "ALTER TABLE session_state ADD COLUMN heartbeat_enabled INTEGER NOT \
+           NULL DEFAULT 0"
+      with _ -> ())
   | 15 ->
-      init_session_schema db;
-      init_inbound_queue_schema db;
-      init_models_cache_schema db;
-      init_request_stats_schema db;
-      init_quota_cache_schema db;
-      init_postmortems_schema db;
-      init_model_discovery_state_schema db;
-      Summary_store.init_schema db;
-      init_pending_questions_schema db;
-      exec_exn db
-        "ALTER TABLE session_state ADD COLUMN heartbeat_enabled INTEGER NOT \
-         NULL DEFAULT 0";
-      add_thinking_content_columns db;
-      set_schema_version db schema_version
-  | 16 ->
-      (* Recreate session_state with CHECK constraint enforcing channel and
-         channel_id are either both NULL or both non-NULL.
-         SQLite does not support ADD CONSTRAINT on existing tables, so we
-         use the CREATE-INSERT-DROP-RENAME pattern.
-         Drop any leftover session_state_new from a previous partial run
-         to make this migration re-entrant. *)
+      (* Recreate session_state with CHECK constraint.
+         SQLite does not support ADD CONSTRAINT, so use
+         CREATE-INSERT-DROP-RENAME. Drop leftover from partial runs. *)
       exec_exn db "DROP TABLE IF EXISTS session_state_new";
       exec_exn db
         "CREATE TABLE session_state_new (session_key TEXT PRIMARY KEY, turn \
@@ -649,100 +516,57 @@ let migrate_schema db current_version =
          heartbeat_enabled, model_override FROM session_state WHERE (channel \
          IS NULL) = (channel_id IS NULL)";
       exec_exn db "DROP TABLE session_state";
-      exec_exn db "ALTER TABLE session_state_new RENAME TO session_state";
-      init_inbound_queue_schema db;
-      init_models_cache_schema db;
-      init_request_stats_schema db;
-      init_quota_cache_schema db;
-      init_postmortems_schema db;
-      init_model_discovery_state_schema db;
-      Summary_store.init_schema db;
-      init_pending_questions_schema db;
-      add_thinking_content_columns db;
-      set_schema_version db schema_version
-  | 17 ->
+      exec_exn db "ALTER TABLE session_state_new RENAME TO session_state"
+  | 16 ->
       init_ec_reports_schema db;
-      init_quota_history_schema db;
-      add_thinking_content_columns db;
-      set_schema_version db schema_version
-  | 18 ->
-      init_quota_history_schema db;
-      add_thinking_content_columns db;
-      (try
-         exec_exn db
-           "ALTER TABLE request_stats ADD COLUMN cached_tokens INTEGER"
-       with _ -> ());
-      set_schema_version db schema_version
-  | 19 ->
-      add_thinking_content_columns db;
-      (try
-         exec_exn db
-           "ALTER TABLE request_stats ADD COLUMN cached_tokens INTEGER"
-       with _ -> ());
-      set_schema_version db schema_version
+      init_quota_history_schema db
+  | 19 -> (
+      try
+        exec_exn db "ALTER TABLE request_stats ADD COLUMN cached_tokens INTEGER"
+      with _ -> ())
   | 20 ->
-      (try
-         exec_exn db
-           "ALTER TABLE request_stats ADD COLUMN cached_tokens INTEGER"
-       with _ -> ());
-      set_schema_version db schema_version
-  | 21 ->
       init_session_archive_schema db;
       init_connector_history_schema db;
-      init_attachment_log_schema db;
-      set_schema_version db schema_version
-  | 22 ->
-      init_connector_history_schema db;
-      init_attachment_log_schema db;
-      set_schema_version db 23;
-      Admin.init_schema db;
-      set_schema_version db schema_version
-  | 23 ->
-      Admin.init_schema db;
-      init_attachment_log_schema db;
-      set_schema_version db schema_version
-  | 24 ->
-      init_attachment_log_schema db;
-      set_schema_version db 25;
-      Pair_coding_state.init_schema db;
+      init_attachment_log_schema db
+  | 22 -> Admin.init_schema db
+  | 24 -> Pair_coding_state.init_schema db
+  | 26 -> (
+      try
+        exec_exn db
+          "ALTER TABLE session_state ADD COLUMN effective_cwd TEXT DEFAULT NULL"
+      with _ -> ())
+  | n -> failwith (Printf.sprintf "Unknown migration step from version %d" n)
+
+let migrate_schema db current_version =
+  match current_version with
+  | 0 ->
+      (* Fresh database: create all tables with current schema *)
+      ensure_all_tables db;
       (try
          exec_exn db
-           "ALTER TABLE session_state ADD COLUMN effective_cwd TEXT DEFAULT \
-            NULL"
+           "ALTER TABLE task_tree ADD COLUMN deleted_at TEXT DEFAULT NULL"
        with _ -> ());
-      set_schema_version db schema_version
-  | 25 ->
-      Pair_coding_state.init_schema db;
+      add_thinking_content_columns db;
+      exec_exn db
+        (Printf.sprintf "INSERT INTO schema_version (version) VALUES (%d)"
+           schema_version)
+  | n when n > 0 && n < schema_version ->
+      (* Ensure base tables exist before steps that ALTER them *)
+      ensure_all_tables db;
+      (* Sequential migration: apply each step from current to latest *)
+      for v = n to schema_version - 1 do
+        migrate_step db v;
+        set_schema_version db (v + 1)
+      done;
+      ensure_all_tables db;
       (try
          exec_exn db
-           "ALTER TABLE session_state ADD COLUMN effective_cwd TEXT DEFAULT \
-            NULL"
+           "ALTER TABLE task_tree ADD COLUMN deleted_at TEXT DEFAULT NULL"
        with _ -> ());
-      set_schema_version db schema_version
-  | 26 ->
-      (try
-         exec_exn db
-           "ALTER TABLE session_state ADD COLUMN effective_cwd TEXT DEFAULT \
-            NULL"
-       with _ -> ());
-      set_schema_version db schema_version
+      add_thinking_content_columns db
   | n when n = schema_version ->
-      init_session_schema db;
-      init_inbound_queue_schema db;
-      init_models_cache_schema db;
-      init_request_stats_schema db;
-      init_quota_cache_schema db;
-      init_quota_history_schema db;
-      init_postmortems_schema db;
-      init_model_discovery_state_schema db;
-      Summary_store.init_schema db;
-      init_pending_questions_schema db;
-      init_ec_reports_schema db;
-      init_session_archive_schema db;
-      init_connector_history_schema db;
-      init_attachment_log_schema db;
-      Admin.init_schema db;
-      Pair_coding_state.init_schema db
+      (* Already at current version: ensure all tables exist *)
+      ensure_all_tables db
   | n ->
       failwith
         (Printf.sprintf "DB uses future schema version %d (current=%d)" n

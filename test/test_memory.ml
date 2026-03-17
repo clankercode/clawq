@@ -922,6 +922,99 @@ let test_queue_migrate_v4_to_v5 () =
       Alcotest.(check string)
         "content preserved" "pre-migration msg" (List.hd msgs).content)
 
+let column_exists db table_name col_name =
+  let stmt =
+    Sqlite3.prepare db
+      (Printf.sprintf "SELECT 1 FROM pragma_table_info('%s') WHERE name = ?"
+         table_name)
+  in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT col_name));
+      Sqlite3.step stmt = Sqlite3.Rc.ROW)
+
+let test_migrate_v16_adds_effective_cwd () =
+  with_temp_db (fun db_path ->
+      let db = Sqlite3.db_open db_path in
+      exec_exn db "CREATE TABLE schema_version (version INTEGER NOT NULL)";
+      exec_exn db "INSERT INTO schema_version (version) VALUES (16)";
+      exec_exn db
+        {|CREATE TABLE messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_key TEXT NOT NULL,
+  role TEXT NOT NULL,
+  content TEXT NOT NULL,
+  tool_call_id TEXT,
+  tool_name TEXT,
+  tool_calls_json TEXT,
+  provider_response_items_json TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+)|};
+      (* v16 session_state: no effective_cwd column *)
+      exec_exn db
+        {|CREATE TABLE session_state (
+  session_key TEXT PRIMARY KEY,
+  turn TEXT NOT NULL DEFAULT 'user',
+  channel TEXT,
+  channel_id TEXT,
+  response_sent_at TEXT,
+  last_active TEXT NOT NULL DEFAULT (datetime('now')),
+  keepalive_enabled INTEGER NOT NULL DEFAULT 0,
+  heartbeat_enabled INTEGER NOT NULL DEFAULT 0,
+  model_override TEXT DEFAULT NULL,
+  CHECK ((channel IS NULL) = (channel_id IS NULL))
+)|};
+      ignore (Sqlite3.db_close db);
+      let migrated = Memory.init ~db_path () in
+      Alcotest.(check int)
+        "schema version is 27" 27
+        (query_single_int migrated "SELECT version FROM schema_version");
+      Alcotest.(check bool)
+        "effective_cwd column exists after v16 migration" true
+        (column_exists migrated "session_state" "effective_cwd"))
+
+let test_migrate_v23_adds_effective_cwd () =
+  with_temp_db (fun db_path ->
+      let db = Sqlite3.db_open db_path in
+      exec_exn db "CREATE TABLE schema_version (version INTEGER NOT NULL)";
+      exec_exn db "INSERT INTO schema_version (version) VALUES (23)";
+      exec_exn db
+        {|CREATE TABLE messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_key TEXT NOT NULL,
+  role TEXT NOT NULL,
+  content TEXT NOT NULL,
+  tool_call_id TEXT,
+  tool_name TEXT,
+  tool_calls_json TEXT,
+  provider_response_items_json TEXT,
+  thinking_content TEXT,
+  thinking_signature TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+)|};
+      exec_exn db
+        {|CREATE TABLE session_state (
+  session_key TEXT PRIMARY KEY,
+  turn TEXT NOT NULL DEFAULT 'user',
+  channel TEXT,
+  channel_id TEXT,
+  response_sent_at TEXT,
+  last_active TEXT NOT NULL DEFAULT (datetime('now')),
+  keepalive_enabled INTEGER NOT NULL DEFAULT 0,
+  heartbeat_enabled INTEGER NOT NULL DEFAULT 0,
+  model_override TEXT DEFAULT NULL,
+  CHECK ((channel IS NULL) = (channel_id IS NULL))
+)|};
+      ignore (Sqlite3.db_close db);
+      let migrated = Memory.init ~db_path () in
+      Alcotest.(check int)
+        "schema version is 27" 27
+        (query_single_int migrated "SELECT version FROM schema_version");
+      Alcotest.(check bool)
+        "effective_cwd column exists after v23 migration" true
+        (column_exists migrated "session_state" "effective_cwd"))
+
 let test_init_rejects_future_schema_version () =
   with_temp_db (fun db_path ->
       let db = Sqlite3.db_open db_path in
@@ -1203,6 +1296,10 @@ let suite =
     Alcotest.test_case "queue count all" `Quick test_queue_count_all;
     Alcotest.test_case "queue migrate v4 to v5" `Quick
       test_queue_migrate_v4_to_v5;
+    Alcotest.test_case "migrate v16 adds effective_cwd" `Quick
+      test_migrate_v16_adds_effective_cwd;
+    Alcotest.test_case "migrate v23 adds effective_cwd" `Quick
+      test_migrate_v23_adds_effective_cwd;
     Alcotest.test_case "init rejects future schema version" `Quick
       test_init_rejects_future_schema_version;
     Alcotest.test_case "archive session captures messages" `Quick
