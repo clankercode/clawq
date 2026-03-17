@@ -269,7 +269,14 @@ ideas:
       id: I036
     - file: I037-channel-specific-personas.todo
       id: I037
-    - file: I038-browser-automation-tool.todo
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 10
+      file: I038-browser-automation-tool.todo
       id: I038
+      priority: low
+      status: in_progress
+      tags: []
+      title: Browser Automation Tool
     - file: I039-a2a-protocol-endpoints.todo
       id: I039
