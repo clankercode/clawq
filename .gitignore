@@ -30,3 +30,4 @@ reviews/
 _coverage/
 *.coverage
 memory/
+tmp.*
