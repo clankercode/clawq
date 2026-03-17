@@ -1281,115 +1281,87 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                   | SkillInvoke _ ->
                       Lwt.return_unit (* unreachable: preprocessed above *)
                   | NotACommand -> (
-                      let available_agents =
-                        List.map
-                          (fun (t : Agent_template.t) -> t.name)
-                          (Agent_template.available_templates ())
-                      in
-                      match
-                        Group_chat_filter.parse_agent_mention ~available_agents
-                          text
-                      with
-                      | Some (agent_name, prompt) when prompt <> "" ->
-                          let* () =
-                            send_text
-                              (Printf.sprintf "Invoking agent '%s'..."
-                                 agent_name)
+                      (* Register status message factory and capabilities *)
+                      if
+                        Option.is_none
+                          (Session.find_connector_capabilities session_manager
+                             ~key)
+                      then
+                        Session.register_connector_capabilities session_manager
+                          ~key Connector_capabilities.teams;
+                      Session.register_status_message_factory session_manager
+                        ~key (fun () ->
+                          let notifier =
+                            make_status_notifier ~config
+                              ~service_url:effective_service_url
+                              ~conversation_id ~reply_to_id:activity_id
                           in
-                          Session.agent_invoke_turn session_manager ~agent_name
-                            ~prompt ~send_reply:send_text;
-                          Lwt.return_unit
-                      | Some (agent_name, _) ->
-                          send_text
-                            (Printf.sprintf
-                               "Usage: @%s <prompt> — provide a prompt for the \
-                                agent."
-                               agent_name)
-                      | None -> (
-                          (* Register status message factory and capabilities *)
-                          if
-                            Option.is_none
-                              (Session.find_connector_capabilities
-                                 session_manager ~key)
-                          then
-                            Session.register_connector_capabilities
-                              session_manager ~key Connector_capabilities.teams;
-                          Session.register_status_message_factory
-                            session_manager ~key (fun () ->
-                              let notifier =
-                                make_status_notifier ~config
-                                  ~service_url:effective_service_url
-                                  ~conversation_id ~reply_to_id:activity_id
-                              in
-                              Status_message.create ~notifier
-                                ~parse_mode:"Teams" ());
-                          (* Register alerting notifier for ask_user_question *)
-                          Session.register_alert_channel_notifier
-                            session_manager ~key (fun reply_text ->
-                              let* _id =
-                                send_reply ~alert:true ~config
-                                  ~service_url:effective_service_url
-                                  ~conversation_id ~reply_to_id:activity_id
-                                  ~text:reply_text ?mention ()
-                              in
-                              refresh_typing ();
-                              Lwt.return_unit);
-                          let* result =
-                            Session.with_registered_notifier session_manager
-                              ~key
-                              ~notify:(fun reply_text ->
-                                (* No mention on intermediate updates — mention only
+                          Status_message.create ~notifier ~parse_mode:"Teams" ());
+                      (* Register alerting notifier for ask_user_question *)
+                      Session.register_alert_channel_notifier session_manager
+                        ~key (fun reply_text ->
+                          let* _id =
+                            send_reply ~alert:true ~config
+                              ~service_url:effective_service_url
+                              ~conversation_id ~reply_to_id:activity_id
+                              ~text:reply_text ?mention ()
+                          in
+                          refresh_typing ();
+                          Lwt.return_unit);
+                      let* result =
+                        Session.with_registered_notifier session_manager ~key
+                          ~notify:(fun reply_text ->
+                            (* No mention on intermediate updates — mention only
                              on the final response to avoid repeated tagging. *)
-                                let* _id =
-                                  send_reply ~alert:false ~config
-                                    ~service_url:effective_service_url
-                                    ~conversation_id ~reply_to_id:activity_id
-                                    ~text:reply_text ()
-                                in
-                                refresh_typing ();
-                                Lwt.return_unit)
+                            let* _id =
+                              send_reply ~alert:false ~config
+                                ~service_url:effective_service_url
+                                ~conversation_id ~reply_to_id:activity_id
+                                ~text:reply_text ()
+                            in
+                            refresh_typing ();
+                            Lwt.return_unit)
+                          (fun () ->
+                            Lwt.catch
                               (fun () ->
-                                Lwt.catch
-                                  (fun () ->
-                                    let* response =
-                                      Session.turn session_manager ~key
-                                        ~message:text ~skill_injections
-                                        ~channel_name:"teams"
-                                        ~channel_type:
-                                          (if is_group then "group" else "dm")
-                                        ~channel:"teams"
-                                        ~channel_id:
-                                          (encode_channel_id
-                                             ~service_url:effective_service_url
-                                             ~conversation_id)
-                                        ~sender_id:user_id ?sender_name ()
-                                    in
-                                    Lwt.return (Ok response))
-                                  (fun exn ->
-                                    Lwt.return (Error (Printexc.to_string exn))))
-                          in
-                          match result with
-                          | Ok response ->
-                              if Session.should_suppress_response response then
-                                Lwt.return_unit
-                              else
-                                let* _id =
-                                  send_reply ~alert:true ~config
-                                    ~service_url:effective_service_url
-                                    ~conversation_id ~reply_to_id:activity_id
-                                    ~text:response ?mention ()
+                                let* response =
+                                  Session.turn session_manager ~key
+                                    ~message:text ~skill_injections
+                                    ~channel_name:"teams"
+                                    ~channel_type:
+                                      (if is_group then "group" else "dm")
+                                    ~channel:"teams"
+                                    ~channel_id:
+                                      (encode_channel_id
+                                         ~service_url:effective_service_url
+                                         ~conversation_id)
+                                    ~sender_id:user_id ?sender_name ()
                                 in
-                                Lwt.return_unit
-                          | Error err ->
-                              Logs.err (fun m ->
-                                  m
-                                    "Teams: agent error for conv=%s user=%s \
-                                     (id=%s): %s"
-                                    conversation_id
-                                    (if user_name <> "" then user_name
-                                     else user_id)
-                                    user_id err);
-                              Lwt.return_unit))
+                                Lwt.return (Ok response))
+                              (fun exn ->
+                                Lwt.return (Error (Printexc.to_string exn))))
+                      in
+                      match result with
+                      | Ok response ->
+                          if Session.should_suppress_response response then
+                            Lwt.return_unit
+                          else
+                            let* _id =
+                              send_reply ~alert:true ~config
+                                ~service_url:effective_service_url
+                                ~conversation_id ~reply_to_id:activity_id
+                                ~text:response ?mention ()
+                            in
+                            Lwt.return_unit
+                      | Error err ->
+                          Logs.err (fun m ->
+                              m
+                                "Teams: agent error for conv=%s user=%s \
+                                 (id=%s): %s"
+                                conversation_id
+                                (if user_name <> "" then user_name else user_id)
+                                user_id err);
+                          Lwt.return_unit)
                   | Reply text -> send_text text
                   | FormattedReply fn ->
                       let text = fn Format_adapter.Teams in

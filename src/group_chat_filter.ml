@@ -32,6 +32,17 @@ let should_respond ~is_group ~bot_mentioned ~is_reply_to_bot ~bot_name text =
     bot_mentioned || is_reply_to_bot || is_slash_command text
     || is_addressed_by_name ~bot_name text
 
+let strip_leading_platform_mention text =
+  let t = String.trim text in
+  let len = String.length t in
+  if len >= 3 && t.[0] = '<' && t.[1] = '@' then
+    match String.index_opt t '>' with
+    | Some i when i + 1 < len ->
+        String.trim (String.sub t (i + 1) (len - i - 1))
+    | Some _ -> ""
+    | None -> t
+  else t
+
 let parse_agent_mention ~available_agents text =
   let t = String.trim text in
   if String.length t < 2 || t.[0] <> '@' then None

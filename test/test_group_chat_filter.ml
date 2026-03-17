@@ -105,6 +105,59 @@ let test_is_addressed_by_name () =
     "other bot no" false
     (Group_chat_filter.is_addressed_by_name ~bot_name:"clawq" "otherbot, hi")
 
+let test_strip_leading_platform_mention () =
+  Alcotest.(check string)
+    "strip Discord/Slack <@ID> prefix" "@reviewer check this"
+    (Group_chat_filter.strip_leading_platform_mention
+       "<@123456789> @reviewer check this");
+  Alcotest.(check string)
+    "strip with extra whitespace" "@reviewer check"
+    (Group_chat_filter.strip_leading_platform_mention
+       "  <@BOT_ID>   @reviewer check  ");
+  Alcotest.(check string)
+    "no prefix unchanged" "@reviewer check this"
+    (Group_chat_filter.strip_leading_platform_mention "@reviewer check this");
+  Alcotest.(check string)
+    "plain text unchanged" "hello world"
+    (Group_chat_filter.strip_leading_platform_mention "hello world");
+  Alcotest.(check string)
+    "empty string" ""
+    (Group_chat_filter.strip_leading_platform_mention "");
+  Alcotest.(check string)
+    "unclosed angle bracket unchanged" "<@123"
+    (Group_chat_filter.strip_leading_platform_mention "<@123");
+  Alcotest.(check string)
+    "only platform mention becomes empty" ""
+    (Group_chat_filter.strip_leading_platform_mention "<@BOT_ID>")
+
+let test_agent_mention_after_platform_mention () =
+  let available = [ "reviewer"; "coder" ] in
+  (* After stripping <@BOT_ID>, @reviewer is at the start *)
+  let stripped =
+    Group_chat_filter.strip_leading_platform_mention
+      "<@123456789> @reviewer check this"
+  in
+  let result =
+    Group_chat_filter.parse_agent_mention ~available_agents:available stripped
+  in
+  Alcotest.(check (option (pair string string)))
+    "agent mention after platform mention"
+    (Some ("reviewer", "check this"))
+    result
+
+let test_agent_mention_mid_message_after_strip () =
+  let available = [ "reviewer" ] in
+  (* Even after stripping, @reviewer not at start *)
+  let stripped =
+    Group_chat_filter.strip_leading_platform_mention
+      "<@123> hello @reviewer check"
+  in
+  let result =
+    Group_chat_filter.parse_agent_mention ~available_agents:available stripped
+  in
+  Alcotest.(check (option (pair string string)))
+    "mid-message @agent not triggered after strip" None result
+
 let suite =
   [
     Alcotest.test_case "non-group always responds" `Quick
@@ -132,4 +185,10 @@ let suite =
     Alcotest.test_case "is_slash_command detection" `Quick test_is_slash_command;
     Alcotest.test_case "is_addressed_by_name detection" `Quick
       test_is_addressed_by_name;
+    Alcotest.test_case "strip leading platform mention" `Quick
+      test_strip_leading_platform_mention;
+    Alcotest.test_case "agent mention after platform mention" `Quick
+      test_agent_mention_after_platform_mention;
+    Alcotest.test_case "mid-message @agent not triggered after strip" `Quick
+      test_agent_mention_mid_message_after_strip;
   ]

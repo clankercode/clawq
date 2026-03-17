@@ -959,293 +959,254 @@ let handle_event ~(config : Runtime_config.slack_config)
             | SkillInvoke _ ->
                 Lwt.return "ok" (* unreachable: preprocessed above *)
             | NotACommand -> (
-                let available_agents =
-                  List.map
-                    (fun (t : Agent_template.t) -> t.name)
-                    (Agent_template.available_templates ())
+                let agent_defaults =
+                  (Session.get_config session_manager).agent_defaults
                 in
-                match
-                  Group_chat_filter.parse_agent_mention ~available_agents text
-                with
-                | Some (agent_name, prompt) when prompt <> "" ->
-                    Lwt.async (fun () ->
+                let use_consolidated =
+                  agent_defaults.show_tool_calls
+                  && agent_defaults.tool_status_mode = "consolidated"
+                in
+                let tool_reaction_set = ref false in
+                let peers =
+                  Reaction_tracker.get_or_create_peers reactions ~key
+                    ~initial:ts
+                in
+                Reaction_tracker.add_peer reactions ~key ~message_id:ts;
+                let set_reaction_on_single timestamp emoji_name =
+                  Reaction_tracker.set_reaction_on_single reactions
+                    ~message_id:timestamp
+                    ~remove_previous:(fun timestamp prev ->
+                      remove_reaction ~bot_token:config.bot_token ~channel_id
+                        ~timestamp ~emoji_name:prev)
+                    ~add:(fun timestamp emoji_name ->
+                      add_reaction ~bot_token:config.bot_token ~channel_id
+                        ~timestamp ~emoji_name)
+                    ~emoji:emoji_name
+                in
+                let set_reaction emoji_name =
+                  Reaction_tracker.set_reaction_all reactions ~peers_ref:peers
+                    ~set_one:(fun timestamp emoji ->
+                      set_reaction_on_single timestamp emoji)
+                    ~emoji:emoji_name
+                in
+                let notifier_factory =
+                  if use_consolidated then
+                    Some
+                      (fun () ->
+                        let status_notifier =
+                          make_status_notifier ~bot_token:config.bot_token
+                            ~channel_id
+                        in
+                        Status_message.create ~notifier:status_notifier
+                          ~parse_mode:Connector_status.Slack.status_parse_mode
+                          ())
+                  else None
+                in
+                let strategy =
+                  Status_update.select_strategy ~agent_defaults
+                    ~capabilities:(Some Connector_capabilities.slack)
+                in
+                let handler =
+                  Status_update.make_handler ~strategy ~notifier_factory
+                    ~notify:(fun text ->
+                      send_message_fn ~bot_token:config.bot_token ~channel_id
+                        ~text)
+                    ~agent_defaults
+                    ~parse_mode:Connector_status.Slack.status_parse_mode
+                in
+                let on_chunk chunk =
+                  (match chunk with
+                  | Provider.ToolStart _ ->
+                      if not !tool_reaction_set then begin
+                        tool_reaction_set := true;
+                        Lwt.async (fun () ->
+                            set_reaction
+                              (Connector_status.Slack.phase_emoji Processing))
+                      end
+                  | _ -> ());
+                  handler.on_chunk chunk
+                in
+                let* () =
+                  set_reaction (Connector_status.Slack.phase_emoji Received)
+                in
+                let drain_progress_msg_ts = ref None in
+                let on_drain_progress : Session.drain_progress =
+                  {
+                    before_turn =
+                      (fun queued_msg_id ->
+                        let* () =
+                          match queued_msg_id with
+                          | Some msg_ts ->
+                              set_reaction_on_single msg_ts
+                                (Connector_status.Slack.phase_emoji Received)
+                          | None -> Lwt.return_unit
+                        in
+                        let* () =
+                          match !drain_progress_msg_ts with
+                          | Some prev_ts ->
+                              Lwt.catch
+                                (fun () ->
+                                  delete_message ~bot_token:config.bot_token
+                                    ~channel_id ~ts:prev_ts)
+                                (fun _exn -> Lwt.return_unit)
+                          | None -> Lwt.return_unit
+                        in
+                        let* new_ts =
+                          send_message_with_id ~bot_token:config.bot_token
+                            ~channel_id
+                            ~text:
+                              "\xe2\x8f\xb3 Processing queued \
+                               message\xe2\x80\xa6"
+                        in
+                        drain_progress_msg_ts := Some new_ts;
+                        Lwt.return_unit);
+                    after_turn =
+                      (fun queued_msg_id ->
+                        match queued_msg_id with
+                        | Some msg_ts ->
+                            set_reaction_on_single msg_ts
+                              (Connector_status.Slack.phase_emoji Completed)
+                        | None -> Lwt.return_unit);
+                    after_all =
+                      (fun () ->
+                        match !drain_progress_msg_ts with
+                        | Some prev_ts ->
+                            drain_progress_msg_ts := None;
+                            Lwt.catch
+                              (fun () ->
+                                delete_message ~bot_token:config.bot_token
+                                  ~channel_id ~ts:prev_ts)
+                              (fun _exn -> Lwt.return_unit)
+                        | None -> Lwt.return_unit);
+                  }
+                in
+                let response_sent = ref false in
+                let before_drain response =
+                  if Session.should_suppress_response response then
+                    Lwt.return_unit
+                  else
+                    let open Lwt.Syntax in
+                    let* () = handler.finalize () in
+                    let thinking = handler.get_thinking () in
+                    let* () =
+                      if thinking <> "" then
                         send_message_fn ~bot_token:config.bot_token ~channel_id
-                          ~text:
-                            (Printf.sprintf "Invoking agent '%s'..." agent_name));
-                    Session.agent_invoke_turn session_manager ~agent_name
-                      ~prompt ~send_reply:(fun text ->
+                          ~text:("_" ^ thinking ^ "_")
+                      else Lwt.return_unit
+                    in
+                    let* () =
+                      send_message_fn ~bot_token:config.bot_token ~channel_id
+                        ~text:response
+                    in
+                    let* () =
+                      set_reaction
+                        (Connector_status.Slack.phase_emoji Completed)
+                    in
+                    if not (Session.take_response_deferred session_manager ~key)
+                    then Session.mark_response_sent session_manager ~key;
+                    response_sent := true;
+                    Lwt.return_unit
+                in
+                let* result =
+                  Session.with_registered_notifier session_manager ~key
+                    ~notify:(fun text ->
+                      send_message_fn ~bot_token:config.bot_token ~channel_id
+                        ~text)
+                    (fun () ->
+                      Lwt.catch
+                        (fun () ->
+                          let* response =
+                            Session.turn_stream session_manager ~key
+                              ~message:text ~skill_injections
+                              ~channel_name:channel_id ~channel_type:"group"
+                              ~sender_id:user_id ~channel:"slack" ~channel_id
+                              ~message_id:ts ~on_drain_progress ~before_drain
+                              ~on_chunk ()
+                          in
+                          Lwt.return (Ok response))
+                        (fun exn -> Lwt.return (Error (Printexc.to_string exn))))
+                in
+                match result with
+                | Ok response ->
+                    if Session.should_suppress_response response then
+                      Lwt.return "ok"
+                    else if !response_sent then (
+                      let* () =
+                        Reaction_tracker.cleanup_with_remove reactions ~key
+                          ~remove:(fun timestamp emoji_name ->
+                            remove_reaction ~bot_token:config.bot_token
+                              ~channel_id ~timestamp ~emoji_name)
+                      in
+                      let send_to_channel text =
                         send_message_fn ~bot_token:config.bot_token ~channel_id
-                          ~text);
-                    Lwt.return "ok"
-                | Some (agent_name, _) ->
+                          ~text
+                      in
+                      Lwt.async (fun () ->
+                          Session.process_autonomous_turn_result
+                            ~on_response:send_to_channel session_manager ~key
+                            ~response);
+                      Lwt.return "ok")
+                    else
+                      let* () = handler.finalize () in
+                      let thinking = handler.get_thinking () in
+                      let* () =
+                        if thinking <> "" then
+                          send_message_fn ~bot_token:config.bot_token
+                            ~channel_id
+                            ~text:("_" ^ thinking ^ "_")
+                        else Lwt.return_unit
+                      in
+                      let* () =
+                        send_message_fn ~bot_token:config.bot_token ~channel_id
+                          ~text:response
+                      in
+                      let* () =
+                        set_reaction
+                          (Connector_status.Slack.phase_emoji Completed)
+                      in
+                      let* () =
+                        Reaction_tracker.cleanup_with_remove reactions ~key
+                          ~remove:(fun timestamp emoji_name ->
+                            remove_reaction ~bot_token:config.bot_token
+                              ~channel_id ~timestamp ~emoji_name)
+                      in
+                      if
+                        not
+                          (Session.take_response_deferred session_manager ~key)
+                      then Session.mark_response_sent session_manager ~key;
+                      let send_to_channel text =
+                        send_message_fn ~bot_token:config.bot_token ~channel_id
+                          ~text
+                      in
+                      Lwt.async (fun () ->
+                          Session.process_autonomous_turn_result
+                            ~on_response:send_to_channel session_manager ~key
+                            ~response);
+                      Lwt.return "ok"
+                | Error err ->
+                    Logs.err (fun m ->
+                        m "Slack agent error for channel=%s user=%s: %s"
+                          channel_id user_id err);
+                    let* () = handler.finalize () in
                     let* () =
                       send_message_fn ~bot_token:config.bot_token ~channel_id
                         ~text:
                           (Printf.sprintf
-                             "Usage: @%s <prompt> — provide a prompt for the \
-                              agent."
-                             agent_name)
-                    in
-                    Lwt.return "ok"
-                | None -> (
-                    let agent_defaults =
-                      (Session.get_config session_manager).agent_defaults
-                    in
-                    let use_consolidated =
-                      agent_defaults.show_tool_calls
-                      && agent_defaults.tool_status_mode = "consolidated"
-                    in
-                    let tool_reaction_set = ref false in
-                    let peers =
-                      Reaction_tracker.get_or_create_peers reactions ~key
-                        ~initial:ts
-                    in
-                    Reaction_tracker.add_peer reactions ~key ~message_id:ts;
-                    let set_reaction_on_single timestamp emoji_name =
-                      Reaction_tracker.set_reaction_on_single reactions
-                        ~message_id:timestamp
-                        ~remove_previous:(fun timestamp prev ->
-                          remove_reaction ~bot_token:config.bot_token
-                            ~channel_id ~timestamp ~emoji_name:prev)
-                        ~add:(fun timestamp emoji_name ->
-                          add_reaction ~bot_token:config.bot_token ~channel_id
-                            ~timestamp ~emoji_name)
-                        ~emoji:emoji_name
-                    in
-                    let set_reaction emoji_name =
-                      Reaction_tracker.set_reaction_all reactions
-                        ~peers_ref:peers
-                        ~set_one:(fun timestamp emoji ->
-                          set_reaction_on_single timestamp emoji)
-                        ~emoji:emoji_name
-                    in
-                    let notifier_factory =
-                      if use_consolidated then
-                        Some
-                          (fun () ->
-                            let status_notifier =
-                              make_status_notifier ~bot_token:config.bot_token
-                                ~channel_id
-                            in
-                            Status_message.create ~notifier:status_notifier
-                              ~parse_mode:
-                                Connector_status.Slack.status_parse_mode ())
-                      else None
-                    in
-                    let strategy =
-                      Status_update.select_strategy ~agent_defaults
-                        ~capabilities:(Some Connector_capabilities.slack)
-                    in
-                    let handler =
-                      Status_update.make_handler ~strategy ~notifier_factory
-                        ~notify:(fun text ->
-                          send_message_fn ~bot_token:config.bot_token
-                            ~channel_id ~text)
-                        ~agent_defaults
-                        ~parse_mode:Connector_status.Slack.status_parse_mode
-                    in
-                    let on_chunk chunk =
-                      (match chunk with
-                      | Provider.ToolStart _ ->
-                          if not !tool_reaction_set then begin
-                            tool_reaction_set := true;
-                            Lwt.async (fun () ->
-                                set_reaction
-                                  (Connector_status.Slack.phase_emoji Processing))
-                          end
-                      | _ -> ());
-                      handler.on_chunk chunk
+                             "Sorry, an error occurred processing your \
+                              message: %s"
+                             err)
                     in
                     let* () =
-                      set_reaction (Connector_status.Slack.phase_emoji Received)
+                      set_reaction (Connector_status.Slack.phase_emoji Failed)
                     in
-                    let drain_progress_msg_ts = ref None in
-                    let on_drain_progress : Session.drain_progress =
-                      {
-                        before_turn =
-                          (fun queued_msg_id ->
-                            let* () =
-                              match queued_msg_id with
-                              | Some msg_ts ->
-                                  set_reaction_on_single msg_ts
-                                    (Connector_status.Slack.phase_emoji Received)
-                              | None -> Lwt.return_unit
-                            in
-                            let* () =
-                              match !drain_progress_msg_ts with
-                              | Some prev_ts ->
-                                  Lwt.catch
-                                    (fun () ->
-                                      delete_message ~bot_token:config.bot_token
-                                        ~channel_id ~ts:prev_ts)
-                                    (fun _exn -> Lwt.return_unit)
-                              | None -> Lwt.return_unit
-                            in
-                            let* new_ts =
-                              send_message_with_id ~bot_token:config.bot_token
-                                ~channel_id
-                                ~text:
-                                  "\xe2\x8f\xb3 Processing queued \
-                                   message\xe2\x80\xa6"
-                            in
-                            drain_progress_msg_ts := Some new_ts;
-                            Lwt.return_unit);
-                        after_turn =
-                          (fun queued_msg_id ->
-                            match queued_msg_id with
-                            | Some msg_ts ->
-                                set_reaction_on_single msg_ts
-                                  (Connector_status.Slack.phase_emoji Completed)
-                            | None -> Lwt.return_unit);
-                        after_all =
-                          (fun () ->
-                            match !drain_progress_msg_ts with
-                            | Some prev_ts ->
-                                drain_progress_msg_ts := None;
-                                Lwt.catch
-                                  (fun () ->
-                                    delete_message ~bot_token:config.bot_token
-                                      ~channel_id ~ts:prev_ts)
-                                  (fun _exn -> Lwt.return_unit)
-                            | None -> Lwt.return_unit);
-                      }
+                    let* () =
+                      Reaction_tracker.cleanup_with_remove reactions ~key
+                        ~remove:(fun timestamp emoji_name ->
+                          remove_reaction ~bot_token:config.bot_token
+                            ~channel_id ~timestamp ~emoji_name)
                     in
-                    let response_sent = ref false in
-                    let before_drain response =
-                      if Session.should_suppress_response response then
-                        Lwt.return_unit
-                      else
-                        let open Lwt.Syntax in
-                        let* () = handler.finalize () in
-                        let thinking = handler.get_thinking () in
-                        let* () =
-                          if thinking <> "" then
-                            send_message_fn ~bot_token:config.bot_token
-                              ~channel_id
-                              ~text:("_" ^ thinking ^ "_")
-                          else Lwt.return_unit
-                        in
-                        let* () =
-                          send_message_fn ~bot_token:config.bot_token
-                            ~channel_id ~text:response
-                        in
-                        let* () =
-                          set_reaction
-                            (Connector_status.Slack.phase_emoji Completed)
-                        in
-                        if
-                          not
-                            (Session.take_response_deferred session_manager ~key)
-                        then Session.mark_response_sent session_manager ~key;
-                        response_sent := true;
-                        Lwt.return_unit
-                    in
-                    let* result =
-                      Session.with_registered_notifier session_manager ~key
-                        ~notify:(fun text ->
-                          send_message_fn ~bot_token:config.bot_token
-                            ~channel_id ~text)
-                        (fun () ->
-                          Lwt.catch
-                            (fun () ->
-                              let* response =
-                                Session.turn_stream session_manager ~key
-                                  ~message:text ~skill_injections
-                                  ~channel_name:channel_id ~channel_type:"group"
-                                  ~sender_id:user_id ~channel:"slack"
-                                  ~channel_id ~message_id:ts ~on_drain_progress
-                                  ~before_drain ~on_chunk ()
-                              in
-                              Lwt.return (Ok response))
-                            (fun exn ->
-                              Lwt.return (Error (Printexc.to_string exn))))
-                    in
-                    match result with
-                    | Ok response ->
-                        if Session.should_suppress_response response then
-                          Lwt.return "ok"
-                        else if !response_sent then (
-                          let* () =
-                            Reaction_tracker.cleanup_with_remove reactions ~key
-                              ~remove:(fun timestamp emoji_name ->
-                                remove_reaction ~bot_token:config.bot_token
-                                  ~channel_id ~timestamp ~emoji_name)
-                          in
-                          let send_to_channel text =
-                            send_message_fn ~bot_token:config.bot_token
-                              ~channel_id ~text
-                          in
-                          Lwt.async (fun () ->
-                              Session.process_autonomous_turn_result
-                                ~on_response:send_to_channel session_manager
-                                ~key ~response);
-                          Lwt.return "ok")
-                        else
-                          let* () = handler.finalize () in
-                          let thinking = handler.get_thinking () in
-                          let* () =
-                            if thinking <> "" then
-                              send_message_fn ~bot_token:config.bot_token
-                                ~channel_id
-                                ~text:("_" ^ thinking ^ "_")
-                            else Lwt.return_unit
-                          in
-                          let* () =
-                            send_message_fn ~bot_token:config.bot_token
-                              ~channel_id ~text:response
-                          in
-                          let* () =
-                            set_reaction
-                              (Connector_status.Slack.phase_emoji Completed)
-                          in
-                          let* () =
-                            Reaction_tracker.cleanup_with_remove reactions ~key
-                              ~remove:(fun timestamp emoji_name ->
-                                remove_reaction ~bot_token:config.bot_token
-                                  ~channel_id ~timestamp ~emoji_name)
-                          in
-                          if
-                            not
-                              (Session.take_response_deferred session_manager
-                                 ~key)
-                          then Session.mark_response_sent session_manager ~key;
-                          let send_to_channel text =
-                            send_message_fn ~bot_token:config.bot_token
-                              ~channel_id ~text
-                          in
-                          Lwt.async (fun () ->
-                              Session.process_autonomous_turn_result
-                                ~on_response:send_to_channel session_manager
-                                ~key ~response);
-                          Lwt.return "ok"
-                    | Error err ->
-                        Logs.err (fun m ->
-                            m "Slack agent error for channel=%s user=%s: %s"
-                              channel_id user_id err);
-                        let* () = handler.finalize () in
-                        let* () =
-                          send_message_fn ~bot_token:config.bot_token
-                            ~channel_id
-                            ~text:
-                              (Printf.sprintf
-                                 "Sorry, an error occurred processing your \
-                                  message: %s"
-                                 err)
-                        in
-                        let* () =
-                          set_reaction
-                            (Connector_status.Slack.phase_emoji Failed)
-                        in
-                        let* () =
-                          Reaction_tracker.cleanup_with_remove reactions ~key
-                            ~remove:(fun timestamp emoji_name ->
-                              remove_reaction ~bot_token:config.bot_token
-                                ~channel_id ~timestamp ~emoji_name)
-                        in
-                        if
-                          not
-                            (Session.take_response_deferred session_manager ~key)
-                        then Session.mark_response_sent session_manager ~key;
-                        Lwt.return "ok"))
+                    if not (Session.take_response_deferred session_manager ~key)
+                    then Session.mark_response_sent session_manager ~key;
+                    Lwt.return "ok")
       end
   | Some Other | None -> Lwt.return "ok"

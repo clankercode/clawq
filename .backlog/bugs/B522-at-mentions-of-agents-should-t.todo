@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-17T01:33:23Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-17T02:02:29Z"
 complexity: medium
 depends_on: []
+duration_minutes: 29.105875143416668
 estimate_hours: 1
 id: B522
 priority: high
 started_at: "2026-03-17T01:33:23Z"
-status: in_progress
+status: done
 tags: []
 title: at mentions of agents should trigger the agent but only if it's at the start of a message. (should still work for parameters to slash commands etc)
 ---

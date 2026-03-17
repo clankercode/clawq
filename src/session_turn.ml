@@ -126,6 +126,60 @@ let notify_skill_loads ~send injections =
 
 let dedup_skill_injections = Skill_dedup.dedup_skill_injections
 
+let resolve_agent_template_registry mgr (tmpl : Agent_template.t) =
+  match mgr.Session_core.tool_registry with
+  | Some base_reg -> Some (Agent_template.filter_tool_registry base_reg tmpl)
+  | None -> None
+
+let handle_agent_mention mgr ?notify message =
+  let open Lwt.Syntax in
+  let available_agents =
+    List.map
+      (fun (t : Agent_template.t) -> t.name)
+      (Agent_template.available_templates ())
+  in
+  let stripped = Group_chat_filter.strip_leading_platform_mention message in
+  match Group_chat_filter.parse_agent_mention ~available_agents stripped with
+  | Some (agent_name, prompt) when prompt <> "" -> (
+      (match notify with
+      | Some send ->
+          Lwt.async (fun () ->
+              Lwt.catch
+                (fun () ->
+                  send (Printf.sprintf "Invoking agent '%s'..." agent_name))
+                (fun _ -> Lwt.return_unit))
+      | None -> ());
+      match Agent_template.resolve agent_name with
+      | None ->
+          Lwt.return_some
+            (Printf.sprintf
+               "Agent template '%s' not found. Use /agent list to see \
+                available templates."
+               agent_name)
+      | Some tmpl ->
+          if mgr.Session_core.draining then
+            Lwt.return_some Session_core.draining_message
+          else
+            let tool_registry = resolve_agent_template_registry mgr tmpl in
+            let agent =
+              Agent.create ~config:mgr.config ?tool_registry
+                ~agent_template:tmpl ()
+            in
+            let* response =
+              Lwt.catch
+                (fun () -> Agent.turn agent ~user_message:prompt ())
+                (fun exn ->
+                  Lwt.return
+                    (Printf.sprintf "Agent invoke failed (%s): %s" agent_name
+                       (Printexc.to_string exn)))
+            in
+            Lwt.return_some response)
+  | Some (agent_name, _) ->
+      Lwt.return_some
+        (Printf.sprintf "Usage: @%s <prompt> — provide a prompt for the agent."
+           agent_name)
+  | None -> Lwt.return_none
+
 let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
     ?(attachments = []) ?(skill_injections = [])
     ?(md_skills : (string * string) list = []) ?channel_name ?channel_type
@@ -133,221 +187,232 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
   let open Lwt.Syntax in
   let interrupt_check () = !interrupt in
   interrupt := None;
-  let* message, auto_injections, auto_md_skills =
-    !expand_skill_refs_fn message
-  in
-  let skill_injections = skill_injections @ auto_injections in
-  let md_skills =
-    match (md_skills, auto_md_skills) with
-    | [], auto -> auto
-    | explicit, [] -> explicit
-    | explicit, auto ->
-        let seen = Hashtbl.create 16 in
-        List.iter (fun (n, _) -> Hashtbl.replace seen n ()) explicit;
-        let deduped_auto =
-          List.filter (fun (n, _) -> not (Hashtbl.mem seen n)) auto
-        in
-        explicit @ deduped_auto
-  in
-  (* Send "Loaded skill: X" notification for @mention skills *)
-  (if auto_injections <> [] then
-     match Session_core.find_registered_notifier mgr ~key with
-     | Some send -> notify_skill_loads ~send auto_injections
-     | None -> ());
-  (match mgr.Session_core.db with
-  | Some db when mgr.config.security.audit_enabled ->
-      Audit.log ~db
-        (ChatMessage
-           { session_key = key; role = "user"; content_preview = message })
-  | _ -> ());
-  Session_core.inject_attachment_context agent attachments;
-  let skill_injections =
-    dedup_skill_injections ~history:agent.Agent.history skill_injections
-  in
-  List.iter
-    (fun content ->
-      agent.Agent.history <-
-        Provider.make_message ~role:"system" ~content :: agent.Agent.history)
-    skill_injections;
-  let effective_message =
-    Session_core.effective_message_for_turn ~message ?channel_name ?channel_type
-      ?sender_id ?sender_name ()
-  in
-  let history_before = List.length agent.history in
+  (* Check for @agent mention at start of message *)
   let notify = Session_core.find_registered_notifier mgr ~key in
-  let refresh_messages =
-    match Agent.note_external_workspace_refresh_if_needed agent with
-    | Some msg -> [ msg ]
-    | None -> []
-  in
-  let* () = Session_core.notify_event_messages ?notify refresh_messages in
-  let* compaction_info =
-    Agent.prepare_turn_history agent ~user_message:effective_message
-      ~content_parts ~workspace_refresh_checked:true ?db:mgr.db ()
-  in
-  let compacted = Option.is_some compaction_info in
-  let* () = Session_core.notify_compaction_if_needed ?notify compaction_info in
-  if compacted then Session_core.persist_compacted_history mgr ~key agent
-  else Session_core.persist_new_messages mgr ~key ~history_before agent;
-  let runtime_context =
-    Prompt_builder.build_runtime_context ~config:mgr.config ~md_skills
-      ~details:
-        (Session_core.runtime_context_details mgr ~agent ~key
-           ~compacted_before_turn:compacted)
-      ()
-  in
-  let prepared_history_len = List.length agent.history in
-  Session_core.record_agent_turn mgr ~key ?channel ?channel_id ();
-  let persisted_up_to = ref prepared_history_len in
-  let on_history_update new_msgs =
-    (match mgr.db with
-    | Some db ->
-        List.iter
-          (fun msg -> Memory.store_message ~db ~session_key:key msg)
-          new_msgs;
-        persisted_up_to := List.length agent.Agent.history
-    | None -> ());
-    Session_core.notify_event_messages ?notify new_msgs
-  in
-  let inject_messages () =
-    let msgs = Session_core.take_all_queued_messages_for_injection mgr ~key in
-    List.map
-      (fun (qm : Session_core.queued_message) ->
-        Session_core.queued_message_prompt
-          (Session_core.effective_message_for_turn ~message:qm.message
-             ?channel_name:qm.channel_name ?channel_type:qm.channel_type
-             ?sender_id:qm.sender_id ?sender_name:qm.sender_name ()))
-      msgs
-  in
-  let on_stuck signals =
-    let open Lwt.Syntax in
-    let signal_desc = Stuck_detector.signals_to_string signals in
-    Logs.warn (fun m ->
-        m "[observer] stuck detected session=%s: %s" key signal_desc);
-    let correction =
-      Printf.sprintf
-        "[Observer] Stuck pattern detected: %s\n\n\
-         A postmortem agent has been launched to analyze this failure and look \
-         for solutions. While it works, you can:\n\
-         1. Ask a subagent to help find an alternative approach\n\
-         2. Work on a different part of the task\n\
-         3. Wait for the postmortem agent to write its findings to \
-         POSTMORTEM.md"
-        signal_desc
-    in
-    let correction_msg =
-      Provider.make_message ~role:"user" ~content:correction
-    in
-    agent.Agent.history <- correction_msg :: agent.Agent.history;
-    let* () = on_history_update [ correction_msg ] in
-    Lwt.async (fun () ->
-        spawn_postmortem_agent mgr ~stuck_history:agent.Agent.history
-          ~session_key:key ~reason:signal_desc ?db:mgr.db ());
-    Lwt.return_unit
-  in
-  let* response =
-    Lwt.catch
-      (fun () ->
-        let* draining_response = Session_core.respond_if_draining mgr in
-        match draining_response with
-        | Some response -> Lwt.return response
-        | None -> (
-            match notify with
-            | Some send
-              when mgr.config.agent_defaults.show_thinking
-                   || mgr.config.agent_defaults.show_tool_calls ->
-                stream_turn_with_visibility mgr ~notify:send agent ~key
-                  ~effective_message ~persisted_up_to ~interrupt_check
-                  ~inject_messages ~runtime_context ~on_history_update ~on_stuck
-                  ()
-            | _ ->
-                Agent.turn agent ~user_message:effective_message ?db:mgr.db
-                  ~session_key:key ~interrupt_check ~inject_messages
-                  ?runtime_context ~history_prepared:true ~on_history_update
-                  ~on_stuck ()))
-      (function
-        | Agent.Restart_requested ->
-            if agent.Agent.compacted_mid_turn then begin
-              Session_core.persist_compacted_history mgr ~key agent;
-              agent.Agent.compacted_mid_turn <- false
-            end
-            else
-              Session_core.persist_new_messages mgr ~key
-                ~history_before:!persisted_up_to agent;
-            Session_core.set_response_deferred mgr ~key;
-            Lwt.return Session_core.draining_message
-        | exn ->
-            if agent.Agent.compacted_mid_turn then begin
-              Session_core.persist_compacted_history mgr ~key agent;
-              agent.Agent.compacted_mid_turn <- false
-            end
-            else
-              Session_core.persist_new_messages mgr ~key
-                ~history_before:!persisted_up_to agent;
-            Lwt.fail exn)
-  in
-  (match notify with
-  | Some _
-    when mgr.config.agent_defaults.show_thinking
-         || mgr.config.agent_defaults.show_tool_calls ->
-      ()
-  | _ ->
-      if not (Session_core.response_deferred mgr ~key) then begin
-        if agent.Agent.compacted_mid_turn then begin
-          Session_core.persist_compacted_history mgr ~key agent;
-          agent.Agent.compacted_mid_turn <- false
-        end
-        else
-          Session_core.persist_new_messages mgr ~key
-            ~history_before:!persisted_up_to agent;
-        match mgr.db with
-        | Some db when mgr.config.security.audit_enabled ->
-            Audit.log ~db
-              (ChatMessage
-                 {
-                   session_key = key;
-                   role = "assistant";
-                   content_preview = response;
-                 })
-        | _ -> ()
-      end);
-  (* Message-count observer: trigger LLM stuck check every N new messages *)
-  if mgr.config.observer.enabled then begin
-    let cur_len = List.length agent.Agent.history in
-    let last_checked =
-      Option.value ~default:0
-        (Hashtbl.find_opt mgr.Session_core.observer_last_checked key)
-    in
-    let n = mgr.config.observer.check_every_n_messages in
-    if cur_len - last_checked >= n then begin
-      Hashtbl.replace mgr.Session_core.observer_last_checked key cur_len;
-      let history_snapshot = agent.Agent.history in
-      let stats : Session_observer.session_stats =
-        {
-          session_key = key;
-          turn_count = cur_len / 2;
-          total_tool_calls = 0;
-          error_count = 0;
-          session_age_s = 0.0;
-        }
+  let* agent_response = handle_agent_mention mgr ?notify message in
+  match agent_response with
+  | Some response -> Lwt.return response
+  | None ->
+      let* message, auto_injections, auto_md_skills =
+        !expand_skill_refs_fn message
       in
-      Lwt.async (fun () ->
-          let open Lwt.Syntax in
-          let* verdict =
-            Session_observer.check_stuck ~config:mgr.config
-              ~history:history_snapshot ~stats ()
+      let skill_injections = skill_injections @ auto_injections in
+      let md_skills =
+        match (md_skills, auto_md_skills) with
+        | [], auto -> auto
+        | explicit, [] -> explicit
+        | explicit, auto ->
+            let seen = Hashtbl.create 16 in
+            List.iter (fun (n, _) -> Hashtbl.replace seen n ()) explicit;
+            let deduped_auto =
+              List.filter (fun (n, _) -> not (Hashtbl.mem seen n)) auto
+            in
+            explicit @ deduped_auto
+      in
+      (* Send "Loaded skill: X" notification for @mention skills *)
+      (if auto_injections <> [] then
+         match Session_core.find_registered_notifier mgr ~key with
+         | Some send -> notify_skill_loads ~send auto_injections
+         | None -> ());
+      (match mgr.Session_core.db with
+      | Some db when mgr.config.security.audit_enabled ->
+          Audit.log ~db
+            (ChatMessage
+               { session_key = key; role = "user"; content_preview = message })
+      | _ -> ());
+      Session_core.inject_attachment_context agent attachments;
+      let skill_injections =
+        dedup_skill_injections ~history:agent.Agent.history skill_injections
+      in
+      List.iter
+        (fun content ->
+          agent.Agent.history <-
+            Provider.make_message ~role:"system" ~content :: agent.Agent.history)
+        skill_injections;
+      let effective_message =
+        Session_core.effective_message_for_turn ~message ?channel_name
+          ?channel_type ?sender_id ?sender_name ()
+      in
+      let history_before = List.length agent.history in
+      let notify = Session_core.find_registered_notifier mgr ~key in
+      let refresh_messages =
+        match Agent.note_external_workspace_refresh_if_needed agent with
+        | Some msg -> [ msg ]
+        | None -> []
+      in
+      let* () = Session_core.notify_event_messages ?notify refresh_messages in
+      let* compaction_info =
+        Agent.prepare_turn_history agent ~user_message:effective_message
+          ~content_parts ~workspace_refresh_checked:true ?db:mgr.db ()
+      in
+      let compacted = Option.is_some compaction_info in
+      let* () =
+        Session_core.notify_compaction_if_needed ?notify compaction_info
+      in
+      if compacted then Session_core.persist_compacted_history mgr ~key agent
+      else Session_core.persist_new_messages mgr ~key ~history_before agent;
+      let runtime_context =
+        Prompt_builder.build_runtime_context ~config:mgr.config ~md_skills
+          ~details:
+            (Session_core.runtime_context_details mgr ~agent ~key
+               ~compacted_before_turn:compacted)
+          ()
+      in
+      let prepared_history_len = List.length agent.history in
+      Session_core.record_agent_turn mgr ~key ?channel ?channel_id ();
+      let persisted_up_to = ref prepared_history_len in
+      let on_history_update new_msgs =
+        (match mgr.db with
+        | Some db ->
+            List.iter
+              (fun msg -> Memory.store_message ~db ~session_key:key msg)
+              new_msgs;
+            persisted_up_to := List.length agent.Agent.history
+        | None -> ());
+        Session_core.notify_event_messages ?notify new_msgs
+      in
+      let inject_messages () =
+        let msgs =
+          Session_core.take_all_queued_messages_for_injection mgr ~key
+        in
+        List.map
+          (fun (qm : Session_core.queued_message) ->
+            Session_core.queued_message_prompt
+              (Session_core.effective_message_for_turn ~message:qm.message
+                 ?channel_name:qm.channel_name ?channel_type:qm.channel_type
+                 ?sender_id:qm.sender_id ?sender_name:qm.sender_name ()))
+          msgs
+      in
+      let on_stuck signals =
+        let open Lwt.Syntax in
+        let signal_desc = Stuck_detector.signals_to_string signals in
+        Logs.warn (fun m ->
+            m "[observer] stuck detected session=%s: %s" key signal_desc);
+        let correction =
+          Printf.sprintf
+            "[Observer] Stuck pattern detected: %s\n\n\
+             A postmortem agent has been launched to analyze this failure and \
+             look for solutions. While it works, you can:\n\
+             1. Ask a subagent to help find an alternative approach\n\
+             2. Work on a different part of the task\n\
+             3. Wait for the postmortem agent to write its findings to \
+             POSTMORTEM.md"
+            signal_desc
+        in
+        let correction_msg =
+          Provider.make_message ~role:"user" ~content:correction
+        in
+        agent.Agent.history <- correction_msg :: agent.Agent.history;
+        let* () = on_history_update [ correction_msg ] in
+        Lwt.async (fun () ->
+            spawn_postmortem_agent mgr ~stuck_history:agent.Agent.history
+              ~session_key:key ~reason:signal_desc ?db:mgr.db ());
+        Lwt.return_unit
+      in
+      let* response =
+        Lwt.catch
+          (fun () ->
+            let* draining_response = Session_core.respond_if_draining mgr in
+            match draining_response with
+            | Some response -> Lwt.return response
+            | None -> (
+                match notify with
+                | Some send
+                  when mgr.config.agent_defaults.show_thinking
+                       || mgr.config.agent_defaults.show_tool_calls ->
+                    stream_turn_with_visibility mgr ~notify:send agent ~key
+                      ~effective_message ~persisted_up_to ~interrupt_check
+                      ~inject_messages ~runtime_context ~on_history_update
+                      ~on_stuck ()
+                | _ ->
+                    Agent.turn agent ~user_message:effective_message ?db:mgr.db
+                      ~session_key:key ~interrupt_check ~inject_messages
+                      ?runtime_context ~history_prepared:true ~on_history_update
+                      ~on_stuck ()))
+          (function
+            | Agent.Restart_requested ->
+                if agent.Agent.compacted_mid_turn then begin
+                  Session_core.persist_compacted_history mgr ~key agent;
+                  agent.Agent.compacted_mid_turn <- false
+                end
+                else
+                  Session_core.persist_new_messages mgr ~key
+                    ~history_before:!persisted_up_to agent;
+                Session_core.set_response_deferred mgr ~key;
+                Lwt.return Session_core.draining_message
+            | exn ->
+                if agent.Agent.compacted_mid_turn then begin
+                  Session_core.persist_compacted_history mgr ~key agent;
+                  agent.Agent.compacted_mid_turn <- false
+                end
+                else
+                  Session_core.persist_new_messages mgr ~key
+                    ~history_before:!persisted_up_to agent;
+                Lwt.fail exn)
+      in
+      (match notify with
+      | Some _
+        when mgr.config.agent_defaults.show_thinking
+             || mgr.config.agent_defaults.show_tool_calls ->
+          ()
+      | _ ->
+          if not (Session_core.response_deferred mgr ~key) then begin
+            if agent.Agent.compacted_mid_turn then begin
+              Session_core.persist_compacted_history mgr ~key agent;
+              agent.Agent.compacted_mid_turn <- false
+            end
+            else
+              Session_core.persist_new_messages mgr ~key
+                ~history_before:!persisted_up_to agent;
+            match mgr.db with
+            | Some db when mgr.config.security.audit_enabled ->
+                Audit.log ~db
+                  (ChatMessage
+                     {
+                       session_key = key;
+                       role = "assistant";
+                       content_preview = response;
+                     })
+            | _ -> ()
+          end);
+      (* Message-count observer: trigger LLM stuck check every N new messages *)
+      if mgr.config.observer.enabled then begin
+        let cur_len = List.length agent.Agent.history in
+        let last_checked =
+          Option.value ~default:0
+            (Hashtbl.find_opt mgr.Session_core.observer_last_checked key)
+        in
+        let n = mgr.config.observer.check_every_n_messages in
+        if cur_len - last_checked >= n then begin
+          Hashtbl.replace mgr.Session_core.observer_last_checked key cur_len;
+          let history_snapshot = agent.Agent.history in
+          let stats : Session_observer.session_stats =
+            {
+              session_key = key;
+              turn_count = cur_len / 2;
+              total_tool_calls = 0;
+              error_count = 0;
+              session_age_s = 0.0;
+            }
           in
-          match verdict with
-          | Session_observer.Ok | Session_observer.Error _ -> Lwt.return_unit
-          | Session_observer.Stuck { reason; _ } ->
-              Logs.warn (fun m ->
-                  m "[observer] message-count check: stuck session=%s: %s" key
-                    reason);
-              spawn_postmortem_agent mgr ~stuck_history:history_snapshot
-                ~session_key:key ~reason ?db:mgr.db ())
-    end
-  end;
-  Lwt.return response
+          Lwt.async (fun () ->
+              let open Lwt.Syntax in
+              let* verdict =
+                Session_observer.check_stuck ~config:mgr.config
+                  ~history:history_snapshot ~stats ()
+              in
+              match verdict with
+              | Session_observer.Ok | Session_observer.Error _ ->
+                  Lwt.return_unit
+              | Session_observer.Stuck { reason; _ } ->
+                  Logs.warn (fun m ->
+                      m "[observer] message-count check: stuck session=%s: %s"
+                        key reason);
+                  spawn_postmortem_agent mgr ~stuck_history:history_snapshot
+                    ~session_key:key ~reason ?db:mgr.db ())
+        end
+      end;
+      Lwt.return response
 
 let rec drain_queued_messages_loop mgr ~key agent interrupt ?on_drain_progress
     ~drained_any () =
@@ -557,11 +622,6 @@ let () =
 
 let apply_template_tool_restrictions = Agent_template.filter_tool_registry
 
-let resolve_agent_template_registry mgr (tmpl : Agent_template.t) =
-  match mgr.Session_core.tool_registry with
-  | Some base_reg -> Some (Agent_template.filter_tool_registry base_reg tmpl)
-  | None -> None
-
 let agent_invoke_turn mgr ~agent_name ~prompt ~send_reply =
   match Agent_template.resolve agent_name with
   | None ->
@@ -767,190 +827,209 @@ let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
                 Session_core.with_in_flight mgr (fun () ->
                     let interrupt_check () = !interrupt in
                     interrupt := None;
-                    let* message, auto_injections, auto_md_skills =
-                      !expand_skill_refs_fn message
+                    (* Check for @agent mention at start of message *)
+                    let notify_fn text =
+                      on_chunk (Provider.Delta (text ^ "\n"))
                     in
-                    let all_injections = skill_injections @ auto_injections in
-                    let md_skills = auto_md_skills in
-                    (* Send "Loaded skill: X" notification for @mention skills *)
-                    if auto_injections <> [] then
-                      notify_skill_loads
-                        ~send:(fun text ->
-                          on_chunk (Provider.Delta (text ^ "\n")))
-                        auto_injections;
-                    (match mgr.db with
-                    | Some db when mgr.config.security.audit_enabled ->
-                        Audit.log ~db
-                          (ChatMessage
-                             {
-                               session_key = key;
-                               role = "user";
-                               content_preview = message;
-                             })
-                    | _ -> ());
-                    Session_core.inject_attachment_context agent attachments;
-                    let all_injections =
-                      dedup_skill_injections ~history:agent.Agent.history
-                        all_injections
+                    let* agent_response =
+                      handle_agent_mention mgr ~notify:notify_fn message
                     in
-                    List.iter
-                      (fun content ->
-                        agent.Agent.history <-
-                          Provider.make_message ~role:"system" ~content
-                          :: agent.Agent.history)
-                      all_injections;
-                    let effective_message =
-                      match
-                        (channel_name, channel_type, sender_id, sender_name)
-                      with
-                      | None, None, None, None -> message
-                      | _ ->
-                          let ctx =
-                            Session_core.format_context_block ?channel_name
-                              ?channel_type ?sender_id ?sender_name ()
-                          in
-                          ctx ^ "\n" ^ message
-                    in
-                    let history_before = List.length agent.history in
-                    let notify =
-                      Session_core.find_registered_notifier mgr ~key
-                    in
-                    let refresh_messages =
-                      match
-                        Agent.note_external_workspace_refresh_if_needed agent
-                      with
-                      | Some msg -> [ msg ]
-                      | None -> []
-                    in
-                    let* () =
-                      Session_core.notify_event_messages ?notify ~on_chunk
-                        refresh_messages
-                    in
-                    let* compaction_info =
-                      Agent.prepare_turn_history agent
-                        ~user_message:effective_message ~content_parts
-                        ~workspace_refresh_checked:true ?db:mgr.db ()
-                    in
-                    let compacted = Option.is_some compaction_info in
-                    let* () =
-                      Session_core.notify_compaction_if_needed
-                        ~notify:(fun text ->
-                          on_chunk (Provider.Delta (text ^ "\n")))
-                        compaction_info
-                    in
-                    if compacted then
-                      Session_core.persist_compacted_history mgr ~key agent
-                    else
-                      Session_core.persist_new_messages mgr ~key ~history_before
-                        agent;
-                    let runtime_context =
-                      Prompt_builder.build_runtime_context ~config:mgr.config
-                        ~md_skills
-                        ~details:
-                          (Session_core.runtime_context_details mgr ~agent ~key
-                             ~compacted_before_turn:compacted)
-                        ()
-                    in
-                    let prepared_history_len = List.length agent.history in
-                    Session_core.record_agent_turn mgr ~key ?channel ?channel_id
-                      ();
-                    let persisted_up_to = ref prepared_history_len in
-                    let on_history_update new_msgs =
-                      (match mgr.db with
-                      | Some db ->
-                          List.iter
-                            (fun msg ->
-                              Memory.store_message ~db ~session_key:key msg)
-                            new_msgs;
-                          persisted_up_to := List.length agent.Agent.history
-                      | None -> ());
-                      Session_core.notify_event_messages ?notify ~on_chunk
-                        new_msgs
-                    in
-                    let inject_messages () =
-                      let msgs =
-                        Session_core.take_all_queued_messages_for_injection mgr
-                          ~key
-                      in
-                      List.map
-                        (fun (qm : Session_core.queued_message) ->
-                          Session_core.queued_message_prompt
-                            (Session_core.effective_message_for_turn
-                               ~message:qm.message ?channel_name:qm.channel_name
-                               ?channel_type:qm.channel_type
-                               ?sender_id:qm.sender_id
-                               ?sender_name:qm.sender_name ()))
-                        msgs
-                    in
-                    let* response =
-                      Lwt.catch
-                        (fun () ->
-                          let* draining_response =
-                            Session_core.respond_if_draining ~on_chunk mgr
-                          in
-                          match draining_response with
-                          | Some response -> Lwt.return response
-                          | None ->
-                              Agent.turn_stream agent
-                                ~user_message:effective_message ?db:mgr.db
-                                ~session_key:key ~interrupt_check
-                                ~inject_messages ?runtime_context
-                                ~history_prepared:true ~on_history_update
-                                ~on_chunk ())
-                        (function
-                          | Agent.Restart_requested ->
-                              if agent.Agent.compacted_mid_turn then begin
-                                Session_core.persist_compacted_history mgr ~key
-                                  agent;
-                                agent.Agent.compacted_mid_turn <- false
-                              end
-                              else
-                                Session_core.persist_new_messages mgr ~key
-                                  ~history_before:!persisted_up_to agent;
-                              Session_core.set_response_deferred mgr ~key;
-                              let* () =
-                                on_chunk
-                                  (Provider.Delta Session_core.draining_message)
+                    match agent_response with
+                    | Some response ->
+                        let* () = on_chunk (Provider.Delta response) in
+                        let* () = on_chunk Provider.Done in
+                        Lwt.return response
+                    | None ->
+                        let* message, auto_injections, auto_md_skills =
+                          !expand_skill_refs_fn message
+                        in
+                        let all_injections =
+                          skill_injections @ auto_injections
+                        in
+                        let md_skills = auto_md_skills in
+                        (* Send "Loaded skill: X" notification for @mention skills *)
+                        if auto_injections <> [] then
+                          notify_skill_loads
+                            ~send:(fun text ->
+                              on_chunk (Provider.Delta (text ^ "\n")))
+                            auto_injections;
+                        (match mgr.db with
+                        | Some db when mgr.config.security.audit_enabled ->
+                            Audit.log ~db
+                              (ChatMessage
+                                 {
+                                   session_key = key;
+                                   role = "user";
+                                   content_preview = message;
+                                 })
+                        | _ -> ());
+                        Session_core.inject_attachment_context agent attachments;
+                        let all_injections =
+                          dedup_skill_injections ~history:agent.Agent.history
+                            all_injections
+                        in
+                        List.iter
+                          (fun content ->
+                            agent.Agent.history <-
+                              Provider.make_message ~role:"system" ~content
+                              :: agent.Agent.history)
+                          all_injections;
+                        let effective_message =
+                          match
+                            (channel_name, channel_type, sender_id, sender_name)
+                          with
+                          | None, None, None, None -> message
+                          | _ ->
+                              let ctx =
+                                Session_core.format_context_block ?channel_name
+                                  ?channel_type ?sender_id ?sender_name ()
                               in
-                              let* () = on_chunk Provider.Done in
-                              Lwt.return Session_core.draining_message
-                          | exn ->
-                              if agent.Agent.compacted_mid_turn then begin
-                                Session_core.persist_compacted_history mgr ~key
-                                  agent;
-                                agent.Agent.compacted_mid_turn <- false
-                              end
-                              else
-                                Session_core.persist_new_messages mgr ~key
-                                  ~history_before:!persisted_up_to agent;
-                              Lwt.fail exn)
-                    in
-                    if not (Session_core.response_deferred mgr ~key) then begin
-                      if agent.Agent.compacted_mid_turn then begin
-                        Session_core.persist_compacted_history mgr ~key agent;
-                        agent.Agent.compacted_mid_turn <- false
-                      end
-                      else
-                        Session_core.persist_new_messages mgr ~key
-                          ~history_before:!persisted_up_to agent;
-                      match mgr.db with
-                      | Some db when mgr.config.security.audit_enabled ->
-                          Audit.log ~db
-                            (ChatMessage
-                               {
-                                 session_key = key;
-                                 role = "assistant";
-                                 content_preview = response;
-                               })
-                      | _ -> ()
-                    end;
-                    let* () =
-                      match before_drain with
-                      | Some f -> f response
-                      | None -> Lwt.return_unit
-                    in
-                    let* () =
-                      drain_queued_messages mgr ~key agent interrupt
-                        ?on_drain_progress ()
-                    in
-                    Lwt.return response)))
+                              ctx ^ "\n" ^ message
+                        in
+                        let history_before = List.length agent.history in
+                        let notify =
+                          Session_core.find_registered_notifier mgr ~key
+                        in
+                        let refresh_messages =
+                          match
+                            Agent.note_external_workspace_refresh_if_needed
+                              agent
+                          with
+                          | Some msg -> [ msg ]
+                          | None -> []
+                        in
+                        let* () =
+                          Session_core.notify_event_messages ?notify ~on_chunk
+                            refresh_messages
+                        in
+                        let* compaction_info =
+                          Agent.prepare_turn_history agent
+                            ~user_message:effective_message ~content_parts
+                            ~workspace_refresh_checked:true ?db:mgr.db ()
+                        in
+                        let compacted = Option.is_some compaction_info in
+                        let* () =
+                          Session_core.notify_compaction_if_needed
+                            ~notify:(fun text ->
+                              on_chunk (Provider.Delta (text ^ "\n")))
+                            compaction_info
+                        in
+                        if compacted then
+                          Session_core.persist_compacted_history mgr ~key agent
+                        else
+                          Session_core.persist_new_messages mgr ~key
+                            ~history_before agent;
+                        let runtime_context =
+                          Prompt_builder.build_runtime_context
+                            ~config:mgr.config ~md_skills
+                            ~details:
+                              (Session_core.runtime_context_details mgr ~agent
+                                 ~key ~compacted_before_turn:compacted)
+                            ()
+                        in
+                        let prepared_history_len = List.length agent.history in
+                        Session_core.record_agent_turn mgr ~key ?channel
+                          ?channel_id ();
+                        let persisted_up_to = ref prepared_history_len in
+                        let on_history_update new_msgs =
+                          (match mgr.db with
+                          | Some db ->
+                              List.iter
+                                (fun msg ->
+                                  Memory.store_message ~db ~session_key:key msg)
+                                new_msgs;
+                              persisted_up_to := List.length agent.Agent.history
+                          | None -> ());
+                          Session_core.notify_event_messages ?notify ~on_chunk
+                            new_msgs
+                        in
+                        let inject_messages () =
+                          let msgs =
+                            Session_core.take_all_queued_messages_for_injection
+                              mgr ~key
+                          in
+                          List.map
+                            (fun (qm : Session_core.queued_message) ->
+                              Session_core.queued_message_prompt
+                                (Session_core.effective_message_for_turn
+                                   ~message:qm.message
+                                   ?channel_name:qm.channel_name
+                                   ?channel_type:qm.channel_type
+                                   ?sender_id:qm.sender_id
+                                   ?sender_name:qm.sender_name ()))
+                            msgs
+                        in
+                        let* response =
+                          Lwt.catch
+                            (fun () ->
+                              let* draining_response =
+                                Session_core.respond_if_draining ~on_chunk mgr
+                              in
+                              match draining_response with
+                              | Some response -> Lwt.return response
+                              | None ->
+                                  Agent.turn_stream agent
+                                    ~user_message:effective_message ?db:mgr.db
+                                    ~session_key:key ~interrupt_check
+                                    ~inject_messages ?runtime_context
+                                    ~history_prepared:true ~on_history_update
+                                    ~on_chunk ())
+                            (function
+                              | Agent.Restart_requested ->
+                                  if agent.Agent.compacted_mid_turn then begin
+                                    Session_core.persist_compacted_history mgr
+                                      ~key agent;
+                                    agent.Agent.compacted_mid_turn <- false
+                                  end
+                                  else
+                                    Session_core.persist_new_messages mgr ~key
+                                      ~history_before:!persisted_up_to agent;
+                                  Session_core.set_response_deferred mgr ~key;
+                                  let* () =
+                                    on_chunk
+                                      (Provider.Delta
+                                         Session_core.draining_message)
+                                  in
+                                  let* () = on_chunk Provider.Done in
+                                  Lwt.return Session_core.draining_message
+                              | exn ->
+                                  if agent.Agent.compacted_mid_turn then begin
+                                    Session_core.persist_compacted_history mgr
+                                      ~key agent;
+                                    agent.Agent.compacted_mid_turn <- false
+                                  end
+                                  else
+                                    Session_core.persist_new_messages mgr ~key
+                                      ~history_before:!persisted_up_to agent;
+                                  Lwt.fail exn)
+                        in
+                        if not (Session_core.response_deferred mgr ~key) then begin
+                          if agent.Agent.compacted_mid_turn then begin
+                            Session_core.persist_compacted_history mgr ~key
+                              agent;
+                            agent.Agent.compacted_mid_turn <- false
+                          end
+                          else
+                            Session_core.persist_new_messages mgr ~key
+                              ~history_before:!persisted_up_to agent;
+                          match mgr.db with
+                          | Some db when mgr.config.security.audit_enabled ->
+                              Audit.log ~db
+                                (ChatMessage
+                                   {
+                                     session_key = key;
+                                     role = "assistant";
+                                     content_preview = response;
+                                   })
+                          | _ -> ()
+                        end;
+                        let* () =
+                          match before_drain with
+                          | Some f -> f response
+                          | None -> Lwt.return_unit
+                        in
+                        let* () =
+                          drain_queued_messages mgr ~key agent interrupt
+                            ?on_drain_progress ()
+                        in
+                        Lwt.return response)))

@@ -1099,328 +1099,287 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                        "Sorry, an error occurred processing your message: %s"
                        err))
         | NotACommand -> (
-            let available_agents =
-              List.map
-                (fun (t : Agent_template.t) -> t.name)
-                (Agent_template.available_templates ())
+            let discord_channel_type =
+              match msg.guild_id with Some _ -> "group" | None -> "dm"
             in
-            match
-              Group_chat_filter.parse_agent_mention ~available_agents
-                msg.content
-            with
-            | Some (agent_name, prompt) when prompt <> "" ->
+            let agent_defaults =
+              (Session.get_config session_mgr).agent_defaults
+            in
+            let use_consolidated =
+              agent_defaults.show_tool_calls
+              && agent_defaults.tool_status_mode = "consolidated"
+            in
+            let tool_reaction_set = ref false in
+            let peers =
+              Reaction_tracker.get_or_create_peers reactions ~key
+                ~initial:msg.id
+            in
+            Reaction_tracker.add_peer reactions ~key ~message_id:msg.id;
+            let set_reaction_on_single mid emoji =
+              Reaction_tracker.set_reaction_on_single reactions ~message_id:mid
+                ~remove_previous:(fun mid prev ->
+                  delete_own_reaction ~bot_token:discord_config.bot_token
+                    ~channel_id:msg.channel_id ~message_id:mid ~emoji:prev)
+                ~add:(fun mid emoji ->
+                  add_reaction ~bot_token:discord_config.bot_token
+                    ~channel_id:msg.channel_id ~message_id:mid ~emoji)
+                ~emoji
+            in
+            let set_reaction emoji =
+              Reaction_tracker.set_reaction_all reactions ~peers_ref:peers
+                ~set_one:(fun mid emoji -> set_reaction_on_single mid emoji)
+                ~emoji
+            in
+            let notifier_factory =
+              if use_consolidated then
+                Some
+                  (fun () ->
+                    let status_notifier =
+                      make_status_notifier ~bot_token:discord_config.bot_token
+                        ~channel_id:msg.channel_id
+                    in
+                    Status_message.create ~notifier:status_notifier
+                      ~parse_mode:"Markdown" ())
+              else None
+            in
+            let strategy =
+              Status_update.select_strategy ~agent_defaults
+                ~capabilities:(Some Connector_capabilities.discord)
+            in
+            let handler =
+              Status_update.make_handler ~strategy ~notifier_factory
+                ~notify:(fun text ->
+                  send_message_fn ~bot_token:discord_config.bot_token
+                    ~channel_id:msg.channel_id ~text)
+                ~agent_defaults ~parse_mode:"Markdown"
+            in
+            let on_chunk chunk =
+              (match chunk with
+              | Provider.ToolStart _ ->
+                  if not !tool_reaction_set then begin
+                    tool_reaction_set := true;
+                    Lwt.async (fun () ->
+                        set_reaction
+                          (Connector_status.Discord.phase_emoji Processing))
+                  end
+              | _ -> ());
+              handler.on_chunk chunk
+            in
+            let* () =
+              set_reaction (Connector_status.Discord.phase_emoji Received)
+            in
+            let drain_progress_msg_id = ref None in
+            let on_drain_progress : Session.drain_progress =
+              {
+                before_turn =
+                  (fun queued_msg_id ->
+                    let* () =
+                      match queued_msg_id with
+                      | Some mid ->
+                          set_reaction_on_single mid
+                            (Connector_status.Discord.phase_emoji Received)
+                      | None -> Lwt.return_unit
+                    in
+                    let* () =
+                      match !drain_progress_msg_id with
+                      | Some mid ->
+                          Lwt.catch
+                            (fun () ->
+                              delete_message ~bot_token:discord_config.bot_token
+                                ~channel_id:msg.channel_id ~message_id:mid)
+                            (fun _exn -> Lwt.return_unit)
+                      | None -> Lwt.return_unit
+                    in
+                    let* mid =
+                      send_message_with_id ~suppress_notifications:true
+                        ~bot_token:discord_config.bot_token
+                        ~channel_id:msg.channel_id
+                        ~text:
+                          "\xe2\x8f\xb3 Processing queued message\xe2\x80\xa6"
+                        ()
+                    in
+                    drain_progress_msg_id := Some mid;
+                    Lwt.return_unit);
+                after_turn =
+                  (fun queued_msg_id ->
+                    match queued_msg_id with
+                    | Some mid ->
+                        set_reaction_on_single mid
+                          (Connector_status.Discord.phase_emoji Completed)
+                    | None -> Lwt.return_unit);
+                after_all =
+                  (fun () ->
+                    match !drain_progress_msg_id with
+                    | Some mid ->
+                        drain_progress_msg_id := None;
+                        Lwt.catch
+                          (fun () ->
+                            delete_message ~bot_token:discord_config.bot_token
+                              ~channel_id:msg.channel_id ~message_id:mid)
+                          (fun _exn -> Lwt.return_unit)
+                    | None -> Lwt.return_unit);
+              }
+            in
+            let response_sent = ref false in
+            let before_drain response =
+              if Session.should_suppress_response response then Lwt.return_unit
+              else
+                let open Lwt.Syntax in
+                let* () = handler.finalize () in
+                let thinking = handler.get_thinking () in
+                let* () =
+                  if thinking <> "" then
+                    send_message_fn ~bot_token:discord_config.bot_token
+                      ~channel_id:msg.channel_id
+                      ~text:("_" ^ thinking ^ "_")
+                  else Lwt.return_unit
+                in
                 let* () =
                   send_message_fn ~bot_token:discord_config.bot_token
-                    ~channel_id:msg.channel_id
-                    ~text:(Printf.sprintf "Invoking agent '%s'..." agent_name)
+                    ~channel_id:msg.channel_id ~text:response
                 in
-                Session.agent_invoke_turn session_mgr ~agent_name ~prompt
-                  ~send_reply:(fun text ->
-                    send_message_fn ~bot_token:discord_config.bot_token
-                      ~channel_id:msg.channel_id ~text);
+                let* () =
+                  set_reaction (Connector_status.Discord.phase_emoji Completed)
+                in
+                if not (Session.take_response_deferred session_mgr ~key) then
+                  Session.mark_response_sent session_mgr ~key;
+                response_sent := true;
                 Lwt.return_unit
-            | Some (agent_name, _) ->
-                send_message_fn ~bot_token:discord_config.bot_token
-                  ~channel_id:msg.channel_id
-                  ~text:
-                    (Printf.sprintf
-                       "Usage: @%s <prompt> — provide a prompt for the agent."
-                       agent_name)
-            | None -> (
-                let discord_channel_type =
-                  match msg.guild_id with Some _ -> "group" | None -> "dm"
-                in
-                let agent_defaults =
-                  (Session.get_config session_mgr).agent_defaults
-                in
-                let use_consolidated =
-                  agent_defaults.show_tool_calls
-                  && agent_defaults.tool_status_mode = "consolidated"
-                in
-                let tool_reaction_set = ref false in
-                let peers =
-                  Reaction_tracker.get_or_create_peers reactions ~key
-                    ~initial:msg.id
-                in
-                Reaction_tracker.add_peer reactions ~key ~message_id:msg.id;
-                let set_reaction_on_single mid emoji =
-                  Reaction_tracker.set_reaction_on_single reactions
-                    ~message_id:mid
-                    ~remove_previous:(fun mid prev ->
-                      delete_own_reaction ~bot_token:discord_config.bot_token
-                        ~channel_id:msg.channel_id ~message_id:mid ~emoji:prev)
-                    ~add:(fun mid emoji ->
-                      add_reaction ~bot_token:discord_config.bot_token
-                        ~channel_id:msg.channel_id ~message_id:mid ~emoji)
-                    ~emoji
-                in
-                let set_reaction emoji =
-                  Reaction_tracker.set_reaction_all reactions ~peers_ref:peers
-                    ~set_one:(fun mid emoji -> set_reaction_on_single mid emoji)
-                    ~emoji
-                in
-                let notifier_factory =
-                  if use_consolidated then
-                    Some
+            in
+            let* result =
+              Session.with_registered_notifier session_mgr ~key
+                ~notify:(fun text ->
+                  send_message_fn ~bot_token:discord_config.bot_token
+                    ~channel_id:msg.channel_id ~text)
+                (fun () ->
+                  Lwt.catch
+                    (fun () ->
+                      let* response =
+                        Session.turn_stream session_mgr ~key
+                          ~message:msg.content ~skill_injections
+                          ~channel_name:msg.channel_id
+                          ~channel_type:discord_channel_type
+                          ~sender_id:msg.author_id ~channel:"discord"
+                          ~channel_id:msg.channel_id ~message_id:msg.id
+                          ~on_drain_progress ~before_drain ~on_chunk ()
+                      in
+                      Lwt.return (Ok response))
+                    (fun exn -> Lwt.return (Error (Printexc.to_string exn))))
+            in
+            match result with
+            | Ok response ->
+                if Session.should_suppress_response response then
+                  Lwt.return_unit
+                else if !response_sent then (
+                  let* () =
+                    Reaction_tracker.cleanup_with_remove reactions ~key
+                      ~remove:(fun mid emoji ->
+                        delete_own_reaction ~bot_token:discord_config.bot_token
+                          ~channel_id:msg.channel_id ~message_id:mid ~emoji)
+                  in
+                  let send_to_channel text =
+                    send_message_fn ~bot_token:discord_config.bot_token
+                      ~channel_id:msg.channel_id ~text
+                  in
+                  if
+                    Option.is_none
+                      (Session.find_registered_notifier session_mgr ~key)
+                  then begin
+                    Session.register_channel_notifier session_mgr ~key
+                      send_to_channel;
+                    Session.register_status_message_factory session_mgr ~key
                       (fun () ->
-                        let status_notifier =
+                        let notifier =
                           make_status_notifier
                             ~bot_token:discord_config.bot_token
                             ~channel_id:msg.channel_id
                         in
-                        Status_message.create ~notifier:status_notifier
-                          ~parse_mode:"Markdown" ())
-                  else None
-                in
-                let strategy =
-                  Status_update.select_strategy ~agent_defaults
-                    ~capabilities:(Some Connector_capabilities.discord)
-                in
-                let handler =
-                  Status_update.make_handler ~strategy ~notifier_factory
-                    ~notify:(fun text ->
-                      send_message_fn ~bot_token:discord_config.bot_token
-                        ~channel_id:msg.channel_id ~text)
-                    ~agent_defaults ~parse_mode:"Markdown"
-                in
-                let on_chunk chunk =
-                  (match chunk with
-                  | Provider.ToolStart _ ->
-                      if not !tool_reaction_set then begin
-                        tool_reaction_set := true;
-                        Lwt.async (fun () ->
-                            set_reaction
-                              (Connector_status.Discord.phase_emoji Processing))
-                      end
-                  | _ -> ());
-                  handler.on_chunk chunk
-                in
-                let* () =
-                  set_reaction (Connector_status.Discord.phase_emoji Received)
-                in
-                let drain_progress_msg_id = ref None in
-                let on_drain_progress : Session.drain_progress =
-                  {
-                    before_turn =
-                      (fun queued_msg_id ->
-                        let* () =
-                          match queued_msg_id with
-                          | Some mid ->
-                              set_reaction_on_single mid
-                                (Connector_status.Discord.phase_emoji Received)
-                          | None -> Lwt.return_unit
-                        in
-                        let* () =
-                          match !drain_progress_msg_id with
-                          | Some mid ->
-                              Lwt.catch
-                                (fun () ->
-                                  delete_message
-                                    ~bot_token:discord_config.bot_token
-                                    ~channel_id:msg.channel_id ~message_id:mid)
-                                (fun _exn -> Lwt.return_unit)
-                          | None -> Lwt.return_unit
-                        in
-                        let* mid =
-                          send_message_with_id ~suppress_notifications:true
-                            ~bot_token:discord_config.bot_token
-                            ~channel_id:msg.channel_id
-                            ~text:
-                              "\xe2\x8f\xb3 Processing queued \
-                               message\xe2\x80\xa6"
-                            ()
-                        in
-                        drain_progress_msg_id := Some mid;
-                        Lwt.return_unit);
-                    after_turn =
-                      (fun queued_msg_id ->
-                        match queued_msg_id with
-                        | Some mid ->
-                            set_reaction_on_single mid
-                              (Connector_status.Discord.phase_emoji Completed)
-                        | None -> Lwt.return_unit);
-                    after_all =
-                      (fun () ->
-                        match !drain_progress_msg_id with
-                        | Some mid ->
-                            drain_progress_msg_id := None;
-                            Lwt.catch
-                              (fun () ->
-                                delete_message
-                                  ~bot_token:discord_config.bot_token
-                                  ~channel_id:msg.channel_id ~message_id:mid)
-                              (fun _exn -> Lwt.return_unit)
-                        | None -> Lwt.return_unit);
-                  }
-                in
-                let response_sent = ref false in
-                let before_drain response =
-                  if Session.should_suppress_response response then
-                    Lwt.return_unit
-                  else
-                    let open Lwt.Syntax in
-                    let* () = handler.finalize () in
-                    let thinking = handler.get_thinking () in
-                    let* () =
-                      if thinking <> "" then
-                        send_message_fn ~bot_token:discord_config.bot_token
-                          ~channel_id:msg.channel_id
-                          ~text:("_" ^ thinking ^ "_")
-                      else Lwt.return_unit
-                    in
-                    let* () =
-                      send_message_fn ~bot_token:discord_config.bot_token
-                        ~channel_id:msg.channel_id ~text:response
-                    in
-                    let* () =
-                      set_reaction
-                        (Connector_status.Discord.phase_emoji Completed)
-                    in
-                    if not (Session.take_response_deferred session_mgr ~key)
-                    then Session.mark_response_sent session_mgr ~key;
-                    response_sent := true;
-                    Lwt.return_unit
-                in
-                let* result =
-                  Session.with_registered_notifier session_mgr ~key
-                    ~notify:(fun text ->
-                      send_message_fn ~bot_token:discord_config.bot_token
-                        ~channel_id:msg.channel_id ~text)
-                    (fun () ->
-                      Lwt.catch
-                        (fun () ->
-                          let* response =
-                            Session.turn_stream session_mgr ~key
-                              ~message:msg.content ~skill_injections
-                              ~channel_name:msg.channel_id
-                              ~channel_type:discord_channel_type
-                              ~sender_id:msg.author_id ~channel:"discord"
-                              ~channel_id:msg.channel_id ~message_id:msg.id
-                              ~on_drain_progress ~before_drain ~on_chunk ()
-                          in
-                          Lwt.return (Ok response))
-                        (fun exn -> Lwt.return (Error (Printexc.to_string exn))))
-                in
-                match result with
-                | Ok response ->
-                    if Session.should_suppress_response response then
-                      Lwt.return_unit
-                    else if !response_sent then (
-                      let* () =
-                        Reaction_tracker.cleanup_with_remove reactions ~key
-                          ~remove:(fun mid emoji ->
-                            delete_own_reaction
-                              ~bot_token:discord_config.bot_token
-                              ~channel_id:msg.channel_id ~message_id:mid ~emoji)
-                      in
-                      let send_to_channel text =
-                        send_message_fn ~bot_token:discord_config.bot_token
-                          ~channel_id:msg.channel_id ~text
-                      in
-                      if
-                        Option.is_none
-                          (Session.find_registered_notifier session_mgr ~key)
-                      then begin
-                        Session.register_channel_notifier session_mgr ~key
-                          send_to_channel;
-                        Session.register_status_message_factory session_mgr ~key
-                          (fun () ->
-                            let notifier =
-                              make_status_notifier
-                                ~bot_token:discord_config.bot_token
-                                ~channel_id:msg.channel_id
-                            in
-                            Status_message.create ~notifier
-                              ~parse_mode:"Markdown" ());
-                        Session.register_connector_capabilities session_mgr ~key
-                          Connector_capabilities.discord
-                      end;
-                      Lwt.async (fun () ->
-                          Session.process_autonomous_turn_result
-                            ~on_response:send_to_channel session_mgr ~key
-                            ~response);
-                      Lwt.return_unit)
-                    else
-                      let* () = handler.finalize () in
-                      let thinking = handler.get_thinking () in
-                      let* () =
-                        if thinking <> "" then
-                          send_message_fn ~bot_token:discord_config.bot_token
-                            ~channel_id:msg.channel_id
-                            ~text:("_" ^ thinking ^ "_")
-                        else Lwt.return_unit
-                      in
-                      let* () =
-                        send_message_fn ~bot_token:discord_config.bot_token
-                          ~channel_id:msg.channel_id ~text:response
-                      in
-                      let* () =
-                        set_reaction
-                          (Connector_status.Discord.phase_emoji Completed)
-                      in
-                      let* () =
-                        Reaction_tracker.cleanup_with_remove reactions ~key
-                          ~remove:(fun mid emoji ->
-                            delete_own_reaction
-                              ~bot_token:discord_config.bot_token
-                              ~channel_id:msg.channel_id ~message_id:mid ~emoji)
-                      in
-                      if not (Session.take_response_deferred session_mgr ~key)
-                      then Session.mark_response_sent session_mgr ~key;
-                      let send_to_channel text =
-                        send_message_fn ~bot_token:discord_config.bot_token
-                          ~channel_id:msg.channel_id ~text
-                      in
-                      if
-                        Option.is_none
-                          (Session.find_registered_notifier session_mgr ~key)
-                      then begin
-                        Session.register_channel_notifier session_mgr ~key
-                          send_to_channel;
-                        Session.register_status_message_factory session_mgr ~key
-                          (fun () ->
-                            let notifier =
-                              make_status_notifier
-                                ~bot_token:discord_config.bot_token
-                                ~channel_id:msg.channel_id
-                            in
-                            Status_message.create ~notifier
-                              ~parse_mode:"Markdown" ());
-                        Session.register_connector_capabilities session_mgr ~key
-                          Connector_capabilities.discord
-                      end;
-                      Lwt.async (fun () ->
-                          Session.process_autonomous_turn_result
-                            ~on_response:send_to_channel session_mgr ~key
-                            ~response);
-                      Lwt.return_unit
-                | Error err ->
-                    Logs.err (fun m ->
-                        m "Discord agent error for channel=%s user=%s: %s"
-                          msg.channel_id msg.author_id err);
-                    let* () = handler.finalize () in
-                    let* () =
+                        Status_message.create ~notifier ~parse_mode:"Markdown"
+                          ());
+                    Session.register_connector_capabilities session_mgr ~key
+                      Connector_capabilities.discord
+                  end;
+                  Lwt.async (fun () ->
+                      Session.process_autonomous_turn_result
+                        ~on_response:send_to_channel session_mgr ~key ~response);
+                  Lwt.return_unit)
+                else
+                  let* () = handler.finalize () in
+                  let thinking = handler.get_thinking () in
+                  let* () =
+                    if thinking <> "" then
                       send_message_fn ~bot_token:discord_config.bot_token
                         ~channel_id:msg.channel_id
-                        ~text:
-                          (Printf.sprintf
-                             "Sorry, an error occurred processing your \
-                              message: %s"
-                             err)
-                    in
-                    let* () =
-                      set_reaction (Connector_status.Discord.phase_emoji Failed)
-                    in
-                    let* () =
-                      Reaction_tracker.cleanup_with_remove reactions ~key
-                        ~remove:(fun mid emoji ->
-                          delete_own_reaction
+                        ~text:("_" ^ thinking ^ "_")
+                    else Lwt.return_unit
+                  in
+                  let* () =
+                    send_message_fn ~bot_token:discord_config.bot_token
+                      ~channel_id:msg.channel_id ~text:response
+                  in
+                  let* () =
+                    set_reaction
+                      (Connector_status.Discord.phase_emoji Completed)
+                  in
+                  let* () =
+                    Reaction_tracker.cleanup_with_remove reactions ~key
+                      ~remove:(fun mid emoji ->
+                        delete_own_reaction ~bot_token:discord_config.bot_token
+                          ~channel_id:msg.channel_id ~message_id:mid ~emoji)
+                  in
+                  if not (Session.take_response_deferred session_mgr ~key) then
+                    Session.mark_response_sent session_mgr ~key;
+                  let send_to_channel text =
+                    send_message_fn ~bot_token:discord_config.bot_token
+                      ~channel_id:msg.channel_id ~text
+                  in
+                  if
+                    Option.is_none
+                      (Session.find_registered_notifier session_mgr ~key)
+                  then begin
+                    Session.register_channel_notifier session_mgr ~key
+                      send_to_channel;
+                    Session.register_status_message_factory session_mgr ~key
+                      (fun () ->
+                        let notifier =
+                          make_status_notifier
                             ~bot_token:discord_config.bot_token
-                            ~channel_id:msg.channel_id ~message_id:mid ~emoji)
-                    in
-                    if not (Session.take_response_deferred session_mgr ~key)
-                    then Session.mark_response_sent session_mgr ~key;
-                    Lwt.return_unit))
+                            ~channel_id:msg.channel_id
+                        in
+                        Status_message.create ~notifier ~parse_mode:"Markdown"
+                          ());
+                    Session.register_connector_capabilities session_mgr ~key
+                      Connector_capabilities.discord
+                  end;
+                  Lwt.async (fun () ->
+                      Session.process_autonomous_turn_result
+                        ~on_response:send_to_channel session_mgr ~key ~response);
+                  Lwt.return_unit
+            | Error err ->
+                Logs.err (fun m ->
+                    m "Discord agent error for channel=%s user=%s: %s"
+                      msg.channel_id msg.author_id err);
+                let* () = handler.finalize () in
+                let* () =
+                  send_message_fn ~bot_token:discord_config.bot_token
+                    ~channel_id:msg.channel_id
+                    ~text:
+                      (Printf.sprintf
+                         "Sorry, an error occurred processing your message: %s"
+                         err)
+                in
+                let* () =
+                  set_reaction (Connector_status.Discord.phase_emoji Failed)
+                in
+                let* () =
+                  Reaction_tracker.cleanup_with_remove reactions ~key
+                    ~remove:(fun mid emoji ->
+                      delete_own_reaction ~bot_token:discord_config.bot_token
+                        ~channel_id:msg.channel_id ~message_id:mid ~emoji)
+                in
+                if not (Session.take_response_deferred session_mgr ~key) then
+                  Session.mark_response_sent session_mgr ~key;
+                Lwt.return_unit)
 
 (* Close code classification for reconnect behavior *)
 let is_fatal_close_code code =
