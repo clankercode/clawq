@@ -2076,12 +2076,24 @@ let count_core ~db =
   ignore (Sqlite3.finalize stmt);
   count
 
+let snapshot_format_version = 1
+
 let export_snapshot ~db ~path =
   let memories = list_core ~db () in
+  let count = List.length memories in
+  let now =
+    let t = Unix.gettimeofday () in
+    let tm = Unix.gmtime t in
+    Printf.sprintf "%04d-%02d-%02dT%02d:%02d:%02dZ" (1900 + tm.tm_year)
+      (1 + tm.tm_mon) tm.tm_mday tm.tm_hour tm.tm_min tm.tm_sec
+  in
   let json =
     `Assoc
       [
-        ("version", `Int 1);
+        ("format_version", `Int snapshot_format_version);
+        ("exported_at", `String now);
+        ("schema_version", `Int schema_version);
+        ("memory_count", `Int count);
         ( "memories",
           `List
             (List.map
@@ -2096,15 +2108,30 @@ let export_snapshot ~db ~path =
       ]
   in
   let oc = open_out path in
-  output_string oc (Yojson.Safe.to_string json);
-  close_out oc
+  Fun.protect
+    ~finally:(fun () -> close_out oc)
+    (fun () -> output_string oc (Yojson.Safe.pretty_to_string json ^ "\n"));
+  count
 
 let import_snapshot ~db ~path =
   let ic = open_in path in
-  let content = really_input_string ic (in_channel_length ic) in
-  close_in ic;
+  let content =
+    Fun.protect
+      ~finally:(fun () -> close_in ic)
+      (fun () -> really_input_string ic (in_channel_length ic))
+  in
   let json = Yojson.Safe.from_string content in
   let open Yojson.Safe.Util in
+  (* Accept both format_version (new) and version (legacy) *)
+  let fv =
+    try json |> member "format_version" |> to_int
+    with _ -> ( try json |> member "version" |> to_int with _ -> 0)
+  in
+  if fv < 1 || fv > snapshot_format_version then
+    failwith
+      (Printf.sprintf
+         "Unsupported snapshot format_version %d (this build supports up to %d)"
+         fv snapshot_format_version);
   let memories = json |> member "memories" |> to_list in
   List.iter
     (fun m ->
@@ -2114,7 +2141,8 @@ let import_snapshot ~db ~path =
         try m |> member "category" |> to_string with _ -> "general"
       in
       store_core ~db ~key ~content ~category ())
-    memories
+    memories;
+  List.length memories
 
 let search ~db ~query ?session_key ~limit () =
   let sql, has_session =

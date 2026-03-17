@@ -242,7 +242,10 @@ let run ~(config : Runtime_config.t) =
         if count = 0 then begin
           Logs.info (fun m ->
               m "Auto-hydrating core memories from %s" snapshot_path);
-          try Memory.import_snapshot ~db ~path:snapshot_path
+          try
+            let imported = Memory.import_snapshot ~db ~path:snapshot_path in
+            Logs.info (fun m ->
+                m "Auto-hydrated %d core memories from snapshot" imported)
           with exn ->
             Logs.warn (fun m ->
                 m "Failed to import memory snapshot: %s"

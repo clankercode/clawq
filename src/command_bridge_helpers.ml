@@ -1262,8 +1262,8 @@ let cmd_memory args =
       in
       let db = get_db () in
       try
-        Memory.export_snapshot ~db ~path;
-        Printf.sprintf "Exported core memories to %s" path
+        let count = Memory.export_snapshot ~db ~path in
+        Printf.sprintf "Exported %d core memories to %s" count path
       with exn -> "Error: " ^ Printexc.to_string exn)
   | "import" :: [ path ] -> (
       if not (Sys.file_exists path) then
@@ -1271,8 +1271,8 @@ let cmd_memory args =
       else
         let db = get_db () in
         try
-          Memory.import_snapshot ~db ~path;
-          Printf.sprintf "Imported core memories from %s" path
+          let count = Memory.import_snapshot ~db ~path in
+          Printf.sprintf "Imported %d core memories from %s" count path
         with exn -> "Error: " ^ Printexc.to_string exn)
   | "import" :: _ -> "Usage: clawq memory import <path>"
   | "list" :: rest ->

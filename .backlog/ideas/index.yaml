@@ -316,7 +316,7 @@ ideas:
       file: I048-memory-export-import-snapshots.todo
       id: I048
       priority: medium
-      status: in_progress
+      status: done
       tags: []
       title: Memory Export/Import Snapshots
     - file: I049-per-channel-config-overrides.todo

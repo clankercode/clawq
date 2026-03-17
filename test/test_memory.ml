@@ -1197,6 +1197,179 @@ let test_session_info_includes_cwd () =
       Alcotest.(check (option string))
         "effective_cwd in list" (Some "/tmp/test") r.effective_cwd
 
+(* --- Snapshot export/import tests --- *)
+
+let test_export_snapshot_roundtrip () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Memory.store_core ~db ~key:"k1" ~content:"hello" ~category:"general" ();
+  Memory.store_core ~db ~key:"k2" ~content:"world" ~category:"facts" ();
+  let path = Filename.temp_file "clawq_snapshot" ".json" in
+  Fun.protect
+    ~finally:(fun () -> try Sys.remove path with _ -> ())
+    (fun () ->
+      let exported = Memory.export_snapshot ~db ~path in
+      Alcotest.(check int) "exported count" 2 exported;
+      (* Read into a fresh DB *)
+      let db2 = Memory.init ~db_path:":memory:" () in
+      let imported = Memory.import_snapshot ~db:db2 ~path in
+      Alcotest.(check int) "imported count" 2 imported;
+      let memories = Memory.list_core ~db:db2 () in
+      Alcotest.(check int) "memory count in db2" 2 (List.length memories);
+      let find k = List.find_opt (fun (key, _, _) -> key = k) memories in
+      (match find "k1" with
+      | Some (_, c, cat) ->
+          Alcotest.(check string) "k1 content" "hello" c;
+          Alcotest.(check string) "k1 category" "general" cat
+      | None -> Alcotest.fail "k1 not found");
+      match find "k2" with
+      | Some (_, c, cat) ->
+          Alcotest.(check string) "k2 content" "world" c;
+          Alcotest.(check string) "k2 category" "facts" cat
+      | None -> Alcotest.fail "k2 not found")
+
+let test_export_snapshot_metadata () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Memory.store_core ~db ~key:"m1" ~content:"data" ();
+  let path = Filename.temp_file "clawq_snapshot" ".json" in
+  Fun.protect
+    ~finally:(fun () -> try Sys.remove path with _ -> ())
+    (fun () ->
+      ignore (Memory.export_snapshot ~db ~path);
+      let ic = open_in path in
+      let raw =
+        Fun.protect
+          ~finally:(fun () -> close_in ic)
+          (fun () -> really_input_string ic (in_channel_length ic))
+      in
+      let json = Yojson.Safe.from_string raw in
+      let open Yojson.Safe.Util in
+      let fv = json |> member "format_version" |> to_int in
+      Alcotest.(check int) "format_version" 1 fv;
+      let sv = json |> member "schema_version" |> to_int in
+      Alcotest.(check int) "schema_version" Memory.schema_version sv;
+      let mc = json |> member "memory_count" |> to_int in
+      Alcotest.(check int) "memory_count" 1 mc;
+      let ea = json |> member "exported_at" |> to_string in
+      Alcotest.(check bool) "exported_at non-empty" true (String.length ea > 0);
+      (* Verify pretty-printed (contains newlines) *)
+      Alcotest.(check bool) "pretty-printed" true (String.contains raw '\n'))
+
+let test_export_snapshot_empty () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let path = Filename.temp_file "clawq_snapshot" ".json" in
+  Fun.protect
+    ~finally:(fun () -> try Sys.remove path with _ -> ())
+    (fun () ->
+      let exported = Memory.export_snapshot ~db ~path in
+      Alcotest.(check int) "exported zero" 0 exported;
+      let db2 = Memory.init ~db_path:":memory:" () in
+      let imported = Memory.import_snapshot ~db:db2 ~path in
+      Alcotest.(check int) "imported zero" 0 imported;
+      Alcotest.(check int) "count zero" 0 (Memory.count_core ~db:db2))
+
+let test_import_snapshot_legacy_version_field () =
+  let path = Filename.temp_file "clawq_snapshot" ".json" in
+  Fun.protect
+    ~finally:(fun () -> try Sys.remove path with _ -> ())
+    (fun () ->
+      (* Write legacy format with "version" instead of "format_version" *)
+      let json =
+        `Assoc
+          [
+            ("version", `Int 1);
+            ( "memories",
+              `List
+                [
+                  `Assoc
+                    [
+                      ("key", `String "legacy_key");
+                      ("content", `String "legacy_val");
+                    ];
+                ] );
+          ]
+      in
+      let oc = open_out path in
+      output_string oc (Yojson.Safe.to_string json);
+      close_out oc;
+      let db = Memory.init ~db_path:":memory:" () in
+      let imported = Memory.import_snapshot ~db ~path in
+      Alcotest.(check int) "imported 1" 1 imported;
+      let memories = Memory.list_core ~db () in
+      match memories with
+      | [ (k, c, cat) ] ->
+          Alcotest.(check string) "key" "legacy_key" k;
+          Alcotest.(check string) "content" "legacy_val" c;
+          Alcotest.(check string) "default category" "general" cat
+      | _ -> Alcotest.fail "expected exactly 1 memory")
+
+let test_import_snapshot_rejects_bad_version () =
+  let path = Filename.temp_file "clawq_snapshot" ".json" in
+  Fun.protect
+    ~finally:(fun () -> try Sys.remove path with _ -> ())
+    (fun () ->
+      let json =
+        `Assoc [ ("format_version", `Int 999); ("memories", `List []) ]
+      in
+      let oc = open_out path in
+      output_string oc (Yojson.Safe.to_string json);
+      close_out oc;
+      let db = Memory.init ~db_path:":memory:" () in
+      match Memory.import_snapshot ~db ~path with
+      | _ -> Alcotest.fail "expected failure for bad version"
+      | exception Failure msg ->
+          Alcotest.(check bool)
+            "error mentions version" true
+            (String.length msg > 0
+            &&
+              try
+                ignore (Str.search_forward (Str.regexp_string "999") msg 0);
+                true
+              with Not_found -> false))
+
+let test_import_snapshot_upserts () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Memory.store_core ~db ~key:"k1" ~content:"original" ();
+  let path = Filename.temp_file "clawq_snapshot" ".json" in
+  Fun.protect
+    ~finally:(fun () -> try Sys.remove path with _ -> ())
+    (fun () ->
+      let json =
+        `Assoc
+          [
+            ("format_version", `Int 1);
+            ( "memories",
+              `List
+                [
+                  `Assoc
+                    [
+                      ("key", `String "k1");
+                      ("content", `String "updated");
+                      ("category", `String "general");
+                    ];
+                  `Assoc
+                    [
+                      ("key", `String "k2");
+                      ("content", `String "new");
+                      ("category", `String "general");
+                    ];
+                ] );
+          ]
+      in
+      let oc = open_out path in
+      output_string oc (Yojson.Safe.to_string json);
+      close_out oc;
+      let imported = Memory.import_snapshot ~db ~path in
+      Alcotest.(check int) "imported 2" 2 imported;
+      let memories = Memory.list_core ~db () in
+      Alcotest.(check int) "total 2" 2 (List.length memories);
+      let find k = List.find_opt (fun (key, _, _) -> key = k) memories in
+      (match find "k1" with
+      | Some (_, c, _) -> Alcotest.(check string) "k1 updated" "updated" c
+      | None -> Alcotest.fail "k1 not found");
+      match find "k2" with
+      | Some (_, c, _) -> Alcotest.(check string) "k2 new" "new" c
+      | None -> Alcotest.fail "k2 not found")
+
 let suite =
   [
     Alcotest.test_case "init sets busy_timeout" `Quick
@@ -1319,4 +1492,15 @@ let suite =
     Alcotest.test_case "agent create with cwd" `Quick test_agent_create_with_cwd;
     Alcotest.test_case "session info includes cwd" `Quick
       test_session_info_includes_cwd;
+    Alcotest.test_case "export snapshot roundtrip" `Quick
+      test_export_snapshot_roundtrip;
+    Alcotest.test_case "export snapshot metadata" `Quick
+      test_export_snapshot_metadata;
+    Alcotest.test_case "export snapshot empty" `Quick test_export_snapshot_empty;
+    Alcotest.test_case "import snapshot legacy version field" `Quick
+      test_import_snapshot_legacy_version_field;
+    Alcotest.test_case "import snapshot rejects bad version" `Quick
+      test_import_snapshot_rejects_bad_version;
+    Alcotest.test_case "import snapshot upserts" `Quick
+      test_import_snapshot_upserts;
   ]
