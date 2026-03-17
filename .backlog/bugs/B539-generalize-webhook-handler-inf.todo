@@ -1,0 +1,14 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B539
+priority: low
+status: pending
+tags:
+    - refactor
+    - webhooks
+    - maintenance
+title: Generalize webhook handler infrastructure
+---
+Extract the common webhook handling pattern from github_hooks.ml into a generic webhook_handler.ml module. The GitHub hooks system (HMAC verification, event matching, payload preparation, session routing via Session.turn) is well-designed but GitHub-specific. Factor out the reusable parts: endpoint registration, signature verification interface, payload normalization, session key derivation, and prompt template rendering. GitHub becomes one instance of the generic handler. This is maintenance/refactoring only — no new webhook sources or skill triggers. Goal is to make it easy to add new webhook sources in the future (Stripe, CI systems, Uptime Robot, etc.) without duplicating the pattern each time.
