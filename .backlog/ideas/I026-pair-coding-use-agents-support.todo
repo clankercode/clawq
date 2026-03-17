@@ -1,13 +1,15 @@
 ---
+claimed_at: "2026-03-17T03:00:55Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 10
 id: I026
 priority: medium
-status: pending
-tags:
-    - idea
-    - planning
+started_at: "2026-03-17T03:00:55Z"
+status: in_progress
+tags: []
 title: 'Pair Coding: Use agents support to introduece a new type of dual agent dual-session where two agents do ''pair coding''. ~/src/pag-server has an implementation (which might not work) which we can use as a starting point.'
 ---
 

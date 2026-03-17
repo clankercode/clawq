@@ -217,8 +217,15 @@ ideas:
       status: done
       tags: []
       title: Add support for agents -- synthesize agent templates using reference projects (opencode, codex, etc in ~/src/ or ~/src/pag-server/ref-projects/), search online for best templates for planning, coding, etc, use the relevant `better-*` skills, and add these as builtins. We need to support user-supplied agent templates too.
-    - file: I026-pair-coding-use-agents-support.todo
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 10
+      file: I026-pair-coding-use-agents-support.todo
       id: I026
+      priority: medium
+      status: in_progress
+      tags: []
+      title: 'Pair Coding: Use agents support to introduece a new type of dual agent dual-session where two agents do ''pair coding''. ~/src/pag-server has an implementation (which might not work) which we can use as a starting point.'
     - complexity: medium
       depends_on: []
       estimate_hours: 10
