@@ -1,0 +1,15 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 10
+id: I041
+priority: high
+status: pending
+tags:
+    - self-building
+    - search
+    - embeddings
+    - codebase
+title: Local Codebase Semantic Index
+---
+Chunk and embed files in a project directory into a local SQLite vector index (using a small local model or API). Tool calls can query 'find code related to session routing' with semantic search rather than grep. The index is incrementally updated on file change via the existing watcher infrastructure. With 225 source files, the agent needs to find the right code before it can change it. Semantic search is dramatically better than grep for a project this size. Directly accelerates every self-modification task.

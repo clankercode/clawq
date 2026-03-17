@@ -282,3 +282,5 @@ ideas:
       id: I039
     - file: I040-auto-test-feedback-loop.todo
       id: I040
+    - file: I041-local-codebase-semantic-index.todo
+      id: I041
