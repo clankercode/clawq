@@ -705,6 +705,11 @@ let migrate_schema db current_version =
       init_attachment_log_schema db;
       set_schema_version db 25;
       Pair_coding_state.init_schema db;
+      (try
+         exec_exn db
+           "ALTER TABLE session_state ADD COLUMN effective_cwd TEXT DEFAULT \
+            NULL"
+       with _ -> ());
       set_schema_version db schema_version
   | 25 ->
       Pair_coding_state.init_schema db;
