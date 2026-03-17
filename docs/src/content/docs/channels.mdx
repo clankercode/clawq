@@ -591,8 +591,10 @@ clawq channel              # confirm teams shows as configured
   `/config menu`, `/skills`, `/costs menu`, `/bg menu`) render as Adaptive
   Cards with clickable buttons on Teams. On other channels they render as
   text-formatted lists. Paginated menus show 9 items per page with nav buttons.
-- **File uploads** --- `/debug_dump_chat` sends session state as a JSON file
-  via a temporary download URL through the bot's HTTP server (requires
+- **File uploads** --- `/debug_dump_chat` sends session state as a JSON file.
+  In personal chats with `file_consent_cards` enabled, a file consent card is
+  sent alongside a temporary download link as a fallback. In group chats (or
+  when consent cards are disabled), only the download link is used (requires
   `tunnel.url`). If no public URL is configured, falls back to sending the
   first 25 KB as truncated text.
 - **Notification suppression** --- tool status messages (thinking indicators,

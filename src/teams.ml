@@ -1905,7 +1905,10 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                               ~size_bytes ~consent_id ()
                           in
                           match result with
-                          | Ok () -> Lwt.return_unit
+                          | Ok () ->
+                              (* Also send the download link as a fallback
+                                 in case the file upload consent flow fails *)
+                              send_temp_download ()
                           | Error err ->
                               Logs.warn (fun m ->
                                   m

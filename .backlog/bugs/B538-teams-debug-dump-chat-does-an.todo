@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-17T11:49:02Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-17T11:51:14Z"
 complexity: medium
 depends_on: []
+duration_minutes: 2.2153047044
 estimate_hours: 1
 id: B538
 priority: high
 started_at: "2026-03-17T11:49:02Z"
-status: in_progress
+status: done
 tags: []
 title: 'teams: /debug-dump-chat does an upload consent thing atm. That''s okay, let''s keep that, but let''s *also* send the link to the user in case of anything going wrong with the file upload.'
 ---
