@@ -521,3 +521,4 @@ bugs:
     - file: B522-at-mentions-of-agents-should-t.todo
     - file: B523-in-teams-clawq-should-respond.todo
     - file: B524-in-teams-clawq-should-be-able.todo
+    - file: B525-auto-loading-skills-at-compact.todo
