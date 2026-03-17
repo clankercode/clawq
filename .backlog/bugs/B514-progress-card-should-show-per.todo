@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-16T18:29:33Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-16T18:57:17Z"
 complexity: low
 depends_on: []
+duration_minutes: 27.746674927233332
 estimate_hours: 1.5
 id: B514
 priority: medium
 started_at: "2026-03-16T18:29:33Z"
-status: in_progress
+status: done
 tags: []
 title: Progress card should show per-tool execution time
 ---

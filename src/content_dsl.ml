@@ -94,6 +94,11 @@ let render_block c = function
                   (Format_adapter.code c (Format_adapter.escape c s))
             | None -> ""
           in
+          let timing_part =
+            match timing with
+            | Some t -> " " ^ Format_adapter.escape c t
+            | None -> ""
+          in
           let lb = Format_adapter.line_break c in
           let error_part =
             match error_detail with
@@ -102,9 +107,9 @@ let render_block c = function
                   (Format_adapter.italic c (Format_adapter.escape c err))
             | None -> ""
           in
-          Printf.sprintf "%s\xE2\x9C\x97 %s %s%s%s" prefix emoji
+          Printf.sprintf "%s\xE2\x9C\x97 %s %s%s%s%s" prefix emoji
             (Format_adapter.bold c (Format_adapter.escape c name))
-            summary_part error_part
+            summary_part timing_part error_part
       | Running ->
           let summary_part =
             match summary with

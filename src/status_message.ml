@@ -77,7 +77,10 @@ let create ?(debounce_interval = 0.5) ~notifier ~parse_mode () =
   }
 
 let format_duration secs =
-  if secs < 10.0 then Printf.sprintf "%.1fs" secs
+  if secs < 1.0 then
+    let ms = int_of_float (secs *. 1000.0) in
+    Printf.sprintf "%d ms" ms
+  else if secs < 10.0 then Printf.sprintf "%.3f s" secs
   else Printf.sprintf "%ds" (int_of_float secs)
 
 let fmt_bold t text =
@@ -141,9 +144,7 @@ let to_document t =
         | Done ->
             let timing =
               match entry.finished_at with
-              | Some fin ->
-                  let dur = fin -. entry.started_at in
-                  if dur > 1.0 then Some (format_duration dur) else None
+              | Some fin -> Some (format_duration (fin -. entry.started_at))
               | None -> None
             in
             doc :=
@@ -160,6 +161,11 @@ let to_document t =
                 }
               :: !doc
         | Failed ->
+            let timing =
+              match entry.finished_at with
+              | Some fin -> Some (format_duration (fin -. entry.started_at))
+              | None -> None
+            in
             doc :=
               Content_dsl.ToolEntry
                 {
@@ -167,7 +173,7 @@ let to_document t =
                   name = entry.name;
                   summary = entry.summary;
                   state = Content_dsl.Failed;
-                  timing = None;
+                  timing;
                   preview = None;
                   error_detail = entry.error_detail;
                   connector_char = None;
@@ -186,7 +192,7 @@ let to_document t =
         in
         let elapsed = Unix.gettimeofday () -. entry.started_at in
         let timing =
-          if elapsed > 5.0 then Some (format_duration elapsed ^ "...") else None
+          if elapsed > 2.0 then Some (format_duration elapsed ^ "...") else None
         in
         doc :=
           Content_dsl.ToolEntry

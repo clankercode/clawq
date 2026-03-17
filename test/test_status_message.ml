@@ -114,13 +114,29 @@ let test_render_failed_tool () =
      with Not_found -> false)
 
 let test_format_duration () =
-  (* Under 10s uses 1 decimal place *)
+  (* Sub-second uses milliseconds *)
   Alcotest.(check string)
-    "sub-10s duration" "1.5s"
+    "sub-1s shows ms" "500 ms"
+    (Status_message.format_duration 0.5);
+  Alcotest.(check string)
+    "zero duration" "0 ms"
+    (Status_message.format_duration 0.0);
+  Alcotest.(check string)
+    "tiny duration" "1 ms"
+    (Status_message.format_duration 0.001);
+  Alcotest.(check string)
+    "sub-ms rounds to 0" "0 ms"
+    (Status_message.format_duration 0.0001);
+  (* 1s to <10s uses 3 decimal places *)
+  Alcotest.(check string)
+    "1s-10s range" "1.500 s"
     (Status_message.format_duration 1.5);
   Alcotest.(check string)
-    "sub-10s duration zero" "0.0s"
-    (Status_message.format_duration 0.0);
+    "exactly 1s" "1.000 s"
+    (Status_message.format_duration 1.0);
+  Alcotest.(check string)
+    "9.99s" "9.999 s"
+    (Status_message.format_duration 9.999);
   (* 10s+ uses integer *)
   Alcotest.(check string)
     "10s+ duration" "15s"
@@ -846,6 +862,96 @@ let test_heartbeat_self_terminates () =
     "heartbeat cancelled after last tool" true
     (t.heartbeat_cancel = None)
 
+let test_completed_tool_shows_timing () =
+  (* B514: every completed tool should show its execution time *)
+  let notifier, _, _, _ = mock_notifier () in
+  let t =
+    Status_message.create ~debounce_interval:0.0 ~notifier
+      ~parse_mode:"Markdown" ()
+  in
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () =
+       Status_message.tool_start t ~id:"t1" ~name:"file_read"
+         ~summary:(Some "src/main.ml")
+     in
+     Status_message.tool_result t ~id:"t1" ~name:"file_read"
+       ~result:"contents here" ~is_error:false);
+  let output = Status_message.render t in
+  (* Even a sub-second tool should show timing in ms *)
+  Alcotest.(check bool)
+    "completed tool shows timing in ms" true (contains output "ms")
+
+let test_completed_tool_timing_with_duration () =
+  (* B514: verify timing value reflects actual duration *)
+  let notifier, _, _, _ = mock_notifier () in
+  let t =
+    Status_message.create ~debounce_interval:0.0 ~notifier
+      ~parse_mode:"Markdown" ()
+  in
+  Lwt_main.run
+    (Status_message.tool_start t ~id:"t1" ~name:"file_read"
+       ~summary:(Some "test"));
+  (* Backdate started_at to simulate 3.5s duration *)
+  (match Hashtbl.find_opt t.tools "t1" with
+  | Some entry ->
+      Hashtbl.replace t.tools "t1"
+        { entry with started_at = Unix.gettimeofday () -. 3.5 }
+  | None -> ());
+  Lwt_main.run
+    (Status_message.tool_result t ~id:"t1" ~name:"file_read" ~result:"ok"
+       ~is_error:false);
+  let output = Status_message.render t in
+  Alcotest.(check bool) "shows 3.500 s timing" true (contains output "3.500 s")
+
+let test_failed_tool_shows_timing () =
+  (* B514: failed tools should also show execution time *)
+  let notifier, _, _, _ = mock_notifier () in
+  let t =
+    Status_message.create ~debounce_interval:0.0 ~notifier
+      ~parse_mode:"Markdown" ()
+  in
+  Lwt_main.run
+    (Status_message.tool_start t ~id:"t1" ~name:"shell_exec"
+       ~summary:(Some "bad cmd"));
+  (* Backdate to simulate 2.3s *)
+  (match Hashtbl.find_opt t.tools "t1" with
+  | Some entry ->
+      Hashtbl.replace t.tools "t1"
+        { entry with started_at = Unix.gettimeofday () -. 2.3 }
+  | None -> ());
+  Lwt_main.run
+    (Status_message.tool_result t ~id:"t1" ~name:"shell_exec"
+       ~result:"command not found" ~is_error:true);
+  let output = Status_message.render t in
+  Alcotest.(check bool)
+    "failed tool shows timing" true
+    (contains output "2.300 s");
+  Alcotest.(check bool)
+    "failed tool still shows error" true
+    (contains output "command not found")
+
+let test_running_tool_elapsed_at_lower_threshold () =
+  (* B514: running tools show elapsed time after 2s instead of 5s *)
+  let notifier, _, _, _ = mock_notifier () in
+  let t =
+    Status_message.create ~debounce_interval:0.0 ~notifier
+      ~parse_mode:"Markdown" ()
+  in
+  Lwt_main.run
+    (Status_message.tool_start t ~id:"t1" ~name:"shell_exec"
+       ~summary:(Some "slow cmd"));
+  (* Backdate to simulate 3s elapsed — should show timing now *)
+  (match Hashtbl.find_opt t.tools "t1" with
+  | Some entry ->
+      Hashtbl.replace t.tools "t1"
+        { entry with started_at = Unix.gettimeofday () -. 3.0 }
+  | None -> ());
+  let output = Status_message.render t in
+  Alcotest.(check bool)
+    "running tool shows elapsed after 2s" true
+    (contains output "..." && contains output "s")
+
 let test_finalize_cancels_heartbeat () =
   (* B493: finalize must cancel any remaining heartbeat *)
   let notifier, _, _, _ = mock_notifier () in
@@ -917,4 +1023,12 @@ let suite =
       test_heartbeat_self_terminates;
     Alcotest.test_case "finalize cancels heartbeat" `Quick
       test_finalize_cancels_heartbeat;
+    Alcotest.test_case "completed tool shows timing" `Quick
+      test_completed_tool_shows_timing;
+    Alcotest.test_case "completed tool timing with duration" `Quick
+      test_completed_tool_timing_with_duration;
+    Alcotest.test_case "failed tool shows timing" `Quick
+      test_failed_tool_shows_timing;
+    Alcotest.test_case "running tool elapsed at lower threshold" `Quick
+      test_running_tool_elapsed_at_lower_threshold;
   ]
