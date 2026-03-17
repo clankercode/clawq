@@ -128,6 +128,7 @@ let parameters_schema =
                   );
                 ] );
           ] );
+      ("required", `List [ `String "action" ]);
     ]
 
 let get_str key args =
@@ -467,13 +468,13 @@ let browser ~workspace_only ~(config : Runtime_config.t) =
   {
     Tool.name = "browser";
     description =
-      "Interact with web pages via a headless browser. Supports navigation, \
-       clicking, typing, screenshots, JS evaluation, multi-tab management, and \
-       LLM-powered instruction execution. Actions: navigate, click, type, \
-       screenshot, content, evaluate, load_script, list_scripts, \
-       unload_script, wait, close, new_tab, switch_tab, close_tab, list_tabs. \
-       Workflows: navigate_and_extract, fill_form, snapshot_all, run_script, \
-       perform.";
+      "Interact with web pages via a headless browser. The 'action' parameter \
+       is required. Supports navigation, clicking, typing, screenshots, JS \
+       evaluation, multi-tab management, and LLM-powered instruction \
+       execution. Actions: navigate, click, type, screenshot, content, \
+       evaluate, load_script, list_scripts, unload_script, wait, close, \
+       new_tab, switch_tab, close_tab, list_tabs. Workflows: \
+       navigate_and_extract, fill_form, snapshot_all, run_script, perform.";
     parameters_schema;
     invoke =
       (fun ?context args ->
