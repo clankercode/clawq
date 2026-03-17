@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B527
+priority: high
+status: pending
+tags: []
+title: Teams manifest should prioritize /menu, deprioritize /tasks, /thinking, /model. Also the '/config get' commands should always redact secrets.
+---
+
+Teams manifest should prioritize /menu, deprioritize /tasks, /thinking, /model. Also the '/config get' commands should always redact secrets.

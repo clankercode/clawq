@@ -523,3 +523,4 @@ bugs:
     - file: B524-in-teams-clawq-should-be-able.todo
     - file: B525-auto-loading-skills-at-compact.todo
     - file: B526-clawq-should-be-able-to-read-a.todo
+    - file: B527-teams-manifest-should-prioriti.todo
