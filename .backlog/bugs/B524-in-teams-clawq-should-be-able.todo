@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B524
+priority: high
+status: pending
+tags: []
+title: in Teams, clawq should be able to request to upload a file and it should work (eg, the /debug_dump_chat is meant to work like that.
+---
+
+in Teams, clawq should be able to request to upload a file and it should work (eg, the /debug_dump_chat is meant to work like that.

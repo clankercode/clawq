@@ -520,3 +520,4 @@ bugs:
     - file: B521-need-a-test-about-what-content.todo
     - file: B522-at-mentions-of-agents-should-t.todo
     - file: B523-in-teams-clawq-should-respond.todo
+    - file: B524-in-teams-clawq-should-be-able.todo
