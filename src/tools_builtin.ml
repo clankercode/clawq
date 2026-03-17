@@ -11,6 +11,55 @@ let send_message ~(send_fn : (text:string -> unit Lwt.t) option)
     ~(rich_send_fn :
        (session_key:string -> Rich_message.t -> Rich_message.send_result Lwt.t)
        option) =
+  let schema =
+    `Assoc
+      [
+        ("type", `String "object");
+        ( "properties",
+          `Assoc
+            [
+              ( "text",
+                `Assoc
+                  [
+                    ("type", `String "string");
+                    ("description", `String "Message text to send (required)");
+                  ] );
+              ( "buttons",
+                `Assoc
+                  [
+                    ("type", `String "array");
+                    ( "description",
+                      `String
+                        "Optional inline keyboard buttons. Each is an object \
+                         with 'label' (display text). When clicked, the \
+                         selected label is sent back as a user message." );
+                    ( "items",
+                      `Assoc
+                        [
+                          ("type", `String "object");
+                          ( "properties",
+                            `Assoc
+                              [
+                                ( "label",
+                                  `Assoc
+                                    [
+                                      ("type", `String "string");
+                                      ( "description",
+                                        `String "Button display text (required)"
+                                      );
+                                    ] );
+                              ] );
+                          ("required", `List [ `String "label" ]);
+                        ] );
+                  ] );
+            ] );
+        ("required", `List [ `String "text" ]);
+      ]
+  in
+  let param_err detail =
+    Tool.make_param_error ~tool_name:"send_message" ~parameters_schema:schema
+      ~detail
+  in
   {
     Tool.name = "send_message";
     description =
@@ -18,55 +67,13 @@ let send_message ~(send_fn : (text:string -> unit Lwt.t) option)
        the configured notification channel (Telegram, Discord, etc.) if no \
        session is active. Use when asked to notify, alert, or message the \
        user. Optionally include inline keyboard buttons for user choices.";
-    parameters_schema =
-      `Assoc
-        [
-          ("type", `String "object");
-          ( "properties",
-            `Assoc
-              [
-                ( "text",
-                  `Assoc
-                    [
-                      ("type", `String "string");
-                      ("description", `String "Message text to send (required)");
-                    ] );
-                ( "buttons",
-                  `Assoc
-                    [
-                      ("type", `String "array");
-                      ( "description",
-                        `String
-                          "Optional inline keyboard buttons. Each is an object \
-                           with 'label' (display text). When clicked, the \
-                           selected label is sent back as a user message." );
-                      ( "items",
-                        `Assoc
-                          [
-                            ("type", `String "object");
-                            ( "properties",
-                              `Assoc
-                                [
-                                  ( "label",
-                                    `Assoc
-                                      [
-                                        ("type", `String "string");
-                                        ( "description",
-                                          `String
-                                            "Button display text (required)" );
-                                      ] );
-                                ] );
-                            ("required", `List [ `String "label" ]);
-                          ] );
-                    ] );
-              ] );
-          ("required", `List [ `String "text" ]);
-        ];
+    parameters_schema = schema;
     invoke =
       (fun ?context args ->
         let open Yojson.Safe.Util in
         let text = try args |> member "text" |> to_string with _ -> "" in
-        if text = "" then Lwt.return "Error: text is required"
+        if text = "" then
+          Lwt.return (param_err "parameter 'text' must be a non-empty string")
         else
           let buttons =
             try
@@ -175,47 +182,53 @@ let send_poll
     ~(rich_send_fn :
        (session_key:string -> Rich_message.t -> Rich_message.send_result Lwt.t)
        option) ~(send_fn : (text:string -> unit Lwt.t) option) =
+  let schema =
+    `Assoc
+      [
+        ("type", `String "object");
+        ( "properties",
+          `Assoc
+            [
+              ( "question",
+                `Assoc
+                  [
+                    ("type", `String "string");
+                    ("description", `String "The poll question (required)");
+                  ] );
+              ( "options",
+                `Assoc
+                  [
+                    ("type", `String "array");
+                    ( "description",
+                      `String "Poll options, 2-10 items (required)" );
+                    ("items", `Assoc [ ("type", `String "string") ]);
+                    ("minItems", `Int 2);
+                    ("maxItems", `Int 10);
+                  ] );
+              ( "allows_multiple",
+                `Assoc
+                  [
+                    ("type", `String "boolean");
+                    ( "description",
+                      `String
+                        "Whether users can select multiple options (default: \
+                         false)" );
+                  ] );
+            ] );
+        ("required", `List [ `String "question"; `String "options" ]);
+      ]
+  in
+  let param_err detail =
+    Tool.make_param_error ~tool_name:"send_poll" ~parameters_schema:schema
+      ~detail
+  in
   {
     Tool.name = "send_poll";
     description =
       "Send a poll to the user via the current channel. On Telegram, this \
        creates a native poll; on other channels it renders as a text question. \
        The user's vote is routed back as a message.";
-    parameters_schema =
-      `Assoc
-        [
-          ("type", `String "object");
-          ( "properties",
-            `Assoc
-              [
-                ( "question",
-                  `Assoc
-                    [
-                      ("type", `String "string");
-                      ("description", `String "The poll question (required)");
-                    ] );
-                ( "options",
-                  `Assoc
-                    [
-                      ("type", `String "array");
-                      ( "description",
-                        `String "Poll options, 2-10 items (required)" );
-                      ("items", `Assoc [ ("type", `String "string") ]);
-                      ("minItems", `Int 2);
-                      ("maxItems", `Int 10);
-                    ] );
-                ( "allows_multiple",
-                  `Assoc
-                    [
-                      ("type", `String "boolean");
-                      ( "description",
-                        `String
-                          "Whether users can select multiple options (default: \
-                           false)" );
-                    ] );
-              ] );
-          ("required", `List [ `String "question"; `String "options" ]);
-        ];
+    parameters_schema = schema;
     invoke =
       (fun ?context args ->
         let open Yojson.Safe.Util in
@@ -229,11 +242,16 @@ let send_poll
         let allows_multiple =
           try args |> member "allows_multiple" |> to_bool with _ -> false
         in
-        if question = "" then Lwt.return "Error: question is required"
+        if question = "" then
+          Lwt.return
+            (param_err "parameter 'question' must be a non-empty string")
         else if List.length options < 2 then
-          Lwt.return "Error: at least 2 options are required"
+          Lwt.return
+            (param_err
+               "parameter 'options' must be an array with at least 2 items")
         else if List.length options > 10 then
-          Lwt.return "Error: at most 10 options are allowed"
+          Lwt.return
+            (param_err "parameter 'options' must have at most 10 items")
         else
           let session_key =
             match context with Some ctx -> ctx.Tool.session_key | None -> None
@@ -646,6 +664,45 @@ let send_file ~workspace ~workspace_only ~extra_allowed_paths
 
 let doc_write ~workspace ~workspace_files =
   let known_files = String.concat ", " workspace_files in
+  let schema =
+    `Assoc
+      [
+        ("type", `String "object");
+        ( "properties",
+          `Assoc
+            [
+              ( "filename",
+                `Assoc
+                  [
+                    ("type", `String "string");
+                    ( "description",
+                      `String
+                        ("Filename to write, e.g. TOOLS.md, MEMORY.md \
+                          (required). Known files: " ^ known_files) );
+                  ] );
+              ( "content",
+                `Assoc
+                  [
+                    ("type", `String "string");
+                    ("description", `String "Content to write (required)");
+                  ] );
+              ( "append",
+                `Assoc
+                  [
+                    ("type", `String "boolean");
+                    ( "description",
+                      `String
+                        "If true, append to existing file instead of \
+                         overwriting (default: false)" );
+                  ] );
+            ] );
+        ("required", `List [ `String "filename"; `String "content" ]);
+      ]
+  in
+  let param_err detail =
+    Tool.make_param_error ~tool_name:"doc_write" ~parameters_schema:schema
+      ~detail
+  in
   {
     Tool.name = "doc_write";
     description =
@@ -656,40 +713,7 @@ let doc_write ~workspace ~workspace_files =
          create new files but they will only appear in the prompt if added to \
          the workspace_files config."
         known_files;
-    parameters_schema =
-      `Assoc
-        [
-          ("type", `String "object");
-          ( "properties",
-            `Assoc
-              [
-                ( "filename",
-                  `Assoc
-                    [
-                      ("type", `String "string");
-                      ( "description",
-                        `String
-                          ("Filename to write, e.g. TOOLS.md, MEMORY.md \
-                            (required). Known files: " ^ known_files) );
-                    ] );
-                ( "content",
-                  `Assoc
-                    [
-                      ("type", `String "string");
-                      ("description", `String "Content to write (required)");
-                    ] );
-                ( "append",
-                  `Assoc
-                    [
-                      ("type", `String "boolean");
-                      ( "description",
-                        `String
-                          "If true, append to existing file instead of \
-                           overwriting (default: false)" );
-                    ] );
-              ] );
-          ("required", `List [ `String "filename"; `String "content" ]);
-        ];
+    parameters_schema = schema;
     invoke =
       (fun ?context:_ args ->
         let open Yojson.Safe.Util in
@@ -700,10 +724,16 @@ let doc_write ~workspace ~workspace_files =
           try args |> member "content" |> to_string with _ -> ""
         in
         let append = try args |> member "append" |> to_bool with _ -> false in
-        if filename = "" then Lwt.return "Error: filename is required"
+        if filename = "" then
+          Lwt.return
+            (param_err "parameter 'filename' must be a non-empty string")
         else if not (Prompt_builder.safe_prompt_filename filename) then
-          Lwt.return "Error: invalid filename (must not contain .., /, or \\)"
-        else if content = "" then Lwt.return "Error: content is required"
+          Lwt.return
+            (param_err
+               "parameter 'filename' is invalid (must not contain .., /, or \\)")
+        else if content = "" then
+          Lwt.return
+            (param_err "parameter 'content' must be a non-empty string")
         else
           let path = Filename.concat workspace filename in
           let is_known = List.mem filename workspace_files in

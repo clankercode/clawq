@@ -111,52 +111,59 @@ let is_path_allowed ~workspace ~workspace_only ~extra_allowed_paths path =
   else is_path_within_allowed_roots ~workspace ~extra_allowed_paths path
 
 let file_read ~workspace ~workspace_only ~extra_allowed_paths =
+  let schema =
+    `Assoc
+      [
+        ("type", `String "object");
+        ( "properties",
+          `Assoc
+            [
+              ( "path",
+                `Assoc
+                  [
+                    ("type", `String "string");
+                    ( "description",
+                      `String "Path to the file to read (required)" );
+                  ] );
+              ( "offset",
+                `Assoc
+                  [
+                    ("type", `String "integer");
+                    ( "description",
+                      `String "Optional 1-indexed line offset for paged reads"
+                    );
+                  ] );
+              ( "limit",
+                `Assoc
+                  [
+                    ("type", `String "integer");
+                    ( "description",
+                      `String
+                        "Optional max lines to read when using offset (default \
+                         200, max 2000)" );
+                  ] );
+            ] );
+        ("required", `List [ `String "path" ]);
+      ]
+  in
+  let param_err detail =
+    Tool.make_param_error ~tool_name:"file_read" ~parameters_schema:schema
+      ~detail
+  in
   {
     Tool.name = "file_read";
     description =
       "Read a file's text content. Full reads limited to 50,000 chars; for \
        larger files use offset and limit parameters to read in parts.";
-    parameters_schema =
-      `Assoc
-        [
-          ("type", `String "object");
-          ( "properties",
-            `Assoc
-              [
-                ( "path",
-                  `Assoc
-                    [
-                      ("type", `String "string");
-                      ( "description",
-                        `String "Path to the file to read (required)" );
-                    ] );
-                ( "offset",
-                  `Assoc
-                    [
-                      ("type", `String "integer");
-                      ( "description",
-                        `String "Optional 1-indexed line offset for paged reads"
-                      );
-                    ] );
-                ( "limit",
-                  `Assoc
-                    [
-                      ("type", `String "integer");
-                      ( "description",
-                        `String
-                          "Optional max lines to read when using offset \
-                           (default 200, max 2000)" );
-                    ] );
-              ] );
-          ("required", `List [ `String "path" ]);
-        ];
+    parameters_schema = schema;
     invoke =
       (fun ?context args ->
         let open Yojson.Safe.Util in
         let path = try args |> member "path" |> to_string with _ -> "" in
         let offset_input = parse_optional_int_field args "offset" in
         let limit_input = parse_optional_int_field args "limit" in
-        if path = "" then Lwt.return "Error: path is required"
+        if path = "" then
+          Lwt.return (param_err "parameter 'path' must be a non-empty string")
         else
           match (offset_input, limit_input) with
           | Error msg, _ | _, Error msg -> Lwt.return msg
@@ -221,34 +228,40 @@ let file_read ~workspace ~workspace_only ~extra_allowed_paths =
   }
 
 let file_append ~workspace ~workspace_only ~extra_allowed_paths =
+  let schema =
+    `Assoc
+      [
+        ("type", `String "object");
+        ( "properties",
+          `Assoc
+            [
+              ( "path",
+                `Assoc
+                  [
+                    ("type", `String "string");
+                    ( "description",
+                      `String "Path to the file to append (required)" );
+                  ] );
+              ( "content",
+                `Assoc
+                  [
+                    ("type", `String "string");
+                    ( "description",
+                      `String "Content to append to the file (required)" );
+                  ] );
+            ] );
+        ("required", `List [ `String "path"; `String "content" ]);
+      ]
+  in
+  let param_err detail =
+    Tool.make_param_error ~tool_name:"file_append" ~parameters_schema:schema
+      ~detail
+  in
   {
     Tool.name = "file_append";
     description =
       "Append content to the end of a file, creating it if it does not exist";
-    parameters_schema =
-      `Assoc
-        [
-          ("type", `String "object");
-          ( "properties",
-            `Assoc
-              [
-                ( "path",
-                  `Assoc
-                    [
-                      ("type", `String "string");
-                      ( "description",
-                        `String "Path to the file to append (required)" );
-                    ] );
-                ( "content",
-                  `Assoc
-                    [
-                      ("type", `String "string");
-                      ( "description",
-                        `String "Content to append to the file (required)" );
-                    ] );
-              ] );
-          ("required", `List [ `String "path"; `String "content" ]);
-        ];
+    parameters_schema = schema;
     invoke =
       (fun ?context args ->
         let open Yojson.Safe.Util in
@@ -256,7 +269,8 @@ let file_append ~workspace ~workspace_only ~extra_allowed_paths =
         let content =
           try args |> member "content" |> to_string with _ -> ""
         in
-        if path = "" then Lwt.return "Error: path is required"
+        if path = "" then
+          Lwt.return (param_err "parameter 'path' must be a non-empty string")
         else if
           not
             (is_path_allowed ~workspace ~workspace_only ~extra_allowed_paths
@@ -293,33 +307,39 @@ let shell_exec ~workspace ~workspace_only ~allowed_commands ~extra_allowed_paths
     ~extra_allowed_paths ~sandbox ()
 
 let file_write ~workspace ~workspace_only ~extra_allowed_paths =
+  let schema =
+    `Assoc
+      [
+        ("type", `String "object");
+        ( "properties",
+          `Assoc
+            [
+              ( "path",
+                `Assoc
+                  [
+                    ("type", `String "string");
+                    ( "description",
+                      `String "Path to the file to write (required)" );
+                  ] );
+              ( "content",
+                `Assoc
+                  [
+                    ("type", `String "string");
+                    ( "description",
+                      `String "Content to write to the file (required)" );
+                  ] );
+            ] );
+        ("required", `List [ `String "path"; `String "content" ]);
+      ]
+  in
+  let param_err detail =
+    Tool.make_param_error ~tool_name:"file_write" ~parameters_schema:schema
+      ~detail
+  in
   {
     Tool.name = "file_write";
     description = "Create or overwrite a file with the given content";
-    parameters_schema =
-      `Assoc
-        [
-          ("type", `String "object");
-          ( "properties",
-            `Assoc
-              [
-                ( "path",
-                  `Assoc
-                    [
-                      ("type", `String "string");
-                      ( "description",
-                        `String "Path to the file to write (required)" );
-                    ] );
-                ( "content",
-                  `Assoc
-                    [
-                      ("type", `String "string");
-                      ( "description",
-                        `String "Content to write to the file (required)" );
-                    ] );
-              ] );
-          ("required", `List [ `String "path"; `String "content" ]);
-        ];
+    parameters_schema = schema;
     invoke =
       (fun ?context args ->
         let open Yojson.Safe.Util in
@@ -327,7 +347,8 @@ let file_write ~workspace ~workspace_only ~extra_allowed_paths =
         let content =
           try args |> member "content" |> to_string with _ -> ""
         in
-        if path = "" then Lwt.return "Error: path is required"
+        if path = "" then
+          Lwt.return (param_err "parameter 'path' must be a non-empty string")
         else if
           not
             (is_path_allowed ~workspace ~workspace_only ~extra_allowed_paths
@@ -353,49 +374,55 @@ let file_write ~workspace ~workspace_only ~extra_allowed_paths =
   }
 
 let file_edit ~workspace ~workspace_only ~extra_allowed_paths =
+  let schema =
+    `Assoc
+      [
+        ("type", `String "object");
+        ( "properties",
+          `Assoc
+            [
+              ( "path",
+                `Assoc
+                  [
+                    ("type", `String "string");
+                    ( "description",
+                      `String "Path to the file to edit (required)" );
+                  ] );
+              ( "old_text",
+                `Assoc
+                  [
+                    ("type", `String "string");
+                    ( "description",
+                      `String "Text to find and replace (required)" );
+                  ] );
+              ( "new_text",
+                `Assoc
+                  [
+                    ("type", `String "string");
+                    ("description", `String "Replacement text (required)");
+                  ] );
+              ( "replace_all",
+                `Assoc
+                  [
+                    ("type", `String "boolean");
+                    ( "description",
+                      `String
+                        "Optional: replace all occurrences (default false)" );
+                  ] );
+            ] );
+        ( "required",
+          `List [ `String "path"; `String "old_text"; `String "new_text" ] );
+      ]
+  in
+  let param_err detail =
+    Tool.make_param_error ~tool_name:"file_edit" ~parameters_schema:schema
+      ~detail
+  in
   {
     Tool.name = "file_edit";
     description =
       "Edit a file by replacing the first occurrence of old_text with new_text";
-    parameters_schema =
-      `Assoc
-        [
-          ("type", `String "object");
-          ( "properties",
-            `Assoc
-              [
-                ( "path",
-                  `Assoc
-                    [
-                      ("type", `String "string");
-                      ( "description",
-                        `String "Path to the file to edit (required)" );
-                    ] );
-                ( "old_text",
-                  `Assoc
-                    [
-                      ("type", `String "string");
-                      ( "description",
-                        `String "Text to find and replace (required)" );
-                    ] );
-                ( "new_text",
-                  `Assoc
-                    [
-                      ("type", `String "string");
-                      ("description", `String "Replacement text (required)");
-                    ] );
-                ( "replace_all",
-                  `Assoc
-                    [
-                      ("type", `String "boolean");
-                      ( "description",
-                        `String
-                          "Optional: replace all occurrences (default false)" );
-                    ] );
-              ] );
-          ( "required",
-            `List [ `String "path"; `String "old_text"; `String "new_text" ] );
-        ];
+    parameters_schema = schema;
     invoke =
       (fun ?context args ->
         let open Yojson.Safe.Util in
@@ -409,8 +436,11 @@ let file_edit ~workspace ~workspace_only ~extra_allowed_paths =
         let replace_all =
           try args |> member "replace_all" |> to_bool with _ -> false
         in
-        if path = "" then Lwt.return "Error: path is required"
-        else if old_text = "" then Lwt.return "Error: old_text is required"
+        if path = "" then
+          Lwt.return (param_err "parameter 'path' must be a non-empty string")
+        else if old_text = "" then
+          Lwt.return
+            (param_err "parameter 'old_text' must be a non-empty string")
         else if
           not
             (is_path_allowed ~workspace ~workspace_only ~extra_allowed_paths
@@ -487,55 +517,61 @@ let file_edit ~workspace ~workspace_only ~extra_allowed_paths =
   }
 
 let file_edit_lines ~workspace ~workspace_only ~extra_allowed_paths =
+  let schema =
+    `Assoc
+      [
+        ("type", `String "object");
+        ( "properties",
+          `Assoc
+            [
+              ( "path",
+                `Assoc
+                  [
+                    ("type", `String "string");
+                    ( "description",
+                      `String "Path to the file to edit (required)" );
+                  ] );
+              ( "start_line",
+                `Assoc
+                  [
+                    ("type", `String "integer");
+                    ( "description",
+                      `String "1-indexed start line, inclusive (required)" );
+                  ] );
+              ( "end_line",
+                `Assoc
+                  [
+                    ("type", `String "integer");
+                    ( "description",
+                      `String "1-indexed end line, inclusive (required)" );
+                  ] );
+              ( "content",
+                `Assoc
+                  [
+                    ("type", `String "string");
+                    ("description", `String "Replacement content (required)");
+                  ] );
+            ] );
+        ( "required",
+          `List
+            [
+              `String "path";
+              `String "start_line";
+              `String "end_line";
+              `String "content";
+            ] );
+      ]
+  in
+  let param_err detail =
+    Tool.make_param_error ~tool_name:"file_edit_lines" ~parameters_schema:schema
+      ~detail
+  in
   {
     Tool.name = "file_edit_lines";
     description =
       "Replace an inclusive 1-indexed line range [start_line, end_line] with \
        new content";
-    parameters_schema =
-      `Assoc
-        [
-          ("type", `String "object");
-          ( "properties",
-            `Assoc
-              [
-                ( "path",
-                  `Assoc
-                    [
-                      ("type", `String "string");
-                      ( "description",
-                        `String "Path to the file to edit (required)" );
-                    ] );
-                ( "start_line",
-                  `Assoc
-                    [
-                      ("type", `String "integer");
-                      ( "description",
-                        `String "1-indexed start line, inclusive (required)" );
-                    ] );
-                ( "end_line",
-                  `Assoc
-                    [
-                      ("type", `String "integer");
-                      ( "description",
-                        `String "1-indexed end line, inclusive (required)" );
-                    ] );
-                ( "content",
-                  `Assoc
-                    [
-                      ("type", `String "string");
-                      ("description", `String "Replacement content (required)");
-                    ] );
-              ] );
-          ( "required",
-            `List
-              [
-                `String "path";
-                `String "start_line";
-                `String "end_line";
-                `String "content";
-              ] );
-        ];
+    parameters_schema = schema;
     invoke =
       (fun ?context args ->
         let open Yojson.Safe.Util in
@@ -547,11 +583,14 @@ let file_edit_lines ~workspace ~workspace_only ~extra_allowed_paths =
         let replacement =
           try args |> member "content" |> to_string with _ -> ""
         in
-        if path = "" then Lwt.return "Error: path is required"
+        if path = "" then
+          Lwt.return (param_err "parameter 'path' must be a non-empty string")
         else if start_line < 1 || end_line < 1 then
-          Lwt.return "Error: start_line and end_line must be >= 1"
+          Lwt.return
+            (param_err
+               "parameters 'start_line' and 'end_line' must be integers >= 1")
         else if end_line < start_line then
-          Lwt.return "Error: end_line must be >= start_line"
+          Lwt.return (param_err "parameter 'end_line' must be >= 'start_line'")
         else if
           not
             (is_path_allowed ~workspace ~workspace_only ~extra_allowed_paths
@@ -627,30 +666,37 @@ let http_get ~workspace_only =
        10KB). For HTML pages use web_fetch; for other methods or custom \
        headers use http_request."
   in
+  let schema =
+    `Assoc
+      [
+        ("type", `String "object");
+        ( "properties",
+          `Assoc
+            [
+              ( "url",
+                `Assoc
+                  [
+                    ("type", `String "string");
+                    ("description", `String "URL to fetch (required)");
+                  ] );
+            ] );
+        ("required", `List [ `String "url" ]);
+      ]
+  in
+  let param_err detail =
+    Tool.make_param_error ~tool_name:"http_get" ~parameters_schema:schema
+      ~detail
+  in
   {
     Tool.name = "http_get";
     description;
-    parameters_schema =
-      `Assoc
-        [
-          ("type", `String "object");
-          ( "properties",
-            `Assoc
-              [
-                ( "url",
-                  `Assoc
-                    [
-                      ("type", `String "string");
-                      ("description", `String "URL to fetch (required)");
-                    ] );
-              ] );
-          ("required", `List [ `String "url" ]);
-        ];
+    parameters_schema = schema;
     invoke =
       (fun ?context:_ args ->
         let open Yojson.Safe.Util in
         let url = try args |> member "url" |> to_string with _ -> "" in
-        if url = "" then Lwt.return "Error: url is required"
+        if url = "" then
+          Lwt.return (param_err "parameter 'url' must be a non-empty string")
         else if workspace_only && not (is_localhost_url url) then
           Lwt.return
             "Error: workspace policy restricts HTTP access to localhost only"
@@ -672,34 +718,42 @@ let http_get ~workspace_only =
 
 let transcribe ~(config : Runtime_config.t) =
   let workspace = Runtime_config.effective_workspace config in
+  let schema =
+    `Assoc
+      [
+        ("type", `String "object");
+        ( "properties",
+          `Assoc
+            [
+              ( "file_path",
+                `Assoc
+                  [
+                    ("type", `String "string");
+                    ( "description",
+                      `String "Path to the audio file to transcribe (required)"
+                    );
+                  ] );
+            ] );
+        ("required", `List [ `String "file_path" ]);
+      ]
+  in
+  let param_err detail =
+    Tool.make_param_error ~tool_name:"transcribe" ~parameters_schema:schema
+      ~detail
+  in
   {
     Tool.name = "transcribe";
     description = "Transcribe an audio file to text using speech-to-text";
-    parameters_schema =
-      `Assoc
-        [
-          ("type", `String "object");
-          ( "properties",
-            `Assoc
-              [
-                ( "file_path",
-                  `Assoc
-                    [
-                      ("type", `String "string");
-                      ( "description",
-                        `String
-                          "Path to the audio file to transcribe (required)" );
-                    ] );
-              ] );
-          ("required", `List [ `String "file_path" ]);
-        ];
+    parameters_schema = schema;
     invoke =
       (fun ?context:_ args ->
         let open Yojson.Safe.Util in
         let file_path =
           try args |> member "file_path" |> to_string with _ -> ""
         in
-        if file_path = "" then Lwt.return "Error: file_path is required"
+        if file_path = "" then
+          Lwt.return
+            (param_err "parameter 'file_path' must be a non-empty string")
         else if
           not
             (is_path_allowed ~workspace
@@ -731,41 +785,47 @@ let transcribe ~(config : Runtime_config.t) =
   }
 
 let memory_store ~db =
+  let schema =
+    `Assoc
+      [
+        ("type", `String "object");
+        ( "properties",
+          `Assoc
+            [
+              ( "key",
+                `Assoc
+                  [
+                    ("type", `String "string");
+                    ( "description",
+                      `String "Unique key for the memory (required)" );
+                  ] );
+              ( "content",
+                `Assoc
+                  [
+                    ("type", `String "string");
+                    ("description", `String "Content to store (required)");
+                  ] );
+              ( "category",
+                `Assoc
+                  [
+                    ("type", `String "string");
+                    ( "description",
+                      `String "Category for the memory (default: general)" );
+                  ] );
+            ] );
+        ("required", `List [ `String "key"; `String "content" ]);
+      ]
+  in
+  let param_err detail =
+    Tool.make_param_error ~tool_name:"memory_store" ~parameters_schema:schema
+      ~detail
+  in
   {
     Tool.name = "memory_store";
     description =
       "Store a persistent key-value memory that survives across sessions. \
        Overwrites if the key already exists.";
-    parameters_schema =
-      `Assoc
-        [
-          ("type", `String "object");
-          ( "properties",
-            `Assoc
-              [
-                ( "key",
-                  `Assoc
-                    [
-                      ("type", `String "string");
-                      ( "description",
-                        `String "Unique key for the memory (required)" );
-                    ] );
-                ( "content",
-                  `Assoc
-                    [
-                      ("type", `String "string");
-                      ("description", `String "Content to store (required)");
-                    ] );
-                ( "category",
-                  `Assoc
-                    [
-                      ("type", `String "string");
-                      ( "description",
-                        `String "Category for the memory (default: general)" );
-                    ] );
-              ] );
-          ("required", `List [ `String "key"; `String "content" ]);
-        ];
+    parameters_schema = schema;
     invoke =
       (fun ?context:_ args ->
         let open Yojson.Safe.Util in
@@ -776,8 +836,11 @@ let memory_store ~db =
         let category =
           try args |> member "category" |> to_string with _ -> "general"
         in
-        if key = "" then Lwt.return "Error: key is required"
-        else if content = "" then Lwt.return "Error: content is required"
+        if key = "" then
+          Lwt.return (param_err "parameter 'key' must be a non-empty string")
+        else if content = "" then
+          Lwt.return
+            (param_err "parameter 'content' must be a non-empty string")
         else begin
           Memory.store_core ~db ~key ~content ~category ();
           Lwt.return (Printf.sprintf "Stored memory: %s" key)
@@ -788,40 +851,47 @@ let memory_store ~db =
   }
 
 let memory_recall ~db =
+  let schema =
+    `Assoc
+      [
+        ("type", `String "object");
+        ( "properties",
+          `Assoc
+            [
+              ( "query",
+                `Assoc
+                  [
+                    ("type", `String "string");
+                    ("description", `String "Search query (required)");
+                  ] );
+              ( "limit",
+                `Assoc
+                  [
+                    ("type", `String "integer");
+                    ( "description",
+                      `String "Maximum number of results (default: 5)" );
+                  ] );
+            ] );
+        ("required", `List [ `String "query" ]);
+      ]
+  in
+  let param_err detail =
+    Tool.make_param_error ~tool_name:"memory_recall" ~parameters_schema:schema
+      ~detail
+  in
   {
     Tool.name = "memory_recall";
     description =
       "Search persistent memories by full-text query and return matching \
        key-content pairs";
-    parameters_schema =
-      `Assoc
-        [
-          ("type", `String "object");
-          ( "properties",
-            `Assoc
-              [
-                ( "query",
-                  `Assoc
-                    [
-                      ("type", `String "string");
-                      ("description", `String "Search query (required)");
-                    ] );
-                ( "limit",
-                  `Assoc
-                    [
-                      ("type", `String "integer");
-                      ( "description",
-                        `String "Maximum number of results (default: 5)" );
-                    ] );
-              ] );
-          ("required", `List [ `String "query" ]);
-        ];
+    parameters_schema = schema;
     invoke =
       (fun ?context:_ args ->
         let open Yojson.Safe.Util in
         let query = try args |> member "query" |> to_string with _ -> "" in
         let limit = try args |> member "limit" |> to_int with _ -> 5 in
-        if query = "" then Lwt.return "Error: query is required"
+        if query = "" then
+          Lwt.return (param_err "parameter 'query' must be a non-empty string")
         else
           let results = Memory.recall_core ~db ~query ~limit in
           if results = [] then Lwt.return "No matching memories found"
@@ -839,31 +909,38 @@ let memory_recall ~db =
   }
 
 let memory_forget ~db =
+  let schema =
+    `Assoc
+      [
+        ("type", `String "object");
+        ( "properties",
+          `Assoc
+            [
+              ( "key",
+                `Assoc
+                  [
+                    ("type", `String "string");
+                    ( "description",
+                      `String "Key of the memory to remove (required)" );
+                  ] );
+            ] );
+        ("required", `List [ `String "key" ]);
+      ]
+  in
+  let param_err detail =
+    Tool.make_param_error ~tool_name:"memory_forget" ~parameters_schema:schema
+      ~detail
+  in
   {
     Tool.name = "memory_forget";
     description = "Delete a persistent memory by its exact key";
-    parameters_schema =
-      `Assoc
-        [
-          ("type", `String "object");
-          ( "properties",
-            `Assoc
-              [
-                ( "key",
-                  `Assoc
-                    [
-                      ("type", `String "string");
-                      ( "description",
-                        `String "Key of the memory to remove (required)" );
-                    ] );
-              ] );
-          ("required", `List [ `String "key" ]);
-        ];
+    parameters_schema = schema;
     invoke =
       (fun ?context:_ args ->
         let open Yojson.Safe.Util in
         let key = try args |> member "key" |> to_string with _ -> "" in
-        if key = "" then Lwt.return "Error: key is required"
+        if key = "" then
+          Lwt.return (param_err "parameter 'key' must be a non-empty string")
         else
           let deleted = Memory.forget_core ~db ~key in
           if deleted then Lwt.return (Printf.sprintf "Deleted memory: %s" key)
@@ -917,43 +994,50 @@ let memory_list ~db =
   }
 
 let history_search ~db =
+  let schema =
+    `Assoc
+      [
+        ("type", `String "object");
+        ( "properties",
+          `Assoc
+            [
+              ( "query",
+                `Assoc
+                  [
+                    ("type", `String "string");
+                    ( "description",
+                      `String "Text to search for in message history (required)"
+                    );
+                  ] );
+              ( "limit",
+                `Assoc
+                  [
+                    ("type", `String "integer");
+                    ( "description",
+                      `String "Maximum number of results (default: 10)" );
+                  ] );
+            ] );
+        ("required", `List [ `String "query" ]);
+      ]
+  in
+  let param_err detail =
+    Tool.make_param_error ~tool_name:"history_search" ~parameters_schema:schema
+      ~detail
+  in
   {
     Tool.name = "history_search";
     description =
       "Search your own chat/session message history across current and \
        archived epochs. Returns matching messages with role, content snippet, \
        timestamp, and source epoch.";
-    parameters_schema =
-      `Assoc
-        [
-          ("type", `String "object");
-          ( "properties",
-            `Assoc
-              [
-                ( "query",
-                  `Assoc
-                    [
-                      ("type", `String "string");
-                      ( "description",
-                        `String
-                          "Text to search for in message history (required)" );
-                    ] );
-                ( "limit",
-                  `Assoc
-                    [
-                      ("type", `String "integer");
-                      ( "description",
-                        `String "Maximum number of results (default: 10)" );
-                    ] );
-              ] );
-          ("required", `List [ `String "query" ]);
-        ];
+    parameters_schema = schema;
     invoke =
       (fun ?context args ->
         let open Yojson.Safe.Util in
         let query = try args |> member "query" |> to_string with _ -> "" in
         let limit = try args |> member "limit" |> to_int with _ -> 10 in
-        if query = "" then Lwt.return "Error: query is required"
+        if query = "" then
+          Lwt.return (param_err "parameter 'query' must be a non-empty string")
         else
           let session_key =
             match context with Some ctx -> ctx.Tool.session_key | None -> None

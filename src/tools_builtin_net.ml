@@ -2,6 +2,56 @@ open Tools_builtin_util
 open Tools_builtin_io
 
 let http_request ~workspace_only =
+  let schema =
+    `Assoc
+      [
+        ("type", `String "object");
+        ( "properties",
+          `Assoc
+            [
+              ( "url",
+                `Assoc
+                  [
+                    ("type", `String "string");
+                    ("description", `String "Request URL (required)");
+                  ] );
+              ( "method",
+                `Assoc
+                  [
+                    ("type", `String "string");
+                    ( "enum",
+                      `List
+                        [
+                          `String "GET";
+                          `String "POST";
+                          `String "PUT";
+                          `String "PATCH";
+                          `String "DELETE";
+                        ] );
+                    ("description", `String "HTTP method (default: GET)");
+                  ] );
+              ( "headers",
+                `Assoc
+                  [
+                    ("type", `String "object");
+                    ("description", `String "Request headers as key-value pairs");
+                    ( "additionalProperties",
+                      `Assoc [ ("type", `String "string") ] );
+                  ] );
+              ( "body",
+                `Assoc
+                  [
+                    ("type", `String "string");
+                    ("description", `String "Request body (for POST/PUT/PATCH)");
+                  ] );
+            ] );
+        ("required", `List [ `String "url" ]);
+      ]
+  in
+  let param_err detail =
+    Tool.make_param_error ~tool_name:"http_request" ~parameters_schema:schema
+      ~detail
+  in
   {
     Tool.name = "http_request";
     description =
@@ -13,53 +63,7 @@ let http_request ~workspace_only =
          "Make an HTTP request with configurable method \
           (GET/POST/PUT/PATCH/DELETE), headers, and body. Returns raw response \
           (truncated at 20KB). For reading web pages use web_fetch.");
-    parameters_schema =
-      `Assoc
-        [
-          ("type", `String "object");
-          ( "properties",
-            `Assoc
-              [
-                ( "url",
-                  `Assoc
-                    [
-                      ("type", `String "string");
-                      ("description", `String "Request URL (required)");
-                    ] );
-                ( "method",
-                  `Assoc
-                    [
-                      ("type", `String "string");
-                      ( "enum",
-                        `List
-                          [
-                            `String "GET";
-                            `String "POST";
-                            `String "PUT";
-                            `String "PATCH";
-                            `String "DELETE";
-                          ] );
-                      ("description", `String "HTTP method (default: GET)");
-                    ] );
-                ( "headers",
-                  `Assoc
-                    [
-                      ("type", `String "object");
-                      ( "description",
-                        `String "Request headers as key-value pairs" );
-                      ( "additionalProperties",
-                        `Assoc [ ("type", `String "string") ] );
-                    ] );
-                ( "body",
-                  `Assoc
-                    [
-                      ("type", `String "string");
-                      ( "description",
-                        `String "Request body (for POST/PUT/PATCH)" );
-                    ] );
-              ] );
-          ("required", `List [ `String "url" ]);
-        ];
+    parameters_schema = schema;
     invoke =
       (fun ?context:_ args ->
         let open Yojson.Safe.Util in
@@ -76,7 +80,8 @@ let http_request ~workspace_only =
           with _ -> []
         in
         let body = try args |> member "body" |> to_string with _ -> "" in
-        if url = "" then Lwt.return "Error: url is required"
+        if url = "" then
+          Lwt.return (param_err "parameter 'url' must be a non-empty string")
         else if workspace_only && not (is_localhost_url url) then
           Lwt.return "Error: workspace policy restricts HTTP to localhost only"
         else
@@ -212,6 +217,27 @@ let strip_html_to_text html =
   String.trim (Buffer.contents out)
 
 let web_fetch ~workspace_only =
+  let schema =
+    `Assoc
+      [
+        ("type", `String "object");
+        ( "properties",
+          `Assoc
+            [
+              ( "url",
+                `Assoc
+                  [
+                    ("type", `String "string");
+                    ("description", `String "URL to fetch (required)");
+                  ] );
+            ] );
+        ("required", `List [ `String "url" ]);
+      ]
+  in
+  let param_err detail =
+    Tool.make_param_error ~tool_name:"web_fetch" ~parameters_schema:schema
+      ~detail
+  in
   {
     Tool.name = "web_fetch";
     description =
@@ -223,27 +249,13 @@ let web_fetch ~workspace_only =
          "Fetch a URL and return the page as readable text with \
           HTML/scripts/styles stripped (truncated at 20KB). Best for reading \
           web pages. For raw API responses use http_get or http_request.");
-    parameters_schema =
-      `Assoc
-        [
-          ("type", `String "object");
-          ( "properties",
-            `Assoc
-              [
-                ( "url",
-                  `Assoc
-                    [
-                      ("type", `String "string");
-                      ("description", `String "URL to fetch (required)");
-                    ] );
-              ] );
-          ("required", `List [ `String "url" ]);
-        ];
+    parameters_schema = schema;
     invoke =
       (fun ?context:_ args ->
         let open Yojson.Safe.Util in
         let url = try args |> member "url" |> to_string with _ -> "" in
-        if url = "" then Lwt.return "Error: url is required"
+        if url = "" then
+          Lwt.return (param_err "parameter 'url' must be a non-empty string")
         else if workspace_only && not (is_localhost_url url) then
           Lwt.return "Error: workspace policy restricts HTTP to localhost only"
         else
@@ -269,33 +281,39 @@ let web_fetch ~workspace_only =
 
 let web_search ~(config : Runtime_config.t) =
   let ws_cfg = config.web_search in
+  let schema =
+    `Assoc
+      [
+        ("type", `String "object");
+        ( "properties",
+          `Assoc
+            [
+              ( "query",
+                `Assoc
+                  [
+                    ("type", `String "string");
+                    ("description", `String "Search query (required)");
+                  ] );
+              ( "limit",
+                `Assoc
+                  [
+                    ("type", `String "integer");
+                    ("description", `String "Number of results (default 5)");
+                  ] );
+            ] );
+        ("required", `List [ `String "query" ]);
+      ]
+  in
+  let param_err detail =
+    Tool.make_param_error ~tool_name:"web_search" ~parameters_schema:schema
+      ~detail
+  in
   {
     Tool.name = "web_search";
     description =
       "Search the web and return a list of results with titles, URLs, and \
        snippets";
-    parameters_schema =
-      `Assoc
-        [
-          ("type", `String "object");
-          ( "properties",
-            `Assoc
-              [
-                ( "query",
-                  `Assoc
-                    [
-                      ("type", `String "string");
-                      ("description", `String "Search query (required)");
-                    ] );
-                ( "limit",
-                  `Assoc
-                    [
-                      ("type", `String "integer");
-                      ("description", `String "Number of results (default 5)");
-                    ] );
-              ] );
-          ("required", `List [ `String "query" ]);
-        ];
+    parameters_schema = schema;
     invoke =
       (fun ?context:_ args ->
         let open Yojson.Safe.Util in
@@ -305,7 +323,8 @@ let web_search ~(config : Runtime_config.t) =
           with _ -> (
             match ws_cfg with Some ws -> ws.num_results | None -> 5)
         in
-        if query = "" then Lwt.return "Error: query is required"
+        if query = "" then
+          Lwt.return (param_err "parameter 'query' must be a non-empty string")
         else
           match ws_cfg with
           | None ->
@@ -858,95 +877,99 @@ let sanitize_git_arg arg =
           && arg.[2] = '=')
 
 let git_operations ~workspace =
+  let schema =
+    `Assoc
+      [
+        ("type", `String "object");
+        ( "properties",
+          `Assoc
+            [
+              ( "operation",
+                `Assoc
+                  [
+                    ("type", `String "string");
+                    ( "enum",
+                      `List
+                        [
+                          `String "status";
+                          `String "diff";
+                          `String "log";
+                          `String "branch";
+                          `String "add";
+                          `String "commit";
+                          `String "checkout";
+                          `String "stash";
+                          `String "show";
+                        ] );
+                    ( "description",
+                      `String "Git operation to perform (required)" );
+                  ] );
+              ( "paths",
+                `Assoc
+                  [
+                    ( "oneOf",
+                      `List
+                        [
+                          `Assoc [ ("type", `String "string") ];
+                          `Assoc
+                            [
+                              ("type", `String "array");
+                              ("items", `Assoc [ ("type", `String "string") ]);
+                            ];
+                        ] );
+                    ( "description",
+                      `String "File paths (for add/diff/show; string or array)"
+                    );
+                  ] );
+              ( "message",
+                `Assoc
+                  [
+                    ("type", `String "string");
+                    ("description", `String "Commit message (for commit)");
+                  ] );
+              ( "branch",
+                `Assoc
+                  [
+                    ("type", `String "string");
+                    ("description", `String "Branch name (for checkout/branch)");
+                  ] );
+              ( "cached",
+                `Assoc
+                  [
+                    ("type", `String "boolean");
+                    ("description", `String "Show staged changes (for diff)");
+                  ] );
+              ( "limit",
+                `Assoc
+                  [
+                    ("type", `String "integer");
+                    ("description", `String "Log entry count (default 10)");
+                  ] );
+              ( "repo_path",
+                `Assoc
+                  [
+                    ("type", `String "string");
+                    ( "description",
+                      `String
+                        "Absolute path to the git repo or worktree root. When \
+                         omitted, defaults to the workspace directory. Use \
+                         this when operating on a repo outside the workspace \
+                         (e.g. ~/src/myproject or a git worktree)." );
+                  ] );
+            ] );
+        ("required", `List [ `String "operation" ]);
+      ]
+  in
+  let param_err detail =
+    Tool.make_param_error ~tool_name:"git_operations" ~parameters_schema:schema
+      ~detail
+  in
   {
     Tool.name = "git_operations";
     description =
       "Perform structured Git operations: status, diff, log, branch, add, \
        commit, checkout, stash, show";
-    parameters_schema =
-      `Assoc
-        [
-          ("type", `String "object");
-          ( "properties",
-            `Assoc
-              [
-                ( "operation",
-                  `Assoc
-                    [
-                      ("type", `String "string");
-                      ( "enum",
-                        `List
-                          [
-                            `String "status";
-                            `String "diff";
-                            `String "log";
-                            `String "branch";
-                            `String "add";
-                            `String "commit";
-                            `String "checkout";
-                            `String "stash";
-                            `String "show";
-                          ] );
-                      ( "description",
-                        `String "Git operation to perform (required)" );
-                    ] );
-                ( "paths",
-                  `Assoc
-                    [
-                      ( "oneOf",
-                        `List
-                          [
-                            `Assoc [ ("type", `String "string") ];
-                            `Assoc
-                              [
-                                ("type", `String "array");
-                                ("items", `Assoc [ ("type", `String "string") ]);
-                              ];
-                          ] );
-                      ( "description",
-                        `String
-                          "File paths (for add/diff/show; string or array)" );
-                    ] );
-                ( "message",
-                  `Assoc
-                    [
-                      ("type", `String "string");
-                      ("description", `String "Commit message (for commit)");
-                    ] );
-                ( "branch",
-                  `Assoc
-                    [
-                      ("type", `String "string");
-                      ( "description",
-                        `String "Branch name (for checkout/branch)" );
-                    ] );
-                ( "cached",
-                  `Assoc
-                    [
-                      ("type", `String "boolean");
-                      ("description", `String "Show staged changes (for diff)");
-                    ] );
-                ( "limit",
-                  `Assoc
-                    [
-                      ("type", `String "integer");
-                      ("description", `String "Log entry count (default 10)");
-                    ] );
-                ( "repo_path",
-                  `Assoc
-                    [
-                      ("type", `String "string");
-                      ( "description",
-                        `String
-                          "Absolute path to the git repo or worktree root. \
-                           When omitted, defaults to the workspace directory. \
-                           Use this when operating on a repo outside the \
-                           workspace (e.g. ~/src/myproject or a git worktree)."
-                      );
-                    ] );
-              ] );
-          ("required", `List [ `String "operation" ]);
-        ];
+    parameters_schema = schema;
     invoke =
       (fun ?context args ->
         let open Yojson.Safe.Util in
@@ -980,7 +1003,11 @@ let git_operations ~workspace =
             | _ -> []
           with _ -> []
         in
-        if operation = "" then Lwt.return "Error: operation is required"
+        if operation = "" then
+          Lwt.return
+            (param_err
+               "parameter 'operation' must be a non-empty string \
+                (status|diff|log|branch|add|commit|checkout|stash|show)")
         else
           let cwd_result =
             match repo_path with

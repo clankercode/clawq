@@ -763,7 +763,7 @@ let test_send_poll_validation () =
   in
   Alcotest.(check bool)
     "empty question error" true
-    (contains result_empty_q "question is required");
+    (contains result_empty_q "'question'" && contains result_empty_q "send_poll");
   let result_too_few =
     Lwt_main.run
       (tool.invoke
