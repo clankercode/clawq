@@ -483,6 +483,42 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
               send_message ~bot_token ~chat_id:update.chat_id ~text ()
             in
             Lwt.return_unit
+        | ModelMenu page ->
+            let text =
+              Slash_commands_fmt.format_model_menu
+                ~connector:Format_adapter.Telegram_html ~page
+            in
+            send_message ~bot_token ~chat_id:update.chat_id ~text ()
+        | ThinkingMenu ->
+            let text =
+              Slash_commands_fmt.format_thinking_menu
+                ~connector:Format_adapter.Telegram_html
+            in
+            send_message ~bot_token ~chat_id:update.chat_id ~text ()
+        | ConfigMenu page ->
+            let text =
+              Slash_commands_fmt.format_config_menu
+                ~connector:Format_adapter.Telegram_html ~page
+            in
+            send_message ~bot_token ~chat_id:update.chat_id ~text ()
+        | SkillsMenu page ->
+            let text =
+              Slash_commands_fmt.format_skills_menu
+                ~connector:Format_adapter.Telegram_html ~page
+            in
+            send_message ~bot_token ~chat_id:update.chat_id ~text ()
+        | CostsMenu ->
+            let text =
+              Slash_commands_fmt.format_costs_menu
+                ~connector:Format_adapter.Telegram_html
+            in
+            send_message ~bot_token ~chat_id:update.chat_id ~text ()
+        | BgMenu ->
+            let text =
+              Slash_commands_fmt.format_bg_menu
+                ~connector:Format_adapter.Telegram_html
+            in
+            send_message ~bot_token ~chat_id:update.chat_id ~text ()
         | Tools ->
             let text =
               match Session.get_tool_registry session_mgr with

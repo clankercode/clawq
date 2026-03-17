@@ -84,6 +84,12 @@ type result =
   | DebugDumpChat
   | AgentInvoke of string * string
   | AgentMenu of int
+  | ModelMenu of int
+  | ThinkingMenu
+  | ConfigMenu of int
+  | SkillsMenu of int
+  | CostsMenu
+  | BgMenu
   | SkillInvoke of string * string
   | NotACommand
 
@@ -111,7 +117,8 @@ let commands =
     { name = "status"; description = "Show bot status"; priority = 90 };
     {
       name = "model";
-      description = "Manage model: /model [set/fav/unfav/list/usage] [args]";
+      description =
+        "Manage model: /model [set/fav/unfav/list/usage/menu] [args]";
       priority = 85;
     };
     {
@@ -215,6 +222,7 @@ let commands =
       description = "Pull, rebuild, and gracefully restart clawq";
       priority = 8;
     };
+    { name = "skills"; description = "List available skills"; priority = 47 };
     {
       name = "menu";
       description = "Show interactive command menu";
@@ -382,6 +390,131 @@ let format_agent_menu ~connector ~page =
     header ^ "\n\n" ^ String.concat "\n" lines ^ "\n\nUsage: "
     ^ Format_adapter.code connector "/agent <name> <prompt>"
     ^ nav
+
+let items_per_menu_page = 9
+
+let paginate_items items page =
+  let total = List.length items in
+  let total_pages =
+    max 1 ((total + items_per_menu_page - 1) / items_per_menu_page)
+  in
+  let page = max 1 (min page total_pages) in
+  let start_idx = (page - 1) * items_per_menu_page in
+  let page_items =
+    List.filteri
+      (fun i _ -> i >= start_idx && i < start_idx + items_per_menu_page)
+      items
+  in
+  (page_items, page, total_pages)
+
+let pagination_footer ~connector ~cmd page total_pages =
+  if total_pages <= 1 then ""
+  else
+    let prev =
+      if page > 1 then
+        Format_adapter.code connector (Printf.sprintf "%s %d" cmd (page - 1))
+        ^ " << "
+      else ""
+    in
+    let next =
+      if page < total_pages then
+        " >> "
+        ^ Format_adapter.code connector (Printf.sprintf "%s %d" cmd (page + 1))
+      else ""
+    in
+    Printf.sprintf "\n\nPage %d/%d  %s%s" page total_pages prev next
+
+let format_model_menu ~connector ~page =
+  let prefs = Model_preferences.load () in
+  let favs = prefs.favorites in
+  if favs = [] then
+    "No favorite models. Use "
+    ^ Format_adapter.code connector "/model fav <name>"
+    ^ " to add favorites, then "
+    ^ Format_adapter.code connector "/model menu"
+    ^ " to select from them."
+  else
+    let page_favs, page, total_pages = paginate_items favs page in
+    let lines =
+      List.map
+        (fun m ->
+          Format_adapter.code connector (Printf.sprintf "/model set %s" m))
+        page_favs
+    in
+    Format_adapter.bold connector "Model Selection"
+    ^ "\n\n" ^ String.concat "\n" lines
+    ^ pagination_footer ~connector ~cmd:"/model menu" page total_pages
+
+let format_thinking_menu ~connector =
+  let levels = allowed_thinking_levels in
+  let lines =
+    List.map
+      (fun level ->
+        Format_adapter.code connector (Printf.sprintf "/thinking %s" level))
+      levels
+  in
+  Format_adapter.bold connector "Thinking Level"
+  ^ "\n\n" ^ String.concat "\n" lines
+
+let format_config_menu ~connector ~page =
+  let sections = Config_set.top_level_section_names () in
+  let page_sections, page, total_pages = paginate_items sections page in
+  let lines =
+    List.map
+      (fun s ->
+        Format_adapter.code connector (Printf.sprintf "/config show %s" s))
+      page_sections
+  in
+  Format_adapter.bold connector "Config Sections"
+  ^ "\n\n" ^ String.concat "\n" lines
+  ^ pagination_footer ~connector ~cmd:"/config menu" page total_pages
+
+let format_skills_menu ~connector ~page =
+  let skills = Skills.available_skills () in
+  if skills = [] then "No skills available."
+  else
+    let page_skills, page, total_pages = paginate_items skills page in
+    let lines =
+      List.map
+        (fun (s : Skills.skill_md_meta) ->
+          Format_adapter.code connector (Printf.sprintf "/%s" s.md_name)
+          ^ " — " ^ s.md_description)
+        page_skills
+    in
+    Format_adapter.bold connector "Skills"
+    ^ "\n\n" ^ String.concat "\n" lines
+    ^ pagination_footer ~connector ~cmd:"/skills" page total_pages
+
+let format_costs_menu ~connector =
+  let items =
+    [
+      ("/costs", "Cost summary by time period");
+      ("/costs session", "Cost breakdown across sessions");
+      ("/costs model", "Cost breakdown by model");
+      ("/costs provider", "Cost breakdown by provider");
+    ]
+  in
+  let lines =
+    List.map
+      (fun (cmd, desc) -> Format_adapter.code connector cmd ^ " — " ^ desc)
+      items
+  in
+  Format_adapter.bold connector "Cost Views" ^ "\n\n" ^ String.concat "\n" lines
+
+let format_bg_menu ~connector =
+  let items =
+    [
+      ("/bg list", "List all background tasks");
+      ("/bg create <prompt>", "Create a new background task");
+    ]
+  in
+  let lines =
+    List.map
+      (fun (cmd, desc) -> Format_adapter.code connector cmd ^ " — " ^ desc)
+      items
+  in
+  Format_adapter.bold connector "Background Tasks"
+  ^ "\n\n" ^ String.concat "\n" lines
 
 let format_agent_not_found ~connector name =
   let all = Agent_template.available_templates () in

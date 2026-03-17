@@ -1549,6 +1549,52 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                       send_adaptive_card ~config
                         ~service_url:effective_service_url ~conversation_id
                         ~reply_to_id:activity_id ~card:card_json ()
+                  | ModelMenu page ->
+                      let card_json =
+                        Slash_commands_manifest.model_menu_adaptive_card_json
+                          ~page ()
+                      in
+                      send_adaptive_card ~config
+                        ~service_url:effective_service_url ~conversation_id
+                        ~reply_to_id:activity_id ~card:card_json ()
+                  | ThinkingMenu ->
+                      let card_json =
+                        Slash_commands_manifest.thinking_menu_adaptive_card_json
+                          ()
+                      in
+                      send_adaptive_card ~config
+                        ~service_url:effective_service_url ~conversation_id
+                        ~reply_to_id:activity_id ~card:card_json ()
+                  | ConfigMenu page ->
+                      let card_json =
+                        Slash_commands_manifest.config_menu_adaptive_card_json
+                          ~page ()
+                      in
+                      send_adaptive_card ~config
+                        ~service_url:effective_service_url ~conversation_id
+                        ~reply_to_id:activity_id ~card:card_json ()
+                  | SkillsMenu page ->
+                      let card_json =
+                        Slash_commands_manifest.skills_menu_adaptive_card_json
+                          ~page ()
+                      in
+                      send_adaptive_card ~config
+                        ~service_url:effective_service_url ~conversation_id
+                        ~reply_to_id:activity_id ~card:card_json ()
+                  | CostsMenu ->
+                      let card_json =
+                        Slash_commands_manifest.costs_menu_adaptive_card_json ()
+                      in
+                      send_adaptive_card ~config
+                        ~service_url:effective_service_url ~conversation_id
+                        ~reply_to_id:activity_id ~card:card_json ()
+                  | BgMenu ->
+                      let card_json =
+                        Slash_commands_manifest.bg_menu_adaptive_card_json ()
+                      in
+                      send_adaptive_card ~config
+                        ~service_url:effective_service_url ~conversation_id
+                        ~reply_to_id:activity_id ~card:card_json ()
                   | ForkAnd (agent_name, prompt) ->
                       let* () = send_text "Forking session..." in
                       Session.fork_and_run session_manager ~parent_key:key

@@ -373,6 +373,7 @@ Slash commands are available in chat-integrated channels (Telegram, Discord, Sla
 | `/status` | Rich table-formatted status report (uptime, PID, sessions, connectors, tunnel) |
 | `/runtime_ctx` | Show the full per-session runtime context block |
 | `/thinking [level]` | Show or set thinking level: `low`, `medium`, `high`, `off`, `xhigh`, `max` |
+| `/thinking menu` | Interactive thinking level selection menu |
 | `/show_thinking` | Toggle display of model thinking in responses |
 | `/heartbeat [on\|off\|status]` | Toggle heartbeat routing for this session |
 | `/compact` | Compact session history by summarizing older messages |
@@ -383,10 +384,13 @@ Slash commands are available in chat-integrated channels (Telegram, Discord, Sla
 | `/model unfav <name>` | Remove from favorites |
 | `/model list [provider]` | List available models |
 | `/model usage` | Show provider quota and usage stats |
+| `/model menu [page]` | Interactive model selection from favorites (paginated) |
 | `/costs [session [KEY]\|model\|provider]` | Show cost breakdowns |
+| `/costs menu` | Interactive cost view selection menu |
 | `/usage [session [KEY]\|model\|provider]` | Show token usage breakdowns |
 | `/active` | Show active 5-hour window usage (cost, tokens, quota) |
 | `/bg [list\|show\|logs\|cancel\|retry\|create] [id\|prompt]` | Background task management |
+| `/bg menu` | Interactive background task action menu |
 | `/cron [list\|show\|add\|edit\|remove\|history]` | Manage cron jobs: list, show details, create, edit schedule/message, remove, view run history |
 | `/uptime` | Show current daemon uptime |
 | `/tools` | List all available tools with parameters and risk levels |
@@ -397,6 +401,8 @@ Slash commands are available in chat-integrated channels (Telegram, Discord, Sla
 | `/delegate <prompt>` | Delegate a prompt to a temporary subagent |
 | `/fork_and <prompt>` | Fork current session and run a prompt in a new subagent |
 | `/config [show\|get\|set\|keys\|wizard]` | View or modify configuration from chat |
+| `/config menu [page]` | Interactive config section browser (paginated) |
+| `/skills [page]` | List available skills with interactive selection (paginated) |
 | `/pair <code>` | Pair with TOTP code from browser |
 | `/update` | Pull, rebuild, and gracefully restart clawq |
 | `/debug_dump_chat` | Dump session state to file and send as attachment |

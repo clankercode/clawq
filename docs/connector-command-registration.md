@@ -37,6 +37,10 @@ No automatic command registration yet. Discord Application Commands could be reg
 
 No automatic command registration yet. Slack app manifests could be generated in the future. Currently, `/menu` falls back to the standard help text.
 
+## Menu Subcommands
+
+In addition to the top-level `/menu` command, six slash commands support interactive menu modes: `/model menu`, `/thinking menu`, `/config menu`, `/skills`, `/costs menu`, `/bg menu`. On Teams these render as Adaptive Cards with clickable buttons (same `imBack` pattern as `/menu`). On other channels they render as text-formatted lists with pagination. See `SLASH_COMMAND_RENDERING_COMPATIBILITY.md` for rendering details.
+
 ## CLI Commands
 
 - `clawq manifest teams` — Print Teams manifest JSON (top 10 commands) to stdout

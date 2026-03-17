@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-16T18:29:44Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-16T18:47:58Z"
 complexity: medium
 depends_on: []
+duration_minutes: 18.243731617883334
 estimate_hours: 3
 id: B515
 priority: medium
 started_at: "2026-03-16T18:29:44Z"
-status: in_progress
+status: done
 tags: []
 title: Audit and implement menus for applicable slash commands
 ---

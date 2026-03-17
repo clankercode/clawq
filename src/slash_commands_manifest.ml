@@ -166,6 +166,179 @@ let menu_adaptive_card_json ?(page = 1) () =
           ] );
     ]
 
+let wrap_adaptive_card body actions =
+  let card =
+    `Assoc
+      ([
+         ("type", `String "AdaptiveCard");
+         ("version", `String "1.4");
+         ("body", `List body);
+       ]
+      @ match actions with [] -> [] | a -> [ ("actions", `List a) ])
+  in
+  `Assoc
+    [
+      ("type", `String "message");
+      ( "attachments",
+        `List
+          [
+            `Assoc
+              [
+                ( "contentType",
+                  `String "application/vnd.microsoft.card.adaptive" );
+                ("content", card);
+              ];
+          ] );
+    ]
+
+let imback_action title value =
+  `Assoc
+    [
+      ("type", `String "Action.Submit");
+      ("title", `String title);
+      ( "data",
+        `Assoc
+          [
+            ( "msteams",
+              `Assoc [ ("type", `String "imBack"); ("value", `String value) ] );
+          ] );
+    ]
+
+let button_card ~title ~buttons =
+  let actions =
+    List.map (fun (label, value) -> imback_action label value) buttons
+  in
+  let body =
+    [
+      `Assoc
+        [
+          ("type", `String "TextBlock");
+          ("text", `String title);
+          ("weight", `String "bolder");
+          ("size", `String "medium");
+        ];
+      `Assoc [ ("type", `String "ActionSet"); ("actions", `List actions) ];
+    ]
+  in
+  wrap_adaptive_card body []
+
+let model_menu_adaptive_card_json ?(page = 1) () =
+  let prefs = Model_preferences.load () in
+  let favs = prefs.favorites in
+  if favs = [] then
+    button_card ~title:"Model Selection"
+      ~buttons:[ ("No favorites — use /model fav <name>", "/model") ]
+  else
+    let page_favs, page, total_pages =
+      Slash_commands_fmt.paginate_items favs page
+    in
+    let buttons =
+      List.map (fun m -> (m, Printf.sprintf "/model set %s" m)) page_favs
+    in
+    let nav =
+      (if page > 1 then
+         [
+           ( Printf.sprintf "<< Page %d" (page - 1),
+             Printf.sprintf "/model menu %d" (page - 1) );
+         ]
+       else [])
+      @
+      if page < total_pages then
+        [
+          ( Printf.sprintf "Page %d >>" (page + 1),
+            Printf.sprintf "/model menu %d" (page + 1) );
+        ]
+      else []
+    in
+    button_card
+      ~title:(Printf.sprintf "Model Selection (%d/%d)" page total_pages)
+      ~buttons:(buttons @ nav)
+
+let thinking_menu_adaptive_card_json () =
+  let levels = Slash_commands_fmt.allowed_thinking_levels in
+  let buttons =
+    List.map (fun l -> (l, Printf.sprintf "/thinking %s" l)) levels
+  in
+  button_card ~title:"Thinking Level" ~buttons
+
+let config_menu_adaptive_card_json ?(page = 1) () =
+  let sections = Config_set.top_level_section_names () in
+  let page_sections, page, total_pages =
+    Slash_commands_fmt.paginate_items sections page
+  in
+  let buttons =
+    List.map (fun s -> (s, Printf.sprintf "/config show %s" s)) page_sections
+  in
+  let nav =
+    (if page > 1 then
+       [
+         ( Printf.sprintf "<< Page %d" (page - 1),
+           Printf.sprintf "/config menu %d" (page - 1) );
+       ]
+     else [])
+    @
+    if page < total_pages then
+      [
+        ( Printf.sprintf "Page %d >>" (page + 1),
+          Printf.sprintf "/config menu %d" (page + 1) );
+      ]
+    else []
+  in
+  button_card
+    ~title:(Printf.sprintf "Config Sections (%d/%d)" page total_pages)
+    ~buttons:(buttons @ nav)
+
+let skills_menu_adaptive_card_json ?(page = 1) () =
+  let skills = Skills.available_skills () in
+  if skills = [] then
+    button_card ~title:"Skills" ~buttons:[ ("No skills available", "/help") ]
+  else
+    let page_skills, page, total_pages =
+      Slash_commands_fmt.paginate_items skills page
+    in
+    let buttons =
+      List.map
+        (fun (s : Skills.skill_md_meta) ->
+          ( Printf.sprintf "%s — %s" s.md_name s.md_description,
+            Printf.sprintf "/%s" s.md_name ))
+        page_skills
+    in
+    let nav =
+      (if page > 1 then
+         [
+           ( Printf.sprintf "<< Page %d" (page - 1),
+             Printf.sprintf "/skills %d" (page - 1) );
+         ]
+       else [])
+      @
+      if page < total_pages then
+        [
+          ( Printf.sprintf "Page %d >>" (page + 1),
+            Printf.sprintf "/skills %d" (page + 1) );
+        ]
+      else []
+    in
+    button_card
+      ~title:(Printf.sprintf "Skills (%d/%d)" page total_pages)
+      ~buttons:(buttons @ nav)
+
+let costs_menu_adaptive_card_json () =
+  let buttons =
+    [
+      ("Summary", "/costs");
+      ("By Session", "/costs session");
+      ("By Model", "/costs model");
+      ("By Provider", "/costs provider");
+    ]
+  in
+  button_card ~title:"Cost Views" ~buttons
+
+let bg_menu_adaptive_card_json () =
+  let buttons =
+    [ ("List Tasks", "/bg list"); ("Create Task", "/bg create ") ]
+  in
+  button_card ~title:"Background Tasks" ~buttons
+
 let agents_per_page = Slash_commands_fmt.agents_per_page
 
 let agent_menu_adaptive_card_json ?(page = 1) () =

@@ -549,6 +549,60 @@ let handle_event ~(config : Runtime_config.slack_config)
                   send_message_fn ~bot_token:config.bot_token ~channel_id ~text
                 in
                 Lwt.return "ok"
+            | ModelMenu page ->
+                let text =
+                  Slash_commands_fmt.format_model_menu
+                    ~connector:Format_adapter.Slack ~page
+                in
+                let* () =
+                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
+                in
+                Lwt.return "ok"
+            | ThinkingMenu ->
+                let text =
+                  Slash_commands_fmt.format_thinking_menu
+                    ~connector:Format_adapter.Slack
+                in
+                let* () =
+                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
+                in
+                Lwt.return "ok"
+            | ConfigMenu page ->
+                let text =
+                  Slash_commands_fmt.format_config_menu
+                    ~connector:Format_adapter.Slack ~page
+                in
+                let* () =
+                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
+                in
+                Lwt.return "ok"
+            | SkillsMenu page ->
+                let text =
+                  Slash_commands_fmt.format_skills_menu
+                    ~connector:Format_adapter.Slack ~page
+                in
+                let* () =
+                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
+                in
+                Lwt.return "ok"
+            | CostsMenu ->
+                let text =
+                  Slash_commands_fmt.format_costs_menu
+                    ~connector:Format_adapter.Slack
+                in
+                let* () =
+                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
+                in
+                Lwt.return "ok"
+            | BgMenu ->
+                let text =
+                  Slash_commands_fmt.format_bg_menu
+                    ~connector:Format_adapter.Slack
+                in
+                let* () =
+                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
+                in
+                Lwt.return "ok"
             | Tools ->
                 let text =
                   match Session.get_tool_registry session_manager with

@@ -168,6 +168,7 @@ Available in chat-integrated channels that support slash commands.
 - `/status` — rich table-formatted status report showing uptime, PID, version, build date, session counts, gateway address, connector states (Telegram/Discord/Slack/Teams/GitHub), and tunnel info
 - `/runtime_ctx` (alias `/runtime-ctx`) — show the full per-session runtime context block injected into the system prompt, including session identity, workspace, git branch, timezone, shell policy, context usage, and background task summary
 - `/thinking [low|medium|high|off|xhigh|max]` — show or set the current thinking level; `off` clears `agent_defaults.reasoning_effort`
+- `/thinking menu` — interactive thinking level selection menu
 - `/heartbeat [on|off|status]` — show or toggle heartbeat routing for the current Telegram/Slack/Discord/Teams session; web sessions return an unsupported message
 - `/agent <name> <prompt>` — invoke a named agent template for a one-off turn; the agent runs with the template's system prompt, tool restrictions, and model override; `/agent list` shows available templates
 - `/agent menu [page]` — interactive paginated agent template menu (8 per page); shows template names with descriptions and next/prev navigation; Teams uses Adaptive Card buttons
@@ -181,16 +182,21 @@ Available in chat-integrated channels that support slash commands.
 - `/model unfav <name>` — remove a model from favorites
 - `/model list [provider]` — list available models, optionally filtered by provider
 - `/model usage` — show provider quota and model usage stats
+- `/model menu [page]` — interactive model selection from favorites (paginated, 9 per page); on Teams sends an Adaptive Card with buttons
 - `/costs [session [KEY]|model|provider]` — show cost breakdowns; no args shows a summary by time period (today, 7d, 30d, all)
+- `/costs menu` — interactive cost view selection menu
 - `/usage [session [KEY]|model|provider]` — show token usage breakdowns; no args shows a summary by time period
 - `/active` — show active 5-hour window usage: cost/tokens summary, per-model breakdown, and provider quota percentages
 - `/bg [list|show|logs|cancel|retry|create] [id|prompt]` — background task management; `/bg` or `/bg list` lists tasks, `/bg show <id>` shows details, `/bg logs <id>` shows recent log output, `/bg cancel <id>` cancels a task, `/bg retry <id>` retries a failed task, `/bg create [@agent_name] <prompt>` creates a new background task with optional agent template (aliases: `/bg start`, `/bg new`); alias `/background`
+- `/bg menu` — interactive background task action menu
 - `/uptime` — show current daemon uptime
 - `/debug_dump_chat` (alias `/debug-dump-chat`) — dump the current session state to a file and send as attachment
 - `/show_thinking` (alias `/show-thinking`, `/toggle-show-thinking`) — toggle display of model thinking blocks in responses; `/show_thinking status` to check current state
 - `/compact` — compact session history by summarizing older messages to free up context space
 - `/pair <6-digit-code>` — pair with TOTP code from the browser pairing flow
 - `/config [show|get|set|keys|wizard]` — view or modify configuration from chat; secrets cannot be set via chat (use terminal instead)
+- `/config menu [page]` — interactive config section browser (paginated, 9 per page)
+- `/skills [page]` — list available skills with interactive selection (paginated, 9 per page); each entry links to invoke the skill
 - `/tools` — list all available tools with parameters and risk levels
 - `/tasks` — show the agent's current task tree for this session
 - `/menu [page]` — show a paginated command menu; on Teams this sends an Adaptive Card with clickable command buttons, on other channels it falls back to the help list

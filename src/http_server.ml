@@ -608,6 +608,72 @@ let handler ~session_manager ~require_pairing ~auth_token
                     in
                     Cohttp_lwt_unix.Server.respond_string ~status:`OK
                       ~headers:json_headers ~body:resp_json ()
+                | Slash_commands.ModelMenu page ->
+                    let text =
+                      Slash_commands_fmt.format_model_menu
+                        ~connector:Format_adapter.Plain ~page
+                    in
+                    let resp_json =
+                      `Assoc [ ("response", `String text) ]
+                      |> Yojson.Safe.to_string
+                    in
+                    Cohttp_lwt_unix.Server.respond_string ~status:`OK
+                      ~headers:json_headers ~body:resp_json ()
+                | Slash_commands.ThinkingMenu ->
+                    let text =
+                      Slash_commands_fmt.format_thinking_menu
+                        ~connector:Format_adapter.Plain
+                    in
+                    let resp_json =
+                      `Assoc [ ("response", `String text) ]
+                      |> Yojson.Safe.to_string
+                    in
+                    Cohttp_lwt_unix.Server.respond_string ~status:`OK
+                      ~headers:json_headers ~body:resp_json ()
+                | Slash_commands.ConfigMenu page ->
+                    let text =
+                      Slash_commands_fmt.format_config_menu
+                        ~connector:Format_adapter.Plain ~page
+                    in
+                    let resp_json =
+                      `Assoc [ ("response", `String text) ]
+                      |> Yojson.Safe.to_string
+                    in
+                    Cohttp_lwt_unix.Server.respond_string ~status:`OK
+                      ~headers:json_headers ~body:resp_json ()
+                | Slash_commands.SkillsMenu page ->
+                    let text =
+                      Slash_commands_fmt.format_skills_menu
+                        ~connector:Format_adapter.Plain ~page
+                    in
+                    let resp_json =
+                      `Assoc [ ("response", `String text) ]
+                      |> Yojson.Safe.to_string
+                    in
+                    Cohttp_lwt_unix.Server.respond_string ~status:`OK
+                      ~headers:json_headers ~body:resp_json ()
+                | Slash_commands.CostsMenu ->
+                    let text =
+                      Slash_commands_fmt.format_costs_menu
+                        ~connector:Format_adapter.Plain
+                    in
+                    let resp_json =
+                      `Assoc [ ("response", `String text) ]
+                      |> Yojson.Safe.to_string
+                    in
+                    Cohttp_lwt_unix.Server.respond_string ~status:`OK
+                      ~headers:json_headers ~body:resp_json ()
+                | Slash_commands.BgMenu ->
+                    let text =
+                      Slash_commands_fmt.format_bg_menu
+                        ~connector:Format_adapter.Plain
+                    in
+                    let resp_json =
+                      `Assoc [ ("response", `String text) ]
+                      |> Yojson.Safe.to_string
+                    in
+                    Cohttp_lwt_unix.Server.respond_string ~status:`OK
+                      ~headers:json_headers ~body:resp_json ()
                 | _ -> (
                     let* result =
                       Lwt.catch
@@ -1286,6 +1352,30 @@ let handler ~session_manager ~require_pairing ~auth_token
                     Cohttp_lwt_unix.Server.respond ~status:`OK ~headers
                       ~body:(Cohttp_lwt.Body.of_stream stream)
                       ()
+                | Slash_commands.ModelMenu page ->
+                    sse_reply
+                      (Slash_commands_fmt.format_model_menu
+                         ~connector:Format_adapter.Plain ~page)
+                | Slash_commands.ThinkingMenu ->
+                    sse_reply
+                      (Slash_commands_fmt.format_thinking_menu
+                         ~connector:Format_adapter.Plain)
+                | Slash_commands.ConfigMenu page ->
+                    sse_reply
+                      (Slash_commands_fmt.format_config_menu
+                         ~connector:Format_adapter.Plain ~page)
+                | Slash_commands.SkillsMenu page ->
+                    sse_reply
+                      (Slash_commands_fmt.format_skills_menu
+                         ~connector:Format_adapter.Plain ~page)
+                | Slash_commands.CostsMenu ->
+                    sse_reply
+                      (Slash_commands_fmt.format_costs_menu
+                         ~connector:Format_adapter.Plain)
+                | Slash_commands.BgMenu ->
+                    sse_reply
+                      (Slash_commands_fmt.format_bg_menu
+                         ~connector:Format_adapter.Plain)
                 | Slash_commands.ForkAnd (agent_name, prompt) ->
                     let key = "web:" ^ session_id in
                     let stream, push = Lwt_stream.create () in

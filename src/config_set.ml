@@ -619,6 +619,9 @@ let all_schema_paths () =
   in
   List.rev (collect [] [] true config_schema)
 
+let top_level_section_names () =
+  match config_schema with O fields -> List.map fst fields | _ -> []
+
 let is_secret_path key =
   let segments = split_path key in
   match segments with

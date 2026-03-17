@@ -568,6 +568,10 @@ clawq channel              # confirm teams shows as configured
   mention entities, ensuring they receive a notification.
 - **Native markdown tables** --- slash commands like `/status`, `/costs`, and
   `/usage` render with native markdown tables in Teams for clean formatting.
+- **Interactive menus** --- menu subcommands (`/model menu`, `/thinking menu`,
+  `/config menu`, `/skills`, `/costs menu`, `/bg menu`) render as Adaptive
+  Cards with clickable buttons on Teams. On other channels they render as
+  text-formatted lists. Paginated menus show 9 items per page with nav buttons.
 - **File uploads** --- `/debug_dump_chat` sends session state as a JSON file.
   With `file_consent_cards: true` (default), personal 1:1 chats use a
   FileConsentCard and upload to OneDrive. This requires the Teams app manifest

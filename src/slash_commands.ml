@@ -31,6 +31,7 @@ let handle ?(skill_names = []) text =
         | "thinking" -> (
             match args with
             | [] -> Thinking ShowThinking
+            | [ "menu" ] -> ThinkingMenu
             | [ value ] -> (
                 match parse_thinking_level value with
                 | Some level -> Thinking (SetThinking level)
@@ -95,6 +96,11 @@ let handle ?(skill_names = []) text =
             match args with
             | [] | [ "help" ] ->
                 FormattedReply (fun connector -> format_config_help ~connector)
+            | [ "menu" ] -> ConfigMenu 1
+            | [ "menu"; n ] -> (
+                match int_of_string_opt n with
+                | Some page when page >= 1 -> ConfigMenu page
+                | _ -> ConfigMenu 1)
             | [ "show" ] ->
                 let output = Config_show.show None in
                 if String.length output > 1500 then
@@ -224,6 +230,7 @@ let handle ?(skill_names = []) text =
         | "costs" -> (
             match args with
             | [] -> Costs CostsSummary
+            | [ "menu" ] -> CostsMenu
             | [ "session" ] -> Costs CostsSessions
             | [ "session"; key ] -> Costs (CostsSession key)
             | [ "model" ] -> Costs CostsModel
@@ -234,6 +241,7 @@ let handle ?(skill_names = []) text =
         | "bg" | "background" -> (
             match args with
             | [] | [ "list" ] -> Bg BgList
+            | [ "menu" ] -> BgMenu
             | [ "show"; id_str ] | [ id_str ] -> (
                 match int_of_string_opt id_str with
                 | Some id -> Bg (BgShow id)
@@ -373,10 +381,15 @@ let handle ?(skill_names = []) text =
                 FormattedReply (fun connector -> format_usage_usage ~connector))
         | "model" -> (
             let known_subcommands =
-              [ "set"; "fav"; "unfav"; "list"; "usage" ]
+              [ "set"; "fav"; "unfav"; "list"; "usage"; "menu" ]
             in
             match args with
             | [] -> Model ModelShow
+            | [ "menu" ] -> ModelMenu 1
+            | [ "menu"; n ] -> (
+                match int_of_string_opt n with
+                | Some page when page >= 1 -> ModelMenu page
+                | _ -> ModelMenu 1)
             | [ "set"; name ] -> Model (ModelSet name)
             | [ "set-default"; name ] -> Model (ModelSetDefault name)
             | [ "fav"; name ] -> Model (ModelFav name)
@@ -412,6 +425,14 @@ let handle ?(skill_names = []) text =
                       (fun connector -> format_menu_usage ~connector))
             | _ ->
                 FormattedReply (fun connector -> format_menu_usage ~connector))
+        | "skills" -> (
+            match args with
+            | [] -> SkillsMenu 1
+            | [ n ] -> (
+                match int_of_string_opt n with
+                | Some page when page >= 1 -> SkillsMenu page
+                | _ -> SkillsMenu 1)
+            | _ -> SkillsMenu 1)
         | "debug-dump-chat" | "debug_dump_chat" -> DebugDumpChat
         | "" -> NotACommand
         | _ -> (

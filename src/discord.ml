@@ -719,6 +719,48 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                 ~channel_id:msg.channel_id ~text
             in
             Lwt.return_unit
+        | ModelMenu page ->
+            let text =
+              Slash_commands_fmt.format_model_menu
+                ~connector:Format_adapter.Discord ~page
+            in
+            send_message_fn ~bot_token:discord_config.bot_token
+              ~channel_id:msg.channel_id ~text
+        | ThinkingMenu ->
+            let text =
+              Slash_commands_fmt.format_thinking_menu
+                ~connector:Format_adapter.Discord
+            in
+            send_message_fn ~bot_token:discord_config.bot_token
+              ~channel_id:msg.channel_id ~text
+        | ConfigMenu page ->
+            let text =
+              Slash_commands_fmt.format_config_menu
+                ~connector:Format_adapter.Discord ~page
+            in
+            send_message_fn ~bot_token:discord_config.bot_token
+              ~channel_id:msg.channel_id ~text
+        | SkillsMenu page ->
+            let text =
+              Slash_commands_fmt.format_skills_menu
+                ~connector:Format_adapter.Discord ~page
+            in
+            send_message_fn ~bot_token:discord_config.bot_token
+              ~channel_id:msg.channel_id ~text
+        | CostsMenu ->
+            let text =
+              Slash_commands_fmt.format_costs_menu
+                ~connector:Format_adapter.Discord
+            in
+            send_message_fn ~bot_token:discord_config.bot_token
+              ~channel_id:msg.channel_id ~text
+        | BgMenu ->
+            let text =
+              Slash_commands_fmt.format_bg_menu
+                ~connector:Format_adapter.Discord
+            in
+            send_message_fn ~bot_token:discord_config.bot_token
+              ~channel_id:msg.channel_id ~text
         | Tools ->
             let text =
               match Session.get_tool_registry session_mgr with

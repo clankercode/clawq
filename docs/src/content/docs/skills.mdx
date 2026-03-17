@@ -131,6 +131,19 @@ The agent can invoke skills programmatically using the `use_skill` built-in tool
 }
 ```
 
+## Chat Discovery
+
+Use the `/skills` slash command in any chat channel to browse available skills:
+
+```
+/skills       # List all skills with interactive selection (paginated)
+/skills 2     # Jump to page 2
+```
+
+On Teams this renders as an Adaptive Card with clickable buttons. On other
+channels it shows a text-formatted list. Selecting a skill invokes it in
+the current session.
+
 ## CLI Commands
 
 ```bash

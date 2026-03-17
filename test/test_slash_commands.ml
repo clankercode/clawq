@@ -101,6 +101,12 @@ let result_to_string = function
   | Slash_commands.AgentInvoke (name, prompt) ->
       "AgentInvoke(" ^ name ^ ", " ^ prompt ^ ")"
   | Slash_commands.AgentMenu page -> "AgentMenu(" ^ string_of_int page ^ ")"
+  | Slash_commands.ModelMenu page -> "ModelMenu(" ^ string_of_int page ^ ")"
+  | Slash_commands.ThinkingMenu -> "ThinkingMenu"
+  | Slash_commands.ConfigMenu page -> "ConfigMenu(" ^ string_of_int page ^ ")"
+  | Slash_commands.SkillsMenu page -> "SkillsMenu(" ^ string_of_int page ^ ")"
+  | Slash_commands.CostsMenu -> "CostsMenu"
+  | Slash_commands.BgMenu -> "BgMenu"
   | Slash_commands.SkillInvoke (name, args) ->
       "SkillInvoke(" ^ name ^ ", " ^ args ^ ")"
   | Slash_commands.NotACommand -> "NotACommand"
@@ -145,6 +151,12 @@ let result_eq a b =
   | Slash_commands.AgentInvoke (a1, a2), Slash_commands.AgentInvoke (b1, b2) ->
       a1 = b1 && a2 = b2
   | Slash_commands.AgentMenu a, Slash_commands.AgentMenu b -> a = b
+  | Slash_commands.ModelMenu a, Slash_commands.ModelMenu b -> a = b
+  | Slash_commands.ThinkingMenu, Slash_commands.ThinkingMenu -> true
+  | Slash_commands.ConfigMenu a, Slash_commands.ConfigMenu b -> a = b
+  | Slash_commands.SkillsMenu a, Slash_commands.SkillsMenu b -> a = b
+  | Slash_commands.CostsMenu, Slash_commands.CostsMenu -> true
+  | Slash_commands.BgMenu, Slash_commands.BgMenu -> true
   | Slash_commands.NotACommand, Slash_commands.NotACommand -> true
   | _ -> false
 
@@ -1944,6 +1956,111 @@ let test_agent_menu_pagination_format () =
   in
   Alcotest.(check bool) "page 2 has prev nav" true has_prev
 
+let test_model_menu () =
+  Alcotest.check result_testable "/model menu" (Slash_commands.ModelMenu 1)
+    (Slash_commands.handle "/model menu")
+
+let test_model_menu_page () =
+  Alcotest.check result_testable "/model menu 2" (Slash_commands.ModelMenu 2)
+    (Slash_commands.handle "/model menu 2")
+
+let test_thinking_menu () =
+  Alcotest.check result_testable "/thinking menu" Slash_commands.ThinkingMenu
+    (Slash_commands.handle "/thinking menu")
+
+let test_config_menu () =
+  Alcotest.check result_testable "/config menu" (Slash_commands.ConfigMenu 1)
+    (Slash_commands.handle "/config menu")
+
+let test_config_menu_page () =
+  Alcotest.check result_testable "/config menu 2" (Slash_commands.ConfigMenu 2)
+    (Slash_commands.handle "/config menu 2")
+
+let test_skills_menu () =
+  Alcotest.check result_testable "/skills" (Slash_commands.SkillsMenu 1)
+    (Slash_commands.handle "/skills")
+
+let test_skills_menu_page () =
+  Alcotest.check result_testable "/skills 2" (Slash_commands.SkillsMenu 2)
+    (Slash_commands.handle "/skills 2")
+
+let test_costs_menu () =
+  Alcotest.check result_testable "/costs menu" Slash_commands.CostsMenu
+    (Slash_commands.handle "/costs menu")
+
+let test_bg_menu () =
+  Alcotest.check result_testable "/bg menu" Slash_commands.BgMenu
+    (Slash_commands.handle "/bg menu")
+
+let test_skills_in_commands_list () =
+  let has_skills =
+    List.exists
+      (fun (c : Slash_commands.command) -> c.name = "skills")
+      Slash_commands.commands
+  in
+  Alcotest.(check bool) "commands list includes /skills" true has_skills
+
+let test_format_thinking_menu () =
+  let text =
+    Slash_commands_fmt.format_thinking_menu ~connector:Format_adapter.Plain
+  in
+  Alcotest.(check bool)
+    "contains /thinking off" true
+    (contains_str text "/thinking off");
+  Alcotest.(check bool)
+    "contains /thinking high" true
+    (contains_str text "/thinking high")
+
+let test_format_costs_menu () =
+  let text =
+    Slash_commands_fmt.format_costs_menu ~connector:Format_adapter.Plain
+  in
+  Alcotest.(check bool)
+    "contains /costs session" true
+    (contains_str text "/costs session");
+  Alcotest.(check bool)
+    "contains /costs model" true
+    (contains_str text "/costs model")
+
+let test_format_bg_menu () =
+  let text =
+    Slash_commands_fmt.format_bg_menu ~connector:Format_adapter.Plain
+  in
+  Alcotest.(check bool) "contains /bg list" true (contains_str text "/bg list");
+  Alcotest.(check bool)
+    "contains /bg create" true
+    (contains_str text "/bg create")
+
+let test_format_config_menu () =
+  let text =
+    Slash_commands_fmt.format_config_menu ~connector:Format_adapter.Plain
+      ~page:1
+  in
+  Alcotest.(check bool)
+    "contains /config show" true
+    (contains_str text "/config show")
+
+let test_format_model_menu () =
+  let text =
+    Slash_commands_fmt.format_model_menu ~connector:Format_adapter.Plain ~page:1
+  in
+  let has_fav_hint = contains_str text "/model fav" in
+  let has_model_set = contains_str text "/model set" in
+  Alcotest.(check bool)
+    "contains /model fav (no favorites) or /model set (has favorites)" true
+    (has_fav_hint || has_model_set)
+
+let test_format_skills_menu () =
+  let text =
+    Slash_commands_fmt.format_skills_menu ~connector:Format_adapter.Plain
+      ~page:1
+  in
+  let has_no_skills = text = "No skills available." in
+  let has_skills_heading = contains_str text "Skills" in
+  Alcotest.(check bool)
+    "returns no-skills message or skills listing" true
+    (has_no_skills || has_skills_heading)
+
 let test_agent_in_commands_list () =
   let has_agent =
     List.exists
@@ -2195,4 +2312,21 @@ let suite =
       test_agent_menu_pagination_format;
     Alcotest.test_case "/agent in commands list" `Quick
       test_agent_in_commands_list;
+    Alcotest.test_case "/model menu" `Quick test_model_menu;
+    Alcotest.test_case "/model menu page" `Quick test_model_menu_page;
+    Alcotest.test_case "/thinking menu" `Quick test_thinking_menu;
+    Alcotest.test_case "/config menu" `Quick test_config_menu;
+    Alcotest.test_case "/config menu page" `Quick test_config_menu_page;
+    Alcotest.test_case "/skills" `Quick test_skills_menu;
+    Alcotest.test_case "/skills page" `Quick test_skills_menu_page;
+    Alcotest.test_case "/costs menu" `Quick test_costs_menu;
+    Alcotest.test_case "/bg menu" `Quick test_bg_menu;
+    Alcotest.test_case "/skills in commands list" `Quick
+      test_skills_in_commands_list;
+    Alcotest.test_case "format thinking menu" `Quick test_format_thinking_menu;
+    Alcotest.test_case "format costs menu" `Quick test_format_costs_menu;
+    Alcotest.test_case "format bg menu" `Quick test_format_bg_menu;
+    Alcotest.test_case "format config menu" `Quick test_format_config_menu;
+    Alcotest.test_case "format model menu" `Quick test_format_model_menu;
+    Alcotest.test_case "format skills menu" `Quick test_format_skills_menu;
   ]
