@@ -341,6 +341,56 @@ let send_or_edit t =
         end
         else Lwt.return_unit)
 
+(* Idempotent heartbeat manager: starts a heartbeat if any tools are Running
+   and none exists, cancels it if no tools are Running. Safe to call multiple
+   times — must be called BEFORE any yield point (send_or_edit) so the
+   heartbeat is registered before concurrent tool_result can fire. *)
+let ensure_heartbeat t =
+  let has_running =
+    Hashtbl.fold
+      (fun _ (e : tool_entry) acc -> acc || e.state = Running)
+      t.tools false
+  in
+  if has_running then begin
+    (* Need a heartbeat — start one if not already active *)
+    if t.heartbeat_cancel = None && t.debounce_interval > 0.0 then begin
+      let cancel_p, cancel_u = Lwt.wait () in
+      t.heartbeat_cancel <- Some (cancel_p, cancel_u);
+      Lwt.async (fun () ->
+          let rec loop () =
+            let open Lwt.Syntax in
+            (* Use Lwt.choose (not Lwt.pick) to avoid cancelling cancel_p *)
+            let* () = Lwt.choose [ Lwt_unix.sleep 5.0; cancel_p ] in
+            if Lwt.is_sleeping cancel_p then
+              let still_running =
+                Hashtbl.fold
+                  (fun _ (e : tool_entry) acc -> acc || e.state = Running)
+                  t.tools false
+              in
+              if still_running then
+                let* () = send_or_edit t in
+                loop ()
+              else begin
+                t.heartbeat_cancel <- None;
+                Lwt.return_unit
+              end
+            else begin
+              t.heartbeat_cancel <- None;
+              Lwt.return_unit
+            end
+          in
+          loop ())
+    end
+  end
+  else begin
+    (* No running tools — cancel any existing heartbeat *)
+    match t.heartbeat_cancel with
+    | Some (cancel_p, u) ->
+        if Lwt.is_sleeping cancel_p then Lwt.wakeup_later u ();
+        t.heartbeat_cancel <- None
+    | None -> ()
+  end
+
 let tool_start t ~id ~name ~summary =
   let open Lwt.Syntax in
   let now = Unix.gettimeofday () in
@@ -375,38 +425,10 @@ let tool_start t ~id ~name ~summary =
   in
   if running_count > t.parallel_batch_size then
     t.parallel_batch_size <- running_count;
+  (* Ensure heartbeat is active BEFORE yielding to send_or_edit,
+     so concurrent tool_result can cancel it *)
+  ensure_heartbeat t;
   let* () = send_or_edit t in
-  (* Cancel any existing heartbeat *)
-  (match t.heartbeat_cancel with
-  | Some (cancel_p, u) ->
-      if Lwt.is_sleeping cancel_p then Lwt.wakeup_later u ();
-      t.heartbeat_cancel <- None
-  | None -> ());
-  (* Start new heartbeat if debounce > 0 *)
-  if t.debounce_interval > 0.0 then begin
-    let cancel_p, cancel_u = Lwt.wait () in
-    t.heartbeat_cancel <- Some (cancel_p, cancel_u);
-    Lwt.async (fun () ->
-        let rec loop () =
-          let open Lwt.Syntax in
-          let* () = Lwt.pick [ Lwt_unix.sleep 5.0; cancel_p ] in
-          if Lwt.is_sleeping cancel_p then
-            let has_running =
-              Hashtbl.fold
-                (fun _ (e : tool_entry) acc -> acc || e.state = Running)
-                t.tools false
-            in
-            if has_running then
-              let* () = send_or_edit t in
-              loop ()
-            else begin
-              t.heartbeat_cancel <- None;
-              Lwt.return_unit
-            end
-          else Lwt.return_unit
-        in
-        loop ())
-  end;
   Lwt.return_unit
 
 let last_n_lines ~n text =
@@ -425,12 +447,6 @@ let last_n_lines ~n text =
 let tool_result t ~id ~name:_ ~result ~is_error =
   let open Lwt.Syntax in
   let now = Unix.gettimeofday () in
-  (* Cancel heartbeat *)
-  (match t.heartbeat_cancel with
-  | Some (cancel_p, u) ->
-      if Lwt.is_sleeping cancel_p then Lwt.wakeup_later u ();
-      t.heartbeat_cancel <- None
-  | None -> ());
   (match Hashtbl.find_opt t.tools id with
   | Some entry ->
       let error_detail =
@@ -475,6 +491,8 @@ let tool_result t ~id ~name:_ ~result ~is_error =
   | None ->
       (* Tool wasn't tracked via tool_start; ignore *)
       ());
+  (* Cancel or preserve heartbeat based on current running state *)
+  ensure_heartbeat t;
   let* () = send_or_edit t in
   Lwt.return_unit
 

@@ -1018,6 +1018,105 @@ let test_finalize_cancels_heartbeat () =
     "heartbeat cancelled after finalize" true
     (t.heartbeat_cancel = None)
 
+let test_fast_tool_result_before_start_io_completes () =
+  (* B542: When tool_result fires while tool_start's send_or_edit is still
+     in-flight, the heartbeat must not be orphaned. *)
+  let send_delay_waiter, send_delay_resolver = Lwt.wait () in
+  let notifier : Status_message.notifier =
+    {
+      send =
+        (fun ?parse_mode:_ _text ->
+          let open Lwt.Syntax in
+          (* Simulate slow I/O — tool_result will fire during this *)
+          let* () = send_delay_waiter in
+          Lwt.return "msg-1");
+      edit = (fun _id ?parse_mode:_ _text -> Lwt.return None);
+      delete = (fun _id -> Lwt.return_unit);
+    }
+  in
+  let t =
+    Status_message.create ~debounce_interval:0.01 ~notifier
+      ~parse_mode:"Markdown" ()
+  in
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     (* Start tool — send_or_edit will block on send_delay_waiter *)
+     let start_p =
+       Status_message.tool_start t ~id:"t1" ~name:"use_skill" ~summary:None
+     in
+     (* tool_result fires immediately, while tool_start is still yielded *)
+     let* () =
+       Status_message.tool_result t ~id:"t1" ~name:"use_skill" ~result:"ok"
+         ~is_error:false
+     in
+     (* Now unblock the send so tool_start can complete *)
+     Lwt.wakeup_later send_delay_resolver ();
+     let* () = start_p in
+     (* Allow any pending async heartbeat work to settle *)
+     Lwt_unix.sleep 0.05);
+  (* No orphaned heartbeat should remain — tool is Done, no Running tools *)
+  Alcotest.(check bool)
+    "no orphaned heartbeat after fast completion" true
+    (t.heartbeat_cancel = None)
+
+let test_heartbeat_survives_for_second_tool () =
+  (* B542: When tool1 completes fast but tool2 is still running,
+     heartbeat should remain active for tool2. *)
+  let send_delay_waiter, send_delay_resolver = Lwt.wait () in
+  let first_send = ref true in
+  let notifier : Status_message.notifier =
+    {
+      send =
+        (fun ?parse_mode:_ _text ->
+          if !first_send then begin
+            first_send := false;
+            let open Lwt.Syntax in
+            let* () = send_delay_waiter in
+            Lwt.return "msg-1"
+          end
+          else Lwt.return "msg-1");
+      edit = (fun _id ?parse_mode:_ _text -> Lwt.return None);
+      delete = (fun _id -> Lwt.return_unit);
+    }
+  in
+  let t =
+    Status_message.create ~debounce_interval:0.01 ~notifier
+      ~parse_mode:"Markdown" ()
+  in
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     (* Start tool1 — first send will block *)
+     let start1_p =
+       Status_message.tool_start t ~id:"t1" ~name:"use_skill" ~summary:None
+     in
+     (* Complete tool1 while tool_start is still in send *)
+     let* () =
+       Status_message.tool_result t ~id:"t1" ~name:"use_skill" ~result:"ok"
+         ~is_error:false
+     in
+     (* Start tool2 — now there's a running tool again *)
+     let start2_p =
+       Status_message.tool_start t ~id:"t2" ~name:"file_read" ~summary:None
+     in
+     (* Unblock first send *)
+     Lwt.wakeup_later send_delay_resolver ();
+     let* () = start1_p in
+     let* () = start2_p in
+     (* Heartbeat should be active for tool2 *)
+     Alcotest.(check bool)
+       "heartbeat active for tool2" true
+       (t.heartbeat_cancel <> None);
+     (* Complete tool2 *)
+     let* () =
+       Status_message.tool_result t ~id:"t2" ~name:"file_read" ~result:"ok"
+         ~is_error:false
+     in
+     Lwt_unix.sleep 0.05);
+  (* All done — heartbeat should be cancelled *)
+  Alcotest.(check bool)
+    "heartbeat cancelled after all tools done" true
+    (t.heartbeat_cancel = None)
+
 let suite =
   [
     Alcotest.test_case "render empty" `Quick test_render_empty;
@@ -1079,4 +1178,9 @@ let suite =
       test_failed_tool_shows_timing;
     Alcotest.test_case "running tool elapsed at lower threshold" `Quick
       test_running_tool_elapsed_at_lower_threshold;
+    Alcotest.test_case "fast tool_result before tool_start I/O completes" `Quick
+      test_fast_tool_result_before_start_io_completes;
+    Alcotest.test_case
+      "heartbeat survives for second tool when first completes fast" `Quick
+      test_heartbeat_survives_for_second_tool;
   ]
