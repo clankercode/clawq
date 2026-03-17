@@ -1702,6 +1702,22 @@ let test_manifest_teams_uses_title_key () =
     "uses description key" true
     (contains_str output "\"description\"")
 
+let test_manifest_teams_top10_composition () =
+  let output = Slash_commands_manifest.teams_json () in
+  let json = Yojson.Safe.from_string output in
+  let open Yojson.Safe.Util in
+  let cmds =
+    json |> member "commandLists" |> to_list |> List.hd |> member "commands"
+    |> to_list
+  in
+  let names = List.map (fun c -> c |> member "title" |> to_string) cmds in
+  Alcotest.(check bool) "menu in top 10" true (List.mem "menu" names);
+  Alcotest.(check bool) "model not in top 10" false (List.mem "model" names);
+  Alcotest.(check bool)
+    "thinking not in top 10" false
+    (List.mem "thinking" names);
+  Alcotest.(check bool) "tasks not in top 10" false (List.mem "tasks" names)
+
 let test_manifest_telegram_uses_command_key () =
   let output = Slash_commands_manifest.telegram_json () in
   Alcotest.(check bool)
@@ -2341,6 +2357,8 @@ let suite =
       test_manifest_telegram_json;
     Alcotest.test_case "manifest teams uses title key" `Quick
       test_manifest_teams_uses_title_key;
+    Alcotest.test_case "manifest teams top 10 composition" `Quick
+      test_manifest_teams_top10_composition;
     Alcotest.test_case "manifest telegram uses command key" `Quick
       test_manifest_telegram_uses_command_key;
     Alcotest.test_case "menu adaptive card json" `Quick

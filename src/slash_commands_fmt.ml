@@ -119,18 +119,18 @@ let commands =
       name = "model";
       description =
         "Manage model: /model [set/fav/unfav/list/usage/menu] [args]";
-      priority = 85;
+      priority = 7;
     };
     {
       name = "thinking";
       description = "Show or set thinking level: /thinking [level]";
-      priority = 80;
+      priority = 6;
     };
     { name = "tools"; description = "List all available tools"; priority = 48 };
     {
       name = "tasks";
       description = "Show task tree (compact): /tasks [full]";
-      priority = 70;
+      priority = 4;
     };
     {
       name = "costs";
@@ -226,7 +226,7 @@ let commands =
     {
       name = "menu";
       description = "Show interactive command menu";
-      priority = 5;
+      priority = 93;
     };
     {
       name = "debug_dump_chat";

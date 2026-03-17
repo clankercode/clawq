@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-17T02:58:54Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-17T03:07:00Z"
 complexity: medium
 depends_on: []
+duration_minutes: 8.105849138466667
 estimate_hours: 1
 id: B527
 priority: high
 started_at: "2026-03-17T02:58:54Z"
-status: in_progress
+status: done
 tags: []
 title: Teams manifest should prioritize /menu, deprioritize /tasks, /thinking, /model. Also the '/config get' commands should always redact secrets.
 ---
