@@ -1,0 +1,14 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 10
+id: I039
+priority: low
+status: pending
+tags:
+    - protocol
+    - a2a
+    - multi-agent
+title: A2A Protocol Endpoints
+---
+Implement Google's Agent-to-Agent (A2A) protocol endpoints so clawq can receive and delegate tasks from other AI agent systems. A2A handles inter-agent communication (complementing MCP which handles agent-to-tool). As multi-agent ecosystems grow, agents without A2A support will be islands. This positions clawq as a composable node in larger agentic workflows rather than a standalone silo. A2A is now under the Linux Foundation's Agentic AI Foundation alongside MCP.

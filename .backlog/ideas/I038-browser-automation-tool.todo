@@ -1,0 +1,14 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 10
+id: I038
+priority: low
+status: pending
+tags:
+    - tools
+    - browser
+    - automation
+title: Browser Automation Tool
+---
+A built-in 'browser' tool that launches a headless Chromium instance (via playwright/puppeteer CLI or CDP protocol) and can navigate URLs, click elements, fill forms, take screenshots, and extract page content. Focused on performance and low overhead — not a full browser engine but a lightweight CDP client. OpenClaw has this as a core Layer 1 tool. For a personal assistant, browser automation unlocks: form filling, web scraping, screenshot-based debugging, and interacting with web apps that lack APIs.

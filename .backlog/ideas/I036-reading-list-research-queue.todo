@@ -1,0 +1,14 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 10
+id: I036
+priority: medium
+status: pending
+tags:
+    - research
+    - memory
+    - productivity
+title: Reading List / Research Queue
+---
+'clawq queue add <url>' saves URLs to a research queue. A background agent fetches, extracts, and summarizes each article, storing the summary in memory with auto-generated tags. 'clawq queue list' shows pending/processed items. 'What did I save about Rust async last month?' returns instant answers from processed summaries. Transforms clawq into a personal research assistant that never forgets what you've read.

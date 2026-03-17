@@ -1,0 +1,14 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 10
+id: I037
+priority: medium
+status: pending
+tags:
+    - channels
+    - agents
+    - personas
+title: Channel-Specific Personas
+---
+Bind different agent templates and system prompts to different channels: the Telegram channel gets the casual assistant persona; the Slack channel gets the code review template; the Discord channel gets the research assistant. 'clawq agents bind research-agent --channel discord'. Partial support exists (agent template bindings) but not per-channel system prompt overrides or automatic persona switching on message routing.

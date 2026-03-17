@@ -1,0 +1,14 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 10
+id: I035
+priority: medium
+status: pending
+tags:
+    - rss
+    - productivity
+    - personal-assistant
+title: RSS Feed Aggregator with AI Filtering
+---
+Configure RSS/Atom feeds with natural language topic filters. The agent monitors feeds on a schedule, scores each article against your interest profile, and surfaces only high-signal items via your preferred channel. 'clawq feeds add <url> --topics "OCaml, formal verification, AI agents"'. Replaces a dedicated RSS reader for terminal-native users. Low implementation cost given existing cron + web_fetch + memory infrastructure.
