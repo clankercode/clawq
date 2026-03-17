@@ -817,6 +817,56 @@ let handle_event ~(config : Runtime_config.slack_config)
                   send_message_fn ~bot_token:config.bot_token ~channel_id ~text
                 in
                 Lwt.return "ok"
+            | Rig action -> (
+                match action with
+                | RigList ->
+                    let text = Rig.list_text () in
+                    let* () =
+                      send_message_fn ~bot_token:config.bot_token ~channel_id
+                        ~text
+                    in
+                    Lwt.return "ok"
+                | RigInstall name | RigAdjust name | RigRemove name -> (
+                    let act =
+                      match action with
+                      | RigInstall _ -> `Install
+                      | RigAdjust _ -> `Adjust
+                      | _ -> `Remove
+                    in
+                    let act_str =
+                      match act with
+                      | `Install -> "install"
+                      | `Adjust -> "adjust"
+                      | `Remove -> "remove"
+                    in
+                    match Rig.prompt_for ~name ~action:act with
+                    | Error msg ->
+                        let* () =
+                          send_message_fn ~bot_token:config.bot_token
+                            ~channel_id ~text:msg
+                        in
+                        Lwt.return "ok"
+                    | Ok prompt ->
+                        Lwt.async (fun () ->
+                            send_message_fn ~bot_token:config.bot_token
+                              ~channel_id
+                              ~text:
+                                (Printf.sprintf "Running rig %s for '%s'..."
+                                   act_str name));
+                        Session.delegate_turn session_manager ~prompt
+                          ~send_reply:(fun text ->
+                            send_message_fn ~bot_token:config.bot_token
+                              ~channel_id ~text)
+                          ();
+                        (match act with
+                        | `Install -> (
+                            match Rig.find_rig name with
+                            | Some rig ->
+                                Rig.mark_installed ~name ~version:rig.version
+                            | None -> ())
+                        | `Remove -> Rig.mark_removed ~name
+                        | `Adjust -> ());
+                        Lwt.return "ok"))
             | Model action -> (
                 let open Slash_commands in
                 match action with

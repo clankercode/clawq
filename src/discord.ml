@@ -1001,6 +1001,51 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
             in
             send_message_fn ~bot_token:discord_config.bot_token
               ~channel_id:msg.channel_id ~text
+        | Rig action -> (
+            match action with
+            | RigList ->
+                let text = Rig.list_text () in
+                send_message_fn ~bot_token:discord_config.bot_token
+                  ~channel_id:msg.channel_id ~text
+            | RigInstall name | RigAdjust name | RigRemove name -> (
+                let act =
+                  match action with
+                  | RigInstall _ -> `Install
+                  | RigAdjust _ -> `Adjust
+                  | _ -> `Remove
+                in
+                let act_str =
+                  match act with
+                  | `Install -> "install"
+                  | `Adjust -> "adjust"
+                  | `Remove -> "remove"
+                in
+                match Rig.prompt_for ~name ~action:act with
+                | Error err_msg ->
+                    send_message_fn ~bot_token:discord_config.bot_token
+                      ~channel_id:msg.channel_id ~text:err_msg
+                | Ok prompt ->
+                    let* () =
+                      send_message_fn ~bot_token:discord_config.bot_token
+                        ~channel_id:msg.channel_id
+                        ~text:
+                          (Printf.sprintf "Running rig %s for '%s'..." act_str
+                             name)
+                    in
+                    Session.delegate_turn session_mgr ~prompt
+                      ~send_reply:(fun text ->
+                        send_message_fn ~bot_token:discord_config.bot_token
+                          ~channel_id:msg.channel_id ~text)
+                      ();
+                    (match act with
+                    | `Install -> (
+                        match Rig.find_rig name with
+                        | Some rig ->
+                            Rig.mark_installed ~name ~version:rig.version
+                        | None -> ())
+                    | `Remove -> Rig.mark_removed ~name
+                    | `Adjust -> ());
+                    Lwt.return_unit))
         | Model action -> (
             let open Slash_commands in
             match action with

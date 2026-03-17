@@ -91,6 +91,11 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 | `otp-show` | Show current browser pairing code and TOTP codes |
 | `phase2` | Show Phase 2 feature status |
 | `provider [quota [NAME]\|list]` | Inspect LLM provider configuration and live quota state |
+| `rig` | Manage agent-driven setup rigs — install, adjust, remove, list (default: list) |
+| `rig install <name>` | Install a rig by delegating setup to a background task |
+| `rig adjust <name>` | Reconfigure an installed rig |
+| `rig remove <name>` | Remove an installed rig and clean up |
+| `rig list` | List available rigs with install status |
 | `reset-agent` | Wipe all session history, cron jobs, workspace files, redeploy defaults (prompts for confirmation; does NOT touch config.json) |
 | `reset-workspace` | Wipe conversation history and workspace identity files, redeploy defaults (auto-backs up workspace first; leaves cron jobs and config.json intact) |
 | `runtime` | Manage native and Docker runtimes (default: status) |
@@ -200,6 +205,7 @@ Available in chat-integrated channels that support slash commands.
 - `/tools` — list all available tools with parameters and risk levels, plus Skills and Agents sections (when any are available)
 - `/tasks` — show the agent's current task tree for this session
 - `/menu [page]` — show a paginated command menu; on Teams this sends an Adaptive Card with clickable command buttons, on other channels it falls back to the help list
+- `/rig [install|adjust|remove|list] [name]` — manage setup rigs; `/rig list` shows available rigs with install status; `/rig install <name>` delegates rig setup to the agent with tool access; alias `/rigging`
 - `/update` — pull, rebuild, and gracefully restart clawq
 
 ## `!` Messages

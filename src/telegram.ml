@@ -815,6 +815,51 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
             in
             send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
               ~text ()
+        | Rig action -> (
+            match action with
+            | RigList ->
+                let text = Rig.list_text () in
+                send_chunked_html_with_fallback ~bot_token
+                  ~chat_id:update.chat_id ~text ()
+            | RigInstall name | RigAdjust name | RigRemove name -> (
+                let act =
+                  match action with
+                  | RigInstall _ -> `Install
+                  | RigAdjust _ -> `Adjust
+                  | _ -> `Remove
+                in
+                let act_str =
+                  match act with
+                  | `Install -> "install"
+                  | `Adjust -> "adjust"
+                  | `Remove -> "remove"
+                in
+                match Rig.prompt_for ~name ~action:act with
+                | Error msg ->
+                    send_message ~bot_token ~chat_id:update.chat_id ~text:msg ()
+                | Ok prompt ->
+                    let* () =
+                      send_message ~bot_token ~chat_id:update.chat_id
+                        ~text:
+                          (Printf.sprintf "Running rig %s for '%s'..." act_str
+                             name)
+                        ()
+                    in
+                    Session.delegate_turn session_mgr ~prompt
+                      ~send_reply:(fun text ->
+                        send_chunked_html_with_fallback
+                          ~disable_notification:false ~bot_token
+                          ~chat_id:update.chat_id ~text ())
+                      ();
+                    (match act with
+                    | `Install -> (
+                        match Rig.find_rig name with
+                        | Some rig ->
+                            Rig.mark_installed ~name ~version:rig.version
+                        | None -> ())
+                    | `Remove -> Rig.mark_removed ~name
+                    | `Adjust -> ());
+                    Lwt.return_unit))
         | Model action -> (
             let open Slash_commands in
             match action with

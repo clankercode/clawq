@@ -581,6 +581,7 @@ let handle args =
   | "delegate" :: rest -> cmd_delegate rest
   | "skills" :: rest -> cmd_skills rest
   | "audit" :: rest -> cmd_audit rest
+  | "rig" :: _ | "rigging" :: _ -> unsupported "rig"
   | "costs" :: _ -> unsupported "costs"
   | "session" :: _ -> unsupported "session"
   | "update" :: _ -> unsupported "update"

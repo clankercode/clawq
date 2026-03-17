@@ -438,6 +438,14 @@ let handle ?(skill_names = []) text =
             | [ "show"; id ] -> Bl (BlShow id)
             | [ id ] -> Bl (BlShow id)
             | _ -> FormattedReply (fun connector -> format_bl_usage ~connector))
+        | "rig" | "rigging" -> (
+            match args with
+            | [ "install"; name ] | [ "add"; name ] -> Rig (RigInstall name)
+            | [ "adjust"; name ] | [ "modify"; name ] -> Rig (RigAdjust name)
+            | [ "remove"; name ] | [ "uninstall"; name ] -> Rig (RigRemove name)
+            | [] | [ "list" ] -> Rig RigList
+            | _ ->
+                Reply "Usage: /rig install|adjust|remove <name>, or /rig list")
         | "menu" -> (
             match args with
             | [] -> Menu 1

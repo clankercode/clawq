@@ -137,7 +137,9 @@
   pair_coding_prompts
   pair_coding_session
   pair_coding_report
-  webhook_handler)
+  webhook_handler
+  rig
+  rig_builtins)
  (foreign_stubs
   (language c)
   (names landlock_stubs))

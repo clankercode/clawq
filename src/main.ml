@@ -1129,6 +1129,18 @@ let agents_cmd =
       `I ("path", "Show template search directories.");
     ]
 
+let rig_cmd =
+  with_args "rig" "Manage agent-driven setup rigs (install, adjust, remove)."
+    [
+      `S "SUBCOMMANDS";
+      `I
+        ( "install NAME",
+          "Install a rig by delegating setup to a background task." );
+      `I ("adjust NAME", "Reconfigure an installed rig.");
+      `I ("remove NAME", "Remove an installed rig and clean up.");
+      `I ("list", "List available rigs and their install status.");
+    ]
+
 let reset_agent_cmd =
   simple "reset-agent"
     "Wipe all session history, cron jobs, and workspace files, then redeploy \
@@ -1349,6 +1361,7 @@ let () =
       audit_cmd;
       skills_cmd;
       agents_cmd;
+      rig_cmd;
       service_cmd;
       update_cmd;
       runtime_cmd;

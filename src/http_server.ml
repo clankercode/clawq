@@ -524,6 +524,14 @@ let handler ~session_manager ~require_pairing ~auth_token
                     in
                     Cohttp_lwt_unix.Server.respond_string ~status:`OK
                       ~headers:json_headers ~body:resp_json ()
+                | Slash_commands.Rig action ->
+                    let response = Rig.format_slash_action action in
+                    let resp_json =
+                      `Assoc [ ("response", `String response) ]
+                      |> Yojson.Safe.to_string
+                    in
+                    Cohttp_lwt_unix.Server.respond_string ~status:`OK
+                      ~headers:json_headers ~body:resp_json ()
                 | Slash_commands.Tools ->
                     let show_test =
                       (Session.get_config session_manager).test.show_skills
@@ -1263,6 +1271,9 @@ let handler ~session_manager ~require_pairing ~auth_token
                       Slash_commands.format_bl ~connector:Format_adapter.Plain
                         action
                     in
+                    sse_reply text
+                | Slash_commands.Rig action ->
+                    let text = Rig.format_slash_action action in
                     sse_reply text
                 | Slash_commands.Thinking Slash_commands.ShowThinking ->
                     let current =

@@ -28,7 +28,7 @@ let bash_script =
         cur="${COMP_WORDS[COMP_CWORD]}"
         prev="${COMP_WORDS[COMP_CWORD-1]}"
     }
-    local commands="active agent audit auth background benchmark capabilities channel completions config costs cron debug delegate doctor hardware memory mcp migrate models onboard otp-show phase2 plan provider reset-agent reset-workspace runtime service session skills status transcribe tunnel update usage version workspace"
+    local commands="active agent audit auth background benchmark capabilities channel completions config costs cron debug delegate doctor hardware memory mcp migrate models onboard otp-show phase2 plan provider reset-agent reset-workspace rig runtime service session skills status transcribe tunnel update usage version workspace"
     if [[ ${COMP_CWORD} -eq 1 ]]; then
         COMPREPLY=( $(compgen -W "${commands}" -- "${cur}") )
         return
@@ -44,6 +44,7 @@ let bash_script =
         models)      COMPREPLY=( $(compgen -W "list set-default refresh" -- "${cur}") );;
         plan)        COMPREPLY=( $(compgen -W "start list show logs cancel" -- "${cur}") );;
         provider)    COMPREPLY=( $(compgen -W "quota list" -- "${cur}") );;
+        rig)         COMPREPLY=( $(compgen -W "install adjust remove list" -- "${cur}") );;
         runtime)     COMPREPLY=( $(compgen -W "status native docker" -- "${cur}") );;
         service)     COMPREPLY=( $(compgen -W "start stop restart signal-restart status" -- "${cur}") );;
         session)     COMPREPLY=( $(compgen -W "list epochs show inject events pending compact" -- "${cur}") );;
@@ -90,6 +91,7 @@ _clawq() {
                 'phase2:Show Phase 2 feature status'
                 'plan:Manage planning pipelines'
                 'provider:Show provider quota and list'
+                'rig:Manage agent-driven setup rigs'
                 'reset-agent:Wipe and redeploy agent'
                 'reset-workspace:Wipe chat history and redeploy'
                 'runtime:Manage native and Docker runtimes'
@@ -120,6 +122,7 @@ _clawq() {
                 models)      _values 'subcommand' 'list' 'set-default' 'refresh';;
                 plan)        _values 'subcommand' 'start' 'list' 'show' 'logs' 'cancel';;
                 provider)    _values 'subcommand' 'quota' 'list';;
+                rig)         _values 'subcommand' 'install' 'adjust' 'remove' 'list';;
                 runtime)     _values 'subcommand' 'status' 'native' 'docker';;
                 service)     _values 'subcommand' 'start' 'stop' 'restart' 'signal-restart' 'status';;
                 session)     _values 'subcommand' 'list' 'epochs' 'show' 'inject' 'events' 'pending' 'compact';;
@@ -135,7 +138,7 @@ _clawq
 
 let fish_script =
   {|# clawq fish completions
-set -l clawq_commands active agent audit auth background benchmark capabilities channel completions config costs cron debug delegate doctor hardware memory mcp migrate models onboard otp-show phase2 plan provider reset-agent reset-workspace runtime service session skills status transcribe tunnel update usage version workspace
+set -l clawq_commands active agent audit auth background benchmark capabilities channel completions config costs cron debug delegate doctor hardware memory mcp migrate models onboard otp-show phase2 plan provider reset-agent reset-workspace rig runtime service session skills status transcribe tunnel update usage version workspace
 
 complete -c clawq -f
 for cmd in $clawq_commands
@@ -152,6 +155,7 @@ complete -c clawq -n "__fish_seen_subcommand_from debug"       -a "html-preview 
 complete -c clawq -n "__fish_seen_subcommand_from models"      -a "list set-default refresh"
 complete -c clawq -n "__fish_seen_subcommand_from plan"        -a "start list show logs cancel"
 complete -c clawq -n "__fish_seen_subcommand_from provider"    -a "quota list"
+complete -c clawq -n "__fish_seen_subcommand_from rig"        -a "install adjust remove list"
 complete -c clawq -n "__fish_seen_subcommand_from runtime"     -a "status native docker"
 complete -c clawq -n "__fish_seen_subcommand_from service"     -a "start stop restart signal-restart status"
 complete -c clawq -n "__fish_seen_subcommand_from session"     -a "list epochs show inject events pending compact"

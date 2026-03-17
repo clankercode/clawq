@@ -125,6 +125,12 @@ let rec result_to_string = function
   | Slash_commands.RegisterAsAdminOtc None -> "RegisterAsAdminOtc(None)"
   | Slash_commands.RegisterAsAdminOtc (Some code) ->
       "RegisterAsAdminOtc(Some " ^ code ^ ")"
+  | Slash_commands.Rig action -> (
+      match action with
+      | Slash_commands.RigInstall name -> "Rig(Install " ^ name ^ ")"
+      | Slash_commands.RigAdjust name -> "Rig(Adjust " ^ name ^ ")"
+      | Slash_commands.RigRemove name -> "Rig(Remove " ^ name ^ ")"
+      | Slash_commands.RigList -> "Rig(List)")
   | Slash_commands.NotACommand -> "NotACommand"
 
 let rec result_eq a b =
@@ -180,6 +186,7 @@ let rec result_eq a b =
       result_eq a b
   | Slash_commands.RegisterAsAdminOtc a, Slash_commands.RegisterAsAdminOtc b ->
       a = b
+  | Slash_commands.Rig a, Slash_commands.Rig b -> a = b
   | Slash_commands.NotACommand, Slash_commands.NotACommand -> true
   | _ -> false
 

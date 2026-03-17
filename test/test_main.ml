@@ -189,6 +189,7 @@ let () =
     @ [ ("pair_coding", Test_pair_coding.suite) ]
     @ [ ("webhook_handler", Test_webhook_handler.suite) ]
     @ [ ("browser", Test_browser.suite) ]
+    @ [ ("rig", Test_rig.suite) ]
     @ Test_github.suites
     @ [
         ( "config_isolation",

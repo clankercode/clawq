@@ -66,6 +66,11 @@ Every clawq command is listed below. Run `clawq COMMAND --help` for per-command 
 | `clawq phase2` | Show Phase 2 feature status |
 | `clawq provider` | Inspect LLM provider configuration and live quota state |
 | `clawq otp-show` | Show the current browser pairing code and any Telegram TOTP codes |
+| `clawq rig` | Manage agent-driven setup rigs (install, adjust, remove, list) |
+| `clawq rig install <name>` | Install a rig by delegating setup to a background task |
+| `clawq rig adjust <name>` | Reconfigure an installed rig |
+| `clawq rig remove <name>` | Remove an installed rig and clean up |
+| `clawq rig list` | List available rigs and their install status |
 | `clawq reset-agent` | Wipe all session history, cron jobs, and workspace files |
 | `clawq runtime` | Manage native and Docker runtimes |
 | `clawq service` | Manage the clawq system service (start/stop/restart) |

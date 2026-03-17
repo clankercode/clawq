@@ -62,6 +62,12 @@ type cron_action =
 
 type bl_action = BlList | BlShow of string | BlBugs | BlIdeas
 
+type rig_action =
+  | RigInstall of string
+  | RigAdjust of string
+  | RigRemove of string
+  | RigList
+
 type result =
   | Reply of string
   | FormattedReply of (Format_adapter.connector -> string)
@@ -87,6 +93,7 @@ type result =
   | Bg of bg_action
   | Cron of cron_action
   | Bl of bl_action
+  | Rig of rig_action
   | DebugDumpChat
   | AgentInvoke of string * string
   | AgentMenu of int
@@ -185,6 +192,12 @@ let commands =
       name = "bl";
       description = "Backlog overview: /bl [list/bugs/ideas/show] [id]";
       priority = 56;
+    };
+    {
+      name = "rig";
+      description =
+        "Manage setup rigs: /rig [install/adjust/remove/list] [name]";
+      priority = 50;
     };
     {
       name = "delegate";

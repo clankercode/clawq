@@ -2024,6 +2024,44 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                           action
                       in
                       send_text text
+                  | Rig action -> (
+                      match action with
+                      | RigList ->
+                          let text = Rig.list_text () in
+                          send_text text
+                      | RigInstall name | RigAdjust name | RigRemove name -> (
+                          let act =
+                            match action with
+                            | RigInstall _ -> `Install
+                            | RigAdjust _ -> `Adjust
+                            | _ -> `Remove
+                          in
+                          let act_str =
+                            match act with
+                            | `Install -> "install"
+                            | `Adjust -> "adjust"
+                            | `Remove -> "remove"
+                          in
+                          match Rig.prompt_for ~name ~action:act with
+                          | Error msg -> send_text msg
+                          | Ok prompt ->
+                              let* () =
+                                send_text
+                                  (Printf.sprintf "Running rig %s for '%s'..."
+                                     act_str name)
+                              in
+                              Session.delegate_turn session_manager ~prompt
+                                ~send_reply:send_text ();
+                              (match act with
+                              | `Install -> (
+                                  match Rig.find_rig name with
+                                  | Some rig ->
+                                      Rig.mark_installed ~name
+                                        ~version:rig.version
+                                  | None -> ())
+                              | `Remove -> Rig.mark_removed ~name
+                              | `Adjust -> ());
+                              Lwt.return_unit))
                   | Model action -> (
                       let open Slash_commands in
                       match action with
