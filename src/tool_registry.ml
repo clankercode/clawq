@@ -77,8 +77,9 @@ let tool_search_entry =
                             [
                               ("type", `String "string");
                               ( "description",
-                                `String "Keywords to search for relevant tools"
-                              );
+                                `String
+                                  "Keywords to search for relevant tools \
+                                   (required)" );
                             ] );
                       ] );
                   ("required", `List [ `String "query" ]);

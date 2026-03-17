@@ -1273,9 +1273,7 @@ let shell_exec_with_hooks ~workspace ~workspace_only ~allowed_commands
                     [
                       ("type", `String "string");
                       ( "description",
-                        `String
-                          "The shell command to execute (REQUIRED — must be \
-                           non-empty)" );
+                        `String "The shell command to execute (required)" );
                     ] );
                 ( "cwd",
                   `Assoc
@@ -1341,7 +1339,8 @@ let thread_summary ~db ~(config : Runtime_config.t) =
                   `Assoc
                     [
                       ("type", `String "string");
-                      ("description", `String "Session key to summarize");
+                      ( "description",
+                        `String "Session key to summarize (required)" );
                     ] );
               ] );
           ("required", `List [ `String "session_id" ]);
@@ -1437,7 +1436,8 @@ let unsummarize ~db =
                     [
                       ("type", `String "string");
                       ( "description",
-                        `String "The summary ID (e.g., sum_abc123def456)" );
+                        `String
+                          "The summary ID, e.g. sum_abc123def456 (required)" );
                     ] );
                 ( "lines",
                   `Assoc

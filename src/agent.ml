@@ -530,13 +530,15 @@ let flush_memory_tool_schemas =
                                 [
                                   ("type", `String "string");
                                   ( "description",
-                                    `String "Unique key for the memory" );
+                                    `String
+                                      "Unique key for the memory (required)" );
                                 ] );
                             ( "content",
                               `Assoc
                                 [
                                   ("type", `String "string");
-                                  ("description", `String "Content to store");
+                                  ( "description",
+                                    `String "Content to store (required)" );
                                 ] );
                             ( "category",
                               `Assoc
@@ -574,7 +576,8 @@ let flush_memory_tool_schemas =
                               `Assoc
                                 [
                                   ("type", `String "string");
-                                  ("description", `String "Search query");
+                                  ( "description",
+                                    `String "Search query (required)" );
                                 ] );
                             ( "limit",
                               `Assoc
@@ -611,7 +614,9 @@ let flush_memory_tool_schemas =
                                 [
                                   ("type", `String "string");
                                   ( "description",
-                                    `String "Key of the memory to remove" );
+                                    `String
+                                      "Key of the memory to remove (required)"
+                                  );
                                 ] );
                           ] );
                       ("required", `List [ `String "key" ]);

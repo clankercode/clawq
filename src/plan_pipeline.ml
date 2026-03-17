@@ -667,7 +667,9 @@ let start_tool ~db ~default_repo_path =
                     [
                       ("type", `String "string");
                       ( "description",
-                        `String "The goal or feature to plan and implement." );
+                        `String
+                          "The goal or feature to plan and implement \
+                           (required)." );
                     ] );
                 ( "repo_path",
                   `Assoc
@@ -823,7 +825,8 @@ let status_tool ~db =
                   `Assoc
                     [
                       ("type", `String "integer");
-                      ("description", `String "Pipeline id to inspect.");
+                      ( "description",
+                        `String "Pipeline id to inspect (required)." );
                     ] );
               ] );
           ("required", `List [ `String "id" ]);
@@ -890,7 +893,7 @@ let logs_tool ~db =
                   `Assoc
                     [
                       ("type", `String "integer");
-                      ("description", `String "Pipeline id.");
+                      ("description", `String "Pipeline id (required).");
                     ] );
                 ( "lines",
                   `Assoc
@@ -962,7 +965,8 @@ let cancel_tool ~db =
                   `Assoc
                     [
                       ("type", `String "integer");
-                      ("description", `String "Pipeline id to cancel.");
+                      ( "description",
+                        `String "Pipeline id to cancel (required)." );
                     ] );
               ] );
           ("required", `List [ `String "id" ]);

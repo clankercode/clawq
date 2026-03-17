@@ -492,7 +492,7 @@ let parameters_schema =
                   ( "description",
                     `String
                       "Action to perform: send_msg, write_note, approve, \
-                       status, signal, request_swap, resolve_note" );
+                       status, signal, request_swap, resolve_note (required)" );
                   ( "enum",
                     `List
                       [

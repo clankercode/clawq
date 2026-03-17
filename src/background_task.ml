@@ -2439,9 +2439,9 @@ let enqueue_tool_with_notify ~notify_cfg ~db =
                           ] );
                       ( "description",
                         `String
-                          "Which coding CLI to run in the background worktree. \
-                           Use 'local' for in-process agent execution (pair \
-                           with agent_name)." );
+                          "Which coding CLI to run in the background worktree \
+                           (required). Use 'local' for in-process agent \
+                           execution (pair with agent_name)." );
                     ] );
                 ( "repo_path",
                   `Assoc
@@ -2450,7 +2450,7 @@ let enqueue_tool_with_notify ~notify_cfg ~db =
                       ( "description",
                         `String
                           "Absolute or relative path to the git repository to \
-                           use as the worktree source." );
+                           use as the worktree source (required)." );
                     ] );
                 ( "prompt",
                   `Assoc
@@ -2458,8 +2458,8 @@ let enqueue_tool_with_notify ~notify_cfg ~db =
                       ("type", `String "string");
                       ( "description",
                         `String
-                          "Implementation prompt to hand to the coding agent."
-                      );
+                          "Implementation prompt to hand to the coding agent \
+                           (required)." );
                     ] );
                 ( "branch",
                   `Assoc
@@ -2681,7 +2681,7 @@ let wait_tool ~db =
                   `Assoc
                     [
                       ("type", `String "integer");
-                      ("description", `String "Task id to wait for");
+                      ("description", `String "Task id to wait for (required)");
                     ] );
                 ( "timeout_seconds",
                   `Assoc
@@ -2778,7 +2778,8 @@ let logs_tool ~db =
                   `Assoc
                     [
                       ("type", `String "integer");
-                      ("description", `String "Task id whose log should be read");
+                      ( "description",
+                        `String "Task id whose log should be read (required)" );
                     ] );
                 ( "offset",
                   `Assoc
@@ -2871,8 +2872,8 @@ let delegate_tool_with_notify ?(check_available = true) ~db ~default_repo_path
                       ("type", `String "string");
                       ( "description",
                         `String
-                          "Implementation goal for the delegated coding task."
-                      );
+                          "Implementation goal for the delegated coding task \
+                           (required)." );
                     ] );
                 ( "runner",
                   `Assoc
@@ -3055,7 +3056,7 @@ let resume_tool ~db =
                   `Assoc
                     [
                       ("type", `String "integer");
-                      ("description", `String "Task id to resume");
+                      ("description", `String "Task id to resume (required)");
                     ] );
               ] );
           ("required", `List [ `String "id" ]);
@@ -3094,14 +3095,15 @@ let message_tool ~db =
                   `Assoc
                     [
                       ("type", `String "integer");
-                      ("description", `String "Task id to message");
+                      ("description", `String "Task id to message (required)");
                     ] );
                 ( "message",
                   `Assoc
                     [
                       ("type", `String "string");
                       ( "description",
-                        `String "Message to inject into the task chat" );
+                        `String
+                          "Message to inject into the task chat (required)" );
                     ] );
               ] );
           ("required", `List [ `String "id"; `String "message" ]);
@@ -3142,7 +3144,7 @@ let cancel_tool ~db =
                   `Assoc
                     [
                       ("type", `String "integer");
-                      ("description", `String "Task id to cancel");
+                      ("description", `String "Task id to cancel (required)");
                     ] );
               ] );
           ("required", `List [ `String "id" ]);
@@ -3180,7 +3182,7 @@ let recover_tool ~db =
                   `Assoc
                     [
                       ("type", `String "integer");
-                      ("description", `String "Task id to recover");
+                      ("description", `String "Task id to recover (required)");
                     ] );
                 ( "runner",
                   `Assoc

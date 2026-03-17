@@ -230,7 +230,8 @@ let finalize_tool ~db =
                     [
                       ("type", `String "integer");
                       ( "description",
-                        `String "The background task ID to finalize." );
+                        `String "The background task ID to finalize (required)."
+                      );
                     ] );
               ] );
           ("required", `List [ `String "id" ]);

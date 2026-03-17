@@ -127,7 +127,8 @@ let file_read ~workspace ~workspace_only ~extra_allowed_paths =
                   `Assoc
                     [
                       ("type", `String "string");
-                      ("description", `String "Path to the file to read");
+                      ( "description",
+                        `String "Path to the file to read (required)" );
                     ] );
                 ( "offset",
                   `Assoc
@@ -235,13 +236,15 @@ let file_append ~workspace ~workspace_only ~extra_allowed_paths =
                   `Assoc
                     [
                       ("type", `String "string");
-                      ("description", `String "Path to the file to append");
+                      ( "description",
+                        `String "Path to the file to append (required)" );
                     ] );
                 ( "content",
                   `Assoc
                     [
                       ("type", `String "string");
-                      ("description", `String "Content to append to the file");
+                      ( "description",
+                        `String "Content to append to the file (required)" );
                     ] );
               ] );
           ("required", `List [ `String "path"; `String "content" ]);
@@ -304,13 +307,15 @@ let file_write ~workspace ~workspace_only ~extra_allowed_paths =
                   `Assoc
                     [
                       ("type", `String "string");
-                      ("description", `String "Path to the file to write");
+                      ( "description",
+                        `String "Path to the file to write (required)" );
                     ] );
                 ( "content",
                   `Assoc
                     [
                       ("type", `String "string");
-                      ("description", `String "Content to write to the file");
+                      ( "description",
+                        `String "Content to write to the file (required)" );
                     ] );
               ] );
           ("required", `List [ `String "path"; `String "content" ]);
@@ -363,19 +368,21 @@ let file_edit ~workspace ~workspace_only ~extra_allowed_paths =
                   `Assoc
                     [
                       ("type", `String "string");
-                      ("description", `String "Path to the file to edit");
+                      ( "description",
+                        `String "Path to the file to edit (required)" );
                     ] );
                 ( "old_text",
                   `Assoc
                     [
                       ("type", `String "string");
-                      ("description", `String "Text to find and replace");
+                      ( "description",
+                        `String "Text to find and replace (required)" );
                     ] );
                 ( "new_text",
                   `Assoc
                     [
                       ("type", `String "string");
-                      ("description", `String "Replacement text");
+                      ("description", `String "Replacement text (required)");
                     ] );
                 ( "replace_all",
                   `Assoc
@@ -496,25 +503,28 @@ let file_edit_lines ~workspace ~workspace_only ~extra_allowed_paths =
                   `Assoc
                     [
                       ("type", `String "string");
-                      ("description", `String "Path to the file to edit");
+                      ( "description",
+                        `String "Path to the file to edit (required)" );
                     ] );
                 ( "start_line",
                   `Assoc
                     [
                       ("type", `String "integer");
-                      ("description", `String "1-indexed start line (inclusive)");
+                      ( "description",
+                        `String "1-indexed start line, inclusive (required)" );
                     ] );
                 ( "end_line",
                   `Assoc
                     [
                       ("type", `String "integer");
-                      ("description", `String "1-indexed end line (inclusive)");
+                      ( "description",
+                        `String "1-indexed end line, inclusive (required)" );
                     ] );
                 ( "content",
                   `Assoc
                     [
                       ("type", `String "string");
-                      ("description", `String "Replacement content");
+                      ("description", `String "Replacement content (required)");
                     ] );
               ] );
           ( "required",
@@ -631,7 +641,7 @@ let http_get ~workspace_only =
                   `Assoc
                     [
                       ("type", `String "string");
-                      ("description", `String "URL to fetch");
+                      ("description", `String "URL to fetch (required)");
                     ] );
               ] );
           ("required", `List [ `String "url" ]);
@@ -677,7 +687,8 @@ let transcribe ~(config : Runtime_config.t) =
                     [
                       ("type", `String "string");
                       ( "description",
-                        `String "Path to the audio file to transcribe" );
+                        `String
+                          "Path to the audio file to transcribe (required)" );
                     ] );
               ] );
           ("required", `List [ `String "file_path" ]);
@@ -736,13 +747,14 @@ let memory_store ~db =
                   `Assoc
                     [
                       ("type", `String "string");
-                      ("description", `String "Unique key for the memory");
+                      ( "description",
+                        `String "Unique key for the memory (required)" );
                     ] );
                 ( "content",
                   `Assoc
                     [
                       ("type", `String "string");
-                      ("description", `String "Content to store");
+                      ("description", `String "Content to store (required)");
                     ] );
                 ( "category",
                   `Assoc
@@ -792,7 +804,7 @@ let memory_recall ~db =
                   `Assoc
                     [
                       ("type", `String "string");
-                      ("description", `String "Search query");
+                      ("description", `String "Search query (required)");
                     ] );
                 ( "limit",
                   `Assoc
@@ -841,7 +853,8 @@ let memory_forget ~db =
                   `Assoc
                     [
                       ("type", `String "string");
-                      ("description", `String "Key of the memory to remove");
+                      ( "description",
+                        `String "Key of the memory to remove (required)" );
                     ] );
               ] );
           ("required", `List [ `String "key" ]);
@@ -922,7 +935,8 @@ let history_search ~db =
                     [
                       ("type", `String "string");
                       ( "description",
-                        `String "Text to search for in message history" );
+                        `String
+                          "Text to search for in message history (required)" );
                     ] );
                 ( "limit",
                   `Assoc
@@ -1030,7 +1044,8 @@ let glob ~workspace ~workspace_only ~extra_allowed_paths =
                       ("type", `String "string");
                       ( "description",
                         `String
-                          "Glob pattern, e.g. \"**/*.ml\" or \"src/*.json\"" );
+                          "Glob pattern, e.g. \"**/*.ml\" or \"src/*.json\" \
+                           (required)" );
                     ] );
                 ( "root",
                   `Assoc
@@ -1278,8 +1293,8 @@ let grep ~workspace ~workspace_only ~extra_allowed_paths =
                       ("type", `String "string");
                       ( "description",
                         `String
-                          "Regex pattern (e.g. \"let.*=\" or \"TODO|FIXME\"). \
-                           Use | to separate alternatives." );
+                          "Regex pattern, e.g. \"let.*=\" or \"TODO|FIXME\" \
+                           (required). Use | to separate alternatives." );
                     ] );
                 ( "path",
                   `Assoc
@@ -1498,8 +1513,8 @@ let change_working_dir ~(config : Runtime_config.t) ~workspace ~workspace_only
                       ("type", `String "string");
                       ( "description",
                         `String
-                          "Directory path to change to (absolute or relative \
-                           to current effective CWD)" );
+                          "Directory path to change to, absolute or relative \
+                           to current effective CWD (required)" );
                     ] );
                 ( "wipe_history",
                   `Assoc

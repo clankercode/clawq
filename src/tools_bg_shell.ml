@@ -15,7 +15,8 @@ let bg_shell_status () =
                   `Assoc
                     [
                       ("type", `String "integer");
-                      ("description", `String "Background shell job ID");
+                      ( "description",
+                        `String "Background shell job ID (required)" );
                     ] );
               ] );
           ("required", `List [ `String "id" ]);
@@ -67,7 +68,8 @@ let bg_shell_wait () =
                   `Assoc
                     [
                       ("type", `String "integer");
-                      ("description", `String "Background shell job ID");
+                      ( "description",
+                        `String "Background shell job ID (required)" );
                     ] );
                 ( "timeout_seconds",
                   `Assoc
@@ -156,7 +158,8 @@ let bg_shell_result () =
                   `Assoc
                     [
                       ("type", `String "integer");
-                      ("description", `String "Background shell job ID");
+                      ( "description",
+                        `String "Background shell job ID (required)" );
                     ] );
                 ( "head",
                   `Assoc

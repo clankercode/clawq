@@ -29,7 +29,7 @@ let send_message ~(send_fn : (text:string -> unit Lwt.t) option)
                   `Assoc
                     [
                       ("type", `String "string");
-                      ("description", `String "Message text to send");
+                      ("description", `String "Message text to send (required)");
                     ] );
                 ( "buttons",
                   `Assoc
@@ -48,7 +48,13 @@ let send_message ~(send_fn : (text:string -> unit Lwt.t) option)
                               `Assoc
                                 [
                                   ( "label",
-                                    `Assoc [ ("type", `String "string") ] );
+                                    `Assoc
+                                      [
+                                        ("type", `String "string");
+                                        ( "description",
+                                          `String
+                                            "Button display text (required)" );
+                                      ] );
                                 ] );
                             ("required", `List [ `String "label" ]);
                           ] );
@@ -186,14 +192,14 @@ let send_poll
                   `Assoc
                     [
                       ("type", `String "string");
-                      ("description", `String "The poll question");
+                      ("description", `String "The poll question (required)");
                     ] );
                 ( "options",
                   `Assoc
                     [
                       ("type", `String "array");
                       ( "description",
-                        `String "Poll options (2-10 items required)" );
+                        `String "Poll options, 2-10 items (required)" );
                       ("items", `Assoc [ ("type", `String "string") ]);
                       ("minItems", `Int 2);
                       ("maxItems", `Int 10);
@@ -290,14 +296,14 @@ let doc_write ~workspace ~workspace_files =
                       ("type", `String "string");
                       ( "description",
                         `String
-                          ("Filename to write (e.g. TOOLS.md, MEMORY.md). \
-                            Known files: " ^ known_files) );
+                          ("Filename to write, e.g. TOOLS.md, MEMORY.md \
+                            (required). Known files: " ^ known_files) );
                     ] );
                 ( "content",
                   `Assoc
                     [
                       ("type", `String "string");
-                      ("description", `String "Content to write");
+                      ("description", `String "Content to write (required)");
                     ] );
                 ( "append",
                   `Assoc
@@ -462,9 +468,9 @@ let models_tool ~(config : Runtime_config.t) ?session_mgr () =
                       ("type", `String "string");
                       ( "description",
                         `String
-                          "Action to perform: 'list' (show available models), \
-                           'get' (show current model), or 'set' (change model)"
-                      );
+                          "Action to perform (required): 'list' (show \
+                           available models), 'get' (show current model), or \
+                           'set' (change model)" );
                       ( "enum",
                         `List [ `String "list"; `String "get"; `String "set" ]
                       );
@@ -552,8 +558,8 @@ let provider_usage_tool ~(config : Runtime_config.t) =
                       ("type", `String "string");
                       ( "description",
                         `String
-                          "Action: 'list' (all providers) or 'get' (specific \
-                           provider details)" );
+                          "Action (required): 'list' (all providers) or 'get' \
+                           (specific provider details)" );
                       ("enum", `List [ `String "list"; `String "get" ]);
                     ] );
                 ( "provider",
@@ -804,9 +810,9 @@ let ask_user_question_schema =
                   ("type", `String "array");
                   ( "description",
                     `String
-                      "Array of questions to ask the user sequentially. Each \
-                       question is sent one-at-a-time; the tool blocks until \
-                       all are answered." );
+                      "Array of questions to ask the user sequentially \
+                       (required). Each question is sent one-at-a-time; the \
+                       tool blocks until all are answered." );
                   ( "items",
                     `Assoc
                       [
@@ -818,6 +824,8 @@ let ask_user_question_schema =
                                 `Assoc
                                   [
                                     ("type", `String "string");
+                                    ( "description",
+                                      `String "Question type (required)" );
                                     ( "enum",
                                       `List
                                         [
@@ -836,7 +844,9 @@ let ask_user_question_schema =
                                   [
                                     ("type", `String "string");
                                     ( "description",
-                                      `String "The question text to display" );
+                                      `String
+                                        "The question text to display \
+                                         (required)" );
                                   ] );
                               ( "options",
                                 `Assoc

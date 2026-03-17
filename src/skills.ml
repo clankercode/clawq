@@ -688,7 +688,8 @@ let use_skill_tool ?(workspace_only = false) () =
                       ("type", `String "string");
                       ( "description",
                         `String
-                          "The skill name to invoke (e.g. 'review-and-fix')" );
+                          "The skill name to invoke (e.g. 'review-and-fix') \
+                           (required)" );
                     ] );
                 ( "arguments",
                   `Assoc
@@ -789,14 +790,14 @@ let skill_create_tool () =
                       ("type", `String "string");
                       ( "description",
                         `String
-                          "Skill name (alphanumeric, underscore, hyphen only)"
-                      );
+                          "Skill name (alphanumeric, underscore, hyphen only) \
+                           (required)" );
                     ] );
                 ( "description",
                   `Assoc
                     [
                       ("type", `String "string");
-                      ("description", `String "What this skill does");
+                      ("description", `String "What this skill does (required)");
                     ] );
                 ( "command",
                   `Assoc
@@ -805,7 +806,7 @@ let skill_create_tool () =
                       ( "description",
                         `String
                           "Shell command to embed. Use $ARGUMENTS for user \
-                           input." );
+                           input. (required)" );
                     ] );
               ] );
           ( "required",

@@ -965,6 +965,9 @@ let tool ~db ?notify () : Tool.t =
                                     `Assoc
                                       [
                                         ("type", `String "string");
+                                        ( "description",
+                                          `String
+                                            "Operation to perform (required)" );
                                         ( "enum",
                                           `List
                                             [

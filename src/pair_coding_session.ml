@@ -43,7 +43,7 @@ let build_observer_tool_registry ~pair_tool =
                     `Assoc
                       [
                         ("type", `String "string");
-                        ("description", `String "File path to read");
+                        ("description", `String "File path to read (required)");
                       ] );
                 ] );
             ("required", `List [ `String "path" ]);

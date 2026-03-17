@@ -24,7 +24,7 @@ let http_request ~workspace_only =
                   `Assoc
                     [
                       ("type", `String "string");
-                      ("description", `String "Request URL");
+                      ("description", `String "Request URL (required)");
                     ] );
                 ( "method",
                   `Assoc
@@ -234,7 +234,7 @@ let web_fetch ~workspace_only =
                   `Assoc
                     [
                       ("type", `String "string");
-                      ("description", `String "URL to fetch");
+                      ("description", `String "URL to fetch (required)");
                     ] );
               ] );
           ("required", `List [ `String "url" ]);
@@ -285,7 +285,7 @@ let web_search ~(config : Runtime_config.t) =
                   `Assoc
                     [
                       ("type", `String "string");
-                      ("description", `String "Search query");
+                      ("description", `String "Search query (required)");
                     ] );
                 ( "limit",
                   `Assoc
@@ -720,7 +720,7 @@ let zai_websearch_with_post ~http_post ~(config : Runtime_config.t) =
                   `Assoc
                     [
                       ("type", `String "string");
-                      ("description", `String "Search query");
+                      ("description", `String "Search query (required)");
                     ] );
               ] );
           ("required", `List [ `String "query" ]);
@@ -784,7 +784,8 @@ let zai_webfetch_with_post ~http_post ~(config : Runtime_config.t) =
                   `Assoc
                     [
                       ("type", `String "string");
-                      ("description", `String "URL of the webpage to fetch");
+                      ( "description",
+                        `String "URL of the webpage to fetch (required)" );
                     ] );
               ] );
           ("required", `List [ `String "url" ]);
@@ -886,7 +887,8 @@ let git_operations ~workspace =
                             `String "stash";
                             `String "show";
                           ] );
-                      ("description", `String "Git operation to perform");
+                      ( "description",
+                        `String "Git operation to perform (required)" );
                     ] );
                 ( "paths",
                   `Assoc
