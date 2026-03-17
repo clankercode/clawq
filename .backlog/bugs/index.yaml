@@ -531,3 +531,4 @@ bugs:
     - file: B532-add-claude-skill-clawq-version.todo
     - file: B533-formal-verification-of-pair-co.todo
     - file: B534-audit-tools-and-mark-required.todo
+    - file: B535-the-bug-command-is-way-too-ine.todo

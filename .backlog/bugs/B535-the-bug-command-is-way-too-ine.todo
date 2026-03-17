@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B535
+priority: high
+status: pending
+tags: []
+title: The bug command is way too inefficient and over the top. need to be smart about it and use better-skills
+---
+
+The bug command is way too inefficient and over the top. need to be smart about it and use better-skills
