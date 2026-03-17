@@ -1,0 +1,15 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 10
+id: I046
+priority: medium
+status: pending
+tags:
+    - models
+    - cost
+    - routing
+    - optimization
+title: Model Routing by Task Complexity
+---
+Auto-select the cheapest model whose capability profile matches the task, falling back to premium models only when needed. The model catalog already has pricing data; this adds a capability matrix (coding, reasoning, vision, long-context, speed) and a routing layer that analyzes the prompt before selecting a model. Simple questions -> Haiku ($0.25/M), complex architecture -> Opus ($5/M). During a 100-turn self-building session, this cuts cost 5-10x without quality loss.

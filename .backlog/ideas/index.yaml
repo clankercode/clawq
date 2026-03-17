@@ -299,3 +299,5 @@ ideas:
       id: I044
     - file: I045-agent-observability-tracing.todo
       id: I045
+    - file: I046-model-routing-by-task-complexi.todo
+      id: I046
