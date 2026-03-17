@@ -774,55 +774,86 @@ let format_model_fav_confirm ~connector name action =
 
 (* ── Existing format: help ─────────────────────────────────────────────── *)
 
-let help_text =
-  let command_labels = List.map (fun c -> "/" ^ c.name) commands in
-  let command_width =
-    List.fold_left
-      (fun acc label -> max acc (String.length label))
-      0 command_labels
-  in
-  let rows =
-    List.map
-      (fun c ->
-        let label = pad_right ("/" ^ c.name) command_width in
-        Printf.sprintf "  %s  %s" label c.description)
-      commands
-  in
-  String.concat "\n"
-    ([ "Available commands:"; "" ]
-    @ rows
-    @ [
-        "";
-        "Prefix a message with ! to interrupt the current turn in this session \
-         and send the rest as a normal message.";
-      ])
+let format_help_skills_section ~connector (skills : Skills.skill_md_meta list) =
+  if skills = [] then ""
+  else
+    let lines =
+      List.map
+        (fun (s : Skills.skill_md_meta) ->
+          Format_adapter.code connector ("/" ^ s.md_name)
+          ^ " \xe2\x80\x94 " ^ s.md_description)
+        skills
+    in
+    "\n\n"
+    ^ Format_adapter.bold connector
+        (Printf.sprintf "Skills (%d):" (List.length skills))
+    ^ "\n" ^ String.concat "\n" lines
 
-let help_text_telegram =
-  let rows =
-    List.map
-      (fun c ->
-        Printf.sprintf "%s  %s"
-          (Format_adapter.code Format_adapter.Telegram_html ("/" ^ c.name))
-          (Format_adapter.escape Format_adapter.Telegram_html c.description))
-      commands
-  in
-  String.concat "\n"
-    ([
-       Format_adapter.bold Format_adapter.Telegram_html "Available commands:";
-       "";
-     ]
-    @ rows
-    @ [
-        "";
-        Format_adapter.escape Format_adapter.Telegram_html
-          "Prefix a message with ! to interrupt the current turn in this \
-           session and send the rest as a normal message.";
-      ])
+let format_help_agents_section ~connector (agents : Agent_template.t list) =
+  if agents = [] then ""
+  else
+    let lines =
+      List.map
+        (fun (t : Agent_template.t) ->
+          Format_adapter.code connector ("@" ^ t.name)
+          ^ " \xe2\x80\x94 " ^ t.description)
+        agents
+    in
+    "\n\n"
+    ^ Format_adapter.bold connector
+        (Printf.sprintf "Agents (%d):" (List.length agents))
+    ^ "\n" ^ String.concat "\n" lines
 
-let format_help ~connector =
+let format_help_with ~connector ~skills ~agents =
+  let skills_section = format_help_skills_section ~connector skills in
+  let agents_section = format_help_agents_section ~connector agents in
   match connector with
-  | Format_adapter.Telegram_html -> help_text_telegram
-  | Format_adapter.Plain -> help_text
+  | Format_adapter.Telegram_html ->
+      let rows =
+        List.map
+          (fun c ->
+            Printf.sprintf "%s  %s"
+              (Format_adapter.code Format_adapter.Telegram_html ("/" ^ c.name))
+              (Format_adapter.escape Format_adapter.Telegram_html c.description))
+          commands
+      in
+      String.concat "\n"
+        ([
+           Format_adapter.bold Format_adapter.Telegram_html
+             "Available commands:";
+           "";
+         ]
+        @ rows
+        @ [
+            "";
+            Format_adapter.escape Format_adapter.Telegram_html
+              "Prefix a message with ! to interrupt the current turn in this \
+               session and send the rest as a normal message.";
+          ])
+      ^ skills_section ^ agents_section
+  | Format_adapter.Plain ->
+      let command_labels = List.map (fun c -> "/" ^ c.name) commands in
+      let command_width =
+        List.fold_left
+          (fun acc label -> max acc (String.length label))
+          0 command_labels
+      in
+      let rows =
+        List.map
+          (fun c ->
+            let label = pad_right ("/" ^ c.name) command_width in
+            Printf.sprintf "  %s  %s" label c.description)
+          commands
+      in
+      String.concat "\n"
+        ([ "Available commands:"; "" ]
+        @ rows
+        @ [
+            "";
+            "Prefix a message with ! to interrupt the current turn in this \
+             session and send the rest as a normal message.";
+          ])
+      ^ skills_section ^ agents_section
   | Format_adapter.Teams ->
       let table_columns =
         Table_format.
@@ -841,8 +872,39 @@ let format_help ~connector =
           table_columns table_rows
       ^ "\n\n"
       ^ "Prefix a message with ! to interrupt the current turn in this session \
-         and send the rest as a normal message."
-  | _ -> Format_adapter.code_block connector help_text
+         and send the rest as a normal message." ^ skills_section
+      ^ agents_section
+  | _ ->
+      let command_labels = List.map (fun c -> "/" ^ c.name) commands in
+      let command_width =
+        List.fold_left
+          (fun acc label -> max acc (String.length label))
+          0 command_labels
+      in
+      let rows =
+        List.map
+          (fun c ->
+            let label = pad_right ("/" ^ c.name) command_width in
+            Printf.sprintf "  %s  %s" label c.description)
+          commands
+      in
+      let plain_text =
+        String.concat "\n"
+          ([ "Available commands:"; "" ]
+          @ rows
+          @ [
+              "";
+              "Prefix a message with ! to interrupt the current turn in this \
+               session and send the rest as a normal message.";
+            ])
+      in
+      Format_adapter.code_block connector
+        (plain_text ^ skills_section ^ agents_section)
+
+let format_help ~connector =
+  let skills = Skills.available_skills () in
+  let agents = Agent_template.available_templates () in
+  format_help_with ~connector ~skills ~agents
 
 (* ── Existing format: tools ────────────────────────────────────────────── *)
 
@@ -863,7 +925,8 @@ let format_tool_plain buf (t : Tool.t) =
     Buffer.add_string buf
       (Printf.sprintf "  Args: %s\n" (String.concat ", " param_strs))
 
-let format_tools_plain (tools : Tool.t list) (skills : Tool.t list) : string =
+let format_tools_plain (tools : Tool.t list) (skills : Tool.t list)
+    (agents : Agent_template.t list) : string =
   let sort_tools ts =
     List.sort (fun (a : Tool.t) b -> String.compare a.name b.name) ts
   in
@@ -876,6 +939,15 @@ let format_tools_plain (tools : Tool.t list) (skills : Tool.t list) : string =
     Buffer.add_string buf
       (Printf.sprintf "\n\nSkills (%d):\n" (List.length sorted_skills));
     List.iter (format_tool_plain buf) sorted_skills
+  end;
+  if agents <> [] then begin
+    Buffer.add_string buf
+      (Printf.sprintf "\n\nAgents (%d):\n" (List.length agents));
+    List.iter
+      (fun (t : Agent_template.t) ->
+        Buffer.add_string buf
+          (Printf.sprintf "\n@%s\n  %s\n" t.name t.description))
+      agents
   end;
   Buffer.contents buf
 
@@ -892,8 +964,8 @@ let format_tool_telegram buf (t : Tool.t) =
   Buffer.add_string buf (Printf.sprintf "<b>%s</b>%s\n" t.name param_str);
   Buffer.add_string buf (truncate_description t.description 60 ^ "\n\n")
 
-let format_tools_telegram (tools : Tool.t list) (skills : Tool.t list) : string
-    =
+let format_tools_telegram (tools : Tool.t list) (skills : Tool.t list)
+    (agents : Agent_template.t list) : string =
   let sort_tools ts =
     List.sort (fun (a : Tool.t) b -> String.compare a.name b.name) ts
   in
@@ -915,9 +987,22 @@ let format_tools_telegram (tools : Tool.t list) (skills : Tool.t list) : string
     List.iter (format_tool_telegram buf) sorted_skills;
     Buffer.add_string buf "</blockquote>"
   end;
+  if agents <> [] then begin
+    Buffer.add_string buf "\n\n";
+    Buffer.add_string buf
+      (Printf.sprintf "<b>Agents (%d)</b>\n\n" (List.length agents));
+    Buffer.add_string buf "<blockquote expandable>\n";
+    List.iter
+      (fun (t : Agent_template.t) ->
+        Buffer.add_string buf
+          (Printf.sprintf "<b>@%s</b>\n%s\n\n" t.name t.description))
+      agents;
+    Buffer.add_string buf "</blockquote>"
+  end;
   Buffer.contents buf
 
-let format_tools_table ~connector (tools : Tool.t list) (skills : Tool.t list) =
+let format_tools_table ~connector (tools : Tool.t list) (skills : Tool.t list)
+    (agents : Agent_template.t list) =
   let sort_tools ts =
     List.sort (fun (a : Tool.t) b -> String.compare a.name b.name) ts
   in
@@ -965,13 +1050,36 @@ let format_tools_table ~connector (tools : Tool.t list) (skills : Tool.t list) =
     Buffer.add_string buf
       (Format_adapter.render_table connector ~max_width:80 columns skill_rows)
   end;
+  if agents <> [] then begin
+    let agent_columns =
+      Table_format.
+        [
+          { header = "Name"; align = Left; min_width = 0; flex = false };
+          { header = "Description"; align = Left; min_width = 0; flex = true };
+        ]
+    in
+    let agent_rows =
+      List.map
+        (fun (t : Agent_template.t) ->
+          [ "@" ^ t.name; truncate_description t.description 60 ])
+        agents
+    in
+    Buffer.add_string buf "\n\n";
+    Buffer.add_string buf
+      (Format_adapter.bold connector
+         (Printf.sprintf "Agents (%d)" (List.length agents)));
+    Buffer.add_string buf "\n\n";
+    Buffer.add_string buf
+      (Format_adapter.render_table connector ~max_width:80 agent_columns
+         agent_rows)
+  end;
   Buffer.contents buf
 
-let format_tools ~connector tools skills =
+let format_tools ~connector tools skills agents =
   match connector with
-  | Format_adapter.Telegram_html -> format_tools_telegram tools skills
-  | Format_adapter.Plain -> format_tools_plain tools skills
-  | _ -> format_tools_table ~connector tools skills
+  | Format_adapter.Telegram_html -> format_tools_telegram tools skills agents
+  | Format_adapter.Plain -> format_tools_plain tools skills agents
+  | _ -> format_tools_table ~connector tools skills agents
 
 (* ── Existing format: model show/list ──────────────────────────────────── *)
 

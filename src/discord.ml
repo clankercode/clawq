@@ -769,6 +769,7 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                   let skills = Skills.available_skills_as_tools () in
                   Slash_commands.format_tools ~connector:Format_adapter.Discord
                     tools skills
+                    (Agent_template.available_templates ())
               | None -> "Tools are not enabled."
             in
             send_message_fn ~bot_token:discord_config.bot_token

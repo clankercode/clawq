@@ -611,6 +611,7 @@ let handle_event ~(config : Runtime_config.slack_config)
                       let skills = Skills.available_skills_as_tools () in
                       Slash_commands.format_tools
                         ~connector:Format_adapter.Slack tools skills
+                        (Agent_template.available_templates ())
                   | None -> "Tools are not enabled."
                 in
                 let* () =

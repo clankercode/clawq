@@ -527,6 +527,7 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                   let skills = Skills.available_skills_as_tools () in
                   Slash_commands.format_tools
                     ~connector:Format_adapter.Telegram_html tools skills
+                    (Agent_template.available_templates ())
               | None -> "Tools are not enabled."
             in
             send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id

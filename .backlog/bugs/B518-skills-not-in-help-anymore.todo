@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-17T01:33:47Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-17T01:53:57Z"
 complexity: medium
 depends_on: []
+duration_minutes: 20.16885362725
 estimate_hours: 1
 id: B518
 priority: high
 started_at: "2026-03-17T01:33:47Z"
-status: in_progress
+status: done
 tags: []
 title: skills not in /help anymore
 ---

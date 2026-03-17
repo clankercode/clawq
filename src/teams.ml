@@ -1656,6 +1656,7 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                             let skills = Skills.available_skills_as_tools () in
                             Slash_commands.format_tools
                               ~connector:Format_adapter.Teams tools skills
+                              (Agent_template.available_templates ())
                         | None -> "Tools are not enabled."
                       in
                       send_text text

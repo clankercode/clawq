@@ -510,6 +510,7 @@ let handler ~session_manager ~require_pairing ~auth_token
                           let skills = Skills.available_skills_as_tools () in
                           Slash_commands.format_tools
                             ~connector:Format_adapter.Plain tools skills
+                            (Agent_template.available_templates ())
                       | None -> "Tools are not enabled."
                     in
                     let resp_json =
@@ -1249,6 +1250,7 @@ let handler ~session_manager ~require_pairing ~auth_token
                           let skills = Skills.available_skills_as_tools () in
                           Slash_commands.format_tools
                             ~connector:Format_adapter.Plain tools skills
+                            (Agent_template.available_templates ())
                       | None -> "Tools are not enabled."
                     in
                     sse_reply text

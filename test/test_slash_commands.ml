@@ -909,7 +909,7 @@ let test_format_tools_plain () =
     ]
   in
   let output =
-    Slash_commands.format_tools ~connector:Format_adapter.Plain tools []
+    Slash_commands.format_tools ~connector:Format_adapter.Plain tools [] []
   in
   Alcotest.(check bool) "contains count" true (contains_str output "(2)");
   Alcotest.(check bool)
@@ -964,6 +964,7 @@ let test_format_tools_telegram () =
   in
   let output =
     Slash_commands.format_tools ~connector:Format_adapter.Telegram_html tools []
+      []
   in
   Alcotest.(check bool) "contains <b>" true (contains_str output "<b>");
   Alcotest.(check bool)
@@ -993,7 +994,7 @@ let make_dummy_tool name description =
 
 let test_format_tools_telegram_empty () =
   let output =
-    Slash_commands.format_tools ~connector:Format_adapter.Telegram_html [] []
+    Slash_commands.format_tools ~connector:Format_adapter.Telegram_html [] [] []
   in
   Alcotest.(check bool)
     "contains Tools (0)" true
@@ -1007,7 +1008,7 @@ let test_format_tools_telegram_with_skills () =
   let skills = [ make_dummy_tool "my_script" "Run my script" ] in
   let output =
     Slash_commands.format_tools ~connector:Format_adapter.Telegram_html tools
-      skills
+      skills []
   in
   Alcotest.(check bool)
     "has Tools section" true
@@ -1047,7 +1048,7 @@ let test_format_tools_plain_with_skills () =
   let tools = [ make_dummy_tool "file_read" "Read a file" ] in
   let skills = [ make_dummy_tool "my_script" "Run my script" ] in
   let output =
-    Slash_commands.format_tools ~connector:Format_adapter.Plain tools skills
+    Slash_commands.format_tools ~connector:Format_adapter.Plain tools skills []
   in
   Alcotest.(check bool)
     "has Tools section" true
@@ -1432,7 +1433,7 @@ let test_format_tools_teams_table () =
     ]
   in
   let output =
-    Slash_commands.format_tools ~connector:Format_adapter.Teams tools []
+    Slash_commands.format_tools ~connector:Format_adapter.Teams tools [] []
   in
   Alcotest.(check bool)
     "teams tools has markdown table header" true
@@ -1462,7 +1463,7 @@ let test_format_tools_discord_code_block () =
     ]
   in
   let output =
-    Slash_commands.format_tools ~connector:Format_adapter.Discord tools []
+    Slash_commands.format_tools ~connector:Format_adapter.Discord tools [] []
   in
   Alcotest.(check bool)
     "discord tools wrapped in code block" true
@@ -1470,6 +1471,93 @@ let test_format_tools_discord_code_block () =
   Alcotest.(check bool)
     "discord tools no markdown table pipes" false
     (contains_str output "| Tool |")
+
+let make_dummy_agent name description : Agent_template.t =
+  {
+    name;
+    description;
+    role = Agent_template.Coder;
+    goal = "";
+    backstory = "";
+    system_prompt = "";
+    model = None;
+    max_tool_iterations = None;
+    allowed_tools = [];
+    disallowed_tools = [];
+    tool_search_enabled = None;
+    reasoning_effort = None;
+    source = Agent_template.Builtin;
+    metadata = [];
+  }
+
+let test_format_help_with_skills () =
+  let skills : Skills.skill_md_meta list =
+    [
+      {
+        md_name = "deploy";
+        md_description = "Deploy to production";
+        md_allowed_tools = [];
+        md_model = None;
+        md_source_path = "/tmp/test";
+      };
+    ]
+  in
+  let output =
+    Slash_commands.format_help_with ~connector:Format_adapter.Plain ~skills
+      ~agents:[]
+  in
+  Alcotest.(check bool)
+    "has Skills section" true
+    (contains_str output "Skills (1):");
+  Alcotest.(check bool) "has skill name" true (contains_str output "/deploy");
+  Alcotest.(check bool)
+    "has skill description" true
+    (contains_str output "Deploy to production")
+
+let test_format_help_with_agents () =
+  let agents = [ make_dummy_agent "reviewer" "Code review specialist" ] in
+  let output =
+    Slash_commands.format_help_with ~connector:Format_adapter.Plain ~skills:[]
+      ~agents
+  in
+  Alcotest.(check bool)
+    "has Agents section" true
+    (contains_str output "Agents (1):");
+  Alcotest.(check bool) "has agent name" true (contains_str output "@reviewer");
+  Alcotest.(check bool)
+    "has agent description" true
+    (contains_str output "Code review specialist");
+  Alcotest.(check bool)
+    "no Skills section when empty" true
+    (not (contains_str output "Skills"))
+
+let test_format_tools_with_agents () =
+  let tools = [ make_dummy_tool "file_read" "Read a file" ] in
+  let agents = [ make_dummy_agent "planner" "Plan implementation tasks" ] in
+  let output =
+    Slash_commands.format_tools ~connector:Format_adapter.Plain tools [] agents
+  in
+  Alcotest.(check bool)
+    "has Tools section" true
+    (contains_str output "Tools (1)");
+  Alcotest.(check bool)
+    "has Agents section" true
+    (contains_str output "Agents (1)");
+  Alcotest.(check bool) "has agent name" true (contains_str output "@planner");
+  Alcotest.(check bool)
+    "has agent description" true
+    (contains_str output "Plan implementation tasks");
+  Alcotest.(check bool)
+    "tools before agents" true
+    (let pos_tools =
+       try Str.search_forward (Str.regexp_string "Tools (1)") output 0
+       with Not_found -> max_int
+     in
+     let pos_agents =
+       try Str.search_forward (Str.regexp_string "Agents (1)") output 0
+       with Not_found -> max_int
+     in
+     pos_tools < pos_agents)
 
 let test_format_status_teams_markdown_table () =
   let text =
@@ -2229,6 +2317,12 @@ let suite =
       test_format_tools_teams_table;
     Alcotest.test_case "format tools discord code block" `Quick
       test_format_tools_discord_code_block;
+    Alcotest.test_case "format help with skills" `Quick
+      test_format_help_with_skills;
+    Alcotest.test_case "format help with agents" `Quick
+      test_format_help_with_agents;
+    Alcotest.test_case "format tools with agents" `Quick
+      test_format_tools_with_agents;
     Alcotest.test_case "format status teams markdown table" `Quick
       test_format_status_teams_markdown_table;
     Alcotest.test_case "format costs teams blank line" `Quick

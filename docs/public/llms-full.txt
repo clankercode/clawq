@@ -163,7 +163,7 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 Available in chat-integrated channels that support slash commands.
 
 - `/start` — show the ready message
-- `/help` — list available slash commands
+- `/help` — list available slash commands, plus Skills and Agents sections (when any are available)
 - `/new` — reset the current session
 - `/status` — rich table-formatted status report showing uptime, PID, version, build date, session counts, gateway address, connector states (Telegram/Discord/Slack/Teams/GitHub), and tunnel info
 - `/runtime_ctx` (alias `/runtime-ctx`) — show the full per-session runtime context block injected into the system prompt, including session identity, workspace, git branch, timezone, shell policy, context usage, and background task summary
@@ -197,7 +197,7 @@ Available in chat-integrated channels that support slash commands.
 - `/config [show|get|set|keys|wizard]` — view or modify configuration from chat; secrets cannot be set via chat (use terminal instead)
 - `/config menu [page]` — interactive config section browser (paginated, 9 per page)
 - `/skills [page]` — list available skills with interactive selection (paginated, 9 per page); each entry links to invoke the skill
-- `/tools` — list all available tools with parameters and risk levels
+- `/tools` — list all available tools with parameters and risk levels, plus Skills and Agents sections (when any are available)
 - `/tasks` — show the agent's current task tree for this session
 - `/menu [page]` — show a paginated command menu; on Teams this sends an Adaptive Card with clickable command buttons, on other channels it falls back to the help list
 - `/update` — pull, rebuild, and gracefully restart clawq
