@@ -217,6 +217,14 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
             in
             explicit @ deduped_auto
       in
+      let md_skills =
+        if user_group = Some "admin" && mgr.config.test.show_skills then
+          md_skills
+        else
+          List.filter
+            (fun (name, _) -> not (Builtin_skills.is_test_skill_name name))
+            md_skills
+      in
       (* Send "Loaded skill: X" notification for @mention skills *)
       (if auto_injections <> [] then
          match Session_core.find_registered_notifier mgr ~key with
@@ -947,7 +955,17 @@ let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
                         let all_injections =
                           skill_injections @ auto_injections
                         in
-                        let md_skills = auto_md_skills in
+                        let md_skills =
+                          if
+                            user_group = Some "admin"
+                            && mgr.config.test.show_skills
+                          then auto_md_skills
+                          else
+                            List.filter
+                              (fun (name, _) ->
+                                not (Builtin_skills.is_test_skill_name name))
+                              auto_md_skills
+                        in
                         (* Send "Loaded skill: X" notification for @mention skills *)
                         if auto_injections <> [] then
                           notify_skill_loads

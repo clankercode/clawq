@@ -497,23 +497,64 @@ let init_cache ?workspace_dir () =
   global_cache := Some cache;
   cache
 
+let builtin_skill_metas () : skill_md_meta list =
+  List.map
+    (fun (name, description, source_path) ->
+      {
+        md_name = name;
+        md_description = description;
+        md_allowed_tools = [];
+        md_model = None;
+        md_source_path = source_path;
+      })
+    (Builtin_skills.builtin_metas ())
+
 let available_skills () =
-  match !global_cache with
-  | Some cache ->
-      refresh_cache_if_stale cache;
-      cache.md_skills
-  | None -> []
+  let user_skills =
+    match !global_cache with
+    | Some cache ->
+        refresh_cache_if_stale cache;
+        cache.md_skills
+    | None -> []
+  in
+  let builtins = builtin_skill_metas () in
+  let seen = Hashtbl.create 16 in
+  List.iter
+    (fun (s : skill_md_meta) -> Hashtbl.replace seen s.md_name true)
+    user_skills;
+  let unique_builtins =
+    List.filter
+      (fun (s : skill_md_meta) -> not (Hashtbl.mem seen s.md_name))
+      builtins
+  in
+  user_skills @ unique_builtins
 
 let find_skill_md name =
-  let skills = available_skills () in
   let name_lower = String.lowercase_ascii name in
-  match
-    List.find_opt
-      (fun (s : skill_md_meta) -> String.lowercase_ascii s.md_name = name_lower)
-      skills
-  with
-  | Some meta -> load_skill_md meta.md_source_path
-  | None -> None
+  match Builtin_skills.find_builtin name with
+  | Some (bname, bdesc, binstructions) ->
+      Some
+        {
+          meta =
+            {
+              md_name = bname;
+              md_description = bdesc;
+              md_allowed_tools = [];
+              md_model = None;
+              md_source_path = "(builtin)";
+            };
+          instructions = binstructions;
+        }
+  | None -> (
+      let skills = available_skills () in
+      match
+        List.find_opt
+          (fun (s : skill_md_meta) ->
+            String.lowercase_ascii s.md_name = name_lower)
+          skills
+      with
+      | Some meta -> load_skill_md meta.md_source_path
+      | None -> None)
 
 let skill_md_to_tool (meta : skill_md_meta) : Tool.t =
   {
@@ -527,6 +568,29 @@ let skill_md_to_tool (meta : skill_md_meta) : Tool.t =
     Tool.risk_level = Tool.Low;
     Tool.deferred = false;
   }
+
+let filter_visible_skills ?(show_test = false) (skills : skill_md_meta list) =
+  if show_test then skills
+  else
+    List.filter
+      (fun (s : skill_md_meta) ->
+        not (Builtin_skills.is_test_skill_name s.md_name))
+      skills
+
+let filter_visible_tools ?(show_test = false) (tools : Tool.t list) =
+  if show_test then tools
+  else
+    List.filter
+      (fun (t : Tool.t) -> not (Builtin_skills.is_test_skill_name t.name))
+      tools
+
+let filter_visible_md_skills ?(show_test = false)
+    (skills : (string * string) list) =
+  if show_test then skills
+  else
+    List.filter
+      (fun (name, _) -> not (Builtin_skills.is_test_skill_name name))
+      skills
 
 let available_skills_as_tools () =
   List.map skill_md_to_tool (available_skills ())

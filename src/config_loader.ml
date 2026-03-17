@@ -1706,6 +1706,15 @@ let parse_config ?(resolve_secrets = true) json =
          ({ agent_model; chromium_path; default_timeout_s; idle_timeout_s }
            : Runtime_config.browser_config)
        with _ -> Runtime_config.default_browser_config);
+    test =
+      (try
+         let test_json = json |> member "test" in
+         let show_skills =
+           try test_json |> member "show_skills" |> to_bool
+           with _ -> Runtime_config.default.test.show_skills
+         in
+         { show_skills }
+       with _ -> Runtime_config.default.test);
   }
 
 let rec merge_json (original : Yojson.Safe.t) (complete : Yojson.Safe.t) :

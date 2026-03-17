@@ -207,7 +207,7 @@ let test_start () =
 let test_help () =
   match Slash_commands.handle "/help" with
   | Slash_commands.Help ->
-      let s = Slash_commands.format_help ~connector:Format_adapter.Plain in
+      let s = Slash_commands.format_help ~connector:Format_adapter.Plain () in
       let contains =
         try
           ignore (Str.search_forward (Str.regexp_string "/help") s 0);
@@ -397,7 +397,7 @@ let test_command_with_args () =
 
 let test_format_help_telegram () =
   let output =
-    Slash_commands.format_help ~connector:Format_adapter.Telegram_html
+    Slash_commands.format_help ~connector:Format_adapter.Telegram_html ()
   in
   let contains needle =
     try
@@ -1204,7 +1204,9 @@ let test_format_usage_plain_and_telegram () =
         (contains_str telegram "telegram:1:user"))
 
 let test_format_help_discord_code_block () =
-  let output = Slash_commands.format_help ~connector:Format_adapter.Discord in
+  let output =
+    Slash_commands.format_help ~connector:Format_adapter.Discord ()
+  in
   Alcotest.(check bool)
     "discord help wrapped in code block" true
     (String.length output > 6
@@ -1215,7 +1217,7 @@ let test_format_help_discord_code_block () =
     (contains_str output "/help")
 
 let test_format_help_slack_code_block () =
-  let output = Slash_commands.format_help ~connector:Format_adapter.Slack in
+  let output = Slash_commands.format_help ~connector:Format_adapter.Slack () in
   Alcotest.(check bool)
     "slack help wrapped in code block" true
     (String.length output > 6 && String.sub output 0 3 = "```");
@@ -1406,7 +1408,7 @@ let test_render_markdown_escape () =
   Alcotest.(check bool) "pipe escaped" true (contains_str output "a\\|b")
 
 let test_format_help_teams_markdown_table () =
-  let output = Slash_commands.format_help ~connector:Format_adapter.Teams in
+  let output = Slash_commands.format_help ~connector:Format_adapter.Teams () in
   Alcotest.(check bool)
     "teams help has markdown table header" true
     (contains_str output "| Command | Description |");
@@ -2227,7 +2229,7 @@ let test_format_model_menu () =
 let test_format_skills_menu () =
   let text =
     Slash_commands_fmt.format_skills_menu ~connector:Format_adapter.Plain
-      ~page:1
+      ~page:1 ()
   in
   let has_no_skills = text = "No skills available." in
   let has_skills_heading = contains_str text "Skills" in

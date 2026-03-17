@@ -458,8 +458,13 @@ let handle_event ~(config : Runtime_config.slack_config)
                 in
                 Lwt.return "ok"
             | Help | Menu _ ->
+                let show_test =
+                  is_admin
+                  && (Session.get_config session_manager).test.show_skills
+                in
                 let text =
                   Slash_commands.format_help ~connector:Format_adapter.Slack
+                    ~show_test ()
                 in
                 let* () =
                   send_message_fn ~bot_token:config.bot_token ~channel_id ~text
@@ -656,8 +661,12 @@ let handle_event ~(config : Runtime_config.slack_config)
                 Lwt.return "ok"
             | SkillsMenu page ->
                 let text =
+                  let show_test =
+                    is_admin
+                    && (Session.get_config session_manager).test.show_skills
+                  in
                   Slash_commands_fmt.format_skills_menu
-                    ~connector:Format_adapter.Slack ~page
+                    ~connector:Format_adapter.Slack ~page ~show_test ()
                 in
                 let* () =
                   send_message_fn ~bot_token:config.bot_token ~channel_id ~text
@@ -682,11 +691,21 @@ let handle_event ~(config : Runtime_config.slack_config)
                 in
                 Lwt.return "ok"
             | Tools ->
+                let show_test =
+                  is_admin
+                  && (Session.get_config session_manager).test.show_skills
+                in
                 let text =
                   match Session.get_tool_registry session_manager with
                   | Some reg ->
                       let tools, _ = Tool_registry.partition_skills reg in
-                      let skills = Skills.available_skills_as_tools () in
+                      let tools =
+                        Skills.filter_visible_tools ~show_test tools
+                      in
+                      let skills =
+                        Skills.filter_visible_tools ~show_test
+                          (Skills.available_skills_as_tools ())
+                      in
                       Slash_commands.format_tools
                         ~connector:Format_adapter.Slack tools skills
                         (Agent_template.available_templates ())

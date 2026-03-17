@@ -452,6 +452,8 @@ type browser_config = {
   idle_timeout_s : float;
 }
 
+type test_config = { show_skills : bool }
+
 type t = {
   workspace : string;
   default_temperature : float;
@@ -485,6 +487,7 @@ type t = {
   error_watcher : error_watcher_config;
   connector_history : connector_history_config;
   browser : browser_config;
+  test : test_config;
 }
 
 let default_log_config : log_config =
@@ -729,6 +732,7 @@ let default =
         max_age_days = 7;
       };
     browser = default_browser_config;
+    test = { show_skills = false };
   }
 
 let is_key_set key =
@@ -1878,6 +1882,7 @@ let to_json (cfg : t) : Yojson.Safe.t =
               ("max_messages", `Int ch.max_messages);
               ("max_age_days", `Int ch.max_age_days);
             ] );
+        ("test", `Assoc [ ("show_skills", `Bool cfg.test.show_skills) ]);
       ]
   in
   `Assoc fields

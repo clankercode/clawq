@@ -516,8 +516,12 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
             send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
               ~text ()
         | Help | Menu _ ->
+            let show_test =
+              is_admin && (Session.get_config session_mgr).test.show_skills
+            in
             let text =
               Slash_commands.format_help ~connector:Format_adapter.Telegram_html
+                ~show_test ()
             in
             send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
               ~text ()
@@ -684,9 +688,12 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
             in
             send_message ~bot_token ~chat_id:update.chat_id ~text ()
         | SkillsMenu page ->
+            let show_test =
+              is_admin && (Session.get_config session_mgr).test.show_skills
+            in
             let text =
               Slash_commands_fmt.format_skills_menu
-                ~connector:Format_adapter.Telegram_html ~page
+                ~connector:Format_adapter.Telegram_html ~page ~show_test ()
             in
             send_message ~bot_token ~chat_id:update.chat_id ~text ()
         | CostsMenu ->
@@ -702,11 +709,18 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
             in
             send_message ~bot_token ~chat_id:update.chat_id ~text ()
         | Tools ->
+            let show_test =
+              is_admin && (Session.get_config session_mgr).test.show_skills
+            in
             let text =
               match Session.get_tool_registry session_mgr with
               | Some reg ->
                   let tools, _ = Tool_registry.partition_skills reg in
-                  let skills = Skills.available_skills_as_tools () in
+                  let tools = Skills.filter_visible_tools ~show_test tools in
+                  let skills =
+                    Skills.filter_visible_tools ~show_test
+                      (Skills.available_skills_as_tools ())
+                  in
                   Slash_commands.format_tools
                     ~connector:Format_adapter.Telegram_html tools skills
                     (Agent_template.available_templates ())

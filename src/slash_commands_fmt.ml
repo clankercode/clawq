@@ -495,8 +495,10 @@ let format_config_menu ~connector ~page =
   ^ "\n\n" ^ String.concat "\n" lines
   ^ pagination_footer ~connector ~cmd:"/config menu" page total_pages
 
-let format_skills_menu ~connector ~page =
-  let skills = Skills.available_skills () in
+let format_skills_menu ~connector ~page ?(show_test = false) () =
+  let skills =
+    Skills.filter_visible_skills ~show_test (Skills.available_skills ())
+  in
   if skills = [] then "No skills available."
   else
     let page_skills, page, total_pages = paginate_items skills page in
@@ -930,8 +932,10 @@ let format_help_with ~connector ~skills ~agents =
       Format_adapter.code_block connector
         (plain_text ^ skills_section ^ agents_section)
 
-let format_help ~connector =
-  let skills = Skills.available_skills () in
+let format_help ~connector ?(show_test = false) () =
+  let skills =
+    Skills.filter_visible_skills ~show_test (Skills.available_skills ())
+  in
   let agents = Agent_template.available_templates () in
   format_help_with ~connector ~skills ~agents
 

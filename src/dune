@@ -65,6 +65,7 @@
   audit
   skills
   skills_cmd_inject
+  builtin_skills
   vector
   secret_store
   html_page

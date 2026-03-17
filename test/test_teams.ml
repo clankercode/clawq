@@ -322,14 +322,18 @@ let test_slash_command_recognized_after_mention_strip () =
   Alcotest.(check string) "stripped to /help" "/help" stripped;
   match Slash_commands.handle stripped with
   | Slash_commands.Help ->
-      let text = Slash_commands.format_help ~connector:Format_adapter.Teams in
+      let text =
+        Slash_commands.format_help ~connector:Format_adapter.Teams ()
+      in
       Alcotest.(check bool)
         "help stays multiline" true
         (String.contains text '\n')
   | _ -> Alcotest.fail "expected Help from /help"
 
 let test_help_reply_body_uses_markdown_table () =
-  let help_text = Slash_commands.format_help ~connector:Format_adapter.Teams in
+  let help_text =
+    Slash_commands.format_help ~connector:Format_adapter.Teams ()
+  in
   let body =
     Teams.build_reply_body ~alert:false ~text:help_text ~mention:None
       ~mention_mode:"entity"

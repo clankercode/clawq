@@ -1,6 +1,9 @@
 let commands_per_page = 9
 
-let skill_commands () =
+let skill_commands ?(show_test = false) () =
+  let skills =
+    Skills.filter_visible_skills ~show_test (Skills.available_skills ())
+  in
   List.map
     (fun (s : Skills.skill_md_meta) ->
       {
@@ -8,7 +11,7 @@ let skill_commands () =
         description = s.md_description;
         priority = 100;
       })
-    (Skills.available_skills ())
+    skills
 
 let teams_json ?(n = 10) () =
   let all_cmds = Slash_commands.sorted_by_priority () @ skill_commands () in
@@ -288,8 +291,10 @@ let config_menu_adaptive_card_json ?(page = 1) () =
     ~title:(Printf.sprintf "Config Sections (%d/%d)" page total_pages)
     ~buttons:(buttons @ nav)
 
-let skills_menu_adaptive_card_json ?(page = 1) () =
-  let skills = Skills.available_skills () in
+let skills_menu_adaptive_card_json ?(show_test = false) ?(page = 1) () =
+  let skills =
+    Skills.filter_visible_skills ~show_test (Skills.available_skills ())
+  in
   if skills = [] then
     button_card ~title:"Skills" ~buttons:[ ("No skills available", "/help") ]
   else

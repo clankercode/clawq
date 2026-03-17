@@ -1635,9 +1635,13 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                       let text = fn Format_adapter.Teams in
                       send_text text
                   | Help ->
+                      let show_test =
+                        is_admin
+                        && (Session.get_config session_manager).test.show_skills
+                      in
                       let text =
                         Slash_commands.format_help
-                          ~connector:Format_adapter.Teams
+                          ~connector:Format_adapter.Teams ~show_test ()
                       in
                       send_text text
                   | Menu page ->
@@ -1814,9 +1818,13 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                         ~service_url:effective_service_url ~conversation_id
                         ~reply_to_id:activity_id ~card:card_json ()
                   | SkillsMenu page ->
+                      let show_test =
+                        is_admin
+                        && (Session.get_config session_manager).test.show_skills
+                      in
                       let card_json =
                         Slash_commands_manifest.skills_menu_adaptive_card_json
-                          ~page ()
+                          ~show_test ~page ()
                       in
                       send_adaptive_card ~config
                         ~service_url:effective_service_url ~conversation_id
@@ -1918,11 +1926,21 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                               send_temp_download ())
                       | Temp_download_url -> send_temp_download ())
                   | Tools ->
+                      let show_test =
+                        is_admin
+                        && (Session.get_config session_manager).test.show_skills
+                      in
                       let text =
                         match Session.get_tool_registry session_manager with
                         | Some reg ->
                             let tools, _ = Tool_registry.partition_skills reg in
-                            let skills = Skills.available_skills_as_tools () in
+                            let tools =
+                              Skills.filter_visible_tools ~show_test tools
+                            in
+                            let skills =
+                              Skills.filter_visible_tools ~show_test
+                                (Skills.available_skills_as_tools ())
+                            in
                             Slash_commands.format_tools
                               ~connector:Format_adapter.Teams tools skills
                               (Agent_template.available_templates ())
