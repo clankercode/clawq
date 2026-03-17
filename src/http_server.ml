@@ -597,10 +597,10 @@ let handler ~session_manager ~require_pairing ~auth_token
                     in
                     Cohttp_lwt_unix.Server.respond_string ~status:`OK
                       ~headers:json_headers ~body:resp_json ()
-                | Slash_commands.AgentMenu ->
+                | Slash_commands.AgentMenu page ->
                     let text =
                       Slash_commands_fmt.format_agent_menu
-                        ~connector:Format_adapter.Plain
+                        ~connector:Format_adapter.Plain ~page
                     in
                     let resp_json =
                       `Assoc [ ("response", `String text) ]
@@ -1262,10 +1262,10 @@ let handler ~session_manager ~require_pairing ~auth_token
                     Cohttp_lwt_unix.Server.respond ~status:`OK ~headers
                       ~body:(Cohttp_lwt.Body.of_stream stream)
                       ()
-                | Slash_commands.AgentMenu ->
+                | Slash_commands.AgentMenu page ->
                     let text =
                       Slash_commands_fmt.format_agent_menu
-                        ~connector:Format_adapter.Plain
+                        ~connector:Format_adapter.Plain ~page
                     in
                     let stream, push = Lwt_stream.create () in
                     let data =

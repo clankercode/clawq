@@ -709,10 +709,10 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                 send_message_fn ~bot_token:discord_config.bot_token
                   ~channel_id:msg.channel_id ~text);
             Lwt.return_unit
-        | AgentMenu ->
+        | AgentMenu page ->
             let text =
               Slash_commands_fmt.format_agent_menu
-                ~connector:Format_adapter.Discord
+                ~connector:Format_adapter.Discord ~page
             in
             let* () =
               send_message_fn ~bot_token:discord_config.bot_token

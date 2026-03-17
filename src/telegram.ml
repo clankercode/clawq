@@ -474,10 +474,10 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                 send_chunked_html_with_fallback ~disable_notification:false
                   ~bot_token ~chat_id:update.chat_id ~text ());
             Lwt.return_unit
-        | AgentMenu ->
+        | AgentMenu page ->
             let text =
               Slash_commands_fmt.format_agent_menu
-                ~connector:Format_adapter.Telegram_html
+                ~connector:Format_adapter.Telegram_html ~page
             in
             let* () =
               send_message ~bot_token ~chat_id:update.chat_id ~text ()

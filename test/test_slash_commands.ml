@@ -100,7 +100,7 @@ let result_to_string = function
   | Slash_commands.DebugDumpChat -> "DebugDumpChat"
   | Slash_commands.AgentInvoke (name, prompt) ->
       "AgentInvoke(" ^ name ^ ", " ^ prompt ^ ")"
-  | Slash_commands.AgentMenu -> "AgentMenu"
+  | Slash_commands.AgentMenu page -> "AgentMenu(" ^ string_of_int page ^ ")"
   | Slash_commands.SkillInvoke (name, args) ->
       "SkillInvoke(" ^ name ^ ", " ^ args ^ ")"
   | Slash_commands.NotACommand -> "NotACommand"
@@ -144,7 +144,7 @@ let result_eq a b =
       a1 = b1 && a2 = b2
   | Slash_commands.AgentInvoke (a1, a2), Slash_commands.AgentInvoke (b1, b2) ->
       a1 = b1 && a2 = b2
-  | Slash_commands.AgentMenu, Slash_commands.AgentMenu -> true
+  | Slash_commands.AgentMenu a, Slash_commands.AgentMenu b -> a = b
   | Slash_commands.NotACommand, Slash_commands.NotACommand -> true
   | _ -> false
 
@@ -1896,8 +1896,53 @@ let test_agent_mention_not_at_prefix () =
   Alcotest.(check (option (pair string string))) "not at start" None result
 
 let test_agent_menu () =
-  Alcotest.check result_testable "/agent menu" Slash_commands.AgentMenu
+  Alcotest.check result_testable "/agent menu" (Slash_commands.AgentMenu 1)
     (Slash_commands.handle "/agent menu")
+
+let test_agent_menu_page () =
+  Alcotest.check result_testable "/agent menu 2" (Slash_commands.AgentMenu 2)
+    (Slash_commands.handle "/agent menu 2")
+
+let test_agent_menu_page_invalid () =
+  match Slash_commands.handle "/agent menu abc" with
+  | Slash_commands.FormattedReply fn ->
+      let text = fn Format_adapter.Plain in
+      Alcotest.(check bool)
+        "invalid page shows usage" true
+        (String.length text > 0)
+  | _ -> Alcotest.fail "expected FormattedReply for invalid page"
+
+let test_agent_menu_pagination_format () =
+  (* With 11 builtins and agents_per_page=8, we should get 2 pages *)
+  let text =
+    Slash_commands_fmt.format_agent_menu ~connector:Format_adapter.Plain ~page:1
+  in
+  (* Page 1 should show page indicator and next nav *)
+  let has_page_indicator =
+    try
+      let _ = Str.search_forward (Str.regexp_string "(1/") text 0 in
+      true
+    with Not_found -> false
+  in
+  Alcotest.(check bool) "page 1 has page indicator" true has_page_indicator;
+  let has_next =
+    try
+      let _ = Str.search_forward (Str.regexp_string "/agent menu 2") text 0 in
+      true
+    with Not_found -> false
+  in
+  Alcotest.(check bool) "page 1 has next nav" true has_next;
+  (* Page 2 should have prev nav *)
+  let text2 =
+    Slash_commands_fmt.format_agent_menu ~connector:Format_adapter.Plain ~page:2
+  in
+  let has_prev =
+    try
+      let _ = Str.search_forward (Str.regexp_string "/agent menu 1") text2 0 in
+      true
+    with Not_found -> false
+  in
+  Alcotest.(check bool) "page 2 has prev nav" true has_prev
 
 let test_agent_in_commands_list () =
   let has_agent =
@@ -2143,6 +2188,11 @@ let suite =
     Alcotest.test_case "@agent mention not at prefix" `Quick
       test_agent_mention_not_at_prefix;
     Alcotest.test_case "/agent menu" `Quick test_agent_menu;
+    Alcotest.test_case "/agent menu page" `Quick test_agent_menu_page;
+    Alcotest.test_case "/agent menu invalid page" `Quick
+      test_agent_menu_page_invalid;
+    Alcotest.test_case "/agent menu pagination format" `Quick
+      test_agent_menu_pagination_format;
     Alcotest.test_case "/agent in commands list" `Quick
       test_agent_in_commands_list;
   ]

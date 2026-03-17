@@ -15,6 +15,15 @@ Every clawq command is listed below. Run `clawq COMMAND --help` for per-command 
 |---------|-------------|
 | `clawq active` | Show active 5-hour window usage (cost, tokens, quota) |
 | `clawq agent` | Start the daemon (agent loop, gateway, all configured channels) |
+| `clawq agents` | Manage agent templates (list, show, create, edit, delete, bind, unbind) |
+| `clawq agents list` | List all templates (builtins marked [builtin], user marked [user]) |
+| `clawq agents show <name>` | Full template details including system prompt preview |
+| `clawq agents create <name>` | Create a new template in `~/.clawq/agents/` |
+| `clawq agents edit <name>` | Edit a template (copies builtin to user dir first) |
+| `clawq agents delete <name>` | Delete a user template (refuses for builtins) |
+| `clawq agents bind <pattern> <agent>` | Add agent routing binding to config |
+| `clawq agents unbind <pattern>` | Remove an agent routing binding |
+| `clawq agents bindings` | List all agent routing bindings |
 | `clawq audit` | View and manage the security audit log |
 | `clawq audit list [--limit N]` | List recent audit log entries (default 20) |
 | `clawq audit verify` | Verify audit log integrity (HMAC chain) |
@@ -382,6 +391,9 @@ Slash commands are available in chat-integrated channels (Telegram, Discord, Sla
 | `/uptime` | Show current daemon uptime |
 | `/tools` | List all available tools with parameters and risk levels |
 | `/tasks` | Show the agent's current task tree |
+| `/agent <name> <prompt>` | Invoke a named agent template for a one-off turn |
+| `/agent menu [page]` | Paginated agent template browser (8 per page, next/prev navigation) |
+| `/agent list` | List all available agent templates |
 | `/delegate <prompt>` | Delegate a prompt to a temporary subagent |
 | `/fork_and <prompt>` | Fork current session and run a prompt in a new subagent |
 | `/config [show\|get\|set\|keys\|wizard]` | View or modify configuration from chat |

@@ -540,10 +540,10 @@ let handle_event ~(config : Runtime_config.slack_config)
                     send_message_fn ~bot_token:config.bot_token ~channel_id
                       ~text);
                 Lwt.return "ok"
-            | AgentMenu ->
+            | AgentMenu page ->
                 let text =
                   Slash_commands_fmt.format_agent_menu
-                    ~connector:Format_adapter.Slack
+                    ~connector:Format_adapter.Slack ~page
                 in
                 let* () =
                   send_message_fn ~bot_token:config.bot_token ~channel_id ~text

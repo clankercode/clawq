@@ -83,7 +83,7 @@ type result =
   | Bl of bl_action
   | DebugDumpChat
   | AgentInvoke of string * string
-  | AgentMenu
+  | AgentMenu of int
   | SkillInvoke of string * string
   | NotACommand
 
@@ -331,20 +331,57 @@ let format_agent_list ~connector =
     in
     "Available agent templates:\n" ^ String.concat "\n" lines
 
-let format_agent_menu ~connector =
+let agents_per_page = 8
+
+let format_agent_menu ~connector ~page =
   let all = Agent_template.available_templates () in
   if all = [] then "No agent templates available."
   else
+    let total = List.length all in
+    let total_pages = max 1 ((total + agents_per_page - 1) / agents_per_page) in
+    let page = max 1 (min page total_pages) in
+    let start_idx = (page - 1) * agents_per_page in
+    let page_items =
+      List.filteri
+        (fun i _ -> i >= start_idx && i < start_idx + agents_per_page)
+        all
+    in
     let lines =
       List.map
         (fun (t : Agent_template.t) ->
           Format_adapter.code connector (Printf.sprintf "/agent %s" t.name)
           ^ " — " ^ t.description)
-        all
+        page_items
     in
-    Format_adapter.bold connector "Agent Templates"
-    ^ "\n\n" ^ String.concat "\n" lines ^ "\n\nUsage: "
+    let header =
+      if total_pages > 1 then
+        Format_adapter.bold connector
+          (Printf.sprintf "Agent Templates (%d/%d)" page total_pages)
+      else Format_adapter.bold connector "Agent Templates"
+    in
+    let nav =
+      if total_pages <= 1 then ""
+      else
+        let prev =
+          if page > 1 then
+            Format_adapter.code connector
+              (Printf.sprintf "/agent menu %d" (page - 1))
+            ^ " prev"
+          else ""
+        in
+        let next =
+          if page < total_pages then
+            Format_adapter.code connector
+              (Printf.sprintf "/agent menu %d" (page + 1))
+            ^ " next"
+          else ""
+        in
+        let parts = List.filter (fun s -> s <> "") [ prev; next ] in
+        "\n\n" ^ String.concat "  |  " parts
+    in
+    header ^ "\n\n" ^ String.concat "\n" lines ^ "\n\nUsage: "
     ^ Format_adapter.code connector "/agent <name> <prompt>"
+    ^ nav
 
 let format_agent_not_found ~connector name =
   let all = Agent_template.available_templates () in

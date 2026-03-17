@@ -170,6 +170,7 @@ Available in chat-integrated channels that support slash commands.
 - `/thinking [low|medium|high|off|xhigh|max]` — show or set the current thinking level; `off` clears `agent_defaults.reasoning_effort`
 - `/heartbeat [on|off|status]` — show or toggle heartbeat routing for the current Telegram/Slack/Discord/Teams session; web sessions return an unsupported message
 - `/agent <name> <prompt>` — invoke a named agent template for a one-off turn; the agent runs with the template's system prompt, tool restrictions, and model override; `/agent list` shows available templates
+- `/agent menu [page]` — interactive paginated agent template menu (8 per page); shows template names with descriptions and next/prev navigation; Teams uses Adaptive Card buttons
 - `/delegate [@agent_name] <prompt>` — delegate a prompt to a temporary subagent session; optionally prefix with `@agent_name` to use a specific agent template's system prompt, tool restrictions, and model override; the subagent runs the prompt, returns the result, and is discarded; the caller's main session history is not affected
 - `/fork_and [@agent_name] <prompt>` — fork the current session's history into an ephemeral subagent and run the prompt there; optionally prefix with `@agent_name` to adopt that agent's tool restrictions (the parent's system prompt is kept for cache efficiency, with the agent profile injected as a user-message prefix); the result is sent back to the channel but the parent session is not modified
 - `/tasks` — display the agent's current task tree for this session (user-facing visibility into what the agent is tracking)
@@ -495,6 +496,7 @@ Template discovery: ~/.clawq/agents/<name>.md or <name>/AGENT.md, workspace .cla
 
 Agent dispatch surfaces:
 - `/agent <name> <prompt>` — one-off agent template invocation from any channel
+- `/agent menu [page]` — paginated template browser (8 per page, next/prev navigation)
 - `/delegate @name <prompt>` — delegate with a specific agent's system prompt and tool restrictions
 - `/fork_and @name <prompt>` — fork with agent tool restrictions (parent system prompt preserved for cache)
 - `/bg create @name <prompt>` — background task using agent template

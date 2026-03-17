@@ -166,8 +166,19 @@ let menu_adaptive_card_json ?(page = 1) () =
           ] );
     ]
 
-let agent_menu_adaptive_card_json () =
+let agents_per_page = Slash_commands_fmt.agents_per_page
+
+let agent_menu_adaptive_card_json ?(page = 1) () =
   let agents = Agent_template.available_templates () in
+  let total = List.length agents in
+  let total_pages = max 1 ((total + agents_per_page - 1) / agents_per_page) in
+  let page = max 1 (min page total_pages) in
+  let start_idx = (page - 1) * agents_per_page in
+  let page_agents =
+    List.filteri
+      (fun i _ -> i >= start_idx && i < start_idx + agents_per_page)
+      agents
+  in
   let agent_actions =
     List.map
       (fun (t : Agent_template.t) ->
@@ -187,16 +198,19 @@ let agent_menu_adaptive_card_json () =
                       ] );
                 ] );
           ])
-      agents
+      page_agents
+  in
+  let header_text =
+    if total_pages > 1 then
+      Printf.sprintf "Agent Templates (%d/%d)" page total_pages
+    else Printf.sprintf "Agent Templates (%d)" total
   in
   let body =
     [
       `Assoc
         [
           ("type", `String "TextBlock");
-          ( "text",
-            `String (Printf.sprintf "Agent Templates (%d)" (List.length agents))
-          );
+          ("text", `String header_text);
           ("weight", `String "bolder");
           ("size", `String "medium");
         ];
@@ -210,12 +224,58 @@ let agent_menu_adaptive_card_json () =
       `Assoc [ ("type", `String "ActionSet"); ("actions", `List agent_actions) ];
     ]
   in
+  let nav_actions =
+    (if page > 1 then
+       [
+         `Assoc
+           [
+             ("type", `String "Action.Submit");
+             ("title", `String (Printf.sprintf "<< Page %d" (page - 1)));
+             ( "data",
+               `Assoc
+                 [
+                   ( "msteams",
+                     `Assoc
+                       [
+                         ("type", `String "imBack");
+                         ( "value",
+                           `String (Printf.sprintf "/agent menu %d" (page - 1))
+                         );
+                       ] );
+                 ] );
+           ];
+       ]
+     else [])
+    @
+    if page < total_pages then
+      [
+        `Assoc
+          [
+            ("type", `String "Action.Submit");
+            ("title", `String (Printf.sprintf "Page %d >>" (page + 1)));
+            ( "data",
+              `Assoc
+                [
+                  ( "msteams",
+                    `Assoc
+                      [
+                        ("type", `String "imBack");
+                        ( "value",
+                          `String (Printf.sprintf "/agent menu %d" (page + 1))
+                        );
+                      ] );
+                ] );
+          ];
+      ]
+    else []
+  in
   let card =
     `Assoc
       [
         ("type", `String "AdaptiveCard");
         ("version", `String "1.4");
         ("body", `List body);
+        ("actions", `List nav_actions);
       ]
   in
   `Assoc

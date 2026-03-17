@@ -1541,9 +1541,10 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                       Session.agent_invoke_turn session_manager ~agent_name
                         ~prompt ~send_reply:send_text;
                       Lwt.return_unit
-                  | AgentMenu ->
+                  | AgentMenu page ->
                       let card_json =
-                        Slash_commands_manifest.agent_menu_adaptive_card_json ()
+                        Slash_commands_manifest.agent_menu_adaptive_card_json
+                          ~page ()
                       in
                       send_adaptive_card ~config
                         ~service_url:effective_service_url ~conversation_id

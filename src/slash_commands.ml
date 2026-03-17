@@ -63,7 +63,15 @@ let handle ?(skill_names = []) text =
                 FormattedReply (fun connector -> format_agent_usage ~connector)
             | [ "list" ] ->
                 FormattedReply (fun connector -> format_agent_list ~connector)
-            | [ "menu" ] -> AgentMenu
+            | [ "menu" ] -> AgentMenu 1
+            | [ "menu"; n ] -> (
+                match int_of_string_opt n with
+                | Some page when page >= 1 -> AgentMenu page
+                | _ ->
+                    FormattedReply
+                      (fun connector ->
+                        "Usage: "
+                        ^ Format_adapter.code connector "/agent menu [page]"))
             | name :: rest ->
                 let prompt = String.concat " " rest in
                 if prompt = "" then

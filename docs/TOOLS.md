@@ -90,3 +90,11 @@ The `/menu` command renders a full command listing:
 - **Teams**: Adaptive Card with grouped action buttons (Core / Info & Config / Advanced tiers)
 - **Telegram**: HTML-formatted list with `<code>` command names
 - **Other connectors**: Plain text list sorted by priority
+
+## `/agent menu` Command
+
+The `/agent menu [page]` command renders a paginated agent template browser (8 per page):
+- **Teams**: Adaptive Card with template buttons (each sends `/agent <name> `) and prev/next navigation actions
+- **Other connectors**: Formatted text list with bold template names, descriptions, and `/agent menu N` prev/next links
+- Page is optional (defaults to 1); out-of-range pages are clamped to valid range
+- Implementation: `src/slash_commands_fmt.ml` (`format_agent_menu`), `src/slash_commands_manifest.ml` (`agent_menu_adaptive_card_json`)
