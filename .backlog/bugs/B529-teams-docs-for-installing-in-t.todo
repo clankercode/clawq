@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B529
+priority: high
+status: pending
+tags: []
+title: 'teams docs for installing in teams instance (last step): note that if installing to org then it''s easiest to search for the bot by name.'
+---
+
+teams docs for installing in teams instance (last step): note that if installing to org then it's easiest to search for the bot by name.
