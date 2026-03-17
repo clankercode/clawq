@@ -1,0 +1,16 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 10
+id: I050
+priority: medium
+status: pending
+tags:
+    - coq
+    - security
+    - formal-verification
+    - differentiator
+    - audit
+title: Tool Call Proof Certificates
+---
+Every tool invocation generates a compact proof term (Coq-extracted certificate) showing it satisfied the active safety policy before execution. Certificates are persisted in SQLite alongside audit logs and are retroactively auditable. Unlike audit logs which record 'what happened,' proof certificates record 'why it was allowed.' Unique to clawq's formal verification foundation — no other personal assistant can offer this. Pairs with the Verified Policy Engine (I029) to create a complete provably-safe tool execution framework.
