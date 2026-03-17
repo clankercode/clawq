@@ -1455,7 +1455,7 @@ let run ~(config : Runtime_config.t) =
                           ~db));
                 let () =
                   Background_task.start_queued_with_local_runner
-                    ~run_turn:(fun ~key ~message ?agent_name () ->
+                    ~run_turn:(fun ~key ~message ?agent_name ?cwd () ->
                       match agent_name with
                       | Some name -> (
                           match Agent_template.resolve name with
@@ -1473,6 +1473,7 @@ let run ~(config : Runtime_config.t) =
                                   ~config:session_manager.Session_core.config
                                   ?tool_registry ~agent_template:tmpl ()
                               in
+                              agent.effective_cwd <- cwd;
                               Agent.turn agent ~user_message:message ())
                       | None -> Session.turn session_manager ~key ~message ())
                     ~db

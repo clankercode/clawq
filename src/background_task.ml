@@ -2171,56 +2171,65 @@ let default_spawn_task ~on_task_started ~on_task_finished ~db task =
 let spawn_local_task ~run_turn ~on_task_started ~on_task_finished ~db
     (task : task) =
   Hashtbl.replace running task.id ();
-  let _set =
-    set_running ~db ~id:task.id ~branch:"" ~worktree_path:"" ~log_path:""
-      ~pid:(-1)
-  in
   Lwt.async (fun () ->
       Lwt.finalize
         (fun () ->
           let open Lwt.Syntax in
-          let* () = on_task_started task in
-          let ephemeral_key =
-            Printf.sprintf "__cron:%d:%d" task.id
-              (int_of_float (Unix.gettimeofday ()))
-          in
-          Lwt.catch
-            (fun () ->
-              let* result =
-                run_turn ~key:ephemeral_key ~message:task.prompt
-                  ?agent_name:task.agent_name ()
+          let* prepared = prepare_worktree task in
+          match prepared with
+          | Error err ->
+              finish ~db ~id:task.id ~status:Failed ~result_preview:err;
+              Lwt.return_unit
+          | Ok (branch, worktree_path, log_path) ->
+              let _set =
+                set_running ~db ~id:task.id ~branch ~worktree_path ~log_path
+                  ~pid:(-1)
               in
-              let prompt_short =
-                if String.length task.prompt > 200 then
-                  String.sub task.prompt 0 200 ^ "..."
-                else task.prompt
+              let* () = on_task_started task in
+              let ephemeral_key =
+                Printf.sprintf "__cron:%d:%d" task.id
+                  (int_of_float (Unix.gettimeofday ()))
               in
-              let result_short =
-                if String.length result > 300 then
-                  String.sub result 0 300 ^ "..."
-                else result
+              let cwd =
+                if worktree_path <> "" then Some worktree_path else None
               in
-              let rich_preview =
-                Printf.sprintf "[cron ephemeral] prompt: %s\n\nresponse: %s"
-                  prompt_short result_short
-              in
-              finish ~db ~id:task.id ~status:Succeeded
-                ~result_preview:rich_preview;
-              let* () =
-                match get_task ~db ~id:task.id with
-                | Some t -> on_task_finished t
-                | None -> Lwt.return_unit
-              in
-              Lwt.return_unit)
-            (fun exn ->
-              finish ~db ~id:task.id ~status:Failed
-                ~result_preview:(Printexc.to_string exn);
-              let* () =
-                match get_task ~db ~id:task.id with
-                | Some t -> on_task_finished t
-                | None -> Lwt.return_unit
-              in
-              Lwt.return_unit))
+              Lwt.catch
+                (fun () ->
+                  let* result =
+                    run_turn ~key:ephemeral_key ~message:task.prompt
+                      ?agent_name:task.agent_name ?cwd ()
+                  in
+                  let prompt_short =
+                    if String.length task.prompt > 200 then
+                      String.sub task.prompt 0 200 ^ "..."
+                    else task.prompt
+                  in
+                  let result_short =
+                    if String.length result > 300 then
+                      String.sub result 0 300 ^ "..."
+                    else result
+                  in
+                  let rich_preview =
+                    Printf.sprintf "[cron ephemeral] prompt: %s\n\nresponse: %s"
+                      prompt_short result_short
+                  in
+                  finish ~db ~id:task.id ~status:Succeeded
+                    ~result_preview:rich_preview;
+                  let* () =
+                    match get_task ~db ~id:task.id with
+                    | Some t -> on_task_finished t
+                    | None -> Lwt.return_unit
+                  in
+                  Lwt.return_unit)
+                (fun exn ->
+                  finish ~db ~id:task.id ~status:Failed
+                    ~result_preview:(Printexc.to_string exn);
+                  let* () =
+                    match get_task ~db ~id:task.id with
+                    | Some t -> on_task_finished t
+                    | None -> Lwt.return_unit
+                  in
+                  Lwt.return_unit))
         (fun () ->
           Hashtbl.remove running task.id;
           Lwt.return_unit))
@@ -2401,9 +2410,11 @@ let enqueue_tool_with_notify ~notify_cfg ~db =
     Tool.name = "background_task_enqueue";
     description =
       "Queue a background coding task (Codex, Claude, Kimi, Gemini, Opencode, \
-       or Cursor) in its own git worktree. Lower-level alternative to delegate \
-       — use when you need explicit control over runner, repo, branch, or \
-       model. Use delegate for simple 'spawn a subagent' requests.";
+       Cursor, or Local) in its own git worktree. Lower-level alternative to \
+       delegate — use when you need explicit control over runner, repo, \
+       branch, or model. Use runner='local' with agent_name for in-process \
+       agent tasks (no external CLI). Use delegate for simple 'spawn a \
+       subagent' requests.";
     parameters_schema =
       `Assoc
         [
@@ -2424,11 +2435,13 @@ let enqueue_tool_with_notify ~notify_cfg ~db =
                             `String "gemini";
                             `String "opencode";
                             `String "cursor";
+                            `String "local";
                           ] );
                       ( "description",
                         `String
-                          "Which external coding CLI to run in the background \
-                           worktree." );
+                          "Which coding CLI to run in the background worktree. \
+                           Use 'local' for in-process agent execution (pair \
+                           with agent_name)." );
                     ] );
                 ( "repo_path",
                   `Assoc
@@ -2563,7 +2576,8 @@ let enqueue_tool_with_notify ~notify_cfg ~db =
         | None ->
             Lwt.return
               "Error: runner must be 'codex', 'claude', 'kimi', 'gemini', \
-               'opencode', or 'cursor'"
+               'opencode', 'cursor', or 'local'. Use 'local' with agent_name \
+               for in-process agent execution."
         | Some runner when String.trim repo_path = "" ->
             Lwt.return "Error: repo_path is required"
         | Some _ when String.trim prompt = "" ->

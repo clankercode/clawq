@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-17T04:37:40Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-17T05:34:00Z"
 complexity: medium
 depends_on: []
+duration_minutes: 56.34439275771667
 estimate_hours: 2
 id: B516
 priority: medium
 started_at: "2026-03-17T04:37:40Z"
-status: in_progress
+status: done
 tags: []
 title: run-task skill should prefer local runner with agent roles for small/medium tasks and for entire projects too.
 ---
