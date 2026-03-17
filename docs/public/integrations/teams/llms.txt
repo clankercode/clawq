@@ -89,14 +89,17 @@ Docs: https://learn.microsoft.com/en-us/microsoftteams/platform/bots/how-to/crea
 Without this step, the bot is registered in Azure but completely invisible
 inside Teams. You cannot message a bot that has no Teams app.
 
-1. Go to Teams Developer Portal: https://dev.teams.microsoft.com
+1. Go to Teams Developer Portal: https://dev.teams.microsoft.com/apps/
 2. Apps → New app. Fill in name and description.
 3. App features → Bot → Enter a bot ID (your Application client ID from Step 1).
 4. Set `supportsFiles` to `true` for future file upload support (currently
    disabled; `/debug_dump_chat` uses temporary download links instead).
 5. Set scope: Personal and/or Team.
 6. Publish to your org or sideload for testing.
-7. In Teams: Apps → find your app → Add.
+7. If publishing to your org, an admin must approve the app in the Teams Admin
+   Center: https://admin.teams.microsoft.com/policies/manage-apps/
+8. In Teams: Apps → search for your bot by name → Add.
+   When installing to an org, searching by name is the easiest way to find it.
 
 ### Step 4 — Configure clawq
 

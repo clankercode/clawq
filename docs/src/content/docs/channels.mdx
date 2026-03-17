@@ -506,13 +506,17 @@ Note the tunnel URL printed at startup (e.g.
 This step is required. Without it, the bot is registered in Azure but
 completely invisible inside Teams — you will not be able to find or message it.
 
-1. Open the [Teams Developer Portal](https://dev.teams.microsoft.com) → **Apps** → **New app**.
+1. Open the [Teams Developer Portal](https://dev.teams.microsoft.com/apps/) → **Apps** → **New app**.
 2. Fill in the App name, description, and developer info.
 3. Under **App features** → **Bot**, click **Enter a bot ID** and enter your
    **Application (client) ID** from Step 1.
 4. Under **Scope**, check **Personal** and/or **Team** depending on use.
 5. Go to **Publish** → **Publish to your org** (or sideload for testing).
-6. In Teams, go to **Apps** → find your app → **Add**.
+6. If publishing to your org, an admin must approve the app in the
+   [Teams Admin Center](https://admin.teams.microsoft.com/policies/manage-apps/).
+7. In Teams, go to **Apps** → search for your bot by name → **Add**.
+   When installing to an org, searching by name is the easiest way to find
+   your bot.
 
 **Step 4 — Configure clawq**
 

@@ -720,7 +720,7 @@ current queue state for a given session; `session list` appends
 3. Register a Bot in Azure Bot Service; set Messaging Endpoint to `https://your-tunnel-url/teams/webhook` (must be HTTPS)
 4. Set Microsoft App ID on the bot to the AAD app_id
 5. Add Microsoft Teams channel in Azure Bot Service Channels blade
-6. **Go to Teams Developer Portal (dev.teams.microsoft.com) → create app manifest → add bot using app_id → publish/install to tenant** — required; without this the bot is invisible in Teams
+6. **Go to Teams Developer Portal (https://dev.teams.microsoft.com/apps/) → create app manifest → add bot using app_id → publish/install to tenant** — required; without this the bot is invisible in Teams. If publishing to your org, an admin must approve the app in the Teams Admin Center (https://admin.teams.microsoft.com/policies/manage-apps/). When installing to an org, search for the bot by name in the Teams app store — this is the easiest way to find it.
 7. `clawq config set channels.teams.app_id "your-app-id"`
 8. `clawq config set channels.teams.app_secret "your-secret"`
 9. `clawq config set channels.teams.tenant_id "your-tenant-id"`
