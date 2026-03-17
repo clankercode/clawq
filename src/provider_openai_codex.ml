@@ -273,12 +273,16 @@ let extract_instructions messages =
   let system_parts =
     List.filter_map
       (fun (msg : Provider.message) ->
-        if msg.role = "system" && msg.content <> "" then Some msg.content
+        if Provider.is_system_or_developer_role msg.role && msg.content <> ""
+        then Some msg.content
         else None)
       messages
   in
   let non_system =
-    List.filter (fun (msg : Provider.message) -> msg.role <> "system") messages
+    List.filter
+      (fun (msg : Provider.message) ->
+        not (Provider.is_system_or_developer_role msg.role))
+      messages
   in
   let instructions = String.concat "\n\n" system_parts in
   (instructions, non_system)

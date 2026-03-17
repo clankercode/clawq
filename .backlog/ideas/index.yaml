@@ -232,7 +232,7 @@ ideas:
       file: I027-autoload-claude-md-and-agents.todo
       id: I027
       priority: medium
-      status: in_progress
+      status: done
       tags: []
       title: (For non-self agents) Autoload CLAUDE.md and AGENTS.md -- be smart about deduplication (often there might be a simlink or direct copy)
     - complexity: medium

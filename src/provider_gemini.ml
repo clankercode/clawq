@@ -10,7 +10,7 @@ let messages_to_gemini_contents messages =
   List.filter_map
     (fun (m : Provider.message) ->
       match m.role with
-      | "system" -> None
+      | "system" | "developer" -> None
       | "tool" ->
           let sc = Provider.sanitize_utf8 m.content in
           let response_data =

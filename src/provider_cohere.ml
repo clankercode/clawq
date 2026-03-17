@@ -37,6 +37,8 @@ let messages_to_cohere_json messages =
                  m.Provider.tool_calls)
           in
           `Assoc [ ("role", `String "assistant"); ("tool_calls", tc_json) ]
+      | "developer" ->
+          `Assoc [ ("role", `String "system"); ("content", `String sc) ]
       | role -> `Assoc [ ("role", `String role); ("content", `String sc) ])
     messages
 

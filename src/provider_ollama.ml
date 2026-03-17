@@ -7,7 +7,7 @@ let messages_to_ollama_json messages =
     (fun (m : Provider.message) ->
       let sc = Provider.sanitize_utf8 m.content in
       match m.role with
-      | "system" ->
+      | "system" | "developer" ->
           Some (`Assoc [ ("role", `String "system"); ("content", `String sc) ])
       | "tool" ->
           (* Ollama tool results: role "tool" with content *)

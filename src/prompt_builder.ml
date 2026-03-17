@@ -318,6 +318,82 @@ let workspace_doc_blocks ~(config : Runtime_config.t)
     add_file "BOOTSTRAP.md";
   List.rev !blocks
 
+let workspace_doc_content_digests ~(config : Runtime_config.t)
+    ?(session_type = "private") () =
+  let blocks = workspace_doc_blocks ~config ~session_type () in
+  List.filter_map
+    (fun (_name, content) ->
+      if content = "" then None
+      else Some (Digest.to_hex (Digest.string content)))
+    blocks
+
+let project_doc_filenames = [ "CLAUDE.md"; "AGENTS.md" ]
+
+type project_docs_result = {
+  content : string option;
+  digests : string list;
+  git_root : string option;
+}
+
+let build_project_docs_message ~(config : Runtime_config.t) ~ws_doc_digests () =
+  if not config.prompt.include_project_docs then
+    { content = None; digests = []; git_root = None }
+  else
+    match find_git_root_and_dir (Sys.getcwd ()) with
+    | None -> { content = None; digests = []; git_root = None }
+    | Some (git_root, _git_dir) -> (
+        let budget = ref config.prompt.max_project_doc_chars in
+        let seen_digests = Hashtbl.create 4 in
+        List.iter (fun d -> Hashtbl.replace seen_digests d true) ws_doc_digests;
+        let collected_digests = ref [] in
+        let blocks = ref [] in
+        List.iter
+          (fun filename ->
+            let path = Filename.concat git_root filename in
+            if Sys.file_exists path && !budget > 0 then begin
+              let raw = read_file_limited path !budget in
+              if raw <> "" then begin
+                let digest = Digest.to_hex (Digest.string raw) in
+                if not (Hashtbl.mem seen_digests digest) then begin
+                  Hashtbl.replace seen_digests digest true;
+                  collected_digests := digest :: !collected_digests;
+                  budget := !budget - min !budget (String.length raw);
+                  blocks := (filename, raw) :: !blocks
+                end
+              end
+            end)
+          project_doc_filenames;
+        let total_chars =
+          List.fold_left (fun acc (_, c) -> acc + String.length c) 0 !blocks
+        in
+        if total_chars > config.prompt.project_doc_warn_chars then
+          Logs.warn (fun m ->
+              m
+                "Project docs total %d chars exceeds warning threshold %d; \
+                 consider trimming CLAUDE.md/AGENTS.md"
+                total_chars config.prompt.project_doc_warn_chars);
+        let digests = List.rev !collected_digests in
+        match !blocks with
+        | [] -> { content = None; digests; git_root = Some git_root }
+        | blocks_rev ->
+            let lines = ref [] in
+            let add s = lines := s :: !lines in
+            add "## Project Instructions (auto-loaded from git root)";
+            add (Printf.sprintf "Repository root: %s" git_root);
+            add "";
+            List.iter
+              (fun (name, raw) ->
+                add ("### " ^ name);
+                add raw;
+                add "")
+              (List.rev blocks_rev);
+            add
+              "**Note:** These project instructions are refreshed each turn. \
+               Subdirectory-specific CLAUDE.md/AGENTS.md files will be loaded \
+               when you first access files in those directories.";
+            let content_str = String.concat "\n" (List.rev !lines) in
+            { content = Some content_str; digests; git_root = Some git_root })
+
 let tools_block tool_registry =
   match tool_registry with
   | None -> []
@@ -470,32 +546,44 @@ let build ~(config : Runtime_config.t) ~tool_registry ?(attachments = [])
       add ""
     end;
     if config.prompt.include_workspace_section then begin
-      add "## Workspace Context";
-      add ("Root: " ^ ws);
-      let docs = workspace_doc_blocks ~config ~session_type:channel_type () in
-      if docs = [] then
-        add "No workspace identity files found. Operating with defaults only."
-      else begin
-        add "";
-        add
-          "The following files define your identity, behavioral protocol, and \
-           local context. EGO.md governs who you are. AGENTS.md governs how \
-           you operate. All other files provide situational context. When \
-           instructions conflict, EGO.md takes precedence, then AGENTS.md, \
-           then the rest in order of appearance.";
-        add "";
-        List.iter
-          (fun (name, content) ->
-            add ("### " ^ name);
-            add content;
-            add "")
-          docs;
-        add
-          "**Note:** The workspace files above are already injected into this \
-           prompt and refreshed every turn. Do not re-read them with file_read \
-           unless you have a concrete reason to check for mid-session changes \
-           or need content beyond the truncation limit."
-      end
+      match agent_template with
+      | None ->
+          add "## Workspace Context";
+          add ("Root: " ^ ws);
+          let docs =
+            workspace_doc_blocks ~config ~session_type:channel_type ()
+          in
+          if docs = [] then
+            add
+              "No workspace identity files found. Operating with defaults only."
+          else begin
+            add "";
+            add
+              "The following files define your identity, behavioral protocol, \
+               and local context. EGO.md governs who you are. AGENTS.md \
+               governs how you operate. All other files provide situational \
+               context. When instructions conflict, EGO.md takes precedence, \
+               then AGENTS.md, then the rest in order of appearance.";
+            add "";
+            List.iter
+              (fun (name, content) ->
+                add ("### " ^ name);
+                add content;
+                add "")
+              docs;
+            add
+              "**Note:** The workspace files above are already injected into \
+               this prompt and refreshed every turn. Do not re-read them with \
+               file_read unless you have a concrete reason to check for \
+               mid-session changes or need content beyond the truncation \
+               limit."
+          end
+      | Some _ ->
+          add "## Workspace Context";
+          add ("Root: " ^ ws);
+          add
+            "(Workspace identity files suppressed for named agents. Project \
+             instructions from CLAUDE.md/AGENTS.md are provided separately.)"
     end;
     if config.prompt.include_safety_section then begin
       add "";

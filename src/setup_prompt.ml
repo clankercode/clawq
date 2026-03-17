@@ -4,8 +4,9 @@
 
 let build_prompt_json ~dynamic_enabled ~include_tools_section
     ~include_safety_section ~include_workspace_section ~include_runtime_section
-    ~include_datetime_section ~include_autonomy_section ~workspace_files
-    ~max_workspace_file_chars ~max_workspace_total_chars =
+    ~include_datetime_section ~include_autonomy_section ~include_project_docs
+    ~workspace_files ~max_workspace_file_chars ~max_workspace_total_chars
+    ~max_project_doc_chars ~project_doc_warn_chars =
   Setup_common.build_section_json ~section_name:"prompt"
     [
       ("dynamic_enabled", `Bool dynamic_enabled);
@@ -15,9 +16,12 @@ let build_prompt_json ~dynamic_enabled ~include_tools_section
       ("include_runtime_section", `Bool include_runtime_section);
       ("include_datetime_section", `Bool include_datetime_section);
       ("include_autonomy_section", `Bool include_autonomy_section);
+      ("include_project_docs", `Bool include_project_docs);
       ("workspace_files", Setup_common.json_string_list workspace_files);
       ("max_workspace_file_chars", `Int max_workspace_file_chars);
       ("max_workspace_total_chars", `Int max_workspace_total_chars);
+      ("max_project_doc_chars", `Int max_project_doc_chars);
+      ("project_doc_warn_chars", `Int project_doc_warn_chars);
     ]
 
 let post_setup_instructions =
@@ -107,6 +111,15 @@ let run () =
       ~default:(get_p (fun c -> c.Runtime_config.include_autonomy_section))
       ()
   in
+  let include_project_docs =
+    Setup_tui.make_bool_field ~key:"pd" ~label:"Include project docs"
+      ~menu_label:"Toggle project docs (CLAUDE.md/AGENTS.md from git root)"
+      ~description:
+        "Auto-load CLAUDE.md and AGENTS.md from the git repository root as a \
+         separate developer message."
+      ~default:(get_p (fun c -> c.Runtime_config.include_project_docs))
+      ()
+  in
   let workspace_files =
     Setup_tui.make_list_field ~key:"wf" ~label:"Workspace files"
       ~menu_label:"Set workspace files (comma-separated)"
@@ -131,6 +144,24 @@ let run () =
       ~default:(get_p (fun c -> c.Runtime_config.max_workspace_total_chars))
       ()
   in
+  let max_project_doc_chars =
+    Setup_tui.make_int_field ~key:"mpd" ~label:"Max project doc chars"
+      ~menu_label:"Set max total chars for project docs"
+      ~description:
+        "Maximum total characters for CLAUDE.md/AGENTS.md from git root."
+      ~validate:Setup_common.validate_positive_int
+      ~default:(get_p (fun c -> c.Runtime_config.max_project_doc_chars))
+      ()
+  in
+  let project_doc_warn_chars =
+    Setup_tui.make_int_field ~key:"pdw" ~label:"Project doc warn threshold"
+      ~menu_label:"Set project doc warning threshold (chars)"
+      ~description:
+        "Log a warning when project doc content exceeds this threshold."
+      ~validate:Setup_common.validate_positive_int
+      ~default:(get_p (fun c -> c.Runtime_config.project_doc_warn_chars))
+      ()
+  in
   let spec : Setup_tui.wizard_spec =
     {
       title = " Prompt Configuration ";
@@ -144,9 +175,12 @@ let run () =
           include_runtime_section;
           include_datetime_section;
           include_autonomy_section;
+          include_project_docs;
           workspace_files;
           max_workspace_file_chars;
           max_workspace_total_chars;
+          max_project_doc_chars;
+          project_doc_warn_chars;
         ];
       extra_actions = [];
       build_json =
@@ -163,11 +197,14 @@ let run () =
               (Setup_tui.get_bool include_datetime_section)
             ~include_autonomy_section:
               (Setup_tui.get_bool include_autonomy_section)
+            ~include_project_docs:(Setup_tui.get_bool include_project_docs)
             ~workspace_files:(Setup_tui.get_str_list workspace_files)
             ~max_workspace_file_chars:
               (Setup_tui.get_int max_workspace_file_chars)
             ~max_workspace_total_chars:
-              (Setup_tui.get_int max_workspace_total_chars));
+              (Setup_tui.get_int max_workspace_total_chars)
+            ~max_project_doc_chars:(Setup_tui.get_int max_project_doc_chars)
+            ~project_doc_warn_chars:(Setup_tui.get_int project_doc_warn_chars));
       pre_save_check = (fun () -> Ok ());
       post_instructions = (fun () -> post_setup_instructions);
     }

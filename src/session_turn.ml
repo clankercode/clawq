@@ -165,6 +165,13 @@ let handle_agent_mention mgr ?notify message =
               Agent.create ~config:mgr.config ?tool_registry
                 ~agent_template:tmpl ()
             in
+            (match notify with
+            | Some send ->
+                agent.Agent.on_project_doc_loaded <-
+                  Some
+                    (fun msg ->
+                      Lwt.catch (fun () -> send msg) (fun _ -> Lwt.return_unit))
+            | None -> ());
             let* response =
               Lwt.catch
                 (fun () -> Agent.turn agent ~user_message:prompt ())
@@ -235,10 +242,26 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
       in
       let history_before = List.length agent.history in
       let notify = Session_core.find_registered_notifier mgr ~key in
+      (* Wire project doc notification callback *)
+      (match notify with
+      | Some send ->
+          agent.Agent.on_project_doc_loaded <-
+            Some
+              (fun msg ->
+                Lwt.catch (fun () -> send msg) (fun _ -> Lwt.return_unit))
+      | None -> ());
       let refresh_messages =
-        match Agent.note_external_workspace_refresh_if_needed agent with
-        | Some msg -> [ msg ]
-        | None -> []
+        let ws_msgs =
+          match Agent.note_external_workspace_refresh_if_needed agent with
+          | Some msg -> [ msg ]
+          | None -> []
+        in
+        let pd_msgs =
+          match Agent.refresh_project_docs_if_changed agent with
+          | Some msg -> [ msg ]
+          | None -> []
+        in
+        ws_msgs @ pd_msgs
       in
       let* () = Session_core.notify_event_messages ?notify refresh_messages in
       let* compaction_info =
@@ -648,6 +671,12 @@ let agent_invoke_turn mgr ~agent_name ~prompt ~send_reply =
                   Agent.create ~config:mgr.config ?tool_registry
                     ~agent_template:tmpl ()
                 in
+                agent.Agent.on_project_doc_loaded <-
+                  Some
+                    (fun msg ->
+                      Lwt.catch
+                        (fun () -> send_reply msg)
+                        (fun _ -> Lwt.return_unit));
                 Lwt.catch
                   (fun () ->
                     let open Lwt.Syntax in
@@ -699,6 +728,12 @@ let delegate_turn mgr ?agent_name ~prompt ~send_reply () =
                   Agent.create ~config:mgr.config ?tool_registry ?agent_template
                     ()
                 in
+                agent.Agent.on_project_doc_loaded <-
+                  Some
+                    (fun msg ->
+                      Lwt.catch
+                        (fun () -> send_reply msg)
+                        (fun _ -> Lwt.return_unit));
                 Lwt.catch
                   (fun () ->
                     let open Lwt.Syntax in
@@ -757,6 +792,12 @@ let fork_and_run mgr ~parent_key ?agent_name ~prompt ~send_reply () =
                   Session_core.snapshot_history mgr ~key:parent_key
                 in
                 let agent = Agent.create ~config:mgr.config ?tool_registry () in
+                agent.Agent.on_project_doc_loaded <-
+                  Some
+                    (fun msg ->
+                      Lwt.catch
+                        (fun () -> send_reply msg)
+                        (fun _ -> Lwt.return_unit));
                 agent.Agent.history <- List.rev parent_history;
                 Lwt.catch
                   (fun () ->
@@ -890,13 +931,32 @@ let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
                         let notify =
                           Session_core.find_registered_notifier mgr ~key
                         in
+                        (match notify with
+                        | Some send ->
+                            agent.Agent.on_project_doc_loaded <-
+                              Some
+                                (fun msg ->
+                                  Lwt.catch
+                                    (fun () -> send msg)
+                                    (fun _ -> Lwt.return_unit))
+                        | None -> ());
                         let refresh_messages =
-                          match
-                            Agent.note_external_workspace_refresh_if_needed
-                              agent
-                          with
-                          | Some msg -> [ msg ]
-                          | None -> []
+                          let ws_msgs =
+                            match
+                              Agent.note_external_workspace_refresh_if_needed
+                                agent
+                            with
+                            | Some msg -> [ msg ]
+                            | None -> []
+                          in
+                          let pd_msgs =
+                            match
+                              Agent.refresh_project_docs_if_changed agent
+                            with
+                            | Some msg -> [ msg ]
+                            | None -> []
+                          in
+                          ws_msgs @ pd_msgs
                         in
                         let* () =
                           Session_core.notify_event_messages ?notify ~on_chunk

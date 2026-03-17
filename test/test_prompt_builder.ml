@@ -660,6 +660,456 @@ let test_runtime_context_includes_directory_contents () =
             (contains runtime "src/"))
         ~finally:(fun () -> Sys.chdir cwd_before))
 
+let rec rm_rf path =
+  if Sys.is_directory path then begin
+    Array.iter
+      (fun name -> rm_rf (Filename.concat path name))
+      (Sys.readdir path);
+    Unix.rmdir path
+  end
+  else Sys.remove path
+
+let with_temp_git_repo f =
+  let base = Filename.get_temp_dir_name () in
+  let dir =
+    Filename.concat base
+      (Printf.sprintf "clawq_gitrepo_%d_%d" (Unix.getpid ()) (Random.bits ()))
+  in
+  (try rm_rf dir with _ -> ());
+  Unix.mkdir dir 0o755;
+  Unix.mkdir (Filename.concat dir ".git") 0o755;
+  let cwd_before = Sys.getcwd () in
+  Fun.protect
+    (fun () ->
+      Sys.chdir dir;
+      f dir)
+    ~finally:(fun () ->
+      Sys.chdir cwd_before;
+      try rm_rf dir with _ -> ())
+
+let minimal_prompt_cfg =
+  {
+    Runtime_config.default.prompt with
+    dynamic_enabled = true;
+    include_tools_section = false;
+    include_safety_section = false;
+    include_runtime_section = false;
+    include_datetime_section = false;
+    include_autonomy_section = false;
+    include_workspace_section = false;
+    include_project_docs = true;
+  }
+
+let test_project_docs_loaded_from_git_root () =
+  with_temp_git_repo (fun dir ->
+      write_file (Filename.concat dir "CLAUDE.md") "PROJECT CLAUDE SENTINEL";
+      write_file (Filename.concat dir "AGENTS.md") "PROJECT AGENTS SENTINEL";
+      let cfg =
+        {
+          Runtime_config.default with
+          workspace = dir;
+          prompt = minimal_prompt_cfg;
+        }
+      in
+      let pd =
+        Prompt_builder.build_project_docs_message ~config:cfg ~ws_doc_digests:[]
+          ()
+      in
+      (match pd.content with
+      | None -> Alcotest.fail "expected project docs content"
+      | Some content ->
+          Alcotest.(check bool)
+            "has CLAUDE.md" true
+            (contains content "PROJECT CLAUDE SENTINEL");
+          Alcotest.(check bool)
+            "has AGENTS.md" true
+            (contains content "PROJECT AGENTS SENTINEL"));
+      Alcotest.(check int) "two digests" 2 (List.length pd.digests))
+
+let test_project_docs_dedup_vs_workspace () =
+  with_temp_git_repo (fun dir ->
+      let content = "SHARED CONTENT BETWEEN WORKSPACE AND PROJECT" in
+      write_file (Filename.concat dir "AGENTS.md") content;
+      let ws_digest = Digest.to_hex (Digest.string content) in
+      let cfg =
+        {
+          Runtime_config.default with
+          workspace = dir;
+          prompt = minimal_prompt_cfg;
+        }
+      in
+      let pd =
+        Prompt_builder.build_project_docs_message ~config:cfg
+          ~ws_doc_digests:[ ws_digest ] ()
+      in
+      match pd.content with
+      | None -> ()
+      | Some c ->
+          Alcotest.(check bool)
+            "deduped AGENTS.md not in project docs" false
+            (contains c "SHARED CONTENT BETWEEN WORKSPACE AND PROJECT"))
+
+let test_project_docs_dedup_self () =
+  with_temp_git_repo (fun dir ->
+      let same_content = "IDENTICAL CONTENT IN BOTH FILES" in
+      write_file (Filename.concat dir "CLAUDE.md") same_content;
+      write_file (Filename.concat dir "AGENTS.md") same_content;
+      let cfg =
+        {
+          Runtime_config.default with
+          workspace = dir;
+          prompt = minimal_prompt_cfg;
+        }
+      in
+      let pd =
+        Prompt_builder.build_project_docs_message ~config:cfg ~ws_doc_digests:[]
+          ()
+      in
+      Alcotest.(check int)
+        "only one digest for identical content" 1 (List.length pd.digests);
+      match pd.content with
+      | None -> Alcotest.fail "expected content"
+      | Some c ->
+          let count =
+            let needle = "IDENTICAL CONTENT IN BOTH FILES" in
+            let nlen = String.length needle in
+            let rec loop i acc =
+              if i + nlen > String.length c then acc
+              else if String.sub c i nlen = needle then loop (i + nlen) (acc + 1)
+              else loop (i + 1) acc
+            in
+            loop 0 0
+          in
+          Alcotest.(check int) "content appears exactly once" 1 count)
+
+let test_project_docs_disabled_via_config () =
+  with_temp_git_repo (fun dir ->
+      write_file (Filename.concat dir "CLAUDE.md") "SHOULD NOT APPEAR";
+      let cfg =
+        {
+          Runtime_config.default with
+          workspace = dir;
+          prompt = { minimal_prompt_cfg with include_project_docs = false };
+        }
+      in
+      let pd =
+        Prompt_builder.build_project_docs_message ~config:cfg ~ws_doc_digests:[]
+          ()
+      in
+      Alcotest.(check bool) "no content when disabled" true (pd.content = None))
+
+let test_project_docs_budget_truncation () =
+  with_temp_git_repo (fun dir ->
+      let big = String.make 200 'X' in
+      write_file (Filename.concat dir "CLAUDE.md") big;
+      let cfg =
+        {
+          Runtime_config.default with
+          workspace = dir;
+          prompt = { minimal_prompt_cfg with max_project_doc_chars = 100 };
+        }
+      in
+      let pd =
+        Prompt_builder.build_project_docs_message ~config:cfg ~ws_doc_digests:[]
+          ()
+      in
+      match pd.content with
+      | None -> Alcotest.fail "expected content"
+      | Some c ->
+          Alcotest.(check bool)
+            "content is truncated" true
+            (contains c "[...truncated...]"))
+
+let test_workspace_docs_suppressed_for_named_agent () =
+  with_temp_workspace (fun workspace ->
+      write_file (Filename.concat workspace "EGO.md") "EGO SUPPRESSED";
+      write_file (Filename.concat workspace "AGENTS.md") "AGENTS SUPPRESSED";
+      let prompt_cfg =
+        {
+          Runtime_config.default.prompt with
+          dynamic_enabled = true;
+          include_workspace_section = true;
+          include_tools_section = false;
+          include_safety_section = false;
+          include_runtime_section = false;
+          include_datetime_section = false;
+          include_autonomy_section = false;
+          workspace_files = [ "EGO.md"; "AGENTS.md" ];
+        }
+      in
+      let cfg =
+        { Runtime_config.default with workspace; prompt = prompt_cfg }
+      in
+      let tmpl : Agent_template.t =
+        {
+          name = "test_coder";
+          description = "A test coder agent";
+          role = Agent_template.Coder;
+          system_prompt = "You are a coder.";
+          goal = "";
+          backstory = "";
+          model = None;
+          max_tool_iterations = None;
+          allowed_tools = [];
+          disallowed_tools = [];
+          tool_search_enabled = None;
+          reasoning_effort = None;
+          source = Agent_template.Builtin;
+          metadata = [];
+        }
+      in
+      let prompt =
+        Prompt_builder.build ~config:cfg ~tool_registry:None
+          ~agent_template:tmpl ()
+      in
+      Alcotest.(check bool)
+        "no EGO content for named agent" false
+        (contains prompt "EGO SUPPRESSED");
+      Alcotest.(check bool)
+        "no AGENTS content for named agent" false
+        (contains prompt "AGENTS SUPPRESSED");
+      Alcotest.(check bool)
+        "has suppression note" true
+        (contains prompt "suppressed for named agents"))
+
+let test_workspace_docs_present_for_default_agent () =
+  with_temp_workspace (fun workspace ->
+      write_file (Filename.concat workspace "EGO.md") "EGO PRESENT";
+      let prompt_cfg =
+        {
+          Runtime_config.default.prompt with
+          dynamic_enabled = true;
+          include_workspace_section = true;
+          include_tools_section = false;
+          include_safety_section = false;
+          include_runtime_section = false;
+          include_datetime_section = false;
+          include_autonomy_section = false;
+          workspace_files = [ "EGO.md" ];
+        }
+      in
+      let cfg =
+        { Runtime_config.default with workspace; prompt = prompt_cfg }
+      in
+      let prompt = Prompt_builder.build ~config:cfg ~tool_registry:None () in
+      Alcotest.(check bool)
+        "has EGO content for default agent" true
+        (contains prompt "EGO PRESENT"))
+
+let test_developer_message_in_build_messages () =
+  with_temp_git_repo (fun dir ->
+      write_file (Filename.concat dir "CLAUDE.md") "DEV MSG SENTINEL";
+      let cfg =
+        {
+          Runtime_config.default with
+          workspace = dir;
+          prompt = minimal_prompt_cfg;
+        }
+      in
+      let agent = Agent.create ~config:cfg () in
+      let msgs = Agent.build_messages agent in
+      let dev_msgs =
+        List.filter (fun (m : Provider.message) -> m.role = "developer") msgs
+      in
+      Alcotest.(check bool) "has developer message" true (dev_msgs <> []);
+      let dev_content = (List.hd dev_msgs).content in
+      Alcotest.(check bool)
+        "developer msg has project docs" true
+        (contains dev_content "DEV MSG SENTINEL"))
+
+let test_no_developer_message_when_no_project_docs () =
+  with_temp_git_repo (fun _dir ->
+      let cfg =
+        {
+          Runtime_config.default with
+          workspace = _dir;
+          prompt = minimal_prompt_cfg;
+        }
+      in
+      let agent = Agent.create ~config:cfg () in
+      let msgs = Agent.build_messages agent in
+      let dev_msgs =
+        List.filter (fun (m : Provider.message) -> m.role = "developer") msgs
+      in
+      Alcotest.(check bool)
+        "no developer message without project docs" true (dev_msgs = []))
+
+let test_subdir_docs_injected_on_first_file_access () =
+  with_temp_git_repo (fun dir ->
+      let subdir = Filename.concat dir "src" in
+      Unix.mkdir subdir 0o755;
+      write_file (Filename.concat subdir "CLAUDE.md") "SUBDIR CLAUDE CONTENT";
+      let cfg =
+        {
+          Runtime_config.default with
+          workspace = dir;
+          prompt = minimal_prompt_cfg;
+        }
+      in
+      let agent = Agent.create ~config:cfg () in
+      let tc : Provider.tool_call =
+        {
+          id = "tc1";
+          function_name = "file_read";
+          arguments =
+            Printf.sprintf {|{"path": "%s"}|} (Filename.concat subdir "foo.ml");
+        }
+      in
+      let events = Agent.observe_project_docs agent tc in
+      Alcotest.(check bool) "injected event for subdir" true (events <> []);
+      let msg = List.hd events in
+      Alcotest.(check string) "subdir doc role is user" "user" msg.role;
+      Alcotest.(check bool)
+        "event has subdir content" true
+        (contains msg.content "SUBDIR CLAUDE CONTENT");
+      Alcotest.(check bool)
+        "event has metadata" true
+        (contains msg.content "project instructions loaded"))
+
+let test_subdir_docs_not_injected_twice () =
+  with_temp_git_repo (fun dir ->
+      let subdir = Filename.concat dir "src" in
+      Unix.mkdir subdir 0o755;
+      write_file (Filename.concat subdir "CLAUDE.md") "SUBDIR CONTENT";
+      let cfg =
+        {
+          Runtime_config.default with
+          workspace = dir;
+          prompt = minimal_prompt_cfg;
+        }
+      in
+      let agent = Agent.create ~config:cfg () in
+      let tc : Provider.tool_call =
+        {
+          id = "tc1";
+          function_name = "file_read";
+          arguments =
+            Printf.sprintf {|{"path": "%s"}|} (Filename.concat subdir "foo.ml");
+        }
+      in
+      let events1 = Agent.observe_project_docs agent tc in
+      let events2 = Agent.observe_project_docs agent tc in
+      Alcotest.(check bool) "first access injects" true (events1 <> []);
+      Alcotest.(check bool) "second access does not inject" true (events2 = []))
+
+let test_subdir_docs_dedup_vs_root () =
+  with_temp_git_repo (fun dir ->
+      let root_content = "ROOT AND SUBDIR SAME CONTENT" in
+      write_file (Filename.concat dir "CLAUDE.md") root_content;
+      let subdir = Filename.concat dir "src" in
+      Unix.mkdir subdir 0o755;
+      write_file (Filename.concat subdir "CLAUDE.md") root_content;
+      let cfg =
+        {
+          Runtime_config.default with
+          workspace = dir;
+          prompt = minimal_prompt_cfg;
+        }
+      in
+      let agent = Agent.create ~config:cfg () in
+      let tc : Provider.tool_call =
+        {
+          id = "tc1";
+          function_name = "file_read";
+          arguments =
+            Printf.sprintf {|{"path": "%s"}|} (Filename.concat subdir "foo.ml");
+        }
+      in
+      let events = Agent.observe_project_docs agent tc in
+      Alcotest.(check bool) "subdir content deduped vs root" true (events = []))
+
+let test_root_docs_refresh_on_change () =
+  with_temp_git_repo (fun dir ->
+      write_file (Filename.concat dir "CLAUDE.md") "ORIGINAL";
+      let cfg =
+        {
+          Runtime_config.default with
+          workspace = dir;
+          prompt = minimal_prompt_cfg;
+        }
+      in
+      let agent = Agent.create ~config:cfg () in
+      Alcotest.(check bool)
+        "has initial content" true
+        (agent.project_docs_content <> None);
+      write_file (Filename.concat dir "CLAUDE.md") "MODIFIED";
+      let event = Agent.refresh_project_docs_if_changed agent in
+      Alcotest.(check bool) "refresh detected change" true (event <> None);
+      match agent.project_docs_content with
+      | None -> Alcotest.fail "expected content after refresh"
+      | Some c ->
+          Alcotest.(check bool)
+            "content updated to MODIFIED" true (contains c "MODIFIED"))
+
+let test_root_docs_no_refresh_when_unchanged () =
+  with_temp_git_repo (fun dir ->
+      write_file (Filename.concat dir "CLAUDE.md") "STABLE";
+      let cfg =
+        {
+          Runtime_config.default with
+          workspace = dir;
+          prompt = minimal_prompt_cfg;
+        }
+      in
+      let agent = Agent.create ~config:cfg () in
+      let event = Agent.refresh_project_docs_if_changed agent in
+      Alcotest.(check bool) "no event when unchanged" true (event = None))
+
+let test_no_spurious_refresh_after_subdir_load () =
+  with_temp_git_repo (fun dir ->
+      write_file (Filename.concat dir "CLAUDE.md") "ROOT CONTENT";
+      let subdir = Filename.concat dir "src" in
+      Unix.mkdir subdir 0o755;
+      write_file (Filename.concat subdir "CLAUDE.md") "SUBDIR CONTENT";
+      let cfg =
+        {
+          Runtime_config.default with
+          workspace = dir;
+          prompt = minimal_prompt_cfg;
+        }
+      in
+      let agent = Agent.create ~config:cfg () in
+      let tc : Provider.tool_call =
+        {
+          id = "tc1";
+          function_name = "file_read";
+          arguments =
+            Printf.sprintf {|{"path": "%s"}|} (Filename.concat subdir "foo.ml");
+        }
+      in
+      let _events = Agent.observe_project_docs agent tc in
+      let event = Agent.refresh_project_docs_if_changed agent in
+      Alcotest.(check bool)
+        "no spurious refresh after subdir load" true (event = None))
+
+let test_provider_extract_system_prompt_includes_developer () =
+  let msgs =
+    [
+      Provider.make_message ~role:"system" ~content:"SYS CONTENT";
+      Provider.make_message ~role:"developer" ~content:"DEV CONTENT";
+      Provider.make_message ~role:"user" ~content:"USER CONTENT";
+    ]
+  in
+  let extracted = Provider.extract_system_prompt msgs in
+  Alcotest.(check bool)
+    "system prompt includes system" true
+    (contains extracted "SYS CONTENT");
+  Alcotest.(check bool)
+    "system prompt includes developer" true
+    (contains extracted "DEV CONTENT");
+  Alcotest.(check bool)
+    "system prompt excludes user" false
+    (contains extracted "USER CONTENT")
+
+let test_developer_role_mapped_to_system_in_json () =
+  let msg = Provider.make_message ~role:"developer" ~content:"dev content" in
+  let json = Provider.message_to_json msg in
+  let open Yojson.Safe.Util in
+  let role = json |> member "role" |> to_string in
+  Alcotest.(check string) "developer mapped to system in JSON" "system" role;
+  let content = json |> member "content" |> to_string in
+  Alcotest.(check string) "content preserved" "dev content" content
+
 let suite =
   [
     Alcotest.test_case "dynamic prompt disabled uses base prompt" `Quick
@@ -698,4 +1148,38 @@ let suite =
       test_tools_section_includes_shell_exec_example;
     Alcotest.test_case "runtime context includes directory contents" `Quick
       test_runtime_context_includes_directory_contents;
+    Alcotest.test_case "project docs loaded from git root" `Quick
+      test_project_docs_loaded_from_git_root;
+    Alcotest.test_case "project docs dedup vs workspace" `Quick
+      test_project_docs_dedup_vs_workspace;
+    Alcotest.test_case "project docs dedup self (identical files)" `Quick
+      test_project_docs_dedup_self;
+    Alcotest.test_case "project docs disabled via config" `Quick
+      test_project_docs_disabled_via_config;
+    Alcotest.test_case "project docs budget truncation" `Quick
+      test_project_docs_budget_truncation;
+    Alcotest.test_case "workspace docs suppressed for named agent" `Quick
+      test_workspace_docs_suppressed_for_named_agent;
+    Alcotest.test_case "workspace docs present for default agent" `Quick
+      test_workspace_docs_present_for_default_agent;
+    Alcotest.test_case "developer message in build_messages" `Quick
+      test_developer_message_in_build_messages;
+    Alcotest.test_case "no developer message without project docs" `Quick
+      test_no_developer_message_when_no_project_docs;
+    Alcotest.test_case "subdir docs injected on first file access" `Quick
+      test_subdir_docs_injected_on_first_file_access;
+    Alcotest.test_case "subdir docs not injected twice" `Quick
+      test_subdir_docs_not_injected_twice;
+    Alcotest.test_case "subdir docs dedup vs root" `Quick
+      test_subdir_docs_dedup_vs_root;
+    Alcotest.test_case "root docs refresh on change" `Quick
+      test_root_docs_refresh_on_change;
+    Alcotest.test_case "root docs no refresh when unchanged" `Quick
+      test_root_docs_no_refresh_when_unchanged;
+    Alcotest.test_case "no spurious refresh after subdir load" `Quick
+      test_no_spurious_refresh_after_subdir_load;
+    Alcotest.test_case "provider extract_system_prompt includes developer"
+      `Quick test_provider_extract_system_prompt_includes_developer;
+    Alcotest.test_case "developer role mapped to system in JSON" `Quick
+      test_developer_role_mapped_to_system_in_json;
   ]

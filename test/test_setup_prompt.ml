@@ -26,8 +26,10 @@ let build_json_roundtrip () =
       ~include_tools_section:true ~include_safety_section:true
       ~include_workspace_section:true ~include_runtime_section:true
       ~include_datetime_section:true ~include_autonomy_section:true
+      ~include_project_docs:true
       ~workspace_files:[ "CLAUDE.md"; "README.md"; ".clawq/config.json" ]
       ~max_workspace_file_chars:8000 ~max_workspace_total_chars:20000
+      ~max_project_doc_chars:51200 ~project_doc_warn_chars:15360
   in
   let config = Config_loader.parse_config ~resolve_secrets:false json in
   let p = config.prompt in
@@ -56,8 +58,9 @@ let build_json_disabled_sections () =
       ~include_tools_section:false ~include_safety_section:false
       ~include_workspace_section:false ~include_runtime_section:false
       ~include_datetime_section:false ~include_autonomy_section:false
-      ~workspace_files:[] ~max_workspace_file_chars:4000
-      ~max_workspace_total_chars:10000
+      ~include_project_docs:false ~workspace_files:[]
+      ~max_workspace_file_chars:4000 ~max_workspace_total_chars:10000
+      ~max_project_doc_chars:51200 ~project_doc_warn_chars:15360
   in
   let config = Config_loader.parse_config ~resolve_secrets:false json in
   let p = config.prompt in

@@ -247,9 +247,12 @@ type prompt_config = {
   include_runtime_section : bool;
   include_datetime_section : bool;
   include_autonomy_section : bool;
+  include_project_docs : bool;
   workspace_files : string list;
   max_workspace_file_chars : int;
   max_workspace_total_chars : int;
+  max_project_doc_chars : int;
+  project_doc_warn_chars : int;
 }
 
 type gateway_config = {
@@ -547,9 +550,12 @@ let default_prompt =
     include_runtime_section = true;
     include_datetime_section = true;
     include_autonomy_section = true;
+    include_project_docs = true;
     workspace_files = default_workspace_files;
     max_workspace_file_chars = 8000;
     max_workspace_total_chars = 20000;
+    max_project_doc_chars = 51200;
+    project_doc_warn_chars = 15360;
   }
 
 let default =

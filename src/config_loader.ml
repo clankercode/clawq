@@ -258,6 +258,10 @@ let parse_config ?(resolve_secrets = true) json =
         try p |> member "include_autonomy_section" |> to_bool
         with _ -> default.prompt.include_autonomy_section
       in
+      let include_project_docs =
+        try p |> member "include_project_docs" |> to_bool
+        with _ -> default.prompt.include_project_docs
+      in
       let workspace_files =
         try p |> member "workspace_files" |> to_list |> List.map to_string
         with _ -> default.prompt.workspace_files
@@ -270,6 +274,14 @@ let parse_config ?(resolve_secrets = true) json =
         try p |> member "max_workspace_total_chars" |> to_int
         with _ -> default.prompt.max_workspace_total_chars
       in
+      let max_project_doc_chars =
+        try p |> member "max_project_doc_chars" |> to_int
+        with _ -> default.prompt.max_project_doc_chars
+      in
+      let project_doc_warn_chars =
+        try p |> member "project_doc_warn_chars" |> to_int
+        with _ -> default.prompt.project_doc_warn_chars
+      in
       ({
          dynamic_enabled;
          include_tools_section;
@@ -278,9 +290,12 @@ let parse_config ?(resolve_secrets = true) json =
          include_runtime_section;
          include_datetime_section;
          include_autonomy_section;
+         include_project_docs;
          workspace_files;
          max_workspace_file_chars;
          max_workspace_total_chars;
+         max_project_doc_chars;
+         project_doc_warn_chars;
        }
         : Runtime_config.prompt_config)
     with _ -> default.prompt

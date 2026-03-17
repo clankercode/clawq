@@ -151,10 +151,12 @@ let sanitize_utf8 s =
   done;
   Buffer.contents buf
 
+let is_system_or_developer_role role = role = "system" || role = "developer"
+
 let extract_system_prompt messages =
   List.fold_left
     (fun acc (m : message) ->
-      if m.role = "system" then
+      if is_system_or_developer_role m.role then
         let sc = sanitize_utf8 m.content in
         if acc = "" then sc else acc ^ "\n" ^ sc
       else acc)
@@ -189,7 +191,12 @@ let content_json_of_message m =
 
 let message_to_json m =
   let sc = sanitize_utf8 m.content in
-  let fields = [ ("role", `String m.role) ] in
+  (* Map "developer" → "system" for OpenAI Chat Completions API compatibility.
+     The Chat Completions API only accepts system/user/assistant/tool/function
+     roles — "developer" is a Responses-API-only concept. Native providers
+     (Anthropic, Gemini, Codex, etc.) handle extraction before this point. *)
+  let role = if m.role = "developer" then "system" else m.role in
+  let fields = [ ("role", `String role) ] in
   let fields =
     match m.role with
     | "tool" -> (

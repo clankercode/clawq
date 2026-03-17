@@ -8,6 +8,12 @@ type t = {
   agent_template : Agent_template.t option;
   mutable compacted_mid_turn : bool;
   mutable effective_cwd : string option;
+  mutable project_docs_content : string option;
+  mutable project_docs_digests : string list;
+  mutable project_docs_subdir_digests : string list;
+  mutable project_docs_git_root : string option;
+  mutable project_doc_dirs_seen : (string, bool) Hashtbl.t;
+  mutable on_project_doc_loaded : (string -> unit Lwt.t) option;
 }
 
 exception Interrupted of string
@@ -88,6 +94,18 @@ let create ~config ?tool_registry ?agent_template () =
   let system_prompt =
     Prompt_builder.build ~config ~tool_registry ?agent_template ()
   in
+  let ws_doc_digests =
+    match agent_template with
+    | None -> Prompt_builder.workspace_doc_content_digests ~config ()
+    | Some _ -> []
+  in
+  let pd =
+    Prompt_builder.build_project_docs_message ~config ~ws_doc_digests ()
+  in
+  let dirs_seen = Hashtbl.create 16 in
+  (match pd.git_root with
+  | Some root -> Hashtbl.replace dirs_seen root true
+  | None -> ());
   {
     history = [];
     config;
@@ -99,6 +117,12 @@ let create ~config ?tool_registry ?agent_template () =
     agent_template;
     compacted_mid_turn = false;
     effective_cwd = None;
+    project_docs_content = pd.content;
+    project_docs_digests = pd.digests;
+    project_docs_subdir_digests = [];
+    project_docs_git_root = pd.git_root;
+    project_doc_dirs_seen = dirs_seen;
+    on_project_doc_loaded = None;
   }
 
 let is_session_event_message (msg : Provider.message) = msg.role = "event"
@@ -122,9 +146,14 @@ let build_messages ?runtime_context agent =
   agent.system_prompt <-
     Prompt_builder.build ~config:agent.config ~tool_registry:agent.tool_registry
       ?agent_template:agent.agent_template ();
+  let sys = Provider.make_message ~role:"system" ~content:agent.system_prompt in
+  let dev =
+    match agent.project_docs_content with
+    | Some content -> [ Provider.make_message ~role:"developer" ~content ]
+    | None -> []
+  in
   let messages =
-    Provider.make_message ~role:"system" ~content:agent.system_prompt
-    :: List.rev (runtime_history_messages agent.history)
+    (sys :: dev) @ List.rev (runtime_history_messages agent.history)
   in
   match runtime_context with
   | Some block when String.trim block <> "" ->
@@ -1284,6 +1313,122 @@ let note_external_workspace_refresh_if_needed agent =
       agent.history <- refresh_msg :: agent.history;
       Some refresh_msg
 
+let refresh_project_docs_if_changed agent =
+  if not agent.config.prompt.include_project_docs then None
+  else
+    let ws_doc_digests =
+      match agent.agent_template with
+      | None ->
+          Prompt_builder.workspace_doc_content_digests ~config:agent.config ()
+      | Some _ -> []
+    in
+    let pd =
+      Prompt_builder.build_project_docs_message ~config:agent.config
+        ~ws_doc_digests ()
+    in
+    let new_digests = pd.digests in
+    if new_digests = agent.project_docs_digests then None
+    else begin
+      agent.project_docs_content <- pd.content;
+      agent.project_docs_digests <- pd.digests;
+      let event_msg =
+        Provider.make_message ~role:"event"
+          ~content:
+            "[project instructions refreshed: root CLAUDE.md/AGENTS.md changed \
+             since last turn]"
+      in
+      agent.history <- event_msg :: agent.history;
+      (match agent.on_project_doc_loaded with
+      | Some notify ->
+          Lwt.async (fun () ->
+              Lwt.catch
+                (fun () ->
+                  notify "Project instructions refreshed (files changed)")
+                (fun _ -> Lwt.return_unit))
+      | None -> ());
+      Some event_msg
+    end
+
+let observe_project_docs agent (tc : Provider.tool_call) =
+  if not agent.config.prompt.include_project_docs then []
+  else
+    let dir =
+      match tc.function_name with
+      | "file_read" | "file_write" | "file_edit" | "file_edit_lines"
+      | "file_append" -> (
+          try
+            let args = Yojson.Safe.from_string tc.arguments in
+            let open Yojson.Safe.Util in
+            let path = args |> member "path" |> to_string in
+            Some (Filename.dirname path)
+          with _ -> None)
+      | _ -> None
+    in
+    match dir with
+    | None -> []
+    | Some dir ->
+        if Hashtbl.mem agent.project_doc_dirs_seen dir then []
+        else begin
+          Hashtbl.replace agent.project_doc_dirs_seen dir true;
+          let git_root =
+            match agent.project_docs_git_root with Some r -> r | None -> ""
+          in
+          let relative_label path =
+            if
+              git_root <> ""
+              && String.length path > String.length git_root
+              && String.sub path 0 (String.length git_root) = git_root
+            then
+              String.sub path
+                (String.length git_root + 1)
+                (String.length path - String.length git_root - 1)
+            else path
+          in
+          List.filter_map
+            (fun filename ->
+              let path = Filename.concat dir filename in
+              if Sys.file_exists path then begin
+                let content =
+                  Prompt_builder.read_file_limited path
+                    agent.config.prompt.max_project_doc_chars
+                in
+                if content <> "" then begin
+                  let digest = Digest.to_hex (Digest.string content) in
+                  if
+                    List.mem digest agent.project_docs_digests
+                    || List.mem digest agent.project_docs_subdir_digests
+                  then None
+                  else begin
+                    agent.project_docs_subdir_digests <-
+                      digest :: agent.project_docs_subdir_digests;
+                    let label = relative_label path in
+                    let ts = Prompt_builder.now_utc_iso8601 () in
+                    (match agent.on_project_doc_loaded with
+                    | Some notify ->
+                        Lwt.async (fun () ->
+                            Lwt.catch
+                              (fun () ->
+                                notify
+                                  (Printf.sprintf
+                                     "Loaded project instructions: %s" label))
+                              (fun _ -> Lwt.return_unit))
+                    | None -> ());
+                    Some
+                      (Provider.make_message ~role:"user"
+                         ~content:
+                           (Printf.sprintf
+                              "[system: project instructions loaded: %s from \
+                               %s, loaded at %s]\n\n\
+                               %s"
+                              label path ts content))
+                  end
+                end
+                else None
+              end
+              else None)
+            Prompt_builder.project_doc_filenames
+        end
+
 let append_tool_history agent tool_msg refresh_msg_opt =
   agent.history <- tool_msg :: agent.history;
   match refresh_msg_opt with
@@ -1607,6 +1752,11 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
       append_tool_history agent tool_msg refresh_msg)
     results;
   if !pending_history_wipe then perform_cwd_history_wipe agent;
+  List.iter
+    (fun ((tc : Provider.tool_call), _, _) ->
+      let doc_events = observe_project_docs agent tc in
+      List.iter (fun msg -> agent.history <- msg :: agent.history) doc_events)
+    results;
   let* () = Lwt.join !notification_promises in
   Lwt.return_unit
 
@@ -1784,6 +1934,11 @@ let execute_tool_calls agent ~db ~audit_enabled ~session_key ?interrupt_check
       append_tool_history agent tool_msg refresh_msg)
     results;
   if !pending_history_wipe then perform_cwd_history_wipe agent;
+  List.iter
+    (fun ((tc : Provider.tool_call), _, _) ->
+      let doc_events = observe_project_docs agent tc in
+      List.iter (fun msg -> agent.history <- msg :: agent.history) doc_events)
+    results;
   Lwt.return_unit
 
 let inject_search_context agent ~db ~user_message =
@@ -1880,9 +2035,11 @@ let prepare_turn_history agent ~user_message ?(content_parts = [])
   let open Lwt.Syntax in
   let* () =
     if workspace_refresh_checked then Lwt.return_unit
-    else
+    else begin
       let _ = note_external_workspace_refresh_if_needed agent in
+      let _ = refresh_project_docs_if_changed agent in
       Lwt.return_unit
+    end
   in
   let* () =
     match db with

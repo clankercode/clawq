@@ -10,7 +10,7 @@ let messages_to_anthropic_json messages =
     (fun (m : Provider.message) ->
       let sc = Provider.sanitize_utf8 m.content in
       match m.role with
-      | "system" -> None (* system handled separately *)
+      | "system" | "developer" -> None (* system/developer handled separately *)
       | "tool" ->
           let content =
             match m.tool_call_id with
