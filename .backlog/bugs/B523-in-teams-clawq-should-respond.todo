@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B523
+priority: high
+status: pending
+tags: []
+title: in Teams, clawq should respond to /debug_dump_chat with a link and not the file upload request (which is still broken)
+---
+
+in Teams, clawq should respond to /debug_dump_chat with a link and not the file upload request (which is still broken)
