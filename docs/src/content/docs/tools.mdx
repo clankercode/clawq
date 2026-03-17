@@ -36,6 +36,7 @@ The following tools are registered in `src/tools_builtin.ml` and are available t
 | `use_skill` | Invoke a named SKILL.md skill by loading its instructions as a system message | Low |
 | `skill_create` | Create a new SKILL.md skill saved to `~/.clawq/skills/<name>/SKILL.md` | Medium |
 | `skill_list` | List all available skills (SKILL.md and legacy JSON) | Low |
+| `change_working_dir` | Change the agent's effective working directory for subsequent tool operations. Relative paths resolve from the current effective CWD. Optionally wipe conversation history to reduce context noise after initial navigation. Restricted by `security.allowed_cwd_patterns` glob list. | Medium |
 
 Additional tools may be registered from MCP servers or skill definitions at session startup.
 

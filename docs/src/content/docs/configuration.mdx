@@ -271,6 +271,7 @@ See the Channels page for a hook file example and event trust model details.
 | `encrypt_secrets` | `false` | Encrypt API keys at rest using `CLAWQ_MASTER_KEY` |
 | `rate_limit_rpm` | `60` | Requests per minute rate limit |
 | `audit_retention_days` | `90` | Days to retain audit log entries |
+| `allowed_cwd_patterns` | `["$CLAWQ_WORKSPACE/**", "$USER_HOME/src/projects-clawq/**", "/clawq/path/to/somewhere/else/**"]` | Glob patterns for directories agents may `change_working_dir` into. Supports `$CLAWQ_WORKSPACE` and `$USER_HOME` pseudo-variables. |
 
 ### gateway
 

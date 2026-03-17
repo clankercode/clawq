@@ -248,6 +248,8 @@ let test_skill_interrupt_kills_descendants () =
                        send_progress = None;
                        interrupt_check = Some (fun () -> !interrupted);
                        inject_system_messages = None;
+                       effective_cwd = None;
+                       request_cwd_change = None;
                      }
                    (`Assoc [])
                in
@@ -590,6 +592,8 @@ let test_use_skill_tool_found () =
       send_progress = None;
       interrupt_check = None;
       inject_system_messages = Some (fun msgs -> injected := !injected @ msgs);
+      effective_cwd = None;
+      request_cwd_change = None;
     }
   in
   let result =
@@ -871,6 +875,8 @@ let test_use_skill_with_injection () =
       send_progress = None;
       interrupt_check = None;
       inject_system_messages = Some (fun msgs -> injected := !injected @ msgs);
+      effective_cwd = None;
+      request_cwd_change = None;
     }
   in
   let result =

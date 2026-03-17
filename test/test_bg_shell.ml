@@ -46,6 +46,8 @@ let test_basic_detach () =
                    send_progress = None;
                    interrupt_check = Some (fun () -> !interrupted);
                    inject_system_messages = None;
+                   effective_cwd = None;
+                   request_cwd_change = None;
                  }
                (`Assoc [ ("command", `String "echo hello; sleep 0.3") ])
            in
@@ -91,6 +93,8 @@ let test_status_running () =
                    send_progress = None;
                    interrupt_check = Some (fun () -> !interrupted);
                    inject_system_messages = None;
+                   effective_cwd = None;
+                   request_cwd_change = None;
                  }
                (`Assoc [ ("command", `String "sleep 0.5") ])
            in
@@ -144,6 +148,8 @@ let test_result_windowed () =
                    send_progress = None;
                    interrupt_check = Some (fun () -> !interrupted);
                    inject_system_messages = None;
+                   effective_cwd = None;
+                   request_cwd_change = None;
                  }
                (`Assoc
                   [
@@ -203,6 +209,8 @@ let test_exit_code_captured () =
                    send_progress = None;
                    interrupt_check = Some (fun () -> !interrupted);
                    inject_system_messages = None;
+                   effective_cwd = None;
+                   request_cwd_change = None;
                  }
                (`Assoc [ ("command", `String "sleep 0.1; exit 42") ])
            in
@@ -258,6 +266,8 @@ let test_result_while_running () =
                    send_progress = None;
                    interrupt_check = Some (fun () -> !interrupted);
                    inject_system_messages = None;
+                   effective_cwd = None;
+                   request_cwd_change = None;
                  }
                (`Assoc [ ("command", `String "sleep 5") ])
            in

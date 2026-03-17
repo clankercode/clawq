@@ -1156,6 +1156,10 @@ let parse_config ?(resolve_secrets = true) json =
         try s |> member "extra_allowed_paths" |> to_list |> List.map to_string
         with _ -> default.security.extra_allowed_paths
       in
+      let allowed_cwd_patterns =
+        try s |> member "allowed_cwd_patterns" |> to_list |> List.map to_string
+        with _ -> default.security.allowed_cwd_patterns
+      in
       let sandbox_backend =
         try s |> member "sandbox_backend" |> to_string with _ -> "auto"
       in
@@ -1170,6 +1174,7 @@ let parse_config ?(resolve_secrets = true) json =
          landlock_enabled;
          landlock_extra_read_paths;
          extra_allowed_paths;
+         allowed_cwd_patterns;
          sandbox_backend;
        }
         : Runtime_config.security_config)

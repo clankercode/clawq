@@ -322,6 +322,9 @@ type security_config = {
   extra_allowed_paths : string list;
       (** Additional absolute paths the agent may access when
           [workspace_only = true]. *)
+  allowed_cwd_patterns : string list;
+      (** Glob patterns for directories agents may change_working_dir into.
+          Supports $CLAWQ_WORKSPACE and $USER_HOME pseudo-variables. *)
   sandbox_backend : string;
       (** Sandbox backend: "auto", "firejail", "bubblewrap", or "none" *)
 }
@@ -649,6 +652,12 @@ let default =
         landlock_enabled = false;
         landlock_extra_read_paths = [];
         extra_allowed_paths = [];
+        allowed_cwd_patterns =
+          [
+            "$CLAWQ_WORKSPACE/**";
+            "$USER_HOME/src/projects-clawq/**";
+            "/clawq/path/to/somewhere/else/**";
+          ];
         sandbox_backend = "auto";
       };
     stt = None;
@@ -911,6 +920,22 @@ let expand_home path =
 let effective_workspace (cfg : t) =
   let path = expand_home cfg.workspace in
   if path = "" then default_workspace () else path
+
+let expand_cwd_pattern ~(config : t) pattern =
+  let home =
+    match Sys.getenv_opt "HOME" with
+    | Some h -> h
+    | None ->
+        let ts = int_of_float (Unix.gettimeofday ()) in
+        let fallback = Printf.sprintf "/tmp/clawq-home-%d" ts in
+        Printf.eprintf "ERROR: HOME environment variable not set, using %s\n%!"
+          fallback;
+        fallback
+  in
+  let ws = effective_workspace config in
+  pattern
+  |> Str.global_replace (Str.regexp_string "$CLAWQ_WORKSPACE") ws
+  |> Str.global_replace (Str.regexp_string "$USER_HOME") home
 
 let to_json (cfg : t) : Yojson.Safe.t =
   let provider_json (p : provider_config) =
@@ -1545,6 +1570,11 @@ let to_json (cfg : t) : Yojson.Safe.t =
                   (List.map
                      (fun s -> `String s)
                      cfg.security.extra_allowed_paths) );
+              ( "allowed_cwd_patterns",
+                `List
+                  (List.map
+                     (fun s -> `String s)
+                     cfg.security.allowed_cwd_patterns) );
               ("sandbox_backend", `String cfg.security.sandbox_backend);
             ] );
       ]

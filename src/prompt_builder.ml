@@ -90,8 +90,8 @@ let detected_os_label =
     | s when String.trim s <> "" -> s
     | _ -> Sys.os_type)
 
-let list_cwd_entries () =
-  let cwd = Sys.getcwd () in
+let list_cwd_entries ?effective_cwd () =
+  let cwd = match effective_cwd with Some c -> c | None -> Sys.getcwd () in
   try
     let entries = Sys.readdir cwd |> Array.to_list in
     let entries = List.sort String.compare entries in
@@ -219,7 +219,7 @@ let add_runtime_details lines (details : runtime_context_details) =
       add summary
 
 let build_runtime_context ~(config : Runtime_config.t) ?(force_full = false)
-    ?(md_skills : (string * string) list = []) ?details () =
+    ?(md_skills : (string * string) list = []) ?details ?effective_cwd () =
   if (not force_full) && not config.prompt.dynamic_enabled then None
   else
     let lines = ref [] in
@@ -230,10 +230,13 @@ let build_runtime_context ~(config : Runtime_config.t) ?(force_full = false)
       add ("- Local timezone: " ^ local_timezone_label ())
     end;
     if force_full || config.prompt.include_runtime_section then begin
-      add ("- Current working directory: " ^ Sys.getcwd ());
-      add ("- Directory contents: " ^ list_cwd_entries ());
+      let cwd =
+        match effective_cwd with Some c -> c | None -> Sys.getcwd ()
+      in
+      add ("- Current working directory: " ^ cwd);
+      add ("- Directory contents: " ^ list_cwd_entries ?effective_cwd ());
       add ("- Workspace root: " ^ Runtime_config.effective_workspace config);
-      (match find_git_root_and_dir (Sys.getcwd ()) with
+      (match find_git_root_and_dir cwd with
       | Some (repo_root, git_dir) -> (
           add ("- Git repo root: " ^ repo_root);
           match current_git_branch ~git_dir with

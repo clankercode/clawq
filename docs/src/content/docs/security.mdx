@@ -94,6 +94,18 @@ Auto-detection order: Firejail → Bubblewrap → None. Set `sandbox_backend` ex
 Sandboxing only applies when `workspace_only: true`. With `workspace_only: false` and `sandbox_backend: "none"`, shell commands have full filesystem and network access.
 </Callout>
 
+## Working Directory Restrictions
+
+The `change_working_dir` tool lets agents move their effective CWD to a subdirectory. All path-resolving tools (file_read, file_write, file_edit, glob, list_dir, grep, shell_exec) resolve relative paths against the effective CWD, while security checks still use the original workspace root.
+
+Allowed directories are controlled by `security.allowed_cwd_patterns`, a list of glob patterns supporting `**` wildcards and two pseudo-variables:
+- `$CLAWQ_WORKSPACE` — expands to the effective workspace path (`~/.clawq/workspace` or custom)
+- `$USER_HOME` — expands to the `HOME` environment variable
+
+The resolved target path must match at least one pattern. If no pattern matches, the tool returns an error listing the configured patterns.
+
+The tool also supports an optional `wipe_history` parameter that compacts the agent's conversation history down to the first user message plus a mechanical summary of the wiped turns, reducing context noise after initial navigation.
+
 ## Landlock OS Sandboxing
 
 On Linux kernels that support it, clawq can activate Landlock filesystem sandboxing via a C FFI layer in `src/landlock.ml` and `src/landlock_stubs.c`. Landlock operates at the kernel level, independently of Firejail/Bubblewrap.

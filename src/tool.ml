@@ -5,6 +5,8 @@ type invoke_context = {
   send_progress : (string -> unit Lwt.t) option;
   interrupt_check : (unit -> string option) option;
   inject_system_messages : (string list -> unit) option;
+  effective_cwd : string option;
+  request_cwd_change : (string -> bool -> unit) option;
 }
 
 type invoke_stream =
@@ -29,6 +31,8 @@ let default_context =
     send_progress = None;
     interrupt_check = None;
     inject_system_messages = None;
+    effective_cwd = None;
+    request_cwd_change = None;
   }
 
 let validate_required_params (tool : t) (args : Yojson.Safe.t) :

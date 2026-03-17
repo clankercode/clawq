@@ -333,6 +333,8 @@ let execute_tool_calls_stream ~config ~(tool_registry : Tool_registry.t option)
                                                   ~role:"system" ~content
                                                 :: !history_ref)
                                             msgs);
+                                    effective_cwd = None;
+                                    request_cwd_change = None;
                                   }
                                 in
                                 match tool.invoke_stream with
@@ -532,6 +534,8 @@ let execute_tool_calls ~config ~(tool_registry : Tool_registry.t option)
                                                   ~role:"system" ~content
                                                 :: !history_ref)
                                             msgs);
+                                    effective_cwd = None;
+                                    request_cwd_change = None;
                                   }
                                 in
                                 tool.invoke ~context args)

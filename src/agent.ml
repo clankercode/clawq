@@ -7,6 +7,7 @@ type t = {
   tool_registry : Tool_registry.t option;
   agent_template : Agent_template.t option;
   mutable compacted_mid_turn : bool;
+  mutable effective_cwd : string option;
 }
 
 exception Interrupted of string
@@ -97,6 +98,7 @@ let create ~config ?tool_registry ?agent_template () =
     tool_registry;
     agent_template;
     compacted_mid_turn = false;
+    effective_cwd = None;
   }
 
 let is_session_event_message (msg : Provider.message) = msg.role = "event"
@@ -1316,6 +1318,56 @@ let resolve_tool_search agent (tc : Provider.tool_call) =
           m "Tool search query=%S found=%d tools" query (List.length top));
       Provider.make_tool_search_result ~tool_call_id:tc.id ~tools_json
 
+let summarize_history_for_wipe history =
+  let lines = ref [] in
+  let add line = lines := line :: !lines in
+  add "[Prior context summary]";
+  List.iter
+    (fun (msg : Provider.message) ->
+      match msg.role with
+      | "assistant" ->
+          List.iter
+            (fun (tc : Provider.tool_call) ->
+              let args_preview =
+                let s = tc.arguments in
+                if String.length s > 60 then String.sub s 0 60 ^ "..." else s
+              in
+              add (Printf.sprintf "- %s(%s)" tc.function_name args_preview))
+            msg.tool_calls;
+          if msg.content <> "" then begin
+            let preview =
+              if String.length msg.content > 80 then
+                String.sub msg.content 0 80 ^ "..."
+              else msg.content
+            in
+            add ("- assistant: " ^ preview)
+          end
+      | "tool" ->
+          let name = match msg.name with Some n -> n | None -> "tool" in
+          let preview =
+            if String.length msg.content > 60 then
+              String.sub msg.content 0 60 ^ "..."
+            else msg.content
+          in
+          add (Printf.sprintf "- %s result: %s" name preview)
+      | _ -> ())
+    (List.rev history);
+  String.concat "\n" (List.rev !lines)
+
+let perform_cwd_history_wipe agent =
+  let reversed = List.rev agent.history in
+  let first_user_msg =
+    List.find_opt (fun (m : Provider.message) -> m.role = "user") reversed
+  in
+  let summary_text = summarize_history_for_wipe agent.history in
+  let summary_msg =
+    Provider.make_message ~role:"system" ~content:summary_text
+  in
+  agent.history <-
+    (match first_user_msg with
+    | Some msg -> [ summary_msg; msg ]
+    | None -> [ summary_msg ])
+
 (* Execute tool calls in order so workspace refresh events can attribute active
    prompt-file updates to the specific tool call that triggered them. *)
 let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
@@ -1331,6 +1383,7 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
           Lwt.return_unit)
       :: !notification_promises
   in
+  let pending_history_wipe = ref false in
   let interrupted = ref false in
   let check_interrupt () =
     if !interrupted then true
@@ -1468,6 +1521,13 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
                                                   ~role:"system" ~content
                                                 :: agent.history)
                                             msgs);
+                                    effective_cwd = agent.effective_cwd;
+                                    request_cwd_change =
+                                      Some
+                                        (fun new_cwd wipe ->
+                                          agent.effective_cwd <- Some new_cwd;
+                                          if wipe then
+                                            pending_history_wipe := true);
                                   }
                                 in
                                 match tool.invoke_stream with
@@ -1546,6 +1606,7 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
     (fun ((_tc : Provider.tool_call), tool_msg, refresh_msg) ->
       append_tool_history agent tool_msg refresh_msg)
     results;
+  if !pending_history_wipe then perform_cwd_history_wipe agent;
   let* () = Lwt.join !notification_promises in
   Lwt.return_unit
 
@@ -1553,6 +1614,7 @@ let execute_tool_calls agent ~db ~audit_enabled ~session_key ?interrupt_check
     calls =
   let open Lwt.Syntax in
   let sk_tag = match session_key with Some s -> "[" ^ s ^ "] " | None -> "" in
+  let pending_history_wipe = ref false in
   let interrupted = ref false in
   let check_interrupt () =
     if !interrupted then true
@@ -1663,6 +1725,13 @@ let execute_tool_calls agent ~db ~audit_enabled ~session_key ?interrupt_check
                                                   ~role:"system" ~content
                                                 :: agent.history)
                                             msgs);
+                                    effective_cwd = agent.effective_cwd;
+                                    request_cwd_change =
+                                      Some
+                                        (fun new_cwd wipe ->
+                                          agent.effective_cwd <- Some new_cwd;
+                                          if wipe then
+                                            pending_history_wipe := true);
                                   }
                                 in
                                 tool.invoke ~context args)
@@ -1714,6 +1783,7 @@ let execute_tool_calls agent ~db ~audit_enabled ~session_key ?interrupt_check
     (fun ((_tc : Provider.tool_call), tool_msg, refresh_msg) ->
       append_tool_history agent tool_msg refresh_msg)
     results;
+  if !pending_history_wipe then perform_cwd_history_wipe agent;
   Lwt.return_unit
 
 let inject_search_context agent ~db ~user_message =
@@ -2003,6 +2073,13 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
     | None -> Lwt.return_unit
   in
   let rec loop iteration =
+    let runtime_context =
+      match agent.effective_cwd with
+      | Some cwd ->
+          Prompt_builder.build_runtime_context ~config:agent.config
+            ~effective_cwd:cwd ()
+      | None -> runtime_context
+    in
     let current_request_history_len = List.length agent.history in
     let* response =
       Lwt.catch
@@ -2327,6 +2404,13 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
     | None -> Lwt.return_unit
   in
   let rec loop iteration =
+    let runtime_context =
+      match agent.effective_cwd with
+      | Some cwd ->
+          Prompt_builder.build_runtime_context ~config:agent.config
+            ~effective_cwd:cwd ()
+      | None -> runtime_context
+    in
     let current_request_history_len = List.length agent.history in
     Lwt.catch
       (fun () ->

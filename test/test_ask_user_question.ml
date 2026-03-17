@@ -149,6 +149,8 @@ let test_empty_questions_error () =
            send_progress = None;
            interrupt_check = None;
            inject_system_messages = None;
+           effective_cwd = None;
+           request_cwd_change = None;
          }
      in
      let open Lwt.Syntax in
@@ -211,6 +213,8 @@ let test_multi_question_sequential () =
          send_progress = None;
          interrupt_check = None;
          inject_system_messages = None;
+         effective_cwd = None;
+         request_cwd_change = None;
        }
      in
      let* result = tool.Tool.invoke ~context:ctx args in

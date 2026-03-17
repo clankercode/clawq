@@ -150,7 +150,7 @@ let file_read ~workspace ~workspace_only ~extra_allowed_paths =
           ("required", `List [ `String "path" ]);
         ];
     invoke =
-      (fun ?context:_ args ->
+      (fun ?context args ->
         let open Yojson.Safe.Util in
         let path = try args |> member "path" |> to_string with _ -> "" in
         let offset_input = parse_optional_int_field args "offset" in
@@ -175,10 +175,13 @@ let file_read ~workspace ~workspace_only ~extra_allowed_paths =
                          ~extra_allowed_paths path)
                   then Lwt.return "Error: path is outside workspace"
                   else
+                    let eff_ws =
+                      effective_cwd_or_workspace ?context ~workspace ()
+                    in
                     Lwt.catch
                       (fun () ->
                         let open Lwt.Syntax in
-                        let path = resolve_path ~workspace path in
+                        let path = resolve_path ~workspace:eff_ws path in
                         let canonical_path = canonicalize_for_read path in
                         match canonical_path with
                         | Error msg -> Lwt.return msg
@@ -244,7 +247,7 @@ let file_append ~workspace ~workspace_only ~extra_allowed_paths =
           ("required", `List [ `String "path"; `String "content" ]);
         ];
     invoke =
-      (fun ?context:_ args ->
+      (fun ?context args ->
         let open Yojson.Safe.Util in
         let path = try args |> member "path" |> to_string with _ -> "" in
         let content =
@@ -257,10 +260,11 @@ let file_append ~workspace ~workspace_only ~extra_allowed_paths =
                path)
         then Lwt.return "Error: path is outside workspace"
         else
+          let eff_ws = effective_cwd_or_workspace ?context ~workspace () in
           Lwt.catch
             (fun () ->
               let open Lwt.Syntax in
-              let path = resolve_path ~workspace path in
+              let path = resolve_path ~workspace:eff_ws path in
               let* existing =
                 Lwt.catch
                   (fun () ->
@@ -312,7 +316,7 @@ let file_write ~workspace ~workspace_only ~extra_allowed_paths =
           ("required", `List [ `String "path"; `String "content" ]);
         ];
     invoke =
-      (fun ?context:_ args ->
+      (fun ?context args ->
         let open Yojson.Safe.Util in
         let path = try args |> member "path" |> to_string with _ -> "" in
         let content =
@@ -325,10 +329,11 @@ let file_write ~workspace ~workspace_only ~extra_allowed_paths =
                path)
         then Lwt.return "Error: path is outside workspace"
         else
+          let eff_ws = effective_cwd_or_workspace ?context ~workspace () in
           Lwt.catch
             (fun () ->
               let open Lwt.Syntax in
-              let path = resolve_path ~workspace path in
+              let path = resolve_path ~workspace:eff_ws path in
               let* () =
                 Lwt_io.with_file ~mode:Lwt_io.Output path (fun oc ->
                     Lwt_io.write oc content)
@@ -385,7 +390,7 @@ let file_edit ~workspace ~workspace_only ~extra_allowed_paths =
             `List [ `String "path"; `String "old_text"; `String "new_text" ] );
         ];
     invoke =
-      (fun ?context:_ args ->
+      (fun ?context args ->
         let open Yojson.Safe.Util in
         let path = try args |> member "path" |> to_string with _ -> "" in
         let old_text =
@@ -405,10 +410,11 @@ let file_edit ~workspace ~workspace_only ~extra_allowed_paths =
                path)
         then Lwt.return "Error: path is outside workspace"
         else
+          let eff_ws = effective_cwd_or_workspace ?context ~workspace () in
           Lwt.catch
             (fun () ->
               let open Lwt.Syntax in
-              let path = resolve_path ~workspace path in
+              let path = resolve_path ~workspace:eff_ws path in
               let* content =
                 Lwt_io.with_file ~mode:Lwt_io.Input path Lwt_io.read
               in
@@ -521,7 +527,7 @@ let file_edit_lines ~workspace ~workspace_only ~extra_allowed_paths =
               ] );
         ];
     invoke =
-      (fun ?context:_ args ->
+      (fun ?context args ->
         let open Yojson.Safe.Util in
         let path = try args |> member "path" |> to_string with _ -> "" in
         let start_line =
@@ -542,10 +548,11 @@ let file_edit_lines ~workspace ~workspace_only ~extra_allowed_paths =
                path)
         then Lwt.return "Error: path is outside workspace"
         else
+          let eff_ws = effective_cwd_or_workspace ?context ~workspace () in
           Lwt.catch
             (fun () ->
               let open Lwt.Syntax in
-              let path = resolve_path ~workspace path in
+              let path = resolve_path ~workspace:eff_ws path in
               let* content =
                 Lwt_io.with_file ~mode:Lwt_io.Input path Lwt_io.read
               in
@@ -1055,7 +1062,7 @@ let glob ~workspace ~workspace_only ~extra_allowed_paths =
           ("required", `List [ `String "pattern" ]);
         ];
     invoke =
-      (fun ?context:_ args ->
+      (fun ?context args ->
         let open Yojson.Safe.Util in
         let pattern =
           try args |> member "pattern" |> to_string with _ -> ""
@@ -1073,9 +1080,10 @@ let glob ~workspace ~workspace_only ~extra_allowed_paths =
              glob(pattern=\"**/*.ml\"). The 'pattern' field must be a \
              non-empty string."
         else
+          let eff_ws = effective_cwd_or_workspace ?context ~workspace () in
           let root =
-            if root_arg = "" then workspace
-            else resolve_path ~workspace root_arg
+            if root_arg = "" then eff_ws
+            else resolve_path ~workspace:eff_ws root_arg
           in
           if root_arg <> "" && not (Sys.file_exists root) then
             Lwt.return
@@ -1166,14 +1174,16 @@ let list_dir ~workspace ~workspace_only ~extra_allowed_paths =
           ("required", `List []);
         ];
     invoke =
-      (fun ?context:_ args ->
+      (fun ?context args ->
         let open Yojson.Safe.Util in
         let path_arg = try args |> member "path" |> to_string with _ -> "" in
         let show_hidden =
           try args |> member "show_hidden" |> to_bool with _ -> false
         in
+        let eff_ws = effective_cwd_or_workspace ?context ~workspace () in
         let path =
-          if path_arg = "" then workspace else resolve_path ~workspace path_arg
+          if path_arg = "" then eff_ws
+          else resolve_path ~workspace:eff_ws path_arg
         in
         if path_arg <> "" && not (Sys.file_exists path) then
           Lwt.return
@@ -1325,7 +1335,7 @@ let grep ~workspace ~workspace_only ~extra_allowed_paths =
           ("required", `List [ `String "pattern" ]);
         ];
     invoke =
-      (fun ?context:_ args ->
+      (fun ?context args ->
         let open Yojson.Safe.Util in
         let pattern =
           try args |> member "pattern" |> to_string with _ -> ""
@@ -1406,9 +1416,10 @@ let grep ~workspace ~workspace_only ~extra_allowed_paths =
                     with Not_found -> false)
                   regexes
               in
+              let eff_ws = effective_cwd_or_workspace ?context ~workspace () in
               let root =
-                if path_arg = "" then workspace
-                else resolve_path ~workspace path_arg
+                if path_arg = "" then eff_ws
+                else resolve_path ~workspace:eff_ws path_arg
               in
               if path_arg <> "" && not (Sys.file_exists root) then
                 Lwt.return
@@ -1463,6 +1474,168 @@ let grep ~workspace ~workspace_only ~extra_allowed_paths =
                             ^ Option.value ~default:"" warning)));
     invoke_stream = None;
     risk_level = Low;
+    deferred = false;
+  }
+
+let change_working_dir ~(config : Runtime_config.t) ~workspace ~workspace_only
+    ~extra_allowed_paths =
+  {
+    Tool.name = "change_working_dir";
+    description =
+      "Change the effective working directory for subsequent tool operations. \
+       Relative paths resolve from the current effective CWD. Optionally wipe \
+       conversation history to reduce context noise after initial navigation.";
+    parameters_schema =
+      `Assoc
+        [
+          ("type", `String "object");
+          ( "properties",
+            `Assoc
+              [
+                ( "path",
+                  `Assoc
+                    [
+                      ("type", `String "string");
+                      ( "description",
+                        `String
+                          "Directory path to change to (absolute or relative \
+                           to current effective CWD)" );
+                    ] );
+                ( "wipe_history",
+                  `Assoc
+                    [
+                      ("type", `String "boolean");
+                      ( "description",
+                        `String
+                          "If true, wipe intermediate history keeping only the \
+                           first user message and a summary (default false)" );
+                    ] );
+              ] );
+          ("required", `List [ `String "path" ]);
+        ];
+    invoke =
+      (fun ?context args ->
+        let open Yojson.Safe.Util in
+        let path_arg = try args |> member "path" |> to_string with _ -> "" in
+        let wipe_history =
+          try args |> member "wipe_history" |> to_bool with _ -> false
+        in
+        if path_arg = "" then
+          Lwt.return
+            "Error: path is required. Provide the directory to change to, e.g. \
+             change_working_dir(path=\"src\")."
+        else
+          match context with
+          | None ->
+              Lwt.return
+                "Error: change_working_dir requires an agent context. This \
+                 tool can only be used within an agent session."
+          | Some ctx -> (
+              match ctx.Tool.request_cwd_change with
+              | None ->
+                  Lwt.return
+                    "Error: change_working_dir callback not available. This \
+                     tool can only be used within an agent session."
+              | Some request_cwd_change ->
+                  let eff_ws =
+                    effective_cwd_or_workspace ?context ~workspace ()
+                  in
+                  let resolved =
+                    if Filename.is_relative path_arg then
+                      Filename.concat eff_ws path_arg
+                    else path_arg
+                  in
+                  let resolved = normalize_path resolved in
+                  if not (Sys.file_exists resolved) then
+                    Lwt.return
+                      (Printf.sprintf
+                         "Error: directory does not exist: %s. Check the path \
+                          or use list_dir to discover available directories."
+                         path_arg)
+                  else if
+                    try not (Sys.is_directory resolved)
+                    with Sys_error _ -> true
+                  then
+                    Lwt.return
+                      (Printf.sprintf
+                         "Error: path is not a directory: %s. \
+                          change_working_dir only works on directories."
+                         path_arg)
+                  else if
+                    workspace_only
+                    && not
+                         (is_path_within_allowed_roots ~workspace
+                            ~extra_allowed_paths resolved)
+                  then
+                    Lwt.return
+                      "Error: path is outside the workspace in workspace_only \
+                       mode"
+                  else
+                    let patterns = config.security.allowed_cwd_patterns in
+                    let expanded_patterns =
+                      List.map
+                        (Runtime_config.expand_cwd_pattern ~config)
+                        patterns
+                    in
+                    let matches =
+                      List.exists
+                        (fun pat -> glob_matches_path ~pattern:pat resolved)
+                        expanded_patterns
+                    in
+                    if not matches then
+                      Lwt.return
+                        (Printf.sprintf
+                           "Error: directory %s does not match any \
+                            allowed_cwd_patterns. Configured patterns: %s. \
+                            Update security.allowed_cwd_patterns in %s to \
+                            allow this directory."
+                           resolved
+                           (String.concat ", "
+                              (List.map (fun p -> "\"" ^ p ^ "\"") patterns))
+                           (Dot_dir.config_path ()))
+                    else begin
+                      request_cwd_change resolved wipe_history;
+                      let entries =
+                        try
+                          let items =
+                            Sys.readdir resolved |> Array.to_list
+                            |> List.filter (fun e -> e = "" || e.[0] <> '.')
+                            |> List.sort String.compare
+                          in
+                          let classified =
+                            List.map
+                              (fun name ->
+                                let full = Filename.concat resolved name in
+                                if try Sys.is_directory full with _ -> false
+                                then name ^ "/"
+                                else name)
+                              items
+                          in
+                          let max_show = 30 in
+                          let len = List.length classified in
+                          if len = 0 then "(empty directory)"
+                          else if len <= max_show then
+                            String.concat "  " classified
+                          else
+                            String.concat "  "
+                              (List.filteri
+                                 (fun i _ -> i < max_show)
+                                 classified)
+                            ^ Printf.sprintf "  ...(%d more)" (len - max_show)
+                        with _ -> "(unable to list)"
+                      in
+                      Lwt.return
+                        (Printf.sprintf
+                           "Changed working directory to: %s\nContents: %s%s"
+                           resolved entries
+                           (if wipe_history then
+                              "\n\
+                               (History wiped — only first user message and \
+                               summary retained)"
+                            else ""))
+                    end));
+    invoke_stream = None;
+    risk_level = Medium;
     deferred = false;
   }
 

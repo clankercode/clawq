@@ -399,6 +399,8 @@ let test_compact_history_tool () =
       send_progress = None;
       interrupt_check = None;
       inject_system_messages = None;
+      effective_cwd = None;
+      request_cwd_change = None;
     }
   in
   let result = Lwt_main.run (tool.invoke ~context:ctx (`Assoc [])) in

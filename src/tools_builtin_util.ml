@@ -307,6 +307,12 @@ let is_workspace_safe_command_token token =
 let resolve_path ~workspace path =
   if Filename.is_relative path then Filename.concat workspace path else path
 
+let effective_cwd_or_workspace ?context ~workspace () =
+  match context with
+  | Some c -> (
+      match c.Tool.effective_cwd with Some cwd -> cwd | None -> workspace)
+  | None -> workspace
+
 (* Detect "cd <path> && <rest>" command pattern for cwd optimization.
    Returns Some (dir, rest_command) when the command starts with a simple
    cd to an absolute path followed by &&. *)
@@ -1041,6 +1047,7 @@ let shell_exec_with_hooks ~workspace ~workspace_only ~allowed_commands
     let interrupt_check =
       match context with Some c -> c.Tool.interrupt_check | None -> None
     in
+    let eff_ws = effective_cwd_or_workspace ?context ~workspace () in
     let command = try args |> member "command" |> to_string with _ -> "" in
     if String.trim command = "" then
       Lwt.return
@@ -1090,7 +1097,11 @@ let shell_exec_with_hooks ~workspace ~workspace_only ~allowed_commands
                 let open Lwt.Syntax in
                 let cwd_result =
                   match cwd_arg with
-                  | None -> Ok (if workspace_only then Some workspace else None)
+                  | None ->
+                      Ok
+                        (if eff_ws <> workspace then Some eff_ws
+                         else if workspace_only then Some workspace
+                         else None)
                   | Some cwd ->
                       Result.map
                         (fun resolved -> Some resolved)

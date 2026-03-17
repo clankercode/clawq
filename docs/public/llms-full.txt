@@ -341,7 +341,7 @@ Note: `providers.*.default_model` is the model identifier as understood by that 
 
 **channels.teams** — `app_id`, `app_secret`, `tenant_id`, `webhook_path` (default `/teams/webhook`), `service_url` (default `https://smba.trafficmanager.net/amer`), `allow_teams` (default `["*"]`), `allow_users` (default `["*"]`).
 
-**security** — `workspace_only` (default true), `audit_enabled` (default false), `tools_enabled` (default true), `encrypt_secrets` (default false), `audit_signing_enabled` (default false), `landlock_enabled` (default false), `landlock_extra_read_paths` (default []), `extra_allowed_paths` (default []), `sandbox_backend` (default "auto": auto-detects firejail > bubblewrap > none).
+**security** — `workspace_only` (default true), `audit_enabled` (default false), `tools_enabled` (default true), `encrypt_secrets` (default false), `audit_signing_enabled` (default false), `landlock_enabled` (default false), `landlock_extra_read_paths` (default []), `extra_allowed_paths` (default []), `sandbox_backend` (default "auto": auto-detects firejail > bubblewrap > none), `allowed_cwd_patterns` (default `["$CLAWQ_WORKSPACE/**", "$USER_HOME/src/projects-clawq/**", "/clawq/path/to/somewhere/else/**"]`; glob patterns for directories agents may `change_working_dir` into; supports `$CLAWQ_WORKSPACE` and `$USER_HOME` pseudo-variable expansion).
 
 **security.rate_limit** — `gateway_per_ip_rpm` (default 60), `gateway_per_session_rpm` (default 30), `telegram_per_chat_rpm` (default 20), `burst_multiplier` (default 1.5).
 
@@ -391,7 +391,7 @@ To encrypt API keys at rest: set `security.encrypt_secrets` to true, set `CLAWQ_
 
 ## Your Tools
 
-You have up to 42 built-in tools. 15 are always registered; `web_search`, `zai_websearch`, `zai_webfetch`, `send_message`, `ask_user_question`, `transcribe`, the four memory tools, `history_search`, `task_tree`, the background/delegation tool family (including `background_task_resume`, `background_task_send_message`, and `background_finalize`), and the five `plan_pipeline_*` tools are conditional on runtime configuration/wiring.
+You have up to 43 built-in tools. 16 are always registered; `web_search`, `zai_websearch`, `zai_webfetch`, `send_message`, `ask_user_question`, `transcribe`, the four memory tools, `history_search`, `task_tree`, the background/delegation tool family (including `background_task_resume`, `background_task_send_message`, and `background_finalize`), and the five `plan_pipeline_*` tools are conditional on runtime configuration/wiring.
 
 | Tool | Description |
 |------|-------------|
@@ -440,6 +440,7 @@ You have up to 42 built-in tools. 15 are always registered; `web_search`, `zai_w
 | `plan_pipeline_list` | List all planning pipelines with id, stage, status, and prompt summary |
 | `plan_pipeline_logs` | Read log output from the most recent background task for a pipeline. Params: `id` (required), `lines` (default 50) |
 | `plan_pipeline_cancel` | Cancel a running pipeline and its current background task |
+| `change_working_dir` | Change the agent's effective working directory. Relative paths resolve from the current effective CWD. Optional `wipe_history` (bool, default false) compacts history to first user message + mechanical summary. Restricted by `security.allowed_cwd_patterns` glob patterns. All path-resolving tools (file_read/write/edit, glob, list_dir, grep, shell_exec) use the effective CWD for relative path resolution while security checks still use the original workspace |
 
 Background delegation notes:
 - `delegate` is the high-level user-facing entry point for handing off repository work asynchronously.
@@ -462,6 +463,7 @@ Security features:
 - Unsafe shell syntax rejection (Coq-verified + OCaml check)
 - Localhost-only http_get/http_request/web_fetch when workspace_only is enabled
 - Tool sandboxing via Firejail or Bubblewrap (auto-detected, configurable via security.sandbox_backend)
+- Working directory restrictions: `change_working_dir` is gated by `security.allowed_cwd_patterns` glob list with `$CLAWQ_WORKSPACE`/`$USER_HOME` expansion
 
 You also support MCP (Model Context Protocol) for exposing and consuming external tools, and skills (SKILL.md definitions with YAML frontmatter and shell-script extensions, discovered from `.claude-p/skills/`, `.claude/skills/`, and `~/.clawq/skills/`; managed via `clawq skills`).
 

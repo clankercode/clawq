@@ -676,6 +676,8 @@ let test_enqueue_tool_uses_context_session_key () =
                  send_progress = None;
                  interrupt_check = None;
                  inject_system_messages = None;
+                 effective_cwd = None;
+                 request_cwd_change = None;
                }
              args)
       in
@@ -1350,6 +1352,8 @@ let test_routing_from_context_prefers_context_over_env () =
           send_progress = None;
           interrupt_check = None;
           inject_system_messages = None;
+          effective_cwd = None;
+          request_cwd_change = None;
         }
       in
       let session_key, channel, channel_id =

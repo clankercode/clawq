@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-17T01:02:09Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-17T02:56:33Z"
 complexity: medium
 depends_on: []
+duration_minutes: 114.40840717395
 estimate_hours: 1
 id: B520
 priority: high
 started_at: "2026-03-17T01:02:09Z"
-status: in_progress
+status: done
 tags: []
 title: We should be able to start agents in a subdirectory -- or they should be able to move themselves there with a command that also wipes history (but not the initial prompt, just the few tool calls between that and changing CWD). Need a tool call for CWD change.
 ---

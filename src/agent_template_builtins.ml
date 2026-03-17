@@ -372,6 +372,7 @@ Context provided: [key files, decisions, or constraints passed to the agent]
         "background_task_resume";
         "background_task_send_message";
         "delegate";
+        "change_working_dir";
       ]
     ~disallowed_tools:[]
 
@@ -919,6 +920,7 @@ For each failure:
         "file_edit_lines";
         "memory_store";
         "memory_recall";
+        "change_working_dir";
       ]
     ~disallowed_tools:[]
 
@@ -1081,6 +1083,7 @@ When your work is complete, provide:
         "memory_store";
         "memory_recall";
         "http_get";
+        "change_working_dir";
       ]
     ~disallowed_tools:[]
 
@@ -1401,6 +1404,7 @@ Every debugging task must produce this structured output, whether or not a fix w
         "file_edit_lines";
         "memory_store";
         "memory_recall";
+        "change_working_dir";
       ]
     ~disallowed_tools:[]
 
@@ -1587,6 +1591,7 @@ Extract check: pass | fail | N/A
         "file_edit_lines";
         "memory_store";
         "memory_recall";
+        "change_working_dir";
       ]
     ~disallowed_tools:[]
 
@@ -1918,6 +1923,7 @@ After completing any infrastructure change, provide this structured output:
         "file_append";
         "memory_store";
         "memory_recall";
+        "change_working_dir";
       ]
     ~disallowed_tools:[]
 

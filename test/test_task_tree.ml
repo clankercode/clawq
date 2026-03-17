@@ -665,6 +665,8 @@ let test_tool_invoke_round_trip () =
       send_progress = None;
       interrupt_check = None;
       inject_system_messages = None;
+      effective_cwd = None;
+      request_cwd_change = None;
     }
   in
   let result = Lwt_main.run (tool_t.invoke ~context:ctx args) in
@@ -1898,6 +1900,8 @@ let test_tool_notify_called_on_success () =
       send_progress = None;
       interrupt_check = None;
       inject_system_messages = None;
+      effective_cwd = None;
+      request_cwd_change = None;
     }
   in
   let result = Lwt_main.run (tool_t.invoke ~context:ctx args) in
@@ -1935,6 +1939,8 @@ let test_tool_notify_not_called_on_error () =
       send_progress = None;
       interrupt_check = None;
       inject_system_messages = None;
+      effective_cwd = None;
+      request_cwd_change = None;
     }
   in
   let result = Lwt_main.run (tool_t.invoke ~context:ctx args) in
@@ -1959,6 +1965,8 @@ let test_tool_no_notify_when_none () =
       send_progress = None;
       interrupt_check = None;
       inject_system_messages = None;
+      effective_cwd = None;
+      request_cwd_change = None;
     }
   in
   let result = Lwt_main.run (tool_t.invoke ~context:ctx args) in

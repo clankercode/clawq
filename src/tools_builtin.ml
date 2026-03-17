@@ -978,6 +978,8 @@ let register_all ~(config : Runtime_config.t) ~sandbox ?(db = None)
     (list_dir ~workspace ~workspace_only ~extra_allowed_paths);
   Tool_registry.register registry
     (grep ~workspace ~workspace_only ~extra_allowed_paths);
+  Tool_registry.register registry
+    (change_working_dir ~config ~workspace ~workspace_only ~extra_allowed_paths);
   Tool_registry.register registry (http_request ~workspace_only);
   Tool_registry.register registry (web_fetch ~workspace_only);
   List.iter (Tool_registry.register registry) (bg_shell_tools ());

@@ -499,6 +499,8 @@ let test_send_message_uses_send_fn_over_send_progress () =
                    Lwt.return_unit);
              interrupt_check = None;
              inject_system_messages = None;
+             effective_cwd = None;
+             request_cwd_change = None;
            }
          (`Assoc [ ("text", `String "status update") ]))
   in
@@ -553,6 +555,8 @@ let test_send_message_with_buttons_rich_notifier () =
              send_progress = None;
              interrupt_check = None;
              inject_system_messages = None;
+             effective_cwd = None;
+             request_cwd_change = None;
            }
          (`Assoc
             [
@@ -639,6 +643,8 @@ let test_send_message_plain_text_via_rich_notifier () =
              send_progress = None;
              interrupt_check = None;
              inject_system_messages = None;
+             effective_cwd = None;
+             request_cwd_change = None;
            }
          (`Assoc [ ("text", `String "plain text update") ]))
   in
@@ -693,6 +699,8 @@ let test_send_poll_rich_notifier () =
              send_progress = None;
              interrupt_check = None;
              inject_system_messages = None;
+             effective_cwd = None;
+             request_cwd_change = None;
            }
          (`Assoc
             [
@@ -1934,6 +1942,8 @@ let test_shell_exec_interrupts_running_process () =
                    send_progress = None;
                    interrupt_check = Some (fun () -> !interrupted);
                    inject_system_messages = None;
+                   effective_cwd = None;
+                   request_cwd_change = None;
                  }
                (`Assoc [ ("command", `String "sleep 10") ])
            in
@@ -1984,6 +1994,8 @@ let test_shell_exec_interrupt_moves_to_background () =
                    send_progress = None;
                    interrupt_check = Some (fun () -> !interrupted);
                    inject_system_messages = None;
+                   effective_cwd = None;
+                   request_cwd_change = None;
                  }
                (`Assoc [ ("command", `String command) ])
            in
@@ -2102,6 +2114,8 @@ let test_shell_exec_injects_session_id_env () =
           send_progress = None;
           interrupt_check = None;
           inject_system_messages = None;
+          effective_cwd = None;
+          request_cwd_change = None;
         }
       in
       let result =
@@ -2291,6 +2305,8 @@ let test_shell_exec_starts_ci_watch_asynchronously_after_push () =
               send_progress = None;
               interrupt_check = None;
               inject_system_messages = None;
+              effective_cwd = None;
+              request_cwd_change = None;
             }
           in
           let result =
@@ -2381,6 +2397,8 @@ let test_shell_exec_cd_prefix_push_uses_cd_repo_path () =
               send_progress = None;
               interrupt_check = None;
               inject_system_messages = None;
+              effective_cwd = None;
+              request_cwd_change = None;
             }
           in
           let command = Printf.sprintf "cd %s && git push" repo in
@@ -2474,6 +2492,277 @@ let test_git_operations_repo_path_absolute_used_as_cwd () =
       Alcotest.(check bool)
         "status in explicit repo succeeds (no fatal error)" true
         (not (contains result "fatal:")))
+
+let make_test_config ~workspace ~allowed_cwd_patterns =
+  {
+    Runtime_config.default with
+    workspace;
+    security =
+      {
+        Runtime_config.default.security with
+        workspace_only = false;
+        allowed_cwd_patterns;
+      };
+  }
+
+let with_temp_dir_tree f =
+  let root = Filename.temp_file "clawq_cwd_test" "" in
+  Sys.remove root;
+  Unix.mkdir root 0o755;
+  let sub = Filename.concat root "subdir" in
+  Unix.mkdir sub 0o755;
+  let file = Filename.concat root "testfile.txt" in
+  let oc = open_out file in
+  output_string oc "hello world\n";
+  close_out oc;
+  let sub_file = Filename.concat sub "nested.txt" in
+  let oc = open_out sub_file in
+  output_string oc "nested content\n";
+  close_out oc;
+  Fun.protect
+    (fun () -> f ~root ~sub ~file ~sub_file)
+    ~finally:(fun () ->
+      (try Sys.remove sub_file with _ -> ());
+      (try Sys.remove file with _ -> ());
+      (try Unix.rmdir sub with _ -> ());
+      try Unix.rmdir root with _ -> ())
+
+let test_change_working_dir_basic () =
+  with_temp_dir_tree (fun ~root ~sub ~file:_ ~sub_file:_ ->
+      let config =
+        make_test_config ~workspace:root ~allowed_cwd_patterns:[ root ^ "/**" ]
+      in
+      let tool =
+        Tools_builtin.change_working_dir ~config ~workspace:root
+          ~workspace_only:false ~extra_allowed_paths:[]
+      in
+      let cwd_changed_to = ref None in
+      let context =
+        {
+          Tool.session_key = None;
+          send_progress = None;
+          interrupt_check = None;
+          inject_system_messages = None;
+          effective_cwd = None;
+          request_cwd_change =
+            Some (fun path _wipe -> cwd_changed_to := Some path);
+        }
+      in
+      let result =
+        Lwt_main.run
+          (tool.Tool.invoke ~context (`Assoc [ ("path", `String "subdir") ]))
+      in
+      Alcotest.(check bool) "result contains new CWD" true (contains result sub);
+      Alcotest.(check (option string))
+        "callback received new CWD" (Some sub) !cwd_changed_to)
+
+let test_change_working_dir_rejects_unmatched_pattern () =
+  with_temp_dir_tree (fun ~root ~sub:_ ~file:_ ~sub_file:_ ->
+      let config =
+        make_test_config ~workspace:root
+          ~allowed_cwd_patterns:[ "/nonexistent/pattern/**" ]
+      in
+      let tool =
+        Tools_builtin.change_working_dir ~config ~workspace:root
+          ~workspace_only:false ~extra_allowed_paths:[]
+      in
+      let context =
+        {
+          Tool.session_key = None;
+          send_progress = None;
+          interrupt_check = None;
+          inject_system_messages = None;
+          effective_cwd = None;
+          request_cwd_change = Some (fun _ _ -> ());
+        }
+      in
+      let result =
+        Lwt_main.run
+          (tool.Tool.invoke ~context (`Assoc [ ("path", `String "subdir") ]))
+      in
+      Alcotest.(check bool)
+        "error mentions allowed_cwd_patterns" true
+        (contains result "allowed_cwd_patterns"))
+
+let test_change_working_dir_allows_matching_pattern () =
+  with_temp_dir_tree (fun ~root ~sub ~file:_ ~sub_file:_ ->
+      let config =
+        make_test_config ~workspace:root ~allowed_cwd_patterns:[ root ^ "/**" ]
+      in
+      let tool =
+        Tools_builtin.change_working_dir ~config ~workspace:root
+          ~workspace_only:false ~extra_allowed_paths:[]
+      in
+      let cwd_changed = ref false in
+      let context =
+        {
+          Tool.session_key = None;
+          send_progress = None;
+          interrupt_check = None;
+          inject_system_messages = None;
+          effective_cwd = None;
+          request_cwd_change = Some (fun _ _ -> cwd_changed := true);
+        }
+      in
+      let result =
+        Lwt_main.run
+          (tool.Tool.invoke ~context (`Assoc [ ("path", `String sub) ]))
+      in
+      Alcotest.(check bool)
+        "result not an error" true
+        (not (String.starts_with ~prefix:"Error:" result));
+      Alcotest.(check bool) "callback fired" true !cwd_changed)
+
+let test_change_working_dir_rejects_nonexistent () =
+  with_temp_dir_tree (fun ~root ~sub:_ ~file:_ ~sub_file:_ ->
+      let config =
+        make_test_config ~workspace:root ~allowed_cwd_patterns:[ root ^ "/**" ]
+      in
+      let tool =
+        Tools_builtin.change_working_dir ~config ~workspace:root
+          ~workspace_only:false ~extra_allowed_paths:[]
+      in
+      let context =
+        {
+          Tool.session_key = None;
+          send_progress = None;
+          interrupt_check = None;
+          inject_system_messages = None;
+          effective_cwd = None;
+          request_cwd_change = Some (fun _ _ -> ());
+        }
+      in
+      let result =
+        Lwt_main.run
+          (tool.Tool.invoke ~context
+             (`Assoc [ ("path", `String "does_not_exist") ]))
+      in
+      Alcotest.(check bool)
+        "error for non-existent" true
+        (contains result "does not exist"))
+
+let test_change_working_dir_rejects_file () =
+  with_temp_dir_tree (fun ~root ~sub:_ ~file ~sub_file:_ ->
+      let config =
+        make_test_config ~workspace:root ~allowed_cwd_patterns:[ root ^ "/**" ]
+      in
+      let tool =
+        Tools_builtin.change_working_dir ~config ~workspace:root
+          ~workspace_only:false ~extra_allowed_paths:[]
+      in
+      let context =
+        {
+          Tool.session_key = None;
+          send_progress = None;
+          interrupt_check = None;
+          inject_system_messages = None;
+          effective_cwd = None;
+          request_cwd_change = Some (fun _ _ -> ());
+        }
+      in
+      let result =
+        Lwt_main.run
+          (tool.Tool.invoke ~context (`Assoc [ ("path", `String file) ]))
+      in
+      Alcotest.(check bool)
+        "error for file target" true
+        (contains result "not a directory"))
+
+let test_change_working_dir_wipe_history () =
+  with_temp_dir_tree (fun ~root ~sub:_ ~file:_ ~sub_file:_ ->
+      let config =
+        make_test_config ~workspace:root ~allowed_cwd_patterns:[ root ^ "/**" ]
+      in
+      let agent = Agent.create ~config () in
+      agent.history <-
+        [
+          Provider.make_message ~role:"tool" ~content:"some result";
+          Provider.make_message ~role:"assistant" ~content:"";
+          Provider.make_message ~role:"user" ~content:"first user message";
+        ];
+      Alcotest.(check int) "history has 3 msgs" 3 (List.length agent.history);
+      agent.effective_cwd <- Some (Filename.concat root "subdir");
+      Agent.perform_cwd_history_wipe agent;
+      Alcotest.(check int)
+        "history has 2 msgs after wipe" 2
+        (List.length agent.history);
+      let first = List.nth (List.rev agent.history) 0 in
+      Alcotest.(check string) "first msg is user" "user" first.Provider.role;
+      Alcotest.(check string)
+        "first msg content preserved" "first user message" first.content)
+
+let test_file_read_uses_effective_cwd () =
+  with_temp_dir_tree (fun ~root ~sub ~file:_ ~sub_file:_ ->
+      let tool =
+        Tools_builtin.file_read ~workspace:root ~workspace_only:false
+          ~extra_allowed_paths:[]
+      in
+      let context =
+        {
+          Tool.session_key = None;
+          send_progress = None;
+          interrupt_check = None;
+          inject_system_messages = None;
+          effective_cwd = Some sub;
+          request_cwd_change = None;
+        }
+      in
+      let result =
+        Lwt_main.run
+          (tool.Tool.invoke ~context
+             (`Assoc [ ("path", `String "nested.txt") ]))
+      in
+      Alcotest.(check bool)
+        "reads from effective CWD" true
+        (contains result "nested content"))
+
+let test_shell_exec_uses_effective_cwd () =
+  with_temp_dir_tree (fun ~root ~sub ~file:_ ~sub_file:_ ->
+      let sandbox =
+        Sandbox.create ~backend:Sandbox.None ~workspace:root
+          ~extra_allowed_paths:[] ~workspace_only:false ()
+      in
+      let tool =
+        Tools_builtin.shell_exec ~workspace:root ~workspace_only:false
+          ~allowed_commands:[] ~extra_allowed_paths:[] ~sandbox
+      in
+      let context =
+        {
+          Tool.session_key = None;
+          send_progress = None;
+          interrupt_check = None;
+          inject_system_messages = None;
+          effective_cwd = Some sub;
+          request_cwd_change = None;
+        }
+      in
+      let result =
+        Lwt_main.run
+          (tool.Tool.invoke ~context (`Assoc [ ("command", `String "pwd") ]))
+      in
+      Alcotest.(check bool)
+        "pwd matches effective CWD" true (contains result sub))
+
+let test_list_dir_uses_effective_cwd () =
+  with_temp_dir_tree (fun ~root ~sub ~file:_ ~sub_file:_ ->
+      let tool =
+        Tools_builtin.list_dir ~workspace:root ~workspace_only:false
+          ~extra_allowed_paths:[]
+      in
+      let context =
+        {
+          Tool.session_key = None;
+          send_progress = None;
+          interrupt_check = None;
+          inject_system_messages = None;
+          effective_cwd = Some sub;
+          request_cwd_change = None;
+        }
+      in
+      let result = Lwt_main.run (tool.Tool.invoke ~context (`Assoc [])) in
+      Alcotest.(check bool)
+        "lists effective CWD contents" true
+        (contains result "nested.txt"))
 
 let suite =
   [
@@ -2635,4 +2924,22 @@ let suite =
       test_git_operations_repo_path_relative_rejected;
     Alcotest.test_case "git_operations absolute repo_path used as cwd" `Quick
       test_git_operations_repo_path_absolute_used_as_cwd;
+    Alcotest.test_case "change_working_dir basic" `Quick
+      test_change_working_dir_basic;
+    Alcotest.test_case "change_working_dir rejects unmatched pattern" `Quick
+      test_change_working_dir_rejects_unmatched_pattern;
+    Alcotest.test_case "change_working_dir allows matching pattern" `Quick
+      test_change_working_dir_allows_matching_pattern;
+    Alcotest.test_case "change_working_dir rejects non-existent" `Quick
+      test_change_working_dir_rejects_nonexistent;
+    Alcotest.test_case "change_working_dir rejects file" `Quick
+      test_change_working_dir_rejects_file;
+    Alcotest.test_case "change_working_dir wipe history" `Quick
+      test_change_working_dir_wipe_history;
+    Alcotest.test_case "file_read uses effective CWD" `Quick
+      test_file_read_uses_effective_cwd;
+    Alcotest.test_case "shell_exec uses effective CWD" `Quick
+      test_shell_exec_uses_effective_cwd;
+    Alcotest.test_case "list_dir uses effective CWD" `Quick
+      test_list_dir_uses_effective_cwd;
   ]

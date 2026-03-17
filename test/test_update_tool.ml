@@ -274,6 +274,8 @@ let test_update_tool_writes_restart_marker_from_session_context () =
              send_progress = None;
              interrupt_check = None;
              inject_system_messages = None;
+             effective_cwd = None;
+             request_cwd_change = None;
            }
          (`Assoc [ ("mode", `String "git") ]))
   in
