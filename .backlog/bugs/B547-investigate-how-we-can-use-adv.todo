@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B547
+priority: high
+status: pending
+tags: []
+title: investigate how we can use advanced features of the various connectors + the format_adapter and dsl to redesign and drastically improve ask_user_question
+---
+
+investigate how we can use advanced features of the various connectors + the format_adapter and dsl to redesign and drastically improve ask_user_question
