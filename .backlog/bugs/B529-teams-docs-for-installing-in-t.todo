@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-17T04:02:15Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B529
 priority: high
-status: pending
+started_at: "2026-03-17T04:02:15Z"
+status: in_progress
 tags: []
 title: 'teams docs for installing in teams instance (last step): note that if installing to org then it''s easiest to search for the bot by name.'
 ---
