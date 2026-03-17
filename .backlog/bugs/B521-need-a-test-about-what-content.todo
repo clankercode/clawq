@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B521
+priority: high
+status: pending
+tags: []
+title: need a test about what content is excluded in system prompt for agents
+---
+
+need a test about what content is excluded in system prompt for agents
