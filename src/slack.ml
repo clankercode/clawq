@@ -1207,19 +1207,86 @@ let handle_event ~(config : Runtime_config.slack_config)
                           let full_config =
                             Session.get_config session_manager
                           in
+                          (* Partition audio files for transcription *)
+                          let audio_files, non_audio_files =
+                            List.partition
+                              (fun (f : slack_file) ->
+                                Voice_transcription.is_audio_mime f.mimetype)
+                              files
+                          in
+                          let headers =
+                            [ ("Authorization", "Bearer " ^ config.bot_token) ]
+                          in
+                          let* transcription_prefix =
+                            if
+                              audio_files <> []
+                              && full_config.security
+                                   .attachment_downloads_enabled
+                            then
+                              let* texts =
+                                Lwt_list.map_s
+                                  (fun (f : slack_file) ->
+                                    match
+                                      Voice_transcription.validate
+                                        ~config:full_config
+                                        ~filename:f.file_name
+                                        ~mime_type:(Some f.mimetype)
+                                        ~size:(Some f.file_size)
+                                        ~duration_seconds:None
+                                    with
+                                    | Error reason ->
+                                        Logs.info (fun m ->
+                                            m "Slack voice skipped %s: %s"
+                                              f.file_name
+                                              (Voice_transcription
+                                               .skip_reason_to_string reason));
+                                        Lwt.return ""
+                                    | Ok () ->
+                                        Lwt.catch
+                                          (fun () ->
+                                            let* _status, audio_data =
+                                              Http_client.get
+                                                ~uri:f.url_private_download
+                                                ~headers
+                                            in
+                                            let notifier =
+                                              make_status_notifier
+                                                ~bot_token:config.bot_token
+                                                ~channel_id
+                                            in
+                                            Voice_transcription
+                                            .transcribe_with_progress
+                                              ~config:full_config ~notifier
+                                              ~audio_data ~filename:f.file_name
+                                              ())
+                                          (fun exn ->
+                                            Logs.err (fun m ->
+                                                m
+                                                  "Slack voice transcription \
+                                                   failed %s: %s"
+                                                  f.file_name
+                                                  (Printexc.to_string exn));
+                                            Lwt.return ""))
+                                  audio_files
+                              in
+                              Lwt.return
+                                (String.concat ""
+                                   (List.filter (fun s -> s <> "") texts))
+                            else Lwt.return ""
+                          in
+                          let effective_text =
+                            if transcription_prefix <> "" then
+                              transcription_prefix ^ "\n" ^ text
+                            else text
+                          in
                           let* content_parts, att_list, message =
                             if
-                              files <> []
+                              non_audio_files <> []
                               && full_config.security
                                    .attachment_downloads_enabled
                             then
                               let workspace =
                                 Runtime_config.effective_workspace full_config
-                              in
-                              let headers =
-                                [
-                                  ("Authorization", "Bearer " ^ config.bot_token);
-                                ]
                               in
                               let metas =
                                 List.map
@@ -1231,16 +1298,17 @@ let handle_event ~(config : Runtime_config.slack_config)
                                         mime_type = Some f.mimetype;
                                         size = Some f.file_size;
                                       })
-                                  files
+                                  non_audio_files
                               in
                               Attachment_download.process_attachments metas
                                 ~headers ~workspace
                                 ~db:(Session.get_db session_manager)
                                 ~session_key:key ~source:"slack"
-                                ~content_parts:[] ~attachments:[] ~message:text
+                                ~content_parts:[] ~attachments:[]
+                                ~message:effective_text
                             else
                               let placeholder =
-                                if files <> [] then
+                                if non_audio_files <> [] then
                                   let names =
                                     List.map
                                       (fun (f : slack_file) ->
@@ -1248,10 +1316,10 @@ let handle_event ~(config : Runtime_config.slack_config)
                                           "\n\
                                            [Attachment: %s (download disabled)]"
                                           f.file_name)
-                                      files
+                                      non_audio_files
                                   in
-                                  text ^ String.concat "" names
-                                else text
+                                  effective_text ^ String.concat "" names
+                                else effective_text
                               in
                               Lwt.return ([], [], placeholder)
                           in

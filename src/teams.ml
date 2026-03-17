@@ -1452,9 +1452,96 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                                 let full_config =
                                   Session.get_config session_manager
                                 in
+                                (* Partition audio attachments for transcription *)
+                                let audio_atts, non_audio_atts =
+                                  List.partition
+                                    (fun (a : teams_attachment) ->
+                                      Voice_transcription.is_audio_mime
+                                        a.content_type)
+                                    parsed_attachments
+                                in
+                                let* token_opt_for_audio =
+                                  if
+                                    audio_atts <> []
+                                    && full_config.security
+                                         .attachment_downloads_enabled
+                                  then fetch_token ~config
+                                  else Lwt.return None
+                                in
+                                let* transcription_prefix =
+                                  if
+                                    audio_atts <> []
+                                    && full_config.security
+                                         .attachment_downloads_enabled
+                                  then
+                                    let audio_headers =
+                                      match token_opt_for_audio with
+                                      | Some tok ->
+                                          [ ("Authorization", "Bearer " ^ tok) ]
+                                      | None -> []
+                                    in
+                                    let* texts =
+                                      Lwt_list.map_s
+                                        (fun (a : teams_attachment) ->
+                                          match
+                                            Voice_transcription.validate
+                                              ~config:full_config
+                                              ~filename:a.name
+                                              ~mime_type:(Some a.content_type)
+                                              ~size:None ~duration_seconds:None
+                                          with
+                                          | Error reason ->
+                                              Logs.info (fun m ->
+                                                  m "Teams voice skipped %s: %s"
+                                                    a.name
+                                                    (Voice_transcription
+                                                     .skip_reason_to_string
+                                                       reason));
+                                              Lwt.return ""
+                                          | Ok () ->
+                                              Lwt.catch
+                                                (fun () ->
+                                                  let* _status, audio_data =
+                                                    Http_client.get
+                                                      ~uri:a.content_url
+                                                      ~headers:audio_headers
+                                                  in
+                                                  let notifier =
+                                                    make_status_notifier ~config
+                                                      ~service_url:
+                                                        effective_service_url
+                                                      ~conversation_id
+                                                      ~reply_to_id:activity_id
+                                                  in
+                                                  Voice_transcription
+                                                  .transcribe_with_progress
+                                                    ~config:full_config
+                                                    ~notifier ~audio_data
+                                                    ~filename:a.name ())
+                                                (fun exn ->
+                                                  Logs.err (fun m ->
+                                                      m
+                                                        "Teams voice \
+                                                         transcription failed \
+                                                         %s: %s"
+                                                        a.name
+                                                        (Printexc.to_string exn));
+                                                  Lwt.return ""))
+                                        audio_atts
+                                    in
+                                    Lwt.return
+                                      (String.concat ""
+                                         (List.filter (fun s -> s <> "") texts))
+                                  else Lwt.return ""
+                                in
+                                let effective_text =
+                                  if transcription_prefix <> "" then
+                                    transcription_prefix ^ "\n" ^ text
+                                  else text
+                                in
                                 let* content_parts, att_list, message =
                                   if
-                                    parsed_attachments <> []
+                                    non_audio_atts <> []
                                     && full_config.security
                                          .attachment_downloads_enabled
                                   then
@@ -1479,17 +1566,17 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                                               mime_type = Some a.content_type;
                                               size = None;
                                             })
-                                        parsed_attachments
+                                        non_audio_atts
                                     in
                                     Attachment_download.process_attachments
                                       metas ~headers ~workspace
                                       ~db:(Session.get_db session_manager)
                                       ~session_key:key ~source:"teams"
                                       ~content_parts:[] ~attachments:[]
-                                      ~message:text
+                                      ~message:effective_text
                                   else
                                     let placeholder =
-                                      if parsed_attachments <> [] then
+                                      if non_audio_atts <> [] then
                                         let names =
                                           List.map
                                             (fun (a : teams_attachment) ->
@@ -1498,10 +1585,10 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                                                  [Attachment: %s (download \
                                                  disabled)]"
                                                 a.name)
-                                            parsed_attachments
+                                            non_audio_atts
                                         in
-                                        text ^ String.concat "" names
-                                      else text
+                                        effective_text ^ String.concat "" names
+                                      else effective_text
                                     in
                                     Lwt.return ([], [], placeholder)
                                 in

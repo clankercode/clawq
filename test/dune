@@ -157,6 +157,7 @@
   test_acp
   test_admin
   test_attachment_download
+  test_voice_transcription
   test_pair_coding)
  (libraries
   clawq_extracted

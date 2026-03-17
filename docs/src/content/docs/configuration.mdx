@@ -622,6 +622,13 @@ The daemon reads `HEARTBEAT.md` from the workspace root on each tick.
 | `tts_voice` | Voice selection |
 | `audio_dir` | Directory for audio file storage |
 
+When an `stt` provider is configured (separate from the `voice` section), voice
+messages and audio attachments sent to any channel are automatically transcribed
+with progress messages ("Transcribing..." → "Transcribing... Done!").
+Validation limits are hardcoded: max 25 MB file size, max 1 hour duration, and
+music files (`.mp3`, `.m4a`, `.flac`, `.aac`, `.wma`) are skipped unless the
+filename contains "voice", "recording", or "audio\_message".
+
 ### web_channel
 
 ```json

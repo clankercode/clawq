@@ -185,6 +185,7 @@ let () =
     @ [ ("workspace_version", Test_workspace_version.suite) ]
     @ [ ("acp", Test_acp.suite) ]
     @ [ ("admin", Test_admin.suite) ]
+    @ [ ("voice_transcription", Test_voice_transcription.suite) ]
     @ [ ("pair_coding", Test_pair_coding.suite) ]
     @ Test_github.suites
     @ [

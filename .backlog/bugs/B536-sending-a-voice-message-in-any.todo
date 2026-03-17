@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-17T05:44:11Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-17T06:03:41Z"
 complexity: medium
 depends_on: []
+duration_minutes: 19.513312746416666
 estimate_hours: 1
 id: B536
 priority: high
 started_at: "2026-03-17T05:44:11Z"
-status: in_progress
+status: done
 tags: []
 title: 'Sending a voice message in any channel should use transcription. Limits should be: not music, not over 1hr, under 25mb file. When transcribing starts a message ''Transcribing...'' should be sent to the channel, and then updated to ''Transcribing... Done!'' when done'
 ---

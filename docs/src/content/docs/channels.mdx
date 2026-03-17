@@ -119,8 +119,12 @@ Or manually:
   firewall rules needed.
 - **Rate limiting** via the shared `Rate_limiter` token bucket.
 - **Media support** --- voice messages, photos, and documents are received
-  and routed to the agent. Voice files are forwarded to the STT provider
-  when configured.
+  and routed to the agent. Voice messages are automatically transcribed
+  when an STT provider is configured: a "Transcribing..." progress message
+  is sent, updated to "Transcribing... Done!" on completion, and the
+  transcribed text is forwarded to the agent as `[Voice]: <text>`.
+  Validation enforces limits (under 25 MB, under 1 hour) and skips
+  likely music files.
 - **Token redaction** --- bot tokens are automatically redacted in log output
   via the `redact_token` helper.
 - **Silent notifications** --- messages are sent with notification disabled
@@ -189,6 +193,11 @@ The wizard walks through setting the bot token, allowed guilds/users, and gatewa
   per-route bucket tracking and global rate limit handling.
 - **Message chunking** --- responses longer than 2000 characters are
   automatically split into multiple messages.
+- **Voice transcription** --- audio attachments (`.ogg`, `.opus`, `.webm`,
+  etc.) are automatically transcribed via the configured STT provider.
+  A "Transcribing..." progress message is sent and updated to
+  "Transcribing... Done!" on completion. Music files are skipped unless
+  the filename contains "voice" or "recording". Size limit: 25 MB.
 
 ### Architecture
 
@@ -278,6 +287,9 @@ timestamp window.
   cryptographically verified.
 - **Envelope acknowledgement** (Socket Mode) --- ensures Slack does not
   redeliver events.
+- **Voice transcription** --- audio file attachments are automatically
+  transcribed via the configured STT provider with progress messages.
+  Music files are skipped; size limit: 25 MB.
 
 ## GitHub
 
@@ -572,6 +584,9 @@ clawq channel              # confirm teams shows as configured
   mention entities, ensuring they receive a notification.
 - **Native markdown tables** --- slash commands like `/status`, `/costs`, and
   `/usage` render with native markdown tables in Teams for clean formatting.
+- **Voice transcription** --- audio attachments are automatically transcribed
+  via the configured STT provider with progress messages. Music files are
+  skipped; size limit: 25 MB.
 - **Interactive menus** --- menu subcommands (`/model menu`, `/thinking menu`,
   `/config menu`, `/skills`, `/costs menu`, `/bg menu`) render as Adaptive
   Cards with clickable buttons on Teams. On other channels they render as

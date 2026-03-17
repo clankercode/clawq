@@ -152,40 +152,53 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
       let downloads_enabled = config.security.attachment_downloads_enabled in
       let* user_text =
         match update.voice_file_id with
-        | Some file_id ->
-            Lwt.catch
-              (fun () ->
-                let get_file_uri =
-                  Printf.sprintf "%s%s/getFile?file_id=%s" !api_base bot_token
-                    file_id
-                in
-                let* _status, file_body =
-                  Http_client.get ~uri:get_file_uri ~headers:[]
-                in
-                let file_json = Yojson.Safe.from_string file_body in
-                let file_path =
-                  Yojson.Safe.Util.(
-                    file_json |> member "result" |> member "file_path"
-                    |> to_string)
-                in
-                let download_uri =
-                  Printf.sprintf "https://api.telegram.org/file/bot%s/%s"
-                    bot_token file_path
-                in
-                let* _status, audio_data =
-                  Http_client.get ~uri:download_uri ~headers:[]
-                in
-                let filename = Filename.basename file_path in
-                let content_type = Stt.content_type_of_ext filename in
-                let config = Session.get_config session_mgr in
-                let* result =
-                  Stt.transcribe ~config ~audio_data ~filename ~content_type ()
-                in
-                Lwt.return ("[Voice]: " ^ result.text))
-              (fun exn ->
-                Logs.err (fun m ->
-                    m "Voice transcription failed: %s" (Printexc.to_string exn));
-                Lwt.return "")
+        | Some file_id -> (
+            let config = Session.get_config session_mgr in
+            match
+              Voice_transcription.validate ~config ~filename:"voice.ogg"
+                ~mime_type:(Some "audio/ogg") ~size:update.voice_file_size
+                ~duration_seconds:update.voice_duration
+            with
+            | Error reason ->
+                Logs.info (fun m ->
+                    m "Telegram voice skipped: %s"
+                      (Voice_transcription.skip_reason_to_string reason));
+                Lwt.return ""
+            | Ok () ->
+                Lwt.catch
+                  (fun () ->
+                    let get_file_uri =
+                      Printf.sprintf "%s%s/getFile?file_id=%s" !api_base
+                        bot_token file_id
+                    in
+                    let* _status, file_body =
+                      Http_client.get ~uri:get_file_uri ~headers:[]
+                    in
+                    let file_json = Yojson.Safe.from_string file_body in
+                    let file_path =
+                      Yojson.Safe.Util.(
+                        file_json |> member "result" |> member "file_path"
+                        |> to_string)
+                    in
+                    let download_uri =
+                      Printf.sprintf "https://api.telegram.org/file/bot%s/%s"
+                        bot_token file_path
+                    in
+                    let* _status, audio_data =
+                      Http_client.get ~uri:download_uri ~headers:[]
+                    in
+                    let filename = Filename.basename file_path in
+                    let notifier =
+                      Telegram_api.make_status_notifier ~bot_token
+                        ~chat_id:update.chat_id
+                    in
+                    Voice_transcription.transcribe_with_progress ~config
+                      ~notifier ~audio_data ~filename ())
+                  (fun exn ->
+                    Logs.err (fun m ->
+                        m "Voice transcription failed: %s"
+                          (Printexc.to_string exn));
+                    Lwt.return ""))
         | None -> (
             (* Determine image file_id from photo, sticker, or image document *)
             let image_file_id =

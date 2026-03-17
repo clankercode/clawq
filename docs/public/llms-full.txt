@@ -359,7 +359,7 @@ Note: `providers.*.default_model` is the model identifier as understood by that 
 
 **runtime** — `docker_image` (default "clawq:latest"), `docker_container_name` (default "clawq"), `docker_port` (default 13451).
 
-**stt** — `provider`, `model`, `language` (optional).
+**stt** — `provider`, `model`, `language` (optional). When configured, enables automatic voice transcription across all channels (Telegram, Discord, Slack, Teams) with progress messages and validation limits (25 MB, 1 hour, music detection).
 
 **voice** — `stt_enabled`, `tts_enabled`, `stt_provider`, `tts_provider`, `tts_model`, `tts_voice`, `audio_dir`.
 
@@ -679,6 +679,16 @@ current queue state for a given session; `session list` appends
 | iMessage | Local Messages database polling on macOS | Implemented |
 | OneBot | OneBot websocket/HTTP integration | Implemented |
 | MS Teams | Bot Framework webhook at configurable path (default /teams/webhook) | Implemented |
+
+### Voice Transcription (All Channels)
+
+When an STT provider is configured, audio attachments sent to any channel (Telegram, Discord, Slack, Teams) are automatically transcribed. The bot sends a "Transcribing..." progress message, updates it to "Transcribing... Done!" on completion, and prepends the transcribed text as `[Voice]: <text>` to the message.
+
+Validation limits:
+- File size: under 25 MB
+- Duration: under 1 hour (when metadata available, e.g. Telegram)
+- Music detection: `.ogg`, `.opus`, `.webm` are treated as voice; `.mp3`, `.m4a`, `.aac`, `.wma`, `.flac` are treated as music unless the filename contains "voice", "recording", or "audio_message" (case-insensitive)
+- Requires `stt` config section with `provider` and `model`
 
 ### Setting up Telegram
 1. User creates a bot with @BotFather on Telegram

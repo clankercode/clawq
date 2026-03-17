@@ -207,6 +207,7 @@
   onebot
   teams
   attachment_download
+  voice_transcription
   temp_downloads
   provider_anthropic
   provider_openai_codex

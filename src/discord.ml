@@ -1383,9 +1383,77 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                   Lwt.catch
                     (fun () ->
                       let config = Session.get_config session_mgr in
+                      (* Partition audio attachments for transcription *)
+                      let is_audio_att (a : discord_attachment) =
+                        match a.att_content_type with
+                        | Some ct -> Voice_transcription.is_audio_mime ct
+                        | None ->
+                            Voice_transcription.is_audio_filename a.att_filename
+                      in
+                      let audio_atts, non_audio_atts =
+                        List.partition is_audio_att msg.attachments
+                      in
+                      let* transcription_prefix =
+                        if
+                          audio_atts <> []
+                          && config.security.attachment_downloads_enabled
+                        then
+                          let* texts =
+                            Lwt_list.map_s
+                              (fun (a : discord_attachment) ->
+                                match
+                                  Voice_transcription.validate ~config
+                                    ~filename:a.att_filename
+                                    ~mime_type:a.att_content_type
+                                    ~size:(Some a.att_size)
+                                    ~duration_seconds:None
+                                with
+                                | Error reason ->
+                                    Logs.info (fun m ->
+                                        m "Discord voice skipped %s: %s"
+                                          a.att_filename
+                                          (Voice_transcription
+                                           .skip_reason_to_string reason));
+                                    Lwt.return ""
+                                | Ok () ->
+                                    Lwt.catch
+                                      (fun () ->
+                                        let* _status, audio_data =
+                                          Http_client.get ~uri:a.att_url
+                                            ~headers:[]
+                                        in
+                                        let notifier =
+                                          make_status_notifier
+                                            ~bot_token:discord_config.bot_token
+                                            ~channel_id:msg.channel_id
+                                        in
+                                        Voice_transcription
+                                        .transcribe_with_progress ~config
+                                          ~notifier ~audio_data
+                                          ~filename:a.att_filename ())
+                                      (fun exn ->
+                                        Logs.err (fun m ->
+                                            m
+                                              "Discord voice transcription \
+                                               failed %s: %s"
+                                              a.att_filename
+                                              (Printexc.to_string exn));
+                                        Lwt.return ""))
+                              audio_atts
+                          in
+                          Lwt.return
+                            (String.concat ""
+                               (List.filter (fun s -> s <> "") texts))
+                        else Lwt.return ""
+                      in
+                      let effective_content =
+                        if transcription_prefix <> "" then
+                          transcription_prefix ^ "\n" ^ msg.content
+                        else msg.content
+                      in
                       let* content_parts, att_list, message =
                         if
-                          msg.attachments <> []
+                          non_audio_atts <> []
                           && config.security.attachment_downloads_enabled
                         then
                           let workspace =
@@ -1401,26 +1469,26 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                                     mime_type = a.att_content_type;
                                     size = Some a.att_size;
                                   })
-                              msg.attachments
+                              non_audio_atts
                           in
                           Attachment_download.process_attachments metas
                             ~headers:[] ~workspace
                             ~db:(Session.get_db session_mgr)
                             ~session_key:key ~source:"discord" ~content_parts:[]
-                            ~attachments:[] ~message:msg.content
+                            ~attachments:[] ~message:effective_content
                         else
                           let placeholder =
-                            if msg.attachments <> [] then
+                            if non_audio_atts <> [] then
                               let names =
                                 List.map
                                   (fun (a : discord_attachment) ->
                                     Printf.sprintf
                                       "\n[Attachment: %s (download disabled)]"
                                       a.att_filename)
-                                  msg.attachments
+                                  non_audio_atts
                               in
-                              msg.content ^ String.concat "" names
-                            else msg.content
+                              effective_content ^ String.concat "" names
+                            else effective_content
                           in
                           Lwt.return ([], [], placeholder)
                       in

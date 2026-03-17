@@ -39,6 +39,8 @@ type update = {
   user_id : string;
   text : string;
   voice_file_id : string option;
+  voice_duration : int option;
+  voice_file_size : int option;
   photo_file_id : string option;
   sticker_file_id : string option;
   document_file_id : string option;
@@ -374,6 +376,8 @@ let merge_text_updates older (newer : update) =
     newer with
     text = older.update.text ^ newer.text;
     voice_file_id = None;
+    voice_duration = None;
+    voice_file_size = None;
     photo_file_id = None;
     sticker_file_id = None;
     document_file_id = None;
@@ -462,6 +466,14 @@ let get_updates ~bot_token ~offset ~timeout =
               try Some (msg |> member "voice" |> member "file_id" |> to_string)
               with _ -> None
             in
+            let voice_duration =
+              try Some (msg |> member "voice" |> member "duration" |> to_int)
+              with _ -> None
+            in
+            let voice_file_size =
+              try Some (msg |> member "voice" |> member "file_size" |> to_int)
+              with _ -> None
+            in
             (* Photos arrive as an array sorted by size; take the last (largest) *)
             let photo_file_id =
               try
@@ -513,6 +525,8 @@ let get_updates ~bot_token ~offset ~timeout =
                 user_id;
                 text;
                 voice_file_id;
+                voice_duration;
+                voice_file_size;
                 photo_file_id;
                 sticker_file_id;
                 document_file_id;

@@ -1,6 +1,7 @@
 let mk_update ?(message_id = 0) ?(user_id = None) ?(text = "hello")
-    ?voice_file_id ?photo_file_id ?sticker_file_id ?document_file_id
-    ?document_name ?document_mime_type ?caption ~update_id ~chat_id () =
+    ?voice_file_id ?voice_duration ?voice_file_size ?photo_file_id
+    ?sticker_file_id ?document_file_id ?document_name ?document_mime_type
+    ?caption ~update_id ~chat_id () =
   {
     Telegram.update_id;
     message_id;
@@ -8,6 +9,8 @@ let mk_update ?(message_id = 0) ?(user_id = None) ?(text = "hello")
     user_id = Option.value user_id ~default:chat_id;
     text;
     voice_file_id;
+    voice_duration;
+    voice_file_size;
     photo_file_id;
     sticker_file_id;
     document_file_id;
