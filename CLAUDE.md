@@ -136,3 +136,8 @@ Subdirectory-specific guidelines exist in `docs/CLAUDE.md`, `src/CLAUDE.md`, and
 5. Run formatting checks if OCaml files changed.
 6. Before handoff, check for obvious follow-on fixes/docs/tests.
 7. Summarize behavior changes and verification commands in final handoff.
+
+## Codebase
+
+File limit: soft limit at 1000 LoC, hard limit at 2k LoC. Proactively take refactoring opportunities to avoid large files.
+
