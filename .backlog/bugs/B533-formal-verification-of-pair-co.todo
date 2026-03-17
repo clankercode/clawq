@@ -1,13 +1,16 @@
 ---
+claimed_at: "2026-03-17T05:34:18Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B533
 priority: high
-status: pending
+started_at: "2026-03-17T05:34:18Z"
+status: in_progress
 tags: []
-title: |-
-    Formal verification of pair coding state machine (PairCoding.v)
+title: Formal verification of pair coding state machine (PairCoding.v)
 ---
 
 Formal verification of pair coding state machine (PairCoding.v)
