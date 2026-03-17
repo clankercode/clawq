@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-17T16:12:41Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-17T16:19:56Z"
 complexity: medium
 depends_on: []
+duration_minutes: 7.260515273533334
 estimate_hours: 1
 id: B543
 priority: high
 started_at: "2026-03-17T16:12:41Z"
-status: in_progress
+status: done
 tags: []
 title: file write tool shows duration as 0ms (I guess maybe that's right -- we should hide all durations that are 0ms)
 ---

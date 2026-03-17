@@ -145,6 +145,28 @@ let test_format_duration () =
     "exactly 10s" "10s"
     (Status_message.format_duration 10.0)
 
+let test_format_duration_opt () =
+  (* B543: format_duration_opt hides 0ms durations *)
+  let opt = Alcotest.option Alcotest.string in
+  Alcotest.(check opt)
+    "zero returns None" None
+    (Status_message.format_duration_opt 0.0);
+  Alcotest.(check opt)
+    "sub-ms returns None" None
+    (Status_message.format_duration_opt 0.0001);
+  Alcotest.(check opt)
+    "1ms returns Some" (Some "1 ms")
+    (Status_message.format_duration_opt 0.001);
+  Alcotest.(check opt)
+    "500ms returns Some" (Some "500 ms")
+    (Status_message.format_duration_opt 0.5);
+  Alcotest.(check opt)
+    "1.5s returns Some" (Some "1.500 s")
+    (Status_message.format_duration_opt 1.5);
+  Alcotest.(check opt)
+    "15s returns Some" (Some "15s")
+    (Status_message.format_duration_opt 15.3)
+
 let add_completed_tool t ~id ~name =
   let open Lwt.Syntax in
   let* () = Status_message.tool_start t ~id ~name ~summary:None in
@@ -863,7 +885,7 @@ let test_heartbeat_self_terminates () =
     (t.heartbeat_cancel = None)
 
 let test_completed_tool_shows_timing () =
-  (* B514: every completed tool should show its execution time *)
+  (* B543: instant tools (0ms) should hide timing entirely *)
   let notifier, _, _, _ = mock_notifier () in
   let t =
     Status_message.create ~debounce_interval:0.0 ~notifier
@@ -878,9 +900,31 @@ let test_completed_tool_shows_timing () =
      Status_message.tool_result t ~id:"t1" ~name:"file_read"
        ~result:"contents here" ~is_error:false);
   let output = Status_message.render t in
-  (* Even a sub-second tool should show timing in ms *)
+  (* Instant tool should not show "0 ms" *)
   Alcotest.(check bool)
-    "completed tool shows timing in ms" true (contains output "ms")
+    "instant tool hides 0ms timing" false (contains output "0 ms")
+
+let test_completed_tool_nonzero_timing () =
+  (* B543: tools with non-zero duration still show timing *)
+  let notifier, _, _, _ = mock_notifier () in
+  let t =
+    Status_message.create ~debounce_interval:0.0 ~notifier
+      ~parse_mode:"Markdown" ()
+  in
+  Lwt_main.run
+    (Status_message.tool_start t ~id:"t1" ~name:"shell_exec"
+       ~summary:(Some "ls"));
+  (* Backdate started_at to simulate 150ms duration *)
+  (match Hashtbl.find_opt t.tools "t1" with
+  | Some entry ->
+      Hashtbl.replace t.tools "t1"
+        { entry with started_at = Unix.gettimeofday () -. 0.15 }
+  | None -> ());
+  Lwt_main.run
+    (Status_message.tool_result t ~id:"t1" ~name:"shell_exec" ~result:"ok"
+       ~is_error:false);
+  let output = Status_message.render t in
+  Alcotest.(check bool) "non-zero timing shown" true (contains output "ms")
 
 let test_completed_tool_timing_with_duration () =
   (* B514: verify timing value reflects actual duration *)
@@ -983,6 +1027,8 @@ let suite =
       test_render_single_completed_tool;
     Alcotest.test_case "render failed tool" `Quick test_render_failed_tool;
     Alcotest.test_case "format duration" `Quick test_format_duration;
+    Alcotest.test_case "format duration opt hides 0ms" `Quick
+      test_format_duration_opt;
     Alcotest.test_case "render collapsing" `Quick test_render_collapsing;
     Alcotest.test_case "render summary footer" `Quick test_render_summary_footer;
     Alcotest.test_case "failed tools chronological order" `Quick
@@ -1025,6 +1071,8 @@ let suite =
       test_finalize_cancels_heartbeat;
     Alcotest.test_case "completed tool shows timing" `Quick
       test_completed_tool_shows_timing;
+    Alcotest.test_case "non-zero sub-second timing shown" `Quick
+      test_completed_tool_nonzero_timing;
     Alcotest.test_case "completed tool timing with duration" `Quick
       test_completed_tool_timing_with_duration;
     Alcotest.test_case "failed tool shows timing" `Quick

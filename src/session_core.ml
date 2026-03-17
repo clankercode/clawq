@@ -1301,11 +1301,18 @@ let reset mgr ~key =
    None/None = Pending, Some t0/None = Running, Some t0/Some t1 = Done *)
 let compact_progress_render ~steps ~overall_start ~finished =
   let buf = Buffer.create 256 in
-  if finished then
+  if finished then begin
+    let dur =
+      match
+        Status_message.format_duration_opt
+          (Unix.gettimeofday () -. overall_start)
+      with
+      | Some s -> " \xe2\x80\x94 " ^ s
+      | None -> ""
+    in
     Buffer.add_string buf
-      (Printf.sprintf "\xe2\x9c\x85 Session history compacted \xe2\x80\x94 %s\n"
-         (Status_message.format_duration
-            (Unix.gettimeofday () -. overall_start)))
+      (Printf.sprintf "\xe2\x9c\x85 Session history compacted%s\n" dur)
+  end
   else
     Buffer.add_string buf
       "\xf0\x9f\x97\x9c\xef\xb8\x8f Compacting session history\xe2\x80\xa6\n";
@@ -1322,9 +1329,15 @@ let compact_progress_render ~steps ~overall_start ~finished =
             (Printf.sprintf "\xe2\x8f\xb3 %s %s\n" emoji name)
       | Some started_at, Some done_at ->
           (* Done *)
+          let dur_part =
+            match
+              Status_message.format_duration_opt (done_at -. started_at)
+            with
+            | Some s -> " \xe2\x80\x94 " ^ s
+            | None -> ""
+          in
           Buffer.add_string buf
-            (Printf.sprintf "\xe2\x9c\x93 %s %s \xe2\x80\x94 %s\n" emoji name
-               (Status_message.format_duration (done_at -. started_at))))
+            (Printf.sprintf "\xe2\x9c\x93 %s %s%s\n" emoji name dur_part))
     !steps;
   let s = Buffer.contents buf in
   let n = String.length s in

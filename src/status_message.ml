@@ -83,6 +83,10 @@ let format_duration secs =
   else if secs < 10.0 then Printf.sprintf "%.3f s" secs
   else Printf.sprintf "%ds" (int_of_float secs)
 
+let format_duration_opt secs =
+  let s = format_duration secs in
+  if s = "0 ms" then None else Some s
+
 let fmt_bold t text =
   Format_adapter.bold t.connector (Format_adapter.escape t.connector text)
 
@@ -144,7 +148,7 @@ let to_document t =
         | Done ->
             let timing =
               match entry.finished_at with
-              | Some fin -> Some (format_duration (fin -. entry.started_at))
+              | Some fin -> format_duration_opt (fin -. entry.started_at)
               | None -> None
             in
             doc :=
@@ -163,7 +167,7 @@ let to_document t =
         | Failed ->
             let timing =
               match entry.finished_at with
-              | Some fin -> Some (format_duration (fin -. entry.started_at))
+              | Some fin -> format_duration_opt (fin -. entry.started_at)
               | None -> None
             in
             doc :=
