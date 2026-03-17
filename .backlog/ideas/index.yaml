@@ -250,3 +250,5 @@ ideas:
       id: I030
     - file: I031-multi-model-debate-consensus.todo
       id: I031
+    - file: I032-structured-output-pipelines.todo
+      id: I032
