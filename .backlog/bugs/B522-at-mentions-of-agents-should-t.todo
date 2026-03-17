@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B522
+priority: high
+status: pending
+tags: []
+title: at mentions of agents should trigger the agent but only if it's at the start of a message. (should still work for parameters to slash commands etc)
+---
+
+at mentions of agents should trigger the agent but only if it's at the start of a message. (should still work for parameters to slash commands etc)
