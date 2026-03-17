@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B517
+priority: high
+status: pending
+tags: []
+title: Add DoW to local timestamp in runcontext
+---
+
+Add DoW to local timestamp in runcontext
