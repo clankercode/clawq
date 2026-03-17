@@ -820,42 +820,103 @@ let test_project_docs_budget_truncation () =
             "content is truncated" true
             (contains c "[...truncated...]"))
 
+let test_agent_tmpl =
+  {
+    Agent_template.name = "test_coder";
+    description = "A test coder agent";
+    role = Agent_template.Coder;
+    system_prompt = "You are a coder.";
+    goal = "";
+    backstory = "";
+    model = None;
+    max_tool_iterations = None;
+    allowed_tools = [];
+    disallowed_tools = [];
+    tool_search_enabled = None;
+    reasoning_effort = None;
+    source = Agent_template.Builtin;
+    metadata = [];
+  }
+
+(* All default workspace identity files that should be suppressed for agents *)
+let all_ws_files =
+  [
+    ("AGENTS.md", "AGENTS_SENTINEL_CONTENT");
+    ("EGO.md", "EGO_SENTINEL_CONTENT");
+    ("SOUL.md", "SOUL_SENTINEL_CONTENT");
+    ("TOOLS.md", "TOOLS_SENTINEL_CONTENT");
+    ("IDENTITY.md", "IDENTITY_SENTINEL_CONTENT");
+    ("USER.md", "USER_SENTINEL_CONTENT");
+    ("HEARTBEAT.md", "HEARTBEAT_SENTINEL_CONTENT");
+    ("MEMORY.md", "MEMORY_SENTINEL_CONTENT");
+    ("memory.md", "MEMORY_LC_SENTINEL_CONTENT");
+  ]
+
+let agent_ws_prompt_cfg ws_files =
+  {
+    Runtime_config.default.prompt with
+    dynamic_enabled = true;
+    include_workspace_section = true;
+    include_tools_section = false;
+    include_safety_section = false;
+    include_runtime_section = false;
+    include_datetime_section = false;
+    include_autonomy_section = false;
+    workspace_files = List.map fst ws_files;
+  }
+
 let test_workspace_docs_suppressed_for_named_agent () =
   with_temp_workspace (fun workspace ->
-      write_file (Filename.concat workspace "EGO.md") "EGO SUPPRESSED";
-      write_file (Filename.concat workspace "AGENTS.md") "AGENTS SUPPRESSED";
-      let prompt_cfg =
-        {
-          Runtime_config.default.prompt with
-          dynamic_enabled = true;
-          include_workspace_section = true;
-          include_tools_section = false;
-          include_safety_section = false;
-          include_runtime_section = false;
-          include_datetime_section = false;
-          include_autonomy_section = false;
-          workspace_files = [ "EGO.md"; "AGENTS.md" ];
-        }
-      in
+      List.iter
+        (fun (name, content) ->
+          write_file (Filename.concat workspace name) content)
+        all_ws_files;
+      write_file
+        (Filename.concat workspace "BOOTSTRAP.md")
+        "BOOTSTRAP_SENTINEL_CONTENT";
+      let prompt_cfg = agent_ws_prompt_cfg all_ws_files in
       let cfg =
         { Runtime_config.default with workspace; prompt = prompt_cfg }
       in
-      let tmpl : Agent_template.t =
+      let prompt =
+        Prompt_builder.build ~config:cfg ~tool_registry:None
+          ~agent_template:test_agent_tmpl ()
+      in
+      (* Every workspace identity file must be absent *)
+      List.iter
+        (fun (name, sentinel) ->
+          Alcotest.(check bool)
+            (Printf.sprintf "%s content excluded for named agent" name)
+            false (contains prompt sentinel))
+        all_ws_files;
+      (* BOOTSTRAP.md also excluded *)
+      Alcotest.(check bool)
+        "BOOTSTRAP.md content excluded for named agent" false
+        (contains prompt "BOOTSTRAP_SENTINEL_CONTENT");
+      (* Suppression note present *)
+      Alcotest.(check bool)
+        "has suppression note" true
+        (contains prompt "suppressed for named agents");
+      (* Workspace root still shown *)
+      Alcotest.(check bool)
+        "workspace root still shown" true
+        (contains prompt workspace);
+      (* Agent template system prompt IS present *)
+      Alcotest.(check bool)
+        "agent system prompt present" true
+        (contains prompt "You are a coder."))
+
+let test_agent_goal_backstory_in_prompt () =
+  with_temp_workspace (fun workspace ->
+      let prompt_cfg = agent_ws_prompt_cfg [] in
+      let cfg =
+        { Runtime_config.default with workspace; prompt = prompt_cfg }
+      in
+      let tmpl =
         {
-          name = "test_coder";
-          description = "A test coder agent";
-          role = Agent_template.Coder;
-          system_prompt = "You are a coder.";
-          goal = "";
-          backstory = "";
-          model = None;
-          max_tool_iterations = None;
-          allowed_tools = [];
-          disallowed_tools = [];
-          tool_search_enabled = None;
-          reasoning_effort = None;
-          source = Agent_template.Builtin;
-          metadata = [];
+          test_agent_tmpl with
+          goal = "GOAL_SENTINEL_XYZ";
+          backstory = "BACKSTORY_SENTINEL_XYZ";
         }
       in
       let prompt =
@@ -863,38 +924,59 @@ let test_workspace_docs_suppressed_for_named_agent () =
           ~agent_template:tmpl ()
       in
       Alcotest.(check bool)
-        "no EGO content for named agent" false
-        (contains prompt "EGO SUPPRESSED");
+        "goal present" true
+        (contains prompt "GOAL_SENTINEL_XYZ");
       Alcotest.(check bool)
-        "no AGENTS content for named agent" false
-        (contains prompt "AGENTS SUPPRESSED");
+        "backstory present" true
+        (contains prompt "BACKSTORY_SENTINEL_XYZ");
       Alcotest.(check bool)
-        "has suppression note" true
-        (contains prompt "suppressed for named agents"))
+        "goal section header" true
+        (contains prompt "## Agent Goal");
+      Alcotest.(check bool)
+        "backstory section header" true
+        (contains prompt "## Agent Backstory"))
 
-let test_workspace_docs_present_for_default_agent () =
+let test_agent_template_dynamic_disabled () =
   with_temp_workspace (fun workspace ->
-      write_file (Filename.concat workspace "EGO.md") "EGO PRESENT";
       let prompt_cfg =
-        {
-          Runtime_config.default.prompt with
-          dynamic_enabled = true;
-          include_workspace_section = true;
-          include_tools_section = false;
-          include_safety_section = false;
-          include_runtime_section = false;
-          include_datetime_section = false;
-          include_autonomy_section = false;
-          workspace_files = [ "EGO.md" ];
-        }
+        { Runtime_config.default.prompt with dynamic_enabled = false }
       in
       let cfg =
         { Runtime_config.default with workspace; prompt = prompt_cfg }
       in
+      let prompt =
+        Prompt_builder.build ~config:cfg ~tool_registry:None
+          ~agent_template:test_agent_tmpl ()
+      in
+      (* With dynamic disabled, template system_prompt is returned directly *)
+      Alcotest.(check string)
+        "returns agent system prompt verbatim" "You are a coder." prompt)
+
+let test_workspace_docs_present_for_default_agent () =
+  with_temp_workspace (fun workspace ->
+      List.iter
+        (fun (name, content) ->
+          write_file (Filename.concat workspace name) content)
+        all_ws_files;
+      let prompt_cfg = agent_ws_prompt_cfg all_ws_files in
+      let cfg =
+        { Runtime_config.default with workspace; prompt = prompt_cfg }
+      in
       let prompt = Prompt_builder.build ~config:cfg ~tool_registry:None () in
+      (* Without agent template, workspace files should be present.
+         SOUL.md is excluded when EGO.md exists (legacy fallback). *)
+      List.iter
+        (fun (name, sentinel) ->
+          let expect = name <> "SOUL.md" in
+          Alcotest.(check bool)
+            (Printf.sprintf "%s content %s for default agent" name
+               (if expect then "present" else "excluded (EGO.md exists)"))
+            expect (contains prompt sentinel))
+        all_ws_files;
+      (* No suppression note *)
       Alcotest.(check bool)
-        "has EGO content for default agent" true
-        (contains prompt "EGO PRESENT"))
+        "no suppression note" false
+        (contains prompt "suppressed for named agents"))
 
 let test_developer_message_in_build_messages () =
   with_temp_git_repo (fun dir ->
@@ -1160,6 +1242,10 @@ let suite =
       test_project_docs_budget_truncation;
     Alcotest.test_case "workspace docs suppressed for named agent" `Quick
       test_workspace_docs_suppressed_for_named_agent;
+    Alcotest.test_case "agent goal and backstory in prompt" `Quick
+      test_agent_goal_backstory_in_prompt;
+    Alcotest.test_case "agent template with dynamic disabled" `Quick
+      test_agent_template_dynamic_disabled;
     Alcotest.test_case "workspace docs present for default agent" `Quick
       test_workspace_docs_present_for_default_agent;
     Alcotest.test_case "developer message in build_messages" `Quick

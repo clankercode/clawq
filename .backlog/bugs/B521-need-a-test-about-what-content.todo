@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-17T04:07:48Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-17T04:12:47Z"
 complexity: medium
 depends_on: []
+duration_minutes: 4.9862628479
 estimate_hours: 1
 id: B521
 priority: high
 started_at: "2026-03-17T04:07:48Z"
-status: in_progress
+status: done
 tags: []
 title: need a test about what content is excluded in system prompt for agents
 ---
