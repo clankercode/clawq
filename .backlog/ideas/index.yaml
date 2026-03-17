@@ -265,7 +265,7 @@ ideas:
       file: I033-completion-notifications-backg.todo
       id: I033
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Completion Notifications (Background Task -> Channel)
     - file: I034-daily-briefing-pipeline.todo

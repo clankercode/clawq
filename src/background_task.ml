@@ -45,6 +45,9 @@ type task = {
   replaced_by : int option;
   acp : bool;
   agent_name : string option;
+  notification_status : string option;
+  notification_error : string option;
+  notification_attempts : int;
 }
 
 type queued_message = {
@@ -369,6 +372,16 @@ let format_task_summary ?(full = false) ?(compact = false) (task : task) =
   | Some text when String.trim text <> "" ->
       add (Printf.sprintf "result: %s" (preview_text_n plimit text))
   | _ -> ());
+  (match task.notification_status with
+  | Some status ->
+      let line = Printf.sprintf "notification: %s" status in
+      let line =
+        match task.notification_error with
+        | Some err -> line ^ " (" ^ err ^ ")"
+        | None -> line
+      in
+      add line
+  | None -> ());
   add
     (Printf.sprintf "prompt: %s"
        (if full then task.prompt else preview_text_n plimit task.prompt));
@@ -480,6 +493,12 @@ let task_of_stmt stmt : task =
     runner_session_id = Sqlite3.column stmt 23 |> sql_text;
     acp = sql_bool stmt 24;
     agent_name = Sqlite3.column stmt 25 |> sql_text;
+    notification_status = Sqlite3.column stmt 26 |> sql_text;
+    notification_error = Sqlite3.column stmt 27 |> sql_text;
+    notification_attempts =
+      (match Sqlite3.column stmt 28 with
+      | Sqlite3.Data.INT i -> Int64.to_int i
+      | _ -> 0);
   }
 
 let init_schema db =
@@ -549,6 +568,11 @@ let init_schema db =
   try_alter
     "ALTER TABLE background_tasks ADD COLUMN acp INTEGER NOT NULL DEFAULT 0";
   try_alter "ALTER TABLE background_tasks ADD COLUMN agent_name TEXT";
+  try_alter "ALTER TABLE background_tasks ADD COLUMN notification_status TEXT";
+  try_alter "ALTER TABLE background_tasks ADD COLUMN notification_error TEXT";
+  try_alter
+    "ALTER TABLE background_tasks ADD COLUMN notification_attempts INTEGER NOT \
+     NULL DEFAULT 0";
   Acp_history.init_schema db
 
 let list_queued_messages ~db ~task_id =
@@ -613,6 +637,25 @@ let queued_message_count ~db ~task_id =
           | Sqlite3.Data.INT i -> Int64.to_int i
           | _ -> 0)
       | _ -> 0)
+
+let record_notification_result ~db ~id ~status ?error () =
+  let sql =
+    "UPDATE background_tasks SET notification_status = ?, notification_error = \
+     ?, notification_attempts = COALESCE(notification_attempts, 0) + 1 WHERE \
+     id = ?"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT status));
+      ignore
+        (Sqlite3.bind stmt 2
+           (match error with
+           | Some e -> Sqlite3.Data.TEXT e
+           | None -> Sqlite3.Data.NULL));
+      ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.INT (Int64.of_int id)));
+      ignore (Sqlite3.step stmt))
 
 let resume_supported (task : task) =
   task.use_worktree && task.branch <> ""
@@ -707,7 +750,8 @@ let select_columns =
    created_at, started_at, finished_at, COALESCE(automerge, 0), \
    COALESCE(use_worktree, 1), merge_status, COALESCE(retry_count, 0), \
    parent_task_id, replaced_by, runner_session_id, COALESCE(acp, 0), \
-   agent_name"
+   agent_name, notification_status, notification_error, \
+   COALESCE(notification_attempts, 0)"
 
 let list_tasks ~db : task list =
   let sql =
@@ -1851,6 +1895,102 @@ let status_message (task : task) =
     |> List.filter_map (fun x -> x)
   in
   String.concat "\n" (headline :: details)
+
+type git_status_info = { dirty_count : int; commit_count : int; rebased : bool }
+
+let read_cmd_line cmd =
+  try
+    let ic = Unix.open_process_in cmd in
+    let line = try String.trim (input_line ic) with End_of_file -> "" in
+    ignore (Unix.close_process_in ic);
+    line
+  with _ -> ""
+
+let gather_git_status (task : task) : git_status_info option =
+  match task.worktree_path with
+  | Some wt when Sys.file_exists wt && path_is_git_repo wt ->
+      let q = Filename.quote wt in
+      let dirty_count =
+        let s =
+          read_cmd_line
+            (Printf.sprintf "git -C %s status --porcelain 2>/dev/null | wc -l" q)
+        in
+        try int_of_string s with _ -> 0
+      in
+      let commit_count =
+        let s =
+          read_cmd_line
+            (Printf.sprintf
+               "git -C %s rev-list --count HEAD --not --remotes 2>/dev/null" q)
+        in
+        try int_of_string s with _ -> 0
+      in
+      let rebased =
+        Sys.command
+          (Printf.sprintf
+             "git -C %s merge-base --is-ancestor origin/main HEAD 2>/dev/null" q)
+        = 0
+        || Sys.command
+             (Printf.sprintf
+                "git -C %s merge-base --is-ancestor origin/master HEAD \
+                 2>/dev/null"
+                q)
+           = 0
+      in
+      Some { dirty_count; commit_count; rebased }
+  | _ -> None
+
+let format_git_status (info : git_status_info) =
+  let dirty =
+    if info.dirty_count = 0 then "clean"
+    else Printf.sprintf "dirty (%d files)" info.dirty_count
+  in
+  let commits =
+    Printf.sprintf "%d commit%s" info.commit_count
+      (if info.commit_count = 1 then "" else "s")
+  in
+  let rebase = if info.rebased then "rebased" else "not rebased" in
+  Printf.sprintf "git: %s, %s, %s" dirty commits rebase
+
+let channel_notification_message ?summary ?git_info (task : task) =
+  let status_word =
+    match task.status with
+    | Succeeded -> "SUCCEEDED"
+    | Failed -> "FAILED"
+    | DirtyWorktree -> "DIRTY WORKTREE"
+    | Cancelled -> "CANCELLED"
+    | Queued -> "QUEUED"
+    | Running -> "RUNNING"
+  in
+  let elapsed = elapsed_string task in
+  let merge_suffix = merge_status_suffix task in
+  let lines = ref [] in
+  let add s = lines := s :: !lines in
+  add
+    (Printf.sprintf "Background task #%d finished: %s%s" task.id status_word
+       merge_suffix);
+  add (Printf.sprintf "%s (%s)" (task_label task) elapsed);
+  (match git_info with Some info -> add (format_git_status info) | None -> ());
+  (match summary with
+  | Some s -> add (Printf.sprintf "Summary: %s" s)
+  | None -> (
+      match task.result_preview with
+      | Some text when String.trim text <> "" ->
+          add (Printf.sprintf "Summary: %s" (preview_text_n 120 text))
+      | _ -> ()));
+  (match task.status with
+  | Failed ->
+      add
+        (Printf.sprintf
+           "Hint: `background retry %d` to retry, `background logs %d` for \
+            details"
+           task.id task.id)
+  | DirtyWorktree ->
+      add
+        (Printf.sprintf "Hint: `background finalize %d` to commit and merge"
+           task.id)
+  | _ -> ());
+  String.concat "\n" (List.rev !lines)
 
 let read_into_buffer_and_log ic oc buf =
   let rec loop () =

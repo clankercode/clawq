@@ -511,6 +511,82 @@ let inject_background_task_completion
             session_key (Printexc.to_string exn));
       Lwt.return_unit)
 
+let summarize_for_notification ~(config : Runtime_config.t)
+    (task : Background_task.task) =
+  let open Lwt.Syntax in
+  Lwt.catch
+    (fun () ->
+      let log_content =
+        match task.log_path with
+        | Some path when Sys.file_exists path -> (
+            try
+              let ic = open_in path in
+              Fun.protect
+                ~finally:(fun () -> close_in_noerr ic)
+                (fun () ->
+                  let len = in_channel_length ic in
+                  let start_seg =
+                    let n = min 500 len in
+                    really_input_string ic n
+                  in
+                  let mid_seg =
+                    if len > 1500 then begin
+                      seek_in ic ((len / 2) - 250);
+                      really_input_string ic (min 500 (len - ((len / 2) - 250)))
+                    end
+                    else ""
+                  in
+                  let end_seg =
+                    if len > 1000 then begin
+                      seek_in ic (max 0 (len - 500));
+                      really_input_string ic (len - max 0 (len - 500))
+                    end
+                    else ""
+                  in
+                  String.concat "\n...\n"
+                    (List.filter
+                       (fun s -> String.trim s <> "")
+                       [ start_seg; mid_seg; end_seg ]))
+            with _ -> "")
+        | _ -> ""
+      in
+      let user_content =
+        Printf.sprintf "Task prompt: %s\n\nLog output:\n%s"
+          (Background_task.preview_text_n 300 task.prompt)
+          (if log_content = "" then "(no log available)"
+           else Background_task.preview_text_n 1500 log_content)
+      in
+      let system_prompt =
+        "Summarize this background coding task result in 1-2 concise lines. \
+         Focus on what was accomplished or what went wrong."
+      in
+      let pm = config.summarizer.model in
+      let summary_promise =
+        let* result =
+          Summarizer.call_summarizer ~config ~pm ~system_prompt ~user_content
+        in
+        match result with
+        | Ok (content, _, _) ->
+            let trimmed = String.trim content in
+            if trimmed = "" || trimmed = "ESCALATE" then Lwt.return_none
+            else Lwt.return_some (Background_task.preview_text_n 200 trimmed)
+        | Error _ -> Lwt.return_none
+      in
+      Lwt.pick
+        [
+          summary_promise;
+          (let* () = Lwt_unix.sleep 5.0 in
+           Lwt.return_none);
+        ])
+    (fun _exn -> Lwt.return_none)
+
+let record_notification ~db ~task_id ~status ?error () =
+  match db with
+  | Some db ->
+      Background_task.record_notification_result ~db ~id:task_id ~status ?error
+        ()
+  | None -> ()
+
 let notify_background_task_finished ?continuation_delay
     ?(senders = default_resume_senders) ~(session_manager : Session.t) ~config
     ?db task =
@@ -541,7 +617,11 @@ let notify_background_task_finished ?continuation_delay
         Lwt.return updated_task
     | _ -> Lwt.return task
   in
-  let text = Background_task.status_message task in
+  let* summary = summarize_for_notification ~config task in
+  let git_info = Background_task.gather_git_status task in
+  let channel_text =
+    Background_task.channel_notification_message ?summary ?git_info task
+  in
   let open Lwt.Syntax in
   let* () =
     match task.Background_task.session_key with
@@ -549,39 +629,62 @@ let notify_background_task_finished ?continuation_delay
         match Session.find_registered_notifier session_manager ~key with
         | Some notify ->
             Lwt.catch
-              (fun () -> notify text)
+              (fun () ->
+                let* () = notify channel_text in
+                record_notification ~db ~task_id:task.Background_task.id
+                  ~status:"delivered" ();
+                Lwt.return_unit)
               (fun exn ->
                 Logs.warn (fun m ->
                     m "Background task notifier failed: %s"
                       (Printexc.to_string exn));
+                record_notification ~db ~task_id:task.Background_task.id
+                  ~status:"failed" ~error:(Printexc.to_string exn) ();
                 Lwt.return_unit)
         | None -> (
             match (task.channel, task.channel_id) with
             | Some channel, Some channel_id -> (
                 let* result =
                   dispatch_resumed_message ~senders ~config ~channel ~channel_id
-                    ~text ()
+                    ~text:channel_text ()
                 in
                 match result with
-                | Ok () -> Lwt.return_unit
+                | Ok () ->
+                    record_notification ~db ~task_id:task.Background_task.id
+                      ~status:"delivered" ();
+                    Lwt.return_unit
                 | Error err ->
                     Logs.warn (fun m ->
                         m "Background task completion dispatch failed: %s" err);
+                    record_notification ~db ~task_id:task.Background_task.id
+                      ~status:"failed" ~error:err ();
                     Lwt.return_unit)
-            | _ -> Lwt.return_unit))
+            | _ ->
+                record_notification ~db ~task_id:task.Background_task.id
+                  ~status:"skipped" ();
+                Lwt.return_unit))
     | None -> (
         match (task.channel, task.channel_id) with
         | Some channel, Some channel_id -> (
             let* result =
-              dispatch_resumed_message ~config ~channel ~channel_id ~text ()
+              dispatch_resumed_message ~config ~channel ~channel_id
+                ~text:channel_text ()
             in
             match result with
-            | Ok () -> Lwt.return_unit
+            | Ok () ->
+                record_notification ~db ~task_id:task.Background_task.id
+                  ~status:"delivered" ();
+                Lwt.return_unit
             | Error err ->
                 Logs.warn (fun m ->
                     m "Background task completion dispatch failed: %s" err);
+                record_notification ~db ~task_id:task.Background_task.id
+                  ~status:"failed" ~error:err ();
                 Lwt.return_unit)
-        | _ -> Lwt.return_unit)
+        | _ ->
+            record_notification ~db ~task_id:task.Background_task.id
+              ~status:"skipped" ();
+            Lwt.return_unit)
   in
   match task.Background_task.session_key with
   | Some session_key ->

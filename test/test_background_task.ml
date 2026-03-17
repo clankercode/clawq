@@ -1,3 +1,12 @@
+let string_contains haystack needle =
+  let hay_len = String.length haystack and needle_len = String.length needle in
+  let rec loop i =
+    if i + needle_len > hay_len then false
+    else if String.sub haystack i needle_len = needle then true
+    else loop (i + 1)
+  in
+  needle_len = 0 || loop 0
+
 let init_git_repo path =
   let cmd =
     Printf.sprintf "git -C %s init -q >/dev/null 2>&1" (Filename.quote path)
@@ -79,6 +88,9 @@ let fake_task ?(status = Background_task.Queued) id =
     runner_session_id = None;
     acp = false;
     agent_name = None;
+    notification_status = None;
+    notification_error = None;
+    notification_attempts = 0;
   }
 
 let fake_started_task ?(runner = Background_task.Codex) ?model
@@ -110,6 +122,9 @@ let fake_started_task ?(runner = Background_task.Codex) ?model
     runner_session_id = None;
     acp = false;
     agent_name = None;
+    notification_status = None;
+    notification_error = None;
+    notification_attempts = 0;
   }
 
 let test_enqueue_and_list_tasks () =
@@ -309,6 +324,9 @@ let test_command_of_task_codex () =
       runner_session_id = None;
       acp = false;
       agent_name = None;
+      notification_status = None;
+      notification_error = None;
+      notification_attempts = 0;
     }
   in
   Alcotest.(check (array string))
@@ -351,6 +369,9 @@ let test_command_of_task_claude () =
       runner_session_id = None;
       acp = false;
       agent_name = None;
+      notification_status = None;
+      notification_error = None;
+      notification_attempts = 0;
     }
   in
   Alcotest.(check (array string))
@@ -387,6 +408,9 @@ let test_command_of_task_kimi () =
       runner_session_id = None;
       acp = false;
       agent_name = None;
+      notification_status = None;
+      notification_error = None;
+      notification_attempts = 0;
     }
   in
   Alcotest.(check (array string))
@@ -423,6 +447,9 @@ let test_command_of_task_kimi_with_model () =
       runner_session_id = None;
       acp = false;
       agent_name = None;
+      notification_status = None;
+      notification_error = None;
+      notification_attempts = 0;
     }
   in
   Alcotest.(check (array string))
@@ -459,6 +486,9 @@ let test_command_of_task_gemini () =
       runner_session_id = None;
       acp = false;
       agent_name = None;
+      notification_status = None;
+      notification_error = None;
+      notification_attempts = 0;
     }
   in
   Alcotest.(check (array string))
@@ -495,6 +525,9 @@ let test_command_of_task_gemini_with_model () =
       runner_session_id = None;
       acp = false;
       agent_name = None;
+      notification_status = None;
+      notification_error = None;
+      notification_attempts = 0;
     }
   in
   Alcotest.(check (array string))
@@ -531,6 +564,9 @@ let test_command_of_task_opencode () =
       runner_session_id = None;
       acp = false;
       agent_name = None;
+      notification_status = None;
+      notification_error = None;
+      notification_attempts = 0;
     }
   in
   Alcotest.(check (array string))
@@ -567,6 +603,9 @@ let test_command_of_task_opencode_with_model () =
       runner_session_id = None;
       acp = false;
       agent_name = None;
+      notification_status = None;
+      notification_error = None;
+      notification_attempts = 0;
     }
   in
   Alcotest.(check (array string))
@@ -603,6 +642,9 @@ let test_command_of_task_cursor () =
       runner_session_id = None;
       acp = false;
       agent_name = None;
+      notification_status = None;
+      notification_error = None;
+      notification_attempts = 0;
     }
   in
   Alcotest.(check (array string))
@@ -639,6 +681,9 @@ let test_command_of_task_cursor_with_model () =
       runner_session_id = None;
       acp = false;
       agent_name = None;
+      notification_status = None;
+      notification_error = None;
+      notification_attempts = 0;
     }
   in
   Alcotest.(check (array string))
@@ -1435,6 +1480,9 @@ let make_task ?(id = 1) ?(runner = Background_task.Claude)
     runner_session_id = None;
     acp = false;
     agent_name = None;
+    notification_status = None;
+    notification_error = None;
+    notification_attempts = 0;
   }
 
 let test_elapsed_string_recent () =
@@ -1636,6 +1684,9 @@ let test_command_of_task_codex_with_model () =
       runner_session_id = None;
       acp = false;
       agent_name = None;
+      notification_status = None;
+      notification_error = None;
+      notification_attempts = 0;
     }
   in
   Alcotest.(check (array string))
@@ -1680,6 +1731,9 @@ let test_command_of_task_claude_with_model () =
       runner_session_id = None;
       acp = false;
       agent_name = None;
+      notification_status = None;
+      notification_error = None;
+      notification_attempts = 0;
     }
   in
   Alcotest.(check (array string))
@@ -3260,6 +3314,9 @@ let test_terse_message_dirty_worktree () =
       runner_session_id = None;
       acp = false;
       agent_name = None;
+      notification_status = None;
+      notification_error = None;
+      notification_attempts = 0;
     }
   in
   let msg = Background_task.terse_finished_message task in
@@ -3728,6 +3785,230 @@ let test_local_runner_enqueue () =
     ~finally:(fun () ->
       ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote dir))))
 
+let test_channel_notification_succeeded () =
+  let task =
+    {
+      (fake_started_task 42) with
+      Background_task.status = Background_task.Succeeded;
+      result_preview = Some "All tests pass";
+    }
+  in
+  let msg = Background_task.channel_notification_message task in
+  Alcotest.(check bool) "contains task id" true (string_contains msg "#42");
+  Alcotest.(check bool)
+    "contains SUCCEEDED" true
+    (string_contains msg "SUCCEEDED");
+  Alcotest.(check bool)
+    "contains repo basename" true
+    (string_contains msg "repo");
+  Alcotest.(check bool) "no full paths" true (not (string_contains msg "/tmp/"));
+  Alcotest.(check bool) "no hint" true (not (string_contains msg "Hint:"))
+
+let test_channel_notification_failed () =
+  let task =
+    {
+      (fake_started_task 42) with
+      Background_task.status = Background_task.Failed;
+      result_preview = Some "Build error in dune config";
+    }
+  in
+  let msg = Background_task.channel_notification_message task in
+  Alcotest.(check bool) "contains FAILED" true (string_contains msg "FAILED");
+  Alcotest.(check bool)
+    "contains error preview" true
+    (string_contains msg "Build error in dune config");
+  Alcotest.(check bool)
+    "contains retry hint" true
+    (string_contains msg "background retry 42");
+  Alcotest.(check bool)
+    "contains logs hint" true
+    (string_contains msg "background logs 42")
+
+let test_channel_notification_dirty_worktree () =
+  let task =
+    {
+      (fake_started_task 42) with
+      Background_task.status = Background_task.DirtyWorktree;
+      result_preview = Some "Changes not committed";
+    }
+  in
+  let msg = Background_task.channel_notification_message task in
+  Alcotest.(check bool)
+    "contains DIRTY WORKTREE" true
+    (string_contains msg "DIRTY WORKTREE");
+  Alcotest.(check bool)
+    "contains finalize hint" true
+    (string_contains msg "background finalize 42")
+
+let test_channel_notification_cancelled () =
+  let task =
+    {
+      (fake_started_task 42) with
+      Background_task.status = Background_task.Cancelled;
+    }
+  in
+  let msg = Background_task.channel_notification_message task in
+  Alcotest.(check bool)
+    "contains CANCELLED" true
+    (string_contains msg "CANCELLED");
+  Alcotest.(check bool) "no hint" true (not (string_contains msg "Hint:"))
+
+let test_channel_notification_with_automerge () =
+  let task =
+    {
+      (fake_started_task 42) with
+      Background_task.status = Background_task.Succeeded;
+      merge_status = Some "merged";
+    }
+  in
+  let msg = Background_task.channel_notification_message task in
+  Alcotest.(check bool)
+    "contains automerged suffix" true
+    (string_contains msg "automerged")
+
+let test_channel_notification_local_runner () =
+  let task =
+    {
+      (fake_started_task ~runner:Background_task.Local 42) with
+      Background_task.status = Background_task.Succeeded;
+      result_preview = Some "script output here";
+    }
+  in
+  let msg = Background_task.channel_notification_message task in
+  Alcotest.(check bool)
+    "contains result preview" true
+    (string_contains msg "script output here")
+
+let test_channel_notification_with_summary () =
+  let task =
+    {
+      (fake_started_task 42) with
+      Background_task.status = Background_task.Succeeded;
+      result_preview = Some "raw output";
+    }
+  in
+  let msg =
+    Background_task.channel_notification_message
+      ~summary:"Implemented feature and added tests" task
+  in
+  Alcotest.(check bool)
+    "contains Summary line" true
+    (string_contains msg "Summary: Implemented feature and added tests");
+  Alcotest.(check bool)
+    "does not contain raw result" true
+    (not (string_contains msg "raw output"))
+
+let test_channel_notification_without_summary () =
+  let task =
+    {
+      (fake_started_task 42) with
+      Background_task.status = Background_task.Succeeded;
+      result_preview = Some "fallback preview text";
+    }
+  in
+  let msg = Background_task.channel_notification_message task in
+  Alcotest.(check bool)
+    "contains fallback preview" true
+    (string_contains msg "Summary: fallback preview text")
+
+let test_channel_notification_with_git_info () =
+  let task =
+    {
+      (fake_started_task 42) with
+      Background_task.status = Background_task.Succeeded;
+    }
+  in
+  let git_info =
+    { Background_task.dirty_count = 2; commit_count = 3; rebased = true }
+  in
+  let msg = Background_task.channel_notification_message ~git_info task in
+  Alcotest.(check bool)
+    "contains git dirty" true
+    (string_contains msg "dirty (2 files)");
+  Alcotest.(check bool)
+    "contains commit count" true
+    (string_contains msg "3 commits");
+  Alcotest.(check bool) "contains rebased" true (string_contains msg "rebased")
+
+let test_channel_notification_git_clean () =
+  let task =
+    {
+      (fake_started_task 42) with
+      Background_task.status = Background_task.Succeeded;
+    }
+  in
+  let git_info =
+    { Background_task.dirty_count = 0; commit_count = 1; rebased = false }
+  in
+  let msg = Background_task.channel_notification_message ~git_info task in
+  Alcotest.(check bool) "contains clean" true (string_contains msg "git: clean");
+  Alcotest.(check bool)
+    "contains 1 commit" true
+    (string_contains msg "1 commit,");
+  Alcotest.(check bool)
+    "contains not rebased" true
+    (string_contains msg "not rebased")
+
+let test_record_notification_result () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Background_task.init_schema db;
+  with_temp_git_repo (fun repo_path ->
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"test" ()
+        with
+        | Ok id -> id
+        | Error e -> Alcotest.fail e
+      in
+      Background_task.record_notification_result ~db ~id ~status:"delivered" ();
+      let task =
+        match Background_task.get_task ~db ~id with
+        | Some t -> t
+        | None -> Alcotest.fail "task not found"
+      in
+      Alcotest.(check (option string))
+        "status is delivered" (Some "delivered") task.notification_status;
+      Alcotest.(check (option string)) "no error" None task.notification_error;
+      Alcotest.(check int) "attempts is 1" 1 task.notification_attempts;
+      Background_task.record_notification_result ~db ~id ~status:"failed"
+        ~error:"timeout" ();
+      let task2 =
+        match Background_task.get_task ~db ~id with
+        | Some t -> t
+        | None -> Alcotest.fail "task not found"
+      in
+      Alcotest.(check (option string))
+        "status updated" (Some "failed") task2.notification_status;
+      Alcotest.(check (option string))
+        "error recorded" (Some "timeout") task2.notification_error;
+      Alcotest.(check int) "attempts incremented" 2 task2.notification_attempts)
+
+let test_notification_status_in_summary () =
+  let task =
+    {
+      (fake_started_task 42) with
+      Background_task.notification_status = Some "delivered";
+    }
+  in
+  let summary = Background_task.format_task_summary task in
+  Alcotest.(check bool)
+    "contains notification status" true
+    (string_contains summary "notification: delivered")
+
+let test_notification_error_in_summary () =
+  let task =
+    {
+      (fake_started_task 42) with
+      Background_task.notification_status = Some "failed";
+      notification_error = Some "connection refused";
+    }
+  in
+  let summary = Background_task.format_task_summary task in
+  Alcotest.(check bool)
+    "contains error" true
+    (string_contains summary "connection refused")
+
 let suite =
   [
     Alcotest.test_case "enqueue and list tasks" `Quick
@@ -3966,4 +4247,30 @@ let suite =
     Alcotest.test_case "local runner string roundtrip" `Quick
       test_local_runner_string_roundtrip;
     Alcotest.test_case "local runner enqueue" `Quick test_local_runner_enqueue;
+    Alcotest.test_case "channel notification succeeded" `Quick
+      test_channel_notification_succeeded;
+    Alcotest.test_case "channel notification failed" `Quick
+      test_channel_notification_failed;
+    Alcotest.test_case "channel notification dirty worktree" `Quick
+      test_channel_notification_dirty_worktree;
+    Alcotest.test_case "channel notification cancelled" `Quick
+      test_channel_notification_cancelled;
+    Alcotest.test_case "channel notification with automerge" `Quick
+      test_channel_notification_with_automerge;
+    Alcotest.test_case "channel notification local runner" `Quick
+      test_channel_notification_local_runner;
+    Alcotest.test_case "channel notification with summary" `Quick
+      test_channel_notification_with_summary;
+    Alcotest.test_case "channel notification without summary" `Quick
+      test_channel_notification_without_summary;
+    Alcotest.test_case "channel notification with git info" `Quick
+      test_channel_notification_with_git_info;
+    Alcotest.test_case "channel notification git clean" `Quick
+      test_channel_notification_git_clean;
+    Alcotest.test_case "record notification result" `Quick
+      test_record_notification_result;
+    Alcotest.test_case "notification status in summary" `Quick
+      test_notification_status_in_summary;
+    Alcotest.test_case "notification error in summary" `Quick
+      test_notification_error_in_summary;
   ]

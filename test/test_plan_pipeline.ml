@@ -159,6 +159,9 @@ let test_check_plan_stable_hash_unchanged () =
               runner_session_id = None;
               acp = false;
               agent_name = None;
+              notification_status = None;
+              notification_error = None;
+              notification_attempts = 0;
             }
           in
           let stable =
@@ -206,6 +209,9 @@ let test_check_plan_stable_marker () =
               runner_session_id = None;
               acp = false;
               agent_name = None;
+              notification_status = None;
+              notification_error = None;
+              notification_attempts = 0;
             }
           in
           let stable =
@@ -251,6 +257,9 @@ let test_stage_transitions () =
       runner_session_id = None;
       acp = false;
       agent_name = None;
+      notification_status = None;
+      notification_error = None;
+      notification_attempts = 0;
     }
   in
   with_temp_git_repo (fun repo ->
@@ -331,6 +340,9 @@ let test_stage_force_stop_at_max () =
       runner_session_id = None;
       acp = false;
       agent_name = None;
+      notification_status = None;
+      notification_error = None;
+      notification_attempts = 0;
     }
   in
   with_temp_git_repo (fun repo ->

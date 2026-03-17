@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-17T11:49:30Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-17T12:45:21Z"
 complexity: medium
 depends_on: []
+duration_minutes: 55.861651908283335
 estimate_hours: 10
 id: I033
 priority: high
 started_at: "2026-03-17T11:49:30Z"
-status: in_progress
+status: done
 tags: []
 title: Completion Notifications (Background Task -> Channel)
 ---

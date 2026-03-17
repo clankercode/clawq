@@ -81,6 +81,9 @@ let fake_task ?(automerge = false) ?(use_worktree = true) ?(merge_status = None)
     runner_session_id = None;
     acp = false;
     agent_name = None;
+    notification_status = None;
+    notification_error = None;
+    notification_attempts = 0;
   }
 
 let test_schema_migration () =

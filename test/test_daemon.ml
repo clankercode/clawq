@@ -1353,6 +1353,9 @@ let make_test_task ?(id = 9) ?(session_key = Some "telegram:42:user")
     runner_session_id = None;
     acp = false;
     agent_name = None;
+    notification_status = None;
+    notification_error = None;
+    notification_attempts = 0;
   }
 
 let test_notify_background_task_finished_dispatches_and_injects_wakeup () =
@@ -1412,10 +1415,9 @@ let test_notify_background_task_finished_dispatches_and_injects_wakeup () =
   | [ (bt1, ci1, t1); (bt2, ci2, t2) ] ->
       Alcotest.(check string) "first bot_token" "tg-token" bt1;
       Alcotest.(check string) "first chat_id" "42" ci1;
-      Alcotest.(check string)
-        "first dispatch is status message"
-        (Background_task.status_message task)
-        t1;
+      Alcotest.(check bool)
+        "first dispatch is channel notification" true
+        (string_contains t1 "Background task #9 finished: SUCCEEDED");
       Alcotest.(check string) "second bot_token" "tg-token" bt2;
       Alcotest.(check string) "second chat_id" "42" ci2;
       Alcotest.(check string) "second dispatch is agent response" "woke up" t2
@@ -2076,6 +2078,157 @@ let test_refresh_runtime_bound_tools_replaces_shell_exec_on_reload () =
     "shell_exec description reflects reloaded workspace policy" true
     (string_contains shell2.Tool.description "Workspace policy")
 
+let insert_test_task db =
+  let dir = Filename.temp_file "clawq-notify-test" "" in
+  Sys.remove dir;
+  Unix.mkdir dir 0o755;
+  ignore
+    (Sys.command
+       (Printf.sprintf
+          "git -C %s init -q && git -C %s config user.name Test && git -C %s \
+           config user.email t@t && git -C %s commit --allow-empty -m init -q"
+          (Filename.quote dir) (Filename.quote dir) (Filename.quote dir)
+          (Filename.quote dir)));
+  let id =
+    match
+      Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path:dir
+        ~prompt:"test" ~session_key:"telegram:42:user" ~channel:"telegram"
+        ~channel_id:"42" ()
+    with
+    | Ok id -> id
+    | Error e -> Alcotest.failf "enqueue: %s" e
+  in
+  ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote dir)));
+  id
+
+let test_notify_records_delivered_on_success () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Background_task.init_schema db;
+  let task_id = insert_test_task db in
+  let config = Runtime_config.default in
+  let session_manager = Session.create ~config ~db () in
+  Session.register_channel_notifier session_manager ~key:"telegram:42:user"
+    (fun _text -> Lwt.return_unit);
+  let task =
+    { (make_test_task ~id:task_id ()) with Background_task.status = Succeeded }
+  in
+  Lwt_main.run
+    (Daemon.notify_background_task_finished ~continuation_delay:100.0
+       ~session_manager ~config ~db task);
+  let t =
+    match Background_task.get_task ~db ~id:task_id with
+    | Some t -> t
+    | None -> Alcotest.fail "task not found"
+  in
+  Alcotest.(check (option string))
+    "notification status" (Some "delivered") t.notification_status;
+  Alcotest.(check (option string)) "no error" None t.notification_error;
+  Alcotest.(check int) "attempts is 1" 1 t.notification_attempts
+
+let test_notify_records_failed_on_sender_error () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Background_task.init_schema db;
+  let task_id = insert_test_task db in
+  let config = Runtime_config.default in
+  let session_manager = Session.create ~config ~db () in
+  Session.register_channel_notifier session_manager ~key:"telegram:42:user"
+    (fun _text -> Lwt.fail_with "send failed");
+  let task =
+    { (make_test_task ~id:task_id ()) with Background_task.status = Succeeded }
+  in
+  Lwt_main.run
+    (Daemon.notify_background_task_finished ~continuation_delay:100.0
+       ~session_manager ~config ~db task);
+  let t =
+    match Background_task.get_task ~db ~id:task_id with
+    | Some t -> t
+    | None -> Alcotest.fail "task not found"
+  in
+  Alcotest.(check (option string))
+    "notification status" (Some "failed") t.notification_status;
+  Alcotest.(check bool)
+    "error contains reason" true
+    (match t.notification_error with
+    | Some e -> string_contains e "send failed"
+    | None -> false)
+
+let test_notify_records_skipped_when_no_channel () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Background_task.init_schema db;
+  let task_id = insert_test_task db in
+  let config = Runtime_config.default in
+  let session_manager = Session.create ~config ~db () in
+  let task =
+    {
+      (make_test_task ~id:task_id ~session_key:None ~channel:None
+         ~channel_id:None ())
+      with
+      Background_task.status = Succeeded;
+    }
+  in
+  Lwt_main.run
+    (Daemon.notify_background_task_finished ~session_manager ~config ~db task);
+  let t =
+    match Background_task.get_task ~db ~id:task_id with
+    | Some t -> t
+    | None -> Alcotest.fail "task not found"
+  in
+  Alcotest.(check (option string))
+    "notification status" (Some "skipped") t.notification_status
+
+let test_notify_discord_dispatches_channel_notification () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let config =
+    {
+      Runtime_config.default with
+      channels =
+        {
+          Runtime_config.default.channels with
+          discord =
+            Some
+              {
+                bot_token = "discord-token";
+                allow_guilds = [];
+                allow_users = [];
+                intents = 0;
+              };
+        };
+    }
+  in
+  let session_manager = Session.create ~config ~db () in
+  let dispatched = ref [] in
+  let senders =
+    {
+      Daemon.default_resume_senders with
+      send_discord =
+        (fun ~bot_token:_ ~channel_id:_ ~text ->
+          dispatched := text :: !dispatched;
+          Lwt.return_unit);
+    }
+  in
+  Session.set_special_command_handler session_manager
+    (fun ~key ~message:_ ~send_progress:_ ~interrupt_check:_ ->
+      if key = "discord:42:user" then Lwt.return_some "ok" else Lwt.return_none);
+  let task =
+    make_test_task ~id:9 ~session_key:(Some "discord:42:user")
+      ~channel:(Some "discord") ~channel_id:(Some "42") ()
+  in
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () =
+       Daemon.notify_background_task_finished ~continuation_delay:100.0 ~senders
+         ~session_manager ~config task
+     in
+     let* () = Lwt.pause () in
+     Session.cancel_autonomous_continuation session_manager
+       ~key:"discord:42:user");
+  match List.rev !dispatched with
+  | t :: _ ->
+      Alcotest.(check bool)
+        "discord dispatch has channel notification format" true
+        (string_contains t "Background task #9 finished: SUCCEEDED")
+  | [] -> Alcotest.fail "expected at least one dispatch"
+
 let suite =
   [
     Alcotest.test_case "boot stage message helpers" `Quick
@@ -2192,4 +2345,12 @@ let suite =
       test_session_reset_clears_pending_queue;
     Alcotest.test_case "refresh runtime-bound tools replaces shell_exec" `Quick
       test_refresh_runtime_bound_tools_replaces_shell_exec_on_reload;
+    Alcotest.test_case "notify records delivered on success" `Quick
+      test_notify_records_delivered_on_success;
+    Alcotest.test_case "notify records failed on sender error" `Quick
+      test_notify_records_failed_on_sender_error;
+    Alcotest.test_case "notify records skipped when no channel" `Quick
+      test_notify_records_skipped_when_no_channel;
+    Alcotest.test_case "notify discord dispatches channel notification" `Quick
+      test_notify_discord_dispatches_channel_notification;
   ]
