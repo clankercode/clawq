@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B530
+priority: high
+status: pending
+tags: []
+title: clawq needs a way to start agents in a CWD rather than telling them to change it later.
+---
+
+clawq needs a way to start agents in a CWD rather than telling them to change it later.
