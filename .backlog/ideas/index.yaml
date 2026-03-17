@@ -248,8 +248,15 @@ ideas:
       id: I029
     - file: I030-cross-channel-thread-continuit.todo
       id: I030
-    - file: I031-multi-model-debate-consensus.todo
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 10
+      file: I031-multi-model-debate-consensus.todo
       id: I031
+      priority: medium
+      status: in_progress
+      tags: []
+      title: Multi-Model Debate / Consensus
     - file: I032-structured-output-pipelines.todo
       id: I032
     - complexity: medium
