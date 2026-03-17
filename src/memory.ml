@@ -537,15 +537,32 @@ let migrate_step db v =
       with _ -> ())
   | n -> failwith (Printf.sprintf "Unknown migration step from version %d" n)
 
+(* Idempotent column repair for databases that reached the current schema
+   version but are missing columns due to partial or buggy earlier migrations.
+   Each ALTER TABLE ADD COLUMN is wrapped in try/catch — it's a no-op if the
+   column already exists. *)
+let repair_missing_columns db =
+  let try_add sql = try exec_exn db sql with _ -> () in
+  try_add "ALTER TABLE messages ADD COLUMN provider_response_items_json TEXT";
+  try_add
+    "ALTER TABLE session_state ADD COLUMN keepalive_enabled INTEGER NOT NULL \
+     DEFAULT 0";
+  try_add
+    "ALTER TABLE session_state ADD COLUMN model_override TEXT DEFAULT NULL";
+  try_add "ALTER TABLE request_stats ADD COLUMN added_prompt_tokens INTEGER";
+  try_add
+    "ALTER TABLE session_state ADD COLUMN heartbeat_enabled INTEGER NOT NULL \
+     DEFAULT 0";
+  try_add "ALTER TABLE request_stats ADD COLUMN cached_tokens INTEGER";
+  try_add "ALTER TABLE session_state ADD COLUMN effective_cwd TEXT DEFAULT NULL";
+  try_add "ALTER TABLE task_tree ADD COLUMN deleted_at TEXT DEFAULT NULL"
+
 let migrate_schema db current_version =
   match current_version with
   | 0 ->
       (* Fresh database: create all tables with current schema *)
       ensure_all_tables db;
-      (try
-         exec_exn db
-           "ALTER TABLE task_tree ADD COLUMN deleted_at TEXT DEFAULT NULL"
-       with _ -> ());
+      repair_missing_columns db;
       add_thinking_content_columns db;
       exec_exn db
         (Printf.sprintf "INSERT INTO schema_version (version) VALUES (%d)"
@@ -559,14 +576,12 @@ let migrate_schema db current_version =
         set_schema_version db (v + 1)
       done;
       ensure_all_tables db;
-      (try
-         exec_exn db
-           "ALTER TABLE task_tree ADD COLUMN deleted_at TEXT DEFAULT NULL"
-       with _ -> ());
+      repair_missing_columns db;
       add_thinking_content_columns db
   | n when n = schema_version ->
       (* Already at current version: ensure all tables exist *)
-      ensure_all_tables db
+      ensure_all_tables db;
+      repair_missing_columns db
   | n ->
       failwith
         (Printf.sprintf "DB uses future schema version %d (current=%d)" n
