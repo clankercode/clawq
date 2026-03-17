@@ -49,7 +49,7 @@ let test_basic_detach () =
                    effective_cwd = None;
                    request_cwd_change = None;
                  }
-               (`Assoc [ ("command", `String "echo hello; sleep 0.3") ])
+               (`Assoc [ ("command", `String "echo hello; sleep 0.05") ])
            in
            let* result, () = Lwt.both invoke trigger in
            Lwt.return result)
@@ -57,9 +57,12 @@ let test_basic_detach () =
       Alcotest.(check bool)
         "contains job info" true
         (contains result "Background shell job");
-      (* Wait for job to finish *)
-      Lwt_main.run (Lwt_unix.sleep 0.5);
       let job_id = extract_job_id result in
+      let wait_tool = Tools_bg_shell.bg_shell_wait () in
+      ignore
+        (Lwt_main.run
+           (wait_tool.Tool.invoke
+              (`Assoc [ ("id", `Int job_id); ("timeout_seconds", `Float 5.0) ])));
       let job = Bg_shell.find job_id in
       Alcotest.(check bool) "job found" true (job <> None);
       let job = Option.get job in
@@ -96,7 +99,7 @@ let test_status_running () =
                    effective_cwd = None;
                    request_cwd_change = None;
                  }
-               (`Assoc [ ("command", `String "sleep 0.5") ])
+               (`Assoc [ ("command", `String "sleep 0.15") ])
            in
            let* result, () = Lwt.both invoke trigger in
            Lwt.return result)
@@ -112,8 +115,12 @@ let test_status_running () =
       Alcotest.(check bool)
         "status says running" true
         (contains status_result "Running");
-      (* Wait and check again *)
-      Lwt_main.run (Lwt_unix.sleep 0.7);
+      (* Wait for the job to finish *)
+      let wait_tool = Tools_bg_shell.bg_shell_wait () in
+      ignore
+        (Lwt_main.run
+           (wait_tool.Tool.invoke
+              (`Assoc [ ("id", `Int job_id); ("timeout_seconds", `Float 5.0) ])));
       let status_result2 =
         Lwt_main.run (status_tool.Tool.invoke (`Assoc [ ("id", `Int job_id) ]))
       in
@@ -269,7 +276,7 @@ let test_result_while_running () =
                    effective_cwd = None;
                    request_cwd_change = None;
                  }
-               (`Assoc [ ("command", `String "sleep 5") ])
+               (`Assoc [ ("command", `String "sleep 1") ])
            in
            let* result, () = Lwt.both invoke trigger in
            Lwt.return result)

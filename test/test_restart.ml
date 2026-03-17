@@ -218,7 +218,7 @@ let start_fake_provider ~port ~stream_seen =
                    ])
             in
             let open Lwt.Syntax in
-            let* () = Lwt_unix.sleep 0.5 in
+            let* () = Lwt_unix.sleep 0.1 in
             push (Some ("data: " ^ chunk ^ "\n\n"));
             push (Some "data: [DONE]\n\n");
             push None;

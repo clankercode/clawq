@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-17T04:34:44Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-17T05:14:13Z"
 complexity: medium
 depends_on: []
+duration_minutes: 39.4844553343
 estimate_hours: 1
 id: B531
 priority: high
 started_at: "2026-03-17T04:34:44Z"
-status: in_progress
+status: done
 tags: []
 title: investigate and optimize slow tests
 ---

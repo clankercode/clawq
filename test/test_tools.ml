@@ -1954,7 +1954,20 @@ let test_shell_exec_interrupts_running_process () =
       Alcotest.(check bool)
         "result contains bg job info" true
         (contains result "Background shell job");
-      Alcotest.(check bool) "returns promptly" true (elapsed < 2.0))
+      Alcotest.(check bool) "returns promptly" true (elapsed < 2.0);
+      (* Clean up: kill the background sleep process *)
+      let job_id =
+        try
+          let re = Str.regexp {|Background shell job #\([0-9]+\)|} in
+          ignore (Str.search_forward re result 0);
+          int_of_string (Str.matched_group 1 result)
+        with _ -> -1
+      in
+      if job_id >= 0 then begin
+        let job = Option.get (Bg_shell.find job_id) in
+        Process_group.signal_group job.pid Sys.sigkill;
+        Lwt_main.run (Lwt_unix.sleep 0.05)
+      end)
 
 let test_shell_exec_interrupt_moves_to_background () =
   with_temp_workspace (fun workspace ->
@@ -1969,7 +1982,7 @@ let test_shell_exec_interrupt_moves_to_background () =
       let interrupted = ref None in
       let pid_file = Filename.concat workspace "child.pid" in
       let command =
-        Printf.sprintf "printf '%%s' \"$$\" > %s; echo hello; sleep 0.3"
+        Printf.sprintf "printf '%%s' \"$$\" > %s; echo hello; sleep 0.05"
           (Filename.quote pid_file)
       in
       let result =
@@ -2016,7 +2029,11 @@ let test_shell_exec_interrupt_moves_to_background () =
           int_of_string (Str.matched_group 1 result)
         with _ -> Alcotest.fail "could not parse job ID"
       in
-      Lwt_main.run (Lwt_unix.sleep 0.5);
+      let wait_tool = Tools_bg_shell.bg_shell_wait () in
+      ignore
+        (Lwt_main.run
+           (wait_tool.Tool.invoke
+              (`Assoc [ ("id", `Int job_id); ("timeout_seconds", `Float 5.0) ])));
       let job = Bg_shell.find job_id in
       (match job with
       | Some j ->

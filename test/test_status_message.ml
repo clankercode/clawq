@@ -844,7 +844,7 @@ let test_heartbeat_self_terminates () =
     }
   in
   let t =
-    Status_message.create ~debounce_interval:0.5 ~notifier
+    Status_message.create ~debounce_interval:0.01 ~notifier
       ~parse_mode:"Markdown" ()
   in
   Lwt_main.run
@@ -956,7 +956,7 @@ let test_finalize_cancels_heartbeat () =
   (* B493: finalize must cancel any remaining heartbeat *)
   let notifier, _, _, _ = mock_notifier () in
   let t =
-    Status_message.create ~debounce_interval:0.5 ~notifier
+    Status_message.create ~debounce_interval:0.01 ~notifier
       ~parse_mode:"Markdown" ()
   in
   Lwt_main.run
