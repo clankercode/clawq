@@ -252,3 +252,5 @@ ideas:
       id: I031
     - file: I032-structured-output-pipelines.todo
       id: I032
+    - file: I033-completion-notifications-backg.todo
+      id: I033
