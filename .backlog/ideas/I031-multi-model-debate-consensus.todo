@@ -1,0 +1,14 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 10
+id: I031
+priority: medium
+status: pending
+tags:
+    - agent
+    - reliability
+    - models
+title: Multi-Model Debate / Consensus
+---
+For high-stakes tasks (code review, architectural decisions, factual research), route the same prompt to N models in parallel, then run a lightweight 'judge' prompt that compares responses, explains disagreements, and produces a synthesis with a confidence score. 'clawq agent --debate "Is this migration safe?"' uses 3 models and reports consensus. Dramatically reduces single-model hallucination risk. No other personal assistant offers built-in adversarial verification.
