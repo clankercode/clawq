@@ -1,0 +1,15 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 10
+id: I048
+priority: medium
+status: pending
+tags:
+    - memory
+    - backup
+    - migration
+    - portability
+title: Memory Export/Import Snapshots
+---
+'clawq memory export' produces a portable MEMORY_SNAPSHOT.json with versioning metadata. 'clawq memory import' restores from a snapshot. Auto-hydration: if the core memory table is empty at startup and a snapshot file exists, it auto-imports. NullClaw has this feature. Enables: backup/restore, migration between machines, sharing memory between clawq instances, and disaster recovery. Currently memory is locked in SQLite with no portable format.

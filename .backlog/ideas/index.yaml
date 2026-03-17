@@ -303,3 +303,5 @@ ideas:
       id: I046
     - file: I047-config-invariant-proofs.todo
       id: I047
+    - file: I048-memory-export-import-snapshots.todo
+      id: I048
