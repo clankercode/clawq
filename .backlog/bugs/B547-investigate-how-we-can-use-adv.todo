@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-17T19:15:40Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B547
 priority: high
-status: pending
+started_at: "2026-03-17T19:15:40Z"
+status: in_progress
 tags: []
 title: investigate how we can use advanced features of the various connectors + the format_adapter and dsl to redesign and drastically improve ask_user_question
 ---
