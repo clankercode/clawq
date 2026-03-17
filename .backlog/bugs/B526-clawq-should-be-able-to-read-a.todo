@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B526
+priority: high
+status: pending
+tags: []
+title: clawq should be able to read and download attachments sent to it via teams and telegram (and other connectors too but these two are most important)
+---
+
+clawq should be able to read and download attachments sent to it via teams and telegram (and other connectors too but these two are most important)
