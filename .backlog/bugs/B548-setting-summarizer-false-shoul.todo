@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B548
+priority: high
+status: pending
+tags: []
+title: setting summarizer.false should update live and disable the autosummarizer
+---
+
+setting summarizer.false should update live and disable the autosummarizer
