@@ -1123,6 +1123,78 @@ let test_compaction_no_reload_if_kept () =
   Alcotest.(check int) "no reload (already kept)" 0 (List.length result);
   Agent.find_skill_for_reload_fn := fun _ -> None
 
+let has_substring ~sub s =
+  try
+    ignore (Str.search_forward (Str.regexp_string sub) s 0);
+    true
+  with Not_found -> false
+
+let test_compaction_reload_at_cap () =
+  (* 4 skills = exactly at the cap; all should auto-load, no overflow *)
+  (Agent.find_skill_for_reload_fn :=
+     fun name -> Some ("desc", "instructions for " ^ name));
+  let to_compact =
+    List.map
+      (fun i ->
+        Provider.make_message ~role:"system"
+          ~content:(Printf.sprintf "[Skill: skill-%d]\nbody" i))
+      [ 1; 2; 3; 4 ]
+  in
+  let to_keep = [ Provider.make_message ~role:"user" ~content:"hi" ] in
+  let result = Agent.reload_skills_after_compaction ~to_compact ~to_keep in
+  Alcotest.(check int) "all 4 auto-loaded" 4 (List.length result);
+  List.iter
+    (fun (msg : Provider.message) ->
+      Alcotest.(check bool)
+        "marked autoloaded" true
+        (has_substring ~sub:"autoloaded after compaction" msg.content))
+    result;
+  Agent.find_skill_for_reload_fn := fun _ -> None
+
+let test_compaction_reload_overflow () =
+  (* 6 skills: first 4 auto-loaded, remaining 2 in overflow message *)
+  (Agent.find_skill_for_reload_fn :=
+     fun name -> Some ("desc", "instructions for " ^ name));
+  let to_compact =
+    List.map
+      (fun i ->
+        Provider.make_message ~role:"system"
+          ~content:(Printf.sprintf "[Skill: skill-%d]\nbody" i))
+      [ 1; 2; 3; 4; 5; 6 ]
+  in
+  let to_keep = [ Provider.make_message ~role:"user" ~content:"hi" ] in
+  let result = Agent.reload_skills_after_compaction ~to_compact ~to_keep in
+  (* 4 auto-loaded + 1 overflow message = 5 *)
+  Alcotest.(check int) "4 auto + 1 overflow" 5 (List.length result);
+  let overflow_msg = List.nth result 4 in
+  Alcotest.(check bool)
+    "overflow lists skill-5" true
+    (has_substring ~sub:"skill-5" overflow_msg.content);
+  Alcotest.(check bool)
+    "overflow lists skill-6" true
+    (has_substring ~sub:"skill-6" overflow_msg.content);
+  Alcotest.(check bool)
+    "overflow mentions use_skill" true
+    (has_substring ~sub:"use_skill(name='skill-name')" overflow_msg.content);
+  Alcotest.(check bool)
+    "overflow does not list skill-4" false
+    (has_substring ~sub:"skill-4" overflow_msg.content);
+  Agent.find_skill_for_reload_fn := fun _ -> None
+
+let test_compaction_reload_empty () =
+  (* No skills in compacted messages -> empty result *)
+  (Agent.find_skill_for_reload_fn := fun _ -> Some ("desc", "body"));
+  let to_compact =
+    [
+      Provider.make_message ~role:"user" ~content:"hello";
+      Provider.make_message ~role:"assistant" ~content:"hi";
+    ]
+  in
+  let to_keep = [ Provider.make_message ~role:"user" ~content:"more" ] in
+  let result = Agent.reload_skills_after_compaction ~to_compact ~to_keep in
+  Alcotest.(check int) "empty result" 0 (List.length result);
+  Agent.find_skill_for_reload_fn := fun _ -> None
+
 let suite =
   [
     Alcotest.test_case "template substitution" `Quick test_substitute_template;
@@ -1195,4 +1267,10 @@ let suite =
       test_compaction_skill_reload;
     Alcotest.test_case "compaction no reload if kept" `Quick
       test_compaction_no_reload_if_kept;
+    Alcotest.test_case "compaction reload at cap" `Quick
+      test_compaction_reload_at_cap;
+    Alcotest.test_case "compaction reload overflow" `Quick
+      test_compaction_reload_overflow;
+    Alcotest.test_case "compaction reload empty" `Quick
+      test_compaction_reload_empty;
   ]

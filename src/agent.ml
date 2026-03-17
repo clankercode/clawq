@@ -213,6 +213,10 @@ let runtime_context_usage agent ~compacted_before_turn =
 (* Number of most-recent messages kept verbatim after compaction. *)
 let compaction_keep_recent = 20
 
+(* Maximum number of skills to auto-reload with full instructions after
+   compaction. Skills beyond this cap are listed by name only. *)
+let max_skills_to_autoload = 4
+
 (* Extract skill names from compacted messages that aren't already in kept
    messages, so we can auto-reload them after compaction. *)
 let skills_to_reload ~to_compact ~to_keep =
@@ -243,20 +247,56 @@ let find_skill_for_reload_fn : (string -> (string * string) option) ref =
 
 let reload_skills_after_compaction ~to_compact ~to_keep =
   let names = skills_to_reload ~to_compact ~to_keep in
-  List.filter_map
-    (fun name ->
-      match !find_skill_for_reload_fn name with
-      | Some (_desc, instructions) ->
-          let content =
-            Printf.sprintf "[Skill: %s (autoloaded after compaction)]\n%s" name
-              instructions
-          in
-          Some (Provider.make_message ~role:"system" ~content)
-      | None ->
-          Logs.debug (fun m ->
-              m "Skill '%s' no longer available for post-compaction reload" name);
-          None)
-    names
+  (* Resolve all skills, then split into auto-loaded and overflow. *)
+  let resolved =
+    List.filter_map
+      (fun name ->
+        match !find_skill_for_reload_fn name with
+        | Some (_desc, instructions) -> Some (name, instructions)
+        | None ->
+            Logs.debug (fun m ->
+                m "Skill '%s' no longer available for post-compaction reload"
+                  name);
+            None)
+      names
+  in
+  let auto, overflow =
+    let rec split n acc = function
+      | [] -> (List.rev acc, [])
+      | rest when n <= 0 -> (List.rev acc, rest)
+      | x :: xs -> split (n - 1) (x :: acc) xs
+    in
+    split max_skills_to_autoload [] resolved
+  in
+  let skill_msgs =
+    List.map
+      (fun (name, instructions) ->
+        let content =
+          Printf.sprintf "[Skill: %s (autoloaded after compaction)]\n%s" name
+            instructions
+        in
+        Provider.make_message ~role:"system" ~content)
+      auto
+  in
+  let overflow_msg =
+    match overflow with
+    | [] -> []
+    | _ ->
+        let names_str =
+          String.concat ", " (List.map (fun (name, _) -> name) overflow)
+        in
+        let content =
+          Printf.sprintf
+            "[Skills not auto-loaded after compaction: %s]\n\
+             The above skills were previously loaded but were not \
+             auto-reloaded to keep\n\
+             context compact. To reload any of them, use \
+             use_skill(name='skill-name')."
+            names_str
+        in
+        [ Provider.make_message ~role:"system" ~content ]
+  in
+  skill_msgs @ overflow_msg
 
 (* History must have more than this many messages before force-compression
    is attempted (to avoid compressing already-tiny histories). *)
