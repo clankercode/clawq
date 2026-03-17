@@ -305,3 +305,5 @@ ideas:
       id: I047
     - file: I048-memory-export-import-snapshots.todo
       id: I048
+    - file: I049-per-channel-config-overrides.todo
+      id: I049

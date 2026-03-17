@@ -1,0 +1,14 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 10
+id: I049
+priority: medium
+status: pending
+tags:
+    - channels
+    - config
+    - multi-channel
+title: Per-Channel Config Overrides
+---
+Allow per-channel configuration of system prompt, model, autonomy level, rate limits, and access policies. 'clawq channel config set discord --model anthropic:claude-haiku-4-5 --autonomy suggest'. Currently a single global config applies everywhere — the Telegram bot and the Slack workspace share the same model, same system prompt, same permissions. This is a documented gap that limits multi-channel deployment in practice. Essential for running different personas/models on different channels.
