@@ -1,4 +1,14 @@
-type match_rule = { path : string; expected : string }
+(* GitHub-specific webhook hook infrastructure.
+
+   Built on top of Webhook_handler for generic utilities (JSON path traversal,
+   frontmatter parsing, template rendering, match rule evaluation, delivery
+   snapshots). This module supplies GitHub-specific event preparation, context
+   extraction, session key derivation, and prompt assembly. *)
+
+type match_rule = Webhook_handler.match_rule = {
+  path : string;
+  expected : string;
+}
 
 type hook = {
   name : string;
@@ -23,6 +33,8 @@ type prepared_event = {
   is_user_generated : bool;
 }
 
+(* ---- Directory layout ---- *)
+
 let workspace_root () = Filename.concat (Dot_dir.ensure ()) "workspace"
 let hooks_dir () = Filename.concat (workspace_root ()) "gh-hooks"
 
@@ -31,136 +43,43 @@ let deliveries_dir () =
     (Filename.concat (workspace_root ()) "tmp")
     "github-deliveries"
 
-let max_inline_payload_chars = 12_000
-let delivery_retention_seconds = 48. *. 3600.
+(* ---- Re-exported generic utilities (backward compat) ---- *)
+
+let lookup_json_path = Webhook_handler.lookup_json_path
+let string_of_json = Webhook_handler.string_of_json
+let first_some = Webhook_handler.first_some
+let first_string = Webhook_handler.first_string
+let first_int = Webhook_handler.first_int
+let render_template = Webhook_handler.render_template
+let value_matches = Webhook_handler.value_matches
+let max_inline_payload_chars = Webhook_handler.default_max_inline_payload_chars
+
+(* ---- GitHub-specific event classification ---- *)
 
 let is_user_generated_event = function
   | "workflow_job" | "workflow_run" | "check_run" | "check_suite" | "ping" ->
       false
   | _ -> true
 
-let sanitize_filename_component s =
-  let buf = Buffer.create (String.length s) in
-  String.iter
-    (fun c ->
-      match c with
-      | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '-' | '_' | '.' ->
-          Buffer.add_char buf c
-      | _ -> Buffer.add_char buf '_')
-    s;
-  let cleaned = Buffer.contents buf in
-  if cleaned = "" then "delivery" else cleaned
-
-let read_file path =
-  let ic = open_in_bin path in
-  Fun.protect
-    ~finally:(fun () -> close_in_noerr ic)
-    (fun () ->
-      let len = in_channel_length ic in
-      really_input_string ic len)
-
-let write_file path content =
-  let oc = open_out_bin path in
-  Fun.protect
-    ~finally:(fun () -> close_out_noerr oc)
-    (fun () -> output_string oc content)
-
-let is_digits s =
-  let len = String.length s in
-  len > 0
-  &&
-  let rec loop i =
-    if i >= len then true
-    else match s.[i] with '0' .. '9' -> loop (i + 1) | _ -> false
-  in
-  loop 0
-
-let rec nth_opt xs idx =
-  match (xs, idx) with
-  | [], _ -> None
-  | x :: _, 0 -> Some x
-  | _ :: rest, n when n > 0 -> nth_opt rest (n - 1)
-  | _ -> None
-
-let lookup_json_path json path =
-  let segments =
-    String.split_on_char '.' path
-    |> List.map String.trim
-    |> List.filter (fun s -> s <> "")
-  in
-  let rec loop current = function
-    | [] -> Some current
-    | seg :: rest -> (
-        match current with
-        | `Assoc fields -> (
-            match List.assoc_opt seg fields with
-            | Some value -> loop value rest
-            | None -> None)
-        | `List items when is_digits seg -> (
-            match nth_opt items (int_of_string seg) with
-            | Some value -> loop value rest
-            | None -> None)
-        | _ -> None)
-  in
-  loop json segments
-
-let string_of_json = function
-  | `Null -> ""
-  | `String s -> s
-  | `Bool b -> string_of_bool b
-  | `Int i -> string_of_int i
-  | `Intlit s -> s
-  | `Float f -> string_of_float f
-  | `List _ as json -> Yojson.Safe.pretty_to_string json
-  | `Assoc _ as json -> Yojson.Safe.pretty_to_string json
-
-let first_some f values =
-  let rec loop = function
-    | [] -> None
-    | x :: rest -> (
-        match f x with Some _ as found -> found | None -> loop rest)
-  in
-  loop values
-
-let first_string json paths =
-  first_some
-    (fun path ->
-      match lookup_json_path json path with
-      | Some (`String s) when String.trim s <> "" -> Some (String.trim s)
-      | Some value ->
-          let s = string_of_json value |> String.trim in
-          if s = "" then None else Some s
-      | None -> None)
-    paths
-
-let first_int json paths =
-  first_some
-    (fun path ->
-      match lookup_json_path json path with
-      | Some (`Int i) -> Some i
-      | Some (`Intlit s) -> ( try Some (int_of_string s) with _ -> None)
-      | Some (`String s) -> (
-          try Some (int_of_string (String.trim s)) with _ -> None)
-      | _ -> None)
-    paths
+(* ---- GitHub-specific payload extraction ---- *)
 
 let repo_full_name_of_payload json =
-  match first_string json [ "repository.full_name" ] with
+  match Webhook_handler.first_string json [ "repository.full_name" ] with
   | Some repo -> repo
   | None -> (
       match
-        ( first_string json [ "repository.owner.login" ],
-          first_string json [ "repository.name" ] )
+        ( Webhook_handler.first_string json [ "repository.owner.login" ],
+          Webhook_handler.first_string json [ "repository.name" ] )
       with
       | Some owner, Some repo -> owner ^ "/" ^ repo
       | _ -> "")
 
 let sender_login_of_payload json =
-  match first_string json [ "sender.login" ] with
+  match Webhook_handler.first_string json [ "sender.login" ] with
   | Some sender -> sender
   | None ->
       Option.value
-        (first_string json
+        (Webhook_handler.first_string json
            [
              "comment.user.login";
              "review.user.login";
@@ -169,9 +88,11 @@ let sender_login_of_payload json =
            ])
         ~default:""
 
+(* ---- GitHub-specific context JSON ---- *)
+
 let build_context_json ~event_name ~delivery_id ~snapshot_path ~payload =
-  let get_string paths = first_string payload paths in
-  let get_int paths = first_int payload paths in
+  let get_string paths = Webhook_handler.first_string payload paths in
+  let get_int paths = Webhook_handler.first_int payload paths in
   let pull_request_number =
     get_int
       [
@@ -190,10 +111,10 @@ let build_context_json ~event_name ~delivery_id ~snapshot_path ~payload =
     match value with Some v -> (key, `Int v) :: acc | None -> acc
   in
   let is_pull_request =
-    match lookup_json_path payload "pull_request.number" with
+    match Webhook_handler.lookup_json_path payload "pull_request.number" with
     | Some _ -> true
     | None -> (
-        match lookup_json_path payload "issue.pull_request" with
+        match Webhook_handler.lookup_json_path payload "issue.pull_request" with
         | Some `Null | None -> false
         | Some _ -> true)
   in
@@ -278,48 +199,24 @@ let build_context_json ~event_name ~delivery_id ~snapshot_path ~payload =
     :: ("is_pull_request", `Bool is_pull_request)
     :: ("raw", payload) :: List.rev fields)
 
+(* ---- Hook directory management ---- *)
+
 let ensure_hook_dirs () =
   Workspace_scaffold.ensure_dir (hooks_dir ());
   Workspace_scaffold.ensure_dir (deliveries_dir ())
 
+(* ---- Delivery snapshots (delegates to Webhook_handler) ---- *)
+
 let cleanup_delivery_snapshots () =
   ensure_hook_dirs ();
-  let dir = deliveries_dir () in
-  let now = Unix.gettimeofday () in
-  try
-    Sys.readdir dir
-    |> Array.iter (fun name ->
-        let path = Filename.concat dir name in
-        try
-          let stats = Unix.stat path in
-          if now -. stats.Unix.st_mtime > delivery_retention_seconds then
-            Sys.remove path
-        with exn ->
-          Logs.warn (fun m ->
-              m "GitHub hooks: failed cleaning snapshot %s: %s" path
-                (Printexc.to_string exn)));
-    ()
-  with exn ->
-    Logs.warn (fun m ->
-        m "GitHub hooks: failed scanning delivery snapshots: %s"
-          (Printexc.to_string exn))
+  Webhook_handler.cleanup_delivery_snapshots ~dir:(deliveries_dir ()) ()
 
 let write_delivery_snapshot ~delivery_id ~raw_body =
   ensure_hook_dirs ();
-  cleanup_delivery_snapshots ();
-  let stamp = int_of_float (Unix.gettimeofday ()) in
-  let base =
-    Printf.sprintf "%d-%s.json" stamp (sanitize_filename_component delivery_id)
-  in
-  let path = Filename.concat (deliveries_dir ()) base in
-  try
-    write_file path raw_body;
-    Some path
-  with exn ->
-    Logs.warn (fun m ->
-        m "GitHub hooks: failed writing delivery snapshot %s: %s" path
-          (Printexc.to_string exn));
-    None
+  Webhook_handler.write_delivery_snapshot ~dir:(deliveries_dir ()) ~delivery_id
+    ~raw_body
+
+(* ---- Event preparation ---- *)
 
 let prepare_event ~event_name ~headers ~raw_body =
   let delivery_id =
@@ -351,106 +248,30 @@ let prepare_event ~event_name ~headers ~raw_body =
     is_user_generated = is_user_generated_event event_name;
   }
 
-let parse_bool s =
-  match String.lowercase_ascii (String.trim s) with
-  | "true" | "yes" | "on" -> Some true
-  | "false" | "no" | "off" -> Some false
-  | _ -> None
-
-let parse_frontmatter lines =
-  match lines with
-  | "---" :: rest ->
-      let rec loop current_section name repo event enabled post_back_to_github
-          match_rules = function
-        | [] ->
-            ( name,
-              repo,
-              event,
-              enabled,
-              post_back_to_github,
-              List.rev match_rules,
-              [] )
-        | "---" :: body ->
-            ( name,
-              repo,
-              event,
-              enabled,
-              post_back_to_github,
-              List.rev match_rules,
-              body )
-        | line :: more -> (
-            let raw = String.trim line in
-            if raw = "" || raw.[0] = '#' then
-              loop current_section name repo event enabled post_back_to_github
-                match_rules more
-            else if
-              current_section = "match"
-              && String.length line > 0
-              && line.[0] = ' '
-            then
-              match String.index_opt raw ':' with
-              | Some idx ->
-                  let key = String.sub raw 0 idx |> String.trim in
-                  let value =
-                    String.sub raw (idx + 1) (String.length raw - idx - 1)
-                    |> String.trim
-                  in
-                  let rule = { path = key; expected = value } in
-                  loop current_section name repo event enabled
-                    post_back_to_github (rule :: match_rules) more
-              | None ->
-                  loop current_section name repo event enabled
-                    post_back_to_github match_rules more
-            else
-              match String.index_opt raw ':' with
-              | Some idx ->
-                  let key = String.sub raw 0 idx |> String.trim in
-                  let value =
-                    String.sub raw (idx + 1) (String.length raw - idx - 1)
-                    |> String.trim
-                  in
-                  let section =
-                    if key = "match" && value = "" then "match" else ""
-                  in
-                  let name = if key = "name" then value else name in
-                  let repo = if key = "repo" then value else repo in
-                  let event = if key = "event" then value else event in
-                  let enabled =
-                    if key = "enabled" then
-                      Option.value (parse_bool value) ~default:enabled
-                    else enabled
-                  in
-                  let post_back_to_github =
-                    if key = "post_back_to_github" then
-                      Option.value (parse_bool value)
-                        ~default:post_back_to_github
-                    else post_back_to_github
-                  in
-                  loop section name repo event enabled post_back_to_github
-                    match_rules more
-              | None ->
-                  loop current_section name repo event enabled
-                    post_back_to_github match_rules more)
-      in
-      loop "" "" "" "" true false [] rest
-  | _ -> ("", "", "", true, false, [], lines)
+(* ---- Hook loading (uses generic frontmatter parser) ---- *)
 
 let load_hook_file path =
-  let content = read_file path in
+  let content = Webhook_handler.read_file path in
   let lines = String.split_on_char '\n' content in
-  let name, repo, event, enabled, post_back_to_github, match_rules, body_lines =
-    parse_frontmatter lines
+  let fm = Webhook_handler.parse_frontmatter lines in
+  let repo =
+    List.assoc_opt "repo" fm.fields |> Option.value ~default:"" |> String.trim
   in
-  let prompt_template = String.concat "\n" body_lines |> String.trim in
+  let post_back_to_github =
+    match List.assoc_opt "post_back_to_github" fm.fields with
+    | Some v -> Option.value (Webhook_handler.parse_bool v) ~default:false
+    | None -> false
+  in
+  let prompt_template = String.concat "\n" fm.body_lines |> String.trim in
   let fallback_name = Filename.basename path |> Filename.remove_extension in
   let hook =
     {
-      name = (if name = "" then fallback_name else name);
+      name = (if fm.name = "" then fallback_name else fm.name);
       repo = String.trim repo;
-      event = String.trim event;
-      enabled;
+      event = String.trim fm.event;
+      enabled = fm.enabled;
       post_back_to_github;
-      match_rules;
+      match_rules = fm.match_rules;
       prompt_template;
       source_path = path;
     }
@@ -474,13 +295,7 @@ let load_hook_file path =
 let load_hooks ~repo_full_name ~event_name =
   ensure_hook_dirs ();
   let paths =
-    try
-      Sys.readdir (hooks_dir ())
-      |> Array.to_list
-      |> List.filter (fun name -> Filename.check_suffix name ".md")
-      |> List.map (Filename.concat (hooks_dir ()))
-      |> List.sort String.compare
-    with _ -> []
+    Webhook_handler.load_hook_files ~dir:(hooks_dir ()) ~suffix:".md"
   in
   List.fold_left
     (fun acc path ->
@@ -496,91 +311,19 @@ let load_hooks ~repo_full_name ~event_name =
     [] paths
   |> List.rev
 
-let rec value_matches json expected =
-  let expected = String.trim expected in
-  let expected_lower = String.lowercase_ascii expected in
-  match (expected_lower, json) with
-  | "exists", `Null -> false
-  | "exists", _ -> true
-  | _, `List items ->
-      List.exists (fun item -> value_matches item expected) items
-  | _, _ ->
-      let actual =
-        string_of_json json |> String.trim |> String.lowercase_ascii
-      in
-      actual = expected_lower
+(* ---- Hook matching (delegates to Webhook_handler) ---- *)
 
 let hook_matches hook context_json =
-  List.for_all
-    (fun rule ->
-      match lookup_json_path context_json rule.path with
-      | Some value -> value_matches value rule.expected
-      | None -> false)
-    hook.match_rules
+  Webhook_handler.rules_match hook.match_rules context_json
 
-let truncate_payload s =
-  if String.length s <= max_inline_payload_chars then s
-  else
-    String.sub s 0 max_inline_payload_chars
-    ^ Printf.sprintf "\n... [truncated %d chars]"
-        (String.length s - max_inline_payload_chars)
+(* ---- Prompt building ---- *)
 
-let render_template ~template ~context_json =
-  (* TODO B381 follow-up: add relative file includes rooted under
-     ~/.clawq/workspace/gh-hooks/ once the sandbox/file-access contract is
-     well defined across connectors and subagents. *)
-  let pattern = Str.regexp "{{\\([^}]+\\)}}" in
-  Str.global_substitute pattern
-    (fun matched ->
-      let expr = Str.matched_group 1 matched |> String.trim in
-      if String.length expr >= 5 && String.sub expr 0 5 = "json " then
-        let path = String.sub expr 5 (String.length expr - 5) |> String.trim in
-        match lookup_json_path context_json path with
-        | Some json -> Yojson.Safe.pretty_to_string json
-        | None -> ""
-      else if String.length expr >= 8 && String.sub expr 0 8 = "include " then
-        "[include not implemented yet]"
-      else
-        match lookup_json_path context_json expr with
-        | Some json -> string_of_json json
-        | None -> "")
-    template
-
-let default_session_key prepared =
-  match prepared.context_json with
-  | None -> "github:unknown"
-  | Some context -> (
-      let repo =
-        match lookup_json_path context "repo" with
-        | Some (`String s) when s <> "" -> s
-        | _ -> prepared.repo_full_name
-      in
-      match first_int context [ "pull_request_number" ] with
-      | Some n -> Printf.sprintf "github:%s:pr:%d" repo n
-      | None -> (
-          match first_int context [ "issue_number" ] with
-          | Some n -> Printf.sprintf "github:%s:issue:%d" repo n
-          | None -> (
-              match first_int context [ "workflow_run_id" ] with
-              | Some n -> Printf.sprintf "github:%s:workflow_run:%d" repo n
-              | None -> (
-                  match first_int context [ "workflow_job_id" ] with
-                  | Some n -> Printf.sprintf "github:%s:workflow_job:%d" repo n
-                  | None -> (
-                      match first_int context [ "check_run_id" ] with
-                      | Some n -> Printf.sprintf "github:%s:check_run:%d" repo n
-                      | None ->
-                          let suffix =
-                            if prepared.delivery_id <> "" then
-                              prepared.delivery_id
-                            else "delivery"
-                          in
-                          Printf.sprintf "github:%s:event:%s:%s" repo
-                            prepared.event_name
-                            (sanitize_filename_component suffix))))))
+let truncate_payload s = Webhook_handler.truncate_payload s
 
 let build_prompt ~hook ~prepared ~context_json =
-  let rendered = render_template ~template:hook.prompt_template ~context_json in
+  let rendered =
+    Webhook_handler.render_template ~template:hook.prompt_template ~context_json
+  in
   let payload_note =
     match prepared.snapshot_path with
     | Some path ->
@@ -594,7 +337,7 @@ let build_prompt ~hook ~prepared ~context_json =
            %s\n\
            ```"
           path
-          (truncate_payload prepared.raw_body)
+          (Webhook_handler.truncate_payload prepared.raw_body)
     | None ->
         Printf.sprintf
           "\n\n\
@@ -603,7 +346,7 @@ let build_prompt ~hook ~prepared ~context_json =
            ```json\n\
            %s\n\
            ```"
-          (truncate_payload prepared.raw_body)
+          (Webhook_handler.truncate_payload prepared.raw_body)
   in
   Printf.sprintf
     "## GitHub Hook Context\n\
@@ -616,6 +359,48 @@ let build_prompt ~hook ~prepared ~context_json =
     hook.name prepared.event_name prepared.repo_full_name
     (if prepared.delivery_id = "" then "(missing)" else prepared.delivery_id)
     hook.source_path rendered payload_note
+
+(* ---- Session key derivation ---- *)
+
+let default_session_key prepared =
+  match prepared.context_json with
+  | None -> "github:unknown"
+  | Some context -> (
+      let repo =
+        match Webhook_handler.lookup_json_path context "repo" with
+        | Some (`String s) when s <> "" -> s
+        | _ -> prepared.repo_full_name
+      in
+      match Webhook_handler.first_int context [ "pull_request_number" ] with
+      | Some n -> Printf.sprintf "github:%s:pr:%d" repo n
+      | None -> (
+          match Webhook_handler.first_int context [ "issue_number" ] with
+          | Some n -> Printf.sprintf "github:%s:issue:%d" repo n
+          | None -> (
+              match Webhook_handler.first_int context [ "workflow_run_id" ] with
+              | Some n -> Printf.sprintf "github:%s:workflow_run:%d" repo n
+              | None -> (
+                  match
+                    Webhook_handler.first_int context [ "workflow_job_id" ]
+                  with
+                  | Some n -> Printf.sprintf "github:%s:workflow_job:%d" repo n
+                  | None -> (
+                      match
+                        Webhook_handler.first_int context [ "check_run_id" ]
+                      with
+                      | Some n -> Printf.sprintf "github:%s:check_run:%d" repo n
+                      | None ->
+                          let suffix =
+                            if prepared.delivery_id <> "" then
+                              prepared.delivery_id
+                            else "delivery"
+                          in
+                          Printf.sprintf "github:%s:event:%s:%s" repo
+                            prepared.event_name
+                            (Webhook_handler.sanitize_filename_component suffix)
+                      )))))
+
+(* ---- Hook execution ---- *)
 
 let run_matching_hooks ~(session_manager : Session.t) ~prepared =
   let open Lwt.Syntax in

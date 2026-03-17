@@ -158,7 +158,8 @@
   test_admin
   test_attachment_download
   test_voice_transcription
-  test_pair_coding)
+  test_pair_coding
+  test_webhook_handler)
  (libraries
   clawq_extracted
   clawq_runtime_core

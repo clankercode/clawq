@@ -132,7 +132,8 @@
   pair_coding_tools
   pair_coding_prompts
   pair_coding_session
-  pair_coding_report)
+  pair_coding_report
+  webhook_handler)
  (foreign_stubs
   (language c)
   (names landlock_stubs))
