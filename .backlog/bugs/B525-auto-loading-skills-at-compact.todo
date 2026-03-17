@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-17T02:27:05Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B525
 priority: high
-status: pending
+started_at: "2026-03-17T02:27:05Z"
+status: in_progress
 tags: []
 title: 'Auto loading skills at compaction could grow out of hand. Should set a maximum of 4 and otherwise just add: a list of tools that were loaded + instructions to run use_skill(name=''skill-name'') to reload any required ones'
 ---
