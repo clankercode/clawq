@@ -32,4 +32,6 @@ Notes
 - Future work: add explicit coding runner path for tasks requiring specialized coding tools/models
 
 Note: we still want to use external runners to make use of the available models and their tooling/integraiton. These are best suited to bigger one-off tasks (eg a big clawq task from the backlog).
+But, if we want to have an entire project be written, then we want to have an orchestration model and almost all those agents will be local (coder agents could be farmed out via cli runners, but mostly we will use local agents)
+
 
