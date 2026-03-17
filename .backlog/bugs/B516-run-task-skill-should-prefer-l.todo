@@ -6,7 +6,7 @@ id: B516
 priority: medium
 status: pending
 tags: []
-title: run-task skill should prefer local runner with agent roles for small/medium tasks
+title: run-task skill should prefer local runner with agent roles for small/medium tasks and for entire projects too.
 ---
 Problem
 The run-task skill currently recommends external runners (opencode with zai-coding-plan/glm-5) for all tasks. This is heavyweight for smaller tasks and doesn't leverage clawq's native agent role/template system. For many backlog items, a local runner (subagent executing within clawq's own session context) would be more efficient and avoid external CLI dependencies.
@@ -30,3 +30,6 @@ Notes
 - Related: B501 (local runner for cron), B487 (runner aliases), B488 (follow-up prompts), I013 (planning mode via bg tasks)
 - "Local runner" here means delegate/background_task with use_worktree=true but without external CLI — clawq spawns its own subagent with a defined role/template
 - Future work: add explicit coding runner path for tasks requiring specialized coding tools/models
+
+Note: we still want to use external runners to make use of the available models and their tooling/integraiton. These are best suited to bigger one-off tasks (eg a big clawq task from the backlog).
+
