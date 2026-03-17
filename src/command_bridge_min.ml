@@ -395,9 +395,15 @@ let cmd_cron args =
   | "add" :: name :: session_key :: schedule :: message -> (
       let db = get_db () in
       Scheduler.init_schema db;
+      let rec extract_ttl acc = function
+        | "--ttl" :: v :: rest -> (Some v, List.rev_append acc rest)
+        | x :: rest -> extract_ttl (x :: acc) rest
+        | [] -> (None, List.rev acc)
+      in
+      let ttl, message = extract_ttl [] message in
       let msg = String.concat " " message in
       match
-        Scheduler.add_job ~db ~name ~session_key ~message:msg ~schedule ()
+        Scheduler.add_job ~db ~name ~session_key ~message:msg ~schedule ?ttl ()
       with
       | Ok () -> Printf.sprintf "Added cron job '%s'" name
       | Error e -> Printf.sprintf "Error: %s" e)
@@ -409,8 +415,10 @@ let cmd_cron args =
       else Printf.sprintf "No job found with name '%s'" name
   | _ ->
       "Usage: clawq-min cron <list|add|remove>\n\
-       Schedule format: standard 5-field cron (e.g. \"0 9 * * 1-5\" for \
-       weekdays at 9am)"
+      \  cron add <name> <session> <schedule> <msg> [--ttl <duration>]\n\
+       Schedule format: \"every 5m\" (interval) or standard 5-field cron (e.g. \
+       \"0 9 * * 1-5\" for weekdays at 9am)\n\
+       TTL duration: e.g. 24h, 7d, 30m (job auto-disables after this time)"
 
 let cmd_background _args =
   "Background tasks are not available in the minimal build. Use the full clawq \

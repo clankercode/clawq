@@ -299,7 +299,16 @@ let handle ?(skill_names = []) text =
                     | prompt -> Bg (BgCreate (None, prompt))))
             | _ -> FormattedReply (fun connector -> format_bg_usage ~connector))
         | "cron" -> (
+            let extract_ttl tokens =
+              let rec aux acc = function
+                | "--ttl" :: v :: rest -> (Some v, List.rev_append acc rest)
+                | x :: rest -> aux (x :: acc) rest
+                | [] -> (None, List.rev acc)
+              in
+              aux [] tokens
+            in
             let parse_cron_add name rest =
+              let ttl, rest = extract_ttl rest in
               match rest with
               | [] ->
                   FormattedReply
@@ -323,12 +332,18 @@ let handle ?(skill_names = []) text =
                            name;
                            schedule;
                            message = String.concat " " remainder;
+                           ttl;
                          })
               | f1 :: f2 :: f3 :: f4 :: f5 :: remainder when remainder <> [] ->
                   let schedule = String.concat " " [ f1; f2; f3; f4; f5 ] in
                   Cron
                     (CronAdd
-                       { name; schedule; message = String.concat " " remainder })
+                       {
+                         name;
+                         schedule;
+                         message = String.concat " " remainder;
+                         ttl;
+                       })
               | _ ->
                   FormattedReply
                     (fun connector ->
@@ -343,6 +358,7 @@ let handle ?(skill_names = []) text =
                 Cron (CronRemove name)
             | "edit" :: name :: rest -> (
                 let parse_edit_flags tokens =
+                  let ttl, tokens = extract_ttl tokens in
                   let rec aux schedule message = function
                     | "--schedule" :: w1 :: w2 :: rest
                       when String.lowercase_ascii w1 = "every" ->
@@ -353,23 +369,25 @@ let handle ?(skill_names = []) text =
                           message rest
                     | "--message" :: m_parts ->
                         let m = String.concat " " m_parts in
-                        (schedule, if m = "" then None else Some m)
+                        let msg = if m = "" then None else Some m in
+                        (schedule, msg, ttl)
                     | _ :: rest -> aux schedule message rest
-                    | [] -> (schedule, message)
+                    | [] -> (schedule, message, ttl)
                   in
                   aux None None tokens
                 in
                 match parse_edit_flags rest with
-                | None, None ->
+                | None, None, None ->
                     FormattedReply
                       (fun connector ->
                         "Usage: "
                         ^ Format_adapter.code connector
                             "/cron edit <name> --schedule <expr>"
                         ^ " and/or "
-                        ^ Format_adapter.code connector "--message <text>")
-                | schedule, message ->
-                    Cron (CronEdit { name; schedule; message }))
+                        ^ Format_adapter.code connector
+                            "--message <text> [--ttl <duration>]")
+                | schedule, message, ttl ->
+                    Cron (CronEdit { name; schedule; message; ttl }))
             | [ "show"; name ] -> Cron (CronShow name)
             | [ "history" ] | [ "runs" ] -> Cron (CronHistory None)
             | [ "history"; name ] | [ "runs"; name ] ->

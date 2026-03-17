@@ -101,6 +101,7 @@ let cmd_cron args =
               { header = "SCHEDULE"; align = Left; min_width = 8; flex = false };
               { header = "ENABLED"; align = Left; min_width = 3; flex = false };
               { header = "EPH"; align = Left; min_width = 3; flex = false };
+              { header = "EXPIRES"; align = Left; min_width = 3; flex = false };
             ]
           in
           if show_prompt then
@@ -126,6 +127,7 @@ let cmd_cron args =
                   j.schedule_str;
                   (if j.enabled then "yes" else "no");
                   (if j.ephemeral then "yes" else "no");
+                  (match j.expires_at with Some ea -> ea | None -> "-");
                 ]
               in
               if show_prompt then base @ [ j.message ] else base)
@@ -155,6 +157,14 @@ let cmd_cron args =
                 [
                   Text "Ephemeral: ";
                   Text (if job.ephemeral then "yes" else "no");
+                ];
+              Paragraph
+                [
+                  Text "Expires: ";
+                  Text
+                    (match job.expires_at with
+                    | Some ea -> ea
+                    | None -> "never");
                 ];
             ]
             @ (match job.agent_name with
@@ -229,10 +239,16 @@ let cmd_cron args =
       Scheduler.init_schema db;
       let ephemeral = List.mem "--ephemeral" message in
       let message = List.filter (fun s -> s <> "--ephemeral") message in
+      let rec extract_ttl acc = function
+        | "--ttl" :: v :: rest -> (Some v, List.rev_append acc rest)
+        | x :: rest -> extract_ttl (x :: acc) rest
+        | [] -> (None, List.rev acc)
+      in
+      let ttl, message = extract_ttl [] message in
       let msg = String.concat " " message in
       match
         Scheduler.add_job ~db ~name ~session_key ~message:msg ~schedule
-          ~ephemeral ()
+          ~ephemeral ?ttl ()
       with
       | Ok () -> Printf.sprintf "Added cron job '%s'" name
       | Error e -> Printf.sprintf "Error: %s" e)
@@ -310,12 +326,14 @@ let cmd_cron args =
       \  cron list [--prompt|-p]                      - List all jobs \
        (--prompt shows prompt text)\n\
       \  cron show <name>                             - Show job details\n\
-      \  cron add <name> <session> <schedule> <msg> [--ephemeral] - Add a job\n\
+      \  cron add <name> <session> <schedule> <msg> [--ephemeral] [--ttl \
+       <duration>] - Add a job\n\
       \  cron remove <name>                           - Remove a job\n\
       \  cron history <name>                          - Show run history\n\
       \  cron runs [name]                             - Show all run history\n\
-       Schedule format: standard 5-field cron (e.g. \"0 9 * * 1-5\" for \
-       weekdays at 9am)"
+       Schedule format: \"every 5m\" (interval) or standard 5-field cron (e.g. \
+       \"0 9 * * 1-5\" for weekdays at 9am)\n\
+       TTL duration: e.g. 24h, 7d, 30m (job auto-disables after this time)"
 
 let cmd_background args =
   match args with

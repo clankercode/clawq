@@ -47,7 +47,7 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 | `cron` | Manage scheduled agent messages (default: list) |
 | `cron list [--prompt\|-p]` | List all configured cron jobs (--prompt shows prompt text) |
 | `cron show NAME` | Show job details including configuration and recent run history |
-| `cron add NAME SESSION SCHEDULE MSG [--ephemeral]` | Add a cron job (--ephemeral runs in isolated session via background task) |
+| `cron add NAME SESSION SCHEDULE MSG [--ephemeral] [--ttl DURATION]` | Add a cron job; --ttl auto-disables after duration (24h, 7d, 30m); --ephemeral runs in isolated session via background task. Schedule: "every 5m" (interval) or 5-field cron |
 | `cron remove NAME` | Remove a cron job by name |
 | `cron history NAME` | Show last 10 run records for a job |
 | `benchmark [--iterations N] [--tool NAME]` | Measure tool invocation latency to diagnose performance |
@@ -654,7 +654,7 @@ current queue state for a given session; `session list` appends
 - Tool runner: built-in tools are registered at startup; file tools are direct I/O, shell tool is separately sandboxed and policy-checked.
 - Sandbox layer: Firejail/Bubblewrap/none wraps shell execution only.
 - Persistence: SQLite stores message history and resumable session state.
-- Scheduler/heartbeat: cron jobs run from the database; when a cron job fires it first posts the prompt into chat (prefixed with `[cron:JOB_NAME]`) then runs the LLM turn and delivers the response. Ephemeral cron jobs (`--ephemeral`) run in an isolated session via the Local runner in the background task system, with results delivered back to the main session. Heartbeat polling reads `HEARTBEAT.md` and fans out across opted-in Telegram/Slack/Discord/Teams sessions.
+- Scheduler/heartbeat: cron jobs run from the database with optional TTL (`--ttl 24h`, `--ttl 7d`, etc.) that auto-disables jobs after expiration; when a cron job fires it first posts the prompt into chat (prefixed with `[cron:JOB_NAME]`) then runs the LLM turn and delivers the response. Schedule format: "every 5m" (interval) or standard 5-field cron. Ephemeral cron jobs (`--ephemeral`) run in an isolated session via the Local runner in the background task system, with results delivered back to the main session. Heartbeat polling reads `HEARTBEAT.md` and fans out across opted-in Telegram/Slack/Discord/Teams sessions.
 - Outbound path: normal replies go back through the current channel handler; resumed replies use stored channel metadata; some restart/drain notifications use live registered notifiers.
 
 ## Your Channels

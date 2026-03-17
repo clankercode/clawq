@@ -85,12 +85,16 @@ let rec result_to_string = function
       "Bg(Create " ^ agent_str ^ prompt ^ ")"
   | Slash_commands.Cron Slash_commands.CronList -> "Cron(List)"
   | Slash_commands.Cron Slash_commands.CronHelp -> "Cron(Help)"
-  | Slash_commands.Cron (Slash_commands.CronAdd { name; schedule; message }) ->
-      Printf.sprintf "Cron(Add %s %s %s)" name schedule message
-  | Slash_commands.Cron (Slash_commands.CronEdit { name; schedule; message }) ->
-      Printf.sprintf "Cron(Edit %s sched=%s msg=%s)" name
+  | Slash_commands.Cron
+      (Slash_commands.CronAdd { name; schedule; message; ttl }) ->
+      Printf.sprintf "Cron(Add %s %s %s ttl=%s)" name schedule message
+        (Option.value ~default:"-" ttl)
+  | Slash_commands.Cron
+      (Slash_commands.CronEdit { name; schedule; message; ttl }) ->
+      Printf.sprintf "Cron(Edit %s sched=%s msg=%s ttl=%s)" name
         (Option.value ~default:"-" schedule)
         (Option.value ~default:"-" message)
+        (Option.value ~default:"-" ttl)
   | Slash_commands.Cron (Slash_commands.CronRemove name) ->
       "Cron(Remove " ^ name ^ ")"
   | Slash_commands.Cron (Slash_commands.CronShow name) ->
@@ -1800,7 +1804,12 @@ let test_cron_add () =
   Alcotest.check result_testable "/cron add interval"
     (Slash_commands.Cron
        (Slash_commands.CronAdd
-          { name = "test-job"; schedule = "every 5m"; message = "hello" }))
+          {
+            name = "test-job";
+            schedule = "every 5m";
+            message = "hello";
+            ttl = None;
+          }))
     (Slash_commands.handle "/cron add test-job every 5m hello")
 
 let test_cron_add_multi_word () =
@@ -1811,8 +1820,33 @@ let test_cron_add_multi_word () =
             name = "daily";
             schedule = "0 9 * * *";
             message = "check the dashboard";
+            ttl = None;
           }))
     (Slash_commands.handle "/cron add daily 0 9 * * * check the dashboard")
+
+let test_cron_add_with_ttl () =
+  Alcotest.check result_testable "/cron add with --ttl"
+    (Slash_commands.Cron
+       (Slash_commands.CronAdd
+          {
+            name = "jobname";
+            schedule = "every 5m";
+            message = "message";
+            ttl = Some "24h";
+          }))
+    (Slash_commands.handle "/cron add jobname every 5m message --ttl 24h")
+
+let test_cron_edit_ttl () =
+  Alcotest.check result_testable "/cron edit with --ttl"
+    (Slash_commands.Cron
+       (Slash_commands.CronEdit
+          {
+            name = "myjob";
+            schedule = Some "every 10m";
+            message = None;
+            ttl = Some "2h";
+          }))
+    (Slash_commands.handle "/cron edit myjob --schedule every 10m --ttl 2h")
 
 let test_cron_remove () =
   Alcotest.check result_testable "/cron remove"
@@ -1828,14 +1862,24 @@ let test_cron_edit_schedule () =
   Alcotest.check result_testable "/cron edit schedule (interval)"
     (Slash_commands.Cron
        (Slash_commands.CronEdit
-          { name = "myjob"; schedule = Some "every 10m"; message = None }))
+          {
+            name = "myjob";
+            schedule = Some "every 10m";
+            message = None;
+            ttl = None;
+          }))
     (Slash_commands.handle "/cron edit myjob --schedule every 10m")
 
 let test_cron_edit_message () =
   Alcotest.check result_testable "/cron edit message"
     (Slash_commands.Cron
        (Slash_commands.CronEdit
-          { name = "myjob"; schedule = None; message = Some "new prompt" }))
+          {
+            name = "myjob";
+            schedule = None;
+            message = Some "new prompt";
+            ttl = None;
+          }))
     (Slash_commands.handle "/cron edit myjob --message new prompt")
 
 let test_cron_edit_nothing () =
@@ -2460,6 +2504,8 @@ let suite =
     Alcotest.test_case "/cron add" `Quick test_cron_add;
     Alcotest.test_case "/cron add multi-word message" `Quick
       test_cron_add_multi_word;
+    Alcotest.test_case "/cron add with --ttl" `Quick test_cron_add_with_ttl;
+    Alcotest.test_case "/cron edit with --ttl" `Quick test_cron_edit_ttl;
     Alcotest.test_case "/cron remove" `Quick test_cron_remove;
     Alcotest.test_case "/cron rm alias" `Quick test_cron_rm_alias;
     Alcotest.test_case "/cron edit schedule" `Quick test_cron_edit_schedule;

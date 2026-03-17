@@ -43,11 +43,17 @@ type bg_action =
 
 type cron_action =
   | CronList
-  | CronAdd of { name : string; schedule : string; message : string }
+  | CronAdd of {
+      name : string;
+      schedule : string;
+      message : string;
+      ttl : string option;
+    }
   | CronEdit of {
       name : string;
       schedule : string option;
       message : string option;
+      ttl : string option;
     }
   | CronRemove of string
   | CronShow of string
@@ -688,12 +694,15 @@ let format_cron_usage ~connector =
   ^ "                               \xe2\x80\x94 List all cron jobs\n  "
   ^ Format_adapter.code connector "/cron show <name>"
   ^ "                        \xe2\x80\x94 Show job details\n  "
-  ^ Format_adapter.code connector "/cron add <name> <schedule> <message>"
-  ^ "    \xe2\x80\x94 Create a cron job\n  "
-  ^ Format_adapter.code connector "/cron edit <name> --schedule <expr>"
-  ^ "      \xe2\x80\x94 Edit schedule\n  "
-  ^ Format_adapter.code connector "/cron edit <name> --message <text>"
-  ^ "       \xe2\x80\x94 Edit message\n  "
+  ^ Format_adapter.code connector
+      "/cron add <name> <schedule> <message> [--ttl <duration>]"
+  ^ " \xe2\x80\x94 Create a cron job\n  "
+  ^ Format_adapter.code connector
+      "/cron edit <name> --schedule <expr> [--ttl <duration>]"
+  ^ " \xe2\x80\x94 Edit schedule\n  "
+  ^ Format_adapter.code connector
+      "/cron edit <name> --message <text> [--ttl <duration>]"
+  ^ "  \xe2\x80\x94 Edit message\n  "
   ^ Format_adapter.code connector "/cron remove <name>"
   ^ "                      \xe2\x80\x94 Remove a cron job\n  "
   ^ Format_adapter.code connector "/cron history [name]"
@@ -2162,6 +2171,14 @@ let format_cron ~connector ~db ~session_key action =
               Paragraph [ Text "Schedule: "; Code job.schedule_str ];
               Paragraph
                 [ Text "Enabled: "; Text (if job.enabled then "yes" else "no") ];
+              Paragraph
+                [
+                  Text "Expires: ";
+                  Text
+                    (match job.expires_at with
+                    | Some ea -> ea
+                    | None -> "never");
+                ];
             ]
             @ (match job.agent_name with
               | Some agent ->
@@ -2241,6 +2258,7 @@ let format_cron ~connector ~db ~session_key action =
               { header = "SESSION"; align = Left; min_width = 7; flex = false };
               { header = "SCHEDULE"; align = Left; min_width = 8; flex = false };
               { header = "ENABLED"; align = Left; min_width = 3; flex = false };
+              { header = "EXPIRES"; align = Left; min_width = 3; flex = false };
               { header = "MESSAGE"; align = Left; min_width = 10; flex = true };
             ]
         in
@@ -2257,6 +2275,7 @@ let format_cron ~connector ~db ~session_key action =
                 j.session_key;
                 j.schedule_str;
                 (if j.enabled then "yes" else "no");
+                (match j.expires_at with Some ea -> ea | None -> "-");
                 msg_preview;
               ])
             jobs
@@ -2264,15 +2283,17 @@ let format_cron ~connector ~db ~session_key action =
         Format_adapter.bold connector "Cron Jobs"
         ^ "\n\n"
         ^ Format_adapter.render_table connector ~max_width:80 columns rows
-  | CronAdd { name; schedule; message } -> (
-      match Scheduler.add_job ~db ~name ~session_key ~message ~schedule () with
+  | CronAdd { name; schedule; message; ttl } -> (
+      match
+        Scheduler.add_job ~db ~name ~session_key ~message ~schedule ?ttl ()
+      with
       | Ok () -> format_cron_confirm ~connector "added" name
       | Error e ->
           Format_adapter.bold connector "Error"
           ^ ": "
           ^ Format_adapter.escape connector e)
-  | CronEdit { name; schedule; message } -> (
-      match Scheduler.update_job ~db ~name ?schedule ?message () with
+  | CronEdit { name; schedule; message; ttl } -> (
+      match Scheduler.update_job ~db ~name ?schedule ?message ?ttl () with
       | Ok () -> format_cron_confirm ~connector "updated" name
       | Error e ->
           Format_adapter.bold connector "Error"

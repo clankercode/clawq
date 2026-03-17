@@ -374,6 +374,160 @@ let test_tick_ephemeral_enqueues_bg_task () =
      Alcotest.(check int) "one local bg task" 1 (List.length local_tasks);
      Lwt.return_unit)
 
+let test_parse_duration_seconds () =
+  (match Scheduler.parse_duration_seconds "5m" with
+  | Ok f -> Alcotest.(check (float 0.01)) "5m = 300s" 300.0 f
+  | Error e -> Alcotest.fail ("expected Ok: " ^ e));
+  (match Scheduler.parse_duration_seconds "2h" with
+  | Ok f -> Alcotest.(check (float 0.01)) "2h = 7200s" 7200.0 f
+  | Error e -> Alcotest.fail ("expected Ok: " ^ e));
+  (match Scheduler.parse_duration_seconds "30s" with
+  | Ok f -> Alcotest.(check (float 0.01)) "30s" 30.0 f
+  | Error e -> Alcotest.fail ("expected Ok: " ^ e));
+  match Scheduler.parse_duration_seconds "1d" with
+  | Ok f -> Alcotest.(check (float 0.01)) "1d = 86400s" 86400.0 f
+  | Error e -> Alcotest.fail ("expected Ok: " ^ e)
+
+let test_parse_duration_seconds_invalid () =
+  (match Scheduler.parse_duration_seconds "0m" with
+  | Error _ -> ()
+  | Ok _ -> Alcotest.fail "expected Error for 0m");
+  (match Scheduler.parse_duration_seconds "-1h" with
+  | Error _ -> ()
+  | Ok _ -> Alcotest.fail "expected Error for -1h");
+  (match Scheduler.parse_duration_seconds "abc" with
+  | Error _ -> ()
+  | Ok _ -> Alcotest.fail "expected Error for abc");
+  match Scheduler.parse_duration_seconds "" with
+  | Error _ -> ()
+  | Ok _ -> Alcotest.fail "expected Error for empty"
+
+let test_add_job_with_ttl () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Scheduler.init_schema db;
+  (match
+     Scheduler.add_job ~db ~name:"ttl_job" ~session_key:"default"
+       ~message:"hello" ~schedule:"every 5m" ~ttl:"24h" ()
+   with
+  | Ok () -> ()
+  | Error e -> Alcotest.fail ("add_job failed: " ^ e));
+  match Scheduler.get_job ~db ~name:"ttl_job" with
+  | None -> Alcotest.fail "expected job"
+  | Some j ->
+      Alcotest.(check bool) "expires_at is Some" true (j.expires_at <> None)
+
+let test_add_job_without_ttl () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Scheduler.init_schema db;
+  (match
+     Scheduler.add_job ~db ~name:"no_ttl" ~session_key:"default"
+       ~message:"hello" ~schedule:"every 5m" ()
+   with
+  | Ok () -> ()
+  | Error e -> Alcotest.fail ("add_job failed: " ^ e));
+  match Scheduler.get_job ~db ~name:"no_ttl" with
+  | None -> Alcotest.fail "expected job"
+  | Some j ->
+      Alcotest.(check bool) "expires_at is None" true (j.expires_at = None)
+
+let test_tick_skips_expired_job () =
+  Lwt_main.run
+    (let db = Memory.init ~db_path:":memory:" () in
+     Scheduler.init_schema db;
+     ignore
+       (Scheduler.add_job ~db ~name:"exp_job" ~session_key:"default"
+          ~message:"hello" ~schedule:"every 1s" ());
+     (* Set expires_at in the past *)
+     let sql =
+       "UPDATE cron_jobs SET expires_at = datetime('now', '-1 hour') WHERE \
+        name = 'exp_job'"
+     in
+     ignore (Sqlite3.exec db sql);
+     let session_mgr = Session.create ~config:Runtime_config.default ~db () in
+     let open Lwt.Syntax in
+     let* () = Scheduler.tick ~db ~session_mgr () in
+     (* Job should be disabled *)
+     (match Scheduler.get_job ~db ~name:"exp_job" with
+     | None -> Alcotest.fail "expected job"
+     | Some j -> Alcotest.(check bool) "job disabled" false j.enabled);
+     (* Should have an "expired" run *)
+     let runs = Scheduler.get_history ~db ~name:"exp_job" ~limit:1 in
+     Alcotest.(check int) "one run" 1 (List.length runs);
+     let r = List.hd runs in
+     Alcotest.(check string) "status is expired" "expired" r.status;
+     Lwt.return_unit)
+
+let test_tick_runs_non_expired_job () =
+  Lwt_main.run
+    (let db = Memory.init ~db_path:":memory:" () in
+     Scheduler.init_schema db;
+     Background_task.init_schema db;
+     ignore
+       (Scheduler.add_job ~db ~name:"future_job" ~session_key:"default"
+          ~message:"hello" ~schedule:"every 1s" ~ephemeral:true ());
+     (* Set expires_at in the future *)
+     let sql =
+       "UPDATE cron_jobs SET expires_at = datetime('now', '+1 hour') WHERE \
+        name = 'future_job'"
+     in
+     ignore (Sqlite3.exec db sql);
+     let session_mgr = Session.create ~config:Runtime_config.default ~db () in
+     let open Lwt.Syntax in
+     let* () = Scheduler.tick ~db ~session_mgr () in
+     (* Job should still be enabled *)
+     (match Scheduler.get_job ~db ~name:"future_job" with
+     | None -> Alcotest.fail "expected job"
+     | Some j -> Alcotest.(check bool) "job still enabled" true j.enabled);
+     (* Should have a run with delegated status (ephemeral bg task) *)
+     let runs = Scheduler.get_history ~db ~name:"future_job" ~limit:1 in
+     Alcotest.(check int) "one run" 1 (List.length runs);
+     let r = List.hd runs in
+     Alcotest.(check string) "status is delegated" "delegated" r.status;
+     Lwt.return_unit)
+
+let test_list_jobs_includes_expires_at () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Scheduler.init_schema db;
+  ignore
+    (Scheduler.add_job ~db ~name:"with_ttl" ~session_key:"s" ~message:"m"
+       ~schedule:"every 1m" ~ttl:"1h" ());
+  ignore
+    (Scheduler.add_job ~db ~name:"no_ttl_list" ~session_key:"s" ~message:"m"
+       ~schedule:"every 1m" ());
+  let jobs = Scheduler.list_jobs ~db in
+  let j1 = List.find (fun (j : Scheduler.job) -> j.name = "with_ttl") jobs in
+  let j2 = List.find (fun (j : Scheduler.job) -> j.name = "no_ttl_list") jobs in
+  Alcotest.(check bool) "with_ttl has expires_at" true (j1.expires_at <> None);
+  Alcotest.(check bool)
+    "no_ttl_list has no expires_at" true (j2.expires_at = None)
+
+let test_update_job_ttl () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Scheduler.init_schema db;
+  ignore
+    (Scheduler.add_job ~db ~name:"upd_ttl" ~session_key:"s" ~message:"m"
+       ~schedule:"every 1m" ());
+  (* Initially no TTL *)
+  (match Scheduler.get_job ~db ~name:"upd_ttl" with
+  | None -> Alcotest.fail "expected job"
+  | Some j -> Alcotest.(check bool) "no ttl initially" true (j.expires_at = None));
+  (* Add TTL *)
+  (match Scheduler.update_job ~db ~name:"upd_ttl" ~ttl:"2h" () with
+  | Ok () -> ()
+  | Error e -> Alcotest.fail ("update failed: " ^ e));
+  (match Scheduler.get_job ~db ~name:"upd_ttl" with
+  | None -> Alcotest.fail "expected job"
+  | Some j ->
+      Alcotest.(check bool) "has ttl after update" true (j.expires_at <> None));
+  (* Clear TTL *)
+  (match Scheduler.update_job ~db ~name:"upd_ttl" ~ttl:"none" () with
+  | Ok () -> ()
+  | Error e -> Alcotest.fail ("update failed: " ^ e));
+  match Scheduler.get_job ~db ~name:"upd_ttl" with
+  | None -> Alcotest.fail "expected job"
+  | Some j ->
+      Alcotest.(check bool) "no ttl after clear" true (j.expires_at = None)
+
 let suite =
   [
     Alcotest.test_case "parse interval minutes" `Quick
@@ -416,4 +570,17 @@ let suite =
     Alcotest.test_case "list jobs ephemeral" `Quick test_list_jobs_ephemeral;
     Alcotest.test_case "tick ephemeral enqueues bg task" `Quick
       test_tick_ephemeral_enqueues_bg_task;
+    Alcotest.test_case "parse_duration_seconds valid" `Quick
+      test_parse_duration_seconds;
+    Alcotest.test_case "parse_duration_seconds invalid" `Quick
+      test_parse_duration_seconds_invalid;
+    Alcotest.test_case "add job with TTL" `Quick test_add_job_with_ttl;
+    Alcotest.test_case "add job without TTL" `Quick test_add_job_without_ttl;
+    Alcotest.test_case "tick skips expired job" `Quick
+      test_tick_skips_expired_job;
+    Alcotest.test_case "tick runs non-expired job" `Quick
+      test_tick_runs_non_expired_job;
+    Alcotest.test_case "list jobs includes expires_at" `Quick
+      test_list_jobs_includes_expires_at;
+    Alcotest.test_case "update job TTL" `Quick test_update_job_ttl;
   ]

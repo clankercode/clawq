@@ -52,9 +52,14 @@ let draw_jobs_dashboard jobs =
              let status =
                if j.enabled then green "enabled" else dim "disabled"
              in
-             Printf.sprintf "  %s  %s  %s  %s"
+             let expires =
+               match j.expires_at with
+               | Some ea -> " expires:" ^ ea
+               | None -> ""
+             in
+             Printf.sprintf "  %s  %s  %s  %s%s"
                (cyan (string_of_int j.id))
-               (bold j.name) status (dim j.schedule_str))
+               (bold j.name) status (dim j.schedule_str) (dim expires))
            jobs)
     @ [ "" ]
   in
@@ -72,20 +77,21 @@ let print_jobs_table jobs =
     Printf.printf "\n";
     Printf.printf "  %s\n"
       (bold
-         (Printf.sprintf "  %-4s  %-20s  %-8s  %-25s  %s" "ID" "Name" "Status"
-            "Schedule" "Session"));
+         (Printf.sprintf "  %-4s  %-20s  %-8s  %-25s  %-19s  %s" "ID" "Name"
+            "Status" "Schedule" "Expires" "Session"));
     Printf.printf "\n";
     List.iter
       (fun (j : Scheduler.job) ->
         let status = if j.enabled then green "enabled " else dim "disabled" in
-        Printf.printf "  %-4d  %-20s  %s  %-25s  %s\n" j.id
+        let expires = match j.expires_at with Some ea -> ea | None -> "-" in
+        Printf.printf "  %-4d  %-20s  %s  %-25s  %-19s  %s\n" j.id
           (if String.length j.name > 20 then String.sub j.name 0 17 ^ "..."
            else j.name)
           status
           (if String.length j.schedule_str > 25 then
              String.sub j.schedule_str 0 22 ^ "..."
            else j.schedule_str)
-          j.session_key)
+          expires j.session_key)
       jobs
   end;
   Printf.printf "\n"
@@ -151,7 +157,20 @@ let action_add ~db =
         get_message ()
   in
   let message = get_message () in
-  match Scheduler.add_job ~db ~name ~session_key ~message ~schedule () with
+  Printf.printf "  %s\n"
+    (dim "Examples: 24h, 7d, 30m (blank for no TTL — job runs indefinitely)");
+  let ttl =
+    let s = prompt_string ~prompt:"TTL (optional)" ~default:"" () in
+    let trimmed = String.trim s in
+    if trimmed = "" then None
+    else
+      match Scheduler.parse_duration_seconds trimmed with
+      | Ok _ -> Some trimmed
+      | Error e ->
+          print_warning (Printf.sprintf "Invalid TTL: %s (skipping)" e);
+          None
+  in
+  match Scheduler.add_job ~db ~name ~session_key ~message ~schedule ?ttl () with
   | Ok () -> print_success (Printf.sprintf "Added job '%s'." name)
   | Error e -> print_error e
 
@@ -194,12 +213,32 @@ let action_edit ~db jobs =
               print_warning e;
               None
       in
-      if new_schedule = None && new_message = None then
+      Printf.printf "  %s\n"
+        (dim
+           (Printf.sprintf "Current expires_at: %s"
+              (match job.expires_at with Some ea -> ea | None -> "none")));
+      Printf.printf "  %s\n"
+        (dim "Examples: 24h, 7d, 30m, \"none\" to clear (blank to keep current)");
+      let new_ttl =
+        let s =
+          prompt_string ~prompt:"New TTL (Enter to keep)" ~default:"" ()
+        in
+        let trimmed = String.trim s in
+        if trimmed = "" then None
+        else if String.lowercase_ascii trimmed = "none" then Some "none"
+        else
+          match Scheduler.parse_duration_seconds trimmed with
+          | Ok _ -> Some trimmed
+          | Error e ->
+              print_warning (Printf.sprintf "Invalid TTL: %s (skipping)" e);
+              None
+      in
+      if new_schedule = None && new_message = None && new_ttl = None then
         print_warning "Nothing changed."
       else
         match
           Scheduler.update_job ~db ~name:job.name ?schedule:new_schedule
-            ?message:new_message ()
+            ?message:new_message ?ttl:new_ttl ()
         with
         | Ok () -> print_success (Printf.sprintf "Updated job '%s'." job.name)
         | Error e -> print_error e)
@@ -310,6 +349,11 @@ let run () =
     The message text the agent receives when the job fires.
     Examples: "Generate daily standup summary"
               "Check for new GitHub issues and summarize"
+
+  TTL (optional):
+    Auto-disable the job after this duration.
+    Examples: 24h (1 day), 7d (1 week), 30m (30 minutes)
+    Leave blank for no TTL (job runs indefinitely).
 
 |};
             Setup_common.press_enter_to_continue ()
