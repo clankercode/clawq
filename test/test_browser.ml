@@ -197,7 +197,7 @@ let test_tool_properties () =
   let tool = Tools_builtin_browser.browser ~workspace_only:false ~config in
   Alcotest.(check string) "tool name" "browser" tool.name;
   Alcotest.(check bool) "high risk" true (tool.risk_level = Tool.High);
-  Alcotest.(check bool) "deferred" true tool.deferred
+  Alcotest.(check bool) "deferred" false tool.deferred
 
 let test_close_nonexistent_session () =
   Lwt_main.run

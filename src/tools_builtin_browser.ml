@@ -506,5 +506,5 @@ let browser ~workspace_only ~(config : Runtime_config.t) =
           else execute_single_action ~config ~session_key args);
     invoke_stream = None;
     risk_level = Tool.High;
-    deferred = true;
+    deferred = false;
   }
