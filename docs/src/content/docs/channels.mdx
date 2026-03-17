@@ -572,12 +572,10 @@ clawq channel              # confirm teams shows as configured
   `/config menu`, `/skills`, `/costs menu`, `/bg menu`) render as Adaptive
   Cards with clickable buttons on Teams. On other channels they render as
   text-formatted lists. Paginated menus show 9 items per page with nav buttons.
-- **File uploads** --- `/debug_dump_chat` sends session state as a JSON file.
-  With `file_consent_cards: true` (default), personal 1:1 chats use a
-  FileConsentCard and upload to OneDrive. This requires the Teams app manifest
-  to set `supportsFiles: true`. Team channels and group chats fall back to a
-  temp download URL via the bot's HTTP server (requires `tunnel.url`), or
-  truncated text.
+- **File uploads** --- `/debug_dump_chat` sends session state as a JSON file
+  via a temporary download URL through the bot's HTTP server (requires
+  `tunnel.url`). If no public URL is configured, falls back to sending the
+  first 25 KB as truncated text.
 - **Notification suppression** --- tool status messages (thinking indicators,
   tool call updates) do not trigger Teams notifications; only final replies do.
 

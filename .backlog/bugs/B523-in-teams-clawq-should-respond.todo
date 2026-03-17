@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-03-17T01:44:04Z"
+claimed_by: cli-user
+completed_at: "2026-03-17T01:49:00Z"
 complexity: medium
 depends_on: []
+duration_minutes: 4.949643973266666
 estimate_hours: 1
 id: B523
 priority: high
-status: pending
+started_at: "2026-03-17T01:44:04Z"
+status: done
 tags: []
 title: in Teams, clawq should respond to /debug_dump_chat with a link and not the file upload request (which is still broken)
 ---

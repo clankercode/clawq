@@ -1616,7 +1616,7 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                       let filename =
                         Printf.sprintf "session_%s_%d.json" safe_key timestamp
                       in
-                      let send_temp_download ?prefix () =
+                      let send_temp_download () =
                         let token =
                           Temp_downloads.add ~content
                             ~content_type:"application/json" ~filename
@@ -1643,61 +1643,11 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                                   (String.sub content 0 max_len)
                                   (String.length content)
                         in
-                        let msg =
-                          match prefix with
-                          | None -> msg
-                          | Some prefix -> prefix ^ "\n\n" ^ msg
-                        in
                         send_text msg
                       in
-                      begin match
-                        select_file_upload_delivery
-                          ~file_consent_cards:config.file_consent_cards ~team_id
-                          ~is_group
-                      with
-                      | File_consent_card -> (
-                          (* Try FileConsentCard flow (OneDrive upload) *)
-                          let consent_id =
-                            store_pending_consent ~content ~filename
-                              ~content_type:"application/json" ~ttl_s:600.0
-                          in
-                          let* result =
-                            send_file_consent_card ~config
-                              ~service_url:effective_service_url
-                              ~conversation_id ~reply_to_id:activity_id
-                              ~filename ~description:"Session debug dump"
-                              ~size_bytes:(String.length content) ~consent_id ()
-                          in
-                          match result with
-                          | Ok () -> Lwt.return_unit
-                          | Error err ->
-                              Logs.warn (fun m ->
-                                  m
-                                    "Teams: FileConsentCard failed (%s), \
-                                     falling back to temp download"
-                                    err);
-                              send_temp_download ())
-                      | Temp_download_url ->
-                          if config.file_consent_cards then
-                            Logs.info (fun m ->
-                                m
-                                  "Teams: using temp download fallback for \
-                                   debug dump in non-personal scope team=%s \
-                                   is_group=%b conv=%s"
-                                  effective_team_id is_group conversation_id);
-                          let prefix =
-                            if
-                              config.file_consent_cards
-                              && (team_id <> "" || is_group)
-                            then
-                              Some
-                                "Teams file consent cards only work in \
-                                 personal 1:1 chats. Sending a download link \
-                                 instead."
-                            else None
-                          in
-                          send_temp_download ?prefix ()
-                      end
+                      (* Always use temp download link — file consent
+                         card flow is broken in Teams (see B523/B524). *)
+                      send_temp_download ()
                   | Tools ->
                       let text =
                         match Session.get_tool_registry session_manager with

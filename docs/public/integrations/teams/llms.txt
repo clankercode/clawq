@@ -92,10 +92,9 @@ inside Teams. You cannot message a bot that has no Teams app.
 1. Go to Teams Developer Portal: https://dev.teams.microsoft.com
 2. Apps → New app. Fill in name and description.
 3. App features → Bot → Enter a bot ID (your Application client ID from Step 1).
-4. Set `supportsFiles` to `true` if you want file uploads such as `/debug_dump_chat`.
+4. Set `supportsFiles` to `true` for future file upload support (currently
+   disabled; `/debug_dump_chat` uses temporary download links instead).
 5. Set scope: Personal and/or Team.
-   File uploads via Teams consent cards only work in Personal (1:1) scope.
-   Team channels and group chats fall back to download links.
 6. Publish to your org or sideload for testing.
 7. In Teams: Apps → find your app → Add.
 
@@ -159,11 +158,12 @@ Replies longer than this limit are split at whitespace boundaries and sent as mu
 
 ## File Uploads
 
-The `/debug_dump_chat` command sends session state as a JSON file using a layered approach:
+The `/debug_dump_chat` command sends session state as a JSON file via a temporary download URL:
 
-1. **FileConsentCard** (default, `file_consent_cards: true`, personal 1:1 chats only): Sends a consent card prompting the user to accept file upload to OneDrive. This requires the Teams app manifest to set `supportsFiles: true`. On accept, the bot returns an explicit HTTP 200 invoke response and uploads the file to the provided OneDrive URL in the background, then sends a FileInfoCard.
-2. **Temp download URL** (fallback, or `file_consent_cards: false`, or any non-personal chat): Stores the file in memory with a random token and 1-hour TTL, sends a download link via `{tunnel.url}/downloads/{token}`. Requires `tunnel.url`.
-3. **Truncated text** (last resort): If no public URL is configured, sends the first 25KB of the dump as text.
+1. **Temp download URL**: Stores the file in memory with a random token and 1-hour TTL, sends a download link via `{tunnel.url}/downloads/{token}`. Requires `tunnel.url`.
+2. **Truncated text** (fallback): If no public URL is configured, sends the first 25 KB of the dump as text.
+
+Note: The FileConsentCard/OneDrive upload flow is currently disabled due to Teams API issues (see B524).
 
 ## How It Works (Request Flow)
 

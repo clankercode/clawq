@@ -351,10 +351,9 @@ Regular message activities use HTTP 202 + async processing.
    - Set the Microsoft App ID to the AAD app ID above.
 6. Add the bot to a Teams channel in the Bot Service resource.
 7. In the Teams app manifest, set the bot's `supportsFiles` field to `true`
-   if you want file uploads such as `/debug_dump_chat`.
-8. In Teams: add the bot to a team or use it in a personal chat. File uploads
-   only work in personal 1:1 chats; team channels and group chats fall back to
-   download links.
+   if you want file uploads (note: file consent card uploads are currently
+   broken; `/debug_dump_chat` always uses a temporary download link instead).
+8. In Teams: add the bot to a team or use it in a personal chat.
 
 ## Session Key Format
 
