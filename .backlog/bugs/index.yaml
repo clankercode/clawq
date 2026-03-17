@@ -528,3 +528,4 @@ bugs:
     - file: B529-teams-docs-for-installing-in-t.todo
     - file: B530-clawq-needs-a-way-to-start-age.todo
     - file: B531-investigate-and-optimize-slow.todo
+    - file: B532-add-claude-skill-clawq-version.todo

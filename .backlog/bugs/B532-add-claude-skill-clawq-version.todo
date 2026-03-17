@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B532
+priority: high
+status: pending
+tags: []
+title: 'add ./.claude/skill/clawq-version-bump/SKILL.md skill that ensures the repo is clean, bumps the version as instructed, commits all results, tags the version number, pushes it up to github, and then creates a full changelog since the last version and creates a new release. We should also compile artifacts and have them be uploaded too. (Note: if we already produce artifacts via CI, or can produce them via CI, then we should do that instead -- then we can use the github webhook reaction feature to respond to the release CI job completing and update the description with the changelog)'
+---
+
+add ./.claude/skill/clawq-version-bump/SKILL.md skill that ensures the repo is clean, bumps the version as instructed, commits all results, tags the version number, pushes it up to github, and then creates a full changelog since the last version and creates a new release. We should also compile artifacts and have them be uploaded too. (Note: if we already produce artifacts via CI, or can produce them via CI, then we should do that instead -- then we can use the github webhook reaction feature to respond to the release CI job completing and update the description with the changelog)
