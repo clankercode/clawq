@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B540
+priority: high
+status: pending
+tags: []
+title: in addition to cron, should have a run-every type of scheduled job (with optional TTL)
+---
+
+in addition to cron, should have a run-every type of scheduled job (with optional TTL)
