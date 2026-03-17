@@ -538,3 +538,4 @@ bugs:
     - file: B539-generalize-webhook-handler-inf.todo
     - file: B540-in-addition-to-cron-should-hav.todo
     - file: B541-pre-compaction-memory-flush-fa.todo
+    - file: B542-use-skill-keeps-counting-up-ti.todo

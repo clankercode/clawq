@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B542
+priority: high
+status: pending
+tags: []
+title: use_skill keeps counting up time in the tool call progress message. seems like it doesn't end even tho other tool calls are being processed.
+---
+
+use_skill keeps counting up time in the tool call progress message. seems like it doesn't end even tho other tool calls are being processed.
