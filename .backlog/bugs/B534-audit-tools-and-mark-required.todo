@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-17T05:42:52Z"
+claimed_by: cli-user
+completed_at: null
 complexity: low
 depends_on: []
 estimate_hours: 1
 id: B534
 priority: high
-status: pending
+started_at: "2026-03-17T05:42:52Z"
+status: in_progress
 tags: []
 title: Audit tools and mark required arguments in descriptions
 ---
