@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B520
+priority: high
+status: pending
+tags: []
+title: We should be able to start agents in a subdirectory -- or they should be able to move themselves there with a command that also wipes history (but not the initial prompt, just the few tool calls between that and changing CWD). Need a tool call for CWD change.
+---
+
+We should be able to start agents in a subdirectory -- or they should be able to move themselves there with a command that also wipes history (but not the initial prompt, just the few tool calls between that and changing CWD). Need a tool call for CWD change.
