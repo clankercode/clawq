@@ -268,8 +268,15 @@ ideas:
       status: done
       tags: []
       title: Completion Notifications (Background Task -> Channel)
-    - file: I034-daily-briefing-pipeline.todo
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 10
+      file: I034-daily-briefing-pipeline.todo
       id: I034
+      priority: medium
+      status: in_progress
+      tags: []
+      title: Daily Briefing Pipeline
     - file: I035-rss-feed-aggregator-with-ai-fi.todo
       id: I035
     - file: I036-reading-list-research-queue.todo
