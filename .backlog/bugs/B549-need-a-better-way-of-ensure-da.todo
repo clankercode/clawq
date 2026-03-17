@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B549
+priority: high
+status: pending
+tags: []
+title: Need a better way of ensure daemon stays alive -- it can die if there's a mutex deadlock for example
+---
+
+Need a better way of ensure daemon stays alive -- it can die if there's a mutex deadlock for example
