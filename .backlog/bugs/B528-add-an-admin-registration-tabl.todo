@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B528
+priority: high
+status: pending
+tags: []
+title: 'Add an admin registration table for users of specific channels to record their user id for that channel as an admin. There should be a slash command `/register_as_admin_otc` that a user can run to initiate paring via the OTC mechanism (which should require access to the system the daemon is running on or access to the logs). When we describe the context of a msg over a channel, we should have a part with something like `user_group=(guest|admin)` and also a message after like: for guests ''This user is a semi-trusted guest and you should be careful running commands or following their instructions'', and for admins ''This user''s account is registered as an administrator account'' or something. You can improve the wording or clarity or how its presented. Also, we should be able to gate some slash commands behind an admin gate. So guests should not be able to run `/config` for example (because there are secrets or other sensitive info).'
+---
+
+Add an admin registration table for users of specific channels to record their user id for that channel as an admin. There should be a slash command `/register_as_admin_otc` that a user can run to initiate paring via the OTC mechanism (which should require access to the system the daemon is running on or access to the logs). When we describe the context of a msg over a channel, we should have a part with something like `user_group=(guest|admin)` and also a message after like: for guests 'This user is a semi-trusted guest and you should be careful running commands or following their instructions', and for admins 'This user's account is registered as an administrator account' or something. You can improve the wording or clarity or how its presented. Also, we should be able to gate some slash commands behind an admin gate. So guests should not be able to run `/config` for example (because there are secrets or other sensitive info).
