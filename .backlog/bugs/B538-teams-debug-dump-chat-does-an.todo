@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B538
+priority: high
+status: pending
+tags: []
+title: 'teams: /debug-dump-chat does an upload consent thing atm. That''s okay, let''s keep that, but let''s *also* send the link to the user in case of anything going wrong with the file upload.'
+---
+
+teams: /debug-dump-chat does an upload consent thing atm. That's okay, let's keep that, but let's *also* send the link to the user in case of anything going wrong with the file upload.
