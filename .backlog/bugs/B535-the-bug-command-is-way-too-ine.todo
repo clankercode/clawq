@@ -6,7 +6,8 @@ id: B535
 priority: high
 status: pending
 tags: []
-title: The bug command is way too inefficient and over the top. need to be smart about it and use better-skills
+title: The bug skill is way too inefficient and over the top. need to be smart about it and use better-skills
 ---
 
-The bug command is way too inefficient and over the top. need to be smart about it and use better-skills
+The bug skill is way too inefficient and over the top. need to be smart about it and use better-skills
+~/.clawq/skills/bug
