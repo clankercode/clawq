@@ -136,6 +136,7 @@ let () =
        ("session_model_override", Test_session_model_override.suite);
        ("summarizer", Test_summarizer.suite);
        ("ask_user_question", Test_ask_user_question.suite);
+       ("question_presenter", Test_question_presenter.suite);
      ]
     @ [ ("setup_github", Test_setup_github.suite) ]
     @ [ ("setup_discord", Test_setup_discord.suite) ]

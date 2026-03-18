@@ -63,6 +63,8 @@ type t = {
   postmortem_circuit_breakers : (string, unit) Hashtbl.t;
       (** Root sessions that have already launched a postmortem. *)
   pending_questions : (string, string Lwt.u) Hashtbl.t;
+  question_callbacks : (string, string) Hashtbl.t;
+      (** Maps callback_id -> answer_text for pending questions. *)
 }
 
 type drain_progress = {
@@ -270,6 +272,7 @@ let create ~config ?tool_registry ?sandbox ?(landlock_enabled = false) ?db () =
     observer_last_checked = Hashtbl.create 8;
     postmortem_circuit_breakers = Hashtbl.create 8;
     pending_questions = Hashtbl.create 8;
+    question_callbacks = Hashtbl.create 16;
   }
 
 let is_draining mgr = mgr.draining
@@ -403,6 +406,38 @@ let cancel_pending_question mgr ~key =
   | None -> ()
 
 let has_pending_question mgr ~key = Hashtbl.mem mgr.pending_questions key
+
+let register_question_callbacks mgr ~key ~callbacks =
+  Logs.debug (fun m ->
+      m "[%s] Registering %d question callback(s)" key (List.length callbacks));
+  List.iter
+    (fun (cb_id, answer_text) ->
+      Hashtbl.replace mgr.question_callbacks cb_id answer_text)
+    callbacks
+
+let resolve_question_callback mgr ~key ~callback_id =
+  match Hashtbl.find_opt mgr.question_callbacks callback_id with
+  | Some answer_text -> (
+      Logs.debug (fun m ->
+          m "[%s] Resolving question callback %s -> %s" key callback_id
+            answer_text);
+      Hashtbl.remove mgr.question_callbacks callback_id;
+      match Hashtbl.find_opt mgr.pending_questions key with
+      | Some resolver ->
+          Hashtbl.remove mgr.pending_questions key;
+          Lwt.wakeup_later resolver answer_text;
+          true
+      | None ->
+          Logs.warn (fun m ->
+              m "[%s] Question callback %s matched but no pending question" key
+                callback_id);
+          false)
+  | None -> false
+
+let clear_question_callbacks mgr ~key:_ ~callback_ids =
+  List.iter
+    (fun cb_id -> Hashtbl.remove mgr.question_callbacks cb_id)
+    callback_ids
 
 let enqueue_message_if_busy mgr ~key queued_message =
   Lwt_util.with_lock_timeout ~fatal_timeout:Lwt_util.short_fatal_timeout

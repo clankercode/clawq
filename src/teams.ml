@@ -1046,7 +1046,16 @@ let parse_activity body_str =
     let activity_type = try json |> member "type" |> to_string with _ -> "" in
     if activity_type <> "message" then None
     else
-      let text = try json |> member "text" |> to_string with _ -> "" in
+      let raw_text = try json |> member "text" |> to_string with _ -> "" in
+      (* Check for Action.Submit value with question answer *)
+      let text =
+        if raw_text = "" then
+          try
+            let value = json |> member "value" in
+            value |> member "clawq_question_answer" |> to_string
+          with _ -> raw_text
+        else raw_text
+      in
       let activity_id = try json |> member "id" |> to_string with _ -> "" in
       let service_url =
         try json |> member "serviceUrl" |> to_string with _ -> ""
@@ -1433,6 +1442,60 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                           in
                           refresh_typing ();
                           Lwt.return_unit);
+                      (* Register rich notifier for Adaptive Cards *)
+                      if
+                        Option.is_none
+                          (Session.find_rich_notifier session_manager ~key)
+                      then
+                        Session.register_rich_notifier session_manager ~key
+                          (fun msg ->
+                            match msg with
+                            | Rich_message.TextWithButtons { text; button_rows }
+                              ->
+                                let card =
+                                  Question_presenter
+                                  .build_teams_card_from_buttons ~text
+                                    ~button_rows
+                                in
+                                let* () =
+                                  send_adaptive_card ~config
+                                    ~service_url:effective_service_url
+                                    ~conversation_id ~reply_to_id:activity_id
+                                    ~card ()
+                                in
+                                Lwt.return
+                                  Rich_message.
+                                    { message_id = "0"; callback_ids = [] }
+                            | Rich_message.Poll
+                                { question; options; allows_multiple } ->
+                                let card =
+                                  Question_presenter.build_teams_poll_card
+                                    ~question ~options
+                                in
+                                ignore allows_multiple;
+                                let* () =
+                                  send_adaptive_card ~config
+                                    ~service_url:effective_service_url
+                                    ~conversation_id ~reply_to_id:activity_id
+                                    ~card ()
+                                in
+                                Lwt.return
+                                  Rich_message.
+                                    { message_id = "0"; callback_ids = [] }
+                            | Rich_message.Text text ->
+                                let* _id =
+                                  send_reply ~alert:false ~config
+                                    ~service_url:effective_service_url
+                                    ~conversation_id ~reply_to_id:activity_id
+                                    ~text ()
+                                in
+                                Lwt.return
+                                  Rich_message.
+                                    { message_id = "0"; callback_ids = [] }
+                            | Rich_message.FileAttachment _ ->
+                                Lwt.return
+                                  Rich_message.
+                                    { message_id = "0"; callback_ids = [] });
                       let* result =
                         Session.with_registered_notifier session_manager ~key
                           ~notify:(fun reply_text ->

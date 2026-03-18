@@ -152,6 +152,28 @@ let test_web_channel_profile () =
     (caps.can_edit = Connector_capabilities.No_edit);
   Alcotest.(check int) "max_message_length" 65536 caps.max_message_length
 
+let test_supports_rich_questions () =
+  Alcotest.(check bool)
+    "telegram supports rich" true
+    (Connector_capabilities.supports_rich_questions
+       Connector_capabilities.telegram);
+  Alcotest.(check bool)
+    "teams supports rich" true
+    (Connector_capabilities.supports_rich_questions Connector_capabilities.teams);
+  Alcotest.(check bool)
+    "discord not rich" false
+    (Connector_capabilities.supports_rich_questions
+       Connector_capabilities.discord);
+  Alcotest.(check bool)
+    "slack not rich" false
+    (Connector_capabilities.supports_rich_questions Connector_capabilities.slack);
+  Alcotest.(check bool)
+    "plain not rich" false
+    (Connector_capabilities.supports_rich_questions Connector_capabilities.plain);
+  Alcotest.(check bool)
+    "irc not rich" false
+    (Connector_capabilities.supports_rich_questions Connector_capabilities.irc)
+
 let tests =
   [
     Alcotest.test_case "telegram profile" `Quick test_telegram_profile;
@@ -173,4 +195,6 @@ let tests =
     Alcotest.test_case "signal profile" `Quick test_signal_profile;
     Alcotest.test_case "whatsapp profile" `Quick test_whatsapp_profile;
     Alcotest.test_case "web_channel profile" `Quick test_web_channel_profile;
+    Alcotest.test_case "supports_rich_questions" `Quick
+      test_supports_rich_questions;
   ]

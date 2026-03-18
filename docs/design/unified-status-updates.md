@@ -463,5 +463,6 @@ No new configuration needed. The strategy is fully determined by `agent_defaults
 | New File | ~Lines | Purpose |
 |----------|--------|---------|
 | `src/connector_capabilities.ml` | ~80 | Capability profiles per platform |
-| `src/content_dsl.ml` | ~120 | Semantic content types + renderer |
+| `src/content_dsl.ml` | ~190 | Semantic content types + renderer (includes QuestionBlock for ask_user_question) |
+| `src/question_presenter.ml` | ~310 | Rich question rendering: strategy selection, buttons/polls/cards per connector |
 | `src/status_update.ml` | ~150 | Unified handler: strategy selection + dispatch |

@@ -144,6 +144,7 @@
   test_setup_resilience
   test_setup_heartbeat
   test_ask_user_question
+  test_question_presenter
   test_log_rotation
   test_worktree_merge
   test_table_format

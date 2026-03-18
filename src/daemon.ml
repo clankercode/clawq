@@ -456,57 +456,17 @@ let run ~(config : Runtime_config.t) =
           | Tools_builtin.Text _ | Tools_builtin.File_upload _ -> false
           | _ -> true
         in
-        let format_question (qi : Tools_builtin.question_item) =
-          match qi.qtype with
-          | Tools_builtin.Single_select { options } ->
-              let opts =
-                List.mapi (fun i o -> Printf.sprintf "%d. %s" (i + 1) o) options
-              in
-              Printf.sprintf "%s\n%s\n(Reply with number or text)" qi.question
-                (String.concat "\n" opts)
-          | Tools_builtin.Multi_select { options } ->
-              let opts =
-                List.mapi (fun i o -> Printf.sprintf "%d. %s" (i + 1) o) options
-              in
-              Printf.sprintf
-                "%s\n%s\n(Reply with numbers separated by commas, e.g. 1,3)"
-                qi.question (String.concat "\n" opts)
-          | Tools_builtin.Confirm ->
-              Printf.sprintf "%s\n(Reply yes/no)" qi.question
-          | Tools_builtin.Rating { min; max } ->
-              Printf.sprintf "%s\n(Reply with a number from %d to %d)"
-                qi.question min max
-          | Tools_builtin.Number { min; max } ->
-              let constraint_str =
-                match (min, max) with
-                | Some lo, Some hi ->
-                    Printf.sprintf " (between %d and %d)" lo hi
-                | Some lo, None -> Printf.sprintf " (minimum %d)" lo
-                | None, Some hi -> Printf.sprintf " (maximum %d)" hi
-                | None, None -> ""
-              in
-              Printf.sprintf "%s\n(Reply with a number%s)" qi.question
-                constraint_str
-          | Tools_builtin.File_upload { accept } ->
-              let hint =
-                match accept with
-                | Some mime -> Printf.sprintf " (%s)" mime
-                | None -> ""
-              in
-              Printf.sprintf "%s\n(Upload a file%s)" qi.question hint
-          | Tools_builtin.Date { include_time } ->
-              let fmt =
-                if include_time then "YYYY-MM-DD HH:MM" else "YYYY-MM-DD"
-              in
-              Printf.sprintf "%s\n(Reply with a date in %s format)" qi.question
-                fmt
-          | Tools_builtin.Text { placeholder } ->
-              let hint =
-                match placeholder with
-                | Some p -> Printf.sprintf "\n(Hint: %s)" p
-                | None -> ""
-              in
-              qi.question ^ hint
+        let caps =
+          Session.find_connector_capabilities session_manager ~key:session_key
+        in
+        let rich_notify =
+          Session.find_rich_notifier session_manager ~key:session_key
+        in
+        let has_rich = Option.is_some rich_notify in
+        let connector =
+          match caps with
+          | Some c -> c.Connector_capabilities.connector
+          | None -> Format_adapter.Plain
         in
         let total = List.length questions in
         let cleanup_db () =
@@ -537,18 +497,51 @@ let run ~(config : Runtime_config.t) =
                             m "[%s] Failed to persist pending question: %s"
                               session_key (Printexc.to_string exn)))
                   | None -> ());
-                  let msg = format_question qi in
-                  let labeled =
-                    if total > 1 then
-                      Printf.sprintf "[Question %d/%d] %s" (i + 1) total msg
-                    else msg
+                  let strategy =
+                    Question_presenter.select_strategy ~capabilities:caps
+                      ~has_rich_notifier:has_rich qi.Tools_builtin.qtype
                   in
-                  let* () = notify labeled in
+                  let rendered =
+                    Question_presenter.render_question ~strategy ~connector
+                      ~session_key ~index:i ~total qi
+                  in
+                  let callback_ids = ref [] in
+                  let* () =
+                    match rendered with
+                    | Question_presenter.RichMessage msg -> (
+                        match rich_notify with
+                        | Some rn ->
+                            Logs.info (fun m ->
+                                m "[%s] Sending rich question %d/%d" session_key
+                                  (i + 1) total);
+                            let cbs =
+                              Question_presenter.extract_callback_answers msg
+                            in
+                            Session.register_question_callbacks session_manager
+                              ~key:session_key ~callbacks:cbs;
+                            callback_ids := List.map (fun (id, _) -> id) cbs;
+                            let* _result = rn msg in
+                            Lwt.return_unit
+                        | None ->
+                            Logs.info (fun m ->
+                                m
+                                  "[%s] Rich notifier unavailable, falling \
+                                   back to text for question %d/%d"
+                                  session_key (i + 1) total);
+                            notify (Rich_message.to_fallback_text msg))
+                    | Question_presenter.TextMessage text ->
+                        Logs.info (fun m ->
+                            m "[%s] Sending text question %d/%d" session_key
+                              (i + 1) total);
+                        notify text
+                  in
                   let promise, _resolver =
                     Session.register_pending_question session_manager
                       ~key:session_key
                   in
                   let* raw = promise in
+                  Session.clear_question_callbacks session_manager
+                    ~key:session_key ~callback_ids:!callback_ids;
                   if raw = Session.question_cancelled_sentinel then
                     Lwt.fail (Failure "Question cancelled by user interrupt")
                   else

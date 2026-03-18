@@ -1908,53 +1908,90 @@ let poll_account ~bot_token ~(account : Runtime_config.telegram_account) ~name
                             send_message ~disable_notification:true ~bot_token
                               ~chat_id:cb.cb_chat_id ~text ()
                         | data -> (
-                            match Hashtbl.find_opt callback_routing data with
-                            | Some (session_key, label, _created) ->
-                                Hashtbl.remove callback_routing data;
-                                let* () =
+                            (* Check question callbacks first *)
+                            let question_key_opt =
+                              match Hashtbl.find_opt callback_routing data with
+                              | Some (sk, _, _) -> Some sk
+                              | None ->
+                                  (* For question callbacks, derive session
+                                     key from chat_id *)
+                                  let tg_key =
+                                    Printf.sprintf "telegram:%s" cb.cb_chat_id
+                                  in
+                                  if
+                                    Session.has_pending_question session_mgr
+                                      ~key:tg_key
+                                  then Some tg_key
+                                  else None
+                            in
+                            let resolved_question =
+                              match question_key_opt with
+                              | Some sk ->
+                                  Session.resolve_question_callback session_mgr
+                                    ~key:sk ~callback_id:data
+                              | None -> false
+                            in
+                            if resolved_question then begin
+                              Logs.debug (fun m ->
+                                  m
+                                    "Telegram: question callback resolved for \
+                                     %s"
+                                    data);
+                              (* Clean up stale callback_routing entry *)
+                              Hashtbl.remove callback_routing data;
+                              answer_callback_query ~bot_token
+                                ~callback_query_id:cb.callback_query_id
+                                ~text:"Selected" ()
+                            end
+                            else
+                              match Hashtbl.find_opt callback_routing data with
+                              | Some (session_key, label, _created) ->
+                                  Hashtbl.remove callback_routing data;
+                                  let* () =
+                                    answer_callback_query ~bot_token
+                                      ~callback_query_id:cb.callback_query_id
+                                      ~text:
+                                        (Printf.sprintf "Selected: %s" label)
+                                      ()
+                                  in
+                                  Lwt.async (fun () ->
+                                      Lwt.catch
+                                        (fun () ->
+                                          let message =
+                                            Printf.sprintf "[Button: %s]" label
+                                          in
+                                          let* response =
+                                            Session.turn session_mgr
+                                              ~key:session_key ~message
+                                              ~channel:"telegram"
+                                              ~channel_id:cb.cb_chat_id ()
+                                          in
+                                          if
+                                            not
+                                              (Session.should_suppress_response
+                                                 response)
+                                          then
+                                            send_chunked
+                                              ~disable_notification:false
+                                              ~parse_mode:"MarkdownV2"
+                                              ~bot_token ~chat_id:cb.cb_chat_id
+                                              ~text:
+                                                (Telegram_format
+                                                 .markdown_to_mdv2 response)
+                                              ()
+                                          else Lwt.return_unit)
+                                        (fun exn ->
+                                          Logs.err (fun m ->
+                                              m
+                                                "Telegram: button callback \
+                                                 routing error: %s"
+                                                (Printexc.to_string exn));
+                                          Lwt.return_unit));
+                                  Lwt.return_unit
+                              | None ->
                                   answer_callback_query ~bot_token
                                     ~callback_query_id:cb.callback_query_id
-                                    ~text:(Printf.sprintf "Selected: %s" label)
-                                    ()
-                                in
-                                Lwt.async (fun () ->
-                                    Lwt.catch
-                                      (fun () ->
-                                        let message =
-                                          Printf.sprintf "[Button: %s]" label
-                                        in
-                                        let* response =
-                                          Session.turn session_mgr
-                                            ~key:session_key ~message
-                                            ~channel:"telegram"
-                                            ~channel_id:cb.cb_chat_id ()
-                                        in
-                                        if
-                                          not
-                                            (Session.should_suppress_response
-                                               response)
-                                        then
-                                          send_chunked
-                                            ~disable_notification:false
-                                            ~parse_mode:"MarkdownV2" ~bot_token
-                                            ~chat_id:cb.cb_chat_id
-                                            ~text:
-                                              (Telegram_format.markdown_to_mdv2
-                                                 response)
-                                            ()
-                                        else Lwt.return_unit)
-                                      (fun exn ->
-                                        Logs.err (fun m ->
-                                            m
-                                              "Telegram: button callback \
-                                               routing error: %s"
-                                              (Printexc.to_string exn));
-                                        Lwt.return_unit));
-                                Lwt.return_unit
-                            | None ->
-                                answer_callback_query ~bot_token
-                                  ~callback_query_id:cb.callback_query_id
-                                  ~text:"Unknown action" ()))
+                                    ~text:"Unknown action" ()))
                       (fun exn ->
                         Logs.err (fun m ->
                             m "Telegram: callback handling error: %s"
@@ -1989,32 +2026,58 @@ let poll_account ~bot_token ~(account : Runtime_config.telegram_account) ~name
                       in
                       if selected = [] then Lwt.return_unit
                       else begin
-                        Lwt.async (fun () ->
-                            Lwt.catch
-                              (fun () ->
-                                let message =
-                                  Printf.sprintf "[Poll vote: %s]"
-                                    (String.concat ", " selected)
-                                in
-                                let* response =
-                                  Session.turn session_mgr ~key:session_key
-                                    ~message ~channel:"telegram"
-                                    ~channel_id:chat_id ()
-                                in
-                                if
-                                  not
-                                    (Session.should_suppress_response response)
-                                then
-                                  send_chunked ~disable_notification:false
-                                    ~bot_token:poll_bot_token ~chat_id
-                                    ~text:response ()
-                                else Lwt.return_unit)
-                              (fun exn ->
-                                Logs.err (fun m ->
-                                    m "Telegram: poll answer routing error: %s"
-                                      (Printexc.to_string exn));
-                                Lwt.return_unit));
-                        Lwt.return_unit
+                        (* Check if this is a question poll answer *)
+                        let answer_text = String.concat ", " selected in
+                        if
+                          Session.has_pending_question session_mgr
+                            ~key:session_key
+                        then begin
+                          (* Resolve the pending question with poll answer *)
+                          Logs.debug (fun m ->
+                              m
+                                "Telegram: resolving question via poll answer: \
+                                 %s"
+                                answer_text);
+                          (match
+                             Hashtbl.find_opt session_mgr.pending_questions
+                               session_key
+                           with
+                          | Some resolver ->
+                              Hashtbl.remove session_mgr.pending_questions
+                                session_key;
+                              Lwt.wakeup_later resolver answer_text
+                          | None -> ());
+                          Lwt.return_unit
+                        end
+                        else begin
+                          Lwt.async (fun () ->
+                              Lwt.catch
+                                (fun () ->
+                                  let message =
+                                    Printf.sprintf "[Poll vote: %s]" answer_text
+                                  in
+                                  let* response =
+                                    Session.turn session_mgr ~key:session_key
+                                      ~message ~channel:"telegram"
+                                      ~channel_id:chat_id ()
+                                  in
+                                  if
+                                    not
+                                      (Session.should_suppress_response response)
+                                  then
+                                    send_chunked ~disable_notification:false
+                                      ~bot_token:poll_bot_token ~chat_id
+                                      ~text:response ()
+                                  else Lwt.return_unit)
+                                (fun exn ->
+                                  Logs.err (fun m ->
+                                      m
+                                        "Telegram: poll answer routing error: \
+                                         %s"
+                                        (Printexc.to_string exn));
+                                  Lwt.return_unit));
+                          Lwt.return_unit
+                        end
                       end
                   | None ->
                       Logs.debug (fun m ->

@@ -31,6 +31,12 @@ type block =
     }
   | Separator
   | ThinkingPreview of string
+  | QuestionBlock of {
+      question_text : string;
+      hint : string option;
+      options : (int * string) list;
+      instruction : string option;
+    }
 
 type document = block list
 
@@ -159,6 +165,29 @@ let render_block c = function
         (Format_adapter.italic c
            (Format_adapter.escape c
               (Stream_visibility.truncate_text ~max_chars:200 text)))
+  | QuestionBlock { question_text; hint; options; instruction } ->
+      let lb = Format_adapter.line_break c in
+      let q = Format_adapter.bold c (Format_adapter.escape c question_text) in
+      let hint_part =
+        match hint with
+        | Some h -> lb ^ Format_adapter.italic c (Format_adapter.escape c h)
+        | None -> ""
+      in
+      let opts =
+        List.map
+          (fun (i, label) ->
+            Printf.sprintf "%s. %s"
+              (Format_adapter.code c (string_of_int i))
+              (Format_adapter.escape c label))
+          options
+      in
+      let opts_part = if opts = [] then "" else lb ^ String.concat lb opts in
+      let instr_part =
+        match instruction with
+        | Some ins -> lb ^ Format_adapter.italic c (Format_adapter.escape c ins)
+        | None -> ""
+      in
+      q ^ hint_part ^ opts_part ^ instr_part
 
 let render_document connector doc =
   let lines = List.map (render_block connector) doc in

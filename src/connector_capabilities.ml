@@ -258,3 +258,7 @@ let plain =
     parse_mode = "Markdown";
     debounce_interval = 0.0;
   }
+
+let supports_rich_questions (caps : t) =
+  caps.connector = Format_adapter.Telegram_html
+  || caps.connector = Format_adapter.Teams

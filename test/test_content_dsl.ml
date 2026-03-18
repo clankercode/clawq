@@ -231,6 +231,93 @@ let test_teams_failed_error_line_break () =
     "error detail has trailing-space line break" true
     (string_contains result "  \n")
 
+let test_render_question_block_telegram () =
+  let doc =
+    [
+      Content_dsl.QuestionBlock
+        {
+          question_text = "Pick one";
+          hint = None;
+          options = [ (1, "Alpha"); (2, "Beta") ];
+          instruction = Some "Reply with number or text";
+        };
+    ]
+  in
+  let result = Content_dsl.render_document Format_adapter.Telegram_html doc in
+  Alcotest.(check bool)
+    "has HTML bold" true
+    (string_contains result "<b>Pick one</b>");
+  Alcotest.(check bool)
+    "has option 1 with code" true
+    (string_contains result "<code>1</code>. Alpha");
+  Alcotest.(check bool)
+    "has option 2 with code" true
+    (string_contains result "<code>2</code>. Beta");
+  Alcotest.(check bool)
+    "has italic instruction" true
+    (string_contains result "<i>Reply with number or text</i>")
+
+let test_render_question_block_discord () =
+  let doc =
+    [
+      Content_dsl.QuestionBlock
+        {
+          question_text = "Confirm?";
+          hint = Some "This is important";
+          options = [];
+          instruction = Some "Reply yes/no";
+        };
+    ]
+  in
+  let result = Content_dsl.render_document Format_adapter.Discord doc in
+  Alcotest.(check bool)
+    "has markdown bold" true
+    (string_contains result "**Confirm?**");
+  Alcotest.(check bool)
+    "has hint" true
+    (string_contains result "This is important");
+  Alcotest.(check bool)
+    "has instruction" true
+    (string_contains result "Reply yes/no")
+
+let test_render_question_block_plain () =
+  let doc =
+    [
+      Content_dsl.QuestionBlock
+        {
+          question_text = "How many?";
+          hint = None;
+          options = [];
+          instruction = Some "Reply with a number";
+        };
+    ]
+  in
+  let result = Content_dsl.render_document Format_adapter.Plain doc in
+  Alcotest.(check bool)
+    "has question (plain, no formatting)" true
+    (string_contains result "How many?");
+  Alcotest.(check bool)
+    "has instruction (plain, no formatting)" true
+    (string_contains result "Reply with a number")
+
+let test_render_question_block_no_options () =
+  let doc =
+    [
+      Content_dsl.QuestionBlock
+        {
+          question_text = "Enter text";
+          hint = Some "hint here";
+          options = [];
+          instruction = None;
+        };
+    ]
+  in
+  let result = Content_dsl.render_document Format_adapter.Discord doc in
+  Alcotest.(check bool)
+    "has question" true
+    (string_contains result "Enter text");
+  Alcotest.(check bool) "has hint" true (string_contains result "hint here")
+
 let tests =
   [
     Alcotest.test_case "paragraph" `Quick test_render_paragraph;
@@ -250,4 +337,12 @@ let tests =
       test_teams_multi_block_line_breaks;
     Alcotest.test_case "Teams failed error line break" `Quick
       test_teams_failed_error_line_break;
+    Alcotest.test_case "QuestionBlock Telegram" `Quick
+      test_render_question_block_telegram;
+    Alcotest.test_case "QuestionBlock Discord" `Quick
+      test_render_question_block_discord;
+    Alcotest.test_case "QuestionBlock plain" `Quick
+      test_render_question_block_plain;
+    Alcotest.test_case "QuestionBlock no options" `Quick
+      test_render_question_block_no_options;
   ]
