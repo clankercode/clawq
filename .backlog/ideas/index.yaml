@@ -359,8 +359,15 @@ ideas:
       status: in_progress
       tags: []
       title: Add /repo slash command to associate a session with a git repository
-    - file: I055-mcp-plugins-for-remote-runners.todo
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 10
+      file: I055-mcp-plugins-for-remote-runners.todo
       id: I055
+      priority: medium
+      status: in_progress
+      tags: []
+      title: MCP/plugins for remote runners to relay questions back to user
     - complexity: medium
       depends_on: []
       estimate_hours: 10
