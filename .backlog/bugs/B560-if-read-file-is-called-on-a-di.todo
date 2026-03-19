@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-19T14:50:40Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-19T15:14:01Z"
 complexity: medium
 depends_on: []
+duration_minutes: 23.354260972683335
 estimate_hours: 1
 id: B560
 priority: high
 started_at: "2026-03-19T14:50:40Z"
-status: in_progress
+status: done
 tags: []
 title: 'if read_file is called on a directory, the error is not very useful: ''file_read -> Error: Unix.Unix_error(Unix.EISDIR, read, )''. should warn the agent + provide correct command + return as though list directory was called.'
 ---

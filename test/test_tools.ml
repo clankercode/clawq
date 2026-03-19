@@ -2989,6 +2989,23 @@ let test_file_read_uses_effective_cwd () =
         "reads from effective CWD" true
         (contains result "nested content"))
 
+let test_file_read_on_directory () =
+  with_temp_dir_tree (fun ~root ~sub:_ ~file:_ ~sub_file:_ ->
+      let tool =
+        Tools_builtin.file_read ~workspace:root ~workspace_only:false
+          ~extra_allowed_paths:[]
+      in
+      let result =
+        Lwt_main.run (tool.Tool.invoke (`Assoc [ ("path", `String root) ]))
+      in
+      Alcotest.(check bool)
+        "mentions directory" true
+        (contains result "is a directory");
+      Alcotest.(check bool)
+        "suggests list_dir with path" true
+        (contains result "list_dir(path=");
+      Alcotest.(check bool) "includes listing" true (contains result "subdir"))
+
 let test_shell_exec_uses_effective_cwd () =
   with_temp_dir_tree (fun ~root ~sub ~file:_ ~sub_file:_ ->
       let sandbox =
@@ -3231,6 +3248,8 @@ let suite =
       test_change_working_dir_wipe_history;
     Alcotest.test_case "file_read uses effective CWD" `Quick
       test_file_read_uses_effective_cwd;
+    Alcotest.test_case "file_read on directory" `Quick
+      test_file_read_on_directory;
     Alcotest.test_case "shell_exec uses effective CWD" `Quick
       test_shell_exec_uses_effective_cwd;
     Alcotest.test_case "list_dir uses effective CWD" `Quick

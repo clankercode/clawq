@@ -110,6 +110,32 @@ let is_path_allowed ~workspace ~workspace_only ~extra_allowed_paths path =
   if not workspace_only then true
   else is_path_within_allowed_roots ~workspace ~extra_allowed_paths path
 
+let format_dir_listing ?(show_hidden = false) path =
+  match Sys.readdir path with
+  | entries ->
+      let entries = Array.to_list entries in
+      let entries =
+        if show_hidden then entries
+        else List.filter (fun e -> e = "" || e.[0] <> '.') entries
+      in
+      let entries = List.sort String.compare entries in
+      let lines =
+        List.map
+          (fun entry ->
+            let full = Filename.concat path entry in
+            let kind =
+              try if Sys.is_directory full then "dir " else "file"
+              with Sys_error _ -> "?   "
+            in
+            Printf.sprintf "%s  %s" kind entry)
+          entries
+      in
+      if lines = [] then "(empty directory)"
+      else
+        String.concat "\n" lines
+        ^ Printf.sprintf "\n\n(%d entries)" (List.length lines)
+  | exception Sys_error msg -> Printf.sprintf "Error: %s" msg
+
 let file_read ~workspace ~workspace_only ~extra_allowed_paths =
   let schema =
     `Assoc
@@ -199,6 +225,19 @@ let file_read ~workspace ~workspace_only ~extra_allowed_paths =
                                 (is_path_allowed ~workspace ~workspace_only
                                    ~extra_allowed_paths canonical_path)
                             then Lwt.return "Error: path is outside workspace"
+                            else if
+                              try Sys.is_directory canonical_path
+                              with Sys_error _ -> false
+                            then
+                              let listing = format_dir_listing canonical_path in
+                              Lwt.return
+                                (Printf.sprintf
+                                   "Note: '%s' is a directory, not a file. Use \
+                                    `list_dir(path=\"%s\", show_hidden=false)` \
+                                    to list directory contents.\n\n\
+                                    Directory listing:\n\
+                                    %s"
+                                   path path listing)
                             else
                               let* content =
                                 Lwt_io.with_file ~mode:Lwt_io.Input path
@@ -1307,33 +1346,7 @@ let list_dir ~workspace ~workspace_only ~extra_allowed_paths =
         then
           Lwt.return
             "Error: path is outside the workspace in workspace_only mode"
-        else
-          match Sys.readdir path with
-          | entries ->
-              let entries = Array.to_list entries in
-              let entries =
-                if show_hidden then entries
-                else List.filter (fun e -> e = "" || e.[0] <> '.') entries
-              in
-              let entries = List.sort String.compare entries in
-              let lines =
-                List.map
-                  (fun entry ->
-                    let full = Filename.concat path entry in
-                    let kind =
-                      try if Sys.is_directory full then "dir " else "file"
-                      with Sys_error _ -> "?   "
-                    in
-                    Printf.sprintf "%s  %s" kind entry)
-                  entries
-              in
-              Lwt.return
-                (if lines = [] then "(empty directory)"
-                 else
-                   String.concat "\n" lines
-                   ^ Printf.sprintf "\n\n(%d entries)" (List.length lines))
-          | exception Sys_error msg ->
-              Lwt.return (Printf.sprintf "Error: %s" msg));
+        else Lwt.return (format_dir_listing ~show_hidden path));
     invoke_stream = None;
     risk_level = Low;
     deferred = false;
