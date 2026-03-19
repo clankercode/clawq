@@ -504,6 +504,8 @@ let test_skill_md_meta_of_frontmatter () =
   Alcotest.(check string) "desc" "bar" m.md_description;
   Alcotest.(check int) "3 tools" 3 (List.length m.md_allowed_tools);
   Alcotest.(check (option string)) "model" (Some "gpt-5") m.md_model;
+  Alcotest.(check bool)
+    "disable_model_invocation default false" false m.md_disable_model_invocation;
   let missing =
     Skills.skill_md_meta_of_frontmatter ~source_path:"/x" [ ("name", "foo") ]
   in
@@ -529,6 +531,64 @@ let test_load_skill_md_missing_name () =
   write_file path "---\ndescription: no name\n---\nBody";
   let result = Skills.load_skill_md path in
   Alcotest.(check bool) "None" true (Option.is_none result);
+  rm_rf dir
+
+let test_disable_model_invocation_true () =
+  let pairs =
+    [
+      ("name", "hidden");
+      ("description", "secret skill");
+      ("disable-model-invocation", "true");
+    ]
+  in
+  let meta = Skills.skill_md_meta_of_frontmatter ~source_path:"/t" pairs in
+  let m = Option.get meta in
+  Alcotest.(check bool) "disabled" true m.md_disable_model_invocation
+
+let test_disable_model_invocation_false () =
+  let pairs =
+    [
+      ("name", "visible");
+      ("description", "normal skill");
+      ("disable-model-invocation", "false");
+    ]
+  in
+  let meta = Skills.skill_md_meta_of_frontmatter ~source_path:"/t" pairs in
+  let m = Option.get meta in
+  Alcotest.(check bool) "not disabled" false m.md_disable_model_invocation
+
+let test_disable_model_invocation_case_insensitive () =
+  let pairs =
+    [
+      ("name", "ci");
+      ("description", "case test");
+      ("disable-model-invocation", "True");
+    ]
+  in
+  let meta = Skills.skill_md_meta_of_frontmatter ~source_path:"/t" pairs in
+  let m = Option.get meta in
+  Alcotest.(check bool) "True parses as true" true m.md_disable_model_invocation
+
+let test_load_skill_md_disable_model_invocation () =
+  let dir = make_temp_dir "skill_dmi" in
+  let skill_dir = Filename.concat dir "hidden-skill" in
+  Sys.mkdir skill_dir 0o755;
+  let path = Filename.concat skill_dir "SKILL.md" in
+  write_file path
+    "---\n\
+     name: hidden-skill\n\
+     description: A hidden skill\n\
+     disable-model-invocation: true\n\
+     ---\n\
+     Secret instructions.";
+  (match Skills.load_skill_md path with
+  | Some skill ->
+      Alcotest.(check string) "name" "hidden-skill" skill.meta.md_name;
+      Alcotest.(check bool)
+        "disabled" true skill.meta.md_disable_model_invocation;
+      Alcotest.(check string)
+        "instructions" "Secret instructions." skill.instructions
+  | None -> Alcotest.fail "expected Some");
   rm_rf dir
 
 let test_substitute_arguments () =
@@ -722,6 +782,7 @@ let test_extract_skill_refs () =
         md_description = "review";
         md_allowed_tools = [];
         md_model = None;
+        md_disable_model_invocation = false;
         md_source_path = "/test";
       };
       {
@@ -729,6 +790,7 @@ let test_extract_skill_refs () =
         md_description = "foo skill";
         md_allowed_tools = [];
         md_model = None;
+        md_disable_model_invocation = false;
         md_source_path = "/test2";
       };
     ]
@@ -1260,6 +1322,14 @@ let suite =
     Alcotest.test_case "load skill md" `Quick test_load_skill_md;
     Alcotest.test_case "load skill md missing name" `Quick
       test_load_skill_md_missing_name;
+    Alcotest.test_case "disable-model-invocation true" `Quick
+      test_disable_model_invocation_true;
+    Alcotest.test_case "disable-model-invocation false" `Quick
+      test_disable_model_invocation_false;
+    Alcotest.test_case "disable-model-invocation case insensitive" `Quick
+      test_disable_model_invocation_case_insensitive;
+    Alcotest.test_case "load skill md disable-model-invocation" `Quick
+      test_load_skill_md_disable_model_invocation;
     Alcotest.test_case "substitute arguments" `Quick test_substitute_arguments;
     Alcotest.test_case "discover md skills" `Quick test_discover_md_skills;
     Alcotest.test_case "use_skill tool found" `Quick test_use_skill_tool_found;

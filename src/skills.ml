@@ -308,6 +308,7 @@ type skill_md_meta = {
   md_description : string;
   md_allowed_tools : string list;
   md_model : string option;
+  md_disable_model_invocation : bool;
   md_source_path : string;
 }
 
@@ -357,12 +358,18 @@ let skill_md_meta_of_frontmatter ~source_path pairs =
         | None -> []
       in
       let model = find "model" in
+      let disable_model_invocation =
+        match find "disable-model-invocation" with
+        | Some s -> String.lowercase_ascii (String.trim s) = "true"
+        | None -> false
+      in
       Some
         {
           md_name = name;
           md_description = description;
           md_allowed_tools = allowed_tools;
           md_model = model;
+          md_disable_model_invocation = disable_model_invocation;
           md_source_path = source_path;
         }
   | _ -> None
@@ -505,6 +512,7 @@ let builtin_skill_metas () : skill_md_meta list =
         md_description = description;
         md_allowed_tools = [];
         md_model = None;
+        md_disable_model_invocation = false;
         md_source_path = source_path;
       })
     (Builtin_skills.builtin_metas ())
@@ -541,6 +549,7 @@ let find_skill_md name =
               md_description = bdesc;
               md_allowed_tools = [];
               md_model = None;
+              md_disable_model_invocation = false;
               md_source_path = "(builtin)";
             };
           instructions = binstructions;
@@ -656,7 +665,11 @@ let expand_skill_refs ?(workspace_only = false) message =
   let skills = available_skills () in
   let refs = extract_skill_refs skills message in
   let md_skills =
-    List.map (fun (s : skill_md_meta) -> (s.md_name, s.md_description)) skills
+    List.filter_map
+      (fun (s : skill_md_meta) ->
+        if s.md_disable_model_invocation then None
+        else Some (s.md_name, s.md_description))
+      skills
   in
   if refs = [] then Lwt.return (message, [], md_skills)
   else
@@ -783,6 +796,13 @@ let use_skill_tool ?(workspace_only = false) () =
              skill to invoke (e.g. \"review-and-fix\")."
         else
           match find_skill_md name with
+          | Some skill when skill.meta.md_disable_model_invocation ->
+              Lwt.return
+                (Printf.sprintf
+                   "Error: skill \"%s\" has disable-model-invocation enabled \
+                    and cannot be invoked by the model. It can only be invoked \
+                    by the user via /%s."
+                   name name)
           | Some skill ->
               let has_args = arguments <> "" in
               let body =
@@ -814,8 +834,10 @@ let use_skill_tool ?(workspace_only = false) () =
                    name has_args)
           | None ->
               let names =
-                List.map
-                  (fun (s : skill_md_meta) -> s.md_name)
+                List.filter_map
+                  (fun (s : skill_md_meta) ->
+                    if s.md_disable_model_invocation then None
+                    else Some s.md_name)
                   (available_skills ())
               in
               let available =
@@ -971,7 +993,11 @@ let skill_list_tool ?workspace_dir () =
         in
         let md_entries =
           let dirs = skill_search_dirs ?workspace_dir () in
-          let mds = scan_skill_dirs dirs in
+          let mds =
+            List.filter
+              (fun (s : skill_md_meta) -> not s.md_disable_model_invocation)
+              (scan_skill_dirs dirs)
+          in
           List.map
             (fun (s : skill_md_meta) ->
               Printf.sprintf "- %s: %s [md, %s]" s.md_name s.md_description

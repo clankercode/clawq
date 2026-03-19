@@ -1640,6 +1640,7 @@ let test_format_help_with_skills () =
         md_description = "Deploy to production";
         md_allowed_tools = [];
         md_model = None;
+        md_disable_model_invocation = false;
         md_source_path = "/tmp/test";
       };
     ]
@@ -1681,6 +1682,7 @@ let test_format_help_teams_skills_bulleted () =
         md_description = "Deploy to production";
         md_allowed_tools = [];
         md_model = None;
+        md_disable_model_invocation = false;
         md_source_path = "/tmp/test";
       };
       {
@@ -1688,6 +1690,7 @@ let test_format_help_teams_skills_bulleted () =
         md_description = "Lint the codebase";
         md_allowed_tools = [];
         md_model = None;
+        md_disable_model_invocation = false;
         md_source_path = "/tmp/test";
       };
     ]
@@ -1729,6 +1732,7 @@ let test_format_help_plain_skills_no_bullets () =
         md_description = "Deploy to production";
         md_allowed_tools = [];
         md_model = None;
+        md_disable_model_invocation = false;
         md_source_path = "/tmp/test";
       };
     ]
