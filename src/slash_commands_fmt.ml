@@ -840,8 +840,9 @@ let format_help_skills_section ~connector (skills : Skills.skill_md_meta list) =
     let lines =
       List.map
         (fun (s : Skills.skill_md_meta) ->
-          Format_adapter.code connector ("/" ^ s.md_name)
-          ^ " \xe2\x80\x94 " ^ s.md_description)
+          Format_adapter.list_item connector
+            (Format_adapter.code connector ("/" ^ s.md_name)
+            ^ " \xe2\x80\x94 " ^ s.md_description))
         skills
     in
     "\n\n"
@@ -855,8 +856,9 @@ let format_help_agents_section ~connector (agents : Agent_template.t list) =
     let lines =
       List.map
         (fun (t : Agent_template.t) ->
-          Format_adapter.code connector ("@" ^ t.name)
-          ^ " \xe2\x80\x94 " ^ t.description)
+          Format_adapter.list_item connector
+            (Format_adapter.code connector ("@" ^ t.name)
+            ^ " \xe2\x80\x94 " ^ t.description))
         agents
     in
     "\n\n"

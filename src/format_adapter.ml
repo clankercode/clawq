@@ -114,6 +114,9 @@ let line_break = function
     ->
       "\n"
 
+let list_item connector text =
+  match connector with Teams -> "- " ^ text | _ -> text
+
 let render_table connector ?(max_width = 60) columns rows =
   match connector with
   | Teams ->

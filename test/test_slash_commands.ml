@@ -1585,6 +1585,74 @@ let test_format_help_with_agents () =
     "no Skills section when empty" true
     (not (contains_str output "Skills"))
 
+let test_format_help_teams_skills_bulleted () =
+  let skills : Skills.skill_md_meta list =
+    [
+      {
+        md_name = "deploy";
+        md_description = "Deploy to production";
+        md_allowed_tools = [];
+        md_model = None;
+        md_source_path = "/tmp/test";
+      };
+      {
+        md_name = "lint";
+        md_description = "Lint the codebase";
+        md_allowed_tools = [];
+        md_model = None;
+        md_source_path = "/tmp/test";
+      };
+    ]
+  in
+  let output =
+    Slash_commands.format_help_with ~connector:Format_adapter.Teams ~skills
+      ~agents:[]
+  in
+  Alcotest.(check bool)
+    "deploy is bulleted" true
+    (contains_str output "- `/deploy`");
+  Alcotest.(check bool)
+    "lint is bulleted" true
+    (contains_str output "- `/lint`")
+
+let test_format_help_teams_agents_bulleted () =
+  let agents =
+    [
+      make_dummy_agent "reviewer" "Code review specialist";
+      make_dummy_agent "planner" "Plan implementation tasks";
+    ]
+  in
+  let output =
+    Slash_commands.format_help_with ~connector:Format_adapter.Teams ~skills:[]
+      ~agents
+  in
+  Alcotest.(check bool)
+    "reviewer is bulleted" true
+    (contains_str output "- `@reviewer`");
+  Alcotest.(check bool)
+    "planner is bulleted" true
+    (contains_str output "- `@planner`")
+
+let test_format_help_plain_skills_no_bullets () =
+  let skills : Skills.skill_md_meta list =
+    [
+      {
+        md_name = "deploy";
+        md_description = "Deploy to production";
+        md_allowed_tools = [];
+        md_model = None;
+        md_source_path = "/tmp/test";
+      };
+    ]
+  in
+  let output =
+    Slash_commands.format_help_with ~connector:Format_adapter.Plain ~skills
+      ~agents:[]
+  in
+  Alcotest.(check bool)
+    "no bullet prefix" true
+    (not (contains_str output "- /deploy"))
+
 let test_format_tools_with_agents () =
   let tools = [ make_dummy_tool "file_read" "Read a file" ] in
   let agents = [ make_dummy_agent "planner" "Plan implementation tasks" ] in
@@ -2507,6 +2575,12 @@ let suite =
       test_format_help_with_skills;
     Alcotest.test_case "format help with agents" `Quick
       test_format_help_with_agents;
+    Alcotest.test_case "format help teams skills bulleted" `Quick
+      test_format_help_teams_skills_bulleted;
+    Alcotest.test_case "format help teams agents bulleted" `Quick
+      test_format_help_teams_agents_bulleted;
+    Alcotest.test_case "format help plain skills no bullets" `Quick
+      test_format_help_plain_skills_no_bullets;
     Alcotest.test_case "format tools with agents" `Quick
       test_format_tools_with_agents;
     Alcotest.test_case "format status teams markdown table" `Quick
