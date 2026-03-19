@@ -282,24 +282,39 @@ let launch ?configured_path ?(timeout_s = 30.0) () =
                   Log.err (fun m ->
                       m "[cdp] read loop error: %s" (Printexc.to_string exn));
                   Lwt.return_unit));
-          (* Let chromium start *)
-          let* () = Lwt_unix.sleep 0.5 in
-          let* targets_result =
-            send_command t ~method_:"Target.getTargets" ~timeout_s ()
+          let startup_deadline = Unix.gettimeofday () +. timeout_s in
+          let rec wait_for_page_target () =
+            let open Yojson.Safe.Util in
+            let remaining_s = startup_deadline -. Unix.gettimeofday () in
+            if remaining_s <= 0.0 then Lwt.return_none
+            else
+              let* targets_result =
+                send_command t ~method_:"Target.getTargets"
+                  ~timeout_s:remaining_s ()
+              in
+              let targets = targets_result |> member "targetInfos" |> to_list in
+              match
+                List.find_opt
+                  (fun tgt ->
+                    try tgt |> member "type" |> to_string = "page"
+                    with _ -> false)
+                  targets
+              with
+              | Some target -> Lwt.return_some target
+              | None ->
+                  let* () = Lwt_unix.sleep 0.1 in
+                  wait_for_page_target ()
           in
-          let open Yojson.Safe.Util in
-          let targets = targets_result |> member "targetInfos" |> to_list in
-          let page_target =
-            List.find_opt
-              (fun tgt ->
-                try tgt |> member "type" |> to_string = "page" with _ -> false)
-              targets
-          in
+          let* page_target = wait_for_page_target () in
           match page_target with
           | None ->
               Process_group.signal_group pid Sys.sigterm;
-              Lwt.fail_with "No page target found after chromium launch"
+              Lwt.fail_with
+                (Printf.sprintf
+                   "No page target found after chromium launch within %.1fs"
+                   timeout_s)
           | Some target ->
+              let open Yojson.Safe.Util in
               let target_id = target |> member "targetId" |> to_string in
               let* attach_result =
                 send_command t ~method_:"Target.attachToTarget"
