@@ -1500,7 +1500,8 @@ let run ~(config : Runtime_config.t) =
                               in
                               agent.effective_cwd <- cwd;
                               Agent.turn agent ~user_message:message ())
-                      | None -> Session.turn session_manager ~key ~message ())
+                      | None ->
+                          Session.turn session_manager ~key ~message ?cwd ())
                     ~db
                     ~on_task_finished:
                       (notify_background_task_finished ~session_manager ~config

@@ -254,14 +254,20 @@ let log_has_content path =
   try (Unix.stat path).Unix.st_size > 0
   with Unix.Unix_error _ | Sys_error _ -> false
 
+let running : (int, unit) Hashtbl.t = Hashtbl.create 16
+let is_tracked_locally id = Hashtbl.mem running id
+
 let diagnose_health ?(now = Unix.gettimeofday ())
-    ?(pid_alive = fun pid -> Process_group.group_alive pid) (task : task) =
+    ?(pid_alive = fun pid -> Process_group.group_alive pid)
+    ?(is_local_tracked = is_tracked_locally) (task : task) =
   match task.status with
   | Queued | Succeeded | Failed | DirtyWorktree | Cancelled -> Not_applicable
   | Running ->
+      let is_local = task.runner = Local in
       let pid_alive =
         match task.pid with
         | Some pid when pid > 0 -> pid_alive pid
+        | Some _pid when _pid = -1 -> is_local_tracked task.id
         | _ -> false
       in
       if not pid_alive then
@@ -273,24 +279,27 @@ let diagnose_health ?(now = Unix.gettimeofday ())
           | None -> 0.0
         in
         let elapsed = if started > 0.0 then now -. started else 0.0 in
-        let log_fresh =
-          match task.log_path with
-          | Some path -> (
-              match log_mtime path with
-              | Some mtime -> now -. mtime < log_stale_threshold_seconds
-              | None -> false)
-          | None -> false
-        in
-        let log_empty =
-          match task.log_path with
-          | Some path -> not (log_has_content path)
-          | None -> true
-        in
-        if log_empty && elapsed >= startup_timeout_seconds then Startup_failed
-        else if log_fresh then Active
-        else if elapsed < log_stale_threshold_seconds then Active
-        else if elapsed >= stalled_threshold_seconds then Stalled
-        else Log_stale
+        if is_local then
+          if elapsed >= stalled_threshold_seconds then Stalled else Active
+        else
+          let log_fresh =
+            match task.log_path with
+            | Some path -> (
+                match log_mtime path with
+                | Some mtime -> now -. mtime < log_stale_threshold_seconds
+                | None -> false)
+            | None -> false
+          in
+          let log_empty =
+            match task.log_path with
+            | Some path -> not (log_has_content path)
+            | None -> true
+          in
+          if log_empty && elapsed >= startup_timeout_seconds then Startup_failed
+          else if log_fresh then Active
+          else if elapsed < log_stale_threshold_seconds then Active
+          else if elapsed >= stalled_threshold_seconds then Stalled
+          else Log_stale
 
 let format_elapsed_seconds secs =
   let secs = max 0 (int_of_float secs) in
@@ -2125,8 +2134,6 @@ let prepare_worktree ?(run_simple_command = run_simple_command) task =
              (Printf.sprintf "git worktree add failed (exit %d): %s%s" exit_code
                 stdout stderr))
 
-let running : (int, unit) Hashtbl.t = Hashtbl.create 16
-
 let spawn_task ?(on_task_started = fun _ -> Lwt.return_unit)
     ?(on_task_finished = fun _ -> Lwt.return_unit)
     ?(run_simple_command = run_simple_command) ?command_override ~db
@@ -2308,8 +2315,10 @@ let spawn_task ?(on_task_started = fun _ -> Lwt.return_unit)
 let default_spawn_task ~on_task_started ~on_task_finished ~db task =
   spawn_task ~on_task_started ~on_task_finished ~db task
 
-let spawn_local_task ~run_turn ~on_task_started ~on_task_finished ~db
-    (task : task) =
+let local_task_timeout_seconds = 600.0
+
+let spawn_local_task ?(timeout_seconds = local_task_timeout_seconds) ~run_turn
+    ~on_task_started ~on_task_finished ~db (task : task) =
   Hashtbl.replace running task.id ();
   Lwt.async (fun () ->
       Lwt.finalize
@@ -2335,32 +2344,46 @@ let spawn_local_task ~run_turn ~on_task_started ~on_task_finished ~db
               in
               Lwt.catch
                 (fun () ->
-                  let* result =
-                    run_turn ~key:ephemeral_key ~message:task.prompt
-                      ?agent_name:task.agent_name ?cwd ()
+                  let* timed_result =
+                    Resilience.with_timeout ~timeout_s:timeout_seconds
+                      (fun () ->
+                        run_turn ~key:ephemeral_key ~message:task.prompt
+                          ?agent_name:task.agent_name ?cwd ())
                   in
-                  let prompt_short =
-                    if String.length task.prompt > 200 then
-                      String.sub task.prompt 0 200 ^ "..."
-                    else task.prompt
-                  in
-                  let result_short =
-                    if String.length result > 300 then
-                      String.sub result 0 300 ^ "..."
-                    else result
-                  in
-                  let rich_preview =
-                    Printf.sprintf "[cron ephemeral] prompt: %s\n\nresponse: %s"
-                      prompt_short result_short
-                  in
-                  finish ~db ~id:task.id ~status:Succeeded
-                    ~result_preview:rich_preview;
-                  let* () =
-                    match get_task ~db ~id:task.id with
-                    | Some t -> on_task_finished t
-                    | None -> Lwt.return_unit
-                  in
-                  Lwt.return_unit)
+                  match timed_result with
+                  | Error timeout_msg ->
+                      finish ~db ~id:task.id ~status:Failed
+                        ~result_preview:timeout_msg;
+                      let* () =
+                        match get_task ~db ~id:task.id with
+                        | Some t -> on_task_finished t
+                        | None -> Lwt.return_unit
+                      in
+                      Lwt.return_unit
+                  | Ok result ->
+                      let prompt_short =
+                        if String.length task.prompt > 200 then
+                          String.sub task.prompt 0 200 ^ "..."
+                        else task.prompt
+                      in
+                      let result_short =
+                        if String.length result > 300 then
+                          String.sub result 0 300 ^ "..."
+                        else result
+                      in
+                      let rich_preview =
+                        Printf.sprintf
+                          "[cron ephemeral] prompt: %s\n\nresponse: %s"
+                          prompt_short result_short
+                      in
+                      finish ~db ~id:task.id ~status:Succeeded
+                        ~result_preview:rich_preview;
+                      let* () =
+                        match get_task ~db ~id:task.id with
+                        | Some t -> on_task_finished t
+                        | None -> Lwt.return_unit
+                      in
+                      Lwt.return_unit)
                 (fun exn ->
                   finish ~db ~id:task.id ~status:Failed
                     ~result_preview:(Printexc.to_string exn);
@@ -2420,17 +2443,17 @@ let start_queued ?max_running_tasks ~db () =
     ~on_task_finished:(fun _ -> Lwt.return_unit)
     ~db ()
 
-let start_queued_with_local_runner ~run_turn ?max_running_tasks
+let start_queued_with_local_runner ~run_turn ?timeout_seconds ?max_running_tasks
     ~on_task_finished ~on_task_started ~db () =
   let spawn ~on_task_started ~on_task_finished ~db (task : task) =
     if task.runner = Local then
-      spawn_local_task ~run_turn ~on_task_started ~on_task_finished ~db task
+      spawn_local_task ?timeout_seconds ~run_turn ~on_task_started
+        ~on_task_finished ~db task
     else default_spawn_task ~on_task_started ~on_task_finished ~db task
   in
   start_queued_with_callback_impl ?max_running_tasks ~spawn_task:spawn
     ~on_task_started ~on_task_finished ~db ()
 
-let is_tracked_locally id = Hashtbl.mem running id
 let clear_all_tracked () = Hashtbl.clear running
 
 let reap_dead_running_tasks ~db ~on_task_finished =
@@ -2450,6 +2473,11 @@ let reap_dead_running_tasks ~db ~on_task_finished =
       if not pid_alive then begin
         let reason =
           match task.pid with
+          | Some _pid when _pid <= 0 ->
+              Printf.sprintf
+                "Local in-process task %d did not survive daemon restart — use \
+                 'background retry %d' to re-queue"
+                task.id task.id
           | Some pid ->
               Printf.sprintf
                 "Process group %d no longer alive (orphaned/crashed) — use \
@@ -2482,16 +2510,29 @@ let readopt_running_tasks ~db ~on_task_finished =
         true
       with Unix.Unix_error _ -> false
   in
+  let all_running =
+    List.filter
+      (fun (t : task) -> t.status = Running && not (Hashtbl.mem running t.id))
+      (list_tasks ~db)
+  in
+  List.iter
+    (fun (t : task) ->
+      match t.pid with
+      | Some _pid when _pid <= 0 ->
+          Logs.info (fun m ->
+              m
+                "Skipping readopt for local task %d (in-process tasks cannot \
+                 survive daemon restart)"
+                t.id)
+      | _ -> ())
+    all_running;
   let orphaned =
     List.filter
       (fun (t : task) ->
-        t.status = Running
-        && (not (Hashtbl.mem running t.id))
-        &&
         match t.pid with
         | Some pid when pid > 0 -> pid_or_group_alive pid
         | _ -> false)
-      (list_tasks ~db)
+      all_running
   in
   let count = ref 0 in
   List.iter

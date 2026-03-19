@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-19T14:51:04Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-19T15:25:04Z"
 complexity: medium
 depends_on: []
+duration_minutes: 34.005803691366665
 estimate_hours: 1
 id: B558
 priority: high
 started_at: "2026-03-19T14:51:04Z"
-status: in_progress
+status: done
 tags: []
 title: Local coder job can stall or fail to start
 ---

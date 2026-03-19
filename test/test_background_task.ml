@@ -4009,6 +4009,218 @@ let test_notification_error_in_summary () =
     "contains error" true
     (string_contains summary "connection refused")
 
+let test_health_local_task_tracked_is_active () =
+  let task =
+    {
+      (make_task ~status:Background_task.Running ~runner:Background_task.Local
+         ())
+      with
+      pid = Some (-1);
+    }
+  in
+  let health =
+    Background_task.diagnose_health ~is_local_tracked:(fun _ -> true) task
+  in
+  Alcotest.(check string)
+    "tracked local task is active" "active"
+    (Background_task.string_of_health health)
+
+let test_health_local_task_untracked_is_zombie () =
+  let task =
+    {
+      (make_task ~status:Background_task.Running ~runner:Background_task.Local
+         ())
+      with
+      pid = Some (-1);
+    }
+  in
+  let health =
+    Background_task.diagnose_health ~is_local_tracked:(fun _ -> false) task
+  in
+  Alcotest.(check string)
+    "untracked local task is zombie" "zombie"
+    (Background_task.string_of_health health)
+
+let test_health_local_task_no_startup_failed () =
+  let now = Unix.gettimeofday () in
+  let started_time = now -. 5.0 in
+  let tm = Unix.gmtime started_time in
+  let started =
+    Printf.sprintf "%04d-%02d-%02d %02d:%02d:%02d" (tm.Unix.tm_year + 1900)
+      (tm.Unix.tm_mon + 1) tm.Unix.tm_mday tm.Unix.tm_hour tm.Unix.tm_min
+      tm.Unix.tm_sec
+  in
+  let task =
+    {
+      (make_task ~status:Background_task.Running ~runner:Background_task.Local
+         ~started_at:(Some started) ())
+      with
+      pid = Some (-1);
+      log_path = None;
+    }
+  in
+  let fake_now = now +. 35.0 in
+  let health =
+    Background_task.diagnose_health ~now:fake_now
+      ~is_local_tracked:(fun _ -> true)
+      task
+  in
+  Alcotest.(check string)
+    "local task with no log after 35s is active, not startup-failed" "active"
+    (Background_task.string_of_health health)
+
+let test_health_local_task_stalled () =
+  let now = Unix.gettimeofday () in
+  let started_time = now -. 5.0 in
+  let tm = Unix.gmtime started_time in
+  let started =
+    Printf.sprintf "%04d-%02d-%02d %02d:%02d:%02d" (tm.Unix.tm_year + 1900)
+      (tm.Unix.tm_mon + 1) tm.Unix.tm_mday tm.Unix.tm_hour tm.Unix.tm_min
+      tm.Unix.tm_sec
+  in
+  let task =
+    {
+      (make_task ~status:Background_task.Running ~runner:Background_task.Local
+         ~started_at:(Some started) ())
+      with
+      pid = Some (-1);
+    }
+  in
+  let fake_now = now +. 400.0 in
+  let health =
+    Background_task.diagnose_health ~now:fake_now
+      ~is_local_tracked:(fun _ -> true)
+      task
+  in
+  Alcotest.(check string)
+    "local task tracked but stalled after 300s" "stalled"
+    (Background_task.string_of_health health)
+
+let test_reap_local_task_message () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Local
+            ~require_git:false ~use_worktree:false ~repo_path
+            ~prompt:"test reap local" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      ignore
+        (Background_task.set_running ~db ~id ~branch:"b"
+           ~worktree_path:"/tmp/wt" ~log_path:"/tmp/log" ~pid:(-1));
+      let _count =
+        Background_task.reap_dead_running_tasks ~db ~on_task_finished:(fun _ ->
+            Lwt.return_unit)
+      in
+      match Background_task.get_task ~db ~id with
+      | None -> Alcotest.fail "expected task"
+      | Some task ->
+          let preview = Option.value ~default:"" task.result_preview in
+          Alcotest.(check bool)
+            "result mentions daemon restart" true
+            (string_contains preview "daemon restart");
+          Alcotest.(check bool)
+            "result mentions retry hint" true
+            (string_contains preview "background retry"))
+
+let test_spawn_local_task_timeout () =
+  let dir = Filename.temp_dir "clawq-bg-local-timeout" "" in
+  Fun.protect
+    (fun () ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Local
+            ~require_git:false ~use_worktree:false ~repo_path:dir
+            ~prompt:"test timeout" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      let task =
+        match Background_task.get_task ~db ~id with
+        | Some t -> t
+        | None -> Alcotest.failf "expected task %d" id
+      in
+      Lwt_main.run
+        (let open Lwt.Syntax in
+         Background_task.spawn_local_task ~timeout_seconds:0.1
+           ~run_turn:(fun ~key:_ ~message:_ ?agent_name:_ ?cwd:_ () ->
+             let* () = Lwt_unix.sleep 10.0 in
+             Lwt.return "should not reach")
+           ~on_task_started:(fun _ -> Lwt.return_unit)
+           ~on_task_finished:(fun _ -> Lwt.return_unit)
+           ~db task;
+         Lwt_unix.sleep 0.5);
+      match Background_task.get_task ~db ~id with
+      | None -> Alcotest.fail "expected task"
+      | Some t ->
+          Alcotest.(check string)
+            "status is failed" "failed"
+            (Background_task.string_of_status t.status);
+          let preview = Option.value ~default:"" t.result_preview in
+          Alcotest.(check bool)
+            "result mentions timeout" true
+            (string_contains preview "timed out"))
+    ~finally:(fun () ->
+      ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote dir))))
+
+let test_spawn_local_task_success () =
+  let dir = Filename.temp_dir "clawq-bg-local-success" "" in
+  Fun.protect
+    (fun () ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Local
+            ~require_git:false ~use_worktree:false ~repo_path:dir
+            ~prompt:"test success" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      let task =
+        match Background_task.get_task ~db ~id with
+        | Some t -> t
+        | None -> Alcotest.failf "expected task %d" id
+      in
+      Lwt_main.run
+        (let open Lwt.Syntax in
+         Background_task.spawn_local_task
+           ~run_turn:(fun ~key:_ ~message:_ ?agent_name:_ ?cwd:_ () ->
+             Lwt.return "done")
+           ~on_task_started:(fun _ -> Lwt.return_unit)
+           ~on_task_finished:(fun _ -> Lwt.return_unit)
+           ~db task;
+         let rec wait n =
+           if n <= 0 then Lwt.return_unit
+           else
+             let* () = Lwt_unix.sleep 0.05 in
+             match Background_task.get_task ~db ~id with
+             | Some t when t.status <> Background_task.Running ->
+                 Lwt.return_unit
+             | _ -> wait (n - 1)
+         in
+         wait 20);
+      match Background_task.get_task ~db ~id with
+      | None -> Alcotest.fail "expected task"
+      | Some t ->
+          Alcotest.(check string)
+            "status is succeeded" "succeeded"
+            (Background_task.string_of_status t.status);
+          let preview = Option.value ~default:"" t.result_preview in
+          Alcotest.(check bool)
+            "result contains response" true
+            (string_contains preview "done"))
+    ~finally:(fun () ->
+      ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote dir))))
+
 let suite =
   [
     Alcotest.test_case "enqueue and list tasks" `Quick
@@ -4273,4 +4485,18 @@ let suite =
       test_notification_status_in_summary;
     Alcotest.test_case "notification error in summary" `Quick
       test_notification_error_in_summary;
+    Alcotest.test_case "health local task tracked is active" `Quick
+      test_health_local_task_tracked_is_active;
+    Alcotest.test_case "health local task untracked is zombie" `Quick
+      test_health_local_task_untracked_is_zombie;
+    Alcotest.test_case "health local task no startup-failed" `Quick
+      test_health_local_task_no_startup_failed;
+    Alcotest.test_case "health local task stalled" `Quick
+      test_health_local_task_stalled;
+    Alcotest.test_case "reap local task message" `Quick
+      test_reap_local_task_message;
+    Alcotest.test_case "spawn local task timeout" `Quick
+      test_spawn_local_task_timeout;
+    Alcotest.test_case "spawn local task success" `Quick
+      test_spawn_local_task_success;
   ]
