@@ -549,3 +549,4 @@ bugs:
     - file: B550-sessions-like-briefing-cannot.todo
     - file: B551-teams-help-skills-agents-list.todo
     - file: B552-feature-command-lacks-progress.todo
+    - file: B553-bump-version-to-0-2-1.todo
