@@ -111,6 +111,12 @@ let rec result_to_string = function
   | Slash_commands.Session Slash_commands.SessionList -> "Session(List)"
   | Slash_commands.Session (Slash_commands.SessionShow key) ->
       "Session(Show " ^ key ^ ")"
+  | Slash_commands.Session (Slash_commands.SessionArchives None) ->
+      "Session(Archives)"
+  | Slash_commands.Session (Slash_commands.SessionArchives (Some key)) ->
+      "Session(Archives " ^ key ^ ")"
+  | Slash_commands.Session (Slash_commands.SessionArchiveShow id) ->
+      "Session(ArchiveShow " ^ string_of_int id ^ ")"
   | Slash_commands.DebugDumpChat -> "DebugDumpChat"
   | Slash_commands.AgentInvoke (name, prompt) ->
       "AgentInvoke(" ^ name ^ ", " ^ prompt ^ ")"

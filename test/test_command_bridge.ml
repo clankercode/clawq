@@ -665,6 +665,71 @@ let test_handle_session_epochs_and_show_archived_epoch () =
            true
          with Not_found -> false))
 
+let test_handle_session_archive_show () =
+  with_temp_home (fun home ->
+      let db = session_db home in
+      Memory.store_message ~db ~session_key:"web:test"
+        (Provider.make_message ~role:"user" ~content:"archived msg");
+      Memory.store_message ~db ~session_key:"web:test"
+        (Provider.make_message ~role:"assistant" ~content:"archived reply");
+      Memory.archive_session ~db ~session_key:"web:test";
+      let archives =
+        Memory.list_archives_for_session ~db ~session_key:"web:test"
+      in
+      let archive_id = (List.hd archives).archive_id in
+      let result =
+        Command_bridge.handle
+          [ "session"; "archive"; "show"; string_of_int archive_id ]
+      in
+      Alcotest.(check bool)
+        "contains archive_id" true
+        (try
+           ignore
+             (Str.search_forward (Str.regexp_string "\"archive_id\"") result 0);
+           true
+         with Not_found -> false);
+      Alcotest.(check bool)
+        "contains archived msg" true
+        (try
+           ignore
+             (Str.search_forward (Str.regexp_string "archived msg") result 0);
+           true
+         with Not_found -> false);
+      Alcotest.(check bool)
+        "contains messages array" true
+        (try
+           ignore
+             (Str.search_forward (Str.regexp_string "\"messages\"") result 0);
+           true
+         with Not_found -> false))
+
+let test_handle_session_archive_show_invalid_id () =
+  with_temp_home (fun _home ->
+      let result =
+        Command_bridge.handle [ "session"; "archive"; "show"; "abc" ]
+      in
+      Alcotest.(check bool)
+        "error mentions integer" true
+        (try
+           ignore
+             (Str.search_forward
+                (Str.regexp_string "must be an integer")
+                result 0);
+           true
+         with Not_found -> false))
+
+let test_handle_session_archive_show_not_found () =
+  with_temp_home (fun _home ->
+      let result =
+        Command_bridge.handle [ "session"; "archive"; "show"; "99999" ]
+      in
+      Alcotest.(check bool)
+        "error mentions not found" true
+        (try
+           ignore (Str.search_forward (Str.regexp_string "not found") result 0);
+           true
+         with Not_found -> false))
+
 let test_session_show_includes_workspace_refresh_event () =
   with_temp_home (fun home ->
       let db = session_db home in
@@ -2910,6 +2975,12 @@ let suite =
       test_handle_session_inject_reports_queued_bang;
     Alcotest.test_case "handle session epochs and show archived epoch" `Quick
       test_handle_session_epochs_and_show_archived_epoch;
+    Alcotest.test_case "handle session archive show" `Quick
+      test_handle_session_archive_show;
+    Alcotest.test_case "handle session archive show invalid id" `Quick
+      test_handle_session_archive_show_invalid_id;
+    Alcotest.test_case "handle session archive show not found" `Quick
+      test_handle_session_archive_show_not_found;
     Alcotest.test_case "handle capabilities" `Quick test_handle_capabilities;
     Alcotest.test_case "handle auth" `Quick test_handle_auth;
     Alcotest.test_case "auth set-key redacts output" `Quick

@@ -160,6 +160,83 @@ let cmd_session args =
             rows
         in
         Table_format.render columns data
+  | "archive" :: "show" :: id_str :: rest
+  | "archives" :: "show" :: id_str :: rest -> (
+      match int_of_string_opt id_str with
+      | None ->
+          Printf.sprintf
+            "Error: archive ID must be an integer. Received: %S. Use 'session \
+             archives SESSION' to list archive IDs."
+            id_str
+      | Some archive_id -> (
+          match Memory.get_archive_info ~db ~archive_id with
+          | None ->
+              Printf.sprintf
+                "Error: archive #%d not found. Use 'session archives SESSION' \
+                 to list available archives."
+                archive_id
+          | Some info -> (
+              match parse_session_show_args rest with
+              | Error msg -> msg
+              | Ok parsed ->
+                  let all_rows = Memory.load_archive_messages ~db ~archive_id in
+                  let total_messages = List.length all_rows in
+                  let offset = parsed.offset in
+                  let paged_rows =
+                    let after_offset =
+                      if offset > 0 then
+                        let rec drop n lst =
+                          if n <= 0 then lst
+                          else
+                            match lst with
+                            | _ :: tl -> drop (n - 1) tl
+                            | [] -> []
+                        in
+                        drop offset all_rows
+                      else all_rows
+                    in
+                    match parsed.limit with
+                    | Some limit ->
+                        let rec take n acc = function
+                          | _ when n <= 0 -> List.rev acc
+                          | [] -> List.rev acc
+                          | hd :: tl -> take (n - 1) (hd :: acc) tl
+                        in
+                        take limit [] after_offset
+                    | None -> after_offset
+                  in
+                  let shown_count = List.length paged_rows in
+                  let has_more = offset + shown_count < total_messages in
+                  let paging_fields =
+                    [ ("total_messages", `Int total_messages) ]
+                    @ (if offset > 0 then [ ("offset", `Int offset) ] else [])
+                    @ (match parsed.limit with
+                      | Some n -> [ ("limit", `Int n) ]
+                      | None -> [])
+                    @ [ ("has_more", `Bool has_more) ]
+                    @
+                    if has_more then
+                      [ ("next_offset", `Int (offset + shown_count)) ]
+                    else []
+                  in
+                  let config = get_config () in
+                  Yojson.Safe.pretty_to_string
+                    (`Assoc
+                       ([
+                          ("archive_id", `Int info.archive_id);
+                          ("session_key", `String info.session_key);
+                          ("archived_at", `String info.archived_at);
+                          ("epoch_count", `Int info.epoch_count);
+                        ]
+                       @ paging_fields
+                       @ [
+                           ( "messages",
+                             `List
+                               (List.mapi
+                                  (fun i row ->
+                                    raw_message_json config (offset + i) row)
+                                  paged_rows) );
+                         ])))))
   | [ "epochs"; session_key ] ->
       let epochs = Memory.list_session_epochs ~db ~session_key in
       if
@@ -647,6 +724,7 @@ let cmd_session args =
       \  session list [--channel NAME] [--prefix PREFIX] [--active|--inactive] \
        [--main|--non-main]\n\
       \  session archives [SESSION]\n\
+      \  session archive show ARCHIVE_ID [--offset N] [--limit N]\n\
       \  session epochs SESSION\n\
       \  session show SESSION [--epoch current|ID] [--offset N] [--limit N]\n\
       \  session pending SESSION\n\

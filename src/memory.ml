@@ -1409,6 +1409,81 @@ let list_archives_for_session ~db ~session_key =
       done;
       List.rev !rows)
 
+let get_archive_info ~db ~archive_id =
+  let sql =
+    "SELECT archive_id, session_key, archived_at, message_count, epoch_count, \
+     first_message_at, last_message_at FROM session_archives WHERE archive_id \
+     = ?"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.INT (Int64.of_int archive_id)));
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.ROW ->
+          let text_opt i =
+            match Sqlite3.column stmt i with
+            | Sqlite3.Data.TEXT s -> Some s
+            | _ -> None
+          in
+          let int_val i =
+            match Sqlite3.column stmt i with
+            | Sqlite3.Data.INT n -> Int64.to_int n
+            | _ -> 0
+          in
+          Some
+            {
+              archive_id = int_val 0;
+              session_key = (match text_opt 1 with Some s -> s | None -> "");
+              archived_at = (match text_opt 2 with Some s -> s | None -> "");
+              message_count = int_val 3;
+              epoch_count = int_val 4;
+              first_message_at = text_opt 5;
+              last_message_at = text_opt 6;
+            }
+      | _ -> None)
+
+let load_archive_messages ~db ~archive_id =
+  let sql =
+    "SELECT ordinal, role, content, tool_call_id, tool_name, tool_calls_json, \
+     provider_response_items_json, thinking_content, created_at FROM \
+     session_archive_messages WHERE archive_id = ? ORDER BY ordinal ASC"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.INT (Int64.of_int archive_id)));
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      let rows = ref [] in
+      while Sqlite3.step stmt = Sqlite3.Rc.ROW do
+        let text_opt index =
+          match Sqlite3.column stmt index with
+          | Sqlite3.Data.TEXT s -> Some s
+          | _ -> None
+        in
+        let text index = match text_opt index with Some s -> s | None -> "" in
+        let id =
+          match Sqlite3.column stmt 0 with
+          | Sqlite3.Data.INT n -> Int64.to_int n
+          | _ -> 0
+        in
+        rows :=
+          {
+            id;
+            role = text 1;
+            content = text 2;
+            tool_call_id = text_opt 3;
+            tool_name = text_opt 4;
+            tool_calls_json = text_opt 5;
+            provider_response_items_json = text_opt 6;
+            thinking_content = text_opt 7;
+            created_at = text 8;
+          }
+          :: !rows
+      done;
+      List.rev !rows)
+
 let store_session_workspace_state ~db ~session_key
     ~observed_active_workspace_files =
   let observed_files_json =

@@ -62,7 +62,12 @@ type cron_action =
   | CronHelp
 
 type bl_action = BlList | BlShow of string | BlBugs | BlIdeas
-type session_action = SessionList | SessionShow of string
+
+type session_action =
+  | SessionList
+  | SessionShow of string
+  | SessionArchives of string option
+  | SessionArchiveShow of int
 
 type rig_action =
   | RigInstall of string
@@ -777,7 +782,11 @@ let format_session_usage ~connector =
   ^ Format_adapter.code connector "/session list"
   ^ "       - List all sessions\n  "
   ^ Format_adapter.code connector "/session show <key>"
-  ^ " - Show session details"
+  ^ " - Show session details\n  "
+  ^ Format_adapter.code connector "/session archives [key]"
+  ^ " - List archives\n  "
+  ^ Format_adapter.code connector "/session archive show <id>"
+  ^ " - Show archive messages"
 
 let format_reset ~connector ~active_bg_tasks =
   Format_adapter.bold connector "Session reset."

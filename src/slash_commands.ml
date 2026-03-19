@@ -449,6 +449,15 @@ let handle ?(skill_names = []) text =
               (match args with
               | [] | [ "list" ] -> Session SessionList
               | [ "show"; key ] -> Session (SessionShow key)
+              | [ "archives" ] -> Session (SessionArchives None)
+              | [ "archives"; key ] -> Session (SessionArchives (Some key))
+              | [ "archive"; "show"; id ] | [ "archives"; "show"; id ] -> (
+                  match int_of_string_opt id with
+                  | Some n -> Session (SessionArchiveShow n)
+                  | None ->
+                      Reply
+                        "Error: archive ID must be an integer. Use /session \
+                         archives to list archive IDs.")
               | _ ->
                   FormattedReply
                     (fun connector -> format_session_usage ~connector))

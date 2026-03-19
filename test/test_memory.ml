@@ -1156,6 +1156,37 @@ let test_list_archive_sessions () =
   Alcotest.(check bool) "s1 present" true (List.mem "s1" keys);
   Alcotest.(check bool) "s2 present" true (List.mem "s2" keys)
 
+let test_load_archive_messages () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Memory.store_message ~db ~session_key:"s1" (mk_msg "user" "hello");
+  Memory.store_message ~db ~session_key:"s1" (mk_msg "assistant" "hi back");
+  Memory.archive_session ~db ~session_key:"s1";
+  let archives = Memory.list_archives_for_session ~db ~session_key:"s1" in
+  let archive_id = (List.hd archives).archive_id in
+  let msgs = Memory.load_archive_messages ~db ~archive_id in
+  Alcotest.(check int) "loaded 2 messages" 2 (List.length msgs);
+  Alcotest.(check string) "first content" "hello" (List.hd msgs).content;
+  Alcotest.(check string) "second content" "hi back" (List.nth msgs 1).content
+
+let test_get_archive_info () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Memory.store_message ~db ~session_key:"s1" (mk_msg "user" "msg1");
+  Memory.archive_session ~db ~session_key:"s1";
+  let archives = Memory.list_archives_for_session ~db ~session_key:"s1" in
+  let archive_id = (List.hd archives).archive_id in
+  let info = Memory.get_archive_info ~db ~archive_id in
+  Alcotest.(check bool) "info found" true (info <> None);
+  let info = Option.get info in
+  Alcotest.(check string) "session_key" "s1" info.session_key;
+  Alcotest.(check int) "message_count" 1 info.message_count;
+  let missing = Memory.get_archive_info ~db ~archive_id:99999 in
+  Alcotest.(check bool) "nonexistent returns None" true (missing = None)
+
+let test_load_archive_messages_empty () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let msgs = Memory.load_archive_messages ~db ~archive_id:99999 in
+  Alcotest.(check int) "empty for nonexistent" 0 (List.length msgs)
+
 let test_session_cwd_get_set () =
   let db = Memory.init ~db_path:":memory:" () in
   let key = "test-cwd-session" in
@@ -1488,6 +1519,10 @@ let suite =
     Alcotest.test_case "list archives for session" `Quick
       test_list_archives_for_session;
     Alcotest.test_case "list archive sessions" `Quick test_list_archive_sessions;
+    Alcotest.test_case "load archive messages" `Quick test_load_archive_messages;
+    Alcotest.test_case "get archive info" `Quick test_get_archive_info;
+    Alcotest.test_case "load archive messages empty" `Quick
+      test_load_archive_messages_empty;
     Alcotest.test_case "session cwd get set" `Quick test_session_cwd_get_set;
     Alcotest.test_case "agent create with cwd" `Quick test_agent_create_with_cwd;
     Alcotest.test_case "session info includes cwd" `Quick
