@@ -96,17 +96,19 @@ When any worktree-backed task finishes (Succeeded or DirtyWorktree), the system 
 2. The agent commits any remaining changes, rebases against `master`, runs checks, and outputs the sentinel `OK_TASK_DONE_CHECKED_REBASED_COMMITED`
 3. The system detects the sentinel and proceeds to finalization
 
-This ensures every worktree task goes through a verification step, regardless of whether automerge is enabled.
+The completion pass also includes a **review-and-fix guard**: the agent must review all changes (`git diff master..HEAD`) for correctness, quality, completeness, and safety before signaling done. Issues found must be fixed and re-reviewed until clean.
+
+This ensures every worktree task goes through both verification and review, regardless of whether automerge is enabled.
 
 ## Automerge
 
-When a task is queued with `--automerge` (or via `delegate` with automerge enabled in config), clawq automatically attempts to merge the worktree branch into the repo's main branch after the completion pass succeeds:
+Automerge is **enabled by default**. When a task is queued with automerge (the default for both `delegate` and `background_task_enqueue`), clawq automatically attempts to merge the worktree branch into the repo's main branch after the completion pass succeeds:
 
 1. The branch is rebased onto the current HEAD of the target branch
 2. If rebase succeeds, the branch is merged and the worktree is removed
 3. If conflicts are detected, the task is marked with a merge conflict status
 
-To manually finalize after automerge failure or when automerge was not enabled:
+To manually finalize after automerge failure or when automerge was disabled (`automerge: false`):
 
 ```bash
 clawq background finalize 42

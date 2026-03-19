@@ -239,7 +239,7 @@ let resume_prompt_of_messages messages =
 
 type invocation = Fresh | Resume of string
 
-let enqueue ~db ~runner ?model ?(require_git = true) ?(automerge = false)
+let enqueue ~db ~runner ?model ?(require_git = true) ?(automerge = true)
     ?(use_worktree = true) ?(acp = false) ~repo_path ~prompt ?branch
     ?session_key ?channel ?channel_id ?parent_task_id ?agent_name () =
   if acp && runner = Local then
@@ -956,9 +956,16 @@ let completion_pass_message () =
       "   git add -A && git commit -m \"<appropriate commit msg here>\"";
       "2. Rebase your branch against the master branch (not origin/master):";
       "   git rebase master";
-      "3. Run any relevant tests/checks to verify your work, fix any issues";
-      "4. Verify the worktree is completely clean: git status";
-      "5. When ALL steps are done, output exactly as the only thing on the \
+      "3. REVIEW AND FIX — Thoroughly review all changes on this branch (git \
+       diff master..HEAD). Check for:";
+      "   - Correctness: logic errors, off-by-one, missing edge cases";
+      "   - Quality: code style, naming, unnecessary complexity";
+      "   - Completeness: missing tests, incomplete implementations, TODOs";
+      "   - Safety: no secrets, no injection vulnerabilities, no regressions";
+      "   Fix any issues found, commit the fixes, and re-review until clean.";
+      "4. Run any relevant tests/checks to verify your work, fix any issues";
+      "5. Verify the worktree is completely clean: git status";
+      "6. When ALL steps are done, output exactly as the only thing on the \
        last line:";
       "   " ^ completion_sentinel;
     ]
@@ -1302,7 +1309,7 @@ let build_delegate_prompt ~automerge:_ ~goal =
     ]
 
 let delegate_enqueue ?context ?notify_cfg ?(check_available = true)
-    ?(automerge = false) ?(use_worktree = true) ?(acp = false) ~db
+    ?(automerge = true) ?(use_worktree = true) ?(acp = false) ~db
     ?preferred_runner ?model ?repo_path ?branch ~default_repo_path ~goal () =
   let chosen_repo_path =
     match repo_path with

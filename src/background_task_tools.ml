@@ -79,7 +79,8 @@ let enqueue_tool_with_notify ~notify_cfg ~db =
                       ( "description",
                         `String
                           "Auto-rebase and merge task branch on success. \
-                           Default: false. Ignored if use_worktree is false." );
+                           Default: true. Set false to skip automerge. Ignored \
+                           if use_worktree is false." );
                     ] );
                 ( "use_worktree",
                   `Assoc
@@ -143,8 +144,8 @@ let enqueue_tool_with_notify ~notify_cfg ~db =
         let automerge =
           try
             args |> member "automerge" |> to_bool_option
-            |> Option.value ~default:false
-          with _ -> false
+            |> Option.value ~default:true
+          with _ -> true
         in
         let use_worktree =
           try
@@ -532,7 +533,8 @@ let delegate_tool_with_notify ?(check_available = true) ~db ~default_repo_path
                       ( "description",
                         `String
                           "Auto-rebase and merge task branch on success. \
-                           Default: false. Ignored if use_worktree is false." );
+                           Default: true. Set false to skip automerge. Ignored \
+                           if use_worktree is false." );
                     ] );
                 ( "use_worktree",
                   `Assoc
@@ -609,8 +611,8 @@ let delegate_tool_with_notify ?(check_available = true) ~db ~default_repo_path
         let automerge =
           try
             args |> member "automerge" |> to_bool_option
-            |> Option.value ~default:false
-          with _ -> false
+            |> Option.value ~default:true
+          with _ -> true
         in
         let use_worktree =
           try

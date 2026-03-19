@@ -117,7 +117,7 @@ let test_schema_defaults () =
           match Background_task.get_task ~db ~id with
           | None -> Alcotest.fail "task not found"
           | Some task ->
-              Alcotest.(check bool) "automerge default" false task.automerge;
+              Alcotest.(check bool) "automerge default" true task.automerge;
               Alcotest.(check bool)
                 "use_worktree default" true task.use_worktree))
 

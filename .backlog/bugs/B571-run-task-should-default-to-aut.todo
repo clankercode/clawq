@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-19T17:52:00Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-19T18:01:01Z"
 complexity: medium
 depends_on: []
+duration_minutes: 9.018838126383333
 estimate_hours: 1
 id: B571
 priority: high
 started_at: "2026-03-19T17:52:00Z"
-status: in_progress
+status: done
 tags: []
 title: run-task should default to automerge with review guard
 ---

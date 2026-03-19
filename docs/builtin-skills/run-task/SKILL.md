@@ -135,7 +135,7 @@ background_task_enqueue(
 )
 ```
 
-For external runners, use `runner: "opencode"` or `"claude"` with `automerge: false`.
+Automerge is enabled by default. To disable it for a specific task, pass `automerge: false`.
 
 ## Step 6: Monitor and steer
 
@@ -148,8 +148,8 @@ Verify the worker is making progress; don't assume success from a clean launch.
 
 ## Step 7: Close out
 
-- When a worktree-backed task finishes, the system automatically sends a **completion pass** message to the agent. The agent resumes with its session context, commits remaining changes, rebases against master, runs checks, and outputs the sentinel `OK_TASK_DONE_CHECKED_REBASED_COMMITED`.
-- For automerge tasks, the system then attempts a fast-forward merge. For non-automerge tasks, the user is notified normally.
+- When a worktree-backed task finishes, the system automatically sends a **completion pass** message to the agent. The agent resumes with its session context, commits remaining changes, rebases against master, reviews all changes for correctness/quality/completeness/safety (review-and-fix guard), runs checks, and outputs the sentinel `OK_TASK_DONE_CHECKED_REBASED_COMMITED`.
+- Since automerge is enabled by default, the system then attempts a fast-forward merge. If automerge was disabled, the user is notified normally.
 - Inspect changes and verify tests/review status.
 - Use `background_finalize(id=...)` only when manual merge is desired after the completion pass.
 - If review reveals follow-up issues, defer done state until after review/fix is clean.
