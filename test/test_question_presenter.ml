@@ -370,7 +370,10 @@ let test_teams_adaptive_card () =
     "has clawq_question_answer" true
     (string_contains json_str "clawq_question_answer");
   Alcotest.(check bool) "has Alpha" true (string_contains json_str "Alpha");
-  Alcotest.(check bool) "has Beta" true (string_contains json_str "Beta")
+  Alcotest.(check bool) "has Beta" true (string_contains json_str "Beta");
+  Alcotest.(check bool)
+    "has instruction hint" true
+    (string_contains json_str "Select one option")
 
 let test_teams_poll_card () =
   let card =
@@ -387,7 +390,10 @@ let test_teams_poll_card () =
   Alcotest.(check bool)
     "has isMultiSelect" true
     (string_contains json_str "isMultiSelect");
-  Alcotest.(check bool) "has Submit" true (string_contains json_str "Submit")
+  Alcotest.(check bool) "has Submit" true (string_contains json_str "Submit");
+  Alcotest.(check bool)
+    "has instruction hint" true
+    (string_contains json_str "Select one or more")
 
 let test_teams_card_from_buttons () =
   let card =
@@ -405,7 +411,10 @@ let test_teams_card_from_buttons () =
     "has AdaptiveCard" true
     (string_contains json_str "AdaptiveCard");
   Alcotest.(check bool) "has Yes" true (string_contains json_str "Yes");
-  Alcotest.(check bool) "has No" true (string_contains json_str "No")
+  Alcotest.(check bool) "has No" true (string_contains json_str "No");
+  Alcotest.(check bool)
+    "has instruction hint" true
+    (string_contains json_str "Select one option")
 
 (* Button row chunking test *)
 

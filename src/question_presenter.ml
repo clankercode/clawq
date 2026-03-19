@@ -288,6 +288,17 @@ let build_teams_poll_card ~question ~(options : string list) =
                               ];
                             `Assoc
                               [
+                                ("type", `String "TextBlock");
+                                ( "text",
+                                  `String
+                                    "Select one or more options, then press \
+                                     Submit" );
+                                ("size", `String "Small");
+                                ("isSubtle", `Bool true);
+                                ("wrap", `Bool true);
+                              ];
+                            `Assoc
+                              [
                                 ("type", `String "Input.ChoiceSet");
                                 ("id", `String "clawq_question_answer");
                                 ("isMultiSelect", `Bool true);
@@ -353,6 +364,14 @@ let build_teams_card_from_buttons ~text ~button_rows =
                                 ("text", `String text);
                                 ("wrap", `Bool true);
                                 ("weight", `String "Bolder");
+                              ];
+                            `Assoc
+                              [
+                                ("type", `String "TextBlock");
+                                ("text", `String "Select one option");
+                                ("size", `String "Small");
+                                ("isSubtle", `Bool true);
+                                ("wrap", `Bool true);
                               ];
                           ] );
                       ("actions", `List actions);
