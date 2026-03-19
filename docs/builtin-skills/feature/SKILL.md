@@ -8,7 +8,21 @@ argument-hint: [feature description in natural language]
 
 Create a new clawq feature end-to-end: gather requirements, discover existing capabilities, decompose into implementation layers (preferring no-recompilation approaches), gate risky changes behind admin approval, and delegate implementation.
 
+## Progress Reporting
+
+At the start of each phase, call send_message to report progress:
+- send_message(text="Add Feature, step 1/6: Gathering requirements...")
+- send_message(text="Add Feature, step 2/6: Discovering capabilities...")
+- send_message(text="Add Feature, step 3/6: Decomposing feature...")
+- send_message(text="Add Feature, step 4/6: Checking approvals...")
+- send_message(text="Add Feature, step 5/6: Implementing...")
+- send_message(text="Add Feature, step 6/6: Verifying and reporting...")
+
+Always send the progress message before starting each phase.
+
 ## Phase 1: Requirement Gathering
+
+> First, call send_message(text="Add Feature, step 1/6: Gathering requirements...").
 
 If `$ARGUMENTS` provides a description, parse it for context and pre-fill answers. Confirm with the user.
 
@@ -22,6 +36,8 @@ Collect via `ask_user_question` (or conversationally if unavailable):
 
 ## Phase 2: Capability Discovery
 
+> First, call send_message(text="Add Feature, step 2/6: Discovering capabilities...").
+
 Read existing capabilities:
 
 1. `file_read("docs/public/llms-full.txt")` — full self-knowledge reference
@@ -34,6 +50,8 @@ Read existing capabilities:
 Summarize: "Here's what clawq can already do related to your request: ..."
 
 ## Phase 3: Feature Decomposition
+
+> First, call send_message(text="Add Feature, step 3/6: Decomposing feature...").
 
 Classify each requirement into implementation layers (prefer lower layers):
 
@@ -52,6 +70,8 @@ Present the decomposition table and ask for confirmation via `ask_user_question`
 
 ## Phase 4: Approval Gating
 
+> First, call send_message(text="Add Feature, step 4/6: Checking approvals...").
+
 **Layers 0-4** (no recompilation, low risk): Proceed after user confirmation.
 
 **Layer 5** (MCP server, medium risk): Confirm with user, explain what will be created.
@@ -68,6 +88,8 @@ Present the decomposition table and ask for confirmation via `ask_user_question`
 4. Only after admin confirmation: proceed to Phase 5.
 
 ## Phase 5: Implementation
+
+> First, call send_message(text="Add Feature, step 5/6: Implementing...").
 
 Execute in dependency order based on decomposition:
 
@@ -127,6 +149,8 @@ Show usage instructions to the user. Done.
 5. On failure: `background_task_recover(id)`
 
 ## Phase 6: Verification and Reporting
+
+> First, call send_message(text="Add Feature, step 6/6: Verifying and reporting...").
 
 1. **Skills**: invoke via `use_skill` to verify loading
 2. **Cron**: verify via `shell_exec("clawq cron list")`

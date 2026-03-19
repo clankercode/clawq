@@ -347,7 +347,7 @@ let handler ~session_manager ~require_pairing ~auth_token
                     (fun (s : Skills.skill_md_meta) -> s.md_name)
                     (Skills.available_skills ())
                 in
-                let* cmd_result, message, skill_injections =
+                let* cmd_result, message, skill_injections, loaded_skill_name =
                   match Slash_commands.handle ~skill_names message with
                   | Slash_commands.SkillInvoke (name, args) -> (
                       let* result = Skills.expand_slash_skill ~name ~args () in
@@ -356,11 +356,12 @@ let handler ~session_manager ~require_pairing ~auth_token
                           Lwt.return
                             ( Slash_commands.NotACommand,
                               message,
-                              [ r.skill_injection ] )
+                              [ r.skill_injection ],
+                              Some name )
                       | Error err_msg ->
-                          Lwt.return (Slash_commands.Reply err_msg, message, [])
-                      )
-                  | other -> Lwt.return (other, message, [])
+                          Lwt.return
+                            (Slash_commands.Reply err_msg, message, [], None))
+                  | other -> Lwt.return (other, message, [], None)
                 in
                 let cmd_result =
                   Slash_commands.gate_admin ~is_admin:true cmd_result
@@ -797,6 +798,13 @@ let handler ~session_manager ~require_pairing ~auth_token
                           not
                             (Session.take_response_deferred session_manager ~key)
                         then Session.mark_response_sent session_manager ~key;
+                        let response =
+                          match loaded_skill_name with
+                          | Some name ->
+                              Printf.sprintf "Loaded skill: %s\n\n%s" name
+                                response
+                          | None -> response
+                        in
                         let resp_json =
                           `Assoc [ ("response", `String response) ]
                           |> Yojson.Safe.to_string
@@ -1192,7 +1200,7 @@ let handler ~session_manager ~require_pairing ~auth_token
                     (fun (s : Skills.skill_md_meta) -> s.md_name)
                     (Skills.available_skills ())
                 in
-                let* cmd_result, message, skill_injections =
+                let* cmd_result, message, skill_injections, loaded_skill_name =
                   match Slash_commands.handle ~skill_names message with
                   | Slash_commands.SkillInvoke (name, args) -> (
                       let* result = Skills.expand_slash_skill ~name ~args () in
@@ -1201,11 +1209,12 @@ let handler ~session_manager ~require_pairing ~auth_token
                           Lwt.return
                             ( Slash_commands.NotACommand,
                               message,
-                              [ r.skill_injection ] )
+                              [ r.skill_injection ],
+                              Some name )
                       | Error err_msg ->
-                          Lwt.return (Slash_commands.Reply err_msg, message, [])
-                      )
-                  | other -> Lwt.return (other, message, [])
+                          Lwt.return
+                            (Slash_commands.Reply err_msg, message, [], None))
+                  | other -> Lwt.return (other, message, [], None)
                 in
                 let cmd_result =
                   Slash_commands.gate_admin ~is_admin:true cmd_result
@@ -1812,6 +1821,17 @@ let handler ~session_manager ~require_pairing ~auth_token
                             push (Some (Printf.sprintf "data: %s\n\n" data));
                             Lwt.return_unit)
                           (fun () ->
+                            (match loaded_skill_name with
+                            | Some name ->
+                                let data =
+                                  Yojson.Safe.to_string
+                                    (json_of_stream_event
+                                       (Provider.Delta
+                                          (Printf.sprintf "Loaded skill: %s\n"
+                                             name)))
+                                in
+                                push (Some (Printf.sprintf "data: %s\n\n" data))
+                            | None -> ());
                             Lwt.catch
                               (fun () ->
                                 let* _response =
