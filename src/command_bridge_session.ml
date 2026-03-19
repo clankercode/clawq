@@ -22,6 +22,66 @@ let set_heartbeat_for_session ~db ~session_key ~enabled =
     Ok ()
   end
 
+let session_list_columns =
+  Table_format.
+    [
+      { header = "SESSION"; align = Left; min_width = 12; flex = true };
+      { header = "STATE"; align = Left; min_width = 6; flex = false };
+      { header = "CHANNEL"; align = Left; min_width = 7; flex = false };
+      { header = "MSGS"; align = Right; min_width = 4; flex = false };
+      { header = "ARCH"; align = Right; min_width = 4; flex = false };
+      { header = "FLAGS"; align = Left; min_width = 5; flex = false };
+      { header = "COST"; align = Right; min_width = 8; flex = false };
+      { header = "LAST ACTIVE"; align = Left; min_width = 10; flex = false };
+    ]
+
+let format_session_list_table ~db sessions =
+  let rows =
+    List.map
+      (fun (row : Memory.session_info) ->
+        let channel =
+          match row.channel with
+          | Some value -> value
+          | None -> (
+              match Memory.parse_channel_from_session_key row.session_key with
+              | Some value -> value
+              | None -> "-")
+        in
+        let state = if row.turn = Some "agent" then "active" else "inactive" in
+        let pending = Memory.queue_count ~db ~session_key:row.session_key in
+        let flags =
+          let parts = ref [] in
+          if pending > 0 then
+            parts := Printf.sprintf "pending:%d" pending :: !parts;
+          if row.heartbeat_enabled then parts := "heartbeat" :: !parts;
+          if row.keepalive_enabled then parts := "keepalive" :: !parts;
+          String.concat " " (List.rev !parts)
+        in
+        let cost_info =
+          Request_stats.summary_for_session ~db ~session_key:row.session_key
+        in
+        let cost =
+          if cost_info.total_cost_usd > 0.0 then
+            Printf.sprintf "$%.4f" cost_info.total_cost_usd
+          else "-"
+        in
+        let last_active =
+          match row.last_active with Some ts -> ts | None -> "-"
+        in
+        [
+          row.session_key;
+          state;
+          channel;
+          string_of_int row.message_count;
+          string_of_int row.archived_epoch_count;
+          flags;
+          cost;
+          last_active;
+        ])
+      sessions
+  in
+  Table_format.render session_list_columns rows
+
 let cmd_session args =
   let db = get_db () in
   let config = get_config () in
@@ -29,52 +89,7 @@ let cmd_session args =
   | [] | [ "list" ] ->
       let sessions = Memory.list_session_infos ~db () in
       if sessions = [] then "No sessions found"
-      else
-        String.concat "\n"
-          (List.map
-             (fun (row : Memory.session_info) ->
-               let channel =
-                 match row.channel with
-                 | Some value -> value
-                 | None -> (
-                     match
-                       Memory.parse_channel_from_session_key row.session_key
-                     with
-                     | Some value -> value
-                     | None -> "-")
-               in
-               let state =
-                 if row.turn = Some "agent" then "active" else "inactive"
-               in
-               let pending =
-                 Memory.queue_count ~db ~session_key:row.session_key
-               in
-               let pending_suffix =
-                 if pending > 0 then
-                   Printf.sprintf "  pending_inbound=%d" pending
-                 else ""
-               in
-               let keepalive_suffix =
-                 if row.keepalive_enabled then "  [keepalive]" else ""
-               in
-               let heartbeat_suffix =
-                 if row.heartbeat_enabled then "  [heartbeat]" else ""
-               in
-               let cost_info =
-                 Request_stats.summary_for_session ~db
-                   ~session_key:row.session_key
-               in
-               let cost_suffix =
-                 if cost_info.total_cost_usd > 0.0 then
-                   Printf.sprintf "  cost=$%.4f" cost_info.total_cost_usd
-                 else ""
-               in
-               Printf.sprintf
-                 "%s  state=%s  channel=%s  messages=%d  archives=%d%s%s%s%s"
-                 row.session_key state channel row.message_count
-                 row.archived_epoch_count pending_suffix keepalive_suffix
-                 heartbeat_suffix cost_suffix)
-             sessions)
+      else format_session_list_table ~db sessions
   | "list" :: rest -> (
       match parse_session_list_args rest with
       | Error msg -> msg
@@ -85,80 +100,66 @@ let cmd_session args =
               ?only_main:parsed.only_main ()
           in
           if sessions = [] then "No sessions matched"
-          else
-            String.concat "\n"
-              (List.map
-                 (fun (row : Memory.session_info) ->
-                   let channel =
-                     match row.channel with
-                     | Some value -> value
-                     | None -> (
-                         match
-                           Memory.parse_channel_from_session_key row.session_key
-                         with
-                         | Some value -> value
-                         | None -> "-")
-                   in
-                   let state =
-                     if row.turn = Some "agent" then "active" else "inactive"
-                   in
-                   let pending =
-                     Memory.queue_count ~db ~session_key:row.session_key
-                   in
-                   let pending_suffix =
-                     if pending > 0 then
-                       Printf.sprintf "  pending_inbound=%d" pending
-                     else ""
-                   in
-                   let keepalive_suffix =
-                     if row.keepalive_enabled then "  [keepalive]" else ""
-                   in
-                   let heartbeat_suffix =
-                     if row.heartbeat_enabled then "  [heartbeat]" else ""
-                   in
-                   let cost_info =
-                     Request_stats.summary_for_session ~db
-                       ~session_key:row.session_key
-                   in
-                   let cost_suffix =
-                     if cost_info.total_cost_usd > 0.0 then
-                       Printf.sprintf "  cost=$%.4f" cost_info.total_cost_usd
-                     else ""
-                   in
-                   Printf.sprintf
-                     "%s  state=%s  channel=%s  messages=%d  \
-                      archives=%d%s%s%s%s"
-                     row.session_key state channel row.message_count
-                     row.archived_epoch_count pending_suffix keepalive_suffix
-                     heartbeat_suffix cost_suffix)
-                 sessions))
+          else format_session_list_table ~db sessions)
   | [ "archives" ] ->
       let rows = Memory.list_archive_sessions ~db () in
       if rows = [] then "No session archives found"
       else
-        String.concat "\n"
-          (List.map
-             (fun (key, count) -> Printf.sprintf "%s  archives=%d" key count)
-             rows)
+        let columns =
+          Table_format.
+            [
+              { header = "SESSION"; align = Left; min_width = 12; flex = true };
+              {
+                header = "ARCHIVES";
+                align = Right;
+                min_width = 8;
+                flex = false;
+              };
+            ]
+        in
+        let data =
+          List.map (fun (key, count) -> [ key; string_of_int count ]) rows
+        in
+        Table_format.render columns data
   | [ "archives"; session_key ] ->
       let rows = Memory.list_archives_for_session ~db ~session_key in
       if rows = [] then
         Printf.sprintf "No archives found for session %s" session_key
       else
-        String.concat "\n"
-          (List.map
-             (fun (info : Memory.session_archive_info) ->
-               let time_range =
-                 match (info.first_message_at, info.last_message_at) with
-                 | Some first, Some last ->
-                     Printf.sprintf "  range=%s..%s" first last
-                 | Some first, None -> Printf.sprintf "  from=%s" first
-                 | _ -> ""
-               in
-               Printf.sprintf "#%d  archived_at=%s  messages=%d  epochs=%d%s"
-                 info.archive_id info.archived_at info.message_count
-                 info.epoch_count time_range)
-             rows)
+        let columns =
+          Table_format.
+            [
+              { header = "ID"; align = Right; min_width = 4; flex = false };
+              {
+                header = "ARCHIVED AT";
+                align = Left;
+                min_width = 10;
+                flex = false;
+              };
+              { header = "MSGS"; align = Right; min_width = 4; flex = false };
+              { header = "EPOCHS"; align = Right; min_width = 6; flex = false };
+              { header = "RANGE"; align = Left; min_width = 10; flex = true };
+            ]
+        in
+        let data =
+          List.map
+            (fun (info : Memory.session_archive_info) ->
+              let range =
+                match (info.first_message_at, info.last_message_at) with
+                | Some first, Some last -> Printf.sprintf "%s..%s" first last
+                | Some first, None -> first
+                | _ -> "-"
+              in
+              [
+                Printf.sprintf "#%d" info.archive_id;
+                info.archived_at;
+                string_of_int info.message_count;
+                string_of_int info.epoch_count;
+                range;
+              ])
+            rows
+        in
+        Table_format.render columns data
   | [ "epochs"; session_key ] ->
       let epochs = Memory.list_session_epochs ~db ~session_key in
       if

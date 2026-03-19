@@ -345,7 +345,7 @@ let test_handle_session_heartbeat_toggle () =
       let listed = Command_bridge.handle [ "session"; "list" ] in
       Alcotest.(check bool)
         "session list shows heartbeat marker" true
-        (contains listed "[heartbeat]");
+        (contains listed "heartbeat");
       Alcotest.(check string)
         "heartbeat off reply" "Heartbeat disabled for session telegram:42:user1"
         (Command_bridge.handle
@@ -2680,9 +2680,7 @@ let test_session_list_shows_pending_inbound_count () =
         "session list includes pending_inbound count" true
         (try
            ignore
-             (Str.search_forward
-                (Str.regexp_string "pending_inbound=1")
-                list_result 0);
+             (Str.search_forward (Str.regexp_string "pending:1") list_result 0);
            true
          with Not_found -> false))
 
