@@ -7,6 +7,7 @@ let mk_dt_cfg ?(allow_from = [ "*" ]) () : Runtime_config.dingtalk_config =
     agent_id = "agent1";
     allow_from;
     webhook_url = None;
+    default_model = None;
   }
 
 (* --- is_allowed tests --- *)

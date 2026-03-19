@@ -1323,7 +1323,7 @@ let handle args =
   | "active" :: rest -> cmd_active rest
   | "provider" :: rest -> cmd_provider rest
   | "channel" :: "test" :: "teams" :: _ -> cmd_channel_test_teams ()
-  | "channel" :: _ -> cmd_channel ()
+  | "channel" :: rest -> cmd_channel rest
   | "memory" :: rest -> cmd_memory rest
   | "session" :: rest -> cmd_session rest
   | "workspace" :: rest -> cmd_workspace rest

@@ -342,6 +342,97 @@ let test_set_value_rejects_section_path () =
         (Config_set.section_not_settable_error "providers.openai")
         result)
 
+let test_channel_type_of_session_key () =
+  Alcotest.(check string)
+    "discord prefix" "discord"
+    (Runtime_config.channel_type_of_session_key "discord:guild123:chan456");
+  Alcotest.(check string)
+    "telegram prefix" "telegram"
+    (Runtime_config.channel_type_of_session_key "telegram:chat42");
+  Alcotest.(check string)
+    "no colon" ""
+    (Runtime_config.channel_type_of_session_key "no_colon_key");
+  Alcotest.(check string)
+    "empty" ""
+    (Runtime_config.channel_type_of_session_key "")
+
+let test_channel_default_model_lookup () =
+  let cfg =
+    {
+      Runtime_config.default with
+      channels =
+        {
+          Runtime_config.default.channels with
+          discord =
+            Some
+              {
+                bot_token = "test";
+                allow_guilds = [ "*" ];
+                allow_users = [ "*" ];
+                intents = 0;
+                default_model = Some "anthropic:claude-opus-4-6";
+              };
+          slack =
+            Some
+              {
+                bot_token = "test";
+                signing_secret = "test";
+                events_path = "/slack/events";
+                allow_channels = [ "*" ];
+                allow_users = [ "*" ];
+                app_token = "";
+                socket_mode = false;
+                default_model = None;
+              };
+        };
+    }
+  in
+  Alcotest.(check (option string))
+    "discord has model"
+    (Some "anthropic:claude-opus-4-6")
+    (Runtime_config.channel_default_model cfg ~channel_type:"discord");
+  Alcotest.(check (option string))
+    "slack has no model" None
+    (Runtime_config.channel_default_model cfg ~channel_type:"slack");
+  Alcotest.(check (option string))
+    "unconfigured channel" None
+    (Runtime_config.channel_default_model cfg ~channel_type:"teams");
+  Alcotest.(check (option string))
+    "unknown channel" None
+    (Runtime_config.channel_default_model cfg ~channel_type:"unknown")
+
+let test_channel_set_model_roundtrip () =
+  with_temp_home (fun home ->
+      let clawq_dir = Filename.concat home ".clawq" in
+      Unix.mkdir clawq_dir 0o755;
+      (match
+         Config_set.set_json_value "channels.discord.default_model"
+           (`String "anthropic:claude-opus-4-6")
+       with
+      | Ok () -> ()
+      | Error e -> Alcotest.fail e);
+      let result = Config_set.get_value "channels.discord.default_model" in
+      Alcotest.(check string)
+        "discord model set" "anthropic:claude-opus-4-6" result;
+      (match Config_set.set_json_value "channels.discord.default_model" `Null with
+      | Ok () -> ()
+      | Error e -> Alcotest.fail e);
+      let result2 = Config_set.get_value "channels.discord.default_model" in
+      Alcotest.(check string) "discord model cleared" "null" result2)
+
+let test_channel_default_model_parsed () =
+  let json =
+    Yojson.Safe.from_string
+      {|{"channels": {"discord": {"bot_token": "test-token-1234567",
+        "default_model": "anthropic:claude-opus-4-6"}}}|}
+  in
+  let cfg = Config_loader.parse_config json in
+  let m = Runtime_config.channel_default_model cfg ~channel_type:"discord" in
+  Alcotest.(check (option string))
+    "parsed from JSON"
+    (Some "anthropic:claude-opus-4-6")
+    m
+
 let suite =
   [
     Alcotest.test_case "infer value types" `Quick test_infer_value;
@@ -370,4 +461,12 @@ let suite =
       test_set_json_value_rejects_section_path;
     Alcotest.test_case "notify no pid file" `Quick test_notify_no_pid_file;
     Alcotest.test_case "notify stale pid" `Quick test_notify_stale_pid;
+    Alcotest.test_case "channel_type_of_session_key" `Quick
+      test_channel_type_of_session_key;
+    Alcotest.test_case "channel_default_model lookup" `Quick
+      test_channel_default_model_lookup;
+    Alcotest.test_case "channel set-model roundtrip" `Quick
+      test_channel_set_model_roundtrip;
+    Alcotest.test_case "channel default_model parsed from JSON" `Quick
+      test_channel_default_model_parsed;
   ]

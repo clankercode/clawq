@@ -72,6 +72,7 @@ type telegram_account = {
 type telegram_config = {
   accounts : (string * telegram_account) list;
   text_coalesce_ms : int;
+  default_model : string option;
 }
 
 type discord_config = {
@@ -79,6 +80,7 @@ type discord_config = {
   allow_guilds : string list;
   allow_users : string list;
   intents : int;
+  default_model : string option;
 }
 
 type slack_config = {
@@ -89,6 +91,7 @@ type slack_config = {
   allow_users : string list;
   app_token : string;
   socket_mode : bool;
+  default_model : string option;
 }
 
 type github_auth = GithubPat of string
@@ -103,7 +106,11 @@ type github_repo_config = {
   include_pr_files : bool;
 }
 
-type github_config = { auth : github_auth; repos : github_repo_config list }
+type github_config = {
+  auth : github_auth;
+  repos : github_repo_config list;
+  default_model : string option;
+}
 
 type mattermost_config = {
   url : string;
@@ -111,6 +118,7 @@ type mattermost_config = {
   team_id : string;
   channel_ids : string list;
   allow_users : string list;
+  default_model : string option;
 }
 
 type dingtalk_config = {
@@ -119,9 +127,14 @@ type dingtalk_config = {
   agent_id : string;
   allow_from : string list;
   webhook_url : string option;
+  default_model : string option;
 }
 
-type imessage_config = { poll_interval_s : float; allow_from : string list }
+type imessage_config = {
+  poll_interval_s : float;
+  allow_from : string list;
+  default_model : string option;
+}
 
 type signal_config = {
   base_url : string;
@@ -129,6 +142,7 @@ type signal_config = {
   api_mode : string;
   allow_from : string list;
   max_chunk_bytes : int;
+  default_model : string option;
 }
 
 type matrix_config = {
@@ -137,6 +151,7 @@ type matrix_config = {
   user_id : string;
   allow_rooms : string list;
   allow_users : string list;
+  default_model : string option;
 }
 
 type irc_config = {
@@ -148,6 +163,7 @@ type irc_config = {
   sasl : bool;
   channels : string list;
   allow_from : string list;
+  default_model : string option;
 }
 
 type email_config = {
@@ -160,6 +176,7 @@ type email_config = {
   from_address : string;
   allow_from : string list;
   poll_interval_s : float;
+  default_model : string option;
 }
 
 type whatsapp_config = {
@@ -167,6 +184,7 @@ type whatsapp_config = {
   access_token : string;
   verify_token : string;
   allow_from : string list;
+  default_model : string option;
 }
 
 type nostr_config = {
@@ -175,6 +193,7 @@ type nostr_config = {
   pubkey : string;
   nak_path : string;
   allow_from : string list;
+  default_model : string option;
 }
 
 type lark_config = {
@@ -185,12 +204,14 @@ type lark_config = {
   endpoint : string;
   mode : string;
   allow_users : string list;
+  default_model : string option;
 }
 
 type line_config = {
   channel_access_token : string;
   channel_secret : string;
   allow_from : string list;
+  default_model : string option;
 }
 
 type onebot_config = {
@@ -199,6 +220,7 @@ type onebot_config = {
   access_token : string option;
   allow_from : string list;
   allow_groups : string list;
+  default_model : string option;
 }
 
 type teams_config = {
@@ -209,6 +231,7 @@ type teams_config = {
   service_url : string;
   allow_teams : string list;
   allow_users : string list;
+  default_model : string option;
   mention_mode : string;
       (* "entity" (default): proper Teams <at>Name</at> with entity markup.
          "text": plain @Name prefix, no entity markup.
@@ -831,6 +854,54 @@ let irc_has_valid_credentials (cfg : irc_config) =
 let signal_has_valid_credentials (_cfg : signal_config) = true
 let imessage_has_valid_credentials (_cfg : imessage_config) = true
 
+let channel_type_of_session_key key =
+  match String.index_opt key ':' with
+  | Some i -> String.sub key 0 i
+  | None -> ""
+
+let channel_default_model (cfg : t) ~channel_type =
+  match channel_type with
+  | "telegram" -> Option.bind cfg.channels.telegram (fun c -> c.default_model)
+  | "discord" -> Option.bind cfg.channels.discord (fun c -> c.default_model)
+  | "slack" -> Option.bind cfg.channels.slack (fun c -> c.default_model)
+  | "github" -> Option.bind cfg.channels.github (fun c -> c.default_model)
+  | "mattermost" ->
+      Option.bind cfg.channels.mattermost (fun c -> c.default_model)
+  | "dingtalk" -> Option.bind cfg.channels.dingtalk (fun c -> c.default_model)
+  | "imessage" -> Option.bind cfg.channels.imessage (fun c -> c.default_model)
+  | "signal" -> Option.bind cfg.channels.signal (fun c -> c.default_model)
+  | "matrix" -> Option.bind cfg.channels.matrix (fun c -> c.default_model)
+  | "irc" -> Option.bind cfg.channels.irc (fun c -> c.default_model)
+  | "email" -> Option.bind cfg.channels.email (fun c -> c.default_model)
+  | "whatsapp" -> Option.bind cfg.channels.whatsapp (fun c -> c.default_model)
+  | "nostr" -> Option.bind cfg.channels.nostr (fun c -> c.default_model)
+  | "lark" -> Option.bind cfg.channels.lark (fun c -> c.default_model)
+  | "line" -> Option.bind cfg.channels.line (fun c -> c.default_model)
+  | "onebot" -> Option.bind cfg.channels.onebot (fun c -> c.default_model)
+  | "teams" -> Option.bind cfg.channels.teams (fun c -> c.default_model)
+  | _ -> None
+
+let all_channel_types =
+  [
+    "telegram";
+    "discord";
+    "slack";
+    "github";
+    "mattermost";
+    "dingtalk";
+    "imessage";
+    "signal";
+    "matrix";
+    "irc";
+    "email";
+    "whatsapp";
+    "nostr";
+    "lark";
+    "line";
+    "onebot";
+    "teams";
+  ]
+
 let effective_compaction_threshold_percent (memory : memory_config) =
   let p = memory.compaction_threshold_percent in
   if p <= 0 || p >= 100 then default.memory.compaction_threshold_percent else p
@@ -1001,6 +1072,9 @@ let expand_cwd_pattern ~(config : t) pattern =
   |> Str.global_replace (Str.regexp_string "$CLAWQ_WORKSPACE") ws
   |> Str.global_replace (Str.regexp_string "$USER_HOME") home
 
+let default_model_json_fields (dm : string option) =
+  match dm with Some m -> [ ("default_model", `String m) ] | None -> []
+
 let to_json (cfg : t) : Yojson.Safe.t =
   let provider_json (p : provider_config) =
     let fields = [ ("api_key", `String p.api_key) ] in
@@ -1088,37 +1162,38 @@ let to_json (cfg : t) : Yojson.Safe.t =
     | None -> `Null
     | Some tg ->
         `Assoc
-          [
-            ( "accounts",
-              `Assoc
-                (List.map
-                   (fun (name, (acct : telegram_account)) ->
-                     ( name,
-                       `Assoc
-                         ([
-                            ("bot_token", `String acct.bot_token);
-                            ( "allow_from",
-                              `List
-                                (List.map (fun s -> `String s) acct.allow_from)
-                            );
-                          ]
-                         @
-                         match acct.totp with
-                         | None -> []
-                         | Some t ->
-                             [
-                               ( "totp",
-                                 `Assoc
-                                   [
-                                     ("enabled", `Bool t.totp_enabled);
-                                     ("secret", `String t.totp_secret);
-                                     ( "session_ttl_hours",
-                                       `Int t.session_ttl_hours );
-                                   ] );
-                             ]) ))
-                   tg.accounts) );
-            ("text_coalesce_ms", `Int tg.text_coalesce_ms);
-          ]
+          ([
+             ( "accounts",
+               `Assoc
+                 (List.map
+                    (fun (name, (acct : telegram_account)) ->
+                      ( name,
+                        `Assoc
+                          ([
+                             ("bot_token", `String acct.bot_token);
+                             ( "allow_from",
+                               `List
+                                 (List.map (fun s -> `String s) acct.allow_from)
+                             );
+                           ]
+                          @
+                          match acct.totp with
+                          | None -> []
+                          | Some t ->
+                              [
+                                ( "totp",
+                                  `Assoc
+                                    [
+                                      ("enabled", `Bool t.totp_enabled);
+                                      ("secret", `String t.totp_secret);
+                                      ( "session_ttl_hours",
+                                        `Int t.session_ttl_hours );
+                                    ] );
+                              ]) ))
+                    tg.accounts) );
+             ("text_coalesce_ms", `Int tg.text_coalesce_ms);
+           ]
+          @ default_model_json_fields tg.default_model)
   in
   let stt_json =
     match cfg.stt with
@@ -1233,16 +1308,17 @@ let to_json (cfg : t) : Yojson.Safe.t =
                   [
                     ( "discord",
                       `Assoc
-                        [
-                          ("bot_token", `String d.bot_token);
-                          ( "allow_guilds",
-                            `List (List.map (fun s -> `String s) d.allow_guilds)
-                          );
-                          ( "allow_users",
-                            `List (List.map (fun s -> `String s) d.allow_users)
-                          );
-                          ("intents", `Int d.intents);
-                        ] );
+                        ([
+                           ("bot_token", `String d.bot_token);
+                           ( "allow_guilds",
+                             `List
+                               (List.map (fun s -> `String s) d.allow_guilds) );
+                           ( "allow_users",
+                             `List (List.map (fun s -> `String s) d.allow_users)
+                           );
+                           ("intents", `Int d.intents);
+                         ]
+                        @ default_model_json_fields d.default_model) );
                   ])
             @ (match cfg.channels.slack with
               | None -> []
@@ -1250,20 +1326,21 @@ let to_json (cfg : t) : Yojson.Safe.t =
                   [
                     ( "slack",
                       `Assoc
-                        [
-                          ("bot_token", `String s.bot_token);
-                          ("signing_secret", `String s.signing_secret);
-                          ("events_path", `String s.events_path);
-                          ( "allow_channels",
-                            `List
-                              (List.map (fun c -> `String c) s.allow_channels)
-                          );
-                          ( "allow_users",
-                            `List (List.map (fun u -> `String u) s.allow_users)
-                          );
-                          ("app_token", `String s.app_token);
-                          ("socket_mode", `Bool s.socket_mode);
-                        ] );
+                        ([
+                           ("bot_token", `String s.bot_token);
+                           ("signing_secret", `String s.signing_secret);
+                           ("events_path", `String s.events_path);
+                           ( "allow_channels",
+                             `List
+                               (List.map (fun c -> `String c) s.allow_channels)
+                           );
+                           ( "allow_users",
+                             `List (List.map (fun u -> `String u) s.allow_users)
+                           );
+                           ("app_token", `String s.app_token);
+                           ("socket_mode", `Bool s.socket_mode);
+                         ]
+                        @ default_model_json_fields s.default_model) );
                   ])
             @ (match cfg.channels.github with
               | None -> []
@@ -1302,7 +1379,9 @@ let to_json (cfg : t) : Yojson.Safe.t =
                   in
                   [
                     ( "github",
-                      `Assoc [ ("auth", auth_json); ("repos", repos_json) ] );
+                      `Assoc
+                        ([ ("auth", auth_json); ("repos", repos_json) ]
+                        @ default_model_json_fields g.default_model) );
                   ])
             @ (match cfg.channels.mattermost with
               | None -> []
@@ -1310,17 +1389,18 @@ let to_json (cfg : t) : Yojson.Safe.t =
                   [
                     ( "mattermost",
                       `Assoc
-                        [
-                          ("url", `String mm.url);
-                          ("access_token", `String mm.access_token);
-                          ("team_id", `String mm.team_id);
-                          ( "channel_ids",
-                            `List (List.map (fun s -> `String s) mm.channel_ids)
-                          );
-                          ( "allow_users",
-                            `List (List.map (fun s -> `String s) mm.allow_users)
-                          );
-                        ] );
+                        ([
+                           ("url", `String mm.url);
+                           ("access_token", `String mm.access_token);
+                           ("team_id", `String mm.team_id);
+                           ( "channel_ids",
+                             `List
+                               (List.map (fun s -> `String s) mm.channel_ids) );
+                           ( "allow_users",
+                             `List
+                               (List.map (fun s -> `String s) mm.allow_users) );
+                         ]
+                        @ default_model_json_fields mm.default_model) );
                   ])
             @ (match cfg.channels.dingtalk with
               | None -> []
@@ -1336,10 +1416,10 @@ let to_json (cfg : t) : Yojson.Safe.t =
                              `List (List.map (fun s -> `String s) dt.allow_from)
                            );
                          ]
-                        @
-                        match dt.webhook_url with
-                        | Some url -> [ ("webhook_url", `String url) ]
-                        | None -> []) );
+                        @ (match dt.webhook_url with
+                          | Some url -> [ ("webhook_url", `String url) ]
+                          | None -> [])
+                        @ default_model_json_fields dt.default_model) );
                   ])
             @ (match cfg.channels.imessage with
               | None -> []
@@ -1347,12 +1427,13 @@ let to_json (cfg : t) : Yojson.Safe.t =
                   [
                     ( "imessage",
                       `Assoc
-                        [
-                          ("poll_interval_s", `Float im.poll_interval_s);
-                          ( "allow_from",
-                            `List (List.map (fun s -> `String s) im.allow_from)
-                          );
-                        ] );
+                        ([
+                           ("poll_interval_s", `Float im.poll_interval_s);
+                           ( "allow_from",
+                             `List (List.map (fun s -> `String s) im.allow_from)
+                           );
+                         ]
+                        @ default_model_json_fields im.default_model) );
                   ])
             @ (match cfg.channels.signal with
               | None -> []
@@ -1360,15 +1441,16 @@ let to_json (cfg : t) : Yojson.Safe.t =
                   [
                     ( "signal",
                       `Assoc
-                        [
-                          ("base_url", `String sg.base_url);
-                          ("account", `String sg.account);
-                          ("api_mode", `String sg.api_mode);
-                          ( "allow_from",
-                            `List (List.map (fun s -> `String s) sg.allow_from)
-                          );
-                          ("max_chunk_bytes", `Int sg.max_chunk_bytes);
-                        ] );
+                        ([
+                           ("base_url", `String sg.base_url);
+                           ("account", `String sg.account);
+                           ("api_mode", `String sg.api_mode);
+                           ( "allow_from",
+                             `List (List.map (fun s -> `String s) sg.allow_from)
+                           );
+                           ("max_chunk_bytes", `Int sg.max_chunk_bytes);
+                         ]
+                        @ default_model_json_fields sg.default_model) );
                   ])
             @ (match cfg.channels.matrix with
               | None -> []
@@ -1376,17 +1458,18 @@ let to_json (cfg : t) : Yojson.Safe.t =
                   [
                     ( "matrix",
                       `Assoc
-                        [
-                          ("homeserver_url", `String mx.homeserver_url);
-                          ("access_token", `String mx.access_token);
-                          ("user_id", `String mx.user_id);
-                          ( "allow_rooms",
-                            `List (List.map (fun s -> `String s) mx.allow_rooms)
-                          );
-                          ( "allow_users",
-                            `List (List.map (fun s -> `String s) mx.allow_users)
-                          );
-                        ] );
+                        ([
+                           ("homeserver_url", `String mx.homeserver_url);
+                           ("access_token", `String mx.access_token);
+                           ("user_id", `String mx.user_id);
+                           ( "allow_rooms",
+                             `List
+                               (List.map (fun s -> `String s) mx.allow_rooms) );
+                           ( "allow_users",
+                             `List
+                               (List.map (fun s -> `String s) mx.allow_users) );
+                         ]
+                        @ default_model_json_fields mx.default_model) );
                   ])
             @ (match cfg.channels.irc with
               | None -> []
@@ -1407,10 +1490,10 @@ let to_json (cfg : t) : Yojson.Safe.t =
                              `List (List.map (fun s -> `String s) ir.allow_from)
                            );
                          ]
-                        @
-                        match ir.password with
-                        | Some pw -> [ ("password", `String pw) ]
-                        | None -> []) );
+                        @ (match ir.password with
+                          | Some pw -> [ ("password", `String pw) ]
+                          | None -> [])
+                        @ default_model_json_fields ir.default_model) );
                   ])
             @ (match cfg.channels.email with
               | None -> []
@@ -1418,19 +1501,20 @@ let to_json (cfg : t) : Yojson.Safe.t =
                   [
                     ( "email",
                       `Assoc
-                        [
-                          ("imap_host", `String em.imap_host);
-                          ("imap_port", `Int em.imap_port);
-                          ("smtp_host", `String em.smtp_host);
-                          ("smtp_port", `Int em.smtp_port);
-                          ("username", `String em.username);
-                          ("password", `String em.password);
-                          ("from_address", `String em.from_address);
-                          ( "allow_from",
-                            `List (List.map (fun s -> `String s) em.allow_from)
-                          );
-                          ("poll_interval_s", `Float em.poll_interval_s);
-                        ] );
+                        ([
+                           ("imap_host", `String em.imap_host);
+                           ("imap_port", `Int em.imap_port);
+                           ("smtp_host", `String em.smtp_host);
+                           ("smtp_port", `Int em.smtp_port);
+                           ("username", `String em.username);
+                           ("password", `String em.password);
+                           ("from_address", `String em.from_address);
+                           ( "allow_from",
+                             `List (List.map (fun s -> `String s) em.allow_from)
+                           );
+                           ("poll_interval_s", `Float em.poll_interval_s);
+                         ]
+                        @ default_model_json_fields em.default_model) );
                   ])
             @ (match cfg.channels.whatsapp with
               | None -> []
@@ -1438,14 +1522,15 @@ let to_json (cfg : t) : Yojson.Safe.t =
                   [
                     ( "whatsapp",
                       `Assoc
-                        [
-                          ("phone_number_id", `String wa.phone_number_id);
-                          ("access_token", `String wa.access_token);
-                          ("verify_token", `String wa.verify_token);
-                          ( "allow_from",
-                            `List (List.map (fun s -> `String s) wa.allow_from)
-                          );
-                        ] );
+                        ([
+                           ("phone_number_id", `String wa.phone_number_id);
+                           ("access_token", `String wa.access_token);
+                           ("verify_token", `String wa.verify_token);
+                           ( "allow_from",
+                             `List (List.map (fun s -> `String s) wa.allow_from)
+                           );
+                         ]
+                        @ default_model_json_fields wa.default_model) );
                   ])
             @ (match cfg.channels.nostr with
               | None -> []
@@ -1453,16 +1538,17 @@ let to_json (cfg : t) : Yojson.Safe.t =
                   [
                     ( "nostr",
                       `Assoc
-                        [
-                          ( "relays",
-                            `List (List.map (fun s -> `String s) ns.relays) );
-                          ("private_key", `String ns.private_key);
-                          ("pubkey", `String ns.pubkey);
-                          ("nak_path", `String ns.nak_path);
-                          ( "allow_from",
-                            `List (List.map (fun s -> `String s) ns.allow_from)
-                          );
-                        ] );
+                        ([
+                           ( "relays",
+                             `List (List.map (fun s -> `String s) ns.relays) );
+                           ("private_key", `String ns.private_key);
+                           ("pubkey", `String ns.pubkey);
+                           ("nak_path", `String ns.nak_path);
+                           ( "allow_from",
+                             `List (List.map (fun s -> `String s) ns.allow_from)
+                           );
+                         ]
+                        @ default_model_json_fields ns.default_model) );
                   ])
             @ (match cfg.channels.lark with
               | None -> []
@@ -1470,17 +1556,18 @@ let to_json (cfg : t) : Yojson.Safe.t =
                   [
                     ( "lark",
                       `Assoc
-                        [
-                          ("enabled", `Bool lk.enabled);
-                          ("app_id", `String lk.app_id);
-                          ("app_secret", `String lk.app_secret);
-                          ("verification_token", `String lk.verification_token);
-                          ("endpoint", `String lk.endpoint);
-                          ("mode", `String lk.mode);
-                          ( "allow_users",
-                            `List (List.map (fun s -> `String s) lk.allow_users)
-                          );
-                        ] );
+                        ([
+                           ("enabled", `Bool lk.enabled);
+                           ("app_id", `String lk.app_id);
+                           ("app_secret", `String lk.app_secret);
+                           ("verification_token", `String lk.verification_token);
+                           ("endpoint", `String lk.endpoint);
+                           ("mode", `String lk.mode);
+                           ( "allow_users",
+                             `List
+                               (List.map (fun s -> `String s) lk.allow_users) );
+                         ]
+                        @ default_model_json_fields lk.default_model) );
                   ])
             @ (match cfg.channels.line with
               | None -> []
@@ -1488,14 +1575,15 @@ let to_json (cfg : t) : Yojson.Safe.t =
                   [
                     ( "line",
                       `Assoc
-                        [
-                          ( "channel_access_token",
-                            `String ln.channel_access_token );
-                          ("channel_secret", `String ln.channel_secret);
-                          ( "allow_from",
-                            `List (List.map (fun s -> `String s) ln.allow_from)
-                          );
-                        ] );
+                        ([
+                           ( "channel_access_token",
+                             `String ln.channel_access_token );
+                           ("channel_secret", `String ln.channel_secret);
+                           ( "allow_from",
+                             `List (List.map (fun s -> `String s) ln.allow_from)
+                           );
+                         ]
+                        @ default_model_json_fields ln.default_model) );
                   ])
             @
             match cfg.channels.onebot with
@@ -1514,10 +1602,10 @@ let to_json (cfg : t) : Yojson.Safe.t =
                            `List (List.map (fun s -> `String s) ob.allow_groups)
                          );
                        ]
-                      @
-                      match ob.access_token with
-                      | Some tok -> [ ("access_token", `String tok) ]
-                      | None -> []) );
+                      @ (match ob.access_token with
+                        | Some tok -> [ ("access_token", `String tok) ]
+                        | None -> [])
+                      @ default_model_json_fields ob.default_model) );
                 ]
                 @
                 match cfg.channels.teams with
@@ -1526,23 +1614,24 @@ let to_json (cfg : t) : Yojson.Safe.t =
                     [
                       ( "teams",
                         `Assoc
-                          [
-                            ("app_id", `String tm.app_id);
-                            ("app_secret", `String tm.app_secret);
-                            ("tenant_id", `String tm.tenant_id);
-                            ("webhook_path", `String tm.webhook_path);
-                            ("service_url", `String tm.service_url);
-                            ( "allow_teams",
-                              `List
-                                (List.map (fun s -> `String s) tm.allow_teams)
-                            );
-                            ( "allow_users",
-                              `List
-                                (List.map (fun s -> `String s) tm.allow_users)
-                            );
-                            ("mention_mode", `String tm.mention_mode);
-                            ("file_consent_cards", `Bool tm.file_consent_cards);
-                          ] );
+                          ([
+                             ("app_id", `String tm.app_id);
+                             ("app_secret", `String tm.app_secret);
+                             ("tenant_id", `String tm.tenant_id);
+                             ("webhook_path", `String tm.webhook_path);
+                             ("service_url", `String tm.service_url);
+                             ( "allow_teams",
+                               `List
+                                 (List.map (fun s -> `String s) tm.allow_teams)
+                             );
+                             ( "allow_users",
+                               `List
+                                 (List.map (fun s -> `String s) tm.allow_users)
+                             );
+                             ("mention_mode", `String tm.mention_mode);
+                             ("file_consent_cards", `Bool tm.file_consent_cards);
+                           ]
+                          @ default_model_json_fields tm.default_model) );
                     ])) );
         ("gateway", `Assoc gateway_fields);
         ( "runtime",

@@ -9,6 +9,7 @@ let mk_lark_cfg ?(allow_users = [ "*" ]) () : Runtime_config.lark_config =
     endpoint = "feishu";
     mode = "webhook";
     allow_users;
+    default_model = None;
   }
 
 (* --- is_allowed tests --- *)

@@ -44,6 +44,7 @@ let test_teams_config () : Runtime_config.teams_config =
     service_url = "https://smba.trafficmanager.net/amer";
     allow_teams = [ "*" ];
     allow_users = [ "*" ];
+    default_model = None;
     mention_mode = "entity";
     file_consent_cards = true;
   }

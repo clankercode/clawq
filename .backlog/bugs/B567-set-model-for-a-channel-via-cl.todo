@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-19T16:53:57Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-19T17:40:14Z"
 complexity: medium
 depends_on: []
+duration_minutes: 46.29151113475
 estimate_hours: 1
 id: B567
 priority: high
 started_at: "2026-03-19T16:53:57Z"
-status: in_progress
+status: done
 tags: []
 title: Set model for a channel via CLI
 ---

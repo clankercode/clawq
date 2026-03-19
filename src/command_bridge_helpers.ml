@@ -1181,7 +1181,12 @@ let cmd_channel_test_teams () =
       | Ok msg -> msg
       | Error msg -> "Teams connection FAILED\n" ^ msg)
 
-let cmd_channel () =
+let channel_model_suffix cfg channel_type =
+  match Runtime_config.channel_default_model cfg ~channel_type with
+  | Some m -> Printf.sprintf "; default_model: %s" m
+  | None -> ""
+
+let cmd_channel_status () =
   let cfg = get_config () in
   let lines = ref [] in
   let add s = lines := s :: !lines in
@@ -1195,11 +1200,12 @@ let cmd_channel () =
       List.iter
         (fun (name, (acct : Runtime_config.telegram_account)) ->
           add
-            (Printf.sprintf "  telegram/%s: %s (allow_from: %s)" name
+            (Printf.sprintf "  telegram/%s: %s (allow_from: %s%s)" name
                (if Runtime_config.telegram_account_has_valid_credentials acct
                 then "configured"
                 else "not configured (missing bot_token)")
-               (String.concat ", " acct.allow_from)))
+               (String.concat ", " acct.allow_from)
+               (channel_model_suffix cfg "telegram")))
         tg.accounts);
   (match cfg.channels.discord with
   | None -> add "  discord: not configured"
@@ -1208,10 +1214,11 @@ let cmd_channel () =
         add
           (Printf.sprintf
              "  discord: configured (allow_guilds: %s; allow_users: %s; \
-              intents: %d)"
+              intents: %d%s)"
              (String.concat ", " d.allow_guilds)
              (String.concat ", " d.allow_users)
-             d.intents)
+             d.intents
+             (channel_model_suffix cfg "discord"))
       else add "  discord: not configured (missing bot_token)");
   (match cfg.channels.slack with
   | None -> add "  slack: not configured"
@@ -1220,10 +1227,11 @@ let cmd_channel () =
         add
           (Printf.sprintf
              "  slack: configured (events_path: %s; socket_mode: %b; \
-              allow_channels: %s; allow_users: %s)"
+              allow_channels: %s; allow_users: %s%s)"
              s.events_path s.socket_mode
              (String.concat ", " s.allow_channels)
-             (String.concat ", " s.allow_users))
+             (String.concat ", " s.allow_users)
+             (channel_model_suffix cfg "slack"))
       else add "  slack: not configured (missing bot_token or signing_secret)");
   (match cfg.channels.teams with
   | None -> add "  teams: not configured"
@@ -1232,14 +1240,82 @@ let cmd_channel () =
         add
           (Printf.sprintf
              "  teams: configured (app_id: %s...; webhook_path: %s; \
-              allow_teams: %s; allow_users: %s)"
+              allow_teams: %s; allow_users: %s%s)"
              (String.sub t.app_id 0 (min 8 (String.length t.app_id)))
              t.webhook_path
              (String.concat ", " t.allow_teams)
-             (String.concat ", " t.allow_users))
+             (String.concat ", " t.allow_users)
+             (channel_model_suffix cfg "teams"))
       else
         add "  teams: not configured (missing app_id, app_secret, or tenant_id)");
   List.rev !lines |> String.concat "\n"
+
+let cmd_channel_set_model name model =
+  let valid_channels = Runtime_config.all_channel_types in
+  if not (List.mem name valid_channels) then
+    Printf.sprintf "Error: unknown channel '%s'. Valid channels: %s" name
+      (String.concat ", " valid_channels)
+  else
+    let pf = Pmodel.parse_flexible model in
+    let key = Printf.sprintf "channels.%s.default_model" name in
+    match Config_set.set_json_value key (`String model) with
+    | Error e -> e
+    | Ok () -> (
+        let base = Printf.sprintf "Set %s default_model = %s" name model in
+        match Pmodel.deprecation_warning pf with
+        | Some warn -> base ^ "\n" ^ warn
+        | None -> base)
+
+let cmd_channel_show_model name =
+  let valid_channels = Runtime_config.all_channel_types in
+  if not (List.mem name valid_channels) then
+    Printf.sprintf "Error: unknown channel '%s'. Valid channels: %s" name
+      (String.concat ", " valid_channels)
+  else
+    let cfg = get_config () in
+    let channel_model =
+      Runtime_config.channel_default_model cfg ~channel_type:name
+    in
+    let global_model = cfg.agent_defaults.primary_model in
+    match channel_model with
+    | Some m ->
+        Printf.sprintf "%s default_model: %s (global: %s)" name m global_model
+    | None ->
+        Printf.sprintf "%s default_model: (not set, inherits global: %s)" name
+          global_model
+
+let cmd_channel_clear_model name =
+  let valid_channels = Runtime_config.all_channel_types in
+  if not (List.mem name valid_channels) then
+    Printf.sprintf "Error: unknown channel '%s'. Valid channels: %s" name
+      (String.concat ", " valid_channels)
+  else
+    let key = Printf.sprintf "channels.%s.default_model" name in
+    match Config_set.set_json_value key `Null with
+    | Error e -> e
+    | Ok () ->
+        Printf.sprintf "Cleared %s default_model (now inherits global)" name
+
+let cmd_channel args =
+  match args with
+  | [] -> cmd_channel_status ()
+  | [ "set-model"; name; model ] -> cmd_channel_set_model name model
+  | [ "set-model"; _ ] | [ "set-model" ] ->
+      "Usage: channel set-model <channel_name> <model>\n\
+       Example: channel set-model discord anthropic:claude-opus-4-6"
+  | [ "show-model"; name ] -> cmd_channel_show_model name
+  | [ "show-model" ] ->
+      "Usage: channel show-model <channel_name>\n\
+       Example: channel show-model discord"
+  | [ "clear-model"; name ] -> cmd_channel_clear_model name
+  | [ "clear-model" ] ->
+      "Usage: channel clear-model <channel_name>\n\
+       Example: channel clear-model discord"
+  | unknown :: _ ->
+      Printf.sprintf
+        "Unknown channel subcommand: %s\n\
+         Usage: channel [set-model|show-model|clear-model] ..."
+        unknown
 
 let cmd_memory args =
   let cfg = get_config () in

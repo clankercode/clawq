@@ -92,6 +92,7 @@ let test_slack_is_allowed_wildcard_channel () =
       allow_users = [ "*" ];
       app_token = "";
       socket_mode = false;
+      default_model = None;
     }
   in
   Alcotest.(check bool)
@@ -108,6 +109,7 @@ let test_slack_is_allowed_specific_channel_match () =
       allow_users = [ "*" ];
       app_token = "";
       socket_mode = false;
+      default_model = None;
     }
   in
   Alcotest.(check bool)
@@ -124,6 +126,7 @@ let test_slack_is_allowed_specific_channel_no_match () =
       allow_users = [ "*" ];
       app_token = "";
       socket_mode = false;
+      default_model = None;
     }
   in
   Alcotest.(check bool)
@@ -140,6 +143,7 @@ let test_slack_is_allowed_user_filter () =
       allow_users = [ "U123" ];
       app_token = "";
       socket_mode = false;
+      default_model = None;
     }
   in
   Alcotest.(check bool)
@@ -229,6 +233,7 @@ let test_discord_is_allowed_wildcard () =
       allow_guilds = [ "*" ];
       allow_users = [ "*" ];
       intents = 0;
+      default_model = None;
     }
   in
   Alcotest.(check bool)
@@ -242,6 +247,7 @@ let test_discord_is_allowed_specific_guild () =
       allow_guilds = [ "G123" ];
       allow_users = [ "*" ];
       intents = 0;
+      default_model = None;
     }
   in
   Alcotest.(check bool)
@@ -258,6 +264,7 @@ let test_discord_is_allowed_no_guild () =
       allow_guilds = [ "G123" ];
       allow_users = [ "*" ];
       intents = 0;
+      default_model = None;
     }
   in
   (* None guild_id with non-wildcard list should fail *)
@@ -272,6 +279,7 @@ let test_discord_is_allowed_user_filter () =
       allow_guilds = [ "*" ];
       allow_users = [ "U123" ];
       intents = 0;
+      default_model = None;
     }
   in
   Alcotest.(check bool)
@@ -305,6 +313,7 @@ let test_discord_is_allowed_wildcard_guild_with_no_guild_id () =
       allow_guilds = [ "*" ];
       allow_users = [ "*" ];
       intents = 0;
+      default_model = None;
     }
   in
   (* Wildcard should allow even None guild *)
@@ -490,6 +499,7 @@ let test_slack_is_allowed_both_wildcard () =
       allow_users = [ "*" ];
       app_token = "";
       socket_mode = false;
+      default_model = None;
     }
   in
   Alcotest.(check bool)
@@ -506,6 +516,7 @@ let test_slack_is_allowed_neither_match () =
       allow_users = [ "USPECIFIC" ];
       app_token = "";
       socket_mode = false;
+      default_model = None;
     }
   in
   Alcotest.(check bool)
@@ -600,6 +611,7 @@ let test_telegram_multiple_accounts_config () =
             { bot_token = "tok2"; allow_from = [ "123" ]; totp = None } );
         ];
       text_coalesce_ms = 150;
+      default_model = None;
     }
   in
   Alcotest.(check int) "2 accounts" 2 (List.length cfg.accounts)

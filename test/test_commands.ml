@@ -246,6 +246,7 @@ let test_slack_credential_validation () =
       allow_users = [];
       app_token = "";
       socket_mode = false;
+      default_model = None;
     }
   in
   let invalid_slack = { valid_slack with Runtime_config.bot_token = "abc" } in
@@ -272,6 +273,7 @@ let test_lark_credential_validation () =
       endpoint = "";
       mode = "webhook";
       allow_users = [];
+      default_model = None;
     }
   in
   let disabled_lark = { valid_lark with Runtime_config.enabled = false } in
@@ -296,6 +298,7 @@ let test_teams_credential_validation () =
       service_url = "";
       allow_teams = [];
       allow_users = [];
+      default_model = None;
       mention_mode = "entity";
       file_consent_cards = true;
     }
@@ -315,6 +318,7 @@ let test_discord_credential_validation () =
       allow_guilds = [ "*" ];
       allow_users = [ "*" ];
       intents = 33281;
+      default_model = None;
     }
   in
   let invalid_discord = { valid_discord with Runtime_config.bot_token = "" } in

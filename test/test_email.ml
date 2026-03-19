@@ -81,6 +81,7 @@ let mk_email_cfg ?(allow_from = []) () : Runtime_config.email_config =
     from_address = "bot@test.com";
     allow_from;
     poll_interval_s = 60.0;
+    default_model = None;
   }
 
 let test_is_allowed_empty () =

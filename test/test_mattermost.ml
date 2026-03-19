@@ -8,6 +8,7 @@ let mk_mm_cfg ?(allow_users = [ "*" ]) ?(channel_ids = []) () :
     team_id = "team1";
     channel_ids;
     allow_users;
+    default_model = None;
   }
 
 (* --- is_allowed tests --- *)

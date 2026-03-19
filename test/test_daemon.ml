@@ -531,6 +531,7 @@ let test_dispatch_resumed_message_routes_telegram () =
               {
                 accounts = [ ("main", telegram_account) ];
                 text_coalesce_ms = 150;
+                default_model = None;
               };
         };
     }
@@ -570,6 +571,7 @@ let test_dispatch_resumed_message_routes_discord () =
                 allow_guilds = [];
                 allow_users = [];
                 intents = 0;
+                default_model = None;
               };
         };
     }
@@ -611,6 +613,7 @@ let test_dispatch_resumed_message_routes_slack () =
                 allow_channels = [];
                 allow_users = [];
                 socket_mode = false;
+                default_model = None;
                 app_token = "";
               };
         };
@@ -723,6 +726,7 @@ let test_default_resume_turn_uses_explicit_resume_prompt () =
                   {
                     accounts = [ ("main", telegram_account) ];
                     text_coalesce_ms = 150;
+                    default_model = None;
                   };
             };
         }
@@ -776,6 +780,7 @@ let test_resume_agent_session_persists_response_and_marks_sent () =
       allow_users = [];
       app_token = "";
       socket_mode = false;
+      default_model = None;
     }
   in
   let config =
@@ -836,6 +841,7 @@ let test_resume_agent_session_sends_compaction_notice () =
           allow_users = [];
           app_token = "";
           socket_mode = false;
+          default_model = None;
         }
       in
       let config =
@@ -1097,6 +1103,7 @@ let test_resume_pending_main_session_arms_autonomous_continuation () =
       allow_users = [];
       app_token = "";
       socket_mode = false;
+      default_model = None;
     }
   in
   let config =
@@ -1161,6 +1168,7 @@ let test_post_dispatch_resumed_routed_session_arms_and_sends_follow_up () =
               {
                 accounts = [ ("main", telegram_account) ];
                 text_coalesce_ms = 150;
+                default_model = None;
               };
         };
     }
@@ -1225,6 +1233,7 @@ let test_post_dispatch_resumed_routed_session_disarms_on_stay_idle () =
               {
                 accounts = [ ("main", telegram_account) ];
                 text_coalesce_ms = 150;
+                default_model = None;
               };
         };
     }
@@ -1374,6 +1383,7 @@ let test_notify_background_task_finished_dispatches_and_injects_wakeup () =
               {
                 accounts = [ ("main", telegram_account) ];
                 text_coalesce_ms = 150;
+                default_model = None;
               };
         };
     }
@@ -1507,6 +1517,7 @@ let test_notify_background_task_finished_dirty_worktree_dispatches_finalize_hint
               {
                 accounts = [ ("main", telegram_account) ];
                 text_coalesce_ms = 150;
+                default_model = None;
               };
         };
     }
@@ -1582,6 +1593,7 @@ let test_inject_bg_task_completion_registers_notifier () =
               {
                 accounts = [ ("main", telegram_account) ];
                 text_coalesce_ms = 150;
+                default_model = None;
               };
         };
     }
@@ -1632,6 +1644,7 @@ let test_background_task_wakeup_arms_autonomous_continuation () =
               {
                 accounts = [ ("main", telegram_account) ];
                 text_coalesce_ms = 150;
+                default_model = None;
               };
         };
     }
@@ -1681,6 +1694,7 @@ let test_background_task_wakeup_stay_idle_disarms () =
               {
                 accounts = [ ("main", telegram_account) ];
                 text_coalesce_ms = 150;
+                default_model = None;
               };
         };
     }
@@ -1724,6 +1738,7 @@ let test_resume_agent_session_sends_visible_injection_prompt () =
                   {
                     accounts = [ ("main", telegram_account) ];
                     text_coalesce_ms = 150;
+                    default_model = None;
                   };
             };
         }
@@ -1808,6 +1823,7 @@ let test_rich_send_fn_direct_dispatch_fallback () =
               {
                 accounts = [ ("default", telegram_account) ];
                 text_coalesce_ms = 150;
+                default_model = None;
               };
         };
     }
@@ -2191,6 +2207,7 @@ let test_notify_discord_dispatches_channel_notification () =
                 allow_guilds = [];
                 allow_users = [];
                 intents = 0;
+                default_model = None;
               };
         };
     }

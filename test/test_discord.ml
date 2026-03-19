@@ -1,7 +1,7 @@
 let make_config ?(allow_guilds = [ "*" ]) ?(allow_users = [ "*" ])
     ?(bot_token = "test-token") ?(intents = 513) () :
     Runtime_config.discord_config =
-  { bot_token; allow_guilds; allow_users; intents }
+  { bot_token; allow_guilds; allow_users; intents; default_model = None }
 
 let test_is_allowed_wildcard () =
   let config = make_config () in

@@ -8,6 +8,7 @@ let mk_ob_cfg ?(allow_from = [ "*" ]) ?(allow_groups = [ "*" ]) () :
     access_token = None;
     allow_from;
     allow_groups;
+    default_model = None;
   }
 
 (* --- is_allowed_user tests --- *)

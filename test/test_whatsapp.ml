@@ -6,6 +6,7 @@ let mk_wa_cfg ?(allow_from = [ "*" ]) () : Runtime_config.whatsapp_config =
     access_token = "tok";
     verify_token = "vtok";
     allow_from;
+    default_model = None;
   }
 
 (* --- is_allowed tests --- *)

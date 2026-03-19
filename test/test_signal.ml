@@ -128,6 +128,7 @@ let mk_signal_cfg ?(allow_from = []) () : Runtime_config.signal_config =
     allow_from;
     max_chunk_bytes = 1600;
     api_mode = "jsonrpc";
+    default_model = None;
   }
 
 let test_is_allowed_empty_list () =
@@ -199,6 +200,7 @@ let test_receive_loop_jsonrpc_allows_delayed_sse_body () =
           allow_from = [];
           max_chunk_bytes = 1600;
           api_mode = "jsonrpc";
+          default_model = None;
         }
       in
       let old_timeout = !Http_client.default_timeout_s in

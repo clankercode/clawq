@@ -106,6 +106,7 @@ let test_slack_handle_event_emits_tool_call_notifications () =
           allow_users = [ "*" ];
           app_token = "";
           socket_mode = false;
+          default_model = None;
         }
       in
       let session_manager =
@@ -142,6 +143,7 @@ let test_discord_handle_message_emits_tool_call_notifications () =
           allow_guilds = [ "*" ];
           allow_users = [ "*" ];
           intents = 513;
+          default_model = None;
         }
       in
       let session_mgr =

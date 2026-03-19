@@ -801,17 +801,29 @@ let get_or_create_locked mgr ~key =
           | Some cwd -> agent.Agent.effective_cwd <- Some cwd
           | None -> ())
       | None -> ());
-      (match mgr.db with
-      | Some db -> (
-          match Memory.get_session_model_override ~db ~session_key:key with
-          | Some model ->
-              let cfg = agent.Agent.config in
-              let agent_defaults =
-                { cfg.agent_defaults with primary_model = model }
-              in
-              agent.Agent.config <- { cfg with agent_defaults }
-          | None -> ())
-      | None -> ());
+      (* Model resolution: session DB override > channel default > global *)
+      (let db_override =
+         match mgr.db with
+         | Some db -> Memory.get_session_model_override ~db ~session_key:key
+         | None -> None
+       in
+       let effective_model =
+         match db_override with
+         | Some _ -> db_override
+         | None ->
+             let channel_type =
+               Runtime_config.channel_type_of_session_key key
+             in
+             Runtime_config.channel_default_model mgr.config ~channel_type
+       in
+       match effective_model with
+       | Some model ->
+           let cfg = agent.Agent.config in
+           let agent_defaults =
+             { cfg.agent_defaults with primary_model = model }
+           in
+           agent.Agent.config <- { cfg with agent_defaults }
+       | None -> ());
       let mutex = Lwt_mutex.create () in
       let interrupt = ref None in
       let triple = (agent, mutex, interrupt) in
@@ -1241,6 +1253,27 @@ let update_config ?(source = "") mgr config =
   Hashtbl.iter
     (fun key (agent, _, _) ->
       agent.Agent.config <- config;
+      (* Re-apply session model override or channel default *)
+      (let db_override =
+         match mgr.db with
+         | Some db -> Memory.get_session_model_override ~db ~session_key:key
+         | None -> None
+       in
+       let effective_model =
+         match db_override with
+         | Some _ -> db_override
+         | None ->
+             let channel_type =
+               Runtime_config.channel_type_of_session_key key
+             in
+             Runtime_config.channel_default_model config ~channel_type
+       in
+       match effective_model with
+       | Some model ->
+           let cfg = agent.Agent.config in
+           let ad = { cfg.agent_defaults with primary_model = model } in
+           agent.Agent.config <- { cfg with agent_defaults = ad }
+       | None -> ());
       Agent.sync_observed_active_workspace_files agent;
       persist_session_workspace_state mgr ~key agent)
     mgr.sessions
@@ -1260,12 +1293,20 @@ let get_session_effective_model mgr ~key =
   match Hashtbl.find_opt mgr.sessions key with
   | Some (agent, _, _) -> agent.Agent.config.agent_defaults.primary_model
   | None -> (
-      match mgr.db with
-      | Some db -> (
-          match Memory.get_session_model_override ~db ~session_key:key with
+      let db_override =
+        match mgr.db with
+        | Some db -> Memory.get_session_model_override ~db ~session_key:key
+        | None -> None
+      in
+      match db_override with
+      | Some model -> model
+      | None -> (
+          let channel_type = Runtime_config.channel_type_of_session_key key in
+          match
+            Runtime_config.channel_default_model mgr.config ~channel_type
+          with
           | Some model -> model
-          | None -> mgr.config.agent_defaults.primary_model)
-      | None -> mgr.config.agent_defaults.primary_model)
+          | None -> mgr.config.agent_defaults.primary_model))
 
 let clear_session_model mgr ~key =
   (match Hashtbl.find_opt mgr.sessions key with

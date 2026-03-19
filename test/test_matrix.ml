@@ -32,6 +32,7 @@ let mk_matrix_cfg ?(allow_rooms = []) ?(allow_users = []) () :
     user_id = "@bot:matrix.org";
     allow_rooms;
     allow_users;
+    default_model = None;
   }
 
 let test_room_allowed_empty () =

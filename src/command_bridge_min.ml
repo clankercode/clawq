@@ -177,10 +177,56 @@ let cmd_active _ =
   "Active is not available in the minimal build. Use the full clawq binary for \
    this feature."
 
-let cmd_channel () =
+let cmd_channel args =
   let cfg = get_config () in
-  Printf.sprintf "Configured channels:\n  cli: %s"
-    (if cfg.channels.cli then "enabled" else "disabled")
+  match args with
+  | [ "set-model"; name; model ] -> (
+      let valid = Runtime_config.all_channel_types in
+      if not (List.mem name valid) then
+        Printf.sprintf "Error: unknown channel '%s'. Valid channels: %s" name
+          (String.concat ", " valid)
+      else
+        let pf = Pmodel.parse_flexible model in
+        let key = Printf.sprintf "channels.%s.default_model" name in
+        match Config_set.set_json_value key (`String model) with
+        | Error e -> e
+        | Ok () -> (
+            let base = Printf.sprintf "Set %s default_model = %s" name model in
+            match Pmodel.deprecation_warning pf with
+            | Some warn -> base ^ "\n" ^ warn
+            | None -> base))
+  | [ "show-model"; name ] -> (
+      let valid = Runtime_config.all_channel_types in
+      if not (List.mem name valid) then
+        Printf.sprintf "Error: unknown channel '%s'. Valid channels: %s" name
+          (String.concat ", " valid)
+      else
+        let channel_model =
+          Runtime_config.channel_default_model cfg ~channel_type:name
+        in
+        let global_model = cfg.agent_defaults.primary_model in
+        match channel_model with
+        | Some m ->
+            Printf.sprintf "%s default_model: %s (global: %s)" name m
+              global_model
+        | None ->
+            Printf.sprintf "%s default_model: (not set, inherits global: %s)"
+              name global_model)
+  | [ "clear-model"; name ] -> (
+      let valid = Runtime_config.all_channel_types in
+      if not (List.mem name valid) then
+        Printf.sprintf "Error: unknown channel '%s'. Valid channels: %s" name
+          (String.concat ", " valid)
+      else
+        let key = Printf.sprintf "channels.%s.default_model" name in
+        match Config_set.set_json_value key `Null with
+        | Error e -> e
+        | Ok () ->
+            Printf.sprintf "Cleared %s default_model (now inherits global)" name
+      )
+  | _ ->
+      Printf.sprintf "Configured channels:\n  cli: %s"
+        (if cfg.channels.cli then "enabled" else "disabled")
 
 let cmd_memory () =
   let cfg = get_config () in
@@ -584,7 +630,7 @@ let handle args =
   | "models" :: rest -> cmd_models rest
   | "usage" :: rest -> cmd_usage rest
   | "active" :: rest -> cmd_active rest
-  | "channel" :: _ -> cmd_channel ()
+  | "channel" :: rest -> cmd_channel rest
   | "memory" :: _ -> cmd_memory ()
   | "workspace" :: rest -> cmd_workspace rest
   | "capabilities" :: _ -> cmd_capabilities ()

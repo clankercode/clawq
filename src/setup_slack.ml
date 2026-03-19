@@ -112,6 +112,7 @@ let default_slack_config : Runtime_config.slack_config =
     allow_users = [ "*" ];
     app_token = "";
     socket_mode = true;
+    default_model = None;
   }
 
 let run () =

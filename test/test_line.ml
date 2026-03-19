@@ -1,7 +1,12 @@
 (* Tests for LINE channel module *)
 
 let mk_line_cfg ?(allow_from = [ "*" ]) () : Runtime_config.line_config =
-  { channel_access_token = "tok"; channel_secret = "secret"; allow_from }
+  {
+    channel_access_token = "tok";
+    channel_secret = "secret";
+    allow_from;
+    default_model = None;
+  }
 
 (* --- is_allowed tests --- *)
 

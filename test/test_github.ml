@@ -585,6 +585,7 @@ let handle_webhook_non_user_generated_failure_runs_hooks () =
         {
           auth = Runtime_config.GithubPat "ghp_test12345";
           repos = [ repo_config ];
+          default_model = None;
         }
       in
       let session_manager = Session.create ~config:Runtime_config.default () in
@@ -821,7 +822,11 @@ let make_webhook_env ~secret ~body ~allow_users =
     }
   in
   let github_config : Runtime_config.github_config =
-    { auth = Runtime_config.GithubPat "ghp_test12345"; repos = [ repo_config ] }
+    {
+      auth = Runtime_config.GithubPat "ghp_test12345";
+      repos = [ repo_config ];
+      default_model = None;
+    }
   in
   let session_manager = Session.create ~config:Runtime_config.default () in
   let api_limiter =
@@ -1064,6 +1069,7 @@ let handle_webhook_dedup_delivery_id () =
               {
                 auth = Runtime_config.GithubPat "ghp_test12345";
                 repos = [ repo_config ];
+                default_model = None;
               }
             in
             let api_limiter =

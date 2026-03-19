@@ -1,7 +1,7 @@
 (* Tests for iMessage channel module *)
 
 let mk_im_cfg ?(allow_from = [ "*" ]) () : Runtime_config.imessage_config =
-  { poll_interval_s = 5.0; allow_from }
+  { poll_interval_s = 5.0; allow_from; default_model = None }
 
 (* --- is_allowed tests --- *)
 

@@ -7,6 +7,7 @@ let mk_nostr_cfg ?(allow_from = [ "*" ]) () : Runtime_config.nostr_config =
     relays = [ "wss://relay.example.com" ];
     allow_from;
     nak_path = "nak";
+    default_model = None;
   }
 
 (* --- is_allowed tests --- *)

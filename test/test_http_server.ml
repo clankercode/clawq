@@ -620,6 +620,7 @@ let test_github_webhook_routes_to_session_and_posts_reply () =
                     include_pr_files = false;
                   };
                 ];
+              default_model = None;
             }
           in
           let headers =
@@ -720,6 +721,7 @@ let test_github_pr_synchronize_reuses_pr_session () =
                     include_pr_files = false;
                   };
                 ];
+              default_model = None;
             }
           in
           let headers =
@@ -824,6 +826,7 @@ Payload: {{payload_path}}
                 include_pr_files = false;
               };
             ];
+          default_model = None;
         }
       in
       let headers =
@@ -898,6 +901,7 @@ let test_github_webhook_accepts_repo_case_mismatch () =
             include_pr_files = false;
           };
         ];
+      default_model = None;
     }
   in
   let headers =
@@ -979,6 +983,7 @@ This should never run.
                 include_pr_files = false;
               };
             ];
+          default_model = None;
         }
       in
       let headers =
@@ -1064,6 +1069,7 @@ let test_github_webhook_reaction_and_placeholder_edit () =
                     include_pr_files = false;
                   };
                 ];
+              default_model = None;
             }
           in
           let headers =
@@ -1178,6 +1184,7 @@ let test_github_webhook_rejects_ambiguous_path () =
             include_pr_files = false;
           };
         ];
+      default_model = None;
     }
   in
   let headers =

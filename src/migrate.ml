@@ -72,7 +72,7 @@ let convert (json : Yojson.Safe.t) =
                     : Runtime_config.telegram_account) ))
           in
           Some
-            ({ accounts; text_coalesce_ms = 150 }
+            ({ accounts; text_coalesce_ms = 150; default_model = None }
               : Runtime_config.telegram_config)
         with _ -> None
       in

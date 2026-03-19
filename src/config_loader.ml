@@ -358,7 +358,13 @@ let parse_config ?(resolve_secrets = true) json =
           let text_coalesce_ms =
             try tg |> member "text_coalesce_ms" |> to_int with _ -> 150
           in
-          Some ({ accounts; text_coalesce_ms } : Runtime_config.telegram_config)
+          let default_model =
+            try Some (tg |> member "default_model" |> to_string)
+            with _ -> None
+          in
+          Some
+            ({ accounts; text_coalesce_ms; default_model }
+              : Runtime_config.telegram_config)
         with _ -> None
       in
       let discord =
@@ -377,8 +383,11 @@ let parse_config ?(resolve_secrets = true) json =
             with _ -> [ "*" ]
           in
           let intents = try d |> member "intents" |> to_int with _ -> 33281 in
+          let default_model =
+            try Some (d |> member "default_model" |> to_string) with _ -> None
+          in
           Some
-            ({ bot_token; allow_guilds; allow_users; intents }
+            ({ bot_token; allow_guilds; allow_users; intents; default_model }
               : Runtime_config.discord_config)
         with _ -> None
       in
@@ -412,6 +421,9 @@ let parse_config ?(resolve_secrets = true) json =
           let socket_mode =
             try s |> member "socket_mode" |> to_bool with _ -> false
           in
+          let default_model =
+            try Some (s |> member "default_model" |> to_string) with _ -> None
+          in
           Some
             ({
                bot_token;
@@ -421,6 +433,7 @@ let parse_config ?(resolve_secrets = true) json =
                allow_users;
                app_token;
                socket_mode;
+               default_model;
              }
               : Runtime_config.slack_config)
         with _ -> None
@@ -487,7 +500,10 @@ let parse_config ?(resolve_secrets = true) json =
                     : Runtime_config.github_repo_config))
             with _ -> []
           in
-          Some ({ auth; repos } : Runtime_config.github_config)
+          let default_model =
+            try Some (g |> member "default_model" |> to_string) with _ -> None
+          in
+          Some ({ auth; repos; default_model } : Runtime_config.github_config)
         with _ -> None
       in
       let mattermost =
@@ -509,8 +525,19 @@ let parse_config ?(resolve_secrets = true) json =
             try mm |> member "allow_users" |> to_list |> List.map to_string
             with _ -> [ "*" ]
           in
+          let default_model =
+            try Some (mm |> member "default_model" |> to_string)
+            with _ -> None
+          in
           Some
-            ({ url; access_token; team_id; channel_ids; allow_users }
+            ({
+               url;
+               access_token;
+               team_id;
+               channel_ids;
+               allow_users;
+               default_model;
+             }
               : Runtime_config.mattermost_config)
         with _ -> None
       in
@@ -535,8 +562,19 @@ let parse_config ?(resolve_secrets = true) json =
           let webhook_url =
             try Some (dt |> member "webhook_url" |> to_string) with _ -> None
           in
+          let default_model =
+            try Some (dt |> member "default_model" |> to_string)
+            with _ -> None
+          in
           Some
-            ({ app_key; app_secret; agent_id; allow_from; webhook_url }
+            ({
+               app_key;
+               app_secret;
+               agent_id;
+               allow_from;
+               webhook_url;
+               default_model;
+             }
               : Runtime_config.dingtalk_config)
         with _ -> None
       in
@@ -550,8 +588,13 @@ let parse_config ?(resolve_secrets = true) json =
             try im |> member "allow_from" |> to_list |> List.map to_string
             with _ -> [ "*" ]
           in
+          let default_model =
+            try Some (im |> member "default_model" |> to_string)
+            with _ -> None
+          in
           Some
-            ({ poll_interval_s; allow_from } : Runtime_config.imessage_config)
+            ({ poll_interval_s; allow_from; default_model }
+              : Runtime_config.imessage_config)
         with _ -> None
       in
       let signal =
@@ -573,8 +616,19 @@ let parse_config ?(resolve_secrets = true) json =
           let max_chunk_bytes =
             try sg |> member "max_chunk_bytes" |> to_int with _ -> 1000
           in
+          let default_model =
+            try Some (sg |> member "default_model" |> to_string)
+            with _ -> None
+          in
           Some
-            ({ base_url; account; api_mode; allow_from; max_chunk_bytes }
+            ({
+               base_url;
+               account;
+               api_mode;
+               allow_from;
+               max_chunk_bytes;
+               default_model;
+             }
               : Runtime_config.signal_config)
         with _ -> None
       in
@@ -599,8 +653,19 @@ let parse_config ?(resolve_secrets = true) json =
             try mx |> member "allow_users" |> to_list |> List.map to_string
             with _ -> []
           in
+          let default_model =
+            try Some (mx |> member "default_model" |> to_string)
+            with _ -> None
+          in
           Some
-            ({ homeserver_url; access_token; user_id; allow_rooms; allow_users }
+            ({
+               homeserver_url;
+               access_token;
+               user_id;
+               allow_rooms;
+               allow_users;
+               default_model;
+             }
               : Runtime_config.matrix_config)
         with _ -> None
       in
@@ -624,8 +689,22 @@ let parse_config ?(resolve_secrets = true) json =
             try ir |> member "allow_from" |> to_list |> List.map to_string
             with _ -> []
           in
+          let default_model =
+            try Some (ir |> member "default_model" |> to_string)
+            with _ -> None
+          in
           Some
-            ({ host; port; tls; nick; password; sasl; channels; allow_from }
+            ({
+               host;
+               port;
+               tls;
+               nick;
+               password;
+               sasl;
+               channels;
+               allow_from;
+               default_model;
+             }
               : Runtime_config.irc_config)
         with _ -> None
       in
@@ -661,6 +740,10 @@ let parse_config ?(resolve_secrets = true) json =
           let poll_interval_s =
             try em |> member "poll_interval_s" |> to_float with _ -> 30.0
           in
+          let default_model =
+            try Some (em |> member "default_model" |> to_string)
+            with _ -> None
+          in
           Some
             ({
                imap_host;
@@ -672,6 +755,7 @@ let parse_config ?(resolve_secrets = true) json =
                from_address;
                allow_from;
                poll_interval_s;
+               default_model;
              }
               : Runtime_config.email_config)
         with _ -> None
@@ -694,8 +778,18 @@ let parse_config ?(resolve_secrets = true) json =
             try wa |> member "allow_from" |> to_list |> List.map to_string
             with _ -> [ "*" ]
           in
+          let default_model =
+            try Some (wa |> member "default_model" |> to_string)
+            with _ -> None
+          in
           Some
-            ({ phone_number_id; access_token; verify_token; allow_from }
+            ({
+               phone_number_id;
+               access_token;
+               verify_token;
+               allow_from;
+               default_model;
+             }
               : Runtime_config.whatsapp_config)
         with _ -> None
       in
@@ -718,8 +812,19 @@ let parse_config ?(resolve_secrets = true) json =
             try ns |> member "allow_from" |> to_list |> List.map to_string
             with _ -> [ "*" ]
           in
+          let default_model =
+            try Some (ns |> member "default_model" |> to_string)
+            with _ -> None
+          in
           Some
-            ({ relays; private_key; pubkey; nak_path; allow_from }
+            ({
+               relays;
+               private_key;
+               pubkey;
+               nak_path;
+               allow_from;
+               default_model;
+             }
               : Runtime_config.nostr_config)
         with _ -> None
       in
@@ -752,6 +857,10 @@ let parse_config ?(resolve_secrets = true) json =
             try lk |> member "allow_users" |> to_list |> List.map to_string
             with _ -> [ "*" ]
           in
+          let default_model =
+            try Some (lk |> member "default_model" |> to_string)
+            with _ -> None
+          in
           Some
             ({
                enabled;
@@ -761,6 +870,7 @@ let parse_config ?(resolve_secrets = true) json =
                endpoint;
                mode;
                allow_users;
+               default_model;
              }
               : Runtime_config.lark_config)
         with _ -> None
@@ -781,8 +891,12 @@ let parse_config ?(resolve_secrets = true) json =
             try ln |> member "allow_from" |> to_list |> List.map to_string
             with _ -> [ "*" ]
           in
+          let default_model =
+            try Some (ln |> member "default_model" |> to_string)
+            with _ -> None
+          in
           Some
-            ({ channel_access_token; channel_secret; allow_from }
+            ({ channel_access_token; channel_secret; allow_from; default_model }
               : Runtime_config.line_config)
         with _ -> None
       in
@@ -805,8 +919,19 @@ let parse_config ?(resolve_secrets = true) json =
             try ob |> member "allow_groups" |> to_list |> List.map to_string
             with _ -> [ "*" ]
           in
+          let default_model =
+            try Some (ob |> member "default_model" |> to_string)
+            with _ -> None
+          in
           Some
-            ({ ws_url; http_url; access_token; allow_from; allow_groups }
+            ({
+               ws_url;
+               http_url;
+               access_token;
+               allow_from;
+               allow_groups;
+               default_model;
+             }
               : Runtime_config.onebot_config)
         with _ -> None
       in
@@ -847,6 +972,10 @@ let parse_config ?(resolve_secrets = true) json =
           let file_consent_cards =
             try tm |> member "file_consent_cards" |> to_bool with _ -> true
           in
+          let default_model =
+            try Some (tm |> member "default_model" |> to_string)
+            with _ -> None
+          in
           if app_id = "" || app_secret = "" || tenant_id = "" then None
           else
             Some
@@ -858,6 +987,7 @@ let parse_config ?(resolve_secrets = true) json =
                  service_url;
                  allow_teams;
                  allow_users;
+                 default_model;
                  mention_mode;
                  file_consent_cards;
                }

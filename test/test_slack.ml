@@ -10,6 +10,7 @@ let make_config ?(bot_token = "xoxb-test") ?(signing_secret = "test_secret")
     allow_users;
     app_token;
     socket_mode;
+    default_model = None;
   }
 
 let test_is_allowed_wildcard () =

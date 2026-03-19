@@ -94,6 +94,7 @@ let mk_irc_cfg ?(allow_from = []) () : Runtime_config.irc_config =
     allow_from;
     sasl = false;
     tls = true;
+    default_model = None;
   }
 
 let test_is_allowed_empty_list () =

@@ -44,8 +44,12 @@ let channels_schema =
     [
       ("cli", L);
       ( "telegram",
-        O [ ("accounts", D telegram_account_schema); ("text_coalesce_ms", L) ]
-      );
+        O
+          [
+            ("accounts", D telegram_account_schema);
+            ("text_coalesce_ms", L);
+            ("default_model", L);
+          ] );
       ( "discord",
         O
           [
@@ -53,6 +57,7 @@ let channels_schema =
             ("allow_guilds", L);
             ("allow_users", L);
             ("intents", L);
+            ("default_model", L);
           ] );
       ( "slack",
         O
@@ -64,8 +69,15 @@ let channels_schema =
             ("allow_users", L);
             ("app_token", L);
             ("socket_mode", L);
+            ("default_model", L);
           ] );
-      ("github", O [ ("auth", O [ ("type", L); ("token", L) ]); ("repos", L) ]);
+      ( "github",
+        O
+          [
+            ("auth", O [ ("type", L); ("token", L) ]);
+            ("repos", L);
+            ("default_model", L);
+          ] );
       ( "mattermost",
         O
           [
@@ -74,6 +86,7 @@ let channels_schema =
             ("team_id", L);
             ("channel_ids", L);
             ("allow_users", L);
+            ("default_model", L);
           ] );
       ( "dingtalk",
         O
@@ -83,8 +96,10 @@ let channels_schema =
             ("agent_id", L);
             ("allow_from", L);
             ("webhook_url", L);
+            ("default_model", L);
           ] );
-      ("imessage", O [ ("poll_interval_s", L); ("allow_from", L) ]);
+      ( "imessage",
+        O [ ("poll_interval_s", L); ("allow_from", L); ("default_model", L) ] );
       ( "signal",
         O
           [
@@ -93,6 +108,7 @@ let channels_schema =
             ("api_mode", L);
             ("allow_from", L);
             ("max_chunk_bytes", L);
+            ("default_model", L);
           ] );
       ( "matrix",
         O
@@ -102,6 +118,7 @@ let channels_schema =
             ("user_id", L);
             ("allow_rooms", L);
             ("allow_users", L);
+            ("default_model", L);
           ] );
       ( "irc",
         O
@@ -114,6 +131,7 @@ let channels_schema =
             ("sasl", L);
             ("channels", L);
             ("allow_from", L);
+            ("default_model", L);
           ] );
       ( "email",
         O
@@ -127,6 +145,7 @@ let channels_schema =
             ("from_address", L);
             ("allow_from", L);
             ("poll_interval_s", L);
+            ("default_model", L);
           ] );
       ( "whatsapp",
         O
@@ -135,6 +154,7 @@ let channels_schema =
             ("access_token", L);
             ("verify_token", L);
             ("allow_from", L);
+            ("default_model", L);
           ] );
       ( "nostr",
         O
@@ -144,6 +164,7 @@ let channels_schema =
             ("pubkey", L);
             ("nak_path", L);
             ("allow_from", L);
+            ("default_model", L);
           ] );
       ( "lark",
         O
@@ -155,11 +176,15 @@ let channels_schema =
             ("endpoint", L);
             ("mode", L);
             ("allow_users", L);
+            ("default_model", L);
           ] );
       ( "line",
         O
           [
-            ("channel_access_token", L); ("channel_secret", L); ("allow_from", L);
+            ("channel_access_token", L);
+            ("channel_secret", L);
+            ("allow_from", L);
+            ("default_model", L);
           ] );
       ( "onebot",
         O
@@ -169,6 +194,7 @@ let channels_schema =
             ("access_token", L);
             ("allow_from", L);
             ("allow_groups", L);
+            ("default_model", L);
           ] );
       ( "teams",
         O
@@ -180,6 +206,7 @@ let channels_schema =
             ("service_url", L);
             ("allow_teams", L);
             ("allow_users", L);
+            ("default_model", L);
           ] );
     ]
 
