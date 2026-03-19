@@ -347,3 +347,5 @@ ideas:
       id: I054
     - file: I055-mcp-plugins-for-remote-runners.todo
       id: I055
+    - file: I056-implement-rendering-for-acp-lo.todo
+      id: I056
