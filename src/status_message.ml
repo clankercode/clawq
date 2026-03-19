@@ -294,7 +294,8 @@ let send_or_edit t =
     Lwt.return_unit
   end
   else
-    Lwt_mutex.with_lock t.edit_mutex (fun () ->
+    Lwt_util.with_lock_timeout ~label:"status_edit"
+      ~fatal_timeout:Lwt_util.short_fatal_timeout t.edit_mutex (fun () ->
         let open Lwt.Syntax in
         let do_send_or_edit () =
           let now = Unix.gettimeofday () in

@@ -606,7 +606,8 @@ let run ~(config : Runtime_config.t) =
   let update_lock = Lwt_mutex.create () in
   let update_in_progress = ref false in
   let claim_update () =
-    Lwt_mutex.with_lock update_lock (fun () ->
+    Lwt_util.with_lock_timeout ~label:"update_claim"
+      ~fatal_timeout:Lwt_util.short_fatal_timeout update_lock (fun () ->
         if !update_in_progress || Session.is_draining session_manager then
           Lwt.return false
         else begin
@@ -615,7 +616,8 @@ let run ~(config : Runtime_config.t) =
         end)
   in
   let finish_update () =
-    Lwt_mutex.with_lock update_lock (fun () ->
+    Lwt_util.with_lock_timeout ~label:"update_finish"
+      ~fatal_timeout:Lwt_util.short_fatal_timeout update_lock (fun () ->
         update_in_progress := false;
         Lwt.return_unit)
   in
@@ -884,6 +886,15 @@ let run ~(config : Runtime_config.t) =
   let restart_waiter, restart_resolver = Lwt.wait () in
   let shutting_down = ref false in
   let restarting = ref false in
+  let deadlock_restart = ref false in
+  (Lwt_util.on_fatal_timeout :=
+     fun label ->
+       Logs.err (fun m -> m "Mutex deadlock on [%s], triggering restart" label);
+       if not !restarting then begin
+         deadlock_restart := true;
+         restarting := true;
+         Lwt.wakeup_later restart_resolver ()
+       end);
   let last_restart_signal_at =
     ref
       (match Sys.getenv_opt restart_signal_ts_env with
@@ -1662,7 +1673,10 @@ let run ~(config : Runtime_config.t) =
               Lwt.return_unit)
         in
         Lwt.async (fun () -> warnings_p);
-        let* timed_out = wait_for_drain ~session_manager () in
+        let drain_attempts = if !deadlock_restart then 150 else 600 in
+        let* timed_out =
+          wait_for_drain ~attempts:drain_attempts ~session_manager ()
+        in
         stop_warnings := true;
         let* () = if timed_out then warnings_p else Lwt.return_unit in
         Logs.info (fun m -> m "Draining complete, stopping gateway for restart");
@@ -1720,4 +1734,5 @@ let run ~(config : Runtime_config.t) =
   Logs.info (fun m ->
       m "clawq daemon %s"
         (if final_intent = Restart then "ready to restart" else "stopped"));
+  (Lwt_util.on_fatal_timeout := fun _ -> ());
   Lwt.return final_intent

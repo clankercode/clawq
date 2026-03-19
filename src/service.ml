@@ -264,10 +264,14 @@ let run_nofork_start ?(execve = Unix.execve)
     Unix.putenv internal_nofork_env "";
     Logs.info (fun m -> m "Daemon restarting in-place (NOFORK mode)");
     let result =
-      try run_daemon ~config
-      with exn ->
-        Logs.err (fun m -> m "Daemon error: %s" (Printexc.to_string exn));
-        Daemon.Shutdown
+      try run_daemon ~config with
+      | Lwt_util.Deadlock_timeout label ->
+          Logs.err (fun m ->
+              m "Daemon caught Deadlock_timeout(%s), restarting" label);
+          Daemon.Restart
+      | exn ->
+          Logs.err (fun m -> m "Daemon error: %s" (Printexc.to_string exn));
+          Daemon.Shutdown
     in
     handle_daemon_exit ~execve result;
     ""
@@ -301,11 +305,15 @@ let cmd_start ~config =
             Unix.close null_fd;
             write_pid (Unix.getpid ());
             let result =
-              try Lwt_main.run (Daemon.run ~config)
-              with exn ->
-                Logs.err (fun m ->
-                    m "Daemon error: %s" (Printexc.to_string exn));
-                Daemon.Shutdown
+              try Lwt_main.run (Daemon.run ~config) with
+              | Lwt_util.Deadlock_timeout label ->
+                  Logs.err (fun m ->
+                      m "Daemon caught Deadlock_timeout(%s), restarting" label);
+                  Daemon.Restart
+              | exn ->
+                  Logs.err (fun m ->
+                      m "Daemon error: %s" (Printexc.to_string exn));
+                  Daemon.Shutdown
             in
             handle_daemon_exit result;
             remove_pid ();
@@ -412,3 +420,31 @@ let cmd_restart ~config =
   Unix.sleepf 1.0;
   let start_msg = cmd_start ~config in
   stop_msg ^ "\n" ^ start_msg
+
+let cmd_systemd_unit () =
+  let executable = Restart_exec.executable () in
+  let pid_file = Filename.concat (Dot_dir.path ()) "daemon.pid" in
+  Printf.sprintf
+    {|# clawq systemd user service
+# Install: clawq service systemd-unit > ~/.config/systemd/user/clawq.service
+# Enable:  systemctl --user enable clawq
+# Start:   systemctl --user start clawq
+# Logs:    journalctl --user -u clawq -f
+
+[Unit]
+Description=clawq daemon
+After=network-online.target
+
+[Service]
+Type=forking
+PIDFile=%s
+ExecStart=%s service start
+ExecStop=%s service stop
+ExecReload=%s service signal-restart
+Restart=on-failure
+RestartSec=5
+WatchdogSec=120
+
+[Install]
+WantedBy=default.target|}
+    pid_file executable executable executable

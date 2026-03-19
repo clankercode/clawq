@@ -157,7 +157,8 @@ let flush t =
   else
     let open Lwt.Syntax in
     let* () =
-      Lwt_mutex.with_lock t.buffer_mutex (fun () ->
+      Lwt_util.with_lock_timeout ~label:"telemetry_flush"
+        ~fatal_timeout:Lwt_util.short_fatal_timeout t.buffer_mutex (fun () ->
           let spans = !(t.buffer) in
           t.buffer := [];
           if spans = [] then Lwt.return_unit

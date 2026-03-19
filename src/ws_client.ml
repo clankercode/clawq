@@ -276,7 +276,8 @@ let connect_ws ~uri () =
       Lwt.return t
 
 let send_text t msg =
-  Lwt_mutex.with_lock t.send_mutex (fun () ->
+  Lwt_util.with_lock_timeout ~label:"ws_send"
+    ~fatal_timeout:Lwt_util.short_fatal_timeout t.send_mutex (fun () ->
       let bytes = Bytes.of_string msg in
       Httpun_ws.Wsd.send_bytes t.wsd ~kind:`Text bytes ~off:0
         ~len:(Bytes.length bytes);

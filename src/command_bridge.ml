@@ -1157,7 +1157,10 @@ let cmd_service args =
   | [ "restart" ] ->
       let cfg = get_config () in
       Service.cmd_restart ~config:cfg
-  | _ -> "Usage: clawq service <start|stop|status|signal-restart|restart>"
+  | [ "systemd-unit" ] -> Service.cmd_systemd_unit ()
+  | _ ->
+      "Usage: clawq service \
+       <start|stop|status|signal-restart|restart|systemd-unit>"
 
 let parse_update_args args =
   match args with

@@ -128,7 +128,8 @@ let start_read_loop t =
 
 let send_raw t json_str =
   let open Lwt.Syntax in
-  Lwt_mutex.with_lock t.write_mutex (fun () ->
+  Lwt_util.with_lock_timeout ~label:"cdp_write"
+    ~fatal_timeout:Lwt_util.short_fatal_timeout t.write_mutex (fun () ->
       Log.debug (fun m ->
           m "[cdp] -> %s"
             (if String.length json_str > 500 then

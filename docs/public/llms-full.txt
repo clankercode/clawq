@@ -118,6 +118,7 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 | `service restart` | Restart the clawq system service |
 | `service signal-restart` | Send SIGUSR1 to running daemon for graceful restart |
 | `service status` | Show service status |
+| `service systemd-unit` | Print a systemd unit file for user-level daemon management |
 | `skills` | Manage agent skills — SKILL.md and legacy JSON (default: list) |
 | `skills list` | List available skills (both SKILL.md and JSON formats) |
 | `skills path` | Print skill search directories (workspace + personal) |

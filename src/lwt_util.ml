@@ -4,6 +4,13 @@
     logging so that deadlocks surface as loud warnings/crashes instead of silent
     hangs. *)
 
+exception Deadlock_timeout of string
+
+(** Callback invoked just before raising [Deadlock_timeout]. In daemon context
+    this triggers a graceful restart; in CLI/test contexts the default no-op
+    lets the exception propagate normally. *)
+let on_fatal_timeout : (string -> unit) ref = ref (fun _ -> ())
+
 (** Default short timeout (seconds) for the first lock attempt. *)
 let default_warn_timeout = 10.0
 
@@ -21,8 +28,8 @@ let short_fatal_timeout = 30.0
 
     1. Try for [warn_timeout] seconds (default 10). On timeout, log a warning
     with diagnostics and retry. 2. Try for [fatal_timeout] seconds (default
-    600). On timeout, log an error with full diagnostics and abort the process
-    (exit 7).
+    600). On timeout, log an error with full diagnostics and raise
+    {!Deadlock_timeout}.
 
     If the lock is acquired at either stage the function returns normally and
     the caller is responsible for unlocking (typically via [Lwt.finalize]). *)
@@ -72,9 +79,10 @@ let lock_with_timeout ~label ?(warn_timeout = default_warn_timeout)
             label
             (warn_timeout +. fatal_timeout));
       log_diagnostics `Err;
-      (* Flush logs before crashing *)
+      (* Flush logs before raising *)
       Format.pp_print_flush Format.err_formatter ();
-      exit 7
+      !on_fatal_timeout label;
+      Lwt.fail (Deadlock_timeout label)
     end
   end
 

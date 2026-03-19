@@ -352,7 +352,8 @@ let start_and_activate t ~(config : Runtime_config.tunnel_config) ~port ~on_url
   Lwt.return_unit
 
 let apply_config t ~(config : Runtime_config.tunnel_config) ~port ~on_url =
-  Lwt_mutex.with_lock t.mutex (fun () ->
+  Lwt_util.with_lock_timeout ~label:"tunnel_apply"
+    ~fatal_timeout:Lwt_util.short_fatal_timeout t.mutex (fun () ->
       let open Lwt.Syntax in
       match (config.enabled, t.state) with
       | false, Idle -> Lwt.return_unit
@@ -375,7 +376,8 @@ let apply_config t ~(config : Runtime_config.tunnel_config) ~port ~on_url =
           start_and_activate t ~config ~port ~on_url)
 
 let stop t =
-  Lwt_mutex.with_lock t.mutex (fun () ->
+  Lwt_util.with_lock_timeout ~label:"tunnel_stop"
+    ~fatal_timeout:Lwt_util.short_fatal_timeout t.mutex (fun () ->
       let open Lwt.Syntax in
       let* () = stop_active t.state in
       t.state <- Idle;
@@ -384,7 +386,8 @@ let stop t =
 (* Unconditionally stop and restart the tunnel, regardless of config equality.
    Used by `tunnel restart` to force a restart without requiring config change. *)
 let restart t ~(config : Runtime_config.tunnel_config) ~port ~on_url =
-  Lwt_mutex.with_lock t.mutex (fun () ->
+  Lwt_util.with_lock_timeout ~label:"tunnel_restart"
+    ~fatal_timeout:Lwt_util.short_fatal_timeout t.mutex (fun () ->
       let open Lwt.Syntax in
       let* () = stop_active t.state in
       t.state <- Idle;

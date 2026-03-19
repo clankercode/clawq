@@ -1034,7 +1034,8 @@ let skills_cmd =
 
 let service_cmd =
   with_args "service"
-    "Manage the clawq system service (start/stop/restart/signal-restart)."
+    "Manage the clawq system service \
+     (start/stop/restart/signal-restart/systemd-unit)."
     [
       `S "SUBCOMMANDS";
       `I ("start", "Start the clawq service.");
@@ -1044,6 +1045,10 @@ let service_cmd =
         ( "signal-restart",
           "Send SIGUSR1 to the running daemon for a graceful restart." );
       `I ("status", "Show service status (default).");
+      `I
+        ( "systemd-unit",
+          "Print a systemd unit file. Install with: clawq service systemd-unit \
+           > ~/.config/systemd/user/clawq.service" );
     ]
 
 let update_cmd =

@@ -152,7 +152,7 @@ let update_rate_limit ~route ~headers =
 
 let discord_rest_call ~route ~f =
   let open Lwt.Syntax in
-  Lwt_mutex.with_lock route_mutex (fun () ->
+  Lwt_util.with_lock_timeout ~label:"discord_rest" route_mutex (fun () ->
       let* () = wait_for_rate_limit ~route in
       let* status, headers, body = f () in
       update_rate_limit ~route ~headers;

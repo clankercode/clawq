@@ -318,6 +318,55 @@ let test_cmd_status_mentions_uptime_for_live_pid () =
         "returns header" true
         (String.length status >= String.length "Service status:"))
 
+let test_deadlock_timeout_triggers_restart_in_nofork () =
+  with_env "CLAWQ_DAEMON_NOFORK" (Some "") (fun () ->
+      with_env "CLAWQ_DAEMON_INTERNAL_NOFORK" (Some "1") (fun () ->
+          let exec_called = ref None in
+          let config = Runtime_config.default in
+          let _result =
+            Service.run_nofork_start ~config
+              ~execve:(fun path argv env ->
+                exec_called := Some (path, Array.to_list argv, env))
+              ~run_daemon:(fun ~config:_ ->
+                raise (Lwt_util.Deadlock_timeout "test_mutex"))
+              ()
+          in
+          Alcotest.(check bool)
+            "execve called on deadlock" true
+            (match !exec_called with
+            | Some (_, argv, env) ->
+                argv = [ Restart_exec.executable (); "service"; "start" ]
+                && env_contains env "CLAWQ_DAEMON_NOFORK=1"
+            | None -> false)))
+
+let test_systemd_unit_output () =
+  let output = Service.cmd_systemd_unit () in
+  Alcotest.(check bool) "contains Unit section" true (String.length output > 0);
+  let has_substr s = String.length output >= String.length s in
+  Alcotest.(check bool) "non-empty output" true (has_substr "clawq");
+  let contains needle =
+    let nlen = String.length needle in
+    let rec loop i =
+      if i + nlen > String.length output then false
+      else if String.sub output i nlen = needle then true
+      else loop (i + 1)
+    in
+    loop 0
+  in
+  Alcotest.(check bool) "has Unit section" true (contains "[Unit]");
+  Alcotest.(check bool) "has Service section" true (contains "[Service]");
+  Alcotest.(check bool) "has Install section" true (contains "[Install]");
+  Alcotest.(check bool) "has Type=forking" true (contains "Type=forking");
+  Alcotest.(check bool) "has PIDFile" true (contains "PIDFile=");
+  Alcotest.(check bool) "has ExecStart" true (contains "ExecStart=");
+  Alcotest.(check bool) "has ExecStop" true (contains "ExecStop=");
+  Alcotest.(check bool)
+    "has Restart=on-failure" true
+    (contains "Restart=on-failure");
+  Alcotest.(check bool)
+    "has install instructions" true
+    (contains "systemctl --user enable")
+
 let suite =
   [
     Alcotest.test_case "handle daemon exit restart sets nofork and execs" `Quick
@@ -363,4 +412,7 @@ let suite =
       test_validate_and_fix_rejects_deleted_symlink_target;
     Alcotest.test_case "validate_and_fix passes through enoent" `Quick
       test_validate_and_fix_passes_through_enoent;
+    Alcotest.test_case "deadlock timeout triggers restart in nofork" `Quick
+      test_deadlock_timeout_triggers_restart_in_nofork;
+    Alcotest.test_case "systemd unit output" `Quick test_systemd_unit_output;
   ]

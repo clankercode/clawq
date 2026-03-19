@@ -128,7 +128,8 @@ let refill t entry =
   assert_entry_invariants t entry
 
 let check_and_consume t ~key =
-  Lwt_mutex.with_lock t.mutex (fun () ->
+  Lwt_util.with_lock_timeout ~label:"rate_check"
+    ~fatal_timeout:Lwt_util.short_fatal_timeout t.mutex (fun () ->
       let entry =
         match Hashtbl.find_opt t.buckets key with
         | Some e -> e
@@ -157,7 +158,8 @@ let check_and_consume t ~key =
       end)
 
 let cleanup_expired t ~max_idle_seconds =
-  Lwt_mutex.with_lock t.mutex (fun () ->
+  Lwt_util.with_lock_timeout ~label:"rate_cleanup"
+    ~fatal_timeout:Lwt_util.short_fatal_timeout t.mutex (fun () ->
       let cutoff = now () -. max_idle_seconds in
       let to_remove =
         Hashtbl.fold

@@ -142,7 +142,8 @@ let try_automerge ~db (task : Background_task.task) =
       Background_task.set_merge_status ~db ~id:task.id ~merge_status:"error";
       Lwt.return (Error "no branch name recorded")
   | Some worktree_path ->
-      Lwt_mutex.with_lock (repo_mutex task.repo_path) (fun () ->
+      Lwt_util.with_lock_timeout ~label:"worktree_apply"
+        (repo_mutex task.repo_path) (fun () ->
           let open Lwt.Syntax in
           let* result =
             Lwt.catch
@@ -169,7 +170,8 @@ let finalize_task ~db (task : Background_task.task) =
   | Some worktree_path when task.branch = "" ->
       Lwt.return (Error "no branch name recorded")
   | Some worktree_path ->
-      Lwt_mutex.with_lock (repo_mutex task.repo_path) (fun () ->
+      Lwt_util.with_lock_timeout ~label:"worktree_delete"
+        (repo_mutex task.repo_path) (fun () ->
           let open Lwt.Syntax in
           let* result =
             Lwt.catch
