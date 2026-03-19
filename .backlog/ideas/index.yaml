@@ -257,8 +257,15 @@ ideas:
       status: done
       tags: []
       title: Multi-Model Debate / Consensus
-    - file: I032-structured-output-pipelines.todo
+    - complexity: medium
+      depends_on: []
+      estimate_hours: 10
+      file: I032-structured-output-pipelines.todo
       id: I032
+      priority: medium
+      status: in_progress
+      tags: []
+      title: Structured Output Pipelines
     - complexity: medium
       depends_on: []
       estimate_hours: 10
