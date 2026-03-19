@@ -5,7 +5,7 @@ Usage:
     python3 scripts/generate_seal.py [--count N] [--out PATH]
 
 Defaults to counting proofs from coq/ and writing to
-docs/badges/formal-verification-seal.py.svg (adjacent to the bash-generated one).
+docs/public/badges/formal-verification-seal.py.svg (adjacent to the bash-generated one).
 """
 import argparse
 import math
@@ -211,7 +211,7 @@ def main():
     parser = argparse.ArgumentParser(description="Generate formal verification seal SVG")
     parser.add_argument("--count", type=int, default=None,
                         help="Proof count (default: auto-detect from coq/)")
-    parser.add_argument("--out", type=str, default="docs/badges/formal-verification-seal.py.svg",
+    parser.add_argument("--out", type=str, default="docs/public/badges/formal-verification-seal.py.svg",
                         help="Output path")
     # Text positioning overrides
     parser.add_argument("--top-arc-r", type=float, default=None,

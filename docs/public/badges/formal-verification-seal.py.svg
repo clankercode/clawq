@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="140" height="140" viewBox="0 0 140 140" role="img" aria-label="Coq: 374 proofs verified">
-  <title>Coq: 374 proofs verified</title>
+<svg xmlns="http://www.w3.org/2000/svg" width="140" height="140" viewBox="0 0 140 140" role="img" aria-label="Coq: 380 proofs verified">
+  <title>Coq: 380 proofs verified</title>
   <defs>
     <linearGradient id="seal-bg" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="#13111A"/>
@@ -34,7 +34,7 @@
   <!-- Center: proof count -->
   <text x="70" y="66" text-anchor="middle" dominant-baseline="central"
         font-family="'Courier New',monospace" font-size="38" font-weight="bold"
-        fill="#C9A84C">374</text>
+        fill="#C9A84C">380</text>
   <!-- "proofs" below count -->
   <text x="70" y="85" text-anchor="middle"
         font-family="Georgia,serif" font-size="20" font-weight="600"

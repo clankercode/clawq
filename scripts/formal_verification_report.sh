@@ -4,8 +4,8 @@
 set -euo pipefail
 
 COQ_DIR="coq/theories/Clawq"
-BADGE_OUT="docs/badges/formal-verification.svg"
-SEAL_OUT="docs/badges/formal-verification-seal.svg"
+BADGE_OUT="docs/public/badges/formal-verification.svg"
+SEAL_OUT="docs/public/badges/formal-verification-seal.svg"
 
 # Count Theorem/Lemma declarations across all proof files
 count_proofs() {
@@ -329,14 +329,8 @@ fi
 generate_badge "$proof_count"
 generate_seal "$proof_count"
 # Generate Python seal (canonical version)
-SEAL_PY_OUT="docs/badges/formal-verification-seal.py.svg"
+SEAL_PY_OUT="docs/public/badges/formal-verification-seal.py.svg"
 python3 scripts/generate_seal.py --count "$proof_count" --out "$SEAL_PY_OUT"
-# Copy to public dir if it exists (for Astro site)
-if [ -d "docs/public/badges" ]; then
-  cp "$BADGE_OUT" "docs/public/badges/formal-verification.svg"
-  cp "$SEAL_OUT" "docs/public/badges/formal-verification-seal.svg"
-  cp "$SEAL_PY_OUT" "docs/public/badges/formal-verification-seal.py.svg"
-fi
 echo "Badge generated: ${BADGE_OUT} (${proof_count} proofs)"
 echo "Seal generated:  ${SEAL_OUT} (${proof_count} proofs)"
 echo "Seal (py):       ${SEAL_PY_OUT} (${proof_count} proofs)"
