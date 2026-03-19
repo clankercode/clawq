@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-19T21:19:29Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B576
 priority: high
-status: pending
+started_at: "2026-03-19T21:19:29Z"
+status: in_progress
 tags: []
 title: Add a /bash slash command to run whatever after in bash. eg `/bash ls -alh && cd ../ && ls -alh | grep home`. This must be admin only.
 ---
