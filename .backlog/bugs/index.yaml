@@ -568,3 +568,4 @@ bugs:
     - file: B569-openai-codex-provider-not-expo.todo
     - file: B570-set-model-for-session-via-cli.todo
     - file: B571-run-task-should-default-to-aut.todo
+    - file: B572-add-bg-finalize-id-slash-comma.todo

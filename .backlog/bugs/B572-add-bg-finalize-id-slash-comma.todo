@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B572
+priority: high
+status: pending
+tags: []
+title: add `/bg finalize <id>` slash command (and add to cli commands too if its not already) so we can manually finalize
+---
+
+add `/bg finalize <id>` slash command (and add to cli commands too if its not already) so we can manually finalize
