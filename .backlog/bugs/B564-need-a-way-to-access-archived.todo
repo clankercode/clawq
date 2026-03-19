@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B564
+priority: high
+status: pending
+tags: []
+title: Need a way to access archived sessions (as when we run /new)
+---
+
+Need a way to access archived sessions (as when we run /new)
