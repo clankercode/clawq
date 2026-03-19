@@ -559,3 +559,4 @@ bugs:
     - file: B560-if-read-file-is-called-on-a-di.todo
     - file: B561-admin-only-commands-should-be.todo
     - file: B562-when-agent-asks-a-quesiton-via.todo
+    - file: B563-clawq-session-should-print-a-t.todo

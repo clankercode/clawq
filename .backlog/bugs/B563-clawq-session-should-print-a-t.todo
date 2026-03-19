@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B563
+priority: high
+status: pending
+tags: []
+title: '`./clawq session` should print a table'
+---
+
+`./clawq session` should print a table
