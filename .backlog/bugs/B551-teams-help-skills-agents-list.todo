@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-19T15:13:26Z"
+claimed_by: cli-user
+completed_at: null
 complexity: low
 depends_on: []
 estimate_hours: 1
 id: B551
 priority: medium
-status: pending
+started_at: "2026-03-19T15:13:26Z"
+status: in_progress
 tags: []
 title: Teams /help skills/agents list renders on one line instead of bulleted list
 ---
