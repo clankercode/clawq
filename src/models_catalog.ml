@@ -731,6 +731,27 @@ let find_by_full_name name =
         known_models
   | _, model, Plain -> find_by_id model
 
+let validate_model_name ~configured_providers name =
+  let provider, _model_id, fmt = split_name name in
+  match fmt with
+  | Canonical | Legacy ->
+      if List.mem provider configured_providers then None
+      else
+        Some
+          (Printf.sprintf
+             "Unknown provider '%s'. Use /model set-force %s to set anyway, or \
+              add '%s' to your config.json providers."
+             provider name provider)
+  | Plain -> (
+      match find_by_full_name name with
+      | Some _ -> None
+      | None ->
+          Some
+            (Printf.sprintf
+               "Unknown model '%s'. Use /model set-force %s to set anyway, or \
+                use provider:model format (e.g., openai:%s)."
+               name name name))
+
 let format_context_window = function
   | None -> ""
   | Some n ->

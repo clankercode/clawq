@@ -411,16 +411,29 @@ let handle ?(skill_names = []) text =
                 FormattedReply (fun connector -> format_usage_usage ~connector))
         | "model" -> (
             let known_subcommands =
-              [ "set"; "fav"; "unfav"; "list"; "usage"; "menu" ]
+              [
+                "set";
+                "set-force";
+                "fav";
+                "unfav";
+                "list";
+                "usage";
+                "menu";
+                "help";
+              ]
             in
             match args with
             | [] -> Model ModelShow
+            | [ "help" ] ->
+                FormattedReply
+                  (fun connector -> format_model_usage_text ~connector)
             | [ "menu" ] -> ModelMenu 1
             | [ "menu"; n ] -> (
                 match int_of_string_opt n with
                 | Some page when page >= 1 -> ModelMenu page
                 | _ -> ModelMenu 1)
             | [ "set"; name ] -> Model (ModelSet name)
+            | [ "set-force"; name ] -> Model (ModelSetForce name)
             | [ "set-default"; name ] -> Model (ModelSetDefault name)
             | [ "fav"; name ] -> Model (ModelFav name)
             | [ "unfav"; name ] -> Model (ModelUnfav name)

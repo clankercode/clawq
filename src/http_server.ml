@@ -1643,13 +1643,27 @@ let handler ~session_manager ~require_pairing ~auth_token
                             ~favorites:prefs.favorites ~usage_ranked
                         in
                         sse_reply text
-                    | ModelSet name -> (
-                        let key = "web:" ^ session_id in
-                        let provider, model_id, fmt =
-                          Models_catalog.split_name name
+                    | ModelSet name | ModelSetForce name -> (
+                        let force =
+                          match action with
+                          | ModelSetForce _ -> true
+                          | _ -> false
                         in
-                        match fmt with
-                        | Models_catalog.Canonical | Models_catalog.Legacy ->
+                        let cfg = Session.get_config session_manager in
+                        let configured_providers = List.map fst cfg.providers in
+                        let validation_error =
+                          if force then None
+                          else
+                            Models_catalog.validate_model_name
+                              ~configured_providers name
+                        in
+                        match validation_error with
+                        | Some err -> sse_reply err
+                        | None ->
+                            let key = "web:" ^ session_id in
+                            let provider, model_id, fmt =
+                              Models_catalog.split_name name
+                            in
                             let hint =
                               match fmt with
                               | Models_catalog.Legacy ->
@@ -1658,36 +1672,40 @@ let handler ~session_manager ~require_pairing ~auth_token
                                     provider model_id provider model_id
                               | _ -> ""
                             in
-                            let cfg = Session.get_config session_manager in
-                            let provider_in_config =
-                              List.mem_assoc provider cfg.providers
-                            in
                             let warn =
-                              if not provider_in_config then
-                                Printf.sprintf
-                                  "\n\
-                                   Warning: provider '%s' not found in config. \
-                                   Add it to your config.json to use this \
-                                   model."
-                                  provider
-                              else ""
+                              match fmt with
+                              | Models_catalog.Canonical | Models_catalog.Legacy
+                                ->
+                                  let provider_in_config =
+                                    List.mem_assoc provider cfg.providers
+                                  in
+                                  if not provider_in_config then
+                                    Printf.sprintf
+                                      "\n\
+                                       Warning: provider '%s' not found in \
+                                       config. Add it to your config.json to \
+                                       use this model."
+                                      provider
+                                  else ""
+                              | Models_catalog.Plain -> ""
                             in
                             Session.set_session_model session_manager ~key
                               ~model:name;
-                            sse_reply
-                              (Printf.sprintf
-                                 "Model set to: %s (provider: %s)%s%s\n\
-                                  Persisted for this session across restarts. \
-                                  Use /model set-default to change the global \
-                                  default."
-                                 model_id provider hint warn)
-                        | Models_catalog.Plain -> (
                             let model_info =
                               Models_catalog.find_by_full_name name
                             in
-                            match model_info with
-                            | None ->
-                                let text =
+                            let display =
+                              match (fmt, model_info) with
+                              | ( ( Models_catalog.Canonical
+                                  | Models_catalog.Legacy ),
+                                  _ ) ->
+                                  Printf.sprintf
+                                    "Model set to: %s (provider: %s)%s%s\n\
+                                     Persisted for this session across \
+                                     restarts. Use /model set-default to \
+                                     change the global default."
+                                    model_id provider hint warn
+                              | Models_catalog.Plain, None ->
                                   Printf.sprintf
                                     "Warning: '%s' not found in model catalog. \
                                      Setting anyway.\n\
@@ -1695,14 +1713,7 @@ let handler ~session_manager ~require_pairing ~auth_token
                                      restarts. Use /model set-default to \
                                      change the global default."
                                     name
-                                in
-                                Session.set_session_model session_manager ~key
-                                  ~model:name;
-                                sse_reply text
-                            | Some m ->
-                                Session.set_session_model session_manager ~key
-                                  ~model:name;
-                                let display =
+                              | Models_catalog.Plain, Some m ->
                                   if m.Models_catalog.provider <> "" then
                                     Printf.sprintf
                                       "Model set to: %s (provider: %s)\n\
@@ -1718,8 +1729,8 @@ let handler ~session_manager ~require_pairing ~auth_token
                                        restarts. Use /model set-default to \
                                        change the global default."
                                       name
-                                in
-                                sse_reply display))
+                            in
+                            sse_reply display)
                     | ModelSetDefault name -> (
                         let provider, model_id, fmt =
                           Models_catalog.split_name name

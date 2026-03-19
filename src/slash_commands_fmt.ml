@@ -13,6 +13,7 @@ type heartbeat_action = HeartbeatStatus | SetHeartbeat of bool
 type model_action =
   | ModelShow
   | ModelSet of string
+  | ModelSetForce of string
   | ModelSetDefault of string
   | ModelFav of string
   | ModelUnfav of string
@@ -679,11 +680,13 @@ let format_bg_invalid_id ~connector id_str =
 let format_model_usage_text ~connector =
   "Usage: "
   ^ Format_adapter.code connector "/model"
-  ^ " [set/set-default/fav/unfav/list/usage] [args]\n  "
+  ^ " [set/set-force/set-default/fav/unfav/list/usage] [args]\n  "
   ^ Format_adapter.code connector "/model"
   ^ "                    \xe2\x80\x94 Show current model and favorites\n  "
   ^ Format_adapter.code connector "/model set <name>"
   ^ "         \xe2\x80\x94 Set model for this session\n  "
+  ^ Format_adapter.code connector "/model set-force <name>"
+  ^ "   \xe2\x80\x94 Set model (bypass validation)\n  "
   ^ Format_adapter.code connector "/model set-default <name>"
   ^ " \xe2\x80\x94 Set default model in config (persistent)\n  "
   ^ Format_adapter.code connector "/model fav <name>"

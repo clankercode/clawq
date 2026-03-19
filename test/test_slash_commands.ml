@@ -56,6 +56,8 @@ let rec result_to_string = function
   | Slash_commands.Model Slash_commands.ModelShow -> "Model(Show)"
   | Slash_commands.Model (Slash_commands.ModelSet name) ->
       "Model(Set " ^ name ^ ")"
+  | Slash_commands.Model (Slash_commands.ModelSetForce name) ->
+      "Model(SetForce " ^ name ^ ")"
   | Slash_commands.Model (Slash_commands.ModelFav name) ->
       "Model(Fav " ^ name ^ ")"
   | Slash_commands.Model (Slash_commands.ModelUnfav name) ->
@@ -1376,6 +1378,31 @@ let test_model_bare_set_keyword_still_error () =
   | Some s ->
       Alcotest.(check bool) "mentions /model" true (contains_str s "/model")
   | None -> Alcotest.fail "expected text reply for /model set usage"
+
+let test_model_help () =
+  match extract_text (Slash_commands.handle "/model help") with
+  | Some s ->
+      Alcotest.(check bool) "mentions /model" true (contains_str s "/model");
+      Alcotest.(check bool)
+        "mentions set-force" true
+        (contains_str s "set-force")
+  | None -> Alcotest.fail "expected text reply for /model help"
+
+let test_model_set_force () =
+  match Slash_commands.handle "/model set-force openai:gpt-5" with
+  | Slash_commands.Model (Slash_commands.ModelSetForce "openai:gpt-5") -> ()
+  | other ->
+      Alcotest.fail
+        (Printf.sprintf "expected Model(SetForce openai:gpt-5), got %s"
+           (result_to_string other))
+
+let test_model_set_force_bare () =
+  match Slash_commands.handle "/model set-force custom-model" with
+  | Slash_commands.Model (Slash_commands.ModelSetForce "custom-model") -> ()
+  | other ->
+      Alcotest.fail
+        (Printf.sprintf "expected Model(SetForce custom-model), got %s"
+           (result_to_string other))
 
 let test_is_secret_path () =
   Alcotest.(check bool)
@@ -2731,6 +2758,11 @@ let suite =
       test_model_set_explicit_unchanged;
     Alcotest.test_case "/model set with no name shows usage" `Quick
       test_model_bare_set_keyword_still_error;
+    Alcotest.test_case "/model help shows usage" `Quick test_model_help;
+    Alcotest.test_case "/model set-force with provider" `Quick
+      test_model_set_force;
+    Alcotest.test_case "/model set-force bare name" `Quick
+      test_model_set_force_bare;
     Alcotest.test_case "format_status plain" `Quick test_format_status_plain;
     Alcotest.test_case "format_status telegram html" `Quick
       test_format_status_telegram_html;
