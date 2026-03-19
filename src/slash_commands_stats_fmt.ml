@@ -575,6 +575,8 @@ let format_bg ~connector ~db action =
   | BgLogs id -> (
       match Background_task.get_task ~db ~id with
       | None -> Printf.sprintf "No background task found with id %d." id
+      | Some task when task.acp && Acp_history.has_history ~db ~task_id:id ->
+          Acp_history.format_for_display_rich ~db ~task_id:id ~connector ()
       | Some task -> (
           match task.log_path with
           | None | Some "" -> Printf.sprintf "Task %d has no log file." id

@@ -388,8 +388,7 @@ let test_channel_default_model_lookup () =
     }
   in
   Alcotest.(check (option string))
-    "discord has model"
-    (Some "anthropic:claude-opus-4-6")
+    "discord has model" (Some "anthropic:claude-opus-4-6")
     (Runtime_config.channel_default_model cfg ~channel_type:"discord");
   Alcotest.(check (option string))
     "slack has no model" None
@@ -414,7 +413,9 @@ let test_channel_set_model_roundtrip () =
       let result = Config_set.get_value "channels.discord.default_model" in
       Alcotest.(check string)
         "discord model set" "anthropic:claude-opus-4-6" result;
-      (match Config_set.set_json_value "channels.discord.default_model" `Null with
+      (match
+         Config_set.set_json_value "channels.discord.default_model" `Null
+       with
       | Ok () -> ()
       | Error e -> Alcotest.fail e);
       let result2 = Config_set.get_value "channels.discord.default_model" in
@@ -429,9 +430,7 @@ let test_channel_default_model_parsed () =
   let cfg = Config_loader.parse_config json in
   let m = Runtime_config.channel_default_model cfg ~channel_type:"discord" in
   Alcotest.(check (option string))
-    "parsed from JSON"
-    (Some "anthropic:claude-opus-4-6")
-    m
+    "parsed from JSON" (Some "anthropic:claude-opus-4-6") m
 
 let suite =
   [

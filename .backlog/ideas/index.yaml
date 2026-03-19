@@ -360,6 +360,6 @@ ideas:
       file: I056-implement-rendering-for-acp-lo.todo
       id: I056
       priority: medium
-      status: in_progress
+      status: done
       tags: []
       title: Implement rendering for ACP logs with nice formatting via connector -- use format_adapter and DSL

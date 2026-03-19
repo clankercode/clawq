@@ -140,81 +140,120 @@ let has_history ~db ~task_id =
           | _ -> false)
       | _ -> false)
 
-let format_for_display ~db ~task_id ?(max_lines = 200) () =
-  let entries = get_history ~db ~task_id in
-  let buf = Buffer.create 4096 in
-  let line_count = ref 0 in
-  let add_line s =
-    if !line_count < max_lines then begin
-      Buffer.add_string buf s;
-      Buffer.add_char buf '\n';
-      incr line_count
-    end
+let entries_to_document ~task_id entries =
+  let open Content_dsl in
+  let header =
+    Paragraph [ Bold (Printf.sprintf "ACP Session for task %d" task_id) ]
   in
-  add_line (Printf.sprintf "=== ACP Session for task %d ===" task_id);
-  List.iter
-    (fun entry ->
-      if !line_count >= max_lines then ()
-      else
+  let blocks =
+    List.filter_map
+      (fun entry ->
         match entry.msg_type with
-        | "prompt" -> (
-            add_line "";
-            add_line "--- User ---";
-            match entry.content_text with
-            | Some text -> add_line text
-            | None -> ())
+        | "prompt" ->
+            let content =
+              match entry.content_text with Some t -> t | None -> ""
+            in
+            Some
+              [
+                Separator;
+                Paragraph [ Emoji "\xF0\x9F\x91\xA4"; Text " "; Bold "User" ];
+                Paragraph [ Text content ];
+              ]
         | "update" -> (
             match entry.update_type with
-            | Some "agent_message_chunk" -> (
-                add_line "";
-                add_line "--- Agent ---";
-                match entry.content_text with
-                | Some text -> add_line text
-                | None -> ())
-            | Some "thought_message_chunk" -> (
-                add_line "";
-                add_line "--- Thought ---";
-                match entry.content_text with
-                | Some text -> add_line text
-                | None -> ())
+            | Some "agent_message_chunk" ->
+                let content =
+                  match entry.content_text with Some t -> t | None -> ""
+                in
+                Some
+                  [
+                    Paragraph
+                      [ Emoji "\xF0\x9F\xA4\x96"; Text " "; Bold "Agent" ];
+                    Paragraph [ Text content ];
+                  ]
+            | Some "thought_message_chunk" ->
+                let content =
+                  match entry.content_text with Some t -> t | None -> ""
+                in
+                Some [ ThinkingPreview content ]
             | Some "tool_call" ->
-                let title =
+                let name =
                   match entry.content_text with Some t -> t | None -> "tool"
                 in
-                let status_str =
-                  match entry.tool_call_id with
-                  | Some id -> Printf.sprintf " [%s]" id
-                  | None -> ""
-                in
-                add_line "";
-                add_line (Printf.sprintf "--- Tool: %s%s ---" title status_str)
+                Some
+                  [
+                    ToolEntry
+                      {
+                        emoji = "\xF0\x9F\x94\xA7";
+                        name;
+                        summary = entry.tool_call_id;
+                        state = Running;
+                        timing = None;
+                        preview = None;
+                        error_detail = None;
+                        connector_char = None;
+                      };
+                  ]
             | Some "tool_call_update" ->
-                let status_str =
+                let summary =
                   match entry.content_text with
-                  | Some s -> s
+                  | Some t -> t
                   | None -> "updated"
                 in
-                add_line (Printf.sprintf "  [%s]" status_str)
-            | Some "plan" -> (
-                add_line "";
-                add_line "--- Plan ---";
-                match entry.content_text with
-                | Some text -> add_line text
-                | None -> ())
-            | Some typ -> add_line (Printf.sprintf "  [%s]" typ)
-            | None -> (
-                match entry.content_text with
-                | Some text -> add_line text
-                | None -> ()))
-        | "response" -> (
-            match entry.content_text with
-            | Some text ->
-                add_line "";
-                add_line (Printf.sprintf "=== Stop: %s ===" text)
-            | None -> ())
-        | _ -> ())
-    entries;
-  if !line_count >= max_lines then
-    Buffer.add_string buf
-      (Printf.sprintf "\n(Output truncated at %d lines)\n" max_lines);
-  Buffer.contents buf
+                Some
+                  [
+                    ToolEntry
+                      {
+                        emoji = "\xF0\x9F\x94\xA7";
+                        name = "tool";
+                        summary = Some summary;
+                        state = Done;
+                        timing = None;
+                        preview = None;
+                        error_detail = None;
+                        connector_char = None;
+                      };
+                  ]
+            | Some "plan" ->
+                let content =
+                  match entry.content_text with Some t -> t | None -> ""
+                in
+                Some
+                  [
+                    Paragraph
+                      [ Emoji "\xF0\x9F\x93\x8B"; Text " "; Bold "Plan" ];
+                    CodeBlock { language = None; content };
+                  ]
+            | Some typ -> Some [ Paragraph [ Italic ("[" ^ typ ^ "]") ] ]
+            | None ->
+                let content =
+                  match entry.content_text with Some t -> t | None -> ""
+                in
+                Some [ Paragraph [ Text content ] ])
+        | "response" ->
+            let content =
+              match entry.content_text with Some t -> t | None -> ""
+            in
+            Some
+              [ Separator; Paragraph [ Bold "Stop"; Text ": "; Code content ] ]
+        | _ -> None)
+      entries
+    |> List.flatten
+  in
+  header :: blocks
+
+let format_for_display_rich ~db ~task_id ?(connector = Format_adapter.Plain)
+    ?(max_lines = 200) () =
+  let entries = get_history ~db ~task_id in
+  let doc = entries_to_document ~task_id entries in
+  let full = Content_dsl.render_document connector doc in
+  let lines = String.split_on_char '\n' full in
+  if List.length lines <= max_lines then full
+  else
+    let taken = List.filteri (fun i _ -> i < max_lines) lines in
+    String.concat "\n" taken
+    ^ Printf.sprintf "\n\n(Output truncated at %d lines)\n" max_lines
+
+let format_for_display ~db ~task_id ?(max_lines = 200) () =
+  format_for_display_rich ~db ~task_id ~connector:Format_adapter.Plain
+    ~max_lines ()

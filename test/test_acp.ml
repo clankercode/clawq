@@ -382,6 +382,216 @@ let test_history_format_truncation () =
         "truncation note" true
         (String_util.contains output "truncated"))
 
+(* --- Rich rendering tests --- *)
+
+let test_entries_to_document () =
+  let entries =
+    [
+      {
+        Acp_history.id = 1;
+        task_id = 1;
+        seq = 1;
+        direction = "client_to_agent";
+        msg_type = "prompt";
+        update_type = None;
+        role = Some "user";
+        content_text = Some "Fix bug";
+        raw_json = "{}";
+        tool_call_id = None;
+        created_at = "";
+      };
+      {
+        Acp_history.id = 2;
+        task_id = 1;
+        seq = 2;
+        direction = "agent_to_client";
+        msg_type = "update";
+        update_type = Some "agent_message_chunk";
+        role = Some "assistant";
+        content_text = Some "On it";
+        raw_json = "{}";
+        tool_call_id = None;
+        created_at = "";
+      };
+      {
+        Acp_history.id = 3;
+        task_id = 1;
+        seq = 3;
+        direction = "agent_to_client";
+        msg_type = "update";
+        update_type = Some "thought_message_chunk";
+        role = None;
+        content_text = Some "thinking hard";
+        raw_json = "{}";
+        tool_call_id = None;
+        created_at = "";
+      };
+      {
+        Acp_history.id = 4;
+        task_id = 1;
+        seq = 4;
+        direction = "agent_to_client";
+        msg_type = "update";
+        update_type = Some "tool_call";
+        role = None;
+        content_text = Some "file_read";
+        raw_json = "{}";
+        tool_call_id = Some "call_1";
+        created_at = "";
+      };
+      {
+        Acp_history.id = 5;
+        task_id = 1;
+        seq = 5;
+        direction = "agent_to_client";
+        msg_type = "update";
+        update_type = Some "tool_call_update";
+        role = None;
+        content_text = Some "read 42 lines";
+        raw_json = "{}";
+        tool_call_id = None;
+        created_at = "";
+      };
+      {
+        Acp_history.id = 6;
+        task_id = 1;
+        seq = 6;
+        direction = "agent_to_client";
+        msg_type = "update";
+        update_type = Some "plan";
+        role = None;
+        content_text = Some "Step 1\nStep 2";
+        raw_json = "{}";
+        tool_call_id = None;
+        created_at = "";
+      };
+      {
+        Acp_history.id = 7;
+        task_id = 1;
+        seq = 7;
+        direction = "agent_to_client";
+        msg_type = "response";
+        update_type = None;
+        role = None;
+        content_text = Some "end_turn";
+        raw_json = "{}";
+        tool_call_id = None;
+        created_at = "";
+      };
+    ]
+  in
+  let doc = Acp_history.entries_to_document ~task_id:1 entries in
+  (* header + separator + user label + user content + agent label + agent content
+     + thinking + tool_call + tool_call_update + plan label + plan code
+     + separator + stop = 13 blocks *)
+  Alcotest.(check bool) "has blocks" true (List.length doc >= 10);
+  let has_separator =
+    List.exists
+      (fun b -> match b with Content_dsl.Separator -> true | _ -> false)
+      doc
+  in
+  Alcotest.(check bool) "has separator" true has_separator;
+  let has_thinking =
+    List.exists
+      (fun b ->
+        match b with Content_dsl.ThinkingPreview _ -> true | _ -> false)
+      doc
+  in
+  Alcotest.(check bool) "has thinking" true has_thinking;
+  let has_tool_entry =
+    List.exists
+      (fun b -> match b with Content_dsl.ToolEntry _ -> true | _ -> false)
+      doc
+  in
+  Alcotest.(check bool) "has tool entry" true has_tool_entry;
+  let has_code_block =
+    List.exists
+      (fun b -> match b with Content_dsl.CodeBlock _ -> true | _ -> false)
+      doc
+  in
+  Alcotest.(check bool) "has code block for plan" true has_code_block
+
+let test_history_format_rich_discord () =
+  with_temp_db (fun db ->
+      Acp_history.init_schema db;
+      Acp_history.record ~db ~task_id:1 ~direction:"client_to_agent"
+        ~msg_type:"prompt" ~content_text:"Fix the bug" ~role:"user"
+        ~raw_json:(`String "p") ();
+      Acp_history.record ~db ~task_id:1 ~direction:"agent_to_client"
+        ~msg_type:"update" ~update_type:"agent_message_chunk"
+        ~content_text:"I'll fix it" ~role:"assistant" ~raw_json:(`String "u") ();
+      Acp_history.record ~db ~task_id:1 ~direction:"agent_to_client"
+        ~msg_type:"update" ~update_type:"plan"
+        ~content_text:"Step 1: read\nStep 2: edit" ~raw_json:(`String "plan") ();
+      Acp_history.record ~db ~task_id:1 ~direction:"agent_to_client"
+        ~msg_type:"response" ~content_text:"end_turn" ~raw_json:(`String "r") ();
+      let output =
+        Acp_history.format_for_display_rich ~db ~task_id:1
+          ~connector:Format_adapter.Discord ()
+      in
+      Alcotest.(check bool)
+        "discord bold user" true
+        (String_util.contains output "**User**");
+      Alcotest.(check bool)
+        "discord bold agent" true
+        (String_util.contains output "**Agent**");
+      Alcotest.(check bool)
+        "discord code fence" true
+        (String_util.contains output "```");
+      Alcotest.(check bool)
+        "discord bold stop" true
+        (String_util.contains output "**Stop**"))
+
+let test_history_format_rich_telegram_html () =
+  with_temp_db (fun db ->
+      Acp_history.init_schema db;
+      Acp_history.record ~db ~task_id:1 ~direction:"client_to_agent"
+        ~msg_type:"prompt" ~content_text:"Fix the bug" ~role:"user"
+        ~raw_json:(`String "p") ();
+      Acp_history.record ~db ~task_id:1 ~direction:"agent_to_client"
+        ~msg_type:"update" ~update_type:"agent_message_chunk"
+        ~content_text:"I'll fix it" ~role:"assistant" ~raw_json:(`String "u") ();
+      Acp_history.record ~db ~task_id:1 ~direction:"agent_to_client"
+        ~msg_type:"response" ~content_text:"end_turn" ~raw_json:(`String "r") ();
+      let output =
+        Acp_history.format_for_display_rich ~db ~task_id:1
+          ~connector:Format_adapter.Telegram_html ()
+      in
+      Alcotest.(check bool)
+        "telegram bold user" true
+        (String_util.contains output "<b>User</b>");
+      Alcotest.(check bool)
+        "telegram bold agent" true
+        (String_util.contains output "<b>Agent</b>");
+      Alcotest.(check bool)
+        "telegram code stop" true
+        (String_util.contains output "<code>end_turn</code>"))
+
+let test_history_format_rich_tool_entries () =
+  with_temp_db (fun db ->
+      Acp_history.init_schema db;
+      Acp_history.record ~db ~task_id:1 ~direction:"agent_to_client"
+        ~msg_type:"update" ~update_type:"tool_call" ~content_text:"file_read"
+        ~tool_call_id:"call_42" ~raw_json:(`String "tc") ();
+      Acp_history.record ~db ~task_id:1 ~direction:"agent_to_client"
+        ~msg_type:"update" ~update_type:"tool_call_update"
+        ~content_text:"read 100 lines" ~raw_json:(`String "tcu") ();
+      let output =
+        Acp_history.format_for_display_rich ~db ~task_id:1
+          ~connector:Format_adapter.Discord ()
+      in
+      (* Running tool_call should have the wrench emoji and bold name *)
+      Alcotest.(check bool)
+        "has wrench emoji" true
+        (String_util.contains output "\xF0\x9F\x94\xA7");
+      Alcotest.(check bool)
+        "has tool name bold" true
+        (String_util.contains output "**file_read**");
+      (* Done tool_call_update should have checkmark *)
+      Alcotest.(check bool)
+        "has checkmark" true
+        (String_util.contains output "\xE2\x9C\x93"))
+
 (* --- Runner framework ACP tests --- *)
 
 let test_acp_argv_claude () =
@@ -515,6 +725,14 @@ let suite =
       test_history_format_for_display;
     Alcotest.test_case "history: format truncation" `Quick
       test_history_format_truncation;
+    Alcotest.test_case "history: entries_to_document" `Quick
+      test_entries_to_document;
+    Alcotest.test_case "history: rich discord" `Quick
+      test_history_format_rich_discord;
+    Alcotest.test_case "history: rich telegram html" `Quick
+      test_history_format_rich_telegram_html;
+    Alcotest.test_case "history: rich tool entries" `Quick
+      test_history_format_rich_tool_entries;
     Alcotest.test_case "runner: acp_argv claude" `Quick test_acp_argv_claude;
     Alcotest.test_case "runner: acp_argv codex" `Quick test_acp_argv_codex;
     Alcotest.test_case "runner: acp_argv kimi" `Quick test_acp_argv_kimi;

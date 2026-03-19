@@ -568,11 +568,15 @@ let render_background_task_log_lines indexed_lines =
   in
   (rendered_lines, truncated_by_budget, !truncated_any_line)
 
-let log_excerpt ?db ?(offset = 0) ?(lines = 20) task =
+let log_excerpt ?db ?connector ?(offset = 0) ?(lines = 20) task =
   match (task.acp, db) with
   | true, Some db when Acp_history.has_history ~db ~task_id:task.id ->
+      let connector =
+        match connector with Some c -> c | None -> Format_adapter.Plain
+      in
       Ok
-        (Acp_history.format_for_display ~db ~task_id:task.id ~max_lines:lines ())
+        (Acp_history.format_for_display_rich ~db ~task_id:task.id ~connector
+           ~max_lines:lines ())
   | _ -> (
       match task.log_path with
       | None -> Error (Printf.sprintf "Task %d has no log file yet" task.id)
