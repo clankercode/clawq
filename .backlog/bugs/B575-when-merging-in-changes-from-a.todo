@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B575
+priority: high
+status: pending
+tags: []
+title: when merging in changes from a background agent, we should rebase, not merge. We rebase against master first so the agent can fix conflicts, then rebase the branch into master to avoid merge commits.
+---
+
+when merging in changes from a background agent, we should rebase, not merge. We rebase against master first so the agent can fix conflicts, then rebase the branch into master to avoid merge commits.

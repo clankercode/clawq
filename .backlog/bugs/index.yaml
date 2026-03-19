@@ -571,3 +571,4 @@ bugs:
     - file: B572-add-bg-finalize-id-slash-comma.todo
     - file: B573-port-clawq-version-bump-skill.todo
     - file: B574-with-skills-if-we-dont-already.todo
+    - file: B575-when-merging-in-changes-from-a.todo
