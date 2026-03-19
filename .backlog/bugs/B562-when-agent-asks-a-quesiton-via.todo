@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-19T15:04:18Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B562
 priority: high
-status: pending
+started_at: "2026-03-19T15:04:18Z"
+status: in_progress
 tags: []
 title: when agent asks a quesiton via a card in teams, it's not clear if it's multiselect or not. we should include a short description of what to do (pick many / pick one / etc)
 ---
