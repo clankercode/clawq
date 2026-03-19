@@ -25,6 +25,7 @@ depends: [
   "kdf"
   "digestif"
   "base64"
+  "yaml"
   "httpun-ws-lwt-unix"
   "gluten-lwt-unix"
   "ca-certs"

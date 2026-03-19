@@ -25,4 +25,5 @@
    kdf
    digestif
    base64
+   yaml
    (alcotest :with-test)))

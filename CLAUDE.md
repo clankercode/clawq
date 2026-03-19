@@ -114,6 +114,7 @@ Subdirectory-specific guidelines exist in `docs/CLAUDE.md`, `src/CLAUDE.md`, and
 - Process spawning: `src/process_group.ml` (fork+setsid+execve, signal group lifecycle)
 - Runner framework: `src/runner_framework.ml` (session ID strategies, per-runner command generation)
 - Web UI: `src/ui_server.ml`, `src/chat_ui_assets.ml`, `ui/`, `scripts/gen_chat_ui_assets.sh`
+- Structured pipelines: `src/structured_pipeline.ml` (types, parsing, DB, builtins), `src/structured_pipeline_schema.ml` (JSON Schema validator), `src/structured_pipeline_run.ml` (execution engine)
 - Build config: `dune-project`, `dune-workspace`, `src/dune`, `test/dune`
 - Tests: `test/test_main.ml` and `test/test_*.ml`
 

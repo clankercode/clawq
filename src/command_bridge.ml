@@ -1414,4 +1414,5 @@ let handle args =
   | "manifest" :: rest -> Command_bridge_debug.cmd_manifest rest
   | "held-items" :: rest -> cmd_held_items rest
   | "debate" :: rest -> Debate.cmd_debate ~get_config ~get_db rest
+  | "pipeline" :: rest -> Command_bridge_session.cmd_pipeline rest
   | _ -> Clawq_core.dispatch args

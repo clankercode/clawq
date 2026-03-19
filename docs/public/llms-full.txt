@@ -74,6 +74,14 @@ Every command below is invoked as `clawq COMMAND`. Run `clawq COMMAND --help` fo
 | `plan show ID` | Show full pipeline details including plan file path, bg task id, coder worktree, and error if any |
 | `plan logs ID [--lines N]` | Show log output from the current pipeline stage (reads from the most recent background task log) |
 | `plan cancel ID` | Cancel a running pipeline and its current background task |
+| `pipeline list` | List available structured output pipelines (builtins + user-defined in `~/.clawq/pipelines/`) |
+| `pipeline show NAME` | Show pipeline definition details (inputs, steps, schemas) |
+| `pipeline run NAME --input k=v ...` | Execute a structured output pipeline with the given inputs |
+| `pipeline validate NAME` | Validate a pipeline definition (schema, step names, references) |
+| `pipeline create NAME` | Scaffold a new pipeline YAML file in `~/.clawq/pipelines/` |
+| `pipeline wizard` | Interactive step-by-step pipeline builder |
+| `pipeline history [--pipeline NAME]` | List past pipeline runs |
+| `pipeline result RUN-ID` | Show detailed results of a pipeline run |
 | `debug` | Internal debugging utilities |
 | `debug html-preview [PORT]` | Serve HTML preview test pages on localhost |
 | `debug http {on\|off\|status\|clear\|tail [N]}` | Manage HTTP debug logging (HAR files in `~/.clawq/log-http-debug/`) |

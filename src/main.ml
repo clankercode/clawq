@@ -1345,6 +1345,22 @@ let debate_cmd =
       `I ("--show ID", "Show a specific past debate round.");
     ]
 
+let pipeline_cmd =
+  with_args "pipeline"
+    "Define and run structured output pipelines with validated JSON Schema \
+     outputs."
+    [
+      `S "SUBCOMMANDS";
+      `I ("list", "List available pipelines.");
+      `I ("show NAME", "Show pipeline definition details.");
+      `I ("run NAME --input k=v ...", "Execute a pipeline.");
+      `I ("validate NAME", "Validate a pipeline definition.");
+      `I ("create NAME", "Scaffold a new pipeline YAML file.");
+      `I ("wizard", "Interactive pipeline builder.");
+      `I ("history [--pipeline NAME]", "List past pipeline runs.");
+      `I ("result RUN-ID", "Show results of a pipeline run.");
+    ]
+
 let manifest_cmd =
   with_args "manifest" "Generate connector command manifests (Teams, Telegram)."
     [
@@ -1429,6 +1445,7 @@ let () =
       manifest_cmd;
       held_items_cmd;
       debate_cmd;
+      pipeline_cmd;
     ]
   in
   exit (Cmd.eval ~argv ~env:help_env (Cmd.group main_info cmds))

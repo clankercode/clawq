@@ -153,7 +153,10 @@
   webhook_handler
   rig
   rig_builtins
-  held_items)
+  held_items
+  structured_pipeline_schema
+  structured_pipeline
+  structured_pipeline_run)
  (foreign_stubs
   (language c)
   (names landlock_stubs))
@@ -176,7 +179,8 @@
   digestif.c
   base64
   eqaf
-  str))
+  str
+  yaml))
 
 (library
  (name clawq_runtime_integrations)
