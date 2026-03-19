@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-19T16:45:04Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B566
 priority: high
-status: pending
+started_at: "2026-03-19T16:45:04Z"
+status: in_progress
 tags: []
 title: Teams /skills menu lacks pagination/next button
 ---
