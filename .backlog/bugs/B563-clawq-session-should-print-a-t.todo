@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-19T15:47:25Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B563
 priority: high
-status: pending
+started_at: "2026-03-19T15:47:25Z"
+status: in_progress
 tags: []
 title: '`./clawq session` should print a table'
 ---
