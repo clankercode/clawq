@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-19T15:55:01Z"
+claimed_by: cli-user
+completed_at: null
 complexity: high
 depends_on: []
 estimate_hours: 1
 id: B555
 priority: high
-status: pending
+started_at: "2026-03-19T15:55:01Z"
+status: in_progress
 tags: []
 title: 'Make run-task reliable for automerge: handle dirty state, merge conflicts, ensure completion'
 ---
