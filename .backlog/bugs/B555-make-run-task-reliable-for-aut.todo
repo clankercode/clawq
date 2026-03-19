@@ -1,0 +1,16 @@
+---
+complexity: high
+depends_on: []
+estimate_hours: 1
+id: B555
+priority: high
+status: pending
+tags: []
+title: 'Make run-task reliable for automerge: handle dirty state, merge conflicts, ensure completion'
+---
+Investigate run-task reliability gaps. Goal: robust enough for automerge with automatic handling of:
+- Dirty working directory
+- Merge conflicts
+- Ensuring all work is committed before finalization
+
+May relate to staged pipelines idea. Focus on making the full claim→work→commit→merge cycle reliable and automated.
