@@ -344,11 +344,18 @@ let costs_menu_adaptive_card_json () =
   in
   button_card ~title:"Cost Views" ~buttons
 
-let bg_menu_adaptive_card_json () =
-  let buttons =
+let bg_menu_adaptive_card_json ?(cancellable = []) () =
+  let base_buttons =
     [ ("List Tasks", "/bg list"); ("Create Task", "/bg create ") ]
   in
-  button_card ~title:"Background Tasks" ~buttons
+  let cancel_buttons =
+    List.map
+      (fun (id, runner_str) ->
+        ( Printf.sprintf "Cancel #%d (%s)" id runner_str,
+          Printf.sprintf "/bg cancel %d" id ))
+      cancellable
+  in
+  button_card ~title:"Background Tasks" ~buttons:(base_buttons @ cancel_buttons)
 
 let agents_per_page = Slash_commands_fmt.agents_per_page
 

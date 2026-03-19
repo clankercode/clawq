@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-19T15:23:33Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-19T15:48:26Z"
 complexity: medium
 depends_on: []
+duration_minutes: 24.896423783566668
 estimate_hours: 1
 id: B559
 priority: high
 started_at: "2026-03-19T15:23:33Z"
-status: in_progress
+status: done
 tags: []
 title: Teams /bg cancel gives no feedback or cancellation
 ---

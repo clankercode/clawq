@@ -295,6 +295,48 @@ let test_cancel_running_task_waits_for_descendants () =
       ignore (Lwt_main.run (Process_group.close proc));
       Sys.remove pid_file)
 
+let test_cancel_with_nonblocking_terminate () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"fix bug" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      ignore
+        (Background_task.set_running ~db ~id ~branch:"clawq-bg-1"
+           ~worktree_path:"/tmp/worktree" ~log_path:"/tmp/task.log" ~pid:4321);
+      let signaled = ref None in
+      let terminate_called = ref false in
+      let result =
+        Background_task.cancel_with_signal
+          ~send_signal:(fun pid signal -> signaled := Some (pid, signal))
+          ~terminate_group:(fun ?grace_seconds:_ ?wait_seconds:_ _pid ->
+            terminate_called := true)
+          ~db ~id ()
+      in
+      (match result with
+      | Ok msg ->
+          Alcotest.(check bool)
+            "mentions SIGTERM" true
+            (string_contains msg "SIGTERM")
+      | Error msg -> Alcotest.fail msg);
+      Alcotest.(check (option (pair int int)))
+        "sent signal to process group"
+        (Some (-4321, Sys.sigterm))
+        !signaled;
+      Alcotest.(check bool) "terminate_group was called" true !terminate_called;
+      match Background_task.get_task ~db ~id with
+      | Some task ->
+          Alcotest.(check string)
+            "task marked cancelled" "cancelled"
+            (Background_task.string_of_status task.status)
+      | None -> Alcotest.fail "expected cancelled task")
+
 let test_command_of_task_codex () =
   let task =
     {
@@ -4232,6 +4274,8 @@ let suite =
       test_cancel_running_task_without_valid_pid_skips_signal;
     Alcotest.test_case "cancel running task waits for descendants" `Quick
       test_cancel_running_task_waits_for_descendants;
+    Alcotest.test_case "cancel with nonblocking terminate" `Quick
+      test_cancel_with_nonblocking_terminate;
     Alcotest.test_case "command_of_task codex" `Quick test_command_of_task_codex;
     Alcotest.test_case "command_of_task codex resume" `Quick
       test_command_of_task_resume_codex;

@@ -1902,8 +1902,27 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                         ~service_url:effective_service_url ~conversation_id
                         ~reply_to_id:activity_id ~card:card_json ()
                   | BgMenu ->
+                      let cancellable =
+                        match Session.get_db session_manager with
+                        | Some db ->
+                            let tasks, _ =
+                              Background_task.list_tasks_for_display ~db
+                            in
+                            List.filter_map
+                              (fun (t : Background_task.task) ->
+                                match t.status with
+                                | Running | Queued ->
+                                    Some
+                                      ( t.id,
+                                        Background_task.string_of_runner
+                                          t.runner )
+                                | _ -> None)
+                              tasks
+                        | None -> []
+                      in
                       let card_json =
-                        Slash_commands_manifest.bg_menu_adaptive_card_json ()
+                        Slash_commands_manifest.bg_menu_adaptive_card_json
+                          ~cancellable ()
                       in
                       send_adaptive_card ~config
                         ~service_url:effective_service_url ~conversation_id
@@ -2081,16 +2100,34 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                         | None -> "Active usage is not available (no database)."
                       in
                       send_text text
-                  | Bg action ->
-                      let text =
-                        match Session.get_db session_manager with
-                        | Some db ->
-                            Slash_commands.format_bg
-                              ~connector:Format_adapter.Teams ~db action
-                        | None ->
+                  | Bg action -> (
+                      match Session.get_db session_manager with
+                      | None ->
+                          send_text
                             "Background tasks are not available (no database)."
-                      in
-                      send_text text
+                      | Some db -> (
+                          match action with
+                          | BgCancel id ->
+                              let text =
+                                match
+                                  Background_task.cancel_with_signal
+                                    ~send_signal:Unix.kill
+                                    ~terminate_group:(fun
+                                        ?grace_seconds:_ ?wait_seconds:_ pid ->
+                                      Lwt.async (fun () ->
+                                          Process_group.terminate pid))
+                                    ~db ~id ()
+                                with
+                                | Ok msg -> msg
+                                | Error msg -> msg
+                              in
+                              send_text text
+                          | _ ->
+                              let text =
+                                Slash_commands.format_bg
+                                  ~connector:Format_adapter.Teams ~db action
+                              in
+                              send_text text))
                   | Cron action ->
                       let text =
                         match Session.get_db session_manager with

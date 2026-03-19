@@ -581,6 +581,26 @@ let test_bg_stop_alias () =
     (Slash_commands.Bg (Slash_commands.BgCancel 3))
     (Slash_commands.handle "/bg stop 3")
 
+let test_bg_cancel_bare () =
+  match extract_text (Slash_commands.handle "/bg cancel") with
+  | Some s ->
+      Alcotest.(check bool)
+        "mentions missing id" true
+        (contains_str s "Missing task id");
+      Alcotest.(check bool)
+        "mentions /bg cancel <id>" true
+        (contains_str s "/bg cancel <id>");
+      Alcotest.(check bool) "mentions /bg list" true (contains_str s "/bg list")
+  | None -> Alcotest.fail "expected text reply for bare /bg cancel"
+
+let test_bg_stop_bare () =
+  match extract_text (Slash_commands.handle "/bg stop") with
+  | Some s ->
+      Alcotest.(check bool)
+        "mentions missing id" true
+        (contains_str s "Missing task id")
+  | None -> Alcotest.fail "expected text reply for bare /bg stop"
+
 let test_bg_retry () =
   Alcotest.check result_testable "/bg retry 1"
     (Slash_commands.Bg (Slash_commands.BgRetry 1))
@@ -2385,6 +2405,35 @@ let test_format_bg_menu () =
     "contains /bg create" true
     (contains_str text "/bg create")
 
+let test_bg_menu_card_with_cancellable () =
+  let cancellable = [ (1, "codex"); (3, "claude") ] in
+  let card_json =
+    Slash_commands_manifest.bg_menu_adaptive_card_json ~cancellable ()
+  in
+  let s = Yojson.Safe.to_string card_json in
+  Alcotest.(check bool)
+    "contains cancel #1" true
+    (contains_str s "Cancel #1 (codex)");
+  Alcotest.(check bool)
+    "contains /bg cancel 1" true
+    (contains_str s "/bg cancel 1");
+  Alcotest.(check bool)
+    "contains cancel #3" true
+    (contains_str s "Cancel #3 (claude)");
+  Alcotest.(check bool)
+    "contains /bg cancel 3" true
+    (contains_str s "/bg cancel 3");
+  Alcotest.(check bool)
+    "still has list button" true
+    (contains_str s "List Tasks")
+
+let test_bg_menu_card_no_cancellable () =
+  let card_json = Slash_commands_manifest.bg_menu_adaptive_card_json () in
+  let s = Yojson.Safe.to_string card_json in
+  Alcotest.(check bool) "has list button" true (contains_str s "List Tasks");
+  Alcotest.(check bool) "has create button" true (contains_str s "Create Task");
+  Alcotest.(check bool) "no cancel button" false (contains_str s "Cancel #")
+
 let test_format_config_menu () =
   let text =
     Slash_commands_fmt.format_config_menu ~connector:Format_adapter.Plain
@@ -2587,6 +2636,8 @@ let suite =
     Alcotest.test_case "/bg logs <id>" `Quick test_bg_logs;
     Alcotest.test_case "/bg cancel <id>" `Quick test_bg_cancel;
     Alcotest.test_case "/bg stop alias" `Quick test_bg_stop_alias;
+    Alcotest.test_case "/bg cancel bare" `Quick test_bg_cancel_bare;
+    Alcotest.test_case "/bg stop bare" `Quick test_bg_stop_bare;
     Alcotest.test_case "/bg retry <id>" `Quick test_bg_retry;
     Alcotest.test_case "/bg invalid id" `Quick test_bg_invalid_id;
     Alcotest.test_case "/bg unknown subcommand" `Quick
@@ -2810,6 +2861,10 @@ let suite =
     Alcotest.test_case "format thinking menu" `Quick test_format_thinking_menu;
     Alcotest.test_case "format costs menu" `Quick test_format_costs_menu;
     Alcotest.test_case "format bg menu" `Quick test_format_bg_menu;
+    Alcotest.test_case "bg menu card with cancellable" `Quick
+      test_bg_menu_card_with_cancellable;
+    Alcotest.test_case "bg menu card no cancellable" `Quick
+      test_bg_menu_card_no_cancellable;
     Alcotest.test_case "format config menu" `Quick test_format_config_menu;
     Alcotest.test_case "format model menu" `Quick test_format_model_menu;
     Alcotest.test_case "format skills menu" `Quick test_format_skills_menu;

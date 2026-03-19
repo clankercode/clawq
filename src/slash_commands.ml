@@ -245,6 +245,14 @@ let handle ?(skill_names = []) text =
             match args with
             | [] | [ "list" ] -> Bg BgList
             | [ "menu" ] -> BgMenu
+            | [ "cancel" ] | [ "stop" ] ->
+                FormattedReply
+                  (fun connector ->
+                    "Missing task id. Usage: "
+                    ^ Format_adapter.code connector "/bg cancel <id>"
+                    ^ "\nUse "
+                    ^ Format_adapter.code connector "/bg list"
+                    ^ " to see task ids.")
             | [ "show"; id_str ] | [ id_str ] -> (
                 match int_of_string_opt id_str with
                 | Some id -> Bg (BgShow id)
