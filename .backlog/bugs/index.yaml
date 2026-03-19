@@ -548,3 +548,4 @@ bugs:
     - file: B549-need-a-better-way-of-ensure-da.todo
     - file: B550-sessions-like-briefing-cannot.todo
     - file: B551-teams-help-skills-agents-list.todo
+    - file: B552-feature-command-lacks-progress.todo

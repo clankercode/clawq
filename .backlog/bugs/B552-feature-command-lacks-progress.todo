@@ -1,0 +1,30 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 1
+id: B552
+priority: medium
+status: pending
+tags: []
+title: /feature command lacks progress feedback during idea creation workflow
+---
+Problem: When running /feature, the command successfully creates an idea but provides no visible progress indication or skill-loading feedback. The user sees only the final result with no intermediate steps.
+
+Observed behavior:
+- /feature runs and creates idea (I054)
+- No 'step X/Y' progress indicator
+- No feedback about skills being loaded
+- Silent until final output
+
+Expected behavior:
+- Progress indicator like 'Add Feature, step 1/3: Creating idea...'
+- Visible feedback when skills are loaded
+- Clear indication of what stage the workflow is at
+- User can see what's happening in real-time
+
+Suggested fix pattern (from user):
+- Add step-by-step progress like 'Add Feature, step X/Y: <step description>'
+- Show skill-loading notifications
+- Make the workflow visible and informative
+
+Related: I053 (/feature skill/command E2E automation)
