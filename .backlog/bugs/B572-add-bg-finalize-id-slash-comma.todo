@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-19T18:05:52Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B572
 priority: high
-status: pending
+started_at: "2026-03-19T18:05:52Z"
+status: in_progress
 tags: []
 title: add `/bg finalize <id>` slash command (and add to cli commands too if its not already) so we can manually finalize
 ---
