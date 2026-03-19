@@ -1989,6 +1989,41 @@ let test_menu_adaptive_card_pagination () =
       (contains_str next_title "Page 2")
   end
 
+let test_skills_menu_adaptive_card_pagination () =
+  let skills =
+    Skills.filter_visible_skills ~show_test:false (Skills.available_skills ())
+  in
+  let _, _, total_pages = Slash_commands_fmt.paginate_items skills 1 in
+  if total_pages > 1 then begin
+    let open Yojson.Safe.Util in
+    let card1 =
+      Slash_commands_manifest.skills_menu_adaptive_card_json ~page:1 ()
+    in
+    let actions1 =
+      card1 |> member "attachments" |> to_list |> List.hd |> member "content"
+      |> member "actions" |> to_list
+    in
+    Alcotest.(check bool)
+      "page 1 has next nav" true
+      (List.exists
+         (fun action ->
+           contains_str (action |> member "title" |> to_string) "Page 2 >>")
+         actions1);
+    let card2 =
+      Slash_commands_manifest.skills_menu_adaptive_card_json ~page:2 ()
+    in
+    let actions2 =
+      card2 |> member "attachments" |> to_list |> List.hd |> member "content"
+      |> member "actions" |> to_list
+    in
+    Alcotest.(check bool)
+      "page 2 has prev nav" true
+      (List.exists
+         (fun action ->
+           contains_str (action |> member "title" |> to_string) "<< Page 1")
+         actions2)
+  end
+
 let test_cron_list () =
   Alcotest.check result_testable "/cron list"
     (Slash_commands.Cron Slash_commands.CronList)
@@ -2877,6 +2912,8 @@ let suite =
     Alcotest.test_case "format config menu" `Quick test_format_config_menu;
     Alcotest.test_case "format model menu" `Quick test_format_model_menu;
     Alcotest.test_case "format skills menu" `Quick test_format_skills_menu;
+    Alcotest.test_case "skills menu adaptive card pagination" `Quick
+      test_skills_menu_adaptive_card_pagination;
     Alcotest.test_case "/inject_connector_history default" `Quick
       test_inject_connector_history_default;
     Alcotest.test_case "/inject_connector_history 30" `Quick

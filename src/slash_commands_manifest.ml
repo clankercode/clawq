@@ -213,23 +213,26 @@ let imback_action title value =
           ] );
     ]
 
-let button_card ~title ~buttons =
-  let actions =
+let button_card_body ~title ~buttons =
+  let button_actions =
     List.map (fun (label, value) -> imback_action label value) buttons
   in
-  let body =
-    [
-      `Assoc
-        [
-          ("type", `String "TextBlock");
-          ("text", `String title);
-          ("weight", `String "bolder");
-          ("size", `String "medium");
-        ];
-      `Assoc [ ("type", `String "ActionSet"); ("actions", `List actions) ];
-    ]
-  in
-  wrap_adaptive_card body []
+  [
+    `Assoc
+      [
+        ("type", `String "TextBlock");
+        ("text", `String title);
+        ("weight", `String "bolder");
+        ("size", `String "medium");
+      ];
+    `Assoc [ ("type", `String "ActionSet"); ("actions", `List button_actions) ];
+  ]
+
+let button_card ~title ~buttons =
+  wrap_adaptive_card (button_card_body ~title ~buttons) []
+
+let button_card_with_actions ~title ~buttons ~actions =
+  wrap_adaptive_card (button_card_body ~title ~buttons) actions
 
 let model_menu_adaptive_card_json ?(page = 1) () =
   let prefs = Model_preferences.load () in
@@ -329,9 +332,10 @@ let skills_menu_adaptive_card_json ?(show_test = false) ?(page = 1) () =
         ]
       else []
     in
-    button_card
+    button_card_with_actions
       ~title:(Printf.sprintf "Skills (%d/%d)" page total_pages)
-      ~buttons:(buttons @ nav)
+      ~buttons
+      ~actions:(List.map (fun (label, value) -> imback_action label value) nav)
 
 let costs_menu_adaptive_card_json () =
   let buttons =
