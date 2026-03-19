@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B573
+priority: high
+status: pending
+tags: []
+title: Port clawq-version-bump skill into ~/.clawq/skills
+---
+
+Port clawq-version-bump skill into ~/.clawq/skills
