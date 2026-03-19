@@ -164,7 +164,8 @@
   test_webhook_handler
   test_browser
   test_rig
-  test_held_items)
+  test_held_items
+  test_repo_manager)
  (libraries
   clawq_extracted
   clawq_runtime_core

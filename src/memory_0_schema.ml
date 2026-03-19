@@ -1,4 +1,4 @@
-let schema_version = 28
+let schema_version = 29
 
 let exec_exn db sql =
   match Sqlite3.exec db sql with
@@ -349,6 +349,18 @@ let add_thinking_content_columns db =
       "ALTER TABLE session_log_epoch_messages ADD COLUMN thinking_content TEXT"
   with _ -> ()
 
+let init_session_repos_schema db =
+  exec_exn db
+    "CREATE TABLE IF NOT EXISTS session_repos (\n\
+    \     session_key TEXT PRIMARY KEY,\n\
+    \     repo_url TEXT,\n\
+    \     local_path TEXT NOT NULL,\n\
+    \     is_managed INTEGER NOT NULL DEFAULT 0,\n\
+    \     last_fetched_at TEXT,\n\
+    \     last_fetch_error TEXT,\n\
+    \     created_at TEXT NOT NULL DEFAULT (datetime('now'))\n\
+    \   )"
+
 let init_debate_rounds_schema db =
   exec_exn db
     "CREATE TABLE IF NOT EXISTS debate_rounds (\n\
@@ -383,7 +395,8 @@ let ensure_all_tables db =
   init_attachment_log_schema db;
   Admin.init_schema db;
   Pair_coding_state.init_schema db;
-  init_debate_rounds_schema db
+  init_debate_rounds_schema db;
+  init_session_repos_schema db
 
 (* Each step migrates from version [v] to [v + 1].
    All ALTER TABLE operations use try/catch for idempotency.
@@ -468,6 +481,7 @@ let migrate_step db v =
           "ALTER TABLE session_state ADD COLUMN effective_cwd TEXT DEFAULT NULL"
       with _ -> ())
   | 27 -> init_debate_rounds_schema db
+  | 28 -> init_session_repos_schema db
   | n -> failwith (Printf.sprintf "Unknown migration step from version %d" n)
 
 (* Idempotent column repair for databases that reached the current schema

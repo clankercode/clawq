@@ -893,6 +893,28 @@ let handle_event ~(config : Runtime_config.slack_config)
                         | `Remove -> Rig.mark_removed ~name
                         | `Adjust -> ());
                         Lwt.return "ok"))
+            | Repo action -> (
+                match Session.get_db session_manager with
+                | Some db ->
+                    let* () =
+                      Slash_commands_repo.handle_repo_action ~db
+                        ~session_key:key ~connector:Format_adapter.Slack
+                        ~send_reply:(fun text ->
+                          send_message_fn ~bot_token:config.bot_token
+                            ~channel_id ~text)
+                        ~set_cwd:(fun cwd ->
+                          Session.set_effective_cwd session_manager ~key ~cwd)
+                        action
+                    in
+                    Lwt.return "ok"
+                | None ->
+                    let* () =
+                      send_message_fn ~bot_token:config.bot_token ~channel_id
+                        ~text:
+                          "Repository management is not available (no \
+                           database)."
+                    in
+                    Lwt.return "ok")
             | Model action -> (
                 let open Slash_commands in
                 match action with

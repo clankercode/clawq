@@ -385,6 +385,14 @@ let is_queued_message_response response = response = queued_message_response
 let should_suppress_response response =
   is_queued_message_response response || Group_chat_filter.is_no_reply response
 
+let set_effective_cwd mgr ~key ~cwd =
+  (match Hashtbl.find_opt mgr.sessions key with
+  | Some (agent, _, _) -> agent.Agent.effective_cwd <- Some cwd
+  | None -> ());
+  match mgr.db with
+  | Some db -> Memory.set_session_cwd ~db ~session_key:key ~cwd:(Some cwd)
+  | None -> ()
+
 let queueable_channel_key key =
   match Restart_notify.parse_channel_from_key key with
   | Some ("web", _) -> false

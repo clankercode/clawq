@@ -1453,6 +1453,40 @@ let run ~(config : Runtime_config.t) =
               Logs.err (fun m ->
                   m "Cron scheduler error: %s" (Printexc.to_string exn));
               Lwt.return_unit));
+      (* Periodic repo fetch loop: auto-fetches managed repos every 15 min *)
+      Lwt.async (fun () ->
+          Lwt.catch
+            (fun () ->
+              let rec repo_fetch_loop () =
+                let open Lwt.Syntax in
+                let* () = Lwt_unix.sleep 900.0 in
+                let managed = Repo_manager.list_managed_repos ~db in
+                let* () =
+                  Lwt_list.iter_s
+                    (fun (info : Repo_manager.repo_info) ->
+                      if Sys.file_exists info.local_path then begin
+                        let* result =
+                          Repo_manager.fetch_repo ~path:info.local_path
+                        in
+                        Repo_manager.update_fetch_status ~db
+                          ~session_key:info.session_key
+                          ?error:
+                            (match result with
+                            | Error e -> Some e
+                            | Ok () -> None)
+                          ();
+                        Lwt.return_unit
+                      end
+                      else Lwt.return_unit)
+                    managed
+                in
+                repo_fetch_loop ()
+              in
+              repo_fetch_loop ())
+            (fun exn ->
+              Logs.err (fun m ->
+                  m "Repo fetch loop error: %s" (Printexc.to_string exn));
+              Lwt.return_unit));
       Lwt.async (fun () ->
           Lwt.catch
             (fun () ->

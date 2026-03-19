@@ -193,6 +193,7 @@ let () =
     @ [ ("browser", Test_browser.suite) ]
     @ [ ("rig", Test_rig.suite) ]
     @ [ ("held_items", Test_held_items.suite) ]
+    @ [ ("repo_manager", Test_repo_manager.suite) ]
     @ Test_github.suites
     @ [
         ( "config_isolation",

@@ -158,6 +158,12 @@ let rec result_to_string = function
           "HeldItems(Reject " ^ string_of_int id ^ " "
           ^ Option.value ~default:"" reason
           ^ ")")
+  | Slash_commands.Repo action -> (
+      match action with
+      | Slash_commands.RepoStatus -> "Repo(Status)"
+      | Slash_commands.RepoAssociate s -> "Repo(Associate " ^ s ^ ")"
+      | Slash_commands.RepoForget -> "Repo(Forget)"
+      | Slash_commands.RepoUpdate -> "Repo(Update)")
   | Slash_commands.Debate prompt -> "Debate(" ^ prompt ^ ")"
   | Slash_commands.NotACommand -> "NotACommand"
 
@@ -216,6 +222,7 @@ let rec result_eq a b =
   | Slash_commands.RegisterAsAdminOtc a, Slash_commands.RegisterAsAdminOtc b ->
       a = b
   | Slash_commands.Rig a, Slash_commands.Rig b -> a = b
+  | Slash_commands.Repo a, Slash_commands.Repo b -> a = b
   | Slash_commands.HeldItems a, Slash_commands.HeldItems b -> a = b
   | Slash_commands.Debate a, Slash_commands.Debate b -> a = b
   | Slash_commands.NotACommand, Slash_commands.NotACommand -> true
@@ -2627,6 +2634,52 @@ let test_session_in_commands_list () =
   in
   Alcotest.(check bool) "session in commands" true (List.mem "session" names)
 
+(* ── /repo tests ─────────────────────────────────────────────────────── *)
+
+let test_repo_status () =
+  Alcotest.check result_testable "/repo status"
+    (Slash_commands.Repo Slash_commands.RepoStatus)
+    (Slash_commands.handle "/repo")
+
+let test_repo_forget () =
+  Alcotest.check result_testable "/repo forget"
+    (Slash_commands.Repo Slash_commands.RepoForget)
+    (Slash_commands.handle "/repo forget")
+
+let test_repo_update () =
+  Alcotest.check result_testable "/repo update"
+    (Slash_commands.Repo Slash_commands.RepoUpdate)
+    (Slash_commands.handle "/repo update")
+
+let test_repo_pull_alias () =
+  Alcotest.check result_testable "/repo pull"
+    (Slash_commands.Repo Slash_commands.RepoUpdate)
+    (Slash_commands.handle "/repo pull")
+
+let test_repo_fetch_alias () =
+  Alcotest.check result_testable "/repo fetch"
+    (Slash_commands.Repo Slash_commands.RepoUpdate)
+    (Slash_commands.handle "/repo fetch")
+
+let test_repo_associate_url () =
+  Alcotest.check result_testable "/repo https://github.com/user/repo.git"
+    (Slash_commands.Repo
+       (Slash_commands.RepoAssociate "https://github.com/user/repo.git"))
+    (Slash_commands.handle "/repo https://github.com/user/repo.git")
+
+let test_repo_associate_path () =
+  Alcotest.check result_testable "/repo /home/user/project"
+    (Slash_commands.Repo (Slash_commands.RepoAssociate "/home/user/project"))
+    (Slash_commands.handle "/repo /home/user/project")
+
+let test_repo_in_commands_list () =
+  let names =
+    List.map
+      (fun (cmd : Slash_commands.command) -> cmd.name)
+      Slash_commands.commands
+  in
+  Alcotest.(check bool) "repo in commands" true (List.mem "repo" names)
+
 let suite =
   [
     Alcotest.test_case "handle /start" `Quick test_start;
@@ -2957,4 +3010,13 @@ let suite =
     Alcotest.test_case "/session bad args" `Quick test_session_bad_args;
     Alcotest.test_case "/session in commands list" `Quick
       test_session_in_commands_list;
+    Alcotest.test_case "/repo status" `Quick test_repo_status;
+    Alcotest.test_case "/repo forget" `Quick test_repo_forget;
+    Alcotest.test_case "/repo update" `Quick test_repo_update;
+    Alcotest.test_case "/repo pull alias" `Quick test_repo_pull_alias;
+    Alcotest.test_case "/repo fetch alias" `Quick test_repo_fetch_alias;
+    Alcotest.test_case "/repo associate url" `Quick test_repo_associate_url;
+    Alcotest.test_case "/repo associate path" `Quick test_repo_associate_path;
+    Alcotest.test_case "/repo in commands list" `Quick
+      test_repo_in_commands_list;
   ]

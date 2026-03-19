@@ -489,6 +489,12 @@ let handle ?(skill_names = []) text =
             | [] | [ "list" ] -> Rig RigList
             | _ ->
                 Reply "Usage: /rig install|adjust|remove <name>, or /rig list")
+        | "repo" -> (
+            match args with
+            | [] -> Repo RepoStatus
+            | [ "forget" ] -> Repo RepoForget
+            | [ "update" ] | [ "pull" ] | [ "fetch" ] -> Repo RepoUpdate
+            | _ -> Repo (RepoAssociate (String.concat " " args)))
         | "held-items" | "held_items" | "helditems" -> (
             match args with
             | [] | [ "list" ] -> HeldItems (HeldItemsList false)

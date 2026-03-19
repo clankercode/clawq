@@ -77,6 +77,12 @@ type rig_action =
   | RigRemove of string
   | RigList
 
+type repo_action =
+  | RepoStatus
+  | RepoAssociate of string
+  | RepoForget
+  | RepoUpdate
+
 type result =
   | Reply of string
   | FormattedReply of (Format_adapter.connector -> string)
@@ -104,6 +110,7 @@ type result =
   | Bl of bl_action
   | Session of session_action
   | Rig of rig_action
+  | Repo of repo_action
   | HeldItems of held_items_action
   | DebugDumpChat
   | AgentInvoke of string * string
@@ -210,6 +217,11 @@ let commands =
       description =
         "Manage setup rigs: /rig [install/adjust/remove/list] [name]";
       priority = 50;
+    };
+    {
+      name = "repo";
+      description = "Manage repo: /repo [url/path/forget/update]";
+      priority = 52;
     };
     {
       name = "delegate";

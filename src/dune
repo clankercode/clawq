@@ -90,6 +90,8 @@
   slash_commands_fmt
   slash_commands_stats_fmt
   slash_commands
+  slash_commands_repo
+  repo_manager
   slash_commands_manifest
   totp
   cost_tracker

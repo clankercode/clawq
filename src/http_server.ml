@@ -360,6 +360,36 @@ let handler ~session_manager ~require_pairing ~auth_token
                     in
                     Cohttp_lwt_unix.Server.respond_string ~status:`OK
                       ~headers:json_headers ~body:resp_json ()
+                | Slash_commands.Repo action ->
+                    let* response =
+                      match Session.get_db session_manager with
+                      | Some db ->
+                          let buf = Buffer.create 256 in
+                          let* () =
+                            Slash_commands_repo.handle_repo_action ~db
+                              ~session_key:key ~connector:Format_adapter.Plain
+                              ~send_reply:(fun text ->
+                                if Buffer.length buf > 0 then
+                                  Buffer.add_char buf '\n';
+                                Buffer.add_string buf text;
+                                Lwt.return_unit)
+                              ~set_cwd:(fun cwd ->
+                                Session.set_effective_cwd session_manager ~key
+                                  ~cwd)
+                              action
+                          in
+                          Lwt.return (Buffer.contents buf)
+                      | None ->
+                          Lwt.return
+                            "Repository management is not available (no \
+                             database)."
+                    in
+                    let resp_json =
+                      `Assoc [ ("response", `String response) ]
+                      |> Yojson.Safe.to_string
+                    in
+                    Cohttp_lwt_unix.Server.respond_string ~status:`OK
+                      ~headers:json_headers ~body:resp_json ()
                 | Slash_commands.Tools ->
                     let show_test =
                       (Session.get_config session_manager).test.show_skills
@@ -1151,6 +1181,32 @@ let handler ~session_manager ~require_pairing ~auth_token
                     sse_reply text
                 | Slash_commands.Rig action ->
                     let text = Rig.format_slash_action action in
+                    sse_reply text
+                | Slash_commands.Repo action ->
+                    let key = "web:" ^ session_id in
+                    let* text =
+                      match Session.get_db session_manager with
+                      | Some db ->
+                          let buf = Buffer.create 256 in
+                          let* () =
+                            Slash_commands_repo.handle_repo_action ~db
+                              ~session_key:key ~connector:Format_adapter.Plain
+                              ~send_reply:(fun text ->
+                                if Buffer.length buf > 0 then
+                                  Buffer.add_char buf '\n';
+                                Buffer.add_string buf text;
+                                Lwt.return_unit)
+                              ~set_cwd:(fun cwd ->
+                                Session.set_effective_cwd session_manager ~key
+                                  ~cwd)
+                              action
+                          in
+                          Lwt.return (Buffer.contents buf)
+                      | None ->
+                          Lwt.return
+                            "Repository management is not available (no \
+                             database)."
+                    in
                     sse_reply text
                 | Slash_commands.Thinking Slash_commands.ShowThinking ->
                     let current =

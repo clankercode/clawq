@@ -1067,6 +1067,21 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                     | `Remove -> Rig.mark_removed ~name
                     | `Adjust -> ());
                     Lwt.return_unit))
+        | Repo action -> (
+            match Session.get_db session_mgr with
+            | Some db ->
+                Slash_commands_repo.handle_repo_action ~db ~session_key:key
+                  ~connector:Format_adapter.Discord
+                  ~send_reply:(fun text ->
+                    send_message_fn ~bot_token:discord_config.bot_token
+                      ~channel_id:msg.channel_id ~text)
+                  ~set_cwd:(fun cwd ->
+                    Session.set_effective_cwd session_mgr ~key ~cwd)
+                  action
+            | None ->
+                send_message_fn ~bot_token:discord_config.bot_token
+                  ~channel_id:msg.channel_id
+                  ~text:"Repository management is not available (no database).")
         | Model action -> (
             let open Slash_commands in
             match action with

@@ -914,6 +914,21 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
                     | `Remove -> Rig.mark_removed ~name
                     | `Adjust -> ());
                     Lwt.return_unit))
+        | Repo action -> (
+            match Session.get_db session_mgr with
+            | Some db ->
+                Slash_commands_repo.handle_repo_action ~db ~session_key:key
+                  ~connector:Format_adapter.Telegram_html
+                  ~send_reply:(fun text ->
+                    send_chunked_html_with_fallback ~bot_token
+                      ~chat_id:update.chat_id ~text ())
+                  ~set_cwd:(fun cwd ->
+                    Session.set_effective_cwd session_mgr ~key ~cwd)
+                  action
+            | None ->
+                send_message ~bot_token ~chat_id:update.chat_id
+                  ~text:"Repository management is not available (no database)."
+                  ())
         | Model action -> (
             let open Slash_commands in
             match action with

@@ -419,6 +419,7 @@ let clear_session ~db ~session_key =
   clear "DELETE FROM session_state WHERE session_key = ?";
   clear "DELETE FROM session_workspace_state WHERE session_key = ?";
   clear "DELETE FROM inbound_queue WHERE session_key = ?";
+  clear "DELETE FROM session_repos WHERE session_key = ?";
   Summary_store.delete_for_session ~db ~session_key
 
 let insert_archive_raw_message ~db ~table_name ~id_column ~id_value ~ordinal

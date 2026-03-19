@@ -356,7 +356,7 @@ ideas:
       file: I054-add-repo-slash-command-to-asso.todo
       id: I054
       priority: high
-      status: in_progress
+      status: done
       tags: []
       title: Add /repo slash command to associate a session with a git repository
     - complexity: medium
