@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B574
+priority: high
+status: pending
+tags: []
+title: With skills, if we dont already support `disable-model-invocation` in yaml frontmatter, we should
+---
+
+With skills, if we dont already support `disable-model-invocation` in yaml frontmatter, we should
