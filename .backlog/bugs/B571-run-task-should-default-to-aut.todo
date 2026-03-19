@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B571
+priority: high
+status: pending
+tags: []
+title: run-task should default to automerge with review guard
+---
+run-task launches background work without automerge=true, so successful jobs are not merged automatically. It should also enforce a follow-up that verifies review-and-fix has run before completion, and run it if it has not.
