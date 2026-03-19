@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B577
+priority: high
+status: pending
+tags: []
+title: Discord and slack still show as connected even when they are missing keys (secret/api) or a token
+---
+
+Discord and slack still show as connected even when they are missing keys (secret/api) or a token
