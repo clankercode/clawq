@@ -874,7 +874,7 @@ let run ~(config : Runtime_config.t) =
   let telegram =
     Lwt.catch
       (fun () ->
-        Telegram.start_polling ~config ~session_manager ~run_update_command
+        Telegram_poll.start_polling ~config ~session_manager ~run_update_command
           ~chat_limiter ~stop:telegram_stop_waiter ())
       (fun exn ->
         Logs.err (fun m ->

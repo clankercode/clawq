@@ -37,6 +37,7 @@
   agent_cost
   skill_dedup
   agent_tools
+  agent_0_compact
   agent
   session_core
   session_turn
@@ -53,11 +54,16 @@
   tools_builtin_browser
   tools_builtin
   task_tree_core
+  memory_0_schema
+  memory_0_queue
+  memory_0_postmortem
   memory
   rate_limiter
   scheduler
   runner_framework
+  background_task_0_format
   background_task
+  background_task_tools
   worktree_merge
   plan_pipeline
   task_tree
@@ -80,7 +86,9 @@
   connector_history
   group_chat_filter
   typing_indicator
+  slash_commands_bl_fmt
   slash_commands_fmt
+  slash_commands_stats_fmt
   slash_commands
   slash_commands_manifest
   totp
@@ -171,14 +179,19 @@
 (library
  (name clawq_runtime_integrations)
  (modules
+  http_server_0_util
+  http_server_webhooks
   http_server
   telegram_api
   telegram
+  telegram_poll
   telegram_format
   daemon_util
   daemon
   command_bridge_helpers
   command_bridge_session
+  command_bridge_debug
+  command_bridge_agent_cmds
   mcp_server
   service
   runtime_native
@@ -216,6 +229,8 @@
   nostr
   line_channel
   onebot
+  teams_auth
+  teams_file_consent
   teams
   attachment_download
   voice_transcription

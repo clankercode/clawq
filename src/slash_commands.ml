@@ -1,4 +1,5 @@
 include Slash_commands_fmt
+include Slash_commands_stats_fmt
 
 let handle ?(skill_names = []) text =
   let trimmed = String.trim text in

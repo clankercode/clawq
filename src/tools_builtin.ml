@@ -1437,17 +1437,18 @@ let register_all ~(config : Runtime_config.t) ~sandbox ?(db = None)
       Plan_pipeline.init_schema db;
       Tool_registry.register registry (Task_tree.tool ~db ());
       Tool_registry.register registry
-        (Background_task.enqueue_tool_with_notify ~notify_cfg:config.notify ~db);
-      Tool_registry.register registry (Background_task.list_tool ~db);
-      Tool_registry.register registry (Background_task.wait_tool ~db);
-      Tool_registry.register registry (Background_task.logs_tool ~db);
-      Tool_registry.register registry (Background_task.resume_tool ~db);
-      Tool_registry.register registry (Background_task.message_tool ~db);
+        (Background_task_tools.enqueue_tool_with_notify
+           ~notify_cfg:config.notify ~db);
+      Tool_registry.register registry (Background_task_tools.list_tool ~db);
+      Tool_registry.register registry (Background_task_tools.wait_tool ~db);
+      Tool_registry.register registry (Background_task_tools.logs_tool ~db);
+      Tool_registry.register registry (Background_task_tools.resume_tool ~db);
+      Tool_registry.register registry (Background_task_tools.message_tool ~db);
       Tool_registry.register registry
-        (Background_task.delegate_tool_with_notify ~db
+        (Background_task_tools.delegate_tool_with_notify ~db
            ~default_repo_path:workspace ~notify_cfg:config.notify ());
-      Tool_registry.register registry (Background_task.cancel_tool ~db);
-      Tool_registry.register registry (Background_task.recover_tool ~db);
+      Tool_registry.register registry (Background_task_tools.cancel_tool ~db);
+      Tool_registry.register registry (Background_task_tools.recover_tool ~db);
       Tool_registry.register registry (Worktree_merge.finalize_tool ~db);
       Tool_registry.register registry
         (Plan_pipeline.start_tool ~db ~default_repo_path:workspace);

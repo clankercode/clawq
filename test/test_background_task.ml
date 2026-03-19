@@ -745,7 +745,7 @@ let test_enqueue_tool_uses_context_session_key () =
   with_temp_git_repo (fun repo_path ->
       let db = Memory.init ~db_path:":memory:" () in
       Background_task.init_schema db;
-      let tool = Background_task.enqueue_tool ~db in
+      let tool = Background_task_tools.enqueue_tool ~db in
       let args =
         `Assoc
           [
@@ -786,7 +786,7 @@ let test_list_tool_returns_task_summary () =
       ignore
         (Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
            ~prompt:"implement feature" ());
-      let tool = Background_task.list_tool ~db in
+      let tool = Background_task_tools.list_tool ~db in
       let result = Lwt_main.run (tool.Tool.invoke (`Assoc [])) in
       Alcotest.(check bool)
         "list mentions task" true
@@ -813,7 +813,7 @@ let test_wait_tool_returns_terminal_summary () =
       ignore
         (Background_task.mark_cancelled ~db ~id
            ~result_preview:"Cancelled before execution started");
-      let tool = Background_task.wait_tool ~db in
+      let tool = Background_task_tools.wait_tool ~db in
       let result =
         Lwt_main.run
           (tool.Tool.invoke
@@ -850,7 +850,7 @@ let test_logs_tool_returns_excerpt () =
            ~worktree_path:"/tmp/worktree" ~log_path ~pid:12345);
       Background_task.finish ~db ~id ~status:Background_task.Succeeded
         ~result_preview:"ok";
-      let tool = Background_task.logs_tool ~db in
+      let tool = Background_task_tools.logs_tool ~db in
       let result =
         Lwt_main.run
           (tool.Tool.invoke (`Assoc [ ("id", `Int id); ("lines", `Int 2) ]))
@@ -887,7 +887,7 @@ let test_logs_tool_offset_paging () =
            ~worktree_path:"/tmp/worktree" ~log_path ~pid:12345);
       Background_task.finish ~db ~id ~status:Background_task.Succeeded
         ~result_preview:"ok";
-      let tool = Background_task.logs_tool ~db in
+      let tool = Background_task_tools.logs_tool ~db in
       (* Read lines 3-5 using offset *)
       let result =
         Lwt_main.run
@@ -944,7 +944,7 @@ let test_logs_tool_offset_end_of_log () =
            ~worktree_path:"/tmp/worktree" ~log_path ~pid:12345);
       Background_task.finish ~db ~id ~status:Background_task.Succeeded
         ~result_preview:"ok";
-      let tool = Background_task.logs_tool ~db in
+      let tool = Background_task_tools.logs_tool ~db in
       (* Read from offset 4 with limit 100 — should hit end *)
       let result =
         Lwt_main.run
@@ -987,7 +987,7 @@ let test_logs_tool_offset_past_end () =
            ~worktree_path:"/tmp/worktree" ~log_path ~pid:12345);
       Background_task.finish ~db ~id ~status:Background_task.Succeeded
         ~result_preview:"ok";
-      let tool = Background_task.logs_tool ~db in
+      let tool = Background_task_tools.logs_tool ~db in
       let result =
         Lwt_main.run
           (tool.Tool.invoke
@@ -1028,7 +1028,7 @@ let test_logs_tool_lines_backward_compat () =
            ~worktree_path:"/tmp/worktree" ~log_path ~pid:12345);
       Background_task.finish ~db ~id ~status:Background_task.Succeeded
         ~result_preview:"ok";
-      let tool = Background_task.logs_tool ~db in
+      let tool = Background_task_tools.logs_tool ~db in
       (* Use lines param (backward compat, tail mode) *)
       let result =
         Lwt_main.run
@@ -1069,7 +1069,7 @@ let test_wait_tool_compact_omits_verbose_fields () =
       ignore
         (Background_task.mark_cancelled ~db ~id
            ~result_preview:"Cancelled before execution started");
-      let tool = Background_task.wait_tool ~db in
+      let tool = Background_task_tools.wait_tool ~db in
       let result =
         Lwt_main.run
           (tool.Tool.invoke
@@ -1135,7 +1135,7 @@ let test_wait_tool_compact_truncates_previews () =
       in
       Background_task.finish ~db ~id ~status:Background_task.Succeeded
         ~result_preview:(String.make 300 'r');
-      let tool = Background_task.wait_tool ~db in
+      let tool = Background_task_tools.wait_tool ~db in
       let result =
         Lwt_main.run
           (tool.Tool.invoke
@@ -1187,7 +1187,7 @@ let test_logs_tool_tail_includes_line_metadata () =
            ~worktree_path:"/tmp/worktree" ~log_path ~pid:12345);
       Background_task.finish ~db ~id ~status:Background_task.Succeeded
         ~result_preview:"ok";
-      let tool = Background_task.logs_tool ~db in
+      let tool = Background_task_tools.logs_tool ~db in
       let result =
         Lwt_main.run
           (tool.Tool.invoke (`Assoc [ ("id", `Int id); ("limit", `Int 5) ]))
@@ -1228,7 +1228,7 @@ let test_logs_tool_tail_empty_file () =
            ~worktree_path:"/tmp/worktree" ~log_path ~pid:12345);
       Background_task.finish ~db ~id ~status:Background_task.Succeeded
         ~result_preview:"ok";
-      let tool = Background_task.logs_tool ~db in
+      let tool = Background_task_tools.logs_tool ~db in
       let result =
         Lwt_main.run (tool.Tool.invoke (`Assoc [ ("id", `Int id) ]))
       in
@@ -1373,7 +1373,7 @@ let test_delegate_tool_queues_task () =
       let db = Memory.init ~db_path:":memory:" () in
       Background_task.init_schema db;
       let tool =
-        Background_task.delegate_tool ~check_available:false ~db
+        Background_task_tools.delegate_tool ~check_available:false ~db
           ~default_repo_path:repo ()
       in
       let result =
@@ -2529,7 +2529,7 @@ let test_wait_tool_timeout_returns_instruction () =
         | Error msg -> Alcotest.fail msg
       in
       (* Task is queued (non-terminal), so a 0-second timeout triggers immediately *)
-      let tool = Background_task.wait_tool ~db in
+      let tool = Background_task_tools.wait_tool ~db in
       let result =
         Lwt_main.run
           (tool.Tool.invoke
@@ -2574,7 +2574,7 @@ let test_wait_tool_clamps_timeout_above_max () =
         (Background_task.mark_cancelled ~db ~id
            ~result_preview:"Cancelled before execution started");
       (* Even with a huge timeout, it should succeed because task is terminal *)
-      let tool = Background_task.wait_tool ~db in
+      let tool = Background_task_tools.wait_tool ~db in
       let result =
         Lwt_main.run
           (tool.Tool.invoke
