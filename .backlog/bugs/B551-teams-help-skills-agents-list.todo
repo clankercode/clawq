@@ -1,0 +1,16 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 1
+id: B551
+priority: medium
+status: pending
+tags: []
+title: Teams /help skills/agents list renders on one line instead of bulleted list
+---
+The /help command in Teams produces a table (formats correctly) followed by a list of skills and agents. The list portion renders on a single line instead of as separate items.
+
+Expected: bullet list or line-separated items
+Actual: all skills/agents on one line
+
+Likely cause: Teams markdown rendering differs from Telegram; may need explicit bullet syntax (`- item`) or newline handling. Check slash_commands_fmt.ml format_help and how Teams adapter renders multi-line text vs markdown.
