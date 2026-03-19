@@ -173,62 +173,23 @@ let known_models : model_info list =
       supports_thinking = true;
       deprecated = false;
     };
+    (* OpenAI Codex *)
     {
-      provider = "openai";
+      provider = "openai-codex";
       id = "gpt-5.3-codex-spark";
       display_name = None;
-      context_window = Some 200000;
+      context_window = Some 128000;
       supports_vision = false;
       supports_tools = true;
       supports_thinking = true;
       deprecated = false;
     };
     {
-      provider = "openai";
+      provider = "openai-codex";
       id = "gpt-5.3-codex";
       display_name = None;
-      context_window = Some 200000;
-      supports_vision = false;
-      supports_tools = true;
-      supports_thinking = true;
-      deprecated = false;
-    };
-    {
-      provider = "openai";
-      id = "gpt-5.2-codex";
-      display_name = None;
-      context_window = Some 200000;
-      supports_vision = false;
-      supports_tools = true;
-      supports_thinking = true;
-      deprecated = false;
-    };
-    {
-      provider = "openai";
-      id = "gpt-5.1-codex-max";
-      display_name = None;
-      context_window = Some 200000;
-      supports_vision = false;
-      supports_tools = true;
-      supports_thinking = true;
-      deprecated = false;
-    };
-    {
-      provider = "openai";
-      id = "gpt-5.1-codex-mini";
-      display_name = None;
-      context_window = Some 200000;
-      supports_vision = false;
-      supports_tools = true;
-      supports_thinking = true;
-      deprecated = false;
-    };
-    {
-      provider = "openai";
-      id = "gpt-5.1-codex";
-      display_name = None;
-      context_window = Some 200000;
-      supports_vision = false;
+      context_window = Some 272000;
+      supports_vision = true;
       supports_tools = true;
       supports_thinking = true;
       deprecated = false;
@@ -239,16 +200,6 @@ let known_models : model_info list =
       display_name = None;
       context_window = Some 200000;
       supports_vision = true;
-      supports_tools = true;
-      supports_thinking = true;
-      deprecated = false;
-    };
-    {
-      provider = "openai";
-      id = "gpt-5-codex";
-      display_name = None;
-      context_window = Some 200000;
-      supports_vision = false;
       supports_tools = true;
       supports_thinking = true;
       deprecated = false;
@@ -767,7 +718,7 @@ let to_plain_list ?(provider_filter = None) ?(db_extras = []) () =
   let catalog_lines =
     List.map
       (fun m ->
-        let full = Printf.sprintf "%s/%s" m.provider m.id in
+        let full = Printf.sprintf "%s:%s" m.provider m.id in
         let ctx = format_context_window m.context_window in
         let badges = Buffer.create 16 in
         if m.supports_vision then Buffer.add_string badges " vision";
@@ -779,7 +730,7 @@ let to_plain_list ?(provider_filter = None) ?(db_extras = []) () =
       non_deprecated
   in
   let extra_lines =
-    List.map (fun (p, m) -> Printf.sprintf "%s/%s [db]" p m) db_extras
+    List.map (fun (p, m) -> Printf.sprintf "%s:%s [db]" p m) db_extras
   in
   String.concat "\n" (catalog_lines @ extra_lines)
 

@@ -129,6 +129,127 @@ let upsert_models ~db ~provider models =
          m "models_cache upsert error: %s" (Printexc.to_string exn)));
   !count
 
+let upsert_model_rich ~db ~provider ~model_id ~display_name ~context_window
+    ~supports_vision ~supports_tools ~supports_thinking ~source =
+  let sql =
+    "INSERT INTO models_cache (provider, model_id, display_name, \
+     context_window, supports_vision, supports_tools, supports_thinking, \
+     source, fetched_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now')) ON \
+     CONFLICT(provider, model_id) DO UPDATE SET display_name = \
+     excluded.display_name, context_window = excluded.context_window, \
+     supports_vision = excluded.supports_vision, supports_tools = \
+     excluded.supports_tools, supports_thinking = excluded.supports_thinking, \
+     source = excluded.source, fetched_at = excluded.fetched_at"
+  in
+  try
+    let stmt = Sqlite3.prepare db sql in
+    Fun.protect
+      ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+      (fun () ->
+        ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT provider));
+        ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT model_id));
+        ignore
+          (Sqlite3.bind stmt 3
+             (match display_name with
+             | None -> Sqlite3.Data.NULL
+             | Some n -> Sqlite3.Data.TEXT n));
+        ignore
+          (Sqlite3.bind stmt 4
+             (match context_window with
+             | None -> Sqlite3.Data.NULL
+             | Some n -> Sqlite3.Data.INT (Int64.of_int n)));
+        ignore
+          (Sqlite3.bind stmt 5
+             (Sqlite3.Data.INT (if supports_vision then 1L else 0L)));
+        ignore
+          (Sqlite3.bind stmt 6
+             (Sqlite3.Data.INT (if supports_tools then 1L else 0L)));
+        ignore
+          (Sqlite3.bind stmt 7
+             (Sqlite3.Data.INT (if supports_thinking then 1L else 0L)));
+        ignore (Sqlite3.bind stmt 8 (Sqlite3.Data.TEXT source));
+        match Sqlite3.step stmt with
+        | Sqlite3.Rc.DONE -> true
+        | rc ->
+            Logs.warn (fun m ->
+                m "models_cache upsert_rich failed: %s"
+                  (Sqlite3.Rc.to_string rc));
+            false)
+  with exn ->
+    Logs.warn (fun m ->
+        m "models_cache upsert_rich error: %s" (Printexc.to_string exn));
+    false
+
+let load_codex_file_models ?(path = None) ~db () =
+  let file_path =
+    match path with
+    | Some p -> p
+    | None ->
+        let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
+        Filename.concat (Filename.concat home ".codex") "models_cache.json"
+  in
+  if not (Sys.file_exists file_path) then (
+    Logs.debug (fun m ->
+        m "model_discovery: codex cache not found: %s" file_path);
+    0)
+  else
+    try
+      let contents = In_channel.with_open_text file_path In_channel.input_all in
+      let json = Yojson.Safe.from_string contents in
+      let open Yojson.Safe.Util in
+      let models = json |> member "models" |> to_list in
+      let count = ref 0 in
+      List.iter
+        (fun entry ->
+          try
+            let model_id = entry |> member "slug" |> to_string in
+            let display_name =
+              try Some (entry |> member "display_name" |> to_string)
+              with _ -> None
+            in
+            let context_window =
+              try Some (entry |> member "context_window" |> to_int)
+              with _ -> None
+            in
+            let supports_vision =
+              try
+                let mods = entry |> member "input_modalities" |> to_list in
+                List.exists
+                  (fun m -> try to_string m = "image" with _ -> false)
+                  mods
+              with _ -> false
+            in
+            let supports_tools =
+              try entry |> member "supports_parallel_tool_calls" |> to_bool
+              with _ -> true
+            in
+            let supports_thinking =
+              try
+                let levels =
+                  entry |> member "supported_reasoning_levels" |> to_list
+                in
+                levels <> []
+              with _ -> false
+            in
+            if
+              upsert_model_rich ~db ~provider:"openai-codex" ~model_id
+                ~display_name ~context_window ~supports_vision ~supports_tools
+                ~supports_thinking ~source:"codex-cli"
+            then incr count
+          with exn ->
+            Logs.debug (fun m ->
+                m "model_discovery: skip codex entry: %s"
+                  (Printexc.to_string exn)))
+        models;
+      Logs.info (fun m ->
+          m "model_discovery: loaded %d codex models from %s" !count file_path);
+      !count
+    with exn ->
+      Logs.warn (fun m ->
+          m "model_discovery: failed to read codex cache: %s"
+            (Printexc.to_string exn));
+      0
+
 let fetch_openai_models ~base_url ~api_key =
   let open Lwt.Syntax in
   let uri = base_url ^ "/models" in
@@ -232,6 +353,12 @@ let maybe_refresh ?db ?(force = false) ~(config : Runtime_config.t) () =
                 Lwt.return_unit)
           providers
       in
+      let codex_fresh =
+        (not force) && check_attempt_ttl ~db ~provider:"openai-codex" ~hours:12
+      in
+      (if not codex_fresh then
+         let _count = load_codex_file_models ~db () in
+         record_attempt ~db ~provider:"openai-codex" ~error:None);
       Lwt.return_unit
 
 (* Returns (provider, model_id) pairs from models_cache that are not already in

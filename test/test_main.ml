@@ -132,6 +132,7 @@ let () =
        ("plan_pipeline", Test_plan_pipeline.suite);
        ("benchmark", Test_benchmark.suite);
        ("models_catalog", Test_models_catalog.suite);
+       ("model_discovery", Test_model_discovery.suite);
        ("model_preferences", Test_model_preferences.suite);
        ("session_keepalive", Test_keepalive.suite);
        ("completions", Test_completions.suite);

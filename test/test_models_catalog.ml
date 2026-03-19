@@ -75,6 +75,52 @@ let test_to_json () =
   let list = json |> to_list in
   Alcotest.(check bool) "json list non-empty" true (list <> [])
 
+let test_codex_by_provider () =
+  let codex = Models_catalog.by_provider "openai-codex" in
+  Alcotest.(check bool) "openai-codex non-empty" true (codex <> []);
+  let has_codex =
+    List.exists (fun m -> m.Models_catalog.id = "gpt-5.3-codex") codex
+  in
+  Alcotest.(check bool) "includes gpt-5.3-codex" true has_codex;
+  List.iter
+    (fun m ->
+      Alcotest.(check string)
+        "provider is openai-codex" "openai-codex" m.Models_catalog.provider)
+    codex
+
+let test_codex_find_by_full_name () =
+  let m = Models_catalog.find_by_full_name "openai-codex:gpt-5.3-codex" in
+  Alcotest.(check bool) "canonical found" true (Option.is_some m);
+  let m2 = Models_catalog.find_by_full_name "openai-codex/gpt-5.3-codex" in
+  Alcotest.(check bool) "legacy slash found" true (Option.is_some m2);
+  let m3 = Models_catalog.find_by_full_name "openai:gpt-5.3-codex" in
+  Alcotest.(check bool) "wrong provider None" true (Option.is_none m3)
+
+let test_providers_includes_codex () =
+  let provs = Models_catalog.providers in
+  Alcotest.(check bool) "has openai-codex" true (List.mem "openai-codex" provs)
+
+let test_plain_list_canonical_format () =
+  let list = Models_catalog.to_plain_list () in
+  Alcotest.(check bool)
+    "contains colon format" true
+    (let lines = String.split_on_char '\n' list in
+     List.exists (fun l -> String.contains l ':') lines);
+  let lines = String.split_on_char '\n' list in
+  let has_slash =
+    List.exists
+      (fun l ->
+        match String.index_opt l '/' with
+        | Some i ->
+            i > 0
+            && i + 1 < String.length l
+            && l.[i - 1] <> ' '
+            && l.[i + 1] <> ' '
+        | None -> false)
+      lines
+  in
+  Alcotest.(check bool) "no slash provider/model" false has_slash
+
 let suite =
   [
     ("find_by_id", `Quick, test_find_by_id);
@@ -86,4 +132,8 @@ let suite =
     ("format_context_window", `Quick, test_format_context_window);
     ("to_plain_list", `Quick, test_to_plain_list);
     ("to_json", `Quick, test_to_json);
+    ("codex by provider", `Quick, test_codex_by_provider);
+    ("codex find by full name", `Quick, test_codex_find_by_full_name);
+    ("providers includes codex", `Quick, test_providers_includes_codex);
+    ("plain list canonical format", `Quick, test_plain_list_canonical_format);
   ]

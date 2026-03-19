@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-19T21:06:05Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-19T21:29:37Z"
 complexity: medium
 depends_on: []
+duration_minutes: 23.5477813313
 estimate_hours: 1
 id: B569
 priority: high
 started_at: "2026-03-19T21:06:05Z"
-status: in_progress
+status: done
 tags: []
 title: OpenAI Codex provider not exposed in model catalog
 ---
