@@ -1,0 +1,49 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 3
+id: I054
+priority: high
+status: pending
+tags:
+    - slash-commands
+    - session
+    - git
+title: Add /repo slash command to associate a session with a git repository
+---
+## Problem
+Sessions do not currently have a persistent association with a git repository. Users cannot easily ask questions about a repo, check its status, issues, progress, or stats without manually navigating or specifying paths repeatedly.
+
+## Proposed Solution
+Add a /repo slash command that:
+1. Associates the current session with a git repository
+2. Sets the channel's working directory (CWD) to the repo
+3. Maintains the repo in a special directory under ~/.clawq/repos/ (or similar)
+4. Keeps the repo up to date (auto-fetch, periodic pull)
+
+## Behavior
+- /repo <url-or-path> — associate session with repo (clone if needed, or use existing)
+- /repo (no args) — show current repo association and status
+- /repo forget — dissociate session from current repo
+- /repo update — force fetch/pull the associated repo
+
+## Implementation Notes
+- Store session → repo mapping in memory.db (new table or session metadata)
+- Clone repos to ~/.clawq/repos/<sanitized-name>/
+- Set channel CWD via change_working_dir after association
+- Background job (cron or daemon) to periodically fetch/pull associated repos
+- Support both HTTPS and SSH URLs
+- Handle private repos (SSH keys, credentials)
+
+## Acceptance Criteria
+- [ ] /repo <url> clones and associates repo with session
+- [ ] /repo <path> associates existing local repo
+- [ ] /repo shows current repo, branch, status
+- [ ] Channel CWD is set to repo root after association
+- [ ] Auto-update mechanism (fetch/pull) works without blocking
+- [ ] /repo forget removes association
+- [ ] Works across Teams, Telegram, Discord, Slack connectors
+
+## Related
+- B291: git_operations tool worktree/repo path support
+- Session context management in daemon
