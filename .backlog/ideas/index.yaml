@@ -345,3 +345,5 @@ ideas:
       title: '/feature skill/command that automates the creation of a new feature for clawq E2E. Note: we need to put some guards up here so that we can effectively use rigs / skills / cron / etc (our built in features) before writing ocaml and requiring a recompilation (and bloating the codebase). This process should be able to ask the user questions about requirements and the like, and should use a subagent to find out what''s supported (check llms-full.txt), and how we could use existing features best to meet some or all of the requirements. It shoudl then isolate the code changes to clawq itself that are required, log them in the backlog, and then start a subagent to impplement those features, ensure the result has tests, compiles, meets acceptance criteria, etc, and then restart at a convenient point. (Avoiding the restart is really important if we can avoid it -- use skills, write our own software, etc before extending our core featureset)'
     - file: I054-add-repo-slash-command-to-asso.todo
       id: I054
+    - file: I055-mcp-plugins-for-remote-runners.todo
+      id: I055
