@@ -550,3 +550,4 @@ bugs:
     - file: B551-teams-help-skills-agents-list.todo
     - file: B552-feature-command-lacks-progress.todo
     - file: B553-bump-version-to-0-2-1.todo
+    - file: B554-add-sessions-slash-command-for.todo

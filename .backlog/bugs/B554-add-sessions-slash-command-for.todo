@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B554
+priority: high
+status: pending
+tags: []
+title: Add /sessions slash command for listing/browsing sessions with stats (admin only)
+---
+
+Add /sessions slash command for listing/browsing sessions with stats (admin only)
