@@ -574,3 +574,4 @@ bugs:
     - file: B575-when-merging-in-changes-from-a.todo
     - file: B576-add-a-bash-slash-command-to-ru.todo
     - file: B577-discord-and-slack-still-show-a.todo
+    - file: B578-the-badge-in-the-readme-doesn.todo
