@@ -562,3 +562,4 @@ bugs:
     - file: B563-clawq-session-should-print-a-t.todo
     - file: B564-need-a-way-to-access-archived.todo
     - file: B565-clawq-session-list-should-hide.todo
+    - file: B566-teams-skills-menu-lacks-pagina.todo
