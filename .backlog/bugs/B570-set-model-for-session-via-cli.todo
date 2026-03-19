@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B570
+priority: high
+status: pending
+tags: []
+title: Set model for session via CLI
+---
+
+Set model for session via CLI
