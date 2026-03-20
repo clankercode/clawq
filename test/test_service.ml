@@ -367,6 +367,192 @@ let test_systemd_unit_output () =
     "has install instructions" true
     (contains "systemctl --user enable")
 
+let read_daemon_state_json home =
+  let path = Filename.concat home ".clawq/daemon_state.json" in
+  Yojson.Safe.from_file path
+
+let get_component_status json name =
+  match json with
+  | `Assoc fields -> (
+      match List.assoc_opt "components" fields with
+      | Some (`Assoc comps) -> (
+          match List.assoc_opt name comps with
+          | Some (`String s) -> s
+          | _ -> "missing")
+      | _ -> "no_components")
+  | _ -> "bad_json"
+
+let get_bool_field json name =
+  match json with
+  | `Assoc fields -> (
+      match List.assoc_opt name fields with Some (`Bool b) -> b | _ -> false)
+  | _ -> false
+
+let test_component_status_disabled_without_credentials () =
+  Test_helpers.with_temp_home (fun home ->
+      let discord_cfg : Runtime_config.discord_config =
+        {
+          bot_token = "YOUR_TOKEN";
+          allow_guilds = [];
+          allow_users = [];
+          intents = 0;
+          default_model = None;
+        }
+      in
+      let slack_cfg : Runtime_config.slack_config =
+        {
+          bot_token = "";
+          signing_secret = "";
+          events_path = "/slack/events";
+          allow_channels = [];
+          allow_users = [];
+          app_token = "";
+          socket_mode = false;
+          default_model = None;
+        }
+      in
+      (* Test the credential validation functions directly *)
+      Alcotest.(check bool)
+        "is_credential_valid rejects YOUR_TOKEN" false
+        (Runtime_config.is_credential_valid "YOUR_TOKEN");
+      Alcotest.(check bool)
+        "is_credential_valid rejects empty" false
+        (Runtime_config.is_credential_valid "");
+      Alcotest.(check bool)
+        "discord_has_valid_credentials rejects placeholder" false
+        (Runtime_config.discord_has_valid_credentials discord_cfg);
+      Alcotest.(check bool)
+        "slack_has_valid_credentials rejects empty" false
+        (Runtime_config.slack_has_valid_credentials slack_cfg);
+      (* Compute component status using the same pattern as daemon.ml *)
+      let config =
+        {
+          Runtime_config.default with
+          channels =
+            {
+              Runtime_config.default.channels with
+              discord = Some discord_cfg;
+              slack = Some slack_cfg;
+            };
+        }
+      in
+      let discord_creds_ok =
+        match config.channels.discord with
+        | Some d -> Runtime_config.discord_has_valid_credentials d
+        | None -> false
+      in
+      let slack_creds_ok =
+        match config.channels.slack with
+        | Some s -> Runtime_config.slack_has_valid_credentials s
+        | None -> false
+      in
+      Alcotest.(check bool) "discord_creds_ok is false" false discord_creds_ok;
+      Alcotest.(check bool) "slack_creds_ok is false" false slack_creds_ok;
+      Daemon_util.write_state ~pairing_code:None ~tunnel_json:None ~config
+        ~components:
+          [
+            ("gateway", "running");
+            ("discord", if discord_creds_ok then "running" else "disabled");
+            ("slack", if slack_creds_ok then "running" else "disabled");
+          ];
+      let json = read_daemon_state_json home in
+      Alcotest.(check string)
+        "discord component disabled" "disabled"
+        (get_component_status json "discord");
+      Alcotest.(check string)
+        "slack component disabled" "disabled"
+        (get_component_status json "slack");
+      Alcotest.(check bool)
+        "discord_enabled false" false
+        (get_bool_field json "discord_enabled");
+      Alcotest.(check bool)
+        "slack_enabled false" false
+        (get_bool_field json "slack_enabled"))
+
+let test_component_status_running_with_valid_credentials () =
+  Test_helpers.with_temp_home (fun home ->
+      let discord_cfg : Runtime_config.discord_config =
+        {
+          bot_token = "valid_discord_token_here";
+          allow_guilds = [];
+          allow_users = [];
+          intents = 0;
+          default_model = None;
+        }
+      in
+      let slack_cfg : Runtime_config.slack_config =
+        {
+          bot_token = "xoxb-valid-slack-token";
+          signing_secret = "valid_signing_secret_here";
+          events_path = "/slack/events";
+          allow_channels = [];
+          allow_users = [];
+          app_token = "";
+          socket_mode = false;
+          default_model = None;
+        }
+      in
+      (* Test the credential validation functions directly *)
+      Alcotest.(check bool)
+        "is_credential_valid accepts real token" true
+        (Runtime_config.is_credential_valid "valid_discord_token_here");
+      Alcotest.(check bool)
+        "is_credential_valid rejects short token" false
+        (Runtime_config.is_credential_valid "abc");
+      Alcotest.(check bool)
+        "is_credential_valid rejects YOUR_ prefix" false
+        (Runtime_config.is_credential_valid "YOUR_SECRET_HERE");
+      Alcotest.(check bool)
+        "discord_has_valid_credentials accepts valid" true
+        (Runtime_config.discord_has_valid_credentials discord_cfg);
+      Alcotest.(check bool)
+        "slack_has_valid_credentials accepts valid" true
+        (Runtime_config.slack_has_valid_credentials slack_cfg);
+      (* Compute component status using the same pattern as daemon.ml *)
+      let config =
+        {
+          Runtime_config.default with
+          channels =
+            {
+              Runtime_config.default.channels with
+              discord = Some discord_cfg;
+              slack = Some slack_cfg;
+            };
+        }
+      in
+      let discord_creds_ok =
+        match config.channels.discord with
+        | Some d -> Runtime_config.discord_has_valid_credentials d
+        | None -> false
+      in
+      let slack_creds_ok =
+        match config.channels.slack with
+        | Some s -> Runtime_config.slack_has_valid_credentials s
+        | None -> false
+      in
+      Alcotest.(check bool) "discord_creds_ok is true" true discord_creds_ok;
+      Alcotest.(check bool) "slack_creds_ok is true" true slack_creds_ok;
+      Daemon_util.write_state ~pairing_code:None ~tunnel_json:None ~config
+        ~components:
+          [
+            ("gateway", "running");
+            ("discord", if discord_creds_ok then "running" else "disabled");
+            ("slack", if slack_creds_ok then "running" else "disabled");
+          ];
+      let json = read_daemon_state_json home in
+      Alcotest.(check string)
+        "discord component running" "running"
+        (get_component_status json "discord");
+      Alcotest.(check string)
+        "slack component running" "running"
+        (get_component_status json "slack");
+      Alcotest.(check bool)
+        "discord_enabled true" true
+        (get_bool_field json "discord_enabled");
+      Alcotest.(check bool)
+        "slack_enabled true" true
+        (get_bool_field json "slack_enabled"))
+
 let suite =
   [
     Alcotest.test_case "handle daemon exit restart sets nofork and execs" `Quick
@@ -415,4 +601,8 @@ let suite =
     Alcotest.test_case "deadlock timeout triggers restart in nofork" `Quick
       test_deadlock_timeout_triggers_restart_in_nofork;
     Alcotest.test_case "systemd unit output" `Quick test_systemd_unit_output;
+    Alcotest.test_case "component status disabled without credentials" `Quick
+      test_component_status_disabled_without_credentials;
+    Alcotest.test_case "component status running with valid credentials" `Quick
+      test_component_status_running_with_valid_credentials;
   ]

@@ -827,13 +827,23 @@ let run ~(config : Runtime_config.t) =
       m "Web UI assets ready at %s (version=%s dev_mode=%b)" ui_server.ui_dir
         (Ui_server.version ui_server)
         ui_server.dev_mode);
+  let discord_creds_ok =
+    match config.channels.discord with
+    | Some d -> Runtime_config.discord_has_valid_credentials d
+    | None -> false
+  in
+  let slack_creds_ok =
+    match config.channels.slack with
+    | Some s -> Runtime_config.slack_has_valid_credentials s
+    | None -> false
+  in
   write_runtime_state
     ~components:
       [
         ("gateway", "starting");
         ("telegram", "starting");
-        ("discord", "starting");
-        ("slack", "starting");
+        ("discord", if discord_creds_ok then "starting" else "disabled");
+        ("slack", if slack_creds_ok then "starting" else "disabled");
         ("signal", "starting");
         ("matrix", "starting");
         ("irc", "starting");
@@ -1018,7 +1028,9 @@ let run ~(config : Runtime_config.t) =
   in
   let slack_socket_enabled =
     match config.channels.slack with
-    | Some sc when sc.socket_mode && sc.app_token <> "" -> true
+    | Some sc
+      when sc.socket_mode && Runtime_config.is_credential_valid sc.app_token ->
+        true
     | _ -> false
   in
   write_runtime_state
@@ -1026,8 +1038,8 @@ let run ~(config : Runtime_config.t) =
       ([
          ("gateway", "running");
          ("telegram", "running");
-         ("discord", "running");
-         ("slack", "running");
+         ("discord", if discord_creds_ok then "running" else "disabled");
+         ("slack", if slack_creds_ok then "running" else "disabled");
          ("cron", "running");
          ("signal", "running");
          ("matrix", "running");

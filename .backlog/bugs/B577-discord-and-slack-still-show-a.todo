@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-19T21:21:36Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-19T23:54:21Z"
 complexity: medium
 depends_on: []
+duration_minutes: 152.75342057083333
 estimate_hours: 1
 id: B577
 priority: high
 started_at: "2026-03-19T21:21:36Z"
-status: in_progress
+status: done
 tags: []
 title: Discord and slack still show as connected even when they are missing keys (secret/api) or a token
 ---
