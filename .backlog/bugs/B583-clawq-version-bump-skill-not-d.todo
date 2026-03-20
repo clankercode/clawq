@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-20T03:53:59Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B583
 priority: high
-status: pending
+started_at: "2026-03-20T03:53:59Z"
+status: in_progress
 tags: []
 title: clawq-version-bump skill not detected or loaded
 ---
