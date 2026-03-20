@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B579
+priority: high
+status: pending
+tags: []
+title: Look through the last 60 commits with a team and find any features that require adding to the docs that have not already been added.
+---
+
+Look through the last 60 commits with a team and find any features that require adding to the docs that have not already been added.
