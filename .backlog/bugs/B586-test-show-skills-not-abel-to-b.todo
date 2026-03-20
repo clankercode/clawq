@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B586
+priority: high
+status: pending
+tags: []
+title: test.show_skills not abel to be set through config set
+---
+❯ ./clawq config set test.show_skills true
+Error: unknown config key 'test.show_skills'. 
