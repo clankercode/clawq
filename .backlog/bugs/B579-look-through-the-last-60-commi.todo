@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-20T00:14:42Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B579
 priority: high
-status: pending
+started_at: "2026-03-20T00:14:42Z"
+status: in_progress
 tags: []
 title: Look through the last 60 commits with a team and find any features that require adding to the docs that have not already been added.
 ---
