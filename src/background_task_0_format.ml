@@ -484,7 +484,7 @@ let merge_status_suffix (task : task) =
   match task.merge_status with
   | Some "merged" -> " (automerged)"
   | Some "conflict" ->
-      Printf.sprintf " (merge conflict — use `background finalize %d`)" task.id
+      Printf.sprintf " (rebase conflict — use `background finalize %d`)" task.id
   | Some s -> Printf.sprintf " (merge: %s)" s
   | None -> ""
 
@@ -529,7 +529,7 @@ let finalize_hint (task : task) =
            wt task.id)
   | Succeeded, branch, Some _ when String.trim branch <> "" ->
       Some
-        (Printf.sprintf "next: merge/review %s into %s when ready" branch
+        (Printf.sprintf "next: rebase/review %s into %s when ready" branch
            task.repo_path)
   | _ -> None
 
@@ -651,7 +651,7 @@ let channel_notification_message ?summary ?git_info (task : task) =
            task.id task.id)
   | DirtyWorktree ->
       add
-        (Printf.sprintf "Hint: `background finalize %d` to commit and merge"
+        (Printf.sprintf "Hint: `background finalize %d` to commit and finalize"
            task.id)
   | _ -> ());
   String.concat "\n" (List.rev !lines)

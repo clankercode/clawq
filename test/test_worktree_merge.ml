@@ -144,6 +144,11 @@ let test_merge_success () =
       | other ->
           Alcotest.failf "expected Merged, got: %s"
             (Worktree_merge.format_result other));
+      (* Verify working tree was updated *)
+      let main_file = Filename.concat repo_path "newfile.txt" in
+      Alcotest.(check bool)
+        "newfile.txt exists in main repo" true
+        (Sys.file_exists main_file);
       Alcotest.(check bool)
         "worktree removed" false
         (Sys.file_exists worktree_path))
@@ -350,8 +355,8 @@ let test_merge_status_conflict_message () =
   in
   let msg = Background_task.terse_finished_message task in
   Alcotest.(check bool)
-    "contains merge conflict" true
-    (contains_substring ~needle:"merge conflict" msg);
+    "contains rebase conflict" true
+    (contains_substring ~needle:"rebase conflict" msg);
   Alcotest.(check bool)
     "contains finalize" true
     (contains_substring ~needle:"background finalize" msg)
@@ -481,6 +486,41 @@ let test_format_result () =
   Alcotest.(check bool)
     "dirty worktree mentions branch" true
     (contains_substring ~needle:"b3" s)
+
+let test_merge_updates_working_tree () =
+  with_temp_git_repo (fun repo_path ->
+      let branch = "test-wt-update" in
+      let worktree_path = repo_path ^ "-wt" in
+      git_cmd repo_path
+        (Printf.sprintf "worktree add -b %s %s" branch
+           (Filename.quote worktree_path));
+      let file_path = Filename.concat worktree_path "wt-file.txt" in
+      let oc = open_out file_path in
+      output_string oc "from worktree";
+      close_out oc;
+      git_cmd worktree_path "add wt-file.txt";
+      git_cmd worktree_path "commit -m 'add wt-file' -q";
+      let result =
+        Lwt_main.run
+          (Worktree_merge.merge_and_cleanup ~repo_path ~worktree_path ~branch)
+      in
+      (match result with
+      | Worktree_merge.Merged _ -> ()
+      | other ->
+          Alcotest.failf "expected Merged, got: %s"
+            (Worktree_merge.format_result other));
+      (* File must exist in main repo working tree *)
+      let main_file = Filename.concat repo_path "wt-file.txt" in
+      Alcotest.(check bool)
+        "wt-file.txt in main repo" true
+        (Sys.file_exists main_file);
+      (* Working tree must be clean (no diff between HEAD and index/worktree) *)
+      let exit_code =
+        Sys.command
+          (Printf.sprintf "git -C %s diff --quiet HEAD >/dev/null 2>&1"
+             (Filename.quote repo_path))
+      in
+      Alcotest.(check int) "git diff --quiet HEAD passes" 0 exit_code)
 
 let test_completion_pass_requeues_dirty_task () =
   with_temp_git_repo (fun repo_path ->
@@ -686,6 +726,8 @@ let suite =
     Alcotest.test_case "unstaged changes block merge" `Quick
       test_dirty_worktree_unstaged_blocks_merge;
     Alcotest.test_case "format_result" `Quick test_format_result;
+    Alcotest.test_case "merge updates working tree" `Quick
+      test_merge_updates_working_tree;
     Alcotest.test_case "completion pass requeues dirty task" `Quick
       test_completion_pass_requeues_dirty_task;
     Alcotest.test_case "completion pass requeues clean task" `Quick

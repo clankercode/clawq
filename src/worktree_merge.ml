@@ -74,16 +74,34 @@ let ff_merge ~repo_path ~branch ~target =
               "Cannot fast-forward: target %s is not an ancestor of branch %s"
               target branch))
     else
-      let* exit_code, _stdout, stderr =
-        run_git ~cwd:repo_path
-          [| "update-ref"; Printf.sprintf "refs/heads/%s" target; branch_sha |]
+      (* Check if target is the currently checked-out branch *)
+      let* exit_head, head_out, _ =
+        run_git ~cwd:repo_path [| "symbolic-ref"; "--short"; "HEAD" |]
       in
-      if exit_code = 0 then Lwt.return (Ok ())
+      let target_checked_out = exit_head = 0 && String.trim head_out = target in
+      if target_checked_out then
+        (* Use merge --ff-only to update ref + index + working tree atomically *)
+        let* exit_code, _stdout, stderr =
+          run_git ~cwd:repo_path [| "merge"; "--ff-only"; branch |]
+        in
+        if exit_code = 0 then Lwt.return (Ok ())
+        else
+          Lwt.return
+            (Result.Error
+               (Printf.sprintf "Fast-forward failed: %s" (String.trim stderr)))
       else
-        Lwt.return
-          (Result.Error
-             (Printf.sprintf "Fast-forward merge failed: %s"
-                (String.trim stderr)))
+        (* Target not checked out — update-ref is safe *)
+        let* exit_code, _stdout, stderr =
+          run_git ~cwd:repo_path
+            [|
+              "update-ref"; Printf.sprintf "refs/heads/%s" target; branch_sha;
+            |]
+        in
+        if exit_code = 0 then Lwt.return (Ok ())
+        else
+          Lwt.return
+            (Result.Error
+               (Printf.sprintf "Fast-forward failed: %s" (String.trim stderr)))
 
 let cleanup ~repo_path ~worktree_path ~branch =
   let open Lwt.Syntax in
@@ -194,15 +212,16 @@ let finalize_task ~db (task : Background_task.task) =
 
 let format_result = function
   | Merged { branch; commit_count } ->
-      Printf.sprintf "Merged branch %s (%d commit%s) and cleaned up worktree."
+      Printf.sprintf
+        "Rebased branch %s (%d commit%s) into target and cleaned up worktree."
         branch commit_count
         (if commit_count = 1 then "" else "s")
   | Conflict { branch; message } ->
       Printf.sprintf
-        "Merge conflict on branch %s: %s\n\
+        "Rebase conflict on branch %s: %s\n\
          The worktree is still intact. Resolve conflicts manually and retry."
         branch message
-  | Error msg -> Printf.sprintf "Merge error: %s" msg
+  | Error msg -> Printf.sprintf "Rebase error: %s" msg
   | No_worktree -> "No worktree found for this task."
   | Already_merged ->
       "No new commits — branch was already up to date. Cleaned up worktree."
@@ -217,8 +236,8 @@ let finalize_tool ~db =
     Tool.name = "background_finalize";
     description =
       "Finalize a completed background task by rebasing its worktree branch \
-       onto the target branch, fast-forward merging, and cleaning up the \
-       worktree. Use after a task succeeds but automerge was not set or \
+       onto the target branch, fast-forwarding the target branch, and cleaning \
+       up the worktree. Use after a task succeeds but automerge was not set or \
        automerge failed with conflicts.";
     parameters_schema =
       `Assoc

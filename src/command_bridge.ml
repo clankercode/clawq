@@ -439,8 +439,8 @@ let cmd_background args =
          a failed task\n\
         \  background recover <id> [--runner R] [--model M]        - Recover a \
          failed/stuck task with full context\n\
-        \  background finalize <id>                                - Rebase, \
-         merge and clean up worktree\n\
+        \  background finalize <id>                                - Rebase \
+         and fast-forward into target branch\n\
         \  background export-acp <id>                              - Export \
          ACP session history as JSONL"
   | [ "show"; id_s ] -> (
@@ -657,8 +657,8 @@ let cmd_background args =
        failed task (max 3 retries)\n\
       \  background recover <id> [--runner R] [--model M]        - Recover a \
        failed/stuck task with full context\n\
-      \  background finalize <id>                                - Rebase, \
-       merge and clean up a task's worktree\n\
+      \  background finalize <id>                                - Rebase and \
+       fast-forward into target branch\n\
       \  background export-acp <id>                              - Export ACP \
        session history as JSONL"
 

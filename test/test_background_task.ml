@@ -1635,12 +1635,12 @@ let test_status_message_includes_finalize_hint_for_succeeded_worktree () =
   in
   let msg = Background_task.status_message task in
   Alcotest.(check bool)
-    "contains merge/review hint" true
+    "contains rebase/review hint" true
     (try
        ignore
          (Str.search_forward
             (Str.regexp_string
-               "merge/review B377-finish-flow into /tmp/myrepo when ready")
+               "rebase/review B377-finish-flow into /tmp/myrepo when ready")
             msg 0);
        true
      with Not_found -> false)

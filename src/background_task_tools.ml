@@ -78,9 +78,9 @@ let enqueue_tool_with_notify ~notify_cfg ~db =
                       ("type", `String "boolean");
                       ( "description",
                         `String
-                          "Auto-rebase and merge task branch on success. \
-                           Default: true. Set false to skip automerge. Ignored \
-                           if use_worktree is false." );
+                          "Auto-rebase and fast-forward task branch on \
+                           success. Default: true. Set false to skip \
+                           automerge. Ignored if use_worktree is false." );
                     ] );
                 ( "use_worktree",
                   `Assoc
@@ -532,9 +532,9 @@ let delegate_tool_with_notify ?(check_available = true) ~db ~default_repo_path
                       ("type", `String "boolean");
                       ( "description",
                         `String
-                          "Auto-rebase and merge task branch on success. \
-                           Default: true. Set false to skip automerge. Ignored \
-                           if use_worktree is false." );
+                          "Auto-rebase and fast-forward task branch on \
+                           success. Default: true. Set false to skip \
+                           automerge. Ignored if use_worktree is false." );
                     ] );
                 ( "use_worktree",
                   `Assoc

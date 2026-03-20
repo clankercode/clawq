@@ -673,7 +673,9 @@ let background_finalize_cmd =
   let id = Arg.(required & pos 0 (some string) None & info [] ~docv:"ID") in
   Cmd.v
     (Cmd.info "finalize"
-       ~doc:"Rebase, merge, and clean up a completed task worktree.")
+       ~doc:
+         "Rebase and fast-forward a completed task worktree into the target \
+          branch.")
     Term.(ret (const (fun id -> run "background" [ "finalize"; id ]) $ id))
 
 let background_cmd =

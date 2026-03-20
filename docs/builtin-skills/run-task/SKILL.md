@@ -151,7 +151,7 @@ Verify the worker is making progress; don't assume success from a clean launch.
 - When a worktree-backed task finishes, the system automatically sends a **completion pass** message to the agent. The agent resumes with its session context, commits remaining changes, rebases against master, reviews all changes for correctness/quality/completeness/safety (review-and-fix guard), runs checks, and outputs the sentinel `OK_TASK_DONE_CHECKED_REBASED_COMMITED`.
 - Since automerge is enabled by default, the system then attempts a fast-forward merge. If automerge was disabled, the user is notified normally.
 - Inspect changes and verify tests/review status.
-- Use `background_finalize(id=...)` only when manual merge is desired after the completion pass.
+- Use `background_finalize(id=...)` only when manual rebase and fast-forward merge is desired after the completion pass.
 - If review reveals follow-up issues, defer done state until after review/fix is clean.
 
 ## Constraints

@@ -582,7 +582,7 @@ let format_bg_menu ~connector =
       ("/bg list", "List all background tasks");
       ("/bg create <prompt>", "Create a new background task");
       ( "/bg finalize <id>",
-        "Finalize a worktree task (rebase + merge + cleanup)" );
+        "Finalize a worktree task (rebase + fast-forward + cleanup)" );
     ]
   in
   let lines =
@@ -681,7 +681,7 @@ let format_bg_usage ~connector =
   ^ Format_adapter.code connector "/bg create [@agent] <prompt>"
   ^ " - Create a new background task\n  "
   ^ Format_adapter.code connector "/bg finalize <id>"
-  ^ "       - Finalize a worktree task (rebase + merge + cleanup)"
+  ^ "       - Finalize a worktree task (rebase + fast-forward + cleanup)"
 
 let format_bg_invalid_id ~connector id_str =
   "Invalid task id "
