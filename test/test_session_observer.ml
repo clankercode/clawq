@@ -370,7 +370,8 @@ let test_check_stuck_filters_event_messages () =
               Provider.make_message ~role:"user" ~content:"Hello";
               Provider.make_message ~role:"event" ~content:"config reloaded";
               Provider.make_message ~role:"assistant" ~content:"Hi there";
-              Provider.make_message ~role:"event" ~content:"project docs refreshed";
+              Provider.make_message ~role:"event"
+                ~content:"project docs refreshed";
               Provider.make_message ~role:"user" ~content:"Do the task";
             ]
           in

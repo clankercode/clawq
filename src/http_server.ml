@@ -189,9 +189,7 @@ let handler ~session_manager ~require_pairing ~auth_token
                     Cohttp_lwt_unix.Server.respond_string ~status:`OK
                       ~headers:json_headers ~body:resp_json ()
                 | Slash_commands.Help | Slash_commands.Menu _ ->
-                    let show_test =
-                      (Session.get_config session_manager).test.show_skills
-                    in
+                    let show_test = true in
                     let response =
                       Slash_commands.format_help ~connector:Format_adapter.Plain
                         ~show_test ~is_admin:true ()
@@ -391,9 +389,7 @@ let handler ~session_manager ~require_pairing ~auth_token
                     Cohttp_lwt_unix.Server.respond_string ~status:`OK
                       ~headers:json_headers ~body:resp_json ()
                 | Slash_commands.Tools ->
-                    let show_test =
-                      (Session.get_config session_manager).test.show_skills
-                    in
+                    let show_test = true in
                     let response =
                       match Session.get_tool_registry session_manager with
                       | Some reg ->
@@ -572,9 +568,7 @@ let handler ~session_manager ~require_pairing ~auth_token
                     Cohttp_lwt_unix.Server.respond_string ~status:`OK
                       ~headers:json_headers ~body:resp_json ()
                 | Slash_commands.SkillsMenu page ->
-                    let show_test =
-                      (Session.get_config session_manager).test.show_skills
-                    in
+                    let show_test = true in
                     let text =
                       Slash_commands_fmt.format_skills_menu
                         ~connector:Format_adapter.Plain ~page ~show_test ()
@@ -1069,9 +1063,7 @@ let handler ~session_manager ~require_pairing ~auth_token
                 | Slash_commands.FormattedReply fn ->
                     sse_reply (fn Format_adapter.Plain)
                 | Slash_commands.Help | Slash_commands.Menu _ ->
-                    let show_test =
-                      (Session.get_config session_manager).test.show_skills
-                    in
+                    let show_test = true in
                     sse_reply
                       (Slash_commands.format_help
                          ~connector:Format_adapter.Plain ~show_test
@@ -1278,9 +1270,7 @@ let handler ~session_manager ~require_pairing ~auth_token
                       "Heartbeat routing is only available for Telegram, \
                        Slack, Discord, and Teams sessions."
                 | Slash_commands.Tools ->
-                    let show_test =
-                      (Session.get_config session_manager).test.show_skills
-                    in
+                    let show_test = true in
                     let text =
                       match Session.get_tool_registry session_manager with
                       | Some reg ->
@@ -1411,9 +1401,7 @@ let handler ~session_manager ~require_pairing ~auth_token
                       (Slash_commands_fmt.format_config_menu
                          ~connector:Format_adapter.Plain ~page)
                 | Slash_commands.SkillsMenu page ->
-                    let show_test =
-                      (Session.get_config session_manager).test.show_skills
-                    in
+                    let show_test = true in
                     sse_reply
                       (Slash_commands_fmt.format_skills_menu
                          ~connector:Format_adapter.Plain ~page ~show_test ())

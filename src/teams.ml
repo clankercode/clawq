@@ -1210,10 +1210,7 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                       let text = fn Format_adapter.Teams in
                       send_text text
                   | Help ->
-                      let show_test =
-                        is_admin
-                        && (Session.get_config session_manager).test.show_skills
-                      in
+                      let show_test = is_admin in
                       let text =
                         Slash_commands.format_help
                           ~connector:Format_adapter.Teams ~show_test ~is_admin
@@ -1395,10 +1392,7 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                         ~service_url:effective_service_url ~conversation_id
                         ~reply_to_id:activity_id ~card:card_json ()
                   | SkillsMenu page ->
-                      let show_test =
-                        is_admin
-                        && (Session.get_config session_manager).test.show_skills
-                      in
+                      let show_test = is_admin in
                       let card_json =
                         Slash_commands_manifest.skills_menu_adaptive_card_json
                           ~show_test ~page ()
@@ -1542,10 +1536,7 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                               send_temp_download ())
                       | Temp_download_url -> send_temp_download ())
                   | Tools ->
-                      let show_test =
-                        is_admin
-                        && (Session.get_config session_manager).test.show_skills
-                      in
+                      let show_test = is_admin in
                       let text =
                         match Session.get_tool_registry session_manager with
                         | Some reg ->

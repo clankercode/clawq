@@ -218,8 +218,7 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
             explicit @ deduped_auto
       in
       let md_skills =
-        if user_group = Some "admin" && mgr.config.test.show_skills then
-          md_skills
+        if user_group = Some "admin" then md_skills
         else
           List.filter
             (fun (name, _) -> not (Builtin_skills.is_test_skill_name name))
@@ -956,10 +955,7 @@ let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
                           skill_injections @ auto_injections
                         in
                         let md_skills =
-                          if
-                            user_group = Some "admin"
-                            && mgr.config.test.show_skills
-                          then auto_md_skills
+                          if user_group = Some "admin" then auto_md_skills
                           else
                             List.filter
                               (fun (name, _) ->

@@ -696,9 +696,7 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
             send_message_fn ~bot_token:discord_config.bot_token
               ~channel_id:msg.channel_id ~text
         | Help | Menu _ ->
-            let show_test =
-              is_admin && (Session.get_config session_mgr).test.show_skills
-            in
+            let show_test = is_admin in
             let text =
               Slash_commands.format_help ~connector:Format_adapter.Discord
                 ~show_test ~is_admin ()
@@ -873,9 +871,7 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
             send_message_fn ~bot_token:discord_config.bot_token
               ~channel_id:msg.channel_id ~text
         | SkillsMenu page ->
-            let show_test =
-              is_admin && (Session.get_config session_mgr).test.show_skills
-            in
+            let show_test = is_admin in
             let text =
               Slash_commands_fmt.format_skills_menu
                 ~connector:Format_adapter.Discord ~page ~show_test ()
@@ -897,9 +893,7 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
             send_message_fn ~bot_token:discord_config.bot_token
               ~channel_id:msg.channel_id ~text
         | Tools ->
-            let show_test =
-              is_admin && (Session.get_config session_mgr).test.show_skills
-            in
+            let show_test = is_admin in
             let text =
               match Session.get_tool_registry session_mgr with
               | Some reg ->

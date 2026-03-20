@@ -458,10 +458,7 @@ let handle_event ~(config : Runtime_config.slack_config)
                 in
                 Lwt.return "ok"
             | Help | Menu _ ->
-                let show_test =
-                  is_admin
-                  && (Session.get_config session_manager).test.show_skills
-                in
+                let show_test = is_admin in
                 let text =
                   Slash_commands.format_help ~connector:Format_adapter.Slack
                     ~show_test ~is_admin ()
@@ -661,10 +658,7 @@ let handle_event ~(config : Runtime_config.slack_config)
                 Lwt.return "ok"
             | SkillsMenu page ->
                 let text =
-                  let show_test =
-                    is_admin
-                    && (Session.get_config session_manager).test.show_skills
-                  in
+                  let show_test = is_admin in
                   Slash_commands_fmt.format_skills_menu
                     ~connector:Format_adapter.Slack ~page ~show_test ()
                 in
@@ -691,10 +685,7 @@ let handle_event ~(config : Runtime_config.slack_config)
                 in
                 Lwt.return "ok"
             | Tools ->
-                let show_test =
-                  is_admin
-                  && (Session.get_config session_manager).test.show_skills
-                in
+                let show_test = is_admin in
                 let text =
                   match Session.get_tool_registry session_manager with
                   | Some reg ->
