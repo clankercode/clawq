@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B583
+priority: high
+status: pending
+tags: []
+title: clawq-version-bump skill not detected or loaded
+---
+
+clawq-version-bump skill not detected or loaded
