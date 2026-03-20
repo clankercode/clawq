@@ -424,6 +424,14 @@ let config_schema =
             ("auto_fix_enabled", L);
             ("commit_tag", L);
           ] );
+      ( "browser",
+        O
+          [
+            ("agent_model", L);
+            ("chromium_path", L);
+            ("default_timeout_s", L);
+            ("idle_timeout_s", L);
+          ] );
       ("test", O [ ("show_skills", L) ]);
       ( "debate",
         O

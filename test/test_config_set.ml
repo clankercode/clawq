@@ -421,6 +421,25 @@ let test_channel_set_model_roundtrip () =
       let result2 = Config_set.get_value "channels.discord.default_model" in
       Alcotest.(check string) "discord model cleared" "null" result2)
 
+let test_browser_config_settable () =
+  let valid = Config_set.validate_set_path in
+  let schema = Config_set.config_schema in
+  Alcotest.(check bool)
+    "browser.agent_model" true
+    (valid [ "browser"; "agent_model" ] schema);
+  Alcotest.(check bool)
+    "browser.chromium_path" true
+    (valid [ "browser"; "chromium_path" ] schema);
+  Alcotest.(check bool)
+    "browser.default_timeout_s" true
+    (valid [ "browser"; "default_timeout_s" ] schema);
+  Alcotest.(check bool)
+    "browser.idle_timeout_s" true
+    (valid [ "browser"; "idle_timeout_s" ] schema);
+  Alcotest.(check bool)
+    "browser section not settable" false
+    (valid [ "browser" ] schema)
+
 let test_show_skills_set_roundtrip () =
   with_temp_home (fun home ->
       let clawq_dir = Filename.concat home ".clawq" in
@@ -491,4 +510,6 @@ let suite =
       test_channel_default_model_parsed;
     Alcotest.test_case "test.show_skills set roundtrip" `Quick
       test_show_skills_set_roundtrip;
+    Alcotest.test_case "browser config settable" `Quick
+      test_browser_config_settable;
   ]
