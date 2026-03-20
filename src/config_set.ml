@@ -424,6 +424,7 @@ let config_schema =
             ("auto_fix_enabled", L);
             ("commit_tag", L);
           ] );
+      ("test", O [ ("show_skills", L) ]);
       ( "debate",
         O
           [

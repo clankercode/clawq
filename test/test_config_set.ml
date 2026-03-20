@@ -421,6 +421,27 @@ let test_channel_set_model_roundtrip () =
       let result2 = Config_set.get_value "channels.discord.default_model" in
       Alcotest.(check string) "discord model cleared" "null" result2)
 
+let test_show_skills_set_roundtrip () =
+  with_temp_home (fun home ->
+      let clawq_dir = Filename.concat home ".clawq" in
+      Unix.mkdir clawq_dir 0o755;
+      (* Validate the path is recognized *)
+      let segments = Config_set.split_path "test.show_skills" in
+      Alcotest.(check bool)
+        "test.show_skills is valid" true
+        (Config_set.validate_set_path segments Config_set.config_schema);
+      (* Set via set_value and verify *)
+      let result = Config_set.set_value "test.show_skills" "true" in
+      Alcotest.(check string) "set result" "Set test.show_skills = true" result;
+      let got = Config_set.get_value "test.show_skills" in
+      Alcotest.(check string) "read back" "true" got;
+      (* Verify config_loader parses it *)
+      let json =
+        Yojson.Safe.from_file (Filename.concat clawq_dir "config.json")
+      in
+      let cfg = Config_loader.parse_config json in
+      Alcotest.(check bool) "parsed show_skills" true cfg.test.show_skills)
+
 let test_channel_default_model_parsed () =
   let json =
     Yojson.Safe.from_string
@@ -468,4 +489,6 @@ let suite =
       test_channel_set_model_roundtrip;
     Alcotest.test_case "channel default_model parsed from JSON" `Quick
       test_channel_default_model_parsed;
+    Alcotest.test_case "test.show_skills set roundtrip" `Quick
+      test_show_skills_set_roundtrip;
   ]

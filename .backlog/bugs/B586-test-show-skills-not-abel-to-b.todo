@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-20T04:01:45Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-20T04:04:55Z"
 complexity: medium
 depends_on: []
+duration_minutes: 3.1706669743833333
 estimate_hours: 1
 id: B586
 priority: high
 started_at: "2026-03-20T04:01:45Z"
-status: in_progress
+status: done
 tags: []
 title: test.show_skills not abel to be set through config set
 ---
