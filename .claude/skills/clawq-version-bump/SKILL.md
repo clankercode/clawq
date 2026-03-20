@@ -1,4 +1,5 @@
 ---
+name: clawq-version-bump
 description: Bump clawq version, commit, tag, push, and create a GitHub release
 disable-model-invocation: true
 ---

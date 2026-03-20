@@ -345,36 +345,42 @@ let parse_frontmatter content =
       collect [] rest
   | _ -> ([], content)
 
-let skill_md_meta_of_frontmatter ~source_path pairs =
+let skill_md_meta_of_frontmatter ~source_path ?default_name pairs =
   let find key = List.assoc_opt key pairs in
+  let build_meta name description =
+    let allowed_tools =
+      match find "allowed-tools" with
+      | Some s ->
+          List.filter
+            (fun s -> s <> "")
+            (List.map String.trim (String.split_on_char ',' s))
+      | None -> []
+    in
+    let model = find "model" in
+    let disable_model_invocation =
+      match find "disable-model-invocation" with
+      | Some s -> String.lowercase_ascii (String.trim s) = "true"
+      | None -> false
+    in
+    Some
+      {
+        md_name = name;
+        md_description = description;
+        md_allowed_tools = allowed_tools;
+        md_model = model;
+        md_disable_model_invocation = disable_model_invocation;
+        md_source_path = source_path;
+      }
+  in
   match (find "name", find "description") with
-  | Some name, Some description ->
-      let allowed_tools =
-        match find "allowed-tools" with
-        | Some s ->
-            List.filter
-              (fun s -> s <> "")
-              (List.map String.trim (String.split_on_char ',' s))
-        | None -> []
-      in
-      let model = find "model" in
-      let disable_model_invocation =
-        match find "disable-model-invocation" with
-        | Some s -> String.lowercase_ascii (String.trim s) = "true"
-        | None -> false
-      in
-      Some
-        {
-          md_name = name;
-          md_description = description;
-          md_allowed_tools = allowed_tools;
-          md_model = model;
-          md_disable_model_invocation = disable_model_invocation;
-          md_source_path = source_path;
-        }
+  | Some name, Some description -> build_meta name description
+  | None, Some description -> (
+      match default_name with
+      | Some name when is_valid_skill_name name -> build_meta name description
+      | _ -> None)
   | _ -> None
 
-let load_skill_md path =
+let load_skill_md ?default_name path =
   try
     let ic = open_in path in
     let content =
@@ -387,7 +393,9 @@ let load_skill_md path =
         ~finally:(fun () -> close_in ic)
     in
     let pairs, body = parse_frontmatter content in
-    match skill_md_meta_of_frontmatter ~source_path:path pairs with
+    match
+      skill_md_meta_of_frontmatter ~source_path:path ?default_name pairs
+    with
     | Some meta -> Some { meta; instructions = String.trim body }
     | None -> None
   with _ -> None
@@ -435,21 +443,37 @@ let scan_skill_dirs dirs =
             if Sys.file_exists entry_path && Sys.is_directory entry_path then begin
               let skill_md_path = Filename.concat entry_path "SKILL.md" in
               if Sys.file_exists skill_md_path then
-                match load_skill_md skill_md_path with
+                match load_skill_md ~default_name:entry skill_md_path with
                 | Some skill ->
+                    if skill.meta.md_name <> entry then
+                      Logs.warn (fun m ->
+                          m
+                            "Skill name '%s' does not match directory name \
+                             '%s' at %s"
+                            skill.meta.md_name entry skill_md_path);
                     if not (Hashtbl.mem seen skill.meta.md_name) then begin
                       Hashtbl.add seen skill.meta.md_name true;
                       results := skill.meta :: !results
                     end
-                | None -> ()
+                | None ->
+                    Logs.warn (fun m ->
+                        m
+                          "SKILL.md at %s could not be parsed (missing \
+                           description?)"
+                          skill_md_path)
             end (* Pattern 2: flat <name>.md with valid frontmatter *)
             else if
               Filename.check_suffix entry ".md"
               && Sys.file_exists entry_path
               && not (Sys.is_directory entry_path)
             then
-              match load_skill_md entry_path with
+              let stem = Filename.remove_extension entry in
+              match load_skill_md ~default_name:stem entry_path with
               | Some skill ->
+                  if skill.meta.md_name <> stem then
+                    Logs.warn (fun m ->
+                        m "Skill name '%s' does not match filename '%s' at %s"
+                          skill.meta.md_name entry entry_path);
                   if not (Hashtbl.mem seen skill.meta.md_name) then begin
                     Hashtbl.add seen skill.meta.md_name true;
                     results := skill.meta :: !results
@@ -562,7 +586,8 @@ let find_skill_md name =
             String.lowercase_ascii s.md_name = name_lower)
           skills
       with
-      | Some meta -> load_skill_md meta.md_source_path
+      | Some meta ->
+          load_skill_md ~default_name:meta.md_name meta.md_source_path
       | None -> None)
 
 let skill_md_to_tool (meta : skill_md_meta) : Tool.t =

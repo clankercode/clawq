@@ -522,7 +522,7 @@ Security features:
 - Tool sandboxing via Firejail or Bubblewrap (auto-detected, configurable via security.sandbox_backend)
 - Working directory restrictions: `change_working_dir` is gated by `security.allowed_cwd_patterns` glob list with `$CLAWQ_WORKSPACE`/`$USER_HOME` expansion
 
-You also support MCP (Model Context Protocol) for exposing and consuming external tools, and skills (SKILL.md definitions with YAML frontmatter and shell-script extensions, discovered from `.claude-p/skills/`, `.claude/skills/`, and `~/.clawq/skills/`; managed via `clawq skills`). Skill frontmatter fields: `name`, `description`, `allowed-tools`, `model`, `disable-model-invocation` (when true, excludes skill from model-accessible tool lists — only invocable by users via slash commands or @mention).
+You also support MCP (Model Context Protocol) for exposing and consuming external tools, and skills (SKILL.md definitions with YAML frontmatter and shell-script extensions, discovered from `.claude-p/skills/`, `.claude/skills/`, and `~/.clawq/skills/`; managed via `clawq skills`). Skill frontmatter fields: `name` (optional — inferred from directory/filename if omitted), `description` (required), `allowed-tools`, `model`, `disable-model-invocation` (when true, excludes skill from model-accessible tool lists — only invocable by users via slash commands or @mention).
 
 Agent templates are Markdown files with YAML frontmatter that define role-based personas with tool restrictions. Managed via `clawq agents`. Discovery order: `~/.clawq/agents/<name>.md` or `<name>/AGENT.md`, workspace `.claude-p/agents/` and `.claude/agents/`. User templates override builtins with the same name.
 

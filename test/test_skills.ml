@@ -533,6 +533,71 @@ let test_load_skill_md_missing_name () =
   Alcotest.(check bool) "None" true (Option.is_none result);
   rm_rf dir
 
+let test_load_skill_md_inferred_name () =
+  let dir = make_temp_dir "skill_infer" in
+  let path = Filename.concat dir "SKILL.md" in
+  write_file path "---\ndescription: inferred\n---\nBody";
+  (match Skills.load_skill_md ~default_name:"my-skill" path with
+  | Some skill ->
+      Alcotest.(check string) "name inferred" "my-skill" skill.meta.md_name;
+      Alcotest.(check string) "desc" "inferred" skill.meta.md_description;
+      Alcotest.(check string) "body" "Body" skill.instructions
+  | None -> Alcotest.fail "expected Some with inferred name");
+  rm_rf dir
+
+let test_load_skill_md_no_description_with_default () =
+  let dir = make_temp_dir "skill_nodesc" in
+  let path = Filename.concat dir "SKILL.md" in
+  write_file path "No frontmatter at all";
+  let result = Skills.load_skill_md ~default_name:"fallback" path in
+  Alcotest.(check bool) "None without desc" true (Option.is_none result);
+  rm_rf dir
+
+let test_scan_skill_dirs_infers_name_from_directory () =
+  let base = make_temp_dir "skill_dir_infer" in
+  let skills_dir = Filename.concat base "skills" in
+  Sys.mkdir skills_dir 0o755;
+  let sd = Filename.concat skills_dir "auto-named" in
+  Sys.mkdir sd 0o755;
+  write_file
+    (Filename.concat sd "SKILL.md")
+    "---\ndescription: auto discovered\n---\nauto body";
+  let results = Skills.scan_skill_dirs [ skills_dir ] in
+  Alcotest.(check int) "1 skill" 1 (List.length results);
+  let s = List.hd results in
+  Alcotest.(check string) "inferred name" "auto-named" s.md_name;
+  Alcotest.(check string) "desc" "auto discovered" s.md_description;
+  rm_rf base
+
+let test_scan_skill_dirs_infers_name_flat_md () =
+  let base = make_temp_dir "skill_flat_infer" in
+  let skills_dir = Filename.concat base "skills" in
+  Sys.mkdir skills_dir 0o755;
+  write_file
+    (Filename.concat skills_dir "flat-skill.md")
+    "---\ndescription: flat inferred\n---\nflat body";
+  let results = Skills.scan_skill_dirs [ skills_dir ] in
+  Alcotest.(check int) "1 skill" 1 (List.length results);
+  let s = List.hd results in
+  Alcotest.(check string) "inferred name" "flat-skill" s.md_name;
+  Alcotest.(check string) "desc" "flat inferred" s.md_description;
+  rm_rf base
+
+let test_scan_skill_dirs_name_mismatch () =
+  let base = make_temp_dir "skill_mismatch" in
+  let skills_dir = Filename.concat base "skills" in
+  Sys.mkdir skills_dir 0o755;
+  let sd = Filename.concat skills_dir "dir-name" in
+  Sys.mkdir sd 0o755;
+  write_file
+    (Filename.concat sd "SKILL.md")
+    "---\nname: frontmatter-name\ndescription: mismatch test\n---\nbody";
+  let results = Skills.scan_skill_dirs [ skills_dir ] in
+  Alcotest.(check int) "1 skill" 1 (List.length results);
+  let s = List.hd results in
+  Alcotest.(check string) "uses frontmatter name" "frontmatter-name" s.md_name;
+  rm_rf base
+
 let test_disable_model_invocation_true () =
   let pairs =
     [
@@ -1322,6 +1387,16 @@ let suite =
     Alcotest.test_case "load skill md" `Quick test_load_skill_md;
     Alcotest.test_case "load skill md missing name" `Quick
       test_load_skill_md_missing_name;
+    Alcotest.test_case "load skill md inferred name" `Quick
+      test_load_skill_md_inferred_name;
+    Alcotest.test_case "load skill md no desc with default" `Quick
+      test_load_skill_md_no_description_with_default;
+    Alcotest.test_case "scan infers name from directory" `Quick
+      test_scan_skill_dirs_infers_name_from_directory;
+    Alcotest.test_case "scan infers name from flat md" `Quick
+      test_scan_skill_dirs_infers_name_flat_md;
+    Alcotest.test_case "scan warns name mismatch" `Quick
+      test_scan_skill_dirs_name_mismatch;
     Alcotest.test_case "disable-model-invocation true" `Quick
       test_disable_model_invocation_true;
     Alcotest.test_case "disable-model-invocation false" `Quick

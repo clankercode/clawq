@@ -25,7 +25,7 @@ The cache refreshes when a directory's mtime changes, so dropping a new SKILL.md
 
 ## Creating a Skill
 
-A minimal SKILL.md file requires `name` and `description` in the frontmatter:
+A minimal SKILL.md file requires `description` in the frontmatter (the `name` is inferred from the directory or filename if omitted):
 
 ```markdown
 ---
@@ -47,7 +47,7 @@ Save this to `~/.clawq/skills/review-and-fix/SKILL.md` (or as `~/.clawq/skills/r
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `name` | Yes | Skill identifier (alphanumeric, underscores, hyphens; max 64 chars) |
+| `name` | No (inferred from directory/filename if omitted) | Skill identifier (alphanumeric, underscores, hyphens; max 64 chars) |
 | `description` | Yes | Short description shown to the agent when listing skills |
 | `allowed-tools` | No | Comma-separated list of tool names this skill may use |
 | `model` | No | Override the session model for this skill invocation |

@@ -1,3 +1,8 @@
+---
+name: telegram-formatting
+description: Telegram HTML and MarkdownV2 formatting reference for clawq message code
+---
+
 # Telegram Formatting Skill
 
 Use this skill when writing or modifying code that produces Telegram-formatted messages in clawq.
