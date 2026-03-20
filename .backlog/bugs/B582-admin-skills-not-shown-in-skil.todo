@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-20T03:54:04Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B582
 priority: high
-status: pending
+started_at: "2026-03-20T03:54:04Z"
+status: in_progress
 tags: []
 title: Admin skills not shown in /skills for admin
 ---
