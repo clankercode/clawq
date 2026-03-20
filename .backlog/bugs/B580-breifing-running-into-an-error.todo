@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-20T01:01:47Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-20T02:26:02Z"
 complexity: medium
 depends_on: []
+duration_minutes: 84.25198839276666
 estimate_hours: 1
 id: B580
 priority: high
 started_at: "2026-03-20T01:01:47Z"
-status: in_progress
+status: done
 tags: []
 title: Breifing running into an error
 ---

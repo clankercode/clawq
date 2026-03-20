@@ -291,6 +291,9 @@ let call_observer ~config ~system_prompt ~messages =
 let check_stuck ~(config : Runtime_config.t) ~(history : Provider.message list)
     ~(stats : session_stats) () =
   let open Lwt.Syntax in
+  let history =
+    List.filter (fun (m : Provider.message) -> m.role <> "event") history
+  in
   (* Round 1 *)
   let round1_msgs = take_last config.observer.round1_window history in
   let history_len = List.length history in

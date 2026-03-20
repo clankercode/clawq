@@ -360,6 +360,33 @@ let test_log_thinking_check_error () =
         "error" "timeout"
         (json |> member "error" |> to_string))
 
+let test_check_stuck_filters_event_messages () =
+  Test_helpers.with_temp_home (fun _home ->
+      with_fake_chat_provider
+        ~response_for_user:(fun _ -> "OK")
+        (fun config ->
+          let history =
+            [
+              Provider.make_message ~role:"user" ~content:"Hello";
+              Provider.make_message ~role:"event" ~content:"config reloaded";
+              Provider.make_message ~role:"assistant" ~content:"Hi there";
+              Provider.make_message ~role:"event" ~content:"project docs refreshed";
+              Provider.make_message ~role:"user" ~content:"Do the task";
+            ]
+          in
+          let verdict =
+            Lwt_main.run
+              (Session_observer.check_stuck ~config ~history
+                 ~stats:(sample_stats "session-event-filter")
+                 ())
+          in
+          match verdict with
+          | Session_observer.Ok -> ()
+          | Session_observer.Stuck { reason; _ } ->
+              Alcotest.fail ("expected ok, got stuck: " ^ reason)
+          | Session_observer.Error msg ->
+              Alcotest.fail ("expected ok, got error: " ^ msg)))
+
 let test_parse_verdict () =
   Alcotest.(check string)
     "OK" "ok"
@@ -410,4 +437,6 @@ let suite =
     Alcotest.test_case "log_thinking_check_error" `Quick
       test_log_thinking_check_error;
     Alcotest.test_case "parse_verdict" `Quick test_parse_verdict;
+    Alcotest.test_case "check_stuck filters event messages" `Quick
+      test_check_stuck_filters_event_messages;
   ]
