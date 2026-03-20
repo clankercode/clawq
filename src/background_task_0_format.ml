@@ -311,6 +311,22 @@ let format_elapsed_seconds secs =
     else if hours >= 2 then "2h+"
     else Printf.sprintf "%dh%dm" hours (mins mod 60)
 
+let format_age_seconds secs =
+  let secs = max 0 (int_of_float secs) in
+  if secs < 60 then "<1m"
+  else
+    let mins = secs / 60 in
+    let hours = mins / 60 in
+    let days = hours / 24 in
+    if days > 0 then Printf.sprintf "%dd%dh" days (hours mod 24)
+    else if hours > 0 then Printf.sprintf "%dh%dm" hours (mins mod 60)
+    else Printf.sprintf "%dm" mins
+
+let age_string (task : task) =
+  let now = Unix.gettimeofday () in
+  let created = parse_sqlite_datetime task.created_at in
+  if created <= 0.0 then "-" else format_age_seconds (now -. created)
+
 let runtime_string (task : task) =
   match task.started_at with
   | None -> "-"
@@ -408,7 +424,9 @@ and task_list_table_data tasks =
         { header = "RUNNER"; align = Left; min_width = 6; flex = false };
         { header = "STATUS"; align = Left; min_width = 6; flex = false };
         { header = "HEALTH"; align = Left; min_width = 6; flex = false };
+        { header = "AGE"; align = Left; min_width = 3; flex = false };
         { header = "RUNTIME"; align = Left; min_width = 7; flex = false };
+        { header = "MERGE"; align = Left; min_width = 3; flex = false };
         { header = "BRANCH"; align = Left; min_width = 6; flex = false };
         { header = "REPO"; align = Left; min_width = 4; flex = true };
       ]
@@ -419,12 +437,20 @@ and task_list_table_data tasks =
         let branch = if task.branch = "" then "-" else task.branch in
         let runtime = runtime_string task in
         let health = diagnose_health task in
+        let age = age_string task in
+        let merge =
+          if not task.use_worktree then "-"
+          else if task.automerge then "auto"
+          else "manual"
+        in
         [
           string_of_int task.id;
           string_of_runner task.runner;
           string_of_status task.status;
           string_of_health health;
+          age;
           runtime;
+          merge;
           branch;
           task.repo_path;
         ])

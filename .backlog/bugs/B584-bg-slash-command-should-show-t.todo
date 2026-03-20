@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-20T03:53:50Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-03-20T03:58:31Z"
 complexity: medium
 depends_on: []
+duration_minutes: 4.693733478466667
 estimate_hours: 1
 id: B584
 priority: high
 started_at: "2026-03-20T03:53:50Z"
-status: in_progress
+status: done
 tags: []
 title: the /bg slash cmd should show age and automerge of tasks, not just run-time
 ---
