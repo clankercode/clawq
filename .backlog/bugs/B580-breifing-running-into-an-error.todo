@@ -10,3 +10,22 @@ title: Breifing running into an error
 ---
 
 Breifing running into an error
+
+[12:00:20.122] INFO Cron job briefing-hourly: starting turn for session briefing 
+[12:00:20.167] INFO [briefing] -> LLM provider=zai_coding model=glm-5 msgs=121 ~53k tok 
+[12:00:33.665] INFO [cache] cached=0/61467 (0%) prompt tokens [12:00:33.665] INFO [briefing] 
+Cost: model=glm-5 prompt=61467 completion=233 cost=$0.062213 session_total=$0.1860 
+[12:00:33.677] INFO [briefing] Tool call: memory_list (id=call_-7786283813633522804) 
+args={"category":"rig"} [12:00:33.690] INFO [briefing] Tool result: memory_list -> 
+[rig:briefing:config] (rig): {
+  "rss_tool": "~/.clawq/rss_fetch.sh", "feeds_file": "~/.clawq/briefing_feeds.txt", 
+  "feeds_count": 3, "feeds": [
+    "https://news.ycombinator.com/rss", "http:... [12:00:33.716] INFO [briefing] -> LLM 
+provider=zai_coding model=glm-5 msgs=123 ~53k tok [12:00:40.404] INFO [cache] 
+cached=61440/61651 (100%) prompt tokens [12:00:40.404] INFO [briefing] Cost: model=glm-5 
+prompt=61651 completion=64 cost=$0.061856 session_total=$0.2478 [12:00:40.428] INFO -> LLM 
+provider=groq model=openai/gpt-oss-120b msgs=9 ~0k tok [12:00:40.429] INFO Cron job 
+briefing-hourly: LLM turn complete (16 chars) [12:00:40.429] INFO Cron job briefing-hourly: no 
+channel info or deliver callback, marking ok
+[12:00:40.516] WARN  [session_observer] LLM call failed: Failure("LLM API error (HTTP 400): {\"error\":{\"message\":\"'messages.7' : discriminator property 'role' has invalid value\",\"type\":\"invalid_request_error\"}}\n")
+
