@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B592
+priority: high
+status: pending
+tags: []
+title: 'Document and implement service autostart on reboot for clawq The service management docs only describe manual install/start/stop/status/uninstall flows. We need explicit support and documentation for making clawq start automatically on system reboot, if the platform supports it, and clear guidance if it does not. Acceptance criteria: (1) docs explain whether the installed service autostarts after reboot and how to enable it; (2) if unsupported, service install docs or help text explicitly say so; (3) add/adjust tests or verification covering the boot persistence behavior or the documented limitation; (4) keep existing service commands working unchanged.'
+---
+
+Document and implement service autostart on reboot for clawq The service management docs only describe manual install/start/stop/status/uninstall flows. We need explicit support and documentation for making clawq start automatically on system reboot, if the platform supports it, and clear guidance if it does not. Acceptance criteria: (1) docs explain whether the installed service autostarts after reboot and how to enable it; (2) if unsupported, service install docs or help text explicitly say so; (3) add/adjust tests or verification covering the boot persistence behavior or the documented limitation; (4) keep existing service commands working unchanged.
