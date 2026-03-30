@@ -574,6 +574,26 @@ let known_models : model_info list =
     (* Z.ai *)
     {
       provider = "zai";
+      id = "glm-5.1";
+      display_name = None;
+      context_window = Some 128000;
+      supports_vision = false;
+      supports_tools = true;
+      supports_thinking = true;
+      deprecated = false;
+    };
+    {
+      provider = "zai";
+      id = "glm-5-turbo";
+      display_name = None;
+      context_window = Some 128000;
+      supports_vision = false;
+      supports_tools = true;
+      supports_thinking = true;
+      deprecated = false;
+    };
+    {
+      provider = "zai";
       id = "glm-5";
       display_name = None;
       context_window = Some 128000;

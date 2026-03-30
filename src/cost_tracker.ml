@@ -197,12 +197,21 @@ let pricing_table =
     ( "minimax-text-01",
       { input_per_m = 0.20; output_per_m = 1.10; cache_read_per_m = None } );
     (* Z.ai - Source: https://docs.z.ai/guides/overview/pricing *)
-    ("glm-5", { input_per_m = 1.0; output_per_m = 3.2; cache_read_per_m = None });
+    ( "glm-5.1",
+      { input_per_m = 1.0; output_per_m = 3.2; cache_read_per_m = None } );
+    ( "glm-5-turbo",
+      { input_per_m = 1.2; output_per_m = 4.0; cache_read_per_m = Some 0.24 } );
+    ( "glm-5",
+      { input_per_m = 1.0; output_per_m = 3.2; cache_read_per_m = Some 0.2 } );
     ( "glm-4.7",
       { input_per_m = 0.60; output_per_m = 2.20; cache_read_per_m = None } );
     ( "glm-4.6",
       { input_per_m = 0.60; output_per_m = 2.20; cache_read_per_m = None } );
     (* Z.ai Coding endpoint - Source: https://docs.z.ai/guides/overview/pricing *)
+    ( "zai_coding/glm-5.1",
+      { input_per_m = 1.20; output_per_m = 5.0; cache_read_per_m = None } );
+    ( "zai_coding/glm-5-turbo",
+      { input_per_m = 1.20; output_per_m = 4.0; cache_read_per_m = None } );
     ( "zai_coding/glm-5",
       { input_per_m = 1.20; output_per_m = 5.0; cache_read_per_m = None } );
     ( "zai_coding/glm-4.7",
