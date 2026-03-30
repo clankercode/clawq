@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-03-30T03:24:44Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B588
 priority: high
-status: pending
+started_at: "2026-03-30T03:24:44Z"
+status: in_progress
 tags: []
 title: default_provider keeps being added back to config.json even after i remove it
 ---
