@@ -254,7 +254,9 @@ let log_has_content path =
   try (Unix.stat path).Unix.st_size > 0
   with Unix.Unix_error _ | Sys_error _ -> false
 
-let running : (int, unit) Hashtbl.t = Hashtbl.create 16
+type local_task_state = { cancelled : bool ref }
+
+let running : (int, local_task_state) Hashtbl.t = Hashtbl.create 16
 let is_tracked_locally id = Hashtbl.mem running id
 
 let diagnose_health ?(now = Unix.gettimeofday ())
@@ -279,27 +281,26 @@ let diagnose_health ?(now = Unix.gettimeofday ())
           | None -> 0.0
         in
         let elapsed = if started > 0.0 then now -. started else 0.0 in
-        if is_local then
-          if elapsed >= stalled_threshold_seconds then Stalled else Active
-        else
-          let log_fresh =
-            match task.log_path with
-            | Some path -> (
-                match log_mtime path with
-                | Some mtime -> now -. mtime < log_stale_threshold_seconds
-                | None -> false)
-            | None -> false
-          in
-          let log_empty =
-            match task.log_path with
-            | Some path -> not (log_has_content path)
-            | None -> true
-          in
-          if log_empty && elapsed >= startup_timeout_seconds then Startup_failed
-          else if log_fresh then Active
-          else if elapsed < log_stale_threshold_seconds then Active
-          else if elapsed >= stalled_threshold_seconds then Stalled
-          else Log_stale
+        let log_fresh =
+          match task.log_path with
+          | Some path -> (
+              match log_mtime path with
+              | Some mtime -> now -. mtime < log_stale_threshold_seconds
+              | None -> false)
+          | None -> false
+        in
+        let log_empty =
+          match task.log_path with
+          | Some path -> not (log_has_content path)
+          | None -> true
+        in
+        if (not is_local) && log_empty && elapsed >= startup_timeout_seconds
+        then Startup_failed
+        else if log_fresh then Active
+        else if elapsed < log_stale_threshold_seconds then Active
+        else if elapsed >= stalled_threshold_seconds then Stalled
+        else if is_local then Active
+        else Log_stale
 
 let format_elapsed_seconds secs =
   let secs = max 0 (int_of_float secs) in
@@ -725,3 +726,46 @@ let append_log_error ~log_path msg =
       ~finally:(fun () -> close_out_noerr oc)
       (fun () -> Printf.fprintf oc "\n[clawq] ERROR: %s\n" msg)
   with _ -> ()
+
+let append_messages_to_log ~log_path (msgs : (string * string) list) =
+  try
+    let oc =
+      open_out_gen [ Open_wronly; Open_creat; Open_append ] 0o644 log_path
+    in
+    Fun.protect
+      ~finally:(fun () -> close_out_noerr oc)
+      (fun () ->
+        List.iter
+          (fun (role, content) -> Printf.fprintf oc "\n[%s]\n%s\n" role content)
+          msgs)
+  with _ -> ()
+
+let append_log_line ~log_path msg =
+  try
+    let oc =
+      open_out_gen [ Open_wronly; Open_creat; Open_append ] 0o644 log_path
+    in
+    Fun.protect
+      ~finally:(fun () -> close_out_noerr oc)
+      (fun () -> Printf.fprintf oc "\n%s\n" msg)
+  with _ -> ()
+
+let start_log_heartbeat ~log_path =
+  let stop = ref false in
+  Lwt.async (fun () ->
+      let open Lwt.Syntax in
+      let rec beat () =
+        if !stop then Lwt.return_unit
+        else
+          let* () = Lwt_unix.sleep 30.0 in
+          if !stop then Lwt.return_unit
+          else begin
+            (try
+               let now = Unix.gettimeofday () in
+               Unix.utimes log_path now now
+             with _ -> ());
+            beat ()
+          end
+      in
+      beat ());
+  stop

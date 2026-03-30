@@ -1016,10 +1016,11 @@ let cancel_with_signal ~send_signal ~db ~id
                    ~result_preview:"Cancellation requested for running task");
               Ok (Printf.sprintf "Sent SIGTERM to task %d (pid %d)" id pid)
           | Some _ | None ->
+              (match Hashtbl.find_opt running id with
+              | Some st -> st.cancelled := true
+              | None -> ());
               ignore
-                (mark_cancelled ~db ~id
-                   ~result_preview:
-                     "Cancelled running task without tracked process id");
+                (mark_cancelled ~db ~id ~result_preview:"Cancelled local task");
               Ok "Cancelled running task"))
 
 let cancel ~db ~id = cancel_with_signal ~send_signal:Unix.kill ~db ~id ()
@@ -1503,7 +1504,7 @@ let spawn_task ?(on_task_started = fun _ -> Lwt.return_unit)
     ?(run_simple_command = run_simple_command) ?command_override
     ?(augment_env = fun ~session_key:_ ~task_id:_ env -> env) ~db (task : task)
     =
-  Hashtbl.replace running task.id ();
+  Hashtbl.replace running task.id { cancelled = ref false };
   Lwt.async (fun () ->
       let open Lwt.Syntax in
       let finalize () =
@@ -1713,21 +1714,32 @@ let local_task_timeout_seconds = 600.0
 
 let spawn_local_task ?(timeout_seconds = local_task_timeout_seconds) ~run_turn
     ~on_task_started ~on_task_finished ~db (task : task) =
-  Hashtbl.replace running task.id ();
+  let cancel_state = { cancelled = ref false } in
+  Hashtbl.replace running task.id cancel_state;
+  let finish_and_notify ~status ~result_preview =
+    finish ~db ~id:task.id ~status ~result_preview;
+    let open Lwt.Syntax in
+    match get_task ~db ~id:task.id with
+    | Some t -> on_task_finished t
+    | None -> Lwt.return_unit
+  in
   Lwt.async (fun () ->
       Lwt.finalize
         (fun () ->
           let open Lwt.Syntax in
           let* prepared = prepare_worktree task in
           match prepared with
-          | Error err ->
-              finish ~db ~id:task.id ~status:Failed ~result_preview:err;
-              Lwt.return_unit
+          | Error err -> finish_and_notify ~status:Failed ~result_preview:err
           | Ok (branch, worktree_path, log_path) ->
               let _set =
                 set_running ~db ~id:task.id ~branch ~worktree_path ~log_path
                   ~pid:(-1)
               in
+              let prompt_short = preview_text_n 200 task.prompt in
+              write_log_preamble ~log_path ~task_id:task.id
+                ~command:
+                  (Process_group.Shell
+                     (Printf.sprintf "local-turn: %s" prompt_short));
               let* () = on_task_started task in
               let ephemeral_key =
                 Printf.sprintf "__cron:%d:%d" task.id
@@ -1736,56 +1748,60 @@ let spawn_local_task ?(timeout_seconds = local_task_timeout_seconds) ~run_turn
               let cwd =
                 if worktree_path <> "" then Some worktree_path else None
               in
-              Lwt.catch
+              let interrupt_check () =
+                if !(cancel_state.cancelled) then Some "cancelled" else None
+              in
+              let on_history_update msgs =
+                append_messages_to_log ~log_path
+                  (List.map
+                     (fun (m : Provider.message) -> (m.role, m.content))
+                     msgs);
+                Lwt.return_unit
+              in
+              let heartbeat_stop = start_log_heartbeat ~log_path in
+              Lwt.finalize
                 (fun () ->
-                  let* timed_result =
-                    Resilience.with_timeout ~timeout_s:timeout_seconds
-                      (fun () ->
-                        run_turn ~key:ephemeral_key ~message:task.prompt
-                          ?agent_name:task.agent_name ?cwd ())
-                  in
-                  match timed_result with
-                  | Error timeout_msg ->
-                      finish ~db ~id:task.id ~status:Failed
-                        ~result_preview:timeout_msg;
-                      let* () =
-                        match get_task ~db ~id:task.id with
-                        | Some t -> on_task_finished t
-                        | None -> Lwt.return_unit
+                  Lwt.catch
+                    (fun () ->
+                      let* timed_result =
+                        Resilience.with_timeout ~timeout_s:timeout_seconds
+                          (fun () ->
+                            run_turn ~key:ephemeral_key ~message:task.prompt
+                              ?agent_name:task.agent_name ?cwd ~interrupt_check
+                              ~on_history_update ())
                       in
-                      Lwt.return_unit
-                  | Ok result ->
-                      let prompt_short =
-                        if String.length task.prompt > 200 then
-                          String.sub task.prompt 0 200 ^ "..."
-                        else task.prompt
+                      match timed_result with
+                      | Error timeout_msg ->
+                          append_log_line ~log_path
+                            (Printf.sprintf "[clawq] timed out: %s" timeout_msg);
+                          finish_and_notify ~status:Failed
+                            ~result_preview:timeout_msg
+                      | Ok result ->
+                          let result_short = preview_text_n 300 result in
+                          let rich_preview =
+                            Printf.sprintf
+                              "[cron ephemeral] prompt: %s\n\nresponse: %s"
+                              prompt_short result_short
+                          in
+                          append_log_line ~log_path
+                            (Printf.sprintf "[clawq] finished: %s" result_short);
+                          finish_and_notify ~status:Succeeded
+                            ~result_preview:rich_preview)
+                    (fun exn ->
+                      let status, preview =
+                        match exn with
+                        | Agent_0_compact.Interrupted partial ->
+                            ( Cancelled,
+                              Printf.sprintf "Cancelled: %s"
+                                (preview_text_n 300 partial) )
+                        | _ -> (Failed, Printexc.to_string exn)
                       in
-                      let result_short =
-                        if String.length result > 300 then
-                          String.sub result 0 300 ^ "..."
-                        else result
-                      in
-                      let rich_preview =
-                        Printf.sprintf
-                          "[cron ephemeral] prompt: %s\n\nresponse: %s"
-                          prompt_short result_short
-                      in
-                      finish ~db ~id:task.id ~status:Succeeded
-                        ~result_preview:rich_preview;
-                      let* () =
-                        match get_task ~db ~id:task.id with
-                        | Some t -> on_task_finished t
-                        | None -> Lwt.return_unit
-                      in
-                      Lwt.return_unit)
-                (fun exn ->
-                  finish ~db ~id:task.id ~status:Failed
-                    ~result_preview:(Printexc.to_string exn);
-                  let* () =
-                    match get_task ~db ~id:task.id with
-                    | Some t -> on_task_finished t
-                    | None -> Lwt.return_unit
-                  in
+                      append_log_line ~log_path
+                        (Printf.sprintf "[clawq] %s: %s"
+                           (string_of_status status) preview);
+                      finish_and_notify ~status ~result_preview:preview))
+                (fun () ->
+                  heartbeat_stop := true;
                   Lwt.return_unit))
         (fun () ->
           Hashtbl.remove running task.id;
@@ -1936,7 +1952,7 @@ let readopt_running_tasks ~db ~on_task_finished =
     (fun task ->
       match task.pid with
       | Some pid ->
-          Hashtbl.replace running task.id ();
+          Hashtbl.replace running task.id { cancelled = ref false };
           incr count;
           Lwt.async (fun () ->
               Lwt.finalize

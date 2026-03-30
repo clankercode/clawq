@@ -4192,7 +4192,15 @@ let test_spawn_local_task_timeout () =
       Lwt_main.run
         (let open Lwt.Syntax in
          Background_task.spawn_local_task ~timeout_seconds:0.1
-           ~run_turn:(fun ~key:_ ~message:_ ?agent_name:_ ?cwd:_ () ->
+           ~run_turn:(fun
+               ~key:_
+               ~message:_
+               ?agent_name:_
+               ?cwd:_
+               ~interrupt_check:_
+               ~on_history_update:_
+               ()
+             ->
              let* () = Lwt_unix.sleep 10.0 in
              Lwt.return "should not reach")
            ~on_task_started:(fun _ -> Lwt.return_unit)
@@ -4235,8 +4243,15 @@ let test_spawn_local_task_success () =
       Lwt_main.run
         (let open Lwt.Syntax in
          Background_task.spawn_local_task
-           ~run_turn:(fun ~key:_ ~message:_ ?agent_name:_ ?cwd:_ () ->
-             Lwt.return "done")
+           ~run_turn:(fun
+               ~key:_
+               ~message:_
+               ?agent_name:_
+               ?cwd:_
+               ~interrupt_check:_
+               ~on_history_update:_
+               ()
+             -> Lwt.return "done")
            ~on_task_started:(fun _ -> Lwt.return_unit)
            ~on_task_finished:(fun _ -> Lwt.return_unit)
            ~db task;
@@ -4375,6 +4390,221 @@ let test_spawn_task_set_running_failure_marks_failed () =
             "log contains set_running error" true
             (string_contains log_content "set_running failed");
           ignore t)
+
+let test_spawn_local_task_creates_log () =
+  let dir = Filename.temp_dir "clawq-bg-local-log" "" in
+  Fun.protect
+    (fun () ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Local
+            ~require_git:false ~use_worktree:false ~repo_path:dir
+            ~prompt:"test log" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      let task =
+        match Background_task.get_task ~db ~id with
+        | Some t -> t
+        | None -> Alcotest.failf "expected task %d" id
+      in
+      Lwt_main.run
+        (let open Lwt.Syntax in
+         Background_task.spawn_local_task
+           ~run_turn:(fun
+               ~key:_
+               ~message:_
+               ?agent_name:_
+               ?cwd:_
+               ~interrupt_check:_
+               ~on_history_update:_
+               ()
+             -> Lwt.return "log test result")
+           ~on_task_started:(fun _ -> Lwt.return_unit)
+           ~on_task_finished:(fun _ -> Lwt.return_unit)
+           ~db task;
+         let rec wait n =
+           if n <= 0 then Lwt.return_unit
+           else
+             let* () = Lwt_unix.sleep 0.05 in
+             match Background_task.get_task ~db ~id with
+             | Some t when t.status <> Background_task.Running ->
+                 Lwt.return_unit
+             | _ -> wait (n - 1)
+         in
+         wait 20);
+      let t =
+        match Background_task.get_task ~db ~id with
+        | Some t -> t
+        | None -> Alcotest.fail "expected task"
+      in
+      Alcotest.(check string)
+        "status is succeeded" "succeeded"
+        (Background_task.string_of_status t.status);
+      let log_path = Option.value ~default:"" t.log_path in
+      Alcotest.(check bool) "log file exists" true (Sys.file_exists log_path);
+      let log_content =
+        let ic = open_in log_path in
+        Fun.protect
+          ~finally:(fun () -> close_in_noerr ic)
+          (fun () -> really_input_string ic (in_channel_length ic))
+      in
+      Alcotest.(check bool)
+        "log contains preamble" true
+        (string_contains log_content "[clawq] task");
+      Alcotest.(check bool)
+        "log contains finished marker" true
+        (string_contains log_content "[clawq] finished"))
+    ~finally:(fun () ->
+      ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote dir))))
+
+let test_spawn_local_task_cancel () =
+  let dir = Filename.temp_dir "clawq-bg-local-cancel" "" in
+  Fun.protect
+    (fun () ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Local
+            ~require_git:false ~use_worktree:false ~repo_path:dir
+            ~prompt:"test cancel" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      let task =
+        match Background_task.get_task ~db ~id with
+        | Some t -> t
+        | None -> Alcotest.failf "expected task %d" id
+      in
+      Lwt_main.run
+        (let open Lwt.Syntax in
+         Background_task.spawn_local_task
+           ~run_turn:(fun
+               ~key:_
+               ~message:_
+               ?agent_name:_
+               ?cwd:_
+               ~interrupt_check
+               ~on_history_update:_
+               ()
+             ->
+             let rec loop () =
+               let* () = Lwt_unix.sleep 0.05 in
+               match interrupt_check () with
+               | Some _reason ->
+                   Lwt.fail
+                     (Agent_0_compact.Interrupted "partial result from cancel")
+               | None -> loop ()
+             in
+             loop ())
+           ~on_task_started:(fun _ -> Lwt.return_unit)
+           ~on_task_finished:(fun _ -> Lwt.return_unit)
+           ~db task;
+         let* () = Lwt_unix.sleep 0.1 in
+         let _result =
+           Background_task.cancel_with_signal
+             ~send_signal:(fun _ _ -> ())
+             ~terminate_group:(fun ?grace_seconds:_ ?wait_seconds:_ _ -> ())
+             ~db ~id ()
+         in
+         let rec wait n =
+           if n <= 0 then Lwt.return_unit
+           else
+             let* () = Lwt_unix.sleep 0.05 in
+             match Background_task.get_task ~db ~id with
+             | Some t when t.status <> Background_task.Running ->
+                 Lwt.return_unit
+             | _ -> wait (n - 1)
+         in
+         wait 40);
+      match Background_task.get_task ~db ~id with
+      | None -> Alcotest.fail "expected task"
+      | Some t ->
+          Alcotest.(check string)
+            "status is cancelled" "cancelled"
+            (Background_task.string_of_status t.status);
+          let preview = Option.value ~default:"" t.result_preview in
+          Alcotest.(check bool)
+            "result mentions cancel" true
+            (string_contains preview "Cancel"))
+    ~finally:(fun () ->
+      ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote dir))))
+
+let test_health_local_task_log_fresh_is_active () =
+  let now = Unix.gettimeofday () in
+  let started_time = now -. 200.0 in
+  let tm = Unix.gmtime started_time in
+  let started =
+    Printf.sprintf "%04d-%02d-%02d %02d:%02d:%02d" (tm.Unix.tm_year + 1900)
+      (tm.Unix.tm_mon + 1) tm.Unix.tm_mday tm.Unix.tm_hour tm.Unix.tm_min
+      tm.Unix.tm_sec
+  in
+  let log_file = Filename.temp_file "clawq-bg-health" ".log" in
+  Fun.protect
+    (fun () ->
+      let oc = open_out log_file in
+      output_string oc "some log content\n";
+      close_out oc;
+      Unix.utimes log_file now now;
+      let task =
+        {
+          (make_task ~status:Background_task.Running
+             ~runner:Background_task.Local ~started_at:(Some started) ())
+          with
+          pid = Some (-1);
+          log_path = Some log_file;
+        }
+      in
+      let health =
+        Background_task.diagnose_health ~now
+          ~is_local_tracked:(fun _ -> true)
+          task
+      in
+      Alcotest.(check string)
+        "local task with fresh log is active even after 200s" "active"
+        (Background_task.string_of_health health))
+    ~finally:(fun () -> try Sys.remove log_file with _ -> ())
+
+let test_health_local_task_stale_log_is_stalled () =
+  let now = Unix.gettimeofday () in
+  let started_time = now -. 200.0 in
+  let tm = Unix.gmtime started_time in
+  let started =
+    Printf.sprintf "%04d-%02d-%02d %02d:%02d:%02d" (tm.Unix.tm_year + 1900)
+      (tm.Unix.tm_mon + 1) tm.Unix.tm_mday tm.Unix.tm_hour tm.Unix.tm_min
+      tm.Unix.tm_sec
+  in
+  let log_file = Filename.temp_file "clawq-bg-stale" ".log" in
+  Fun.protect
+    (fun () ->
+      let oc = open_out log_file in
+      output_string oc "some log content\n";
+      close_out oc;
+      let stale_time = now -. 150.0 in
+      Unix.utimes log_file stale_time stale_time;
+      let task =
+        {
+          (make_task ~status:Background_task.Running
+             ~runner:Background_task.Local ~started_at:(Some started) ())
+          with
+          pid = Some (-1);
+          log_path = Some log_file;
+        }
+      in
+      let health =
+        Background_task.diagnose_health ~now
+          ~is_local_tracked:(fun _ -> true)
+          task
+      in
+      Alcotest.(check string)
+        "local task with stale log after 200s is stalled" "stalled"
+        (Background_task.string_of_health health))
+    ~finally:(fun () -> try Sys.remove log_file with _ -> ())
 
 let suite =
   [
@@ -4660,4 +4890,12 @@ let suite =
     Alcotest.test_case "write_log_preamble" `Quick test_write_log_preamble;
     Alcotest.test_case "spawn set_running failure marks failed" `Quick
       test_spawn_task_set_running_failure_marks_failed;
+    Alcotest.test_case "spawn local task creates log" `Quick
+      test_spawn_local_task_creates_log;
+    Alcotest.test_case "spawn local task cancel" `Quick
+      test_spawn_local_task_cancel;
+    Alcotest.test_case "health local task log fresh is active" `Quick
+      test_health_local_task_log_fresh_is_active;
+    Alcotest.test_case "health local task stale log is stalled" `Quick
+      test_health_local_task_stale_log_is_stalled;
   ]

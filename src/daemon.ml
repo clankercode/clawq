@@ -1554,7 +1554,15 @@ let run ~(config : Runtime_config.t) =
                               |])
                   in
                   Background_task.start_queued_with_local_runner ?augment_env
-                    ~run_turn:(fun ~key ~message ?agent_name ?cwd () ->
+                    ~run_turn:(fun
+                        ~key
+                        ~message
+                        ?agent_name
+                        ?cwd
+                        ~interrupt_check
+                        ~on_history_update
+                        ()
+                      ->
                       match agent_name with
                       | Some name -> (
                           match Agent_template.resolve name with
@@ -1573,9 +1581,33 @@ let run ~(config : Runtime_config.t) =
                                   ?tool_registry ~agent_template:tmpl ()
                               in
                               agent.effective_cwd <- cwd;
-                              Agent.turn agent ~user_message:message ())
+                              Agent.turn agent ~user_message:message
+                                ~interrupt_check ~on_history_update ())
                       | None ->
-                          Session.turn session_manager ~key ~message ?cwd ())
+                          let open Lwt.Syntax in
+                          (* Bridge interrupt_check by polling and setting
+                             the session interrupt ref. The done_ flag
+                             ensures the poller stops after the turn. *)
+                          let done_ = ref false in
+                          Lwt.async (fun () ->
+                              let rec poll () =
+                                if !done_ then Lwt.return_unit
+                                else
+                                  match interrupt_check () with
+                                  | Some msg ->
+                                      Session_core.set_interrupt_if_present
+                                        session_manager ~key msg
+                                  | None ->
+                                      let* () = Lwt_unix.sleep 0.5 in
+                                      poll ()
+                              in
+                              poll ());
+                          Lwt.finalize
+                            (fun () ->
+                              Session.turn session_manager ~key ~message ?cwd ())
+                            (fun () ->
+                              done_ := true;
+                              Lwt.return_unit))
                     ~db
                     ~on_task_finished:
                       (notify_background_task_finished ~session_manager ~config

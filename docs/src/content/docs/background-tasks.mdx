@@ -7,7 +7,7 @@ order: 5
 
 import Callout from '../../components/Callout.astro';
 
-Background tasks let you dispatch long-running coding work to an external AI agent runner (Claude, Codex, Kimi, Gemini, Opencode, or Cursor) in a git worktree isolated from your main branch. The task runs asynchronously while clawq tracks its state, captures logs, and optionally rebases and fast-forward merges the result back when complete.
+Background tasks let you dispatch long-running coding work to an AI agent runner — either an external CLI tool (Claude, Codex, Kimi, Gemini, Opencode, or Cursor) or clawq's own in-process `local` runner. Tasks can run in a git worktree isolated from your main branch. The task runs asynchronously while clawq tracks its state, captures logs, and optionally rebases and fast-forward merges the result back when complete.
 
 ## delegate vs background
 
@@ -29,7 +29,7 @@ Use `delegate` for quick ad-hoc tasks and `background add` when you need to spec
 
 ## Runners
 
-Six runners are supported. The daemon selects from available runners when none is specified:
+Seven runners are supported. Six are external CLI tools; one (`local`) runs in-process. The daemon selects from available external runners when none is specified:
 
 | Runner | Binary | Session ID Strategy | Auto Order |
 |--------|--------|---------------------|------------|
@@ -39,8 +39,18 @@ Six runners are supported. The daemon selects from available runners when none i
 | `gemini` | `gemini` | Index-based | 4th |
 | `opencode` | `opencode` | Parse log regex `session=ses_...` | 5th |
 | `cursor` | `cursor-agent` | Parse log regex `chat...=...` | 6th |
+| `local` | (in-process) | Ephemeral key | N/A |
 
-All runners are invoked with their respective `--yolo`/`--dangerously-*` flags to enable non-interactive operation. Runner definitions live in `src/runner_framework.ml`.
+External runners are invoked with their respective `--yolo`/`--dangerously-*` flags to enable non-interactive operation. Runner definitions live in `src/runner_framework.ml`.
+
+### Local Runner
+
+The `local` runner executes agent turns in-process using clawq's own LLM provider and tool system. No external binary is needed. Local tasks:
+
+- Write logs to `~/.clawq/background-logs/task-<id>.log` (preamble, agent history updates, and final result)
+- Support **cooperative cancellation** — `background cancel` sets an interrupt flag checked between agent turns; the task stops cleanly and is marked Cancelled
+- Use **log-file freshness** for health diagnosis — stall detection checks the log modification time, not just elapsed wall-clock time
+- Can be bound to an agent template via `--agent <name>`, or use the default session turn
 
 ## Worktree Lifecycle
 
