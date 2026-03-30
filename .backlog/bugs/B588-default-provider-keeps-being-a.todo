@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B588
+priority: high
+status: pending
+tags: []
+title: default_provider keeps being added back to config.json even after i remove it
+---
+
+default_provider keeps being added back to config.json even after i remove it

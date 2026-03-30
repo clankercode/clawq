@@ -584,3 +584,4 @@ bugs:
     - file: B585-run-task-with-claude-code-exit.todo
     - file: B586-test-show-skills-not-abel-to-b.todo
     - file: B587-cron-jobs-need-a-disable-mode.todo
+    - file: B588-default-provider-keeps-being-a.todo
