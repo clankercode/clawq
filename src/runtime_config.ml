@@ -1235,11 +1235,11 @@ let to_json (cfg : t) : Yojson.Safe.t =
       ("default_temperature", `Float cfg.default_temperature);
     ]
   in
-  let fields =
-    match cfg.default_provider with
-    | Some p -> fields @ [ ("default_provider", `String p) ]
-    | None -> fields
-  in
+  (* Omit default_provider from serialization — it is deprecated.
+     Users who still have it set in config.json will see a deprecation
+     warning at load time, and it will be read but never written back
+     on the next backfill, so it naturally disappears from their config. *)
+  let fields = fields in
   let fields =
     if cfg.providers = [] then fields
     else

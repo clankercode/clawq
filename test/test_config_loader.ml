@@ -357,6 +357,9 @@ let test_backfill_does_not_persist_resolved_secrets () =
        |> to_string))
 
 let test_backfill_infers_default_provider_from_model_priority () =
+  (* default_provider is deprecated and should NOT be inferred or backfilled
+     when absent from config.json. Users set provider via "provider:model"
+     format in agent_defaults.primary_model instead. *)
   let json =
     {|{
       "providers": {
@@ -375,13 +378,18 @@ let test_backfill_infers_default_provider_from_model_priority () =
   with_temp_file json (fun path ->
       let cfg = Config_loader.load ~path () in
       Alcotest.(check (option string))
-        "runtime default_provider inferred" (Some "zai_coding")
+        "runtime default_provider not inferred" None
         cfg.default_provider;
       let out = Yojson.Safe.from_file path in
       let open Yojson.Safe.Util in
-      Alcotest.(check string)
-        "default_provider backfilled" "zai_coding"
-        (out |> member "default_provider" |> to_string))
+      (* default_provider key should not appear in the backfilled file at all *)
+      let has_dp =
+        match out with
+        | `Assoc fields -> List.mem_assoc "default_provider" fields
+        | _ -> false
+      in
+      Alcotest.(check bool)
+        "default_provider not backfilled" false has_dp)
 
 let test_parse_codex_oauth_provider () =
   let json =

@@ -1403,22 +1403,7 @@ let parse_config ?(resolve_secrets = true) json =
   let default_provider =
     match parsed_default_provider with
     | Some _ as explicit -> explicit
-    | None -> (
-        let inferred =
-          match Runtime_config.effective_primary_provider agent_defaults with
-          | Some p -> Some p
-          | None -> (
-              try
-                let first =
-                  json |> member "agent_defaults" |> member "model_priority"
-                  |> to_list |> List.hd
-                in
-                Some (first |> member "provider" |> to_string)
-              with _ -> None)
-        in
-        match inferred with
-        | Some p when List.exists (fun (n, _) -> n = p) providers -> Some p
-        | _ -> None)
+    | None -> None
   in
   let agent_bindings =
     try
