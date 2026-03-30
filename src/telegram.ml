@@ -696,47 +696,51 @@ let handle_update ~bot_token ~(account : Runtime_config.telegram_account)
               Slash_commands_fmt.format_agent_menu
                 ~connector:Format_adapter.Telegram_html ~page
             in
-            let* () =
-              send_message ~bot_token ~chat_id:update.chat_id ~text ()
-            in
-            Lwt.return_unit
+            send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
+              ~text ()
         | ModelMenu page ->
             let text =
               Slash_commands_fmt.format_model_menu
                 ~connector:Format_adapter.Telegram_html ~page
             in
-            send_message ~bot_token ~chat_id:update.chat_id ~text ()
+            send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
+              ~text ()
         | ThinkingMenu ->
             let text =
               Slash_commands_fmt.format_thinking_menu
                 ~connector:Format_adapter.Telegram_html
             in
-            send_message ~bot_token ~chat_id:update.chat_id ~text ()
+            send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
+              ~text ()
         | ConfigMenu page ->
             let text =
               Slash_commands_fmt.format_config_menu
                 ~connector:Format_adapter.Telegram_html ~page
             in
-            send_message ~bot_token ~chat_id:update.chat_id ~text ()
+            send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
+              ~text ()
         | SkillsMenu page ->
             let show_test = is_admin in
             let text =
               Slash_commands_fmt.format_skills_menu
                 ~connector:Format_adapter.Telegram_html ~page ~show_test ()
             in
-            send_message ~bot_token ~chat_id:update.chat_id ~text ()
+            send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
+              ~text ()
         | CostsMenu ->
             let text =
               Slash_commands_fmt.format_costs_menu
                 ~connector:Format_adapter.Telegram_html
             in
-            send_message ~bot_token ~chat_id:update.chat_id ~text ()
+            send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
+              ~text ()
         | BgMenu ->
             let text =
               Slash_commands_fmt.format_bg_menu
                 ~connector:Format_adapter.Telegram_html
             in
-            send_message ~bot_token ~chat_id:update.chat_id ~text ()
+            send_chunked_html_with_fallback ~bot_token ~chat_id:update.chat_id
+              ~text ()
         | Tools ->
             let show_test = is_admin in
             let text =
