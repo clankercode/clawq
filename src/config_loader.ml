@@ -1400,11 +1400,7 @@ let parse_config ?(resolve_secrets = true) json =
         : Runtime_config.resilience_config)
     with _ -> default.resilience
   in
-  let default_provider =
-    match parsed_default_provider with
-    | Some _ as explicit -> explicit
-    | None -> None
-  in
+  let default_provider = parsed_default_provider in
   let agent_bindings =
     try
       let open Yojson.Safe.Util in

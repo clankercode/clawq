@@ -356,10 +356,7 @@ let test_backfill_does_not_persist_resolved_secrets () =
         (out |> member "providers" |> member "p" |> member "api_key"
        |> to_string))
 
-let test_backfill_infers_default_provider_from_model_priority () =
-  (* default_provider is deprecated and should NOT be inferred or backfilled
-     when absent from config.json. Users set provider via "provider:model"
-     format in agent_defaults.primary_model instead. *)
+let test_backfill_does_not_infer_default_provider () =
   let json =
     {|{
       "providers": {
@@ -378,18 +375,14 @@ let test_backfill_infers_default_provider_from_model_priority () =
   with_temp_file json (fun path ->
       let cfg = Config_loader.load ~path () in
       Alcotest.(check (option string))
-        "runtime default_provider not inferred" None
-        cfg.default_provider;
+        "default_provider not inferred" None cfg.default_provider;
       let out = Yojson.Safe.from_file path in
-      let open Yojson.Safe.Util in
-      (* default_provider key should not appear in the backfilled file at all *)
       let has_dp =
         match out with
         | `Assoc fields -> List.mem_assoc "default_provider" fields
         | _ -> false
       in
-      Alcotest.(check bool)
-        "default_provider not backfilled" false has_dp)
+      Alcotest.(check bool) "default_provider not backfilled" false has_dp)
 
 let test_parse_codex_oauth_provider () =
   let json =
@@ -951,8 +944,8 @@ let suite =
       test_agent_defaults_show_tool_calls_defaults_true;
     Alcotest.test_case "backfill does not persist resolved secrets" `Quick
       test_backfill_does_not_persist_resolved_secrets;
-    Alcotest.test_case "backfill infers default provider" `Quick
-      test_backfill_infers_default_provider_from_model_priority;
+    Alcotest.test_case "backfill does not infer default provider" `Quick
+      test_backfill_does_not_infer_default_provider;
     Alcotest.test_case "parse codex oauth provider" `Quick
       test_parse_codex_oauth_provider;
     Alcotest.test_case "to_json preserves codex oauth provider" `Quick
