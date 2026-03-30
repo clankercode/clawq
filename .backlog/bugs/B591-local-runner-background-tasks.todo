@@ -1,0 +1,46 @@
+---
+complexity: high
+depends_on: []
+estimate_hours: 1
+id: B591
+priority: high
+status: pending
+tags: []
+title: 'Local runner background tasks: no log file, no cancellation, premature stall detection'
+---
+## Problem
+
+Local runner (runner=local) background tasks have three interrelated defects that make them effectively unusable for non-trivial work:
+
+### 1. Log file never created
+`spawn_local_task` calls `prepare_worktree` which computes a `log_path` and ensures its parent directory exists, then calls `set_running` to store it in DB. But the actual agent turn (`run_turn` → `Session.turn`/`Agent.turn`) writes output only to the daemon log, never to the task log file. The log file is never created.
+
+Result: `background_task_logs` always returns "Log file does not exist yet" for local tasks. Zero observability.
+
+### 2. No cooperative cancellation
+`set_running` is called with `pid:(-1)` — a sentinel for in-process tasks. Cancel sees no real PID, produces "Cancelled running task without tracked process id" and only updates the DB status. The underlying agent turn keeps running in the daemon Lwt scheduler after cancellation, burning tokens until it naturally completes.
+
+### 3. Premature stall detection
+For local runners, `health_of_task` checks only elapsed wall-clock time against `stalled_threshold_seconds` (300s). Any local task working on a multi-step code change that takes more than 5 minutes gets marked Stalled, even though the agent is actively making LLM calls and tool invocations. The lack of a log file means there is no log-freshness check possible either (unlike external runners which check log mtime).
+
+## Evidence
+- Task #139 (local, B588): ran ~6 minutes, no log file created, marked stalled, cancelled with "no tracked process id"
+- Task #133 (local): same pattern — cancelled, no log file
+- Both show `log_path` set in DB but file does not exist on disk
+
+## Proposed Fix
+1. **Log file**: `spawn_local_task` should create the log file and append agent turn output (or at minimum, periodic status/heartbeat lines) to it during execution.
+2. **Cancellation**: Add a cooperative cancellation ref/flag checked between agent turns (or between LLM calls). When cancel is requested, set the flag so the next turn/call aborts cleanly.
+3. **Stall threshold**: For local runners, either raise the threshold substantially or check daemon-log activity for the ephemeral session key to determine liveness instead of relying on wall-clock time alone.
+4. **Quick win**: Change `stalled_threshold_seconds` from 300.0 to 120.0 (or make it configurable) so stall detection fires earlier when the task is genuinely stuck, not after 5 minutes of legitimate work.
+
+## Files Involved
+- `src/background_task.ml` — `spawn_local_task` (lines 1714–1792), `health_of_task`
+- `src/background_task_0_format.ml` — `stalled_threshold_seconds` (line 249), `health_of_task` (lines 275–302)
+
+## Acceptance Criteria
+- [ ] Local runner tasks create and write to their log file during execution
+- [ ] `background_task_logs` returns content for running local tasks
+- [ ] Cancelling a local runner task stops the agent turn within one LLM/tool cycle
+- [ ] Stall threshold for local runners accounts for active LLM/tool usage, not just elapsed wall-clock time
+- [ ] `stalled_threshold_seconds` reduced to 120s
