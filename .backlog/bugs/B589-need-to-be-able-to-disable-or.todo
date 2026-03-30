@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B589
+priority: high
+status: pending
+tags: []
+title: need to be able to disable or slow down postmortem agent or set a default model. (default should probably be zai_coding:glm-5-turbo)
+---
+
+need to be able to disable or slow down postmortem agent or set a default model. (default should probably be zai_coding:glm-5-turbo)
