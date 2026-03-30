@@ -4128,14 +4128,14 @@ let test_health_local_task_stalled () =
       pid = Some (-1);
     }
   in
-  let fake_now = now +. 400.0 in
+  let fake_now = now +. 200.0 in
   let health =
     Background_task.diagnose_health ~now:fake_now
       ~is_local_tracked:(fun _ -> true)
       task
   in
   Alcotest.(check string)
-    "local task tracked but stalled after 300s" "stalled"
+    "local task tracked but stalled after 200s" "stalled"
     (Background_task.string_of_health health)
 
 let test_reap_local_task_message () =
