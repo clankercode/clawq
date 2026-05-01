@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B595
+priority: high
+status: pending
+tags: []
+title: 'Teams ask_user_question: text responses should skip ''Add notes?'' prompt'
+---
+
+Teams ask_user_question: text responses should skip 'Add notes?' prompt
