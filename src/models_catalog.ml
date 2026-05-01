@@ -625,32 +625,52 @@ let known_models : model_info list =
     (* Minimax *)
     {
       provider = "minimax";
-      id = "minimax-m2.5";
-      display_name = None;
-      context_window = Some 128000;
+      id = "minimax-m2.7";
+      display_name = Some "MiniMax-M2.7";
+      context_window = Some 204800;
       supports_vision = false;
       supports_tools = true;
-      supports_thinking = false;
+      supports_thinking = true;
+      deprecated = false;
+    };
+    {
+      provider = "minimax";
+      id = "minimax-m2.7-highspeed";
+      display_name = Some "MiniMax-M2.7-highspeed";
+      context_window = Some 204800;
+      supports_vision = false;
+      supports_tools = true;
+      supports_thinking = true;
+      deprecated = false;
+    };
+    {
+      provider = "minimax";
+      id = "minimax-m2.5";
+      display_name = Some "MiniMax-M2.5";
+      context_window = Some 204800;
+      supports_vision = false;
+      supports_tools = true;
+      supports_thinking = true;
       deprecated = false;
     };
     {
       provider = "minimax";
       id = "minimax-m2.5-free";
-      display_name = None;
-      context_window = Some 128000;
+      display_name = Some "MiniMax-M2.5-free";
+      context_window = Some 204800;
       supports_vision = false;
       supports_tools = true;
-      supports_thinking = false;
+      supports_thinking = true;
       deprecated = false;
     };
     {
       provider = "minimax";
       id = "minimax-m2.1";
-      display_name = None;
-      context_window = Some 128000;
+      display_name = Some "MiniMax-M2.1";
+      context_window = Some 204800;
       supports_vision = false;
       supports_tools = true;
-      supports_thinking = false;
+      supports_thinking = true;
       deprecated = false;
     };
     (* Mimo *)

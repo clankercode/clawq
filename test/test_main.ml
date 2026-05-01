@@ -104,6 +104,7 @@ let () =
        ("imessage", Test_imessage.suite);
        ("sandbox", Test_sandbox.suite);
        ("provider_anthropic", Test_provider_anthropic.suite);
+       ("provider_minimax", Test_provider_minimax.suite);
        ("wasm", Test_wasm.suite);
        ("tunnels", Test_tunnels.suite);
        ("tunnel_manager", Test_tunnel_manager.suite);

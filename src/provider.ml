@@ -423,6 +423,7 @@ type provider_kind =
   | Gemini
   | Vertex
   | Cohere
+  | MiniMax
 
 let string_contains s sub =
   let ls = String.length s and lsub = String.length sub in
@@ -444,6 +445,7 @@ let detect_kind ?(name = "") (p : Runtime_config.provider_config) =
   | Some "ollama" -> Ollama
   | Some "vertex" -> Vertex
   | Some "cohere" -> Cohere
+  | Some "minimax" -> MiniMax
   | Some "openai" -> OpenAICompat
   | Some _ | None ->
       let key = p.api_key in
@@ -501,6 +503,7 @@ let default_base_url_for name =
   | "kimi_coding" | "kimi-code" -> "https://api.kimi.com/coding/v1"
   | "kimi" -> "https://api.moonshot.cn/v1"
   | "moonshot" -> "https://api.moonshot.cn/v1"
+  | "minimax" -> "https://api.minimax.io"
   | _ -> "https://openrouter.ai/api/v1"
 
 let strip_date_suffix s =

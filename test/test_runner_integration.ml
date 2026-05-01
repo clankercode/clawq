@@ -331,8 +331,15 @@ let test_local_runner_lifecycle () =
       Lwt_main.run
         (let open Lwt.Syntax in
          Background_task.spawn_local_task
-           ~run_turn:(fun ~key:_ ~message:_ ?agent_name:_ ?cwd:_ () ->
-             Lwt.return "integration test done")
+           ~run_turn:(fun
+               ~key:_
+               ~message:_
+               ?agent_name:_
+               ?cwd:_
+               ~interrupt_check:_
+               ~on_history_update:_
+               ()
+             -> Lwt.return "integration test done")
            ~on_task_started:(fun _ -> Lwt.return_unit)
            ~on_task_finished:(fun _ -> Lwt.return_unit)
            ~db task;
@@ -385,8 +392,15 @@ let test_local_runner_callback () =
       Lwt_main.run
         (let open Lwt.Syntax in
          Background_task.spawn_local_task
-           ~run_turn:(fun ~key:_ ~message:_ ?agent_name:_ ?cwd:_ () ->
-             Lwt.return "ok")
+           ~run_turn:(fun
+               ~key:_
+               ~message:_
+               ?agent_name:_
+               ?cwd:_
+               ~interrupt_check:_
+               ~on_history_update:_
+               ()
+             -> Lwt.return "ok")
            ~on_task_started:(fun _ -> Lwt.return_unit)
            ~on_task_finished:(fun (t : Background_task.task) ->
              callback_fired := true;
@@ -434,7 +448,15 @@ let test_local_runner_timeout () =
       Lwt_main.run
         (let open Lwt.Syntax in
          Background_task.spawn_local_task ~timeout_seconds:0.1
-           ~run_turn:(fun ~key:_ ~message:_ ?agent_name:_ ?cwd:_ () ->
+           ~run_turn:(fun
+               ~key:_
+               ~message:_
+               ?agent_name:_
+               ?cwd:_
+               ~interrupt_check:_
+               ~on_history_update:_
+               ()
+             ->
              let* () = Lwt_unix.sleep 10.0 in
              Lwt.return "should not reach")
            ~on_task_started:(fun _ -> Lwt.return_unit)

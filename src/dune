@@ -250,6 +250,7 @@
   provider_gemini
   provider_ollama
   provider_vertex
+  provider_minimax
   provider_init
   config_validate
   setup_github

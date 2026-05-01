@@ -190,8 +190,15 @@ let pricing_table =
     ( "moonshot-v1-8k",
       { input_per_m = 0.20; output_per_m = 2.0; cache_read_per_m = None } );
     (* MiniMax *)
+    ( "minimax-m2.7",
+      { input_per_m = 0.30; output_per_m = 1.20; cache_read_per_m = Some 0.06 }
+    );
+    ( "minimax-m2.7-highspeed",
+      { input_per_m = 0.60; output_per_m = 2.40; cache_read_per_m = Some 0.06 }
+    );
     ( "minimax-m2.5",
-      { input_per_m = 0.30; output_per_m = 1.20; cache_read_per_m = None } );
+      { input_per_m = 0.30; output_per_m = 1.20; cache_read_per_m = Some 0.06 }
+    );
     ( "minimax-m1",
       { input_per_m = 0.40; output_per_m = 1.76; cache_read_per_m = None } );
     ( "minimax-text-01",

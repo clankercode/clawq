@@ -13,6 +13,7 @@ let () =
   Provider.register_native_complete Provider.Gemini Provider_gemini.complete;
   Provider.register_native_complete Provider.Vertex Provider_vertex.complete;
   Provider.register_native_complete Provider.Cohere Provider_cohere.complete;
+  Provider.register_native_complete Provider.MiniMax Provider_minimax.complete;
   Provider.register_native_stream Provider.Anthropic
     Provider_anthropic.complete_streaming;
   Provider.register_native_stream Provider.OpenAICodex
@@ -24,7 +25,9 @@ let () =
   Provider.register_native_stream Provider.Vertex
     Provider_vertex.complete_streaming;
   Provider.register_native_stream Provider.Cohere
-    Provider_cohere.complete_streaming
+    Provider_cohere.complete_streaming;
+  Provider.register_native_stream Provider.MiniMax
+    Provider_minimax.complete_streaming
 
 (* Sentinel referenced by command_bridge.ml to force-link this module.
    Without an exported symbol the native linker drops the registration code. *)

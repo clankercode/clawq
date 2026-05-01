@@ -63,6 +63,7 @@
   test_prompt_builder
   test_provider
   test_provider_anthropic
+  test_provider_minimax
   test_provider_openai_codex
   test_provider_quota
   test_rate_limiter
