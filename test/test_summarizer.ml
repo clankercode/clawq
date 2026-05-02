@@ -231,6 +231,10 @@ let test_purge_ttl () =
         summary_id = 'sum_old'");
   Summary_store.store ~db
     (make_record ~summary_id:"sum_new" ~original:"new data" ());
+  ignore
+    (Sqlite3.exec db
+       "UPDATE summaries SET created_at = datetime('now') WHERE summary_id = \
+        'sum_new'");
   let purged = Summary_store.purge_older_than ~db ~max_age_days:30 in
   Alcotest.(check bool) "purged at least 1" true (purged >= 1);
   Alcotest.(check bool)
