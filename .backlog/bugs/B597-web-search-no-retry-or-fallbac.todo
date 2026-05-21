@@ -1,0 +1,19 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B597
+priority: high
+status: pending
+tags:
+    - tooling
+    - resilience
+title: 'web_search: no retry or fallback on 429 rate-limit'
+---
+When the configured Brave search provider returns HTTP 429, the web_search tool immediately returns the raw error string with no retry, backoff, or fallback. Alternative search tools already exist in the runtime (web_search_prime, zai_websearch) but are not tried automatically.
+
+Acceptance criteria:
+- On 429 from primary provider, retry up to 3 times with exponential backoff
+- If retries exhausted, fall back to next configured provider (if any)
+- Return a clear 'all search providers rate-limited' message with retry-after hint when all fail
+- Config should support a list of search providers for round-robin/failover
