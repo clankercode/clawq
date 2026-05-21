@@ -715,11 +715,42 @@ let by_provider provider =
   List.filter (fun m -> m.provider = provider) known_models
 
 let model_id_matches (m : model_info) id =
-  m.id = id
-  || m.provider = "minimax"
-     && String.lowercase_ascii m.id = String.lowercase_ascii id
+  m.id = id || String.lowercase_ascii m.id = String.lowercase_ascii id
 
 let find_by_id id = List.find_opt (fun m -> model_id_matches m id) known_models
+
+(* Returns the catalog's canonical id when a case-insensitive match exists
+   for (provider, id). Returns None when the model isn't in the catalog at all,
+   or when the casing is already canonical. *)
+let canonical_id ~provider id =
+  match
+    List.find_opt
+      (fun m -> m.provider = provider && model_id_matches m id)
+      known_models
+  with
+  | Some m when m.id <> id -> Some m.id
+  | _ -> None
+
+(* Returns the canonical form of a "provider:model" / "provider/model" string
+   when case differs from the catalog. Returns None if already canonical or
+   unknown. Preserves the input delimiter style (':' or '/'). *)
+let canonical_full_name name =
+  match
+    match String.index_opt name ':' with
+    | Some i when i > 0 && i + 1 < String.length name -> Some (':', i)
+    | _ -> (
+        match String.index_opt name '/' with
+        | Some i when i > 0 && i + 1 < String.length name -> Some ('/', i)
+        | _ -> None)
+  with
+  | None -> None
+  | Some (delim, i) ->
+      let provider = String.sub name 0 i in
+      let model = String.sub name (i + 1) (String.length name - i - 1) in
+      (match canonical_id ~provider model with
+      | Some canonical ->
+          Some (Printf.sprintf "%s%c%s" provider delim canonical)
+      | None -> None)
 
 type name_format = Canonical | Legacy | Plain
 

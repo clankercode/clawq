@@ -691,11 +691,23 @@ let cmd_session args =
           let canonical, hint =
             match fmt with
             | Models_catalog.Legacy ->
-                let c = provider ^ ":" ^ model_id in
+                let canonical_id =
+                  Option.value ~default:model_id
+                    (Models_catalog.canonical_id ~provider model_id)
+                in
+                let c = provider ^ ":" ^ canonical_id in
                 ( c,
                   Printf.sprintf
                     "\nNote: normalized to canonical format \"%s\"." c )
-            | Models_catalog.Canonical -> (model, "")
+            | Models_catalog.Canonical -> (
+                match Models_catalog.canonical_id ~provider model_id with
+                | Some canonical_id ->
+                    let c = provider ^ ":" ^ canonical_id in
+                    ( c,
+                      Printf.sprintf
+                        "\nNote: corrected model casing \"%s\" -> \"%s\"." model
+                        c )
+                | None -> (model, ""))
             | Models_catalog.Plain -> (model, "")
           in
           Memory.set_session_model_override ~db ~session_key ~model:canonical;

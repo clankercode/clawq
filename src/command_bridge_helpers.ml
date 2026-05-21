@@ -834,11 +834,18 @@ let cmd_models args =
            to set an unknown model."
           model
       else
-        (* Auto-normalize legacy provider/model to canonical provider:model *)
+        (* Auto-normalize legacy provider/model to canonical provider:model,
+           and correct model-id casing against the catalog when it matches
+           case-insensitively. *)
         let canonical_value, hint =
           match fmt with
           | Models_catalog.Legacy ->
-              let canonical = provider ^ ":" ^ model_id in
+              let canonical_id =
+                Option.value
+                  ~default:model_id
+                  (Models_catalog.canonical_id ~provider model_id)
+              in
+              let canonical = provider ^ ":" ^ canonical_id in
               ( canonical,
                 Printf.sprintf
                   "\nNote: normalized \"%s\" to canonical format \"%s\"." model
@@ -853,7 +860,15 @@ let cmd_models args =
                     Printf.sprintf "\nNote: resolved bare model name to \"%s\"."
                       canonical )
               | _ -> (model, ""))
-          | Models_catalog.Canonical -> (model, "")
+          | Models_catalog.Canonical -> (
+              match Models_catalog.canonical_id ~provider model_id with
+              | Some canonical_id ->
+                  let canonical = provider ^ ":" ^ canonical_id in
+                  ( canonical,
+                    Printf.sprintf
+                      "\nNote: corrected model casing \"%s\" -> \"%s\"." model
+                      canonical )
+              | None -> (model, ""))
         in
         let set_result =
           Config_set.set_value "agent_defaults.primary_model" canonical_value

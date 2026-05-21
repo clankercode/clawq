@@ -460,6 +460,7 @@ let detect_kind ?(name = "") (p : Runtime_config.provider_config) =
       else if string_contains url "aiplatform.googleapis.com" then Vertex
       else if string_contains url "cohere.com" || lname = "cohere" then Cohere
       else if lname = "openai-codex" || lname = "codex" then OpenAICodex
+      else if lname = "minimax" || string_contains url "minimax" then MiniMax
       else OpenAICompat
 
 type complete_fn =
@@ -722,12 +723,25 @@ let select_provider ~(config : Runtime_config.t) ?preferred_provider
                   provider_name alt_name alt_model);
             (alt_name, alt_p, alt_model))
 
+(* If the model id differs only in casing from a catalog entry, rewrite it to
+   the catalog's canonical casing and warn once per request. APIs like MiniMax
+   are case-sensitive on the model id, so this prevents an avoidable 404. *)
+let normalize_model_casing ~provider_name model =
+  match Models_catalog.canonical_id ~provider:provider_name model with
+  | Some canonical ->
+      Logs.warn (fun m ->
+          m "model casing corrected: %s:%s -> %s:%s" provider_name model
+            provider_name canonical);
+      canonical
+  | None -> model
+
 let complete ~(config : Runtime_config.t) ~messages ?tools ?session_key
     ?preferred_provider ?quota_states () =
   let open Lwt.Syntax in
   let provider_name, provider, model =
     select_provider ~config ?preferred_provider ?quota_states ()
   in
+  let model = normalize_model_casing ~provider_name model in
   let kind = detect_kind ~name:provider_name provider in
   let sk_tag = match session_key with Some s -> "[" ^ s ^ "] " | None -> "" in
   (* Dispatch to native handler if registered *)
@@ -1138,6 +1152,7 @@ let complete_stream ~(config : Runtime_config.t) ~messages ?tools ?session_key
   let provider_name, provider, model =
     select_provider ~config ?preferred_provider ?quota_states ()
   in
+  let model = normalize_model_casing ~provider_name model in
   let kind = detect_kind ~name:provider_name provider in
   let sk_tag = match session_key with Some s -> "[" ^ s ^ "] " | None -> "" in
   (* Dispatch to native stream handler if registered *)
