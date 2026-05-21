@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-30T04:02:13Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-05-21T21:23:04Z"
 complexity: high
 depends_on: []
+duration_minutes: 75920.8610967674
 estimate_hours: 1
 id: B591
 priority: high
 started_at: "2026-03-30T04:02:13Z"
-status: in_progress
+status: done
 tags: []
 title: 'Local runner background tasks: no log file, no cancellation, premature stall detection'
 ---
