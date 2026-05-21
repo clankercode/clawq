@@ -1,0 +1,87 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B652
+priority: high
+status: pending
+tags:
+    - watchdog
+    - observer
+    - safety
+    - kill-switch
+title: 'Agent health watchdog: observer detects stuck/looping/cost-bleeding sessions but only WARNs — needs auto-pause/kill'
+---
+## Summary
+
+clawq already has detection for several flavors of broken agent
+behavior — but the detector is observe-only. It logs and moves on.
+Today's daemon.log has 50+ stuck-detected WARNs, 7 distinct
+stuck-reason patterns on postmortems, ~118 consecutive empty-arg
+tool calls on the teams session, and a postmortem currently burning
+$5/session on a repeating grep — all of these landed in the log,
+none of them stopped.
+
+What exists today:
+
+- `[observer] stuck detected ...` (src/observer*.ml): detects 'SameErrorString',
+  'message-count stuck' patterns; emits WARN
+- Postmortem circuit breaker (B395): suppresses postmortem RE-launch on
+  same pattern; does not pause the main loop
+- Mutex deadlock watchdog (B643 scope): 610s hard-kill on session lock,
+  aborts daemon — too aggressive AND too late
+- Cron consecutive-identical-output detection (B632, done): pauses cron
+  jobs — but only cron jobs
+
+Missing: a single 'agent health watchdog' that acts on:
+
+1. N consecutive identical tool errors / empty-args / SameErrorString
+   (B634/B639 territory)
+2. N consecutive identical responses without tool calls (B650 territory,
+   already detected on postmortems but no action)
+3. Cost burn rate: per-session cost crosses a configurable threshold
+   (e.g., \$2/hour, \$10/session) without user-visible progress
+4. Cycle detection: same (tool_name, args_hash) appearing M times in
+   the last N turns (B649 reproduced this — same background_task_wait
+   call 3 times)
+
+Common action surface, regardless of detector:
+
+- Pause the session (no new turns, no new dispatch) until user input
+- Post a one-line summary to the user channel: 'I appear stuck on
+  <pattern>. Last useful turn: <ts>. Pausing.'
+- Roll back to the last good checkpoint OR leave history intact
+  (configurable; default: leave intact, user decides)
+- Optionally cancel in-flight provider calls / background tasks
+- Emit a structured event so dashboards can count incidents
+
+## Suggested fix
+
+1. Factor the existing observer detectors into a single
+   `Agent_health.evaluate ~session_key ~history -> health_status`
+   returning `Healthy | Suspect of reason | Stuck of reason`.
+2. Add an action plane: `Agent_health.on_stuck session reason` that
+   does the pause + user-notify + structured-event work.
+3. Hook into the per-turn agent loop (`src/agent.ml`) immediately
+   after each turn. Cheap call, runs once per turn.
+4. Make thresholds configurable in `runtime_config.t`:
+   `stuck_consecutive_identical_errors : int` (default 3),
+   `stuck_consecutive_no_progress : int` (default 5),
+   `stuck_session_cost_ceiling_usd : float option` (default None).
+
+## Relationship to existing bugs
+
+- B395 (done): postmortem circuit breaker → narrower kill-switch
+- B632 (done): cron consecutive-identical detection → similar shape
+- B639 (open): main loop stuck escalation → subset of this
+- B643 (open): mutex deadlock auto-abort → too-late safety net
+- B650 (open): postmortem self-stuck → would be caught by this
+
+This bug supersedes (or umbrellas) B639 and B650 — they are the
+detector half; this is the action half.
+
+## Evidence
+
+- ~/.clawq/daemon.log: 50+ stuck-detected WARNs in single session
+- Live right now (00:25): postmortem session 1779372943 has done 4
+  identical greps over 20s at \$4.98 session cost, still going
