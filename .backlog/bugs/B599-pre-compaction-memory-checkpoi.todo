@@ -1,0 +1,19 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B599
+priority: high
+status: pending
+tags: []
+title: 'Pre-compaction memory checkpoint: agent should flush context to memory files before compaction occurs'
+---
+When compact_history is triggered (automatically at token/message thresholds or manually), the agent's conversation context is summarized and older messages are lost. Currently there is no mechanism to ensure important details are persisted to memory files before this loss occurs.
+
+The compaction prompt/system should instruct the forked agent to review recent conversation history and update memory/YYYY-MM-DD.md and MEMORY.md with any important decisions, context, findings, or state changes before the context is compacted.
+
+Acceptance criteria:
+1. When compact_history runs, the agent is instructed to flush important context to daily memory files
+2. Works for both automatic and manual compaction
+3. No significant session information lost to compaction
+4. The instruction is embedded in the compaction mechanism (not just agent system prompt)
