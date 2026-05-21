@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-05-21T22:09:13Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B676
 priority: high
-status: pending
+started_at: "2026-05-21T22:09:13Z"
+status: in_progress
 tags: []
 title: kimi_coding model_discovery refresh fails with HTTP 401 (separate from inference)
 ---
