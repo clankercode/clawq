@@ -380,9 +380,18 @@ let rec wait_until_terminal ?(timeout_seconds = 110.0) ?(poll_seconds = 1.0)
   | Some _ ->
       let sleep_for = Float.min poll_seconds timeout_seconds in
       let* () = Lwt_unix.sleep sleep_for in
+      (* B473: only abandon the wait for real interrupt reasons (restart,
+         user-issued cancel). A pending queued inbound message is delivered
+         inline at the end of the agent turn and should not collapse a
+         background_task_wait into a 1-second no-op. *)
       let interrupted =
         match interrupt_check with
-        | Some check -> check () <> None
+        | Some check -> (
+            match check () with
+            | None -> false
+            | Some reason when reason = Agent.queued_message_interrupt_token ->
+                false
+            | Some _ -> true)
         | None -> false
       in
       if interrupted then

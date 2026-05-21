@@ -2707,6 +2707,58 @@ let test_max_wait_seconds_is_110 () =
   Alcotest.(check (float 0.0))
     "max_wait_seconds is 110" 110.0 Background_task.max_wait_seconds
 
+(* B473: queued inbound messages must not collapse the wait into a 1-second
+   no-op. Only restart/cancel-style reasons should yield Interrupted. *)
+let test_wait_until_terminal_ignores_queued_message_interrupt () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"implement feature" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      let interrupt_check () = Some Agent.queued_message_interrupt_token in
+      let result =
+        Lwt_main.run
+          (Background_task.wait_until_terminal ~timeout_seconds:0.3
+             ~poll_seconds:0.1 ~interrupt_check ~db ~id ())
+      in
+      match result with
+      | Background_task.Timeout _ -> ()
+      | Background_task.Interrupted _ ->
+          Alcotest.fail
+            "queued_message_interrupt_token must NOT trigger Interrupted"
+      | Background_task.Finished _ ->
+          Alcotest.fail "expected Timeout, got Finished"
+      | Background_task.Not_found ->
+          Alcotest.fail "expected Timeout, got Not_found")
+
+let test_wait_until_terminal_honors_real_interrupt () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"implement feature" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      let interrupt_check () = Some "user_cancel" in
+      let result =
+        Lwt_main.run
+          (Background_task.wait_until_terminal ~timeout_seconds:1.0
+             ~poll_seconds:0.05 ~interrupt_check ~db ~id ())
+      in
+      match result with
+      | Background_task.Interrupted _ -> ()
+      | _ -> Alcotest.fail "expected Interrupted for non-queued reason")
+
 let test_start_to_file () =
   let log_path = Filename.temp_file "clawq-bg-file" ".log" in
   Fun.protect
@@ -4860,6 +4912,12 @@ let suite =
       test_wait_until_terminal_timeout;
     Alcotest.test_case "max_wait_seconds is 110" `Quick
       test_max_wait_seconds_is_110;
+    Alcotest.test_case
+      "B473: wait_until_terminal ignores queued_message_interrupt" `Quick
+      test_wait_until_terminal_ignores_queued_message_interrupt;
+    Alcotest.test_case
+      "B473: wait_until_terminal honors non-queued interrupt reasons" `Quick
+      test_wait_until_terminal_honors_real_interrupt;
     Alcotest.test_case "start_to_file writes output to log" `Quick
       test_start_to_file;
     Alcotest.test_case "readopt re-adopts alive running task" `Quick
