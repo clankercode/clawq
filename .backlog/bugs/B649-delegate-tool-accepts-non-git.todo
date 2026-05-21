@@ -1,0 +1,28 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B649
+priority: high
+status: pending
+tags: []
+title: delegate tool accepts non-git workspace path, causing false DirtyWorktree and agent wait loops
+---
+`delegate_enqueue` (src/background_task.ml:1328) uses `validate_workspace_path` which only checks
+directory existence, but when `use_worktree=true` (the default) the worktree harvest logic
+(src/background_task.ml:447-475) requires the path to be a git repo. When the workspace
+(`/home/xertrov/.clawq/workspace`) is not a git repo, the task spawns without a worktree but
+gets marked `DirtyWorktree` on completion because `worktree_harvest_issue` detects the
+worktree_path isn't a git repo.
+
+Fix: In `delegate_enqueue`, when `use_worktree=true`, use `validate_repo_path ~require_git:true`
+instead of `validate_workspace_path`, or at minimum return a clear error when the path isn't
+a git repo and use_worktree is true. Alternatively, `completion_outcome` should return
+`Succeeded` (not `DirtyWorktree`) when the task was never actually running in a worktree
+(i.e., the spawn path at line 1456 took the non-git fallback).
+
+Postmortem: ~/.clawq/postmortems/2026-05-22T001130-github:XertroV_clawq:workflow_run:26230206042.md
+
+--
+Auto-filed by clawq postmortem for session github:XertroV/clawq:workflow_run:26230206042 (pattern: RepeatedToolCall: "background_task_wait" called 3 times with same args: {"id":145,"timeout_seconds":110}).
+Postmortem doc: /home/xertrov/.clawq/postmortems/2026-05-22T001130-github:XertroV_clawq:workflow_run:26230206042.md
