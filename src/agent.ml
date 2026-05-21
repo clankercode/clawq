@@ -711,6 +711,26 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
           else
             Logs.warn (fun m ->
                 m "%sTool error: %s -> %s" sk_tag tc.function_name preview);
+          (* B598: when the model opts in via "forward_to_user": true in the
+             tool call args, emit the full result as a ToolOutputDelta first
+             so the channel session displays it as its own message before
+             the ToolResult summary card. *)
+          let forward_to_user =
+            try
+              let args = Yojson.Safe.from_string tc.arguments in
+              match args with
+              | `Assoc fields -> (
+                  match List.assoc_opt "forward_to_user" fields with
+                  | Some (`Bool b) -> b
+                  | _ -> false)
+              | _ -> false
+            with _ -> false
+          in
+          if forward_to_user && success && not !streamed_output then
+            notify_async (fun () ->
+                on_chunk
+                  (Provider.ToolOutputDelta
+                     { id = tc.id; chunk = result_for_event }));
           notify_async (fun () ->
               on_chunk
                 (Provider.ToolResult
@@ -1351,9 +1371,7 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
            outputs, etc.) that grow history without bound. compact_history_
            if_needed checks token/message thresholds and compacts only when
            needed — so this is cheap when not at the threshold. *)
-        let* mid_turn_compaction =
-          compact_history_if_needed agent ?db ()
-        in
+        let* mid_turn_compaction = compact_history_if_needed agent ?db () in
         (match mid_turn_compaction with
         | Some _ ->
             agent.compacted_mid_turn <- true;
@@ -1698,9 +1716,7 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
             | None -> ());
             let* () = fire_history_update len_before_tool_loop in
             (* B603: mid-turn compaction in the streaming path too. *)
-            let* mid_turn_compaction =
-              compact_history_if_needed agent ?db ()
-            in
+            let* mid_turn_compaction = compact_history_if_needed agent ?db () in
             (match mid_turn_compaction with
             | Some _ ->
                 agent.compacted_mid_turn <- true;

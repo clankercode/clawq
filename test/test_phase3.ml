@@ -354,6 +354,73 @@ let test_parallel_tool_calls_and_upfront_tool_starts () =
   Alcotest.(check bool) "all 3 results successful" true all_success;
   Alcotest.(check int) "counter drains to zero after batch" 0 !in_flight
 
+(* B598: when a tool call sets forward_to_user:true in its args, the agent
+   emits the full result via ToolOutputDelta before the ToolResult event, so
+   the channel session can display it as its own message. *)
+let test_forward_to_user_emits_tool_output_delta () =
+  let registry = Tool_registry.create () in
+  let tool =
+    {
+      Tool.name = "echo_back";
+      description = "Returns its echo argument";
+      parameters_schema =
+        `Assoc
+          [
+            ("type", `String "object");
+            ( "properties",
+              `Assoc [ ("echo", `Assoc [ ("type", `String "string") ]) ] );
+            ("required", `List [ `String "echo" ]);
+          ];
+      invoke =
+        (fun ?context:_ args ->
+          let open Yojson.Safe.Util in
+          let s = try args |> member "echo" |> to_string with _ -> "(none)" in
+          Lwt.return ("echoed: " ^ s));
+      invoke_stream = None;
+      risk_level = Tool.Low;
+      deferred = false;
+    }
+  in
+  Tool_registry.register registry tool;
+  let agent = Agent.create ~config:default_config ~tool_registry:registry () in
+  let with_flag =
+    {
+      Provider.id = "tc-fwd";
+      function_name = "echo_back";
+      arguments = {|{"echo":"hello","forward_to_user":true}|};
+    }
+  in
+  let without_flag =
+    {
+      Provider.id = "tc-nofwd";
+      function_name = "echo_back";
+      arguments = {|{"echo":"hello"}|};
+    }
+  in
+  let collect_for call =
+    let events = ref [] in
+    Lwt_main.run
+      (Agent.execute_tool_calls_stream agent ~db:None ~audit_enabled:false
+         ~session_key:None [ call ] ~on_chunk:(fun event ->
+           events := event :: !events;
+           Lwt.return_unit));
+    List.rev !events
+  in
+  let events_fwd = collect_for with_flag in
+  let events_no = collect_for without_flag in
+  let count_output_deltas =
+    List.fold_left
+      (fun acc e ->
+        match e with Provider.ToolOutputDelta _ -> acc + 1 | _ -> acc)
+      0
+  in
+  Alcotest.(check int)
+    "forward_to_user:true emits one ToolOutputDelta" 1
+    (count_output_deltas events_fwd);
+  Alcotest.(check int)
+    "no flag emits zero ToolOutputDelta" 0
+    (count_output_deltas events_no)
+
 let test_loop_terminates () =
   with_fake_tool_loop_provider (fun config requests ->
       let tool_invocations = ref 0 in
@@ -803,6 +870,8 @@ let suite =
     Alcotest.test_case
       "B607: tool calls execute in parallel with up-front ToolStart" `Quick
       test_parallel_tool_calls_and_upfront_tool_starts;
+    Alcotest.test_case "B598: forward_to_user emits ToolOutputDelta" `Quick
+      test_forward_to_user_emits_tool_output_delta;
     Alcotest.test_case "loop terminates" `Quick test_loop_terminates;
     Alcotest.test_case "memory roundtrip" `Quick test_memory_roundtrip;
     Alcotest.test_case "memory clear" `Quick test_memory_clear;
