@@ -1,0 +1,46 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 1
+id: B641
+priority: low
+status: pending
+tags:
+    - task_tree
+    - tool-error
+    - ux
+title: 'task_tree tool: ''Task not found'' error message should suggest listing IDs first'
+---
+## Summary
+
+Repeated daemon.log lines:
+
+  WARN [...] Tool error: task_tree -> Error: Batch failed at operation 1/3:
+       Task 'B596' not found. Check the ID against the current task tree —
+       IDs are case-sensitive.. No operations were applied.
+
+  WARN [...] Tool error: task_tree -> Error: ... Task '1' not found ...
+
+The LLM is hallucinating IDs (B596 doesn't exist; '1' is plainly invalid).
+The current message tells the agent to 'check the ID' but doesn't tell it
+HOW. Per src/CLAUDE.md error-message guidelines, error responses should
+suggest a concrete recovery path.
+
+## Suggested fix
+
+Improve the error to point to the discovery tool, e.g.:
+
+  Error: Task 'B596' not found. Run `task_tree(op='list', filter='bugs')`
+  or shell_exec `bl tree` to enumerate current IDs. IDs are case-sensitive
+  (B-prefix for bugs, P/M/E/T prefixes for phases/milestones/epics/tasks).
+  No operations were applied.
+
+Optionally, perform fuzzy lookup: if the agent passed 'B596' and the
+closest match by edit distance is 'B596-something' or 'B698', mention
+those candidates.
+
+## Evidence
+
+- ~/.clawq/daemon.log: 3 occurrences across the teams session
+- Source: src/tools_builtin.ml or src/agent_template_builtins.ml task_tree
+  tool implementation (search 'Task.*not found')
