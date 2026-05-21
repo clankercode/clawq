@@ -1,0 +1,22 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B631
+priority: high
+status: pending
+tags: []
+title: Kimi quota fetch returns empty windows — parser misses actual API shape
+---
+Daemon log shows 'kimi \t' in quota refresh lines (empty parts after the tab), meaning fetch_kimi succeeded BUT the parsed result has no session / weekly / monthly windows.
+
+Repro: user has providers.kimi_coding configured with a valid api_key. Restart doesn't help; ~every 5-7 min the quota refresh loop logs the same empty-windowed result.
+
+Root cause hypothesis: src/provider_quota.ml::fetch_kimi parses 'limits' array looking for window='5h' or '7d', plus a fallback that reads top-level 'usage.used' / 'usage.limit'. If Kimi/Moonshot's response uses a different shape (e.g., 'windows' instead of 'limits', or per-day rollups), neither branch fires and both session/weekly come back None. Provider state becomes Known with all-None, so to_summary_string outputs the bare 'kimi\t'.
+
+Investigation steps:
+1. Hit https://api.kimi.com/coding/v1/usages with a fresh API key and inspect the actual JSON shape.
+2. Either update fetch_kimi to handle the new shape, or log the raw response body on Known-but-empty so the next debug session sees what's missing.
+3. As a defensive log: when fetch_kimi returns Known with all-None windows, log a WARN with the raw body so future regressions surface.
+
+Tag: kimi, quota, provider
