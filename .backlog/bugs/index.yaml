@@ -615,3 +615,4 @@ bugs:
     - file: B616-integrate-kimi-quota-api-for-t.todo
     - file: B617-z-ai-native-anthropic-compatib.todo
     - file: B618-additionalproperties-inconsist.todo
+    - file: B619-anthropic-tool-result-is-error.todo

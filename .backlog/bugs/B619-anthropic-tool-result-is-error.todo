@@ -1,0 +1,21 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B619
+priority: high
+status: pending
+tags: []
+title: Anthropic tool_result.is_error flag never emitted
+---
+cx-reviewer audit (2026-05-21): Provider.message has no stored is_error flag, so the Anthropic tool_result block at src/provider.ml:313 never includes ('is_error', Bool true) — even when the tool result content starts with 'Error:'.
+
+Impact: Anthropic-family models can't distinguish failed from successful tool results in the conversation. They infer from content, which is fragile.
+
+Fix:
+- Add is_error : bool field to Provider.message (default false).
+- Set is_error=true when constructing tool_result with content starting with 'Error:' (or use the same detection as the agent's success check).
+- Emit ('is_error', Bool true) in Anthropic/MiniMax tool_result conversion.
+- Add test.
+
+Tag: anthropic-api, minimax-api, tools, message-format
