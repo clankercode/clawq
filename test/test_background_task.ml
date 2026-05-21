@@ -810,6 +810,61 @@ let test_list_tool_returns_task_summary () =
            true
          with Not_found -> false))
 
+(* B270: inspecting by id defaults to compact format (no repo/worktree/per-
+   stage timestamps) to keep token usage down. full:true brings them back. *)
+let test_list_tool_id_default_omits_paths () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"implement feature" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      let tool = Background_task_tools.list_tool ~db in
+      let result =
+        Lwt_main.run (tool.Tool.invoke (`Assoc [ ("id", `Int id) ]))
+      in
+      let contains substr =
+        try
+          ignore (Str.search_forward (Str.regexp_string substr) result 0);
+          true
+        with Not_found -> false
+      in
+      Alcotest.(check bool)
+        "omits repo path by default" false (contains "repo:");
+      Alcotest.(check bool)
+        "omits worktree by default" false (contains "worktree:");
+      Alcotest.(check bool) "still shows status" true (contains "status:"))
+
+let test_list_tool_id_full_includes_paths () =
+  with_temp_git_repo (fun repo_path ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
+            ~prompt:"implement feature" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      let tool = Background_task_tools.list_tool ~db in
+      let result =
+        Lwt_main.run
+          (tool.Tool.invoke (`Assoc [ ("id", `Int id); ("full", `Bool true) ]))
+      in
+      let contains substr =
+        try
+          ignore (Str.search_forward (Str.regexp_string substr) result 0);
+          true
+        with Not_found -> false
+      in
+      Alcotest.(check bool) "full includes repo path" true (contains "repo:"))
+
 let test_wait_tool_returns_terminal_summary () =
   with_temp_git_repo (fun repo_path ->
       let db = Memory.init ~db_path:":memory:" () in
@@ -4701,6 +4756,10 @@ let suite =
       test_enqueue_tool_uses_context_session_key;
     Alcotest.test_case "list tool returns task summary" `Quick
       test_list_tool_returns_task_summary;
+    Alcotest.test_case "B270: list_tool id default omits paths" `Quick
+      test_list_tool_id_default_omits_paths;
+    Alcotest.test_case "B270: list_tool id full includes paths" `Quick
+      test_list_tool_id_full_includes_paths;
     Alcotest.test_case "wait tool returns terminal summary" `Quick
       test_wait_tool_returns_terminal_summary;
     Alcotest.test_case "logs tool returns excerpt" `Quick

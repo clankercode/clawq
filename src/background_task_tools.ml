@@ -252,10 +252,11 @@ let list_tool ~db =
   {
     Tool.name = "background_task_list";
     description =
-      "List background coding tasks or inspect one task by id, including \
-       current status, repo, branch, log path, and result preview. The prompt \
-       is truncated by default; pass full:true to include the complete \
-       original prompt when needed.";
+      "List background coding tasks or inspect one task by id. When inspecting \
+       by id, returns status, runner, health, runtime, log path, and a \
+       truncated result + prompt preview by default. Pass full:true to also \
+       include the complete prompt, repo path, worktree path, and full \
+       timestamps (creates/start/finish).";
     parameters_schema =
       `Assoc
         [
@@ -296,7 +297,13 @@ let list_tool ~db =
         | Some id -> (
             match Background_task.get_task ~db ~id with
             | Some task ->
-                Lwt.return (Background_task.format_task_summary ~full task)
+                (* B270: by default elide the long absolute paths
+                   (repo/worktree) and per-stage timestamps to keep token cost
+                   low on inspect. full:true brings them back together with the
+                   complete prompt. *)
+                Lwt.return
+                  (Background_task.format_task_summary ~full ~compact:(not full)
+                     task)
             | None ->
                 Lwt.return
                   (Printf.sprintf "No background task found with id %d" id))
