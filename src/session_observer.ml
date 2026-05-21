@@ -330,10 +330,15 @@ let has_terminal_punctuation s =
   scan 0
 
 let last_complete_assistant_response (history : Provider.message list) =
+  (* Find the most recent assistant message (newest-first traversal). If it
+     has terminal-punctuation prose and no pending tool_calls, treat as
+     complete. If the model returned tool_calls alongside text, we still
+     consider it complete when the prose has terminal punctuation — the
+     remaining tool calls will produce their own messages on the next turn,
+     not indicate "stuck". *)
   let rec find = function
     | [] -> None
-    | (m : Provider.message) :: _ when m.role = "assistant" && m.tool_calls = []
-      ->
+    | (m : Provider.message) :: _ when m.role = "assistant" ->
         let trimmed = String.trim m.content in
         if trimmed = "" then None
         else if has_terminal_punctuation trimmed then Some trimmed
