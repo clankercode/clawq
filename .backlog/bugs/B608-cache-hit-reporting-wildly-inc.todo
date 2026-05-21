@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-05-21T09:10:27Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B608
 priority: high
-status: pending
+started_at: "2026-05-21T09:10:27Z"
+status: in_progress
 tags: []
 title: Cache hit % reporting wildly incorrect (api_cached > prompt_tokens)
 ---
