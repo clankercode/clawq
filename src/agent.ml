@@ -693,6 +693,13 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
           let success =
             not (String.starts_with ~prefix:"Error:" result_for_event)
           in
+          (* B625: stamp the structured is_error flag now that we've
+             classified the tool result. Downstream Anthropic-format
+             converters use this directly instead of re-detecting via the
+             content prefix. *)
+          let result_msg =
+            { result_msg with Provider.is_error = not success }
+          in
           (match (db, audit_enabled, session_key) with
           | Some db, true, Some sk ->
               Audit.log ~db
@@ -920,6 +927,10 @@ let execute_tool_calls agent ~db ~audit_enabled ~session_key ?interrupt_check
           in
           let result = result_msg.Provider.content in
           let success = not (String.starts_with ~prefix:"Error:" result) in
+          (* B625: structured is_error stamp; see execute_tool_calls_stream. *)
+          let result_msg =
+            { result_msg with Provider.is_error = not success }
+          in
           (match (db, audit_enabled, session_key) with
           | Some db, true, Some sk ->
               Audit.log ~db
@@ -1348,6 +1359,7 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
             name = None;
             provider_response_items_json;
             thinking;
+            is_error = false;
           }
         in
         agent.history <- assistant_msg :: agent.history;
@@ -1697,6 +1709,7 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
                 name = None;
                 provider_response_items_json;
                 thinking;
+                is_error = false;
               }
             in
             agent.history <- assistant_msg :: agent.history;

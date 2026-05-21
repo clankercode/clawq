@@ -73,6 +73,7 @@ let test_assistant_with_tool_calls () =
       name = None;
       provider_response_items_json = None;
       thinking = None;
+      is_error = false;
     }
   in
   let result = Provider_anthropic.messages_to_anthropic_json [ msg ] in

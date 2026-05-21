@@ -71,6 +71,7 @@ let test_assistant_with_tool_calls () =
       name = None;
       provider_response_items_json = None;
       thinking = None;
+      is_error = false;
     }
   in
   let result = Provider_minimax.messages_to_anthropic_json [ msg ] in
@@ -111,6 +112,7 @@ let test_consecutive_tool_results_coalesce () =
       name = None;
       provider_response_items_json = None;
       thinking = None;
+      is_error = false;
     }
   in
   let r1 =
@@ -155,6 +157,7 @@ let test_user_text_between_tool_use_and_result_is_reordered () =
       name = None;
       provider_response_items_json = None;
       thinking = None;
+      is_error = false;
     }
   in
   let injected =
@@ -514,6 +517,42 @@ let test_live_streaming () =
      | exception exn ->
          Alcotest.fail ("streaming failed: " ^ Printexc.to_string exn))
 
+(* B625: explicit error result via make_tool_error_result sets is_error
+   structurally; the converter must emit is_error:true regardless of
+   whether the content starts with the legacy 'Error:' prefix. *)
+let test_explicit_error_result_emits_is_error () =
+  let assistant =
+    {
+      Provider.role = "assistant";
+      content = "";
+      content_parts = [];
+      tool_calls =
+        [
+          {
+            Provider.id = "tc-fail";
+            function_name = "shell_exec";
+            arguments = {|{"command":"ls"}|};
+          };
+        ];
+      tool_call_id = None;
+      name = None;
+      provider_response_items_json = None;
+      thinking = None;
+      is_error = false;
+    }
+  in
+  let err =
+    Provider.make_tool_error_result ~tool_call_id:"tc-fail" ~name:"shell_exec"
+      ~content:"permission denied"
+  in
+  let result = Provider_minimax.messages_to_anthropic_json [ assistant; err ] in
+  let open Yojson.Safe.Util in
+  let user = List.nth result 1 in
+  let block = List.hd (user |> member "content" |> to_list) in
+  Alcotest.(check (option bool))
+    "structured is_error flag emitted even without 'Error:' prefix" (Some true)
+    (try Some (block |> member "is_error" |> to_bool) with _ -> None)
+
 (* B619: tool_result blocks must include is_error:true when the result
    starts with the 'Error:' prefix convention used by the agent's
    success-detection path. Anthropic-format models rely on this flag to
@@ -536,6 +575,7 @@ let test_tool_result_emits_is_error_for_error_content () =
       name = None;
       provider_response_items_json = None;
       thinking = None;
+      is_error = false;
     }
   in
   let failed_result =
@@ -573,6 +613,7 @@ let test_tool_result_omits_is_error_for_success_content () =
       name = None;
       provider_response_items_json = None;
       thinking = None;
+      is_error = false;
     }
   in
   let ok_result =
@@ -614,6 +655,7 @@ let test_all_orphan_assistant_dropped () =
       name = None;
       provider_response_items_json = None;
       thinking = None;
+      is_error = false;
     }
   in
   let user =
@@ -671,6 +713,7 @@ let test_orphan_tool_use_filtered_before_send () =
       name = None;
       provider_response_items_json = None;
       thinking = None;
+      is_error = false;
     }
   in
   let result_a =
@@ -927,6 +970,8 @@ let suite =
       test_all_orphan_assistant_dropped;
     Alcotest.test_case "B619: tool_result emits is_error for error content"
       `Quick test_tool_result_emits_is_error_for_error_content;
+    Alcotest.test_case "B625: structured is_error flag on result" `Quick
+      test_explicit_error_result_emits_is_error;
     Alcotest.test_case "B619: tool_result omits is_error for success content"
       `Quick test_tool_result_omits_is_error_for_success_content;
     Alcotest.test_case "B614: required-field anthropic input_schema preserved"

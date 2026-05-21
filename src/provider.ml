@@ -11,6 +11,10 @@ type message = {
   name : string option;
   provider_response_items_json : string option;
   thinking : string option;
+  is_error : bool;
+      (** B625: tool result messages set this to true when the tool reported a
+          failure. Avoids brittle "Error:" content-prefix detection. Other
+          message types should leave it false. *)
 }
 
 and tool_call = { id : string; function_name : string; arguments : string }
@@ -42,6 +46,7 @@ let make_message_full ~role ~content ~provider_response_items_json
     name = None;
     provider_response_items_json;
     thinking;
+    is_error = false;
   }
 
 let make_message ~role ~content =
@@ -57,6 +62,7 @@ let make_message_with_parts ~role ~content ~content_parts =
     name = None;
     provider_response_items_json = None;
     thinking = None;
+    is_error = false;
   }
 
 let make_tool_result ~tool_call_id ~name ~content =
@@ -69,7 +75,15 @@ let make_tool_result ~tool_call_id ~name ~content =
     name = Some name;
     provider_response_items_json = None;
     thinking = None;
+    is_error = false;
   }
+
+(* B625: explicit error variant. Callers that detect a failed tool invocation
+   use this instead of relying on a "Error:" content prefix. The Anthropic-
+   compatible converter checks both the structured field and the content
+   prefix as a fallback. *)
+let make_tool_error_result ~tool_call_id ~name ~content =
+  { (make_tool_result ~tool_call_id ~name ~content) with is_error = true }
 
 let make_tool_search_result ~tool_call_id ~tools_json =
   let content =
@@ -90,6 +104,7 @@ let make_tool_search_result ~tool_call_id ~tools_json =
     name = Some "tool_search";
     provider_response_items_json = None;
     thinking = None;
+    is_error = false;
   }
 
 let make_stream_result ~tool_calls ~content ~model ~usage
@@ -314,10 +329,10 @@ let messages_to_anthropic_json messages =
     let sc = sanitize_utf8 m.content in
     match m.tool_call_id with
     | Some id ->
-        (* B619: Anthropic-format tool_result accepts an optional
-           is_error: true flag so the model knows the tool call failed.
-           Detect via the same 'Error:' prefix convention used in
-           agent.ml's tool-result success check. *)
+        (* B619+B625: prefer the structured is_error field; fall back to the
+           "Error:" content-prefix convention for backward compatibility when
+           m.is_error was not set explicitly (e.g., a tool result message
+           reconstructed from DB load without the flag). *)
         let base =
           [
             ("type", `String "tool_result");
@@ -325,10 +340,9 @@ let messages_to_anthropic_json messages =
             ("content", `String sc);
           ]
         in
+        let failed = m.is_error || String.starts_with ~prefix:"Error:" sc in
         let fields =
-          if String.starts_with ~prefix:"Error:" sc then
-            base @ [ ("is_error", `Bool true) ]
-          else base
+          if failed then base @ [ ("is_error", `Bool true) ] else base
         in
         `Assoc fields
     | None -> `Assoc [ ("type", `String "text"); ("text", `String sc) ]

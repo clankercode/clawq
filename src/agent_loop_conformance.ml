@@ -83,6 +83,7 @@ let coq_to_provider_message (m : Clawq_core.AgentLoop.message) :
         Provider.name = None;
         Provider.provider_response_items_json = None;
         Provider.thinking = None;
+        Provider.is_error = false;
       }
   | Clawq_core.AgentLoop.ToolResultMsg (id, content) ->
       {
@@ -94,6 +95,7 @@ let coq_to_provider_message (m : Clawq_core.AgentLoop.message) :
         Provider.name = None;
         Provider.provider_response_items_json = None;
         Provider.thinking = None;
+        Provider.is_error = false;
       }
 
 (* Convert a list of messages *)
@@ -135,6 +137,7 @@ let coq_to_provider_message_with_names ~tool_name_map
         Provider.name = None;
         Provider.provider_response_items_json = None;
         Provider.thinking = None;
+        Provider.is_error = false;
       }
   | Clawq_core.AgentLoop.ToolResultMsg (id, content) ->
       let name = List.assoc_opt id tool_name_map in
@@ -147,6 +150,7 @@ let coq_to_provider_message_with_names ~tool_name_map
         Provider.name;
         Provider.provider_response_items_json = None;
         Provider.thinking = None;
+        Provider.is_error = false;
       }
 
 (* Convert Coq history back to provider messages, restoring tool names from

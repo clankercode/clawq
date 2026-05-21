@@ -1816,6 +1816,7 @@ let test_mid_turn_injection_adds_to_history () =
         name = None;
         provider_response_items_json = None;
         thinking = None;
+        is_error = false;
       };
     ];
   Lwt_main.run
@@ -3857,6 +3858,7 @@ let test_history_delta_tokens_includes_tool_results () =
       name = None;
       provider_response_items_json = None;
       thinking = None;
+      is_error = false;
     }
   in
   let tool_result =

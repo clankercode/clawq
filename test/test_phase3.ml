@@ -513,6 +513,7 @@ let test_memory_tool_calls () =
       name = None;
       provider_response_items_json = None;
       thinking = None;
+      is_error = false;
     }
   in
   Memory.store_message ~db ~session_key:"tool_test" tool_msg;

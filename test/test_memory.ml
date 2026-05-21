@@ -319,6 +319,7 @@ let test_store_message_with_tool_call_id () =
       name = Some "file_read";
       provider_response_items_json = None;
       thinking = None;
+      is_error = false;
     }
   in
   Memory.store_message ~db ~session_key:"s1" msg;
@@ -342,6 +343,7 @@ let test_store_message_with_tool_calls () =
       name = None;
       provider_response_items_json = None;
       thinking = None;
+      is_error = false;
     }
   in
   Memory.store_message ~db ~session_key:"s1" msg;
@@ -556,6 +558,7 @@ let test_tool_cycle_history_shape () =
       name = None;
       provider_response_items_json = None;
       thinking = None;
+      is_error = false;
     }
   in
   Memory.store_message ~db ~session_key:"s1" assistant_with_calls;

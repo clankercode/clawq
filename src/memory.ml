@@ -234,6 +234,7 @@ let load_history ~db ~session_key =
         name;
         provider_response_items_json;
         thinking;
+        is_error = false;
       }
       :: !messages
   done;
@@ -1771,6 +1772,7 @@ let search ~db ~query ?session_key ~limit () =
         name;
         provider_response_items_json;
         thinking = None;
+        is_error = false;
       }
       :: !messages
   done;

@@ -277,8 +277,10 @@ let force_compress_history agent =
             })
         result
     in
+    let used_fallback = ref false in
     let compressed =
       if bounded = [] then begin
+        used_fallback := true;
         Logs.warn (fun m ->
             m
               "force_compress_history: integrity check emptied history; \
@@ -291,9 +293,13 @@ let force_compress_history agent =
       end
       else bounded
     in
-    (* B626: same rationale as trim_history — re-run native pass to drop
-       fully-empty assistants the Coq path leaves behind. *)
-    agent.history <- Message_history.ensure_tool_group_integrity compressed;
+    (* B626: re-run native pass to drop fully-empty assistants the Coq path
+       leaves behind. Skip the re-run when we used the fallback above
+       (otherwise we'd strip the same orphans the fallback intentionally
+       kept to avoid an empty history). *)
+    agent.history <-
+      (if !used_fallback then compressed
+       else Message_history.ensure_tool_group_integrity compressed);
     assert_history_bound ~where:"force_compress_history" agent;
     true
   end

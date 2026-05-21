@@ -628,6 +628,7 @@ let test_codex_message_to_input_replays_raw_output_items () =
       name = None;
       provider_response_items_json = Some raw_items;
       thinking = None;
+      is_error = false;
     }
   in
   match Provider_openai_codex.message_to_input msg with

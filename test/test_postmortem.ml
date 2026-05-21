@@ -23,6 +23,7 @@ let assistant_with_tool_calls ~calls =
     name = None;
     provider_response_items_json = None;
     thinking = None;
+    is_error = false;
   }
 
 let test_format_history_text_includes_tool_call_names_and_args () =
