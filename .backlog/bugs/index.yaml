@@ -625,3 +625,4 @@ bugs:
     - file: B626-b620-follow-up-coq-extracted-a.todo
     - file: B627-show-b606.todo
     - file: B628-delete-b627.todo
+    - file: B629-session-observer-parse-verdict.todo

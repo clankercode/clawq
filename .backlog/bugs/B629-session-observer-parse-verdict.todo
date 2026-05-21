@@ -1,0 +1,20 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B629
+priority: high
+status: pending
+tags: []
+title: 'Session observer parse_verdict leaks duplicated STUCK: prefix into reason'
+---
+Daemon log scan (2026-05-21 19:10-20:15) found one occurrence at L5840:
+'[observer] message-count check: stuck session=...: repeating static response without performing web searchesSTUCK:repeating static response without performing web searches'
+
+The reason string is concatenated with a stray 'STUCK:' sentinel. Root cause: Session_observer.parse_verdict in src/session_observer.ml only stripped the first leading 'STUCK:' prefix. When the LLM emitted 'STUCK:reasonSTUCK:reason' (rare malformed verdict), the second STUCK: ended up inside the reason field. Same risk for LOOPING: verdicts.
+
+Fix: clean_stuck_reason helper now strips leading STUCK: repeatedly AND truncates at the first embedded STUCK: tail AND keeps only the first line. parse_verdict and the LOOPING parser both route through it.
+
+Tests in test_session_observer.ml cover both duplicate-prefix and newline-trail cases.
+
+Tag: observer, stuck-detection, logging
