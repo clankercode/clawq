@@ -504,7 +504,9 @@ let test_send_message_uses_send_fn_over_send_progress () =
            }
          (`Assoc [ ("text", `String "status update") ]))
   in
-  Alcotest.(check string) "tool result" "Message sent" result;
+  Alcotest.(check bool)
+    "tool result starts with Message sent" true
+    (String.starts_with ~prefix:"Message sent" result);
   Alcotest.(check (list string))
     "send_fn used" [ "status update" ] (List.rev !send_fn_called);
   Alcotest.(check bool) "send_progress not used" false !send_progress_called
@@ -522,7 +524,9 @@ let test_send_message_falls_back_to_notify_channel () =
   let result =
     Lwt_main.run (tool.invoke (`Assoc [ ("text", `String "fallback update") ]))
   in
-  Alcotest.(check string) "tool result" "Message sent" result;
+  Alcotest.(check bool)
+    "tool result starts with Message sent" true
+    (String.starts_with ~prefix:"Message sent" result);
   Alcotest.(check (list string))
     "fallback send used" [ "fallback update" ] (List.rev !sent)
 
@@ -648,7 +652,9 @@ let test_send_message_plain_text_via_rich_notifier () =
            }
          (`Assoc [ ("text", `String "plain text update") ]))
   in
-  Alcotest.(check string) "tool result" "Message sent" result;
+  Alcotest.(check bool)
+    "tool result starts with Message sent" true
+    (String.starts_with ~prefix:"Message sent" result);
   Alcotest.(check bool) "send_fn not called" false !send_fn_called;
   match !rich_received with
   | Some (Rich_message.Text text) ->
@@ -676,7 +682,9 @@ let test_send_message_plain_text_rich_fallback_no_session () =
   let result =
     Lwt_main.run (tool.invoke (`Assoc [ ("text", `String "no session msg") ]))
   in
-  Alcotest.(check string) "tool result" "Message sent" result;
+  Alcotest.(check bool)
+    "tool result starts with Message sent" true
+    (String.starts_with ~prefix:"Message sent" result);
   Alcotest.(check bool) "rich_send_fn not called" false !rich_send_fn_called;
   Alcotest.(check (list string))
     "send_fn used as fallback" [ "no session msg" ] (List.rev !send_fn_called)

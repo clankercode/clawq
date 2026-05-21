@@ -118,7 +118,9 @@ let send_message ~(send_fn : (text:string -> unit Lwt.t) option)
                     Lwt.return
                       (Printf.sprintf
                          "Message sent with %d button(s). message_id=%s \
-                          callback_ids=[%s]"
+                          callback_ids=[%s]. Delivered to the user — do NOT \
+                          repeat the same information in the assistant reply; \
+                          await a button selection or next user message."
                          (List.length buttons) result.message_id ids))
                   (fun exn ->
                     Lwt.return
@@ -136,7 +138,9 @@ let send_message ~(send_fn : (text:string -> unit Lwt.t) option)
                         Lwt.return
                           (Printf.sprintf
                              "Message sent (buttons rendered as text). \
-                              callback_ids=[%s]"
+                              callback_ids=[%s]. Delivered to the user — do \
+                              NOT repeat the same information in the assistant \
+                              reply."
                              ids))
                       (fun exn ->
                         Lwt.return
@@ -154,7 +158,9 @@ let send_message ~(send_fn : (text:string -> unit Lwt.t) option)
                     let* _result =
                       rsf ~session_key:sk (Rich_message.Text text)
                     in
-                    Lwt.return "Message sent")
+                    Lwt.return
+                      "Message sent. Delivered to the user — do NOT repeat the \
+                       same information in the assistant reply.")
                   (fun exn ->
                     Lwt.return
                       ("Error sending message: " ^ Printexc.to_string exn))
@@ -169,7 +175,9 @@ let send_message ~(send_fn : (text:string -> unit Lwt.t) option)
                       (fun () ->
                         let open Lwt.Syntax in
                         let* () = f ~text in
-                        Lwt.return "Message sent")
+                        Lwt.return
+                          "Message sent. Delivered to the user — do NOT repeat \
+                           the same information in the assistant reply.")
                       (fun exn ->
                         Lwt.return
                           ("Error sending message: " ^ Printexc.to_string exn))));
