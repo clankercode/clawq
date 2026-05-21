@@ -1,0 +1,66 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B650
+priority: high
+status: pending
+tags:
+    - postmortem
+    - stuck
+    - observer
+title: 'Postmortem agent itself gets stuck repeatedly: ''aimless tool usage'', ''missing config'', ''repeating Nothing notable.'''
+---
+## Summary
+
+The observer is detecting the postmortem agent ITSELF as stuck — distinct
+from the user-facing teams session it's analyzing. Cluster of distinct
+WARN reasons in ~/.clawq/daemon.log:
+
+```
+WARN [observer] message-count check: stuck session=__postmortem_SESS@N: aimless tool usage without user direction
+WARN [observer] message-count check: stuck session=__postmortem_SESS@N: repeating empty output due to missing config
+WARN [observer] message-count check: stuck session=__postmortem_SESS@N: repeating identical 'Nothing notable.' response without performing searches
+WARN [observer] message-count check: stuck session=__postmortem_SESS@N: repeating idle shortcut without performing required tool calls
+WARN [observer] message-count check: stuck session=__postmortem_SESS@N: repeating idle shortcut without tool calls
+WARN [observer] message-count check: stuck session=__postmortem_SESS@N: repeating static response without performing web searches
+WARN [observer] message-count check: stuck session=__postmortem_SESS@N: unsolicited actions
+```
+
+These are 7 distinct stuck-patterns, all on the postmortem sessions
+themselves (sessions prefixed `__postmortem_...@<epoch>`).
+
+Pattern matches:
+
+- 'missing config': postmortem agent created without correct config /
+  workspace state. Possibly the postmortem is reusing the parent session's
+  agent config but with a different cwd or memory.
+- 'aimless tool usage': postmortem doesn't have a clear task scope.
+- 'Nothing notable.' / 'idle shortcut': postmortem produces the
+  templated 'no findings' output without doing any analysis.
+
+## Related
+
+- B462: 'postmortem sessions should be started from scratch, not reloaded'
+  — already done, but the observed pattern suggests the from-scratch
+  postmortem session is being started without proper config (no skills,
+  no tools, no memory).
+- B395: postmortem circuit breaker — already done, suppresses postmortem
+  re-launches. But once launched, the postmortem itself wedges.
+
+## Suggested fix
+
+1. Audit the postmortem session bootstrap path: ensure it starts with
+   the SAME agent template (or a postmortem-specific one) that has tools,
+   skills, and memory required to actually analyze the failure.
+2. Add an integration test that runs the postmortem flow end-to-end with
+   a mock provider and asserts the postmortem session produces tool calls
+   (not just a templated empty response).
+3. Time-box the postmortem session: 5–10 minute max, then mark as
+   'inconclusive' and stop.
+
+## Evidence
+
+- ~/.clawq/daemon.log: search '__postmortem_' → 7 distinct stuck reasons
+- 5+ postmortem session ids: @1779343261, @1779344522, @1779351250,
+  @1779354026, @1779357653, @1779361238, @1779364818
