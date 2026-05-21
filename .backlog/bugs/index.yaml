@@ -662,3 +662,4 @@ bugs:
     - file: B665-identical-output-detection-bli.todo
     - file: B666-teams-send-message-swallows-fa.todo
     - file: B667-observer-false-positive-invali.todo
+    - file: B668-web-search-provider-ddg-miscon.todo

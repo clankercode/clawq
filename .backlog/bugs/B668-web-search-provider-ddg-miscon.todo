@@ -1,0 +1,19 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B668
+priority: high
+status: pending
+tags: []
+title: web_search provider "ddg" misconfigured with Brave API key, causing all briefing topic searches to return no results
+---
+Root cause: ~/.clawq/config.json has "web_search.provider": "ddg" but the api_key "BSAJGcB-U-9Hx7L2RtL9fcnVjej-bK4" is a Brave Search key. DDG instant answer API has limited coverage and returned "No results found" for all 11 monitored topics. zai_mcp.web_search_prime is disabled, so there is no fallback. This is the same structural defect previously identified in postmortem lesson:cron:briefing:2026-05-22T043150 but the config was never corrected.
+
+Fix: In ~/.clawq/config.json, change "provider" from "ddg" to "brave" in the web_search section. Then run a test search (e.g. "clawq web_search test query") to verify the key is still valid. If the key is expired, generate a new one at https://api.search.brave.com/.
+
+Also consider: adding a startup health check that validates the configured search provider with a test query, and logs a warning if it fails, so the agent can avoid relying on a known-broken tool.
+
+--
+Auto-filed by clawq postmortem for session __cron:146:1779391173 (pattern: repeated failed web fetch attempts).
+Postmortem doc: /home/xertrov/.clawq/postmortems/2026-05-22T052012-__cron:146:1779391173.md
