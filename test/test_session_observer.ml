@@ -425,6 +425,40 @@ let test_check_stuck_bypasses_llm_for_complete_response () =
           | Session_observer.Error msg ->
               Alcotest.fail ("expected ok, got error: " ^ msg)))
 
+(* B667 follow-up: terminal punctuation may be wrapped in trailing markdown
+   noise (e.g. a final sentence ending ".](url))" — period then markdown
+   link closure). Bypass must scan past trailing `)`, `]`, `*`, etc. *)
+let test_check_stuck_bypasses_llm_for_markdown_trailing_close () =
+  Test_helpers.with_temp_home (fun _home ->
+      with_fake_chat_provider
+        ~response_for_user:(fun _ -> "STUCK:should-not-fire")
+        (fun config ->
+          let history =
+            [
+              Provider.make_message ~role:"assistant"
+                ~content:
+                  "Two notable items. **Bitcoin reserve bill.** Lawmakers \
+                   filed ARMA. ([CryptoSlate](https://example.test/article))";
+              Provider.make_message ~role:"user" ~content:"News check";
+            ]
+          in
+          let verdict =
+            Lwt_main.run
+              (Session_observer.check_stuck ~config ~history
+                 ~stats:(sample_stats "session-b667-markdown")
+                 ())
+          in
+          match verdict with
+          | Session_observer.Ok -> ()
+          | Session_observer.Stuck { reason; _ } ->
+              Alcotest.fail
+                (Printf.sprintf
+                   "B667: expected bypass for markdown-trailing-close \
+                    response, got Stuck:%s"
+                   reason)
+          | Session_observer.Error msg ->
+              Alcotest.fail ("expected ok, got error: " ^ msg)))
+
 let test_check_stuck_no_bypass_for_incomplete_response () =
   Test_helpers.with_temp_home (fun _home ->
       with_fake_chat_provider
@@ -532,6 +566,9 @@ let suite =
     Alcotest.test_case
       "B667: check_stuck bypasses LLM for complete terminating response" `Quick
       test_check_stuck_bypasses_llm_for_complete_response;
+    Alcotest.test_case
+      "B667: check_stuck bypasses LLM when sentence ends in trailing markdown"
+      `Quick test_check_stuck_bypasses_llm_for_markdown_trailing_close;
     Alcotest.test_case
       "B667: check_stuck still consults LLM for incomplete response" `Quick
       test_check_stuck_no_bypass_for_incomplete_response;

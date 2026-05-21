@@ -313,10 +313,22 @@ let call_observer ~config ~system_prompt ~messages =
 
 (* B667: peek at the most recent assistant message in history (newest-first).
    Returns Some content when it is a "complete" finishing response — non-empty,
-   no tool_calls, ending with terminal punctuation. We use this to short-circuit
-   the observer LLM call when the agent has clearly produced a finished
-   answer: a brief but valid response like "Nothing notable." should not be
-   classified as stuck, and should not trigger an expensive postmortem chain. *)
+   no pending tool_calls, and contains terminal punctuation (. ! ?) somewhere.
+   The presence of a sentence-terminating period is a strong signal the agent
+   produced finished prose, not a stuck/error state — even for markdown
+   responses that end with "](url))" or other trailing link syntax. Used to
+   short-circuit the observer LLM call so legitimate brief answers like
+   "Nothing notable." don't trigger expensive postmortem chains. *)
+let has_terminal_punctuation s =
+  let len = String.length s in
+  let rec scan i =
+    if i >= len then false
+    else
+      let c = s.[i] in
+      if c = '.' || c = '!' || c = '?' then true else scan (i + 1)
+  in
+  scan 0
+
 let last_complete_assistant_response (history : Provider.message list) =
   let rec find = function
     | [] -> None
@@ -324,11 +336,8 @@ let last_complete_assistant_response (history : Provider.message list) =
       ->
         let trimmed = String.trim m.content in
         if trimmed = "" then None
-        else
-          let last_char = trimmed.[String.length trimmed - 1] in
-          if last_char = '.' || last_char = '!' || last_char = '?' then
-            Some trimmed
-          else None
+        else if has_terminal_punctuation trimmed then Some trimmed
+        else None
     | _ :: rest -> find rest
   in
   find history
