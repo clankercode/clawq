@@ -636,6 +636,40 @@ let test_mark_run_output_non_cron_noop () =
     "no-op when bg task is not cron-linked" None
     (Scheduler.mark_run_output ~db ~bg_task_id:9999 ~output:"foo")
 
+(* B665: the inline cron-tick path uses mark_run_output_by_run_id (no
+   Background_task hop). Verify identical-output detection fires from that
+   path too — same threshold, same disable behavior, just keyed by run_id
+   directly. *)
+let test_inline_run_output_disables_cron () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Scheduler.init_schema db;
+  ignore
+    (Scheduler.add_job ~db ~name:"inline" ~session_key:"s" ~message:"m"
+       ~schedule:"every 1h" ());
+  for _ = 1 to 5 do
+    let run_id = Scheduler.record_run_start ~db ~job_name:"inline" in
+    Scheduler.mark_run_output_by_run_id ~db ~run_id ~job_name:"inline"
+      ~output:"Nothing notable."
+  done;
+  Alcotest.(check bool)
+    "5 identical inline outputs disable the cron" false
+    (job_enabled ~db ~name:"inline")
+
+let test_inline_run_output_varying_keeps_enabled () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Scheduler.init_schema db;
+  ignore
+    (Scheduler.add_job ~db ~name:"inline_varied" ~session_key:"s" ~message:"m"
+       ~schedule:"every 1h" ());
+  for i = 1 to 5 do
+    let run_id = Scheduler.record_run_start ~db ~job_name:"inline_varied" in
+    Scheduler.mark_run_output_by_run_id ~db ~run_id ~job_name:"inline_varied"
+      ~output:(Printf.sprintf "varied %d" i)
+  done;
+  Alcotest.(check bool)
+    "varying inline outputs keep cron enabled" true
+    (job_enabled ~db ~name:"inline_varied")
+
 let test_tick_marks_response_sent_after_turn () =
   Lwt_main.run
     (let open Lwt.Syntax in
@@ -759,4 +793,11 @@ let suite =
       test_whitespace_normalized;
     Alcotest.test_case "mark_run_output on non-cron task is a no-op" `Quick
       test_mark_run_output_non_cron_noop;
+    Alcotest.test_case
+      "B665: inline mark_run_output_by_run_id disables cron after threshold"
+      `Quick test_inline_run_output_disables_cron;
+    Alcotest.test_case
+      "B665: inline mark_run_output_by_run_id with varying outputs keeps cron \
+       enabled"
+      `Quick test_inline_run_output_varying_keeps_enabled;
   ]

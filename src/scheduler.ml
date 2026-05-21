@@ -641,31 +641,45 @@ let detect_identical_output_loop ~db ~job_name ~threshold =
     | h :: rest when List.for_all (fun h' -> h' = h) rest -> Some h
     | _ -> None
 
+(* B665: shared hash-and-detect step. Called from both bg-task completion
+   (mark_run_output) and the inline cron-tick path (mark_run_output_by_run_id)
+   so degenerate-loop detection fires regardless of how the cron job
+   executed. *)
+let hash_and_detect_loop ~db ~run_id ~job_name ~output =
+  match hash_output output with
+  | None -> ()
+  | Some hash -> (
+      update_run_output_hash ~db ~run_id ~hash;
+      match
+        detect_identical_output_loop ~db ~job_name
+          ~threshold:identical_output_disable_threshold
+      with
+      | None -> ()
+      | Some _ ->
+          expire_job_inline ~db ~name:job_name;
+          Logs.warn (fun m ->
+              m
+                "Cron job %S disabled after %d consecutive identical outputs — \
+                 investigate empty config / prompt shortcuts. Re-enable with \
+                 `clawq cron enable %s` after fixing."
+                job_name identical_output_disable_threshold job_name))
+
 (* Called from the bg-task completion path (daemon_util) so the scheduler can
    record output for cron-triggered runs and disable degenerate loops. Safe to
    call with a non-cron task id — it just returns None when no row matches. *)
 let mark_run_output ~db ~bg_task_id ~output =
   match lookup_run_id_for_bg_task ~db ~bg_task_id with
   | None -> None
-  | Some (run_id, job_name) -> (
-      match hash_output output with
-      | None -> None
-      | Some hash ->
-          update_run_output_hash ~db ~run_id ~hash;
-          (match
-             detect_identical_output_loop ~db ~job_name
-               ~threshold:identical_output_disable_threshold
-           with
-          | None -> ()
-          | Some _ ->
-              expire_job_inline ~db ~name:job_name;
-              Logs.warn (fun m ->
-                  m
-                    "Cron job %S disabled after %d consecutive identical \
-                     outputs — investigate empty config / prompt shortcuts. \
-                     Re-enable with `clawq cron enable %s` after fixing."
-                    job_name identical_output_disable_threshold job_name));
-          Some job_name)
+  | Some (run_id, job_name) ->
+      hash_and_detect_loop ~db ~run_id ~job_name ~output;
+      Some job_name
+
+(* B665: called from the inline cron tick (where we already have run_id and
+   job_name in scope) so cron jobs that never spawn a Background_task — i.e.,
+   the normal scheduled tick path — also get their output hashed and the
+   consecutive-identical-output safeguard applied. *)
+let mark_run_output_by_run_id ~db ~run_id ~job_name ~output =
+  hash_and_detect_loop ~db ~run_id ~job_name ~output
 
 let get_last_run_time ~db ~job_name =
   let sql =
@@ -844,6 +858,8 @@ let tick ~db ~session_mgr
                                     job.name);
                               record_run_finish ~db ~run_id ~status:"ok"
                                 ~result_preview:result;
+                              mark_run_output_by_run_id ~db ~run_id
+                                ~job_name:job.name ~output:result;
                               prune_runs ~db ~job_name:job.name ~keep:20;
                               Lwt.return_unit
                             end
@@ -875,6 +891,8 @@ let tick ~db ~session_mgr
                                             job.name);
                                       record_run_finish ~db ~run_id ~status:"ok"
                                         ~result_preview:result;
+                                      mark_run_output_by_run_id ~db ~run_id
+                                        ~job_name:job.name ~output:result;
                                       prune_runs ~db ~job_name:job.name ~keep:20;
                                       Lwt.return_unit
                                   | Error err ->
@@ -891,6 +909,14 @@ let tick ~db ~session_mgr
                                              (if String.length result > 200 then
                                                 String.sub result 0 200
                                               else result));
+                                      (* B665: hash the LLM result even on
+                                         delivery failure — same degenerate
+                                         output across many runs is the loop
+                                         we want to catch, regardless of
+                                         whether delivery happened to work
+                                         that time. *)
+                                      mark_run_output_by_run_id ~db ~run_id
+                                        ~job_name:job.name ~output:result;
                                       prune_runs ~db ~job_name:job.name ~keep:20;
                                       Lwt.return_unit)
                               | _ ->
@@ -902,6 +928,8 @@ let tick ~db ~session_mgr
                                         job.name);
                                   record_run_finish ~db ~run_id ~status:"ok"
                                     ~result_preview:result;
+                                  mark_run_output_by_run_id ~db ~run_id
+                                    ~job_name:job.name ~output:result;
                                   prune_runs ~db ~job_name:job.name ~keep:20;
                                   Lwt.return_unit
                           in
