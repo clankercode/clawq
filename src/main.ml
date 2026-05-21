@@ -70,11 +70,24 @@ let models_set_default_cmd =
   let model =
     Arg.(required & pos 0 (some string) None & info [] ~docv:"MODEL")
   in
+  let skip_validation =
+    Arg.(
+      value & flag
+      & info [ "skip-validation"; "no-test" ]
+          ~doc:
+            "Skip the live test completion that normally runs before \
+             committing the switch. Use only when you know the model works.")
+  in
   Cmd.v
     (Cmd.info "set-default"
        ~doc:"Set default model (e.g. anthropic:claude-sonnet-4-6).")
     Term.(
-      ret (const (fun model -> run "models" [ "set-default"; model ]) $ model))
+      ret
+        (const (fun model skip ->
+             let args = [ "set-default"; model ] in
+             let args = if skip then args @ [ "--skip-validation" ] else args in
+             run "models" args)
+        $ model $ skip_validation))
 
 let models_refresh_cmd =
   let force =
