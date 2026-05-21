@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-05-21T18:42:03Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-05-21T18:42:03Z"
 complexity: medium
 depends_on: []
+duration_minutes: 0.015860209566666665
 estimate_hours: 1
 id: B658
 priority: high
 started_at: "2026-05-21T18:42:03Z"
-status: in_progress
+status: done
 tags: []
 title: kimi_coding provider has no http_timeout_s — streaming calls hang forever when TCP drops
 ---
