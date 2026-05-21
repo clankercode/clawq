@@ -1,0 +1,63 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B644
+priority: high
+status: pending
+tags:
+    - minimax
+    - regression
+    - b620
+title: MiniMax 'tool call result does not follow tool call' (error 2013) still occurring after B620 fix
+---
+## Summary
+
+B620 added `Message_history.ensure_tool_group_integrity` to strip orphan
+tool_use/tool_result blocks before sending to MiniMax. But ~/.clawq/daemon.log
+(2026-05-21) still shows:
+
+```
+WARN  Attempt 1/3 failed (Failure(\"MiniMax API error (HTTP 400):
+      {\\\"type\\\":\\\"error\\\",\\\"error\\\":{\\\"type\\\":\\\"invalid_request_error\\\",
+      \\\"message\\\":\\\"invalid params, tool call result does not follow tool call (2013)\\\"},
+      \\\"request_id\\\":\\\"...\\\"}\"))
+ERROR Failed to resume session SESS: MiniMax API error (HTTP 400) ... 2013 ...
+ERROR Teams: agent error for CONV ... MiniMax API error (HTTP 400) ... 2013 ...
+```
+
+Multiple occurrences (1+1+1+1+1+1 = 6+ entries with distinct request_ids).
+
+`ensure_tool_group_integrity` is called from
+`src/provider_minimax.ml:157` (non-stream) and `:220` (stream). So either:
+
+1. The integrity check has a residual edge case it doesn't cover.
+2. The history reaching the provider is being mutated AFTER the integrity
+   check (e.g., session resume injecting an extra message between integrity
+   and serialization).
+3. MiniMax's adjacency rule is stricter than what `ensure_tool_group_integrity`
+   enforces (e.g., requires tool_use → tool_result to be in the same
+   *content array* of a single message, not just adjacent messages).
+
+## Suggested next steps
+
+1. When a 2013 error is returned, dump the exact JSON body sent (already
+   summarized via `summarize_anthropic_messages` for B642's log noise) AND
+   the un-summarized JSON to a one-shot debug file so the exact failure
+   shape is captured.
+2. Extend test_provider_minimax.ml with fixture histories that:
+   - have a tool_use followed by an unrelated content block before its
+     matching tool_result
+   - have parallel tool_uses (N) followed by N tool_results in different
+     ordering
+   - have a tool_use whose tool_result was itself dropped earlier in the
+     pipeline
+   …and assert each one produces a valid Anthropic-API body.
+3. Consider mirroring Anthropic's own validation: walk the final converted
+   `anthropic_messages` list as a final defense and reject before sending.
+
+## Evidence
+
+- ~/.clawq/daemon.log: search '2013' — 6+ matches across both teams and
+  github sessions
+- Related: B620 (origin fix), B642 (body-shape log noise)
