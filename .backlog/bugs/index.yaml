@@ -614,3 +614,4 @@ bugs:
     - file: B615-minimax-m2-7-context-window-de.todo
     - file: B616-integrate-kimi-quota-api-for-t.todo
     - file: B617-z-ai-native-anthropic-compatib.todo
+    - file: B618-additionalproperties-inconsist.todo

@@ -1,0 +1,22 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B618
+priority: high
+status: pending
+tags: []
+title: additionalProperties inconsistency across built-in tool schemas
+---
+cx-reviewer audit (2026-05-21): some built-in tools set ('additionalProperties', Bool false) at the schema root, others don't. Inconsistent strictness across:
+- send_message at src/tools_builtin.ml:56 — no additionalProperties
+- file_read at src/tools_builtin_io.ml:172 — no additionalProperties
+- shell_exec at src/tools_builtin_util.ml:1313 — no additionalProperties
+- bg_shell_status at src/tools_bg_shell.ml:22 — no additionalProperties
+- vs background_task_tools.ml:116 which does set it
+
+Impact: lenient providers ignore the difference; strict providers (some Anthropic/MiniMax responses, Gemini) may behave differently for tools with/without it. Best practice: set additionalProperties:false consistently to reject hallucinated extra args.
+
+Fix: audit every tool schema; set ('additionalProperties', Bool false) on every top-level object schema. Add a regression test in test_tools.ml that fails if any registered tool's schema omits additionalProperties.
+
+Tag: tools, schema, anthropic-api, openai-api
