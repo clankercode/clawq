@@ -77,37 +77,66 @@ let spawn_postmortem_agent_fn :
   ref (fun _mgr ~stuck_history:_ ~session_key:_ ~reason:_ ?db:_ () ->
       Lwt.return_unit)
 
-(* B612: derive a stable pattern fingerprint from the reason string so
-   distinct stuck patterns in the same root session each get a chance at a
-   postmortem launch. Falls back to a truncated reason when none of the
-   known Stuck_detector prefixes match. *)
+(* B612 round 2: derive a stable pattern fingerprint from the reason string.
+   Each known Stuck_detector prefix has its own differentiator — for tool-
+   based signals it's the tool name; for SameErrorString it's the first 60
+   chars of the error message; for NearMaxIters there's no differentiator
+   so the prefix alone collapses repeats (acceptable). *)
 let pattern_key_for_reason (reason : string) : string =
-  let known_prefixes =
-    [
-      "ConsecutiveErrors"; "RepeatedToolCall"; "SameErrorString"; "NearMaxIters";
-    ]
+  let starts_with prefix =
+    String.length reason >= String.length prefix
+    && String.sub reason 0 (String.length prefix) = prefix
   in
-  let matched =
-    List.find_opt
-      (fun p ->
-        String.length reason >= String.length p
-        && String.sub reason 0 (String.length p) = p)
-      known_prefixes
+  (* Extract first quoted token after a literal anchor, e.g. extract_after
+     "tool errors from " returns the X in `from "X"`. *)
+  let extract_quoted_after anchor =
+    match Str.search_forward (Str.regexp_string anchor) reason 0 with
+    | exception Not_found -> None
+    | i -> (
+        let start = i + String.length anchor in
+        let len = String.length reason in
+        if start >= len || reason.[start] <> '"' then None
+        else
+          let body_start = start + 1 in
+          match String.index_from_opt reason body_start '"' with
+          | None -> None
+          | Some stop ->
+              let s = String.sub reason body_start (stop - body_start) in
+              if String.trim s = "" then None else Some s)
   in
-  match matched with
-  | Some p -> (
-      (* Pull the tool name from the first double-quoted token after the
-         prefix. Stuck_detector formats reasons as ConsecutiveErrors: N
-         consecutive tool errors from TOOL_NAME_QUOTED. ... *)
-      try
-        let start = String.index reason '"' + 1 in
-        let stop = String.index_from reason start '"' in
-        let tool = String.sub reason start (stop - start) in
-        if tool = "" then p else p ^ ":" ^ tool
-      with Not_found -> p)
-  | None ->
-      let n = min 60 (String.length reason) in
-      String.sub reason 0 n
+  let suffix_after anchor =
+    match Str.search_forward (Str.regexp_string anchor) reason 0 with
+    | exception Not_found -> None
+    | i ->
+        let start = i + String.length anchor in
+        let len = String.length reason in
+        if start >= len then None
+        else
+          let tail = String.sub reason start (len - start) in
+          let tail = String.trim tail in
+          if tail = "" then None else Some tail
+  in
+  let truncate s n = if String.length s <= n then s else String.sub s 0 n in
+  if starts_with "ConsecutiveErrors" then
+    let tool = extract_quoted_after "from " in
+    "ConsecutiveErrors:" ^ Option.value tool ~default:"unknown"
+  else if starts_with "RepeatedToolCall" then
+    (* Format: RepeatedToolCall: "tool" called N times with same args: ... *)
+    let tool = extract_quoted_after ": " in
+    "RepeatedToolCall:" ^ Option.value tool ~default:"unknown"
+  else if starts_with "SameErrorString" then
+    (* Format: SameErrorString: error repeated N times: <msg>
+       The message itself is the differentiator. Take the first 60 chars
+       so unrelated errors get distinct breaker keys. *)
+    let msg = suffix_after "times: " in
+    let key_suffix =
+      match msg with None -> "unknown" | Some m -> truncate m 60
+    in
+    "SameErrorString:" ^ key_suffix
+  else if starts_with "NearMaxIters" then "NearMaxIters"
+  else
+    (* Unknown reason format — fall back to first 60 chars. *)
+    truncate reason 60
 
 let spawn_postmortem_agent mgr ~stuck_history ~session_key ~reason ?db () =
   let pm_cfg = mgr.Session_core.config.postmortem in
@@ -716,9 +745,25 @@ let () =
         in
         let evidence_summary = Postmortem.format_history_text stuck_history in
         let correction = "(postmortem agent will determine correction)" in
+        (* B612 round 2: outer set the breaker before calling us. If the
+           doc write fails below, clear it so a later same-pattern stuck
+           event still gets a chance. *)
+        let root_key = Session_core.root_postmortem_session_key session_key in
+        let breaker_key = (root_key, pattern_key_for_reason reason) in
         let* doc_path =
-          Postmortem.write_doc ~session_key ~pattern:reason ~evidence_summary
-            ~correction
+          Lwt.catch
+            (fun () ->
+              Postmortem.write_doc ~session_key ~pattern:reason
+                ~evidence_summary ~correction)
+            (fun exn ->
+              Hashtbl.remove mgr.Session_core.postmortem_circuit_breakers
+                breaker_key;
+              Logs.warn (fun m ->
+                  m
+                    "postmortem: write_doc failed; cleared breaker so retry \
+                     can fire (session=%s err=%s)"
+                    session_key (Printexc.to_string exn));
+              Lwt.fail exn)
         in
         let postmortem_id =
           match db with
