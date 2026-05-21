@@ -1,0 +1,24 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B633
+priority: high
+status: pending
+tags: []
+title: Cron jobs need consecutive-identical-output detection (9th recurrence of silent degenerate output)
+---
+Briefing cron jobs (briefing-hourly, briefing-daily) have produced "Nothing notable." without performing any web_search calls for the 9th+ time since 2026-03-30. Root cause: (1) memory key `rig:briefing:config` is absent so the prompt iterates zero topics, (2) the prompt itself contains the literal idle response as a valid outcome, (3) no structural safeguard exists in the cron system to detect and halt degenerate loops.
+
+The single highest-impact fix: implement consecutive-identical-output detection in clawq's cron execution path (`src/scheduler.ml` or equivalent). When a cron job produces N identical consecutive responses (e.g. 3-5), automatically disable the job and send an alert to the user's notification channel. This catches the entire class of degenerate cron behavior (empty config, prompt shortcuts, model jitter) without needing per-prompt fixes.
+
+Secondary fixes worth doing in the same change:
+- Remove literal idle shortcuts from cron prompts (the "respond with EXACTLY: 'Nothing notable.'" pattern)
+- Add pre-execution validation that referenced memory keys exist and are non-empty
+- Reference the known operational fallback pattern (memory key `briefing_breaking_news_pattern_2026_05`) when config is empty
+
+This has been recommended in 8+ prior postmortems. Implement it at the source level, not as an agent-behavior recommendation.
+
+--
+Auto-filed by clawq postmortem for session teams:personal:a:1JPVFngEx3FRRVWXUe5fb97HWjfsCdtDimgKuD3u_N6IpgOD0euB5bnQHI9RsDQuK3qOG_5Jyhq4wWGr0IczaxEXPN5vIGppdngtwZucpyhDNrW1_YJCrXnHrksQ5fCuT (pattern: repeating identical response without performing search).
+Postmortem doc: /home/xertrov/.clawq/postmortems/2026-05-21T230027-teams:personal:a:1JPVFngEx3FRRVWXUe5fb97HWjfsCdtDimgKuD3u_N6IpgOD0euB5bnQHI9RsDQuK3qOG_5Jyhq4wWGr0IczaxEXPN5vIGppdngtwZucpyhDNrW1_YJCrXnHrksQ5fCuT.md

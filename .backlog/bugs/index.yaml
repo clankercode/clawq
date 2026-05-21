@@ -629,3 +629,4 @@ bugs:
     - file: B630-cron-consecutive-identical-out.todo
     - file: B631-kimi-quota-fetch-returns-empty.todo
     - file: B632-cron-jobs-need-consecutive-ide.todo
+    - file: B633-cron-jobs-need-consecutive-ide.todo
