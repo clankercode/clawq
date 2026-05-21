@@ -1,0 +1,22 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B623
+priority: high
+status: pending
+tags: []
+title: Session mutex deadlock under long-running delegate (CI hook) triggers FATAL daemon restart
+---
+Daemon log scan (2026-05-21): one FATAL 'Mutex deadlock detected (>610s total wait). Aborting process' in github:XertroV/clawq:workflow_run:26206077293 session. Caused full daemon restart. The subsequent 'Background task completion session injection failed: Deadlock_timeout' confirms the deadlock.
+
+Hypothesis: a delegate background task (CI failure handler invoking subagent codex) held the session mutex past the 610s safety threshold. Long-running delegates should not hold the session mutex while the subagent runs.
+
+Fix:
+- Audit delegate flow: release session mutex before launching subagent, re-acquire only when injecting results back.
+- Add a watchdog log line at 300s, 450s warning of an impending deadlock-abort.
+- Consider raising the 610s threshold OR making it configurable per session type.
+
+Representative: daemon.log L746-749.
+
+Tag: deadlock, mutex, delegate, ci-hook

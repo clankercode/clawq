@@ -619,3 +619,4 @@ bugs:
     - file: B620-minimax-tool-use-tool-result-o.todo
     - file: B621-http-client-30s-default-timeou.todo
     - file: B622-models-repeatedly-omit-require.todo
+    - file: B623-session-mutex-deadlock-under-l.todo
