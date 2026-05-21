@@ -1,0 +1,22 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B663
+priority: high
+status: pending
+tags: []
+title: 'briefing cron: hard-coded brave provider rate-limits on parallel topic searches'
+---
+The `briefing-hourly` cron issues 8+ parallel `web_search` calls per tick against the hard-coded `"provider": "brave"` in `~/.clawq/config.json`. Brave's API rate limits cannot sustain this burst, producing HTTP 429 loops that trigger stuck-session detection. This is the 9th distinct briefing-cron failure since 2026-03-30.
+
+Fix options (pick one or both):
+1. Change `web_search.provider` to `"ddg"` in `~/.clawq/config.json` — free, no key, no rate limits. Run `clawq config set web_search.provider ddg` or edit the JSON directly and SIGHUP the daemon.
+2. Add per-cron staggering / a semaphore for parallel `web_search` calls in the briefing agent logic, so 11 topics don't all hit the API simultaneously.
+3. Add a circuit-breaker: if `web_search` returns the same 429 error N consecutive times, abort the turn and emit a config alert instead of looping.
+
+Files involved: `~/.clawq/config.json` (provider setting), `src/rig_builtins.ml` (cron prompt), `src/tools_builtin_net.ml` (web_search implementation), `src/observer.ml` (stuck detection).
+
+--
+Auto-filed by clawq postmortem for session cron:briefing (pattern: SameErrorString: error repeated 4 times: Error: Brave search API rate-limited (HTTP 429) after 3 retries. Try again in a minute, or configure a different search_...).
+Postmortem doc: /home/xertrov/.clawq/postmortems/2026-05-22T042623-cron:briefing.md

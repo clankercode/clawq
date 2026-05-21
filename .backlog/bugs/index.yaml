@@ -657,3 +657,4 @@ bugs:
     - file: B660-brave-search-429-not-auto-fall.todo
     - file: B661-zai-websearch-mcp-tool-schema.todo
     - file: B662-web-search-prime-mcp-returns-4.todo
+    - file: B663-briefing-cron-hard-coded-brave.todo
