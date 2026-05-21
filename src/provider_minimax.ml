@@ -13,7 +13,12 @@ let api_model_name model =
   | "minimax-m2" -> "MiniMax-M2"
   | _ -> model
 
-let messages_to_anthropic_json = Provider.messages_to_anthropic_json
+let messages_to_anthropic_json msgs =
+  (* B644: MiniMax enforces strict adjacency: every assistant tool_use must
+     be immediately followed by the user-with-tool_result group that pairs
+     it. Use the strict walker as the final defense after
+     reorder_tool_groups + ensure_tool_group_integrity. *)
+  Provider.messages_to_anthropic_json ~strict_pairing:true msgs
 
 let tools_to_anthropic_json tools =
   match tools with

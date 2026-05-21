@@ -295,7 +295,141 @@ let reorder_tool_groups (msgs : message list) =
    rejects with code 2013 ("tool call result does not follow tool call") if
    consecutive tool messages are split across multiple user turns, or if a
    non-tool message lands between the assistant tool_use and its tool_result. *)
-let messages_to_anthropic_json messages =
+(* B644: final-stage walker — after `reorder_tool_groups` + the per-
+   provider `ensure_tool_group_integrity` pass, the message list should
+   already be safe. But MiniMax still occasionally rejects with
+   "tool call result does not follow tool call (2013)" — suggesting an
+   edge case slips through (e.g. a tool_result loaded from DB whose
+   tool_call_id doesn't match any visible tool_use because the
+   originating assistant turn was dropped, or a tool_use whose result
+   appears before it in chronological order). Walk the final stream of
+   Anthropic-ready messages and drop tool_uses with no matching trailing
+   user-with-tool_result group; drop orphan tool_result blocks. Emit one
+   WARN per drop so operators can diagnose. *)
+let strict_drop_unpaired_tool_groups msgs =
+  let arr = Array.of_list msgs in
+  let n = Array.length arr in
+  let result = ref [] in
+  let dropped = ref 0 in
+  let role_of m =
+    try
+      let open Yojson.Safe.Util in
+      m |> member "role" |> to_string
+    with _ -> ""
+  in
+  let content_blocks m =
+    try
+      let open Yojson.Safe.Util in
+      m |> member "content" |> to_list
+    with _ -> []
+  in
+  let block_type b =
+    try
+      let open Yojson.Safe.Util in
+      b |> member "type" |> to_string
+    with _ -> ""
+  in
+  let block_string field b =
+    try
+      let open Yojson.Safe.Util in
+      b |> member field |> to_string
+    with _ -> ""
+  in
+  let i = ref 0 in
+  while !i < n do
+    let m = arr.(!i) in
+    let role = role_of m in
+    if role = "assistant" then begin
+      let blocks = content_blocks m in
+      let tool_use_ids =
+        List.filter_map
+          (fun b ->
+            if block_type b = "tool_use" then Some (block_string "id" b)
+            else None)
+          blocks
+      in
+      if tool_use_ids = [] then begin
+        result := m :: !result;
+        incr i
+      end
+      else
+        let next = if !i + 1 < n then Some arr.(!i + 1) else None in
+        let next_result_ids =
+          match next with
+          | Some nm when role_of nm = "user" ->
+              List.filter_map
+                (fun b ->
+                  if block_type b = "tool_result" then
+                    Some (block_string "tool_use_id" b)
+                  else None)
+                (content_blocks nm)
+          | _ -> []
+        in
+        let all_paired =
+          List.for_all (fun id -> List.mem id next_result_ids) tool_use_ids
+        in
+        if all_paired then begin
+          result := m :: !result;
+          match next with
+          | Some nm ->
+              result := nm :: !result;
+              i := !i + 2
+          | None -> incr i
+        end
+        else begin
+          incr dropped;
+          Logs.warn (fun m_ ->
+              m_
+                "B644: dropping assistant tool_use turn whose tool_result \
+                 group does not immediately follow (tool_use ids=[%s])"
+                (String.concat ", " tool_use_ids));
+          incr i;
+          (* Also drop the user-with-tool_result that follows IF every
+             tool_use_id in it has now been dropped (otherwise leave it
+             — it might pair with a later turn we still keep). *)
+          match next with
+          | Some nm when role_of nm = "user" && next_result_ids <> [] ->
+              let still_useful =
+                List.exists
+                  (fun id -> not (List.mem id tool_use_ids))
+                  next_result_ids
+              in
+              if not still_useful then i := !i + 1
+          | _ -> ()
+        end
+    end
+    else if role = "user" then begin
+      let blocks = content_blocks m in
+      let only_tool_results =
+        blocks <> []
+        && List.for_all (fun b -> block_type b = "tool_result") blocks
+      in
+      if only_tool_results then begin
+        (* Orphan user-only-tool_result message — its tool_use has already
+           been dropped (or never existed). Drop silently. *)
+        incr dropped;
+        Logs.warn (fun m_ ->
+            m_
+              "B644: dropping orphan user message containing only tool_result \
+               blocks (no preceding assistant tool_use)");
+        incr i
+      end
+      else begin
+        result := m :: !result;
+        incr i
+      end
+    end
+    else begin
+      result := m :: !result;
+      incr i
+    end
+  done;
+  if !dropped > 0 then
+    Logs.warn (fun m ->
+        m "B644: dropped %d unpaired tool-group message(s) before send" !dropped);
+  List.rev !result
+
+let messages_to_anthropic_json ?(strict_pairing = false) messages =
   let messages = reorder_tool_groups messages in
   let user_text_or_parts (m : message) =
     match m.content_parts with
@@ -396,7 +530,9 @@ let messages_to_anthropic_json messages =
             in
             go [] (msg :: acc) rest)
   in
-  go [] [] messages
+  let assembled = go [] [] messages in
+  if strict_pairing then strict_drop_unpaired_tool_groups assembled
+  else assembled
 
 (* One-line summary of an Anthropic-format message list, for debug logging
    when the API rejects a request. E.g. "A[2tu] U[2tr] U[txt] A[1tu] U[1tr]"

@@ -25,43 +25,13 @@ let test_system_message_filtered () =
   let result = Provider_minimax.messages_to_anthropic_json msgs in
   Alcotest.(check int) "system filtered out" 0 (List.length result)
 
-let test_tool_result_becomes_user () =
-  let msg =
-    Provider.make_tool_result ~tool_call_id:"tc1" ~name:"bash" ~content:"done"
-  in
-  let result = Provider_minimax.messages_to_anthropic_json [ msg ] in
-  let json = List.hd result in
-  let open Yojson.Safe.Util in
-  Alcotest.(check string)
-    "tool result role=user" "user"
-    (json |> member "role" |> to_string)
-
-let test_tool_result_has_tool_use_id () =
-  let msg =
-    Provider.make_tool_result ~tool_call_id:"tc1" ~name:"bash" ~content:"done"
-  in
-  let result = Provider_minimax.messages_to_anthropic_json [ msg ] in
-  let json = List.hd result in
-  let open Yojson.Safe.Util in
-  let content = json |> member "content" |> to_list in
-  Alcotest.(check int) "1 content block" 1 (List.length content);
-  let block = List.hd content in
-  Alcotest.(check string)
-    "type" "tool_result"
-    (block |> member "type" |> to_string);
-  Alcotest.(check string)
-    "tool_use_id" "tc1"
-    (block |> member "tool_use_id" |> to_string)
-
-let test_assistant_with_tool_calls () =
+(* Helper: construct a paired assistant(tool_use) + tool_result sequence so
+   the strict-pairing converter (B644) accepts it. *)
+let mk_paired ~tc_id ~tool_name ~tool_args ~result_content =
   let tc =
-    {
-      Provider.id = "call-1";
-      function_name = "file_read";
-      arguments = {|{"path":"/tmp"}|};
-    }
+    { Provider.id = tc_id; function_name = tool_name; arguments = tool_args }
   in
-  let msg =
+  let asst =
     {
       Provider.role = "assistant";
       content = "";
@@ -74,7 +44,49 @@ let test_assistant_with_tool_calls () =
       is_error = false;
     }
   in
-  let result = Provider_minimax.messages_to_anthropic_json [ msg ] in
+  let res =
+    Provider.make_tool_result ~tool_call_id:tc_id ~name:tool_name
+      ~content:result_content
+  in
+  [ asst; res ]
+
+let test_tool_result_becomes_user () =
+  let msgs =
+    mk_paired ~tc_id:"tc1" ~tool_name:"bash" ~tool_args:{|{"x":1}|}
+      ~result_content:"done"
+  in
+  let result = Provider_minimax.messages_to_anthropic_json msgs in
+  (* Result is [assistant_tool_use; user_with_tool_result]. *)
+  let user = List.nth result 1 in
+  let open Yojson.Safe.Util in
+  Alcotest.(check string)
+    "tool result role=user" "user"
+    (user |> member "role" |> to_string)
+
+let test_tool_result_has_tool_use_id () =
+  let msgs =
+    mk_paired ~tc_id:"tc1" ~tool_name:"bash" ~tool_args:{|{"x":1}|}
+      ~result_content:"done"
+  in
+  let result = Provider_minimax.messages_to_anthropic_json msgs in
+  let user = List.nth result 1 in
+  let open Yojson.Safe.Util in
+  let content = user |> member "content" |> to_list in
+  Alcotest.(check int) "1 content block" 1 (List.length content);
+  let block = List.hd content in
+  Alcotest.(check string)
+    "type" "tool_result"
+    (block |> member "type" |> to_string);
+  Alcotest.(check string)
+    "tool_use_id" "tc1"
+    (block |> member "tool_use_id" |> to_string)
+
+let test_assistant_with_tool_calls () =
+  let msgs =
+    mk_paired ~tc_id:"call-1" ~tool_name:"file_read"
+      ~tool_args:{|{"path":"/tmp"}|} ~result_content:"contents"
+  in
+  let result = Provider_minimax.messages_to_anthropic_json msgs in
   let json = List.hd result in
   let open Yojson.Safe.Util in
   Alcotest.(check string) "role" "assistant" (json |> member "role" |> to_string);
@@ -85,6 +97,42 @@ let test_assistant_with_tool_calls () =
   Alcotest.(check string)
     "name" "file_read"
     (block |> member "name" |> to_string)
+
+(* B644 regression: a standalone tool_result with no matching assistant
+   tool_use must be dropped before reaching MiniMax (avoid error 2013). *)
+let test_b644_drops_orphan_tool_result () =
+  let orphan =
+    Provider.make_tool_result ~tool_call_id:"missing" ~name:"bash"
+      ~content:"stale"
+  in
+  let result = Provider_minimax.messages_to_anthropic_json [ orphan ] in
+  Alcotest.(check int) "orphan dropped" 0 (List.length result)
+
+(* B644 regression: an assistant tool_use with no matching tool_result must
+   also be dropped before reaching MiniMax. *)
+let test_b644_drops_unfollowed_tool_use () =
+  let tc =
+    {
+      Provider.id = "lonely";
+      function_name = "shell_exec";
+      arguments = {|{"command":"ls"}|};
+    }
+  in
+  let asst =
+    {
+      Provider.role = "assistant";
+      content = "";
+      content_parts = [];
+      tool_calls = [ tc ];
+      tool_call_id = None;
+      name = None;
+      provider_response_items_json = None;
+      thinking = None;
+      is_error = false;
+    }
+  in
+  let result = Provider_minimax.messages_to_anthropic_json [ asst ] in
+  Alcotest.(check int) "unfollowed tool_use dropped" 0 (List.length result)
 
 let test_consecutive_tool_results_coalesce () =
   (* Regression for MiniMax error 2013: when an assistant turn issues N
@@ -1000,6 +1048,10 @@ let suite =
       test_tool_result_has_tool_use_id;
     Alcotest.test_case "assistant with tool calls" `Quick
       test_assistant_with_tool_calls;
+    Alcotest.test_case "B644: strict drops orphan tool_result" `Quick
+      test_b644_drops_orphan_tool_result;
+    Alcotest.test_case "B644: strict drops unfollowed tool_use" `Quick
+      test_b644_drops_unfollowed_tool_use;
     Alcotest.test_case "consecutive tool results coalesce" `Quick
       test_consecutive_tool_results_coalesce;
     Alcotest.test_case "user text between tool_use and result is reordered"
