@@ -100,6 +100,37 @@ let test_summarize_tool_arguments_shows_other_tool_details () =
        {|{"filename":"TOOLS.md","append":true,"content":"a
 b"}|})
 
+(* B471: when paths start with $HOME, summaries should show "~/..." instead of
+   the absolute home prefix. *)
+let test_summarize_tool_arguments_tildifies_home_paths () =
+  let home =
+    match Sys.getenv_opt "HOME" with Some h when h <> "" -> h | _ -> "/root"
+  in
+  let abs_path = home ^ "/src/clawq/src/main.ml" in
+  let abs_cwd = home ^ "/src/clawq" in
+  let expected_path = "~/src/clawq/src/main.ml" in
+  let expected_cwd = "~/src/clawq" in
+  Alcotest.(check (option string))
+    "shell_exec tildifies cwd"
+    (Some (Printf.sprintf "git status in %s" expected_cwd))
+    (Stream_visibility.summarize_tool_arguments ~name:"shell_exec"
+       (Printf.sprintf {|{"command":"git status","cwd":"%s"}|} abs_cwd));
+  Alcotest.(check (option string))
+    "file_write tildifies path"
+    (Some (Printf.sprintf "%s write \xF0\x9F\x9F\xA2+1L" expected_path))
+    (Stream_visibility.summarize_tool_arguments ~name:"file_write"
+       (Printf.sprintf {|{"path":"%s","content":"x"}|} abs_path));
+  Alcotest.(check (option string))
+    "grep tildifies path"
+    (Some (Printf.sprintf "foo in %s" expected_cwd))
+    (Stream_visibility.summarize_tool_arguments ~name:"grep"
+       (Printf.sprintf {|{"pattern":"foo","path":"%s"}|} abs_cwd));
+  (* Paths that don't start with HOME are unchanged *)
+  Alcotest.(check (option string))
+    "non-home path unchanged" (Some "git status in /tmp/wt")
+    (Stream_visibility.summarize_tool_arguments ~name:"shell_exec"
+       {|{"command":"git status","cwd":"/tmp/wt"}|})
+
 let test_summarize_tool_result_previews () =
   Alcotest.(check (option string))
     "file_read shows line count" (Some "3 lines")
@@ -220,6 +251,8 @@ let suite =
       test_summarize_tool_arguments_shows_file_edit_details;
     Alcotest.test_case "other tool summaries" `Quick
       test_summarize_tool_arguments_shows_other_tool_details;
+    Alcotest.test_case "B471: tildifies home paths" `Quick
+      test_summarize_tool_arguments_tildifies_home_paths;
     Alcotest.test_case "result preview extraction" `Quick
       test_summarize_tool_result_previews;
     Alcotest.test_case "tool call message includes result preview" `Quick

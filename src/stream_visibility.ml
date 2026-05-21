@@ -196,6 +196,21 @@ let summarize_url url =
 
 let join_summary_parts parts = String.concat " " (List.filter (( <> ) "") parts)
 
+(* B471: collapse the user's HOME directory prefix to "~" in user-visible path
+   annotations to reduce noise and avoid leaking the absolute home path. Only
+   touches exact-prefix matches and only when HOME is set + non-empty. *)
+let tildify_path path =
+  match Sys.getenv_opt "HOME" with
+  | Some home when home <> "" ->
+      let hlen = String.length home in
+      let plen = String.length path in
+      if plen >= hlen && String.sub path 0 hlen = home then
+        if plen = hlen then "~"
+        else if path.[hlen] = '/' then "~" ^ String.sub path hlen (plen - hlen)
+        else path
+      else path
+  | _ -> path
+
 let summarize_file_edit fields =
   match
     ( get_string_field fields "path",
@@ -208,8 +223,9 @@ let summarize_file_edit fields =
       in
       let scope = if replace_all then " all" else "" in
       Some
-        (Printf.sprintf "%s \xF0\x9F\x94\xB4-%dL/\xF0\x9F\x9F\xA2+%dL%s" path
-           (count_lines old_text) (count_lines new_text) scope)
+        (Printf.sprintf "%s \xF0\x9F\x94\xB4-%dL/\xF0\x9F\x9F\xA2+%dL%s"
+           (tildify_path path) (count_lines old_text) (count_lines new_text)
+           scope)
   | _ -> None
 
 let summarize_file_edit_lines fields =
@@ -222,7 +238,7 @@ let summarize_file_edit_lines fields =
   | Some path, Some start_line, Some end_line, Some content ->
       Some
         (Printf.sprintf "%s L%d-%d \xF0\x9F\x94\xB4-%dL/\xF0\x9F\x9F\xA2+%dL"
-           path start_line end_line
+           (tildify_path path) start_line end_line
            (end_line - start_line + 1)
            (count_lines content))
   | _ -> None
@@ -233,7 +249,7 @@ let summarize_tool_assoc ~name fields =
       Option.bind (get_string_field fields "command") (fun command ->
           let cwd =
             match get_string_field fields "cwd" with
-            | Some cwd -> "in " ^ cwd
+            | Some cwd -> "in " ^ tildify_path cwd
             | None -> ""
           in
           let head =
@@ -254,16 +270,20 @@ let summarize_tool_assoc ~name fields =
   | "file_write" ->
       Option.bind (get_string_field fields "path") (fun path ->
           Option.bind (get_string_field fields "content") (fun content ->
-              Some (summarize_file_change ~verb:"write" ~path ~content)))
+              Some
+                (summarize_file_change ~verb:"write" ~path:(tildify_path path)
+                   ~content)))
   | "file_append" ->
       Option.bind (get_string_field fields "path") (fun path ->
           Option.bind (get_string_field fields "content") (fun content ->
-              Some (summarize_file_change ~verb:"append" ~path ~content)))
+              Some
+                (summarize_file_change ~verb:"append" ~path:(tildify_path path)
+                   ~content)))
   | "glob" ->
       Option.bind (get_string_field fields "pattern") (fun pattern ->
           let root =
             match get_string_field fields "root" with
-            | Some root -> "in " ^ root
+            | Some root -> "in " ^ tildify_path root
             | None -> ""
           in
           Some (join_summary_parts [ shorten_for_summary pattern; root ]))
@@ -271,7 +291,7 @@ let summarize_tool_assoc ~name fields =
       Option.bind (get_string_field fields "pattern") (fun pattern ->
           let path =
             match get_string_field fields "path" with
-            | Some path -> "in " ^ path
+            | Some path -> "in " ^ tildify_path path
             | None -> ""
           in
           let file_glob =
@@ -283,7 +303,10 @@ let summarize_tool_assoc ~name fields =
             (join_summary_parts
                [ shorten_for_summary pattern; path; file_glob ]))
   | "list_dir" ->
-      let path = Option.value (get_string_field fields "path") ~default:"." in
+      let path =
+        Option.value (get_string_field fields "path") ~default:"."
+        |> tildify_path
+      in
       let hidden =
         match get_bool_field fields "show_hidden" with
         | Some true -> "hidden"
