@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B602
+priority: high
+status: pending
+tags: []
+title: GLM-5/5.1 context window artificially capped to 128k after zai bug fixed
+---
+Models_catalog has context_window=128000 for glm-5, glm-5.1, glm-5-turbo, glm-4.7, glm-4.6 (all zai models). This was an artificial cap added when zai had a server-side bug truncating responses past 128k. zai has fixed the bug; we should raise these caps to the providers documented limits (typically 200k for GLM-5+). See src/models_catalog.ml lines ~574-624.
