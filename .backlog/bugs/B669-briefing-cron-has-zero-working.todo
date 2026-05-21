@@ -1,0 +1,29 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B669
+priority: high
+status: pending
+tags: []
+title: Briefing cron has zero working search backends — both web_search_prime (MCP -401) and web_search (DDG no results) are non-functional
+---
+Both search tools used by the briefing cron have failed within ~80 minutes:
+1. `web_search_prime` (MCP): -401 "Api key not found" (postmortem 2026-05-22T043150)
+2. `web_search` (DDG): returns "No results found" for all 11 monitored topics (postmortem 2026-05-22T052531)
+
+This renders the `briefing-hourly` and `briefing-daily` crons completely inoperable. The agent correctly follows the prompt but has no viable path to fetch news.
+
+Required fixes:
+- Verify/reconfigure the MCP API key for web_search_prime, OR remove the tool if the provider is no longer viable
+- Verify DDG instant API status; if permanently degraded, switch to `provider: brave` or another working backend
+- Update the briefing prompt to include fallback logic: if web_search fails for all topics, synthesize from RSS results or emit "Nothing notable." instead of silently ending with tool calls only
+- Consider adding cron-level alerting when N consecutive search failures occur, so the user is notified of infrastructure degradation
+
+Files/configs involved:
+- Memory key: `rig:briefing:config`
+- Postmortems: `/home/xertrov/.clawq/postmortems/2026-05-22T043150-*.md` and `2026-05-22T052531-*.md`
+
+--
+Auto-filed by clawq postmortem for session __cron:147:1779391498 (pattern: not providing user‑facing response).
+Postmortem doc: /home/xertrov/.clawq/postmortems/2026-05-22T052531-__cron:147:1779391498.md
