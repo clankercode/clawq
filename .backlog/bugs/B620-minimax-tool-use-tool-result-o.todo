@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-05-21T09:06:27Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-05-21T09:09:43Z"
 complexity: medium
 depends_on: []
+duration_minutes: 3.277309038533333
 estimate_hours: 1
 id: B620
 priority: high
 started_at: "2026-05-21T09:06:27Z"
-status: in_progress
+status: done
 tags: []
 title: MiniMax tool_use/tool_result ordering violates Anthropic-API on session resume
 ---
