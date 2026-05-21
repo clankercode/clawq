@@ -850,8 +850,9 @@ let models_tool ~(config : Runtime_config.t) ?session_mgr () =
          require a live session. Use the CLI 'models set-default' command to \
          change the persistent default."
   in
-  let set_model_lwt ?session_key ?(skip_validation = false) model =
+  let set_model_lwt ?session_key ?(skip_validation = false) raw_model =
     let open Lwt.Syntax in
+    let model = Models_catalog.resolve_alias_or_name raw_model in
     match Models_catalog.find_by_full_name model with
     | None ->
         Lwt.return

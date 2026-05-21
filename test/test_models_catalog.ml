@@ -158,9 +158,62 @@ let test_minimax_find_by_full_name_accepts_lowercase_alias () =
         alias.Models_catalog.id
   | _ -> Alcotest.fail "expected exact and lowercase MiniMax names to resolve"
 
+(* B605: bare-name alias resolution. *)
+let test_resolve_alias_kimi () =
+  match Models_catalog.resolve_alias "kimi" with
+  | Some r ->
+      Alcotest.(check string)
+        "kimi resolves to coding endpoint" "kimi_coding:kimi-for-coding" r
+  | None -> Alcotest.fail "expected 'kimi' to resolve"
+
+let test_resolve_alias_case_insensitive () =
+  match Models_catalog.resolve_alias "KIMI" with
+  | Some r ->
+      Alcotest.(check string)
+        "uppercase still resolves" "kimi_coding:kimi-for-coding" r
+  | None -> Alcotest.fail "expected case-insensitive alias resolution"
+
+let test_resolve_alias_unknown_returns_none () =
+  match Models_catalog.resolve_alias "not-an-alias" with
+  | None -> ()
+  | Some r -> Alcotest.failf "expected None for unknown alias, got %s" r
+
+let test_resolve_alias_skips_colon_form () =
+  (* If user wrote a full provider:model, don't apply alias table. *)
+  match Models_catalog.resolve_alias "kimi:something" with
+  | None -> ()
+  | Some _ ->
+      Alcotest.fail "should not resolve when input already has provider prefix"
+
+let test_resolve_alias_or_name_passthrough () =
+  Alcotest.(check string)
+    "unknown name passes through" "anthropic:claude-sonnet-4-6"
+    (Models_catalog.resolve_alias_or_name "anthropic:claude-sonnet-4-6")
+
+let test_resolve_alias_or_name_resolves () =
+  Alcotest.(check string)
+    "alias is resolved" "kimi_coding:kimi-for-coding"
+    (Models_catalog.resolve_alias_or_name "kimi")
+
 let suite =
   [
     ("find_by_id", `Quick, test_find_by_id);
+    ("resolve_alias kimi", `Quick, test_resolve_alias_kimi);
+    ( "resolve_alias case-insensitive",
+      `Quick,
+      test_resolve_alias_case_insensitive );
+    ( "resolve_alias unknown returns None",
+      `Quick,
+      test_resolve_alias_unknown_returns_none );
+    ( "resolve_alias skips colon form",
+      `Quick,
+      test_resolve_alias_skips_colon_form );
+    ( "resolve_alias_or_name passthrough",
+      `Quick,
+      test_resolve_alias_or_name_passthrough );
+    ( "resolve_alias_or_name resolves",
+      `Quick,
+      test_resolve_alias_or_name_resolves );
     ("find_by_full_name", `Quick, test_find_by_full_name);
     ("split_name", `Quick, test_split_name);
     ("by_provider", `Quick, test_by_provider);

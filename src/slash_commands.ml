@@ -439,11 +439,21 @@ let handle ?(skill_names = []) text =
                 match int_of_string_opt n with
                 | Some page when page >= 1 -> ModelMenu page
                 | _ -> ModelMenu 1)
-            | [ "set"; name ] -> Model (ModelSet name)
-            | [ "set-force"; name ] -> Model (ModelSetForce name)
-            | [ "set-default"; name ] -> Model (ModelSetDefault name)
-            | [ "fav"; name ] -> Model (ModelFav name)
-            | [ "unfav"; name ] -> Model (ModelUnfav name)
+            (* Resolve bare aliases like "kimi" -> "kimi_coding:kimi-for-coding"
+               at parse time so all downstream handlers get the canonical name
+               without each needing to call resolve_alias themselves. *)
+            | [ "set"; name ] ->
+                Model (ModelSet (Models_catalog.resolve_alias_or_name name))
+            | [ "set-force"; name ] ->
+                Model
+                  (ModelSetForce (Models_catalog.resolve_alias_or_name name))
+            | [ "set-default"; name ] ->
+                Model
+                  (ModelSetDefault (Models_catalog.resolve_alias_or_name name))
+            | [ "fav"; name ] ->
+                Model (ModelFav (Models_catalog.resolve_alias_or_name name))
+            | [ "unfav"; name ] ->
+                Model (ModelUnfav (Models_catalog.resolve_alias_or_name name))
             | "list" :: rest ->
                 let provider = match rest with [ p ] -> Some p | _ -> None in
                 Model (ModelList provider)
@@ -452,7 +462,10 @@ let handle ?(skill_names = []) text =
               when not
                      (List.mem (String.lowercase_ascii first) known_subcommands)
               ->
-                Model (ModelSet (String.concat " " args))
+                Model
+                  (ModelSet
+                     (Models_catalog.resolve_alias_or_name
+                        (String.concat " " args)))
             | _ ->
                 FormattedReply
                   (fun connector -> format_model_usage_text ~connector))

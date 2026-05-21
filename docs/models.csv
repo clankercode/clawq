@@ -55,13 +55,15 @@ groq,openai/gpt-oss-20b,"GPT-OSS 20B",131072,false,true,"low,medium,high",0.075,
 groq,openai/gpt-oss-120b,"GPT-OSS 120B",131072,false,true,"low,medium,high",0.15,0.60,https://groq.com/pricing,"",2026-03-10
 groq,qwen/qwen3-32b,"Qwen3 32B",131072,false,true,"thinking,non-thinking",0.29,0.59,https://groq.com/pricing,"Preview",2026-03-10
 groq,moonshotai/kimi-k2-instruct-0905,"Kimi K2",262144,false,false,"",1.00,3.00,https://groq.com/pricing,"Preview",2026-03-10
-moonshot,kimi-k2.5,"Kimi K2.5",262144,true,true,"",0.60,3.00,https://platform.moonshot.ai/docs/pricing/chat,"Flagship; multimodal; open-source",2026-03-10
-moonshot,kimi-k2-thinking,"Kimi K2 Thinking",262144,false,true,"",0.60,2.50,https://platform.moonshot.ai/docs/pricing/chat,"Reasoning model",2026-03-10
-moonshot,kimi-k2-0905-preview,"Kimi K2 0905",262144,false,false,"",0.60,2.50,https://platform.moonshot.ai/docs/pricing/chat,"",2026-03-10
+moonshot,kimi-k2.6,"Kimi K2.6",262144,true,true,"thinking,tools,vision",0.95,4.00,https://platform.kimi.ai/docs/pricing/chat-k26.md,"Current flagship; multimodal; cache-hit \$0.16/M",2026-05-21
+moonshot,kimi-k2.5,"Kimi K2.5",262144,true,true,"thinking,tools",0.60,3.00,https://platform.kimi.ai/docs/pricing/chat-k25.md,"Multimodal; open-source",2026-05-21
+moonshot,kimi-k2-thinking,"Kimi K2 Thinking",262144,false,true,"thinking,tools",0.60,2.50,https://platform.moonshot.ai/docs/pricing/chat,"Reasoning model",2026-05-21
+moonshot,kimi-k2-thinking-turbo,"Kimi K2 Thinking Turbo",262144,false,true,"thinking,tools",1.15,8.00,https://platform.kimi.ai/docs/pricing/chat-k26.md,"Premium turbo tier; ~2x input / 3.2x output vs base k2-thinking",2026-05-21
+moonshot,kimi-k2-0905-preview,"Kimi K2 0905 (preview)",262144,false,false,"tools",0.60,2.50,https://platform.moonshot.ai/docs/pricing/chat,"DEPRECATED: K2 preview series EOL 2026-05-25",2026-05-21
 moonshot,moonshot-v1-128k,"Moonshot V1 128K",131072,false,false,"",2.00,5.00,https://platform.moonshot.ai/docs/pricing/chat,"Legacy",2026-03-10
-kimi_coding,kimi-for-coding,"Kimi for Coding",262144,false,false,"",0.60,2.50,https://www.kimi.com/code/docs/en/,"Kimi Code subscription model; use kimi_coding provider with sk-kimi-... key",2026-03-10
-kimi_coding,kimi-k2.5,"Kimi K2.5 (Coding)",262144,false,false,"",0.60,3.00,https://www.kimi.com/code/docs/en/,"Via Kimi coding subscription endpoint",2026-03-10
-kimi_coding,kimi-k2,"Kimi K2 (Coding)",262144,false,false,"",0.60,2.50,https://www.kimi.com/code/docs/en/,"Via Kimi coding subscription endpoint",2026-03-10
+kimi_coding,kimi-for-coding,"Kimi for Coding",262144,true,true,"thinking,tools,vision",0.60,2.50,https://www.kimi.com/code/docs/en/,"Stable backend-routed alias; auto-updates to current model (K2.6 as of May 2026). Use this as the default on the coding endpoint.",2026-05-21
+kimi_coding,kimi-k2.6,"Kimi K2.6 (Coding)",262144,true,true,"thinking,tools,vision",0.60,2.50,https://www.kimi.com/code/docs/en/,"Via Kimi coding subscription endpoint",2026-05-21
+kimi_coding,kimi-k2.5,"Kimi K2.5 (Coding)",262144,true,true,"thinking,tools",0.60,3.00,https://www.kimi.com/code/docs/en/,"Via Kimi coding subscription endpoint",2026-05-21
 zhipu,glm-5.1,"GLM-5.1",204800,false,false,"thinking,tools",1.40,4.40,https://docs.z.ai/guides/overview/pricing,"Released 2026-04-07; ~204800 token context",2026-05-21
 zhipu,glm-5-turbo,"GLM-5 Turbo",200000,false,false,"thinking,tools",1.20,4.00,https://docs.z.ai/guides/overview/pricing,"High-speed variant; released 2026-03-15",2026-05-21
 zhipu,glm-5,"GLM-5",200000,false,false,"thinking,tools",1.00,3.20,https://docs.z.ai/guides/overview/pricing,"Flagship; 744B params; context bumped to 200k after zai server-side fix",2026-05-21

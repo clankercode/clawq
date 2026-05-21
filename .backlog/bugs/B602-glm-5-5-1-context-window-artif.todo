@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-05-21T07:04:40Z"
+claimed_by: cli-user
+completed_at: "2026-05-21T07:16:13Z"
 complexity: medium
 depends_on: []
+duration_minutes: 11.550930765366667
 estimate_hours: 1
 id: B602
 priority: high
-status: pending
+started_at: "2026-05-21T07:04:40Z"
+status: done
 tags: []
 title: GLM-5/5.1 context window artificially capped to 128k after zai bug fixed
 ---

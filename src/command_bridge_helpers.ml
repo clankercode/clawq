@@ -829,7 +829,10 @@ let cmd_models args =
         List.filter (fun a -> a <> "--skip-validation" && a <> "--no-test") rest
       in
       match positional with
-      | [ model ] -> (
+      | [ raw_model ] -> (
+          (* Resolve bare aliases (e.g. "kimi" -> "kimi_coding:kimi-for-coding")
+             before any catalog/format checks. *)
+          let model = Models_catalog.resolve_alias_or_name raw_model in
           let provider, model_id, fmt = Models_catalog.split_name model in
           (* Plain name with no provider: reject if not in catalog *)
           if

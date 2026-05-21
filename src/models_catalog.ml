@@ -509,46 +509,89 @@ let known_models : model_info list =
       supports_thinking = false;
       deprecated = false;
     };
-    (* Kimi via Moonshot platform *)
+    (* Kimi via Moonshot platform — K2 preview series EOL 2026-05-25 *)
+    {
+      provider = "kimi";
+      id = "kimi-k2.6";
+      display_name = None;
+      context_window = Some 262144;
+      supports_vision = true;
+      supports_tools = true;
+      supports_thinking = true;
+      deprecated = false;
+    };
     {
       provider = "kimi";
       id = "kimi-k2.5";
       display_name = None;
       context_window = Some 262144;
-      supports_vision = false;
+      supports_vision = true;
       supports_tools = true;
-      supports_thinking = false;
-      deprecated = false;
-    };
-    {
-      provider = "kimi";
-      id = "kimi-k2";
-      display_name = None;
-      context_window = Some 128000;
-      supports_vision = false;
-      supports_tools = true;
-      supports_thinking = false;
+      supports_thinking = true;
       deprecated = false;
     };
     {
       provider = "kimi";
       id = "kimi-k2-thinking";
       display_name = None;
-      context_window = Some 128000;
+      context_window = Some 262144;
       supports_vision = false;
       supports_tools = true;
       supports_thinking = true;
       deprecated = false;
     };
-    (* Kimi Coding subscription *)
+    {
+      provider = "kimi";
+      id = "kimi-k2-thinking-turbo";
+      display_name = None;
+      context_window = Some 262144;
+      supports_vision = false;
+      supports_tools = true;
+      supports_thinking = true;
+      deprecated = false;
+    };
+    {
+      provider = "kimi";
+      id = "kimi-k2-turbo-preview";
+      display_name = None;
+      context_window = Some 262144;
+      supports_vision = false;
+      supports_tools = true;
+      supports_thinking = false;
+      (* K2 preview series scheduled EOL 2026-05-25 *)
+      deprecated = true;
+    };
+    {
+      provider = "kimi";
+      id = "kimi-k2-0905-preview";
+      display_name = None;
+      context_window = Some 262144;
+      supports_vision = false;
+      supports_tools = true;
+      supports_thinking = false;
+      deprecated = true;
+    };
+    (* Kimi Coding subscription — kimi-for-coding is a stable backend-routed
+       alias that automatically points at the current model (currently K2.6).
+       Always use kimi-for-coding as the default on this endpoint per docs. *)
     {
       provider = "kimi_coding";
       id = "kimi-for-coding";
       display_name = Some "Kimi for Coding";
       context_window = Some 262144;
-      supports_vision = false;
+      supports_vision = true;
       supports_tools = true;
-      supports_thinking = false;
+      supports_thinking = true;
+      deprecated = false;
+    };
+    {
+      provider = "kimi_coding";
+      id = "kimi-k2.6";
+      display_name = None;
+      context_window = Some 262144;
+      supports_vision = true;
+      supports_tools = true;
+      supports_thinking = true;
       deprecated = false;
     };
     {
@@ -556,19 +599,9 @@ let known_models : model_info list =
       id = "kimi-k2.5";
       display_name = None;
       context_window = Some 262144;
-      supports_vision = false;
+      supports_vision = true;
       supports_tools = true;
-      supports_thinking = false;
-      deprecated = false;
-    };
-    {
-      provider = "kimi_coding";
-      id = "kimi-k2";
-      display_name = None;
-      context_window = Some 262144;
-      supports_vision = false;
-      supports_tools = true;
-      supports_thinking = false;
+      supports_thinking = true;
       deprecated = false;
     };
     (* Z.ai *)
@@ -751,6 +784,34 @@ let canonical_full_name name =
       | Some canonical ->
           Some (Printf.sprintf "%s%c%s" provider delim canonical)
       | None -> None)
+
+(* Bare-name aliases for common workflows. These map a short user-typed
+   alias ("kimi", "glm") to the canonical "provider:model" form.
+
+   Resolution is case-insensitive and applies to bare names only — if the
+   user typed something with a colon or slash, the alias table is NOT
+   consulted (they meant a specific provider:model pair).
+
+   Add new entries here as new short aliases are introduced. Keep this list
+   short; the broader runner-aliases system (B487) handles user-defined
+   aliases. *)
+let aliases : (string * string) list =
+  [ ("kimi", "kimi_coding:kimi-for-coding") ]
+
+let resolve_alias name =
+  let lower = String.lowercase_ascii (String.trim name) in
+  match String.index_opt lower ':' with
+  | Some _ -> None
+  | None -> (
+      match String.index_opt lower '/' with
+      | Some _ -> None
+      | None -> List.assoc_opt lower aliases)
+
+(* If [name] is a known alias, return its canonical resolution; otherwise
+   return [name] unchanged. Caller can compare result to input to detect
+   that an alias was applied. *)
+let resolve_alias_or_name name =
+  match resolve_alias name with Some canonical -> canonical | None -> name
 
 type name_format = Canonical | Legacy | Plain
 

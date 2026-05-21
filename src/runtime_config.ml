@@ -534,7 +534,7 @@ let default_error_watcher_config : error_watcher_config =
     enabled = n >= 4 && String.sub v (n - 4) 4 = "-dev";
     scan_interval_s = 30.0;
     primary_models = [ "anthropic:claude-opus-4-6"; "openai-codex:gpt-5.4" ];
-    fallback_models = [ "zai_coding:glm-5"; "kimi_coding:kimi-for-code" ];
+    fallback_models = [ "zai_coding:glm-5"; "kimi_coding:kimi-for-coding" ];
     cooldown_s = 300.0;
     max_errors_per_batch = 10;
     ignore_patterns = [];
@@ -550,7 +550,9 @@ let default_debate_config : debate_config =
     enabled = true;
     default_models =
       [
-        "openai-codex:gpt-5.4"; "zai_coding:glm-5"; "kimi_coding:kimi-for-code";
+        "openai-codex:gpt-5.4";
+        "zai_coding:glm-5";
+        "kimi_coding:kimi-for-coding";
       ];
     judge_model = "anthropic:claude-opus-4-6";
     max_parallel = 5;

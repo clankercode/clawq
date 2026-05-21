@@ -174,13 +174,19 @@ let pricing_table =
       { input_per_m = 0.59; output_per_m = 0.79; cache_read_per_m = None } );
     ( "llama-3.1-8b",
       { input_per_m = 0.05; output_per_m = 0.08; cache_read_per_m = None } );
-    (* Moonshot/Kimi *)
+    (* Moonshot/Kimi - Sources: platform.kimi.ai/docs/pricing/chat-k26.md,
+       chat-k25.md. K2.6 is current flagship; K2-preview series EOL 2026-05-25. *)
+    ( "kimi-k2.6",
+      { input_per_m = 0.95; output_per_m = 4.00; cache_read_per_m = Some 0.16 }
+    );
     ( "kimi-k2.5",
       { input_per_m = 0.60; output_per_m = 3.0; cache_read_per_m = None } );
-    ( "kimi-k2",
-      { input_per_m = 0.60; output_per_m = 2.50; cache_read_per_m = None } );
     ( "kimi-k2-thinking",
       { input_per_m = 0.60; output_per_m = 2.50; cache_read_per_m = None } );
+    (* Turbo variant priced at the K2-turbo premium tier per Moonshot docs *)
+    ( "kimi-k2-thinking-turbo",
+      { input_per_m = 1.15; output_per_m = 8.0; cache_read_per_m = Some 0.15 }
+    );
     ( "kimi-for-coding",
       { input_per_m = 0.60; output_per_m = 2.50; cache_read_per_m = None } );
     ( "moonshot-v1-128k",

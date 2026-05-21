@@ -700,7 +700,8 @@ let cmd_session args =
       | "set" :: set_args -> (
           let skip_validation, positional = parse_set_args set_args in
           match positional with
-          | [ model ] -> (
+          | [ raw_model ] -> (
+              let model = Models_catalog.resolve_alias_or_name raw_model in
               let provider, model_id, fmt = Models_catalog.split_name model in
               let canonical, hint =
                 match fmt with
