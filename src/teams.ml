@@ -217,7 +217,20 @@ let build_reply_body ~alert ~text ~mention ~mention_mode =
 let send_reply ?(alert = false) ~(config : Runtime_config.teams_config)
     ~service_url ~conversation_id ~reply_to_id ~text ?mention () =
   let open Lwt.Syntax in
-  if
+  (* B464: guard against empty payloads — Teams returns HTTP 400 BadSyntax
+     ("Activity must include non empty 'text' field or at least 1 attachment")
+     and we have no attachment surface on this path, so empty text is always
+     a caller defect. Log + short-circuit instead of generating the 400. *)
+  if String.trim text = "" then begin
+    Logs.warn (fun m ->
+        m
+          "Teams: refusing to send empty reply (conv=%s reply_to_id=%s) — \
+           caller passed empty/whitespace text; Teams would reject with HTTP \
+           400 BadSyntax"
+          conversation_id reply_to_id);
+    Lwt.return ""
+  end
+  else if
     service_url = ""
     || not
          (String.length service_url >= 8
@@ -289,36 +302,46 @@ let send_reply ?(alert = false) ~(config : Runtime_config.teams_config)
 let edit_activity ~(config : Runtime_config.teams_config) ~service_url
     ~conversation_id ~activity_id ~text () =
   let open Lwt.Syntax in
-  let* token_opt = fetch_token ~config in
-  match token_opt with
-  | None ->
-      Logs.err (fun m -> m "Teams: cannot edit activity, no OAuth token");
-      Lwt.return_unit
-  | Some token ->
-      let uri =
-        Printf.sprintf "%s/v3/conversations/%s/activities/%s"
-          (String.trim service_url)
-          (Uri.pct_encode conversation_id)
-          (Uri.pct_encode activity_id)
-      in
-      let headers = [ ("Authorization", "Bearer " ^ token) ] in
-      let body =
-        `Assoc
-          [
-            ("type", `String "message");
-            ("textFormat", `String "markdown");
-            ("text", `String text);
-          ]
-        |> Yojson.Safe.to_string
-      in
-      let* status, resp =
-        put_json_throttled ~conversation_id ~uri ~headers ~body
-      in
-      if status < 200 || status >= 300 then
-        Logs.warn (fun m ->
-            m "Teams: edit_activity failed (HTTP %d) conv=%s activity=%s: %s"
-              status conversation_id activity_id resp);
-      Lwt.return_unit
+  (* B464: same guard as send_reply — Teams rejects empty text. *)
+  if String.trim text = "" then begin
+    Logs.warn (fun m ->
+        m
+          "Teams: refusing to edit activity %s with empty text (conv=%s); \
+           Teams would reject with HTTP 400 BadSyntax"
+          activity_id conversation_id);
+    Lwt.return_unit
+  end
+  else
+    let* token_opt = fetch_token ~config in
+    match token_opt with
+    | None ->
+        Logs.err (fun m -> m "Teams: cannot edit activity, no OAuth token");
+        Lwt.return_unit
+    | Some token ->
+        let uri =
+          Printf.sprintf "%s/v3/conversations/%s/activities/%s"
+            (String.trim service_url)
+            (Uri.pct_encode conversation_id)
+            (Uri.pct_encode activity_id)
+        in
+        let headers = [ ("Authorization", "Bearer " ^ token) ] in
+        let body =
+          `Assoc
+            [
+              ("type", `String "message");
+              ("textFormat", `String "markdown");
+              ("text", `String text);
+            ]
+          |> Yojson.Safe.to_string
+        in
+        let* status, resp =
+          put_json_throttled ~conversation_id ~uri ~headers ~body
+        in
+        if status < 200 || status >= 300 then
+          Logs.warn (fun m ->
+              m "Teams: edit_activity failed (HTTP %d) conv=%s activity=%s: %s"
+                status conversation_id activity_id resp);
+        Lwt.return_unit
 
 let delete_activity ~(config : Runtime_config.teams_config) ~service_url
     ~conversation_id ~activity_id () =

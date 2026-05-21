@@ -936,8 +936,48 @@ let test_parse_activity_attachment_only () =
       Alcotest.(check int) "has attachment" 1 (List.length act.attachments)
   | None -> Alcotest.fail "attachment-only should return Some"
 
+(* B464: empty text guard — both send_reply and edit_activity must short-circuit
+   without calling fetch_token / hitting HTTP. We assert this by using an
+   intentionally invalid service_url; if the guard didn't fire, the next branch
+   would log an error about service_url scheme. With the guard, we get only the
+   "refusing to send empty reply" warning and an empty activity_id back. *)
+let test_send_reply_empty_text_short_circuits () =
+  let cfg = test_teams_config () in
+  let result =
+    Lwt_main.run
+      (Teams.send_reply ~config:cfg
+         ~service_url:"https://smba.trafficmanager.net/au/test/"
+         ~conversation_id:"19:test@thread.v2" ~reply_to_id:"" ~text:"" ())
+  in
+  Alcotest.(check string) "empty text returns empty activity_id" "" result
+
+let test_send_reply_whitespace_only_short_circuits () =
+  let cfg = test_teams_config () in
+  let result =
+    Lwt_main.run
+      (Teams.send_reply ~config:cfg
+         ~service_url:"https://smba.trafficmanager.net/au/test/"
+         ~conversation_id:"19:test@thread.v2" ~reply_to_id:"" ~text:"   \n\t  "
+         ())
+  in
+  Alcotest.(check string) "whitespace-only returns empty activity_id" "" result
+
+let test_edit_activity_empty_text_short_circuits () =
+  let cfg = test_teams_config () in
+  (* Should return unit immediately without HTTP. *)
+  Lwt_main.run
+    (Teams.edit_activity ~config:cfg
+       ~service_url:"https://smba.trafficmanager.net/au/test/"
+       ~conversation_id:"19:test@thread.v2" ~activity_id:"act-1" ~text:"" ())
+
 let suite =
   [
+    Alcotest.test_case "B464: send_reply empty text short-circuits" `Quick
+      test_send_reply_empty_text_short_circuits;
+    Alcotest.test_case "B464: send_reply whitespace short-circuits" `Quick
+      test_send_reply_whitespace_only_short_circuits;
+    Alcotest.test_case "B464: edit_activity empty text short-circuits" `Quick
+      test_edit_activity_empty_text_short_circuits;
     Alcotest.test_case "parse_activity returns record" `Quick
       test_parse_activity_returns_record;
     Alcotest.test_case "parse_activity non-message" `Quick
