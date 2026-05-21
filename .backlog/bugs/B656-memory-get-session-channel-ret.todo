@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-05-21T18:07:16Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-05-21T18:10:05Z"
 complexity: medium
 depends_on: []
+duration_minutes: 2.8275598289
 estimate_hours: 1
 id: B656
 priority: high
 started_at: "2026-05-21T18:07:16Z"
-status: in_progress
+status: done
 tags: []
 title: Memory.get_session_channel returns Some("","") for empty-string TEXT columns
 ---
