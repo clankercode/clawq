@@ -287,6 +287,184 @@ let complete ~(config : Runtime_config.t)
     | Ok resp -> Lwt.return resp
     | Error msg -> Lwt.fail_with msg
 
+(* B640: SSE accumulator state, lifted out of [complete_streaming] so tests
+   can drive [process_sse_event] with a synthetic list of (event_type, data)
+   pairs without standing up an HTTP server. Same state, same code path —
+   the streaming function below threads this record through [process_sse_event].
+   Fields are mutable so closures can update in place via record assignment. *)
+type stream_state = {
+  content_acc : Buffer.t;
+  thinking_acc : Buffer.t;
+  mutable tool_calls_acc : (int * string * string * Buffer.t) list;
+  mutable current_block_type : string;
+  mutable current_block_index : int;
+  mutable current_tool_id : string;
+  mutable current_tool_name : string;
+  mutable stop_reason : string;
+  mutable usage_acc : (int * int * int) option;
+  mutable resp_model : string;
+}
+
+let make_stream_state ~model =
+  {
+    content_acc = Buffer.create 1024;
+    thinking_acc = Buffer.create 256;
+    tool_calls_acc = [];
+    current_block_type = "";
+    current_block_index = 0;
+    current_tool_id = "";
+    current_tool_name = "";
+    stop_reason = "";
+    usage_acc = None;
+    resp_model = model;
+  }
+
+let process_sse_event ~(state : stream_state)
+    ~(on_chunk : Provider.stream_event -> unit Lwt.t) ~event_type ~data_str =
+  try
+    let json = Yojson.Safe.from_string data_str in
+    let open Yojson.Safe.Util in
+    match event_type with
+    | "message_start" ->
+        (try
+           state.resp_model <-
+             json |> member "message" |> member "model" |> to_string
+         with _ -> ());
+        (try
+           let u = json |> member "message" |> member "usage" in
+           let it = u |> member "input_tokens" |> to_int in
+           let ot = try u |> member "output_tokens" |> to_int with _ -> 0 in
+           let cached =
+             try u |> member "cache_read_input_tokens" |> to_int with _ -> 0
+           in
+           (* B608: normalize to total-input semantics (see complete). *)
+           state.usage_acc <- Some (it + cached, ot, cached)
+         with _ -> ());
+        Lwt.return_unit
+    | "content_block_start" -> (
+        try
+          state.current_block_index <- json |> member "index" |> to_int;
+          let block = json |> member "content_block" in
+          let btype = block |> member "type" |> to_string in
+          state.current_block_type <- btype;
+          if btype = "tool_use" then begin
+            state.current_tool_id <-
+              (try block |> member "id" |> to_string with _ -> "");
+            state.current_tool_name <-
+              (try block |> member "name" |> to_string with _ -> "");
+            let args_buf = Buffer.create 256 in
+            (* B634: seed args_buf from content_block.input when the server
+               embeds the full tool input at start time (observed in MiniMax
+               traffic) so we don't end up with empty args. *)
+            (match try Some (block |> member "input") with _ -> None with
+            | Some (`Assoc kvs) when kvs <> [] ->
+                Buffer.add_string args_buf (Yojson.Safe.to_string (`Assoc kvs))
+            | Some (`Assoc _) | Some `Null | None -> ()
+            | Some other ->
+                Buffer.add_string args_buf (Yojson.Safe.to_string other));
+            state.tool_calls_acc <-
+              state.tool_calls_acc
+              @ [
+                  ( state.current_block_index,
+                    state.current_tool_id,
+                    state.current_tool_name,
+                    args_buf );
+                ];
+            on_chunk
+              (Provider.ToolCallDelta
+                 {
+                   index = state.current_block_index;
+                   id = Some state.current_tool_id;
+                   function_name = Some state.current_tool_name;
+                   arguments =
+                     (let s = Buffer.contents args_buf in
+                      if s = "" then None else Some s);
+                 })
+          end
+          else Lwt.return_unit
+        with _ -> Lwt.return_unit)
+    | "content_block_delta" -> (
+        try
+          let delta = json |> member "delta" in
+          let dtype = delta |> member "type" |> to_string in
+          if dtype = "thinking_delta" || state.current_block_type = "thinking"
+          then begin
+            let thinking =
+              try delta |> member "thinking" |> to_string with _ -> ""
+            in
+            if thinking <> "" then begin
+              Buffer.add_string state.thinking_acc thinking;
+              on_chunk (Provider.ThinkingDelta thinking)
+            end
+            else Lwt.return_unit
+          end
+          else if dtype = "text_delta" then begin
+            let text = delta |> member "text" |> to_string in
+            Buffer.add_string state.content_acc text;
+            on_chunk (Provider.Delta text)
+          end
+          else begin
+            if dtype = "input_json_delta" then begin
+              let partial = delta |> member "partial_json" |> to_string in
+              List.iter
+                (fun (idx, _, _, args_buf) ->
+                  if idx = state.current_block_index then
+                    Buffer.add_string args_buf partial)
+                state.tool_calls_acc;
+              on_chunk
+                (Provider.ToolCallDelta
+                   {
+                     index = state.current_block_index;
+                     id = None;
+                     function_name = None;
+                     arguments = Some partial;
+                   })
+            end
+            else Lwt.return_unit
+          end
+        with _ -> Lwt.return_unit)
+    | "content_block_stop" ->
+        state.current_block_type <- "";
+        state.current_block_index <- 0;
+        Lwt.return_unit
+    | "message_delta" ->
+        (try
+           let d = json |> member "delta" in
+           state.stop_reason <-
+             (try d |> member "stop_reason" |> to_string with _ -> "");
+           try
+             let u = json |> member "usage" in
+             let ot = u |> member "output_tokens" |> to_int in
+             state.usage_acc <-
+               (match state.usage_acc with
+               | Some (it, _, cached) -> Some (it, ot, cached)
+               | None -> Some (0, ot, 0))
+           with _ -> ()
+         with _ -> ());
+        Lwt.return_unit
+    | "message_stop" -> on_chunk Provider.Done
+    | _ -> Lwt.return_unit
+  with _ -> Lwt.return_unit
+
+let finalize_stream_tool_calls (state : stream_state) =
+  List.map
+    (fun (_, id, name, args_buf) ->
+      let raw_args = Buffer.contents args_buf in
+      let arguments =
+        if raw_args = "" then begin
+          Logs.warn (fun m ->
+              m
+                "MiniMax stream produced tool_use '%s' (id=%s) with NO \
+                 input_json_delta events — falling back to \"{}\". Set \
+                 MINIMAX_DEBUG_SSE=1 to capture the raw SSE for diagnosis."
+                name id);
+          "{}"
+        end
+        else raw_args
+      in
+      { Provider.id; function_name = name; arguments })
+    state.tool_calls_acc
+
 let complete_streaming ~(config : Runtime_config.t)
     ~(provider : Runtime_config.provider_config) ~model ~messages ?tools
     ?session_key:_ ~on_chunk () =
@@ -375,158 +553,7 @@ let complete_streaming ~(config : Runtime_config.t)
     ~on_error
     ~on_ok:(fun stream ->
       let buf = Buffer.create 256 in
-      let content_acc = Buffer.create 1024 in
-      let thinking_acc = Buffer.create 256 in
-      let resp_model = ref model in
-      let usage_acc = ref None in
-      let tool_calls_acc : (int * string * string * Buffer.t) list ref
-          (* index, id, name, args_buf *) =
-        ref []
-      in
-      let current_block_type = ref "" in
-      let current_block_index = ref 0 in
-      let current_tool_id = ref "" in
-      let current_tool_name = ref "" in
-      let stop_reason = ref "" in
-      let process_event event_type data_str =
-        try
-          let json = Yojson.Safe.from_string data_str in
-          let open Yojson.Safe.Util in
-          match event_type with
-          | "message_start" ->
-              (try
-                 resp_model :=
-                   json |> member "message" |> member "model" |> to_string
-               with _ -> ());
-              (try
-                 let u = json |> member "message" |> member "usage" in
-                 let it = u |> member "input_tokens" |> to_int in
-                 let ot =
-                   try u |> member "output_tokens" |> to_int with _ -> 0
-                 in
-                 let cached =
-                   try u |> member "cache_read_input_tokens" |> to_int
-                   with _ -> 0
-                 in
-                 (* B608: normalize to total-input semantics (see complete). *)
-                 usage_acc := Some (it + cached, ot, cached)
-               with _ -> ());
-              Lwt.return_unit
-          | "content_block_start" -> (
-              try
-                current_block_index := json |> member "index" |> to_int;
-                let block = json |> member "content_block" in
-                let btype = block |> member "type" |> to_string in
-                current_block_type := btype;
-                if btype = "tool_use" then begin
-                  (current_tool_id :=
-                     try block |> member "id" |> to_string with _ -> "");
-                  (current_tool_name :=
-                     try block |> member "name" |> to_string with _ -> "");
-                  let args_buf = Buffer.create 256 in
-                  (* B634: some Anthropic-compatible APIs (including
-                     MiniMax in observed traffic) embed the full tool input
-                     in `content_block.input` at start time and then send
-                     zero `input_json_delta` events, leaving us with an
-                     empty buffer and a wedged agent. Seed the buffer with
-                     the start-event input when it is a non-empty object so
-                     the recovered arguments match the non-streaming code
-                     path's semantics (which reads `block.input` directly
-                     in parse_response). *)
-                  (match
-                     try Some (block |> member "input") with _ -> None
-                   with
-                  | Some (`Assoc kvs) when kvs <> [] ->
-                      Buffer.add_string args_buf
-                        (Yojson.Safe.to_string (`Assoc kvs))
-                  | Some (`Assoc _) | Some `Null | None -> ()
-                  | Some other ->
-                      (* Non-object input is unusual but preserve it. *)
-                      Buffer.add_string args_buf (Yojson.Safe.to_string other));
-                  tool_calls_acc :=
-                    !tool_calls_acc
-                    @ [
-                        ( !current_block_index,
-                          !current_tool_id,
-                          !current_tool_name,
-                          args_buf );
-                      ];
-                  on_chunk
-                    (Provider.ToolCallDelta
-                       {
-                         index = !current_block_index;
-                         id = Some !current_tool_id;
-                         function_name = Some !current_tool_name;
-                         arguments =
-                           (let s = Buffer.contents args_buf in
-                            if s = "" then None else Some s);
-                       })
-                end
-                else Lwt.return_unit
-              with _ -> Lwt.return_unit)
-          | "content_block_delta" -> (
-              try
-                let delta = json |> member "delta" in
-                let dtype = delta |> member "type" |> to_string in
-                if dtype = "thinking_delta" || !current_block_type = "thinking"
-                then begin
-                  let thinking =
-                    try delta |> member "thinking" |> to_string with _ -> ""
-                  in
-                  if thinking <> "" then begin
-                    Buffer.add_string thinking_acc thinking;
-                    on_chunk (Provider.ThinkingDelta thinking)
-                  end
-                  else Lwt.return_unit
-                end
-                else if dtype = "text_delta" then begin
-                  let text = delta |> member "text" |> to_string in
-                  Buffer.add_string content_acc text;
-                  on_chunk (Provider.Delta text)
-                end
-                else begin
-                  if dtype = "input_json_delta" then begin
-                    let partial = delta |> member "partial_json" |> to_string in
-                    List.iter
-                      (fun (idx, _, _, args_buf) ->
-                        if idx = !current_block_index then
-                          Buffer.add_string args_buf partial)
-                      !tool_calls_acc;
-                    on_chunk
-                      (Provider.ToolCallDelta
-                         {
-                           index = !current_block_index;
-                           id = None;
-                           function_name = None;
-                           arguments = Some partial;
-                         })
-                  end
-                  else Lwt.return_unit
-                end
-              with _ -> Lwt.return_unit)
-          | "content_block_stop" ->
-              current_block_type := "";
-              current_block_index := 0;
-              Lwt.return_unit
-          | "message_delta" ->
-              (try
-                 let d = json |> member "delta" in
-                 (stop_reason :=
-                    try d |> member "stop_reason" |> to_string with _ -> "");
-                 try
-                   let u = json |> member "usage" in
-                   let ot = u |> member "output_tokens" |> to_int in
-                   usage_acc :=
-                     match !usage_acc with
-                     | Some (it, _, cached) -> Some (it, ot, cached)
-                     | None -> Some (0, ot, 0)
-                 with _ -> ()
-               with _ -> ());
-              Lwt.return_unit
-          | "message_stop" -> on_chunk Provider.Done
-          | _ -> Lwt.return_unit
-        with _ -> Lwt.return_unit
-      in
+      let state = make_stream_state ~model in
       let current_event = ref "" in
       let process_line line =
         let event_prefix = "event: " in
@@ -542,7 +569,8 @@ let complete_streaming ~(config : Runtime_config.t)
           String.length line >= dplen && String.sub line 0 dplen = data_prefix
         then begin
           let data = String.sub line dplen (String.length line - dplen) in
-          process_event !current_event data
+          process_sse_event ~state ~on_chunk ~event_type:!current_event
+            ~data_str:data
         end
         else Lwt.return_unit
       in
@@ -557,39 +585,14 @@ let complete_streaming ~(config : Runtime_config.t)
       let* () =
         if remaining <> "" then process_line remaining else Lwt.return_unit
       in
-      let content = Buffer.contents content_acc in
-      let final_model = !resp_model in
-      let tool_calls =
-        List.map
-          (fun (_, id, name, args_buf) ->
-            let raw_args = Buffer.contents args_buf in
-            (* B634: surface "empty-arguments" cases at WARN once per turn
-               so an operator can tell server-side arg-loss apart from a
-               clawq parser bug. The fallback substitutes "{}" so the
-               value remains valid JSON for downstream message conversion
-               (the tool dispatcher will reject it as missing-required and
-               that error becomes the model's correction signal). *)
-            let arguments =
-              if raw_args = "" then begin
-                Logs.warn (fun m ->
-                    m
-                      "MiniMax stream produced tool_use '%s' (id=%s) with NO \
-                       input_json_delta events — falling back to \"{}\". Set \
-                       MINIMAX_DEBUG_SSE=1 to capture the raw SSE for \
-                       diagnosis."
-                      name id);
-                "{}"
-              end
-              else raw_args
-            in
-            { Provider.id; function_name = name; arguments })
-          !tool_calls_acc
-      in
+      let content = Buffer.contents state.content_acc in
+      let final_model = state.resp_model in
+      let tool_calls = finalize_stream_tool_calls state in
       let thinking =
-        let t = Buffer.contents thinking_acc in
+        let t = Buffer.contents state.thinking_acc in
         if t = "" then None else Some t
       in
       Lwt.return
         (Provider.make_stream_result ~tool_calls ~content ~model:final_model
-           ~usage:!usage_acc ~thinking ()))
+           ~usage:state.usage_acc ~thinking ()))
     ()

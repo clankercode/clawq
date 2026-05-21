@@ -1037,6 +1037,122 @@ let test_request_body_has_required_field_for_anthropic_tools () =
         (List.mem_assoc "key" props)
   | _ -> Alcotest.fail "expected exactly one converted entry"
 
+(* B640: streaming SSE harness — drive process_sse_event directly with
+   synthetic events and assert tool_call arguments accumulate correctly.
+   Exercises the same code path complete_streaming uses, without HTTP. *)
+let test_b640_sse_input_json_delta_accumulates () =
+  let state = Provider_minimax.make_stream_state ~model:"MiniMax-M2" in
+  let on_chunk _ = Lwt.return_unit in
+  let feed event_type data_str =
+    Lwt_main.run
+      (Provider_minimax.process_sse_event ~state ~on_chunk ~event_type ~data_str)
+  in
+  feed "message_start"
+    {|{"message":{"model":"MiniMax-M2","usage":{"input_tokens":100,"output_tokens":0}}}|};
+  feed "content_block_start"
+    {|{"index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"shell_exec","input":{}}}|};
+  feed "content_block_delta"
+    {|{"index":0,"delta":{"type":"input_json_delta","partial_json":"{\"command\":\"ls"}}|};
+  feed "content_block_delta"
+    {|{"index":0,"delta":{"type":"input_json_delta","partial_json":" -la\"}"}}|};
+  feed "content_block_stop" {|{"index":0}|};
+  feed "message_stop" {|{}|};
+  let tcs = Provider_minimax.finalize_stream_tool_calls state in
+  Alcotest.(check int) "one tool call" 1 (List.length tcs);
+  let tc = List.hd tcs in
+  Alcotest.(check string) "id" "toolu_1" tc.Provider.id;
+  Alcotest.(check string) "name" "shell_exec" tc.Provider.function_name;
+  Alcotest.(check string)
+    "args fully accumulated" "{\"command\":\"ls -la\"}" tc.Provider.arguments
+
+(* B634/B640: when content_block_start ships full input and zero deltas
+   follow, the args must still survive (no fallback to "{}"). *)
+let test_b640_sse_input_only_in_block_start () =
+  let state = Provider_minimax.make_stream_state ~model:"MiniMax-M2" in
+  let on_chunk _ = Lwt.return_unit in
+  let feed event_type data_str =
+    Lwt_main.run
+      (Provider_minimax.process_sse_event ~state ~on_chunk ~event_type ~data_str)
+  in
+  feed "message_start" {|{"message":{"model":"MiniMax-M2"}}|};
+  feed "content_block_start"
+    {|{"index":0,"content_block":{"type":"tool_use","id":"toolu_seed","name":"file_read","input":{"path":"/tmp/x"}}}|};
+  feed "content_block_stop" {|{"index":0}|};
+  feed "message_stop" {|{}|};
+  let tcs = Provider_minimax.finalize_stream_tool_calls state in
+  Alcotest.(check int) "one tool call" 1 (List.length tcs);
+  let tc = List.hd tcs in
+  Alcotest.(check string)
+    "args seeded from block.input" "{\"path\":\"/tmp/x\"}" tc.Provider.arguments
+
+(* B640: multiple tool_use blocks at different indexes must accumulate
+   args independently. *)
+let test_b640_sse_multiple_tool_uses_separate_args () =
+  let state = Provider_minimax.make_stream_state ~model:"MiniMax-M2" in
+  let on_chunk _ = Lwt.return_unit in
+  let feed event_type data_str =
+    Lwt_main.run
+      (Provider_minimax.process_sse_event ~state ~on_chunk ~event_type ~data_str)
+  in
+  feed "message_start" {|{"message":{"model":"MiniMax-M2"}}|};
+  feed "content_block_start"
+    {|{"index":0,"content_block":{"type":"tool_use","id":"t0","name":"shell_exec","input":{}}}|};
+  feed "content_block_delta"
+    {|{"index":0,"delta":{"type":"input_json_delta","partial_json":"{\"command\":\"a\"}"}}|};
+  feed "content_block_stop" {|{"index":0}|};
+  feed "content_block_start"
+    {|{"index":1,"content_block":{"type":"tool_use","id":"t1","name":"file_read","input":{}}}|};
+  feed "content_block_delta"
+    {|{"index":1,"delta":{"type":"input_json_delta","partial_json":"{\"path\":\"b\"}"}}|};
+  feed "content_block_stop" {|{"index":1}|};
+  feed "message_stop" {|{}|};
+  let tcs = Provider_minimax.finalize_stream_tool_calls state in
+  Alcotest.(check int) "two tool calls" 2 (List.length tcs);
+  let by_id =
+    List.map (fun (tc : Provider.tool_call) -> (tc.id, tc.arguments)) tcs
+  in
+  Alcotest.(check string)
+    "t0 args" "{\"command\":\"a\"}" (List.assoc "t0" by_id);
+  Alcotest.(check string) "t1 args" "{\"path\":\"b\"}" (List.assoc "t1" by_id)
+
+(* B640: text_delta events accumulate into content_acc. *)
+let test_b640_sse_text_delta_accumulates () =
+  let state = Provider_minimax.make_stream_state ~model:"MiniMax-M2" in
+  let on_chunk _ = Lwt.return_unit in
+  let feed event_type data_str =
+    Lwt_main.run
+      (Provider_minimax.process_sse_event ~state ~on_chunk ~event_type ~data_str)
+  in
+  feed "message_start" {|{"message":{"model":"MiniMax-M2"}}|};
+  feed "content_block_start" {|{"index":0,"content_block":{"type":"text"}}|};
+  feed "content_block_delta"
+    {|{"index":0,"delta":{"type":"text_delta","text":"Hello "}}|};
+  feed "content_block_delta"
+    {|{"index":0,"delta":{"type":"text_delta","text":"world"}}|};
+  feed "content_block_stop" {|{"index":0}|};
+  feed "message_stop" {|{}|};
+  Alcotest.(check string)
+    "text accumulated" "Hello world"
+    (Buffer.contents state.Provider_minimax.content_acc)
+
+(* B640: empty-args fallback path warns and substitutes "{}". *)
+let test_b640_sse_empty_args_falls_back_to_curlies () =
+  let state = Provider_minimax.make_stream_state ~model:"MiniMax-M2" in
+  let on_chunk _ = Lwt.return_unit in
+  let feed event_type data_str =
+    Lwt_main.run
+      (Provider_minimax.process_sse_event ~state ~on_chunk ~event_type ~data_str)
+  in
+  feed "message_start" {|{"message":{"model":"MiniMax-M2"}}|};
+  feed "content_block_start"
+    {|{"index":0,"content_block":{"type":"tool_use","id":"empty","name":"noop","input":{}}}|};
+  feed "content_block_stop" {|{"index":0}|};
+  feed "message_stop" {|{}|};
+  let tcs = Provider_minimax.finalize_stream_tool_calls state in
+  Alcotest.(check int) "one tool call" 1 (List.length tcs);
+  Alcotest.(check string)
+    "empty args -> {}" "{}" (List.hd tcs).Provider.arguments
+
 let suite =
   [
     Alcotest.test_case "user message" `Quick test_user_message;
@@ -1106,4 +1222,14 @@ let suite =
       `Quick test_request_body_has_required_field_for_anthropic_tools;
     Alcotest.test_case "B614: live required-field honored by model" `Slow
       test_live_required_field_honored;
+    Alcotest.test_case "B640: SSE input_json_delta accumulates args" `Quick
+      test_b640_sse_input_json_delta_accumulates;
+    Alcotest.test_case "B640: SSE block_start.input only (no deltas)" `Quick
+      test_b640_sse_input_only_in_block_start;
+    Alcotest.test_case "B640: SSE multiple tool_uses keep args separate" `Quick
+      test_b640_sse_multiple_tool_uses_separate_args;
+    Alcotest.test_case "B640: SSE text_delta accumulates" `Quick
+      test_b640_sse_text_delta_accumulates;
+    Alcotest.test_case "B640: SSE empty args falls back to '{}'" `Quick
+      test_b640_sse_empty_args_falls_back_to_curlies;
   ]
