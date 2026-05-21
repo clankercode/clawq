@@ -3166,7 +3166,19 @@ let test_every_builtin_tool_required_description_matches_schema () =
    intact. *)
 let test_tool_schemas_roundtrip_openai_and_anthropic () =
   let registry = Tool_registry.create () in
-  let config = Runtime_config.default in
+  let config =
+    {
+      Runtime_config.default with
+      web_search =
+        Some
+          {
+            Runtime_config.search_provider = "ddg";
+            search_api_key = "";
+            num_results = 5;
+            search_base_url = None;
+          };
+    }
+  in
   let sandbox =
     Sandbox.create ~backend:Sandbox.None
       ~workspace:(Runtime_config.effective_workspace config)
@@ -3274,7 +3286,13 @@ let test_tool_schemas_roundtrip_openai_and_anthropic () =
       Alcotest.(check (list string))
         (Printf.sprintf
            "tool %s: minimax input_schema.required matches original" t.name)
-        original_required converted_required)
+        original_required converted_required;
+      let original_props = extract_properties_keys t.parameters_schema in
+      let converted_props = extract_properties_keys input_schema in
+      Alcotest.(check (list string))
+        (Printf.sprintf "tool %s: minimax input_schema.properties keys match"
+           t.name)
+        original_props converted_props)
     registered_tools
 
 (* B614 contract: for every registered tool with a non-empty required[],

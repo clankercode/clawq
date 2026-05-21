@@ -602,10 +602,12 @@ let test_tool_deferred_json () =
   Alcotest.(check string)
     "deferred function.description" "Deferred tool"
     (fn |> member "description" |> to_string);
-  (* no parameters key in deferred *)
-  (match fn |> member "parameters" with
-  | `Null -> ()
-  | _ -> Alcotest.fail "deferred should not have parameters");
+  (* B614: deferred entries DO include parameters so that Anthropic-format
+     providers can preserve required[]. The deferred attribute is meaningful
+     only for tool discovery / search workflows. *)
+  Alcotest.(check bool)
+    "deferred entry includes parameters" true
+    (fn |> member "parameters" <> `Null);
   (* no defer_loading field *)
   (match deferred_json |> member "defer_loading" with
   | `Null -> ()

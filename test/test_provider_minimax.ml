@@ -576,8 +576,14 @@ let test_live_required_field_honored () =
            (String.trim country <> "");
          Lwt.return_unit
      | Provider.Text _ ->
-         (* Acceptable: model declined to call the tool. *)
-         Lwt.return_unit
+         (* Direct text response without a tool call is a failure: we
+            instructed the model to use the tool. If it refuses, that
+            indicates the tool definition (or its required[]) was not
+            communicated correctly to the model. *)
+         Alcotest.fail
+           "expected ToolCalls with required 'country' arg; got Text. The \
+            model bypassed the tool, which suggests the tool schema (required \
+            fields, description) was not visible."
      | exception Lwt_unix.Timeout -> Alcotest.fail "request timed out"
      | exception exn ->
          Alcotest.fail ("request failed: " ^ Printexc.to_string exn))
