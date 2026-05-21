@@ -314,12 +314,23 @@ let messages_to_anthropic_json messages =
     let sc = sanitize_utf8 m.content in
     match m.tool_call_id with
     | Some id ->
-        `Assoc
+        (* B619: Anthropic-format tool_result accepts an optional
+           is_error: true flag so the model knows the tool call failed.
+           Detect via the same 'Error:' prefix convention used in
+           agent.ml's tool-result success check. *)
+        let base =
           [
             ("type", `String "tool_result");
             ("tool_use_id", `String id);
             ("content", `String sc);
           ]
+        in
+        let fields =
+          if String.starts_with ~prefix:"Error:" sc then
+            base @ [ ("is_error", `Bool true) ]
+          else base
+        in
+        `Assoc fields
     | None -> `Assoc [ ("type", `String "text"); ("text", `String sc) ]
   in
   let assistant_tool_uses (m : message) =

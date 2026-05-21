@@ -514,6 +514,83 @@ let test_live_streaming () =
      | exception exn ->
          Alcotest.fail ("streaming failed: " ^ Printexc.to_string exn))
 
+(* B619: tool_result blocks must include is_error:true when the result
+   starts with the 'Error:' prefix convention used by the agent's
+   success-detection path. Anthropic-format models rely on this flag to
+   distinguish failed tool calls from successful ones. *)
+let test_tool_result_emits_is_error_for_error_content () =
+  let assistant =
+    {
+      Provider.role = "assistant";
+      content = "";
+      content_parts = [];
+      tool_calls =
+        [
+          {
+            Provider.id = "tc-fail";
+            function_name = "shell_exec";
+            arguments = {|{"command":"ls"}|};
+          };
+        ];
+      tool_call_id = None;
+      name = None;
+      provider_response_items_json = None;
+      thinking = None;
+    }
+  in
+  let failed_result =
+    Provider.make_tool_result ~tool_call_id:"tc-fail" ~name:"shell_exec"
+      ~content:"Error: permission denied"
+  in
+  let result =
+    Provider_minimax.messages_to_anthropic_json [ assistant; failed_result ]
+  in
+  let open Yojson.Safe.Util in
+  let user = List.nth result 1 in
+  let blocks = user |> member "content" |> to_list in
+  let block = List.hd blocks in
+  Alcotest.(check string)
+    "block type" "tool_result"
+    (block |> member "type" |> to_string);
+  let is_error = try block |> member "is_error" |> to_bool with _ -> false in
+  Alcotest.(check bool) "is_error flag emitted for Error: content" true is_error
+
+let test_tool_result_omits_is_error_for_success_content () =
+  let assistant =
+    {
+      Provider.role = "assistant";
+      content = "";
+      content_parts = [];
+      tool_calls =
+        [
+          {
+            Provider.id = "tc-ok";
+            function_name = "shell_exec";
+            arguments = {|{"command":"ls"}|};
+          };
+        ];
+      tool_call_id = None;
+      name = None;
+      provider_response_items_json = None;
+      thinking = None;
+    }
+  in
+  let ok_result =
+    Provider.make_tool_result ~tool_call_id:"tc-ok" ~name:"shell_exec"
+      ~content:"file1.txt file2.txt"
+  in
+  let result =
+    Provider_minimax.messages_to_anthropic_json [ assistant; ok_result ]
+  in
+  let open Yojson.Safe.Util in
+  let user = List.nth result 1 in
+  let block = List.hd (user |> member "content" |> to_list) in
+  let is_error =
+    try Some (block |> member "is_error" |> to_bool) with _ -> None
+  in
+  Alcotest.(check (option bool))
+    "is_error absent for success content" None is_error
+
 (* B620 round 2: when ALL tool_uses in an assistant turn are orphans (zero
    matching tool_results), the assistant message becomes empty after
    stripping. ensure_tool_group_integrity must drop it; otherwise the
@@ -848,6 +925,10 @@ let suite =
       test_orphan_tool_use_filtered_before_send;
     Alcotest.test_case "B620: all-orphan assistant message dropped" `Quick
       test_all_orphan_assistant_dropped;
+    Alcotest.test_case "B619: tool_result emits is_error for error content"
+      `Quick test_tool_result_emits_is_error_for_error_content;
+    Alcotest.test_case "B619: tool_result omits is_error for success content"
+      `Quick test_tool_result_omits_is_error_for_success_content;
     Alcotest.test_case "B614: required-field anthropic input_schema preserved"
       `Quick test_request_body_has_required_field_for_anthropic_tools;
     Alcotest.test_case "B614: live required-field honored by model" `Slow
