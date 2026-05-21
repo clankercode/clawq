@@ -454,8 +454,19 @@ let background_task_wakeup_message task =
 let inject_background_task_completion
     ?(continuation_delay = Session.default_autonomous_continuation_delay)
     ?(senders = default_resume_senders) ~(session_manager : Session.t)
-    ~(config : Runtime_config.t) ~session_key ?channel ?channel_id task =
-  let message = background_task_wakeup_message task in
+    ~(config : Runtime_config.t) ~session_key ?channel ?channel_id
+    (task : Background_task.task) =
+  let base_message = background_task_wakeup_message task in
+  (* B488: when the task has a follow_up_prompt and completed successfully,
+     append it to the completion message so the resumed session runs the
+     follow-up checklist in the same turn. Failed tasks skip the follow-up
+     since their checklist (verify tests, commit, etc.) wouldn't apply. *)
+  let message =
+    match (task.status, task.follow_up_prompt) with
+    | Succeeded, Some prompt when String.trim prompt <> "" ->
+        Printf.sprintf "%s\n\n--- Follow-up tasks ---\n%s" base_message prompt
+    | _ -> base_message
+  in
   Lwt.catch
     (fun () ->
       let open Lwt.Syntax in

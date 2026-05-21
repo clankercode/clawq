@@ -7,9 +7,9 @@
 
     B621: this must be strictly greater than the outer resilience timeout
     (Runtime_config.resilience.timeout_s, default 120s) so the resilience
-    retry/fallback policy can fire before the inner HTTP timeout aborts a
-    long LLM call. Most non-LLM calls (GitHub, providers' /models, etc.)
-    resolve in well under a second, so a generous default is harmless. *)
+    retry/fallback policy can fire before the inner HTTP timeout aborts a long
+    LLM call. Most non-LLM calls (GitHub, providers' /models, etc.) resolve in
+    well under a second, so a generous default is harmless. *)
 let default_timeout_s = ref 180.0
 
 let set_default_timeout_s s = default_timeout_s := s

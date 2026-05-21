@@ -84,6 +84,7 @@ let fake_task ?(automerge = false) ?(use_worktree = true) ?(merge_status = None)
     notification_status = None;
     notification_error = None;
     notification_attempts = 0;
+    follow_up_prompt = None;
   }
 
 let test_schema_migration () =

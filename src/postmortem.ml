@@ -113,20 +113,19 @@ let make_postmortem_prompt ~session_key ~reason ~doc_path ~history_text () =
      4. Update the MEMORY.md file in the workspace (use memory_store tool with \
      key \"lesson:%s:%s\")\n\
      5. Reply with a one-sentence summary of what you found.\n\n\
-     6. B624: if the root cause is a structural defect (broken \
-     config, missing required field, broken prompt template, looping cron) \
-     that the user should fix, emit a FILE_BUG block at the END of your \
-     response in this exact format (no leading whitespace on the marker \
-     lines):\n\n\
+     6. B624: if the root cause is a structural defect (broken config, missing \
+     required field, broken prompt template, looping cron) that the user \
+     should fix, emit a FILE_BUG block at the END of your response in this \
+     exact format (no leading whitespace on the marker lines):\n\n\
     \   FILE_BUG: <concise one-line title>\n\
     \   BODY:\n\
     \   <one or more lines describing the root cause and suggested fix,\n\
     \    including any file paths, config keys, or commands to run>\n\
     \   ENDBUG\n\n\
      The system will automatically lodge this as a backlog item via `bl bug` \
-     so it gets fixed. Do NOT emit FILE_BUG for transient failures \
-     (rate limits, network glitches, model jitter) — only for structural \
-     defects worth a maintainer's attention.\n\n\
+     so it gets fixed. Do NOT emit FILE_BUG for transient failures (rate \
+     limits, network glitches, model jitter) — only for structural defects \
+     worth a maintainer's attention.\n\n\
      Focus on the ROOT CAUSE, not surface errors. What single thing, if fixed, \
      would have prevented this?"
     reason history_text doc_path session_key (format_timestamp ())

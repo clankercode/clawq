@@ -91,6 +91,7 @@ let fake_task ?(status = Background_task.Queued) id =
     notification_status = None;
     notification_error = None;
     notification_attempts = 0;
+    follow_up_prompt = None;
   }
 
 let fake_started_task ?(runner = Background_task.Codex) ?model
@@ -125,6 +126,7 @@ let fake_started_task ?(runner = Background_task.Codex) ?model
     notification_status = None;
     notification_error = None;
     notification_attempts = 0;
+    follow_up_prompt = None;
   }
 
 let test_enqueue_and_list_tasks () =
@@ -369,6 +371,7 @@ let test_command_of_task_codex () =
       notification_status = None;
       notification_error = None;
       notification_attempts = 0;
+      follow_up_prompt = None;
     }
   in
   Alcotest.(check (array string))
@@ -414,6 +417,7 @@ let test_command_of_task_claude () =
       notification_status = None;
       notification_error = None;
       notification_attempts = 0;
+      follow_up_prompt = None;
     }
   in
   Alcotest.(check (array string))
@@ -453,6 +457,7 @@ let test_command_of_task_kimi () =
       notification_status = None;
       notification_error = None;
       notification_attempts = 0;
+      follow_up_prompt = None;
     }
   in
   Alcotest.(check (array string))
@@ -492,6 +497,7 @@ let test_command_of_task_kimi_with_model () =
       notification_status = None;
       notification_error = None;
       notification_attempts = 0;
+      follow_up_prompt = None;
     }
   in
   Alcotest.(check (array string))
@@ -531,6 +537,7 @@ let test_command_of_task_gemini () =
       notification_status = None;
       notification_error = None;
       notification_attempts = 0;
+      follow_up_prompt = None;
     }
   in
   Alcotest.(check (array string))
@@ -570,6 +577,7 @@ let test_command_of_task_gemini_with_model () =
       notification_status = None;
       notification_error = None;
       notification_attempts = 0;
+      follow_up_prompt = None;
     }
   in
   Alcotest.(check (array string))
@@ -609,6 +617,7 @@ let test_command_of_task_opencode () =
       notification_status = None;
       notification_error = None;
       notification_attempts = 0;
+      follow_up_prompt = None;
     }
   in
   Alcotest.(check (array string))
@@ -648,6 +657,7 @@ let test_command_of_task_opencode_with_model () =
       notification_status = None;
       notification_error = None;
       notification_attempts = 0;
+      follow_up_prompt = None;
     }
   in
   Alcotest.(check (array string))
@@ -687,6 +697,7 @@ let test_command_of_task_cursor () =
       notification_status = None;
       notification_error = None;
       notification_attempts = 0;
+      follow_up_prompt = None;
     }
   in
   Alcotest.(check (array string))
@@ -726,6 +737,7 @@ let test_command_of_task_cursor_with_model () =
       notification_status = None;
       notification_error = None;
       notification_attempts = 0;
+      follow_up_prompt = None;
     }
   in
   Alcotest.(check (array string))
@@ -1525,6 +1537,7 @@ let make_task ?(id = 1) ?(runner = Background_task.Claude)
     notification_status = None;
     notification_error = None;
     notification_attempts = 0;
+    follow_up_prompt = None;
   }
 
 let test_elapsed_string_recent () =
@@ -1729,6 +1742,7 @@ let test_command_of_task_codex_with_model () =
       notification_status = None;
       notification_error = None;
       notification_attempts = 0;
+      follow_up_prompt = None;
     }
   in
   Alcotest.(check (array string))
@@ -1776,6 +1790,7 @@ let test_command_of_task_claude_with_model () =
       notification_status = None;
       notification_error = None;
       notification_attempts = 0;
+      follow_up_prompt = None;
     }
   in
   Alcotest.(check (array string))
@@ -3396,6 +3411,7 @@ let test_terse_message_dirty_worktree () =
       notification_status = None;
       notification_error = None;
       notification_attempts = 0;
+      follow_up_prompt = None;
     }
   in
   let msg = Background_task.terse_finished_message task in

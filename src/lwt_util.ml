@@ -83,7 +83,8 @@ let lock_with_timeout ~label ?(warn_timeout = default_warn_timeout)
         else begin
           Logs.warn (fun m ->
               m "[%s] Mutex still held after %.0fs (fatal at %.0fs)" label
-                midway_threshold (warn_timeout +. fatal_timeout));
+                midway_threshold
+                (warn_timeout +. fatal_timeout));
           log_diagnostics `Warn;
           Lwt.return_unit
         end);

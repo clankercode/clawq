@@ -48,6 +48,11 @@ type task = {
   notification_status : string option;
   notification_error : string option;
   notification_attempts : int;
+  follow_up_prompt : string option;
+      (** B488: optional prompt sent to the originating session as a new message
+          once the task succeeds. Use cases: "make sure tests pass, run
+          review-and-fix, commit and rebase against master" — a checklist the
+          resumed session should execute. *)
 }
 
 type queued_message = {

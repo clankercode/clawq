@@ -60,6 +60,7 @@ let task_of_stmt stmt : task =
       (match Sqlite3.column stmt 28 with
       | Sqlite3.Data.INT i -> Int64.to_int i
       | _ -> 0);
+    follow_up_prompt = (try Sqlite3.column stmt 29 |> sql_text with _ -> None);
   }
 
 let init_schema db =
@@ -134,6 +135,7 @@ let init_schema db =
   try_alter
     "ALTER TABLE background_tasks ADD COLUMN notification_attempts INTEGER NOT \
      NULL DEFAULT 0";
+  try_alter "ALTER TABLE background_tasks ADD COLUMN follow_up_prompt TEXT";
   Acp_history.init_schema db
 
 let list_queued_messages ~db ~task_id =
@@ -241,7 +243,8 @@ type invocation = Fresh | Resume of string
 
 let enqueue ~db ~runner ?model ?(require_git = true) ?(automerge = true)
     ?(use_worktree = true) ?(acp = false) ~repo_path ~prompt ?branch
-    ?session_key ?channel ?channel_id ?parent_task_id ?agent_name () =
+    ?session_key ?channel ?channel_id ?parent_task_id ?agent_name
+    ?follow_up_prompt () =
   if acp && runner = Local then
     Error "ACP mode is not supported with the Local runner"
   else
@@ -251,8 +254,8 @@ let enqueue ~db ~runner ?model ?(require_git = true) ?(automerge = true)
         let sql =
           "INSERT INTO background_tasks (runner, model, repo_path, prompt, \
            branch, session_key, channel, channel_id, automerge, use_worktree, \
-           parent_task_id, acp, agent_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, \
-           ?, ?, ?, ?)"
+           parent_task_id, acp, agent_name, follow_up_prompt) VALUES (?, ?, ?, \
+           ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         in
         let stmt = Sqlite3.prepare db sql in
         Fun.protect
@@ -287,6 +290,7 @@ let enqueue ~db ~runner ?model ?(require_git = true) ?(automerge = true)
             ignore
               (Sqlite3.bind stmt 12 (Sqlite3.Data.INT (if acp then 1L else 0L)));
             bind_opt 13 agent_name;
+            bind_opt 14 follow_up_prompt;
             match Sqlite3.step stmt with
             | Sqlite3.Rc.DONE ->
                 Ok (Int64.to_int (Sqlite3.last_insert_rowid db))
@@ -302,7 +306,7 @@ let select_columns =
    COALESCE(use_worktree, 1), merge_status, COALESCE(retry_count, 0), \
    parent_task_id, replaced_by, runner_session_id, COALESCE(acp, 0), \
    agent_name, notification_status, notification_error, \
-   COALESCE(notification_attempts, 0)"
+   COALESCE(notification_attempts, 0), follow_up_prompt"
 
 let list_tasks ~db : task list =
   let sql =
@@ -1311,8 +1315,8 @@ let build_delegate_prompt ~automerge:_ ~goal =
 
 let delegate_enqueue ?context ?notify_cfg ?(check_available = true)
     ?(automerge = true) ?(use_worktree = true) ?(acp = false)
-    ?(allow_claude = true) ~db ?preferred_runner ?model ?repo_path ?branch
-    ~default_repo_path ~goal () =
+    ?(allow_claude = true) ?follow_up_prompt ~db ?preferred_runner ?model
+    ?repo_path ?branch ~default_repo_path ~goal () =
   let chosen_repo_path =
     match repo_path with
     | Some path when String.trim path <> "" -> path
@@ -1339,8 +1343,9 @@ let delegate_enqueue ?context ?notify_cfg ?(check_available = true)
             in
             match
               enqueue ~db ~runner ?model:effective_model ~require_git:false
-                ~automerge ~use_worktree ~acp ~repo_path:chosen_repo_path
-                ~prompt ?branch ?session_key ?channel ?channel_id ()
+                ~automerge ~use_worktree ~acp ?follow_up_prompt
+                ~repo_path:chosen_repo_path ~prompt ?branch ?session_key
+                ?channel ?channel_id ()
             with
             | Ok id -> Ok (id, runner, chosen_repo_path)
             | Error _ as err -> err))

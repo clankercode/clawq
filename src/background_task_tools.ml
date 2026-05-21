@@ -112,6 +112,18 @@ let enqueue_tool_with_notify ?config ~notify_cfg ~db () =
                            that agent's system prompt, tool restrictions, and \
                            model override." );
                     ] );
+                ( "follow_up_prompt",
+                  `Assoc
+                    [
+                      ("type", `String "string");
+                      ( "description",
+                        `String
+                          "Optional follow-up prompt. When the task succeeds, \
+                           this prompt is sent to the originating session as a \
+                           new user message so the session can run a follow-up \
+                           checklist (e.g. 'verify tests pass, run \
+                           review-and-fix, commit, rebase against master')." );
+                    ] );
               ] );
           ( "required",
             `List [ `String "runner"; `String "repo_path"; `String "prompt" ] );
@@ -166,6 +178,13 @@ let enqueue_tool_with_notify ?config ~notify_cfg ~db () =
             | _ -> None
           with _ -> None
         in
+        let follow_up_prompt =
+          try
+            match args |> member "follow_up_prompt" with
+            | `String s when String.trim s <> "" -> Some (String.trim s)
+            | _ -> None
+          with _ -> None
+        in
         (* B487: accept either a bare runner name OR an alias like "opus",
            "glm-5", "haiku". Aliases also supply a default model override
            when the caller didn't explicitly set one. *)
@@ -210,8 +229,8 @@ let enqueue_tool_with_notify ?config ~notify_cfg ~db () =
             in
             match
               Background_task.enqueue ~db ~runner ?model ~automerge
-                ~use_worktree ~acp ?agent_name ~repo_path ~prompt ?branch
-                ?session_key ?channel ?channel_id ()
+                ~use_worktree ~acp ?agent_name ?follow_up_prompt ~repo_path
+                ~prompt ?branch ?session_key ?channel ?channel_id ()
             with
             | Ok id ->
                 Lwt.return
@@ -593,6 +612,18 @@ let delegate_tool_with_notify ?(check_available = true) ?config ~db
                           "Optional working directory for the delegated agent. \
                            Only used when use_worktree is false." );
                     ] );
+                ( "follow_up_prompt",
+                  `Assoc
+                    [
+                      ("type", `String "string");
+                      ( "description",
+                        `String
+                          "Optional follow-up prompt. When the delegated task \
+                           succeeds, this prompt is sent to the originating \
+                           session as a new user message so the session can \
+                           run a follow-up checklist (verify tests, \
+                           review-and-fix, commit, rebase against master)." );
+                    ] );
               ] );
           ("required", `List [ `String "goal" ]);
           ("additionalProperties", `Bool false);
@@ -666,6 +697,13 @@ let delegate_tool_with_notify ?(check_available = true) ?config ~db
             | _ -> None
           with _ -> None
         in
+        let follow_up_prompt =
+          try
+            match args |> member "follow_up_prompt" with
+            | `String s when String.trim s <> "" -> Some (String.trim s)
+            | _ -> None
+          with _ -> None
+        in
         if String.trim goal = "" then Lwt.return "Error: goal is required"
         else if runner_error <> None then
           Lwt.return ("Error: " ^ Option.get runner_error)
@@ -701,7 +739,8 @@ let delegate_tool_with_notify ?(check_available = true) ?config ~db
             Background_task.delegate_enqueue ?context ?notify_cfg
               ~check_available ~db ~automerge ~use_worktree ~acp ~allow_claude
               ?preferred_runner:runner_pref ?model
-              ?repo_path:effective_repo_path ?branch ~default_repo_path ~goal ()
+              ?repo_path:effective_repo_path ?branch ?follow_up_prompt
+              ~default_repo_path ~goal ()
           with
           | Ok (id, runner, repo) ->
               Lwt.return

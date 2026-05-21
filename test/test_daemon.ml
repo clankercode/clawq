@@ -1365,6 +1365,7 @@ let make_test_task ?(id = 9) ?(session_key = Some "telegram:42:user")
     notification_status = None;
     notification_error = None;
     notification_attempts = 0;
+    follow_up_prompt = None;
   }
 
 let test_notify_background_task_finished_dispatches_and_injects_wakeup () =
