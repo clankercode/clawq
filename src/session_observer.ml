@@ -311,12 +311,31 @@ let call_observer ~config ~system_prompt ~messages =
   | Provider.Text { content; _ } -> Lwt.return (String.trim content)
   | Provider.ToolCalls _ -> Lwt.return "OK"
 
-let check_stuck ~(config : Runtime_config.t) ~(history : Provider.message list)
-    ~(stats : session_stats) () =
-  let open Lwt.Syntax in
-  let history =
-    List.filter (fun (m : Provider.message) -> m.role <> "event") history
+(* B667: peek at the most recent assistant message in history (newest-first).
+   Returns Some content when it is a "complete" finishing response — non-empty,
+   no tool_calls, ending with terminal punctuation. We use this to short-circuit
+   the observer LLM call when the agent has clearly produced a finished
+   answer: a brief but valid response like "Nothing notable." should not be
+   classified as stuck, and should not trigger an expensive postmortem chain. *)
+let last_complete_assistant_response (history : Provider.message list) =
+  let rec find = function
+    | [] -> None
+    | (m : Provider.message) :: _ when m.role = "assistant" && m.tool_calls = []
+      ->
+        let trimmed = String.trim m.content in
+        if trimmed = "" then None
+        else
+          let last_char = trimmed.[String.length trimmed - 1] in
+          if last_char = '.' || last_char = '!' || last_char = '?' then
+            Some trimmed
+          else None
+    | _ :: rest -> find rest
   in
+  find history
+
+let check_stuck_via_llm ~(config : Runtime_config.t)
+    ~(history : Provider.message list) ~(stats : session_stats) () =
+  let open Lwt.Syntax in
   (* Round 1 *)
   let round1_msgs = take_last config.observer.round1_window history in
   let history_len = List.length history in
@@ -364,6 +383,25 @@ let check_stuck ~(config : Runtime_config.t) ~(history : Provider.message list)
       log_stuck_check_error ~session_key:stats.session_key
         ~message_count:history_len ~error:msg;
       Lwt.return (Error msg))
+
+let check_stuck ~(config : Runtime_config.t) ~(history : Provider.message list)
+    ~(stats : session_stats) () =
+  let history =
+    List.filter (fun (m : Provider.message) -> m.role <> "event") history
+  in
+  (* B667: bypass the LLM observer when the agent has clearly produced a
+     complete terminating response with no pending tool calls. This avoids
+     false-positive 'invalid_response_format' verdicts on legitimate short
+     answers like "Nothing notable." that were triggering costly postmortem
+     chains every hour on briefing crons. *)
+  match last_complete_assistant_response history with
+  | Some _ ->
+      log_stuck_check ~session_key:stats.session_key ~round:0
+        ~message_count:(List.length history)
+        ~raw_response:"<bypass: last assistant response is a complete sentence>"
+        ~parsed:`Ok;
+      Lwt.return Ok
+  | None -> check_stuck_via_llm ~config ~history ~stats ()
 
 let check_thinking_excerpt ~(config : Runtime_config.t) ~excerpt () =
   let open Lwt.Syntax in

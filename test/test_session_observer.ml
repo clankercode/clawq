@@ -388,6 +388,73 @@ let test_check_stuck_filters_event_messages () =
           | Session_observer.Error msg ->
               Alcotest.fail ("expected ok, got error: " ^ msg)))
 
+(* B667: when the last assistant message in history is a complete sentence
+   ending with terminal punctuation and has no pending tool_calls, check_stuck
+   must short-circuit to Ok without calling the LLM observer. This prevents
+   false-positive 'invalid_response_format' verdicts on legitimate short
+   responses like "Nothing notable." which were triggering postmortem chains.
+   We assert the bypass by setting the fake provider to STUCK:should-not-fire
+   — if the LLM is consulted at all, the verdict would be Stuck, not Ok. *)
+let test_check_stuck_bypasses_llm_for_complete_response () =
+  Test_helpers.with_temp_home (fun _home ->
+      with_fake_chat_provider
+        ~response_for_user:(fun _ -> "STUCK:should-not-fire")
+        (fun config ->
+          let history =
+            [
+              Provider.make_message ~role:"assistant"
+                ~content:"Nothing notable.";
+              Provider.make_message ~role:"user"
+                ~content:"Anything new in the world?";
+            ]
+          in
+          let verdict =
+            Lwt_main.run
+              (Session_observer.check_stuck ~config ~history
+                 ~stats:(sample_stats "session-b667-bypass")
+                 ())
+          in
+          match verdict with
+          | Session_observer.Ok -> ()
+          | Session_observer.Stuck { reason; _ } ->
+              Alcotest.fail
+                (Printf.sprintf
+                   "B667: expected bypass to return Ok, got Stuck:%s — LLM \
+                    observer was incorrectly consulted"
+                   reason)
+          | Session_observer.Error msg ->
+              Alcotest.fail ("expected ok, got error: " ^ msg)))
+
+let test_check_stuck_no_bypass_for_incomplete_response () =
+  Test_helpers.with_temp_home (fun _home ->
+      with_fake_chat_provider
+        ~response_for_user:(fun _ -> "STUCK:looping-on-tool-calls")
+        (fun config ->
+          let history =
+            [
+              (* Note: no terminal punctuation — bypass should not fire,
+                 LLM observer should be consulted. *)
+              Provider.make_message ~role:"assistant" ~content:"working on it";
+              Provider.make_message ~role:"user" ~content:"Status";
+            ]
+          in
+          let verdict =
+            Lwt_main.run
+              (Session_observer.check_stuck ~config ~history
+                 ~stats:(sample_stats "session-b667-no-bypass")
+                 ())
+          in
+          match verdict with
+          | Session_observer.Stuck { reason; _ } ->
+              Alcotest.(check string)
+                "LLM observer was consulted" "looping-on-tool-calls" reason
+          | Session_observer.Ok ->
+              Alcotest.fail
+                "B667: bypass fired on incomplete response (no terminal \
+                 punctuation) — LLM observer should have run"
+          | Session_observer.Error msg ->
+              Alcotest.fail ("expected stuck, got error: " ^ msg)))
+
 let test_parse_verdict () =
   Alcotest.(check string)
     "OK" "ok"
@@ -462,4 +529,10 @@ let suite =
     Alcotest.test_case "parse_verdict" `Quick test_parse_verdict;
     Alcotest.test_case "check_stuck filters event messages" `Quick
       test_check_stuck_filters_event_messages;
+    Alcotest.test_case
+      "B667: check_stuck bypasses LLM for complete terminating response" `Quick
+      test_check_stuck_bypasses_llm_for_complete_response;
+    Alcotest.test_case
+      "B667: check_stuck still consults LLM for incomplete response" `Quick
+      test_check_stuck_no_bypass_for_incomplete_response;
   ]
