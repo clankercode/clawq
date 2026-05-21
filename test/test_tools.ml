@@ -3364,6 +3364,44 @@ let test_every_required_param_is_enforced_at_runtime () =
       end)
     tools
 
+(* B618: every emitted tool schema (via tool_to_openai_json or its deferred
+   variant) must carry additionalProperties:false at the top level so
+   strict-mode providers (Anthropic, Gemini) reject hallucinated extra
+   arguments. The injection happens at the boundary so individual tool
+   schemas don't have to repeat themselves. *)
+let test_emitted_tool_schemas_set_additional_properties_false () =
+  let registry = Tool_registry.create () in
+  let config = Runtime_config.default in
+  let sandbox =
+    Sandbox.create ~backend:Sandbox.None
+      ~workspace:(Runtime_config.effective_workspace config)
+      ~extra_allowed_paths:[] ~workspace_only:false ()
+  in
+  let db = Memory.init ~db_path:":memory:" () in
+  let dummy_send ~text:_ = Lwt.return_unit in
+  Tools_builtin.register_all ~config ~sandbox ~db:(Some db)
+    ~send_fn:(Some dummy_send) registry;
+  let openai_json = Tool_registry.to_openai_json registry in
+  let tools_list =
+    match openai_json with
+    | `List ts -> ts
+    | _ -> Alcotest.fail "expected `List"
+  in
+  let open Yojson.Safe.Util in
+  List.iter
+    (fun tool ->
+      let fn = tool |> member "function" in
+      let name = fn |> member "name" |> to_string in
+      let params = fn |> member "parameters" in
+      let extra =
+        try Some (params |> member "additionalProperties" |> to_bool)
+        with _ -> None
+      in
+      Alcotest.(check (option bool))
+        (Printf.sprintf "tool %s emits additionalProperties:false" name)
+        (Some false) extra)
+    tools_list
+
 (* B614 / deferred tool defensive coverage: if a tool is marked deferred=true
    and tool_search is enabled, the model still needs the parameters schema or
    it cannot satisfy required[]. Verify tool_to_deferred_json preserves
@@ -3620,4 +3658,7 @@ let suite =
       test_every_required_param_is_enforced_at_runtime;
     Alcotest.test_case "B614: deferred tool JSON preserves parameters" `Quick
       test_deferred_tool_json_preserves_parameters;
+    Alcotest.test_case
+      "B618: every emitted tool schema sets additionalProperties:false" `Quick
+      test_emitted_tool_schemas_set_additional_properties_false;
   ]

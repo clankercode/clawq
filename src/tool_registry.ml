@@ -30,6 +30,28 @@ let find registry name =
 
 let list registry = List.rev registry.tools
 
+(* B618: ensure every emitted tool schema has additionalProperties:false at
+   the top level so strict-mode providers (Anthropic, Gemini, some OpenAI
+   strict modes) reject hallucinated extra arguments instead of silently
+   accepting them. Individual tools can override by setting their own
+   additionalProperties — this only injects when absent. *)
+let ensure_additional_properties_false (schema : Yojson.Safe.t) : Yojson.Safe.t
+    =
+  match schema with
+  | `Assoc fields ->
+      let has_object_type =
+        match List.assoc_opt "type" fields with
+        | Some (`String "object") -> true
+        | _ -> false
+      in
+      let has_additional_properties =
+        List.mem_assoc "additionalProperties" fields
+      in
+      if has_object_type && not has_additional_properties then
+        `Assoc (fields @ [ ("additionalProperties", `Bool false) ])
+      else schema
+  | other -> other
+
 let tool_to_openai_json (t : Tool.t) =
   `Assoc
     [
@@ -39,7 +61,8 @@ let tool_to_openai_json (t : Tool.t) =
           [
             ("name", `String t.name);
             ("description", `String t.description);
-            ("parameters", t.parameters_schema);
+            ( "parameters",
+              ensure_additional_properties_false t.parameters_schema );
           ] );
     ]
 
@@ -52,7 +75,8 @@ let tool_to_deferred_json (t : Tool.t) =
           [
             ("name", `String t.name);
             ("description", `String t.description);
-            ("parameters", t.parameters_schema);
+            ( "parameters",
+              ensure_additional_properties_false t.parameters_schema );
           ] );
     ]
 
