@@ -1,0 +1,22 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B625
+priority: high
+status: pending
+tags: []
+title: 'B619 edge case: file content starting with ''Error:'' triggers false is_error flag'
+---
+cx-reviewer follow-up on B619: the is_error flag on Anthropic tool_result is inferred from String.starts_with 'Error:' on the content. A successful file_read of a file whose content starts with 'Error:' (e.g., a log file, a chat transcript) would mark that result as a failed tool call to the model. The model still sees the content correctly, but is_error semantics are wrong.
+
+Root cause: Provider.message has no structured error field. Tools convey success/failure only via the 'Error:' string-prefix convention.
+
+Fix options:
+1. Add is_error : bool to Provider.message; thread through ~is_error parameter in make_tool_result and all places that construct error tool_results. Cascading change across ~29 record literals.
+2. Have tool.invoke return (string, string) result OR similar so error is structurally typed; then convert at the message-construction boundary. Larger refactor.
+3. Wrap error returns in a sentinel object/JSON envelope, e.g. {"__tool_error":true, "message":"..."} that the converter recognizes.
+
+Recommend option 1 in a dedicated commit since it's the most direct.
+
+Edge case is rare in practice but real. Tag: anthropic-api, tool-results, semantic-correctness
