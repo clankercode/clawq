@@ -1,13 +1,15 @@
 ---
+claimed_at: "2026-05-21T09:40:11Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B597
 priority: high
-status: pending
-tags:
-    - tooling
-    - resilience
+started_at: "2026-05-21T09:40:11Z"
+status: in_progress
+tags: []
 title: 'web_search: no retry or fallback on 429 rate-limit'
 ---
 When the configured Brave search provider returns HTTP 429, the web_search tool immediately returns the raw error string with no retry, backoff, or fallback. Alternative search tools already exist in the runtime (web_search_prime, zai_websearch) but are not tried automatically.
