@@ -720,26 +720,31 @@ let () =
           Postmortem.write_doc ~session_key ~pattern:reason ~evidence_summary
             ~correction
         in
-        (match db with
-        | Some db -> (
-            try
-              ignore
-                (Memory.insert_postmortem ~db ~session_key ~pattern:reason
-                   ~evidence_json:
-                     (Yojson.Safe.to_string (`String evidence_summary))
-                   ~correction_injected:correction ~doc_path);
-              (* Apply configured postmortem model override (if any) to the
-                 dedicated postmortem session before the agent runs. *)
-              match pm_cfg.model with
-              | Some m ->
-                  Memory.set_session_model_override ~db
-                    ~session_key:postmortem_session_key ~model:m
-              | None -> ()
-            with exn ->
-              Logs.warn (fun m ->
-                  m "postmortem: failed to insert DB record: %s"
-                    (Printexc.to_string exn)))
-        | None -> ());
+        let postmortem_id =
+          match db with
+          | Some db -> (
+              try
+                let id =
+                  Memory.insert_postmortem ~db ~session_key ~pattern:reason
+                    ~evidence_json:
+                      (Yojson.Safe.to_string (`String evidence_summary))
+                    ~correction_injected:correction ~doc_path
+                in
+                (* Apply configured postmortem model override (if any) to the
+                   dedicated postmortem session before the agent runs. *)
+                (match pm_cfg.model with
+                | Some m ->
+                    Memory.set_session_model_override ~db
+                      ~session_key:postmortem_session_key ~model:m
+                | None -> ());
+                Some id
+              with exn ->
+                Logs.warn (fun m ->
+                    m "postmortem: failed to insert DB record: %s"
+                      (Printexc.to_string exn));
+                None)
+          | None -> None
+        in
         let prompt =
           Postmortem.make_postmortem_prompt ~session_key ~reason ~doc_path
             ~history_text:evidence_summary ()
@@ -751,8 +756,24 @@ let () =
                   if pm_cfg.delay_s > 0.0 then Lwt_unix.sleep pm_cfg.delay_s
                   else Lwt.return_unit
                 in
-                let* _response =
+                let* response =
                   turn mgr ~key:postmortem_session_key ~message:prompt ()
+                in
+                (* B610: now that the postmortem turn finished, close the DB
+                   record with the agent's outcome summary, and attempt to
+                   auto-lodge a backlog bug for any structured finding. *)
+                (match (db, postmortem_id) with
+                | Some db, Some id -> (
+                    try
+                      Memory.update_postmortem_outcome ~db ~id ~outcome:response
+                    with exn ->
+                      Logs.warn (fun m ->
+                          m "postmortem: update_postmortem_outcome failed: %s"
+                            (Printexc.to_string exn)))
+                | _ -> ());
+                let* () =
+                  Postmortem_followup.try_lodge_bug ~doc_path ~response
+                    ~session_key ~reason
                 in
                 Lwt.return_unit)
               (fun exn ->

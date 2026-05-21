@@ -131,6 +131,7 @@
   stuck_detector
   session_observer
   postmortem
+  postmortem_followup
   pmodel
   agent_prompt_loader
   summary_store

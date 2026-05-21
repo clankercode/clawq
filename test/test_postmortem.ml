@@ -110,6 +110,87 @@ let test_format_history_text_truncates_long_content () =
     "truncation marker present" true
     (contains rendered "truncated")
 
+(* B610: Postmortem_followup.extract_file_bug parses FILE_BUG / BODY / ENDBUG
+   markers out of the agent's response or postmortem doc so a backlog bug
+   can be auto-lodged. Marker is explicit so the agent has to opt in. *)
+let test_extract_file_bug_basic () =
+  let text =
+    "Analysis complete.\n\
+     FILE_BUG: Sample failure title\n\
+     BODY:\n\
+     The agent looped on shell_exec without supplying command. Root cause:\n\
+     model omits required param.\n\
+     ENDBUG\n\
+     Trailing notes can follow."
+  in
+  match Postmortem_followup.extract_file_bug text with
+  | None -> Alcotest.fail "expected a parsed FILE_BUG block"
+  | Some (title, body) ->
+      Alcotest.(check string) "title" "Sample failure title" title;
+      Alcotest.(check bool)
+        "body contains first explanation line" true
+        (try
+           let _ = Str.search_forward (Str.regexp_string "Root cause") body 0 in
+           true
+         with Not_found -> false);
+      Alcotest.(check bool)
+        "body terminates before ENDBUG marker" true
+        (try
+           let _ =
+             Str.search_forward (Str.regexp_string "Trailing notes") body 0
+           in
+           false
+         with Not_found -> true)
+
+let test_extract_file_bug_runs_to_eof_without_endbug () =
+  let text =
+    "FILE_BUG: Open-ended report\n\
+     BODY:\n\
+     This bug body has no ENDBUG terminator.\n\
+     It should still be captured."
+  in
+  match Postmortem_followup.extract_file_bug text with
+  | None -> Alcotest.fail "expected a parsed FILE_BUG block"
+  | Some (title, body) ->
+      Alcotest.(check string) "title" "Open-ended report" title;
+      Alcotest.(check bool)
+        "body includes both content lines" true
+        ((try
+            let _ =
+              Str.search_forward
+                (Str.regexp_string "no ENDBUG terminator")
+                body 0
+            in
+            true
+          with Not_found -> false)
+        &&
+          try
+            let _ =
+              Str.search_forward (Str.regexp_string "still be captured") body 0
+            in
+            true
+          with Not_found -> false)
+
+let test_extract_file_bug_no_marker_returns_none () =
+  let text =
+    "Analysis: nothing notable. The model self-corrected after one retry."
+  in
+  Alcotest.(check (option (pair string string)))
+    "no marker -> None" None
+    (Postmortem_followup.extract_file_bug text)
+
+let test_extract_file_bug_empty_title_returns_none () =
+  let text = "FILE_BUG:   \nBODY:\nsome content\nENDBUG" in
+  Alcotest.(check (option (pair string string)))
+    "empty title -> None" None
+    (Postmortem_followup.extract_file_bug text)
+
+let test_extract_file_bug_empty_body_returns_none () =
+  let text = "FILE_BUG: title here\nBODY:\nENDBUG" in
+  Alcotest.(check (option (pair string string)))
+    "empty body -> None" None
+    (Postmortem_followup.extract_file_bug text)
+
 let suite =
   [
     Alcotest.test_case
@@ -119,4 +200,14 @@ let suite =
       `Quick test_format_history_text_repeated_tool_calls_show_each_invocation;
     Alcotest.test_case "B611: long content is truncated" `Quick
       test_format_history_text_truncates_long_content;
+    Alcotest.test_case "B610: extract_file_bug basic marker" `Quick
+      test_extract_file_bug_basic;
+    Alcotest.test_case "B610: extract_file_bug runs to EOF without ENDBUG"
+      `Quick test_extract_file_bug_runs_to_eof_without_endbug;
+    Alcotest.test_case "B610: extract_file_bug no marker -> None" `Quick
+      test_extract_file_bug_no_marker_returns_none;
+    Alcotest.test_case "B610: extract_file_bug empty title -> None" `Quick
+      test_extract_file_bug_empty_title_returns_none;
+    Alcotest.test_case "B610: extract_file_bug empty body -> None" `Quick
+      test_extract_file_bug_empty_body_returns_none;
   ]
