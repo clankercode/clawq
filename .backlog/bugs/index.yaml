@@ -666,3 +666,4 @@ bugs:
     - file: B669-briefing-cron-has-zero-working.todo
     - file: B670-briefing-cron-fires-unbounded.todo
     - file: B671-briefing-hourly-cron-exhausts.todo
+    - file: B672-web-search-429-failover-not-en.todo

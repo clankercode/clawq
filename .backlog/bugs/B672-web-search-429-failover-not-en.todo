@@ -1,0 +1,36 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B672
+priority: high
+status: pending
+tags: []
+title: web_search 429 failover not engaging despite Brave→DDG fallback and available zai/minimax MCP search backends
+---
+Even after B670 (Brave→DDG fallback on 429) shipped, briefing cron runs still hit terminal 429 from Brave and the agent gets a bare 'Error: Brave HTTP 429 and DDG fallback failed: ...' or similar. Theoretically we should never reach a terminal 429 if any of these are available:
+
+- Brave Search (primary, web_search tool)
+- DuckDuckGo (web_search tool fallback path added in B670)
+- zai web_search_prime MCP (provider_zai_mcp / web_search_prime endpoint)
+- minimax web search MCP (if configured)
+
+Symptoms:
+- Postmortems still triggered on briefing-* crons after B670 deployed
+- The fallback decision tree in tools_builtin_net.web_search is not fully observable in logs
+- Unclear whether zai/minimax MCP search tools are wired into the same web_search tool entry, or registered separately and not consulted by the agent in the failover path
+
+What this bug wants:
+1. Add structured per-attempt logging to tools_builtin_net.web_search showing: provider attempted, URL, HTTP status, retry count, fallback decision, final outcome. Each attempt on its own log line so we can trace exactly why the failover chain didn't recover.
+2. Inventory all currently-available search backends (config + registered tools) at startup and log a summary, including whether each is healthy (extend the B668 health-check).
+3. Document the failover chain explicitly in the web_search tool description so the agent knows what alternatives it could try if web_search keeps 429ing (e.g. tool_search for 'search' to discover MCP-provided ones).
+4. Investigate whether zai's web_search_prime tool is actually registered when zai_mcp.websearch_enabled=false in config — and if not, consider auto-detecting / wiring it on when an api key is present.
+
+Acceptance:
+- Failed search runs in daemon log show a clear sequential trace of which providers were tried, in what order, and why each failed.
+- A baseline 'startup search backend inventory' line exists.
+- The web_search tool description tells the agent what fallback tools exist.
+- If a backend is intentionally disabled in config, the inventory line states that clearly so the operator can decide whether to enable.
+
+Notes:
+- Related: B597 (provider fallback design), B668 (startup health check), B670 (Brave→DDG fallback).
