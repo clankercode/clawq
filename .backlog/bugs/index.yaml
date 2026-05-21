@@ -623,3 +623,4 @@ bugs:
     - file: B624-briefing-hourly-cron-postmorte.todo
     - file: B625-b619-edge-case-file-content-st.todo
     - file: B626-b620-follow-up-coq-extracted-a.todo
+    - file: B627-show-b606.todo
