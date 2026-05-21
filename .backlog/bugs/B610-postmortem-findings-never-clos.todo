@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B610
+priority: high
+status: pending
+tags: []
+title: postmortem findings never close the DB record or create actionable work
+---
+Memory.update_postmortem_outcome appears unused, so 'session postmortems' reports pending even after analysis. Have the postmortem agent return structured JSON or a small result file, update outcome, and optionally auto-lodge bl bug items for concrete findings. This makes the postmortem feature actually contribute to self-improvement instead of just generating markdown nobody reads. Found by cx-reviewer.

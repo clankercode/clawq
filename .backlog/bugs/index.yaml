@@ -606,3 +606,4 @@ bugs:
     - file: B607-tool-calls-not-executed-in-par.todo
     - file: B608-cache-hit-reporting-wildly-inc.todo
     - file: B609-postmortem-enabled-false-still.todo
+    - file: B610-postmortem-findings-never-clos.todo
