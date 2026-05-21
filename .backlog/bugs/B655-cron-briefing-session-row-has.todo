@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-05-21T18:07:16Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B655
 priority: high
-status: pending
+started_at: "2026-05-21T18:07:16Z"
+status: in_progress
 tags: []
 title: cron:briefing session row has empty-string channel/channel_id causing unsupported channel error
 ---
