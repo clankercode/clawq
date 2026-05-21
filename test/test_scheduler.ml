@@ -202,6 +202,48 @@ let test_record_run_delivery_failed () =
   Alcotest.(check string) "status" "delivery_failed" r.status;
   Alcotest.(check bool) "has preview" true (r.result_preview <> None)
 
+(* B587: toggle_job flips enabled state with idempotent semantics. *)
+let test_toggle_job_flips_enabled () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Scheduler.init_schema db;
+  ignore
+    (Scheduler.add_job ~db ~name:"togglable" ~session_key:"s" ~message:"m"
+       ~schedule:"every 1m" ());
+  Alcotest.(check bool)
+    "initially enabled" true
+    (match Scheduler.get_job ~db ~name:"togglable" with
+    | Some j -> j.enabled
+    | None -> false);
+  (match Scheduler.toggle_job ~db ~name:"togglable" with
+  | Ok () -> ()
+  | Error e -> Alcotest.fail e);
+  Alcotest.(check bool)
+    "disabled after first toggle" false
+    (match Scheduler.get_job ~db ~name:"togglable" with
+    | Some j -> j.enabled
+    | None -> false);
+  (match Scheduler.toggle_job ~db ~name:"togglable" with
+  | Ok () -> ()
+  | Error e -> Alcotest.fail e);
+  Alcotest.(check bool)
+    "re-enabled after second toggle" true
+    (match Scheduler.get_job ~db ~name:"togglable" with
+    | Some j -> j.enabled
+    | None -> false)
+
+let test_toggle_job_returns_error_for_missing () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Scheduler.init_schema db;
+  match Scheduler.toggle_job ~db ~name:"nonexistent" with
+  | Error msg ->
+      Alcotest.(check bool)
+        "error message mentions missing job" true
+        (try
+           let _ = Str.search_forward (Str.regexp_string "not found") msg 0 in
+           true
+         with Not_found -> false)
+  | Ok () -> Alcotest.fail "expected Error for missing job name"
+
 (* B463/B467/B472: explicit "ok_notifier_unconfirmed" status exists in the
    cron run schema; cron history can render it distinctly from "ok"
    (deliver_fn confirmed) and "delivery_failed". *)
@@ -777,6 +819,10 @@ let suite =
     Alcotest.test_case
       "B463/B467/B472: record_run ok_notifier_unconfirmed status" `Quick
       test_record_run_ok_notifier_unconfirmed;
+    Alcotest.test_case "B587: toggle_job flips enabled" `Quick
+      test_toggle_job_flips_enabled;
+    Alcotest.test_case "B587: toggle_job errors for missing job" `Quick
+      test_toggle_job_returns_error_for_missing;
     Alcotest.test_case "tick posts prompt via deliver callback" `Quick
       test_tick_posts_prompt_via_deliver;
     Alcotest.test_case "tick posts prompt via notifier" `Quick

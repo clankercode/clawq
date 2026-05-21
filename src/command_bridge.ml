@@ -386,14 +386,42 @@ let cmd_cron args =
              Use 'clawq background show %d' to check progress."
             name task_id task_id
       | Error e -> Printf.sprintf "Error: %s" e)
+  (* B587: explicit enable/disable so operators can pause a misbehaving cron
+     without removing it (and losing its schedule + prompt). *)
+  | [ "disable"; name ] -> (
+      let db = get_db () in
+      Scheduler.init_schema db;
+      match Scheduler.get_job ~db ~name with
+      | None -> Printf.sprintf "No cron job found with name '%s'." name
+      | Some j when not j.enabled ->
+          Printf.sprintf "Cron job '%s' is already disabled." name
+      | Some _ -> (
+          match Scheduler.toggle_job ~db ~name with
+          | Ok () -> Printf.sprintf "Disabled cron job '%s'." name
+          | Error e -> Printf.sprintf "Error: %s" e))
+  | [ "enable"; name ] -> (
+      let db = get_db () in
+      Scheduler.init_schema db;
+      match Scheduler.get_job ~db ~name with
+      | None -> Printf.sprintf "No cron job found with name '%s'." name
+      | Some j when j.enabled ->
+          Printf.sprintf "Cron job '%s' is already enabled." name
+      | Some _ -> (
+          match Scheduler.toggle_job ~db ~name with
+          | Ok () -> Printf.sprintf "Enabled cron job '%s'." name
+          | Error e -> Printf.sprintf "Error: %s" e))
   | _ ->
-      "Usage: clawq cron <list|show|add|remove|trigger|history|runs>\n\
+      "Usage: clawq cron \
+       <list|show|add|remove|enable|disable|trigger|history|runs>\n\
       \  cron list [--prompt|-p]                      - List all jobs \
        (--prompt shows prompt text)\n\
       \  cron show <name>                             - Show job details\n\
       \  cron add <name> <session> <schedule> <msg> [--ephemeral] [--ttl \
        <duration>] - Add a job\n\
       \  cron remove <name>                           - Remove a job\n\
+      \  cron enable <name>                           - Enable a paused job\n\
+      \  cron disable <name>                          - Pause job (keeps \
+       schedule + prompt)\n\
       \  cron trigger <name>                          - Trigger a job \
        immediately\n\
       \  cron history <name>                          - Show run history\n\
