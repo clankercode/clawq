@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B658
+priority: high
+status: pending
+tags: []
+title: kimi_coding provider has no http_timeout_s — streaming calls hang forever when TCP drops
+---
+Reproduced 2026-05-22 04:13: cron:briefing session injected user message; LLM stream call started against kimi_coding/kimi-for-code at 04:13:29, TCP connection to api.moonshot.ai dropped shortly after (no 'ESTAB' to moonshot.ai in ss -tnp), but no error log, no Cost line, no Tool call follow-up. Lwt streaming thread silently wedged. Workaround: set kimi_coding provider http_timeout_s in config. Defense: B647's post_json_with_timeout should be applied to stream paths too (currently only complete/non-streaming uses it), or kimi_coding provider config should ship with a sensible default timeout. Similar issue likely exists for other providers (zai_coding, minimax) unless they have their own keepalive.
