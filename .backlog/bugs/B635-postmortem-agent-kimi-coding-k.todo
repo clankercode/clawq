@@ -1,14 +1,15 @@
 ---
+claimed_at: "2026-05-21T18:34:19Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B635
 priority: high
-status: pending
-tags:
-    - postmortem
-    - provider
-    - kimi
+started_at: "2026-05-21T18:34:19Z"
+status: in_progress
+tags: []
 title: 'Postmortem agent (kimi_coding/kimi-for-code) rejects temperature: only 1 allowed'
 ---
 ## Summary
