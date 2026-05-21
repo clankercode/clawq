@@ -1,0 +1,59 @@
+---
+complexity: high
+depends_on: []
+estimate_hours: 1
+id: B643
+priority: critical
+status: pending
+tags:
+    - mutex
+    - deadlock
+    - daemon-restart
+title: Session mutex deadlock (>610s) aborts daemon and triggers restart
+---
+## Summary
+
+Daemon self-aborted in ~/.clawq/daemon.log at 15:32:08 with:
+
+```
+ERROR [session_mutex/with_session_lock_unless_draining[github:XertroV/clawq:workflow_run:26206077293]]
+      FATAL: Mutex deadlock detected (>610s total wait). Aborting process.
+ERROR [session_mutex/...] mutex diagnostics: is_locked=true has_no_waiters=true time=1779341528.245 pid=1305766
+ERROR Mutex deadlock on [session_mutex/with_session_lock_unless_draining[GH_RUN]], triggering restart
+WARN  Background task completion session injection failed for GH_RUN:
+      Lwt_util.Deadlock_timeout(\"session_mutex/with_session_lock_unless_draining[GH_RUN]\")
+```
+
+Two telling diagnostics:
+
+- `is_locked=true has_no_waiters=true` — the mutex is HELD with no one waiting in the
+  Lwt queue. The holder forgot to release (or its release path was bypassed via
+  exception, cancellation, or fork).
+- 610-second timeout was hit and a hard abort followed.
+
+Background-task completion path was trying to inject results into the
+session but the session lock was orphan-held.
+
+## Hypotheses
+
+1. A code path acquires `with_session_lock_unless_draining` then exits via
+   an Lwt exception that the locker doesn't catch with `Lwt.finalize`.
+2. Lwt cancellation hits between acquire and `finalize`, leaving the mutex
+   held in the rare async-exception window.
+3. A nested re-entrant acquire from inside the same logical task (e.g.,
+   resume-prompt firing during background-task completion).
+
+## Suggested next steps
+
+1. Audit every `with_session_lock_unless_draining` call site to ensure
+   release goes through `Lwt.finalize`, not `let* () = body in unlock ()`.
+2. Add a logged stack trace on acquire (behind an env var) so the next
+   deadlock identifies the leaking caller.
+3. Add a regression test: drive a session lock holder that raises mid-Lwt
+   and assert the lock is still released.
+
+## Evidence
+
+- ~/.clawq/daemon.log: search 'Mutex deadlock' — 3 ERROR lines + 1 WARN
+- Affected session: github:XertroV/clawq:workflow_run:26206077293
+- Timing: lock acquired some time before 15:21:58, never released → 610s timeout at 15:32:08
