@@ -7,8 +7,9 @@ depends_on: []
 estimate_hours: 1
 id: B633
 priority: high
+reason: duplicate of B630/B632 — auto-lodged before frontmatter-title dedup landed
 started_at: "2026-05-21T13:17:09Z"
-status: in_progress
+status: rejected
 tags: []
 title: Cron jobs need consecutive-identical-output detection (9th recurrence of silent degenerate output)
 ---
