@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B609
+priority: high
+status: pending
+tags: []
+title: postmortem.enabled=false still leaves postmortem side effects
+---
+When disabled, spawn_postmortem_agent still opens the per-root circuit breaker before the config check (session_turn.ml line 99-100), and the inline stuck-detection path may still inject 'postmortem launched' message. Gate before user-visible correction/circuit state and test that disabled means no doc, DB row, postmortem session, correction, or breaker mutation. Found by cx-reviewer.

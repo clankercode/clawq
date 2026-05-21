@@ -605,3 +605,4 @@ bugs:
     - file: B606-claude-models-via-claude-code.todo
     - file: B607-tool-calls-not-executed-in-par.todo
     - file: B608-cache-hit-reporting-wildly-inc.todo
+    - file: B609-postmortem-enabled-false-still.todo
