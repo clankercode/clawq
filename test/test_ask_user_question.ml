@@ -235,17 +235,39 @@ let test_question_type_formatting () =
       {
         question = "Pick one";
         qtype = Single_select { options = [ "a"; "b" ] };
+        request_notes = false;
       };
       {
         question = "Pick many";
         qtype = Multi_select { options = [ "x"; "y" ] };
+        request_notes = false;
       };
-      { question = "Confirm?"; qtype = Confirm };
-      { question = "Rate"; qtype = Rating { min = 1; max = 5 } };
-      { question = "Enter text"; qtype = Text { placeholder = Some "hint" } };
-      { question = "Number"; qtype = Number { min = Some 1; max = Some 10 } };
-      { question = "Upload"; qtype = File_upload { accept = Some "image/*" } };
-      { question = "When"; qtype = Date { include_time = true } };
+      { question = "Confirm?"; qtype = Confirm; request_notes = false };
+      {
+        question = "Rate";
+        qtype = Rating { min = 1; max = 5 };
+        request_notes = false;
+      };
+      {
+        question = "Enter text";
+        qtype = Text { placeholder = Some "hint" };
+        request_notes = false;
+      };
+      {
+        question = "Number";
+        qtype = Number { min = Some 1; max = Some 10 };
+        request_notes = false;
+      };
+      {
+        question = "Upload";
+        qtype = File_upload { accept = Some "image/*" };
+        request_notes = false;
+      };
+      {
+        question = "When";
+        qtype = Date { include_time = true };
+        request_notes = false;
+      };
     ]
   in
   let json_str = Tools_builtin.question_items_to_json items in
@@ -301,6 +323,45 @@ let test_parse_questions_roundtrip () =
       Alcotest.(check (option int)) "min" (Some 0) min;
       Alcotest.(check (option int)) "max" (Some 100) max
   | _ -> Alcotest.fail "expected number"
+
+(* B594/B595: parse_questions reads the optional "notes" boolean. Default
+   false (so the daemon doesn't ask "Add notes?" after every question);
+   model can opt in per-question. *)
+let test_parse_questions_notes_flag_default_false () =
+  let args =
+    `Assoc
+      [
+        ( "questions",
+          `List
+            [
+              `Assoc
+                [
+                  ("type", `String "single_select");
+                  ("question", `String "Which?");
+                  ("options", `List [ `String "a" ]);
+                ];
+              `Assoc
+                [
+                  ("type", `String "single_select");
+                  ("question", `String "Why?");
+                  ("options", `List [ `String "x" ]);
+                  ("notes", `Bool true);
+                ];
+              `Assoc
+                [
+                  ("type", `String "text");
+                  ("question", `String "Free-form?");
+                  ("notes", `Bool true);
+                ];
+            ] );
+      ]
+  in
+  let items = Tools_builtin.parse_questions args in
+  Alcotest.(check int) "3 items" 3 (List.length items);
+  Alcotest.(check bool)
+    "first defaults to no notes" false (List.nth items 0).request_notes;
+  Alcotest.(check bool) "second opts in" true (List.nth items 1).request_notes;
+  Alcotest.(check bool) "third opts in" true (List.nth items 2).request_notes
 
 let test_db_persistence () =
   let mgr, db, tmp = make_mgr_with_db () in
@@ -363,6 +424,8 @@ let suite =
       test_question_type_formatting;
     Alcotest.test_case "parse questions roundtrip" `Quick
       test_parse_questions_roundtrip;
+    Alcotest.test_case "B594: parse_questions notes flag defaults false" `Quick
+      test_parse_questions_notes_flag_default_false;
     Alcotest.test_case "DB persistence" `Quick test_db_persistence;
     Alcotest.test_case "serialize question results" `Quick
       test_serialize_question_results;

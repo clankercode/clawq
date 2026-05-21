@@ -84,7 +84,11 @@ let test_relay_question_success () =
      let questions =
        [
          Tools_builtin.
-           { question = "What color?"; qtype = Text { placeholder = None } };
+           {
+             question = "What color?";
+             qtype = Text { placeholder = None };
+             request_notes = false;
+           };
        ]
      in
      let* result =
@@ -109,7 +113,11 @@ let test_relay_question_timeout () =
      let questions =
        [
          Tools_builtin.
-           { question = "Slow question"; qtype = Text { placeholder = None } };
+           {
+             question = "Slow question";
+             qtype = Text { placeholder = None };
+             request_notes = false;
+           };
        ]
      in
      let* result =
@@ -131,7 +139,11 @@ let test_relay_question_error () =
      let questions =
        [
          Tools_builtin.
-           { question = "Bad question"; qtype = Text { placeholder = None } };
+           {
+             question = "Bad question";
+             qtype = Text { placeholder = None };
+             request_notes = false;
+           };
        ]
      in
      let* result =

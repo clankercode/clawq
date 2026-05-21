@@ -131,6 +131,7 @@ let test_render_rich_buttons_single_select () =
     {
       question = "Pick one";
       qtype = Single_select { options = [ "Alpha"; "Beta"; "Gamma" ] };
+      request_notes = false;
     }
   in
   let rendered =
@@ -157,7 +158,7 @@ let test_render_rich_buttons_single_select () =
 
 let test_render_rich_buttons_confirm () =
   let qi : Tools_builtin.question_item =
-    { question = "Are you sure?"; qtype = Confirm }
+    { question = "Are you sure?"; qtype = Confirm; request_notes = false }
   in
   let rendered =
     Question_presenter.render_question ~strategy:Rich_buttons
@@ -177,7 +178,11 @@ let test_render_rich_buttons_confirm () =
 
 let test_render_rich_buttons_rating () =
   let qi : Tools_builtin.question_item =
-    { question = "Rate this"; qtype = Rating { min = 1; max = 3 } }
+    {
+      question = "Rate this";
+      qtype = Rating { min = 1; max = 3 };
+      request_notes = false;
+    }
   in
   let rendered =
     Question_presenter.render_question ~strategy:Rich_buttons
@@ -200,6 +205,7 @@ let test_render_rich_poll_multi_select () =
     {
       question = "Pick many";
       qtype = Multi_select { options = [ "X"; "Y"; "Z" ] };
+      request_notes = false;
     }
   in
   let rendered =
@@ -219,7 +225,11 @@ let test_render_rich_poll_multi_select () =
 
 let test_render_formatted_text_telegram () =
   let qi : Tools_builtin.question_item =
-    { question = "Pick one"; qtype = Single_select { options = [ "A"; "B" ] } }
+    {
+      question = "Pick one";
+      qtype = Single_select { options = [ "A"; "B" ] };
+      request_notes = false;
+    }
   in
   let rendered =
     Question_presenter.render_question ~strategy:Formatted_text
@@ -240,7 +250,7 @@ let test_render_formatted_text_telegram () =
 
 let test_render_formatted_text_discord () =
   let qi : Tools_builtin.question_item =
-    { question = "Sure?"; qtype = Confirm }
+    { question = "Sure?"; qtype = Confirm; request_notes = false }
   in
   let rendered =
     Question_presenter.render_question ~strategy:Formatted_text
@@ -257,7 +267,7 @@ let test_render_formatted_text_discord () =
 
 let test_render_formatted_text_multi_question () =
   let qi : Tools_builtin.question_item =
-    { question = "First?"; qtype = Confirm }
+    { question = "First?"; qtype = Confirm; request_notes = false }
   in
   let rendered =
     Question_presenter.render_question ~strategy:Formatted_text
@@ -273,7 +283,11 @@ let test_render_formatted_text_multi_question () =
 
 let test_render_plain_text () =
   let qi : Tools_builtin.question_item =
-    { question = "Pick one"; qtype = Single_select { options = [ "A"; "B" ] } }
+    {
+      question = "Pick one";
+      qtype = Single_select { options = [ "A"; "B" ] };
+      request_notes = false;
+    }
   in
   let rendered =
     Question_presenter.render_question ~strategy:Plain_text
@@ -424,6 +438,7 @@ let test_button_rows_chunking () =
       question = "Pick one";
       qtype =
         Single_select { options = [ "A"; "B"; "C"; "D"; "E"; "F"; "G"; "H" ] };
+      request_notes = false;
     }
   in
   let rendered =

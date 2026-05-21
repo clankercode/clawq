@@ -1160,7 +1160,14 @@ type question_type =
   | File_upload of { accept : string option }
   | Date of { include_time : bool }
 
-type question_item = { question : string; qtype : question_type }
+type question_item = {
+  question : string;
+  qtype : question_type;
+  request_notes : bool;
+      (** B594: model opts in via "notes": true on the question. When false
+          (default), the daemon does NOT show the "Add notes?" prompt after the
+          answer, even for single_select / multi_select / etc. *)
+}
 
 type question_result = {
   question : string;
@@ -1214,7 +1221,10 @@ let parse_questions (args : Yojson.Safe.t) : question_item list =
             in
             Text { placeholder }
       in
-      { question; qtype })
+      let request_notes =
+        try q |> member "notes" |> to_bool with _ -> false
+      in
+      { question; qtype; request_notes })
     qs
 
 let serialize_question_results (results : question_result list) : string =
@@ -1272,7 +1282,14 @@ let question_items_to_json (items : question_item list) : string =
     (`List
        (List.map
           (fun (qi : question_item) ->
-            `Assoc (("question", `String qi.question) :: qtype_to_json qi.qtype))
+            let base =
+              ("question", `String qi.question) :: qtype_to_json qi.qtype
+            in
+            let with_notes =
+              if qi.request_notes then base @ [ ("notes", `Bool true) ]
+              else base
+            in
+            `Assoc with_notes)
           items))
 
 let ask_user_question_schema =
@@ -1374,6 +1391,19 @@ let ask_user_question_schema =
                                       `String
                                         "Include time in date picker (default \
                                          false)" );
+                                  ] );
+                              ( "notes",
+                                `Assoc
+                                  [
+                                    ("type", `String "boolean");
+                                    ( "description",
+                                      `String
+                                        "Set true to prompt the user for \
+                                         optional follow-up notes after they \
+                                         answer (default false). Skipped \
+                                         automatically for free-form types \
+                                         (text, file_upload) and for binary \
+                                         types (confirm, rating)." );
                                   ] );
                             ] );
                         ( "required",

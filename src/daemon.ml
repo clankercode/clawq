@@ -456,9 +456,22 @@ let run ~(config : Runtime_config.t) =
                       (Printf.sprintf "No channel notifier for session %s"
                          session_key))
         in
-        let notes_eligible = function
-          | Tools_builtin.Text _ | Tools_builtin.File_upload _ -> false
+        (* B594/B595: only show "Add notes?" prompt when:
+           1. qtype supports notes (not Text/File_upload — those already are
+              free-form text, asking for notes is redundant),
+           2. qtype isn't a binary/scale that almost never has notes
+              (Confirm yes/no, Rating 1-5),
+           3. the question explicitly opted in via notes:true in the schema.
+           This stops the daemon from asking "Add notes?" after every single
+           select question by default. *)
+        let qtype_supports_notes = function
+          | Tools_builtin.Text _ | Tools_builtin.File_upload _
+          | Tools_builtin.Confirm | Tools_builtin.Rating _ ->
+              false
           | _ -> true
+        in
+        let notes_eligible qi =
+          qtype_supports_notes qi.Tools_builtin.qtype && qi.request_notes
         in
         let caps =
           Session.find_connector_capabilities session_manager ~key:session_key
@@ -550,7 +563,7 @@ let run ~(config : Runtime_config.t) =
                     Lwt.fail (Failure "Question cancelled by user interrupt")
                   else
                     let* notes =
-                      if notes_enabled && notes_eligible qi.qtype then begin
+                      if notes_enabled && notes_eligible qi then begin
                         let* () = notify "Add notes? (reply or 'skip')" in
                         let notes_promise, _resolver =
                           Session.register_pending_question session_manager
