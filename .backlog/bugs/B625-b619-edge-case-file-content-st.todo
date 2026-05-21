@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-05-21T10:52:38Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-05-21T11:08:50Z"
 complexity: medium
 depends_on: []
+duration_minutes: 16.20584202015
 estimate_hours: 1
 id: B625
 priority: high
 started_at: "2026-05-21T10:52:38Z"
-status: in_progress
+status: done
 tags: []
 title: 'B619 edge case: file content starting with ''Error:'' triggers false is_error flag'
 ---
