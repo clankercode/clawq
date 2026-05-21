@@ -1,0 +1,24 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B671
+priority: high
+status: pending
+tags: []
+title: briefing-hourly cron exhausts Brave Search rate limit every hour
+---
+The hourly briefing cron (`briefing-hourly`, 0 * * * *) is configured to call `web_search` sequentially for 11 topics from `rig:briefing:config`. Brave Search's free-tier bucket cannot absorb 11 requests in rapid succession; 7 of 11 calls fail with HTTP 429, triggering the observer's `SameErrorString` stuck-heuristic.
+
+Compounding factor: the `web_search_prime` MCP backend (zai-web-search) has been non-functional since 2026-05-22T043150 due to a missing API key, so the system has only one working search backend.
+
+Fix options (pick one):
+1. Switch `briefing-hourly` to RSS-first sourcing (like `briefing-daily`), using the 5 feeds already configured in `rig:briefing:config`, and demote web_search to occasional enrichment only.
+2. Add an explicit ~5-second sleep/delay between each `web_search` call in the hourly cron prompt to stay within Brave's rate-limit bucket.
+3. Repair the `web_search_prime` MCP API key so the system has a redundant search backend again.
+
+Also recommended: tune the observer's `SameErrorString` heuristic to ignore errors that occur during legitimate sequential list iteration when other calls in the same session succeed.
+
+--
+Auto-filed by clawq postmortem for session cron:briefing (pattern: SameErrorString: error repeated 4 times: Error: Brave search API rate-limited (HTTP 429) after 3 retries. Try again in a minute, or configure a different search_...).
+Postmortem doc: /home/xertrov/.clawq/postmortems/2026-05-22T070929-cron:briefing.md

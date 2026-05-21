@@ -665,3 +665,4 @@ bugs:
     - file: B668-web-search-provider-ddg-miscon.todo
     - file: B669-briefing-cron-has-zero-working.todo
     - file: B670-briefing-cron-fires-unbounded.todo
+    - file: B671-briefing-hourly-cron-exhausts.todo
