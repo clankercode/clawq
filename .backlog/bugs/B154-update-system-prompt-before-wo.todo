@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-09T10:21:29Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-05-21T21:15:17Z"
 complexity: medium
 depends_on: []
+duration_minutes: 105773.8129443654
 estimate_hours: 1
 id: B154
 priority: high
 started_at: "2026-03-09T10:21:29Z"
-status: in_progress
+status: done
 tags: []
 title: 'Update system prompt (before workspace files) to mention details like: injected user messages should be seen as steering information or questions to answer on the side; They should not be treated as requests to interrupt your workflow or stop and wait for a response unless they specifically ask that; The user wants you the agent to run autonomously and for long periods of time and you should proioritize working in this way and run continuously for as long as you can. NOTE: We might need to research this online and see what the best strategies for long running agents with user steering injections are.'
 ---
