@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-09T18:56:34Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-05-21T21:22:16Z"
 complexity: medium
 depends_on: []
+duration_minutes: 105265.71359997435
 estimate_hours: 1
 id: B232
 priority: medium
 started_at: "2026-03-09T18:56:34Z"
-status: in_progress
+status: done
 tags: []
 title: Connector-native status/update rendering should be unified behind a reusable status framework
 ---
