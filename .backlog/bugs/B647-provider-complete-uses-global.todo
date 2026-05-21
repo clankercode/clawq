@@ -1,0 +1,52 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B647
+priority: medium
+status: pending
+tags:
+    - http
+    - timeout
+title: Provider.complete uses global 30s HTTP timeout — resilience layer's 120s wrapper is dead, large-context calls die inside
+---
+## Summary
+
+Discovered in a postmortem file written by the agent
+(`~/.clawq/postmortems/2026-05-21T162202-teams:personal:a:....md`)
+and corroborated in daemon.log:
+
+```
+WARN Attempt 1/3 failed (Failure(\"HTTP timeout in post_json after 30.0s\")), retrying in 1.0s
+WARN Attempt 2/3 failed (Failure(\"HTTP timeout in post_json after 30.0s\")), retrying in 2.0s
+```
+
+Chain (per postmortem analysis):
+
+1. `Agent.turn` wraps the LLM call in `Resilience.with_timeout_retry` with
+   `res.timeout_s = 120.0` and `max_retries = 2` (`src/agent.ml:1100`).
+2. Inside, `Provider.complete` calls `Http_client.post_json`, which uses
+   `!default_timeout_s` = 30.0 hardcoded (`src/http_client.ml:7`).
+3. The 30s timeout fires before the 120s outer one, so the outer wrapper
+   is effectively unused. All 3 retry attempts hit the same 30s wall.
+4. zai_coding glm-5.1 on ~31k tokens routinely takes >30s, so this turns
+   into a hard fail rather than the intended graceful-retry pattern.
+
+## Suggested fix
+
+1. `Provider.complete` (and its streaming sibling) should call
+   `post_json_with_timeout ~timeout_s:<provider-configured-or-task-derived>`
+   rather than the parameter-less variant.
+2. Add a per-provider LLM-request timeout in `Runtime_config.provider_config`
+   (e.g., `http_timeout_s : float option`, default 120s if None).
+3. Audit `src/http_client.ml` callers to be explicit about timeout: chat,
+   Telegram, Slack, Discord, etc. all share `!default_timeout_s` today.
+4. Regression test: drive `Provider.complete` against a mock HTTP server
+   that holds the request open for 45s. With a per-provider timeout of
+   60s, the call should succeed. Currently it fails at 30s.
+
+## Evidence
+
+- ~/.clawq/daemon.log: search 'HTTP timeout in post_json' — multiple
+- ~/.clawq/postmortems/2026-05-21T162202-teams:....md — full chain
+  documented by the postmortem agent itself
