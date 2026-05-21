@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-16T00:27:43Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-05-21T21:23:21Z"
 complexity: high
 depends_on: []
+duration_minutes: 96295.637441916
 estimate_hours: 8
 id: B498
 priority: medium
 started_at: "2026-03-16T00:27:43Z"
-status: in_progress
+status: done
 tags: []
 title: Add ACP (Agent Client Protocol) support for coder subagents
 ---
