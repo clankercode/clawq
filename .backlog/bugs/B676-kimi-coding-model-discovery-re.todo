@@ -1,0 +1,25 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B676
+priority: high
+status: pending
+tags: []
+title: kimi_coding model_discovery refresh fails with HTTP 401 (separate from inference)
+---
+model_discovery.maybe_refresh fires at daemon startup and tries to list models against each configured provider's /models endpoint. The kimi_coding provider returns HTTP 401 for that endpoint (seen 2× today: 14:57:21 and 03:57:44):
+
+> WARN model_discovery: kimi_coding refresh failed: HTTP 401
+
+Inference against the same provider (POST to the chat-completions endpoint) works fine — only the GET /models call is unauthorized. Possible reasons:
+- The /models endpoint uses a different auth header / format than the /chat/completions endpoint.
+- The api_key in config is scoped to inference only, not catalog listing.
+- The path is wrong — kimi_coding may not expose /models at the same base, or the path needs a suffix.
+
+Required:
+- Audit Model_discovery.maybe_refresh to see exactly which URL it's hitting for kimi_coding.
+- If kimi_coding genuinely doesn't expose /models with the standard auth, mark it as a non-listable provider so we don't burn a 401 on every daemon start (the models_cache stays static from the catalog).
+- If it's a real auth problem, surface a clearer warning that hints at config.
+
+Low priority (warn-only, doesn't affect inference) but cluttering logs. Easy bag-of-fixes.

@@ -670,3 +670,4 @@ bugs:
     - file: B673-add-hard-turn-abort-limit-on-c.todo
     - file: B674-need-end-to-end-integration-te.todo
     - file: B675-kimi-moonshot-openai-compat-re.todo
+    - file: B676-kimi-coding-model-discovery-re.todo
