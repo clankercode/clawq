@@ -624,3 +624,4 @@ bugs:
     - file: B625-b619-edge-case-file-content-st.todo
     - file: B626-b620-follow-up-coq-extracted-a.todo
     - file: B627-show-b606.todo
+    - file: B628-delete-b627.todo
