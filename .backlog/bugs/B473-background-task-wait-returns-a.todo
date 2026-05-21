@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-15T08:47:51Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-05-21T20:58:33Z"
 complexity: medium
 depends_on: []
+duration_minutes: 97210.71198602337
 estimate_hours: 1
 id: B473
 priority: high
 started_at: "2026-03-15T08:47:51Z"
-status: in_progress
+status: done
 tags: []
 title: background_task_wait returns almost immediately instead of waiting
 ---
