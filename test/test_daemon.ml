@@ -2121,6 +2121,7 @@ let insert_test_task db =
 let test_notify_records_delivered_on_success () =
   let db = Memory.init ~db_path:":memory:" () in
   Background_task.init_schema db;
+  Scheduler.init_schema db;
   let task_id = insert_test_task db in
   let config = Runtime_config.default in
   let session_manager = Session.create ~config ~db () in
@@ -2145,6 +2146,7 @@ let test_notify_records_delivered_on_success () =
 let test_notify_records_failed_on_sender_error () =
   let db = Memory.init ~db_path:":memory:" () in
   Background_task.init_schema db;
+  Scheduler.init_schema db;
   let task_id = insert_test_task db in
   let config = Runtime_config.default in
   let session_manager = Session.create ~config ~db () in
@@ -2172,6 +2174,7 @@ let test_notify_records_failed_on_sender_error () =
 let test_notify_records_skipped_when_no_channel () =
   let db = Memory.init ~db_path:":memory:" () in
   Background_task.init_schema db;
+  Scheduler.init_schema db;
   let task_id = insert_test_task db in
   let config = Runtime_config.default in
   let session_manager = Session.create ~config ~db () in
