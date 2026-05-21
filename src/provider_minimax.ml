@@ -333,6 +333,25 @@ let complete_streaming ~(config : Runtime_config.t)
                   (current_tool_name :=
                      try block |> member "name" |> to_string with _ -> "");
                   let args_buf = Buffer.create 256 in
+                  (* B634: some Anthropic-compatible APIs (including
+                     MiniMax in observed traffic) embed the full tool input
+                     in `content_block.input` at start time and then send
+                     zero `input_json_delta` events, leaving us with an
+                     empty buffer and a wedged agent. Seed the buffer with
+                     the start-event input when it is a non-empty object so
+                     the recovered arguments match the non-streaming code
+                     path's semantics (which reads `block.input` directly
+                     in parse_response). *)
+                  (match
+                     try Some (block |> member "input") with _ -> None
+                   with
+                  | Some (`Assoc kvs) when kvs <> [] ->
+                      Buffer.add_string args_buf
+                        (Yojson.Safe.to_string (`Assoc kvs))
+                  | Some (`Assoc _) | Some `Null | None -> ()
+                  | Some other ->
+                      (* Non-object input is unusual but preserve it. *)
+                      Buffer.add_string args_buf (Yojson.Safe.to_string other));
                   tool_calls_acc :=
                     !tool_calls_acc
                     @ [
@@ -347,7 +366,9 @@ let complete_streaming ~(config : Runtime_config.t)
                          index = !current_block_index;
                          id = Some !current_tool_id;
                          function_name = Some !current_tool_name;
-                         arguments = None;
+                         arguments =
+                           (let s = Buffer.contents args_buf in
+                            if s = "" then None else Some s);
                        })
                 end
                 else Lwt.return_unit
@@ -450,11 +471,27 @@ let complete_streaming ~(config : Runtime_config.t)
       let tool_calls =
         List.map
           (fun (_, id, name, args_buf) ->
-            {
-              Provider.id;
-              function_name = name;
-              arguments = Buffer.contents args_buf;
-            })
+            let raw_args = Buffer.contents args_buf in
+            (* B634: surface "empty-arguments" cases at WARN once per turn
+               so an operator can tell server-side arg-loss apart from a
+               clawq parser bug. The fallback substitutes "{}" so the
+               value remains valid JSON for downstream message conversion
+               (the tool dispatcher will reject it as missing-required and
+               that error becomes the model's correction signal). *)
+            let arguments =
+              if raw_args = "" then begin
+                Logs.warn (fun m ->
+                    m
+                      "MiniMax stream produced tool_use '%s' (id=%s) with NO \
+                       input_json_delta events — falling back to \"{}\". Set \
+                       MINIMAX_DEBUG_SSE=1 to capture the raw SSE for \
+                       diagnosis."
+                      name id);
+                "{}"
+              end
+              else raw_args
+            in
+            { Provider.id; function_name = name; arguments })
           !tool_calls_acc
       in
       let thinking =
