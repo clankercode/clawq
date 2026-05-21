@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-11T07:15:39Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-05-21T21:14:27Z"
 complexity: medium
 depends_on: []
+duration_minutes: 103078.80224672981
 estimate_hours: 1
 id: B361
 priority: high
 started_at: "2026-03-11T07:15:39Z"
-status: in_progress
+status: done
 tags: []
 title: Should track cumulative costs and associated metrics in DB.
 ---
