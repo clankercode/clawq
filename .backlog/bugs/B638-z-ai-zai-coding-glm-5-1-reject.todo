@@ -1,0 +1,58 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B638
+priority: high
+status: pending
+tags:
+    - zai
+    - provider
+title: 'Z.ai (zai_coding/glm-5.1) rejects messages on session resume: error 1214 ''messages parameter is illegal'''
+---
+## Summary
+
+After daemon restart, the automatic restart-resume prompt for github
+sessions using provider=zai_coding, model=glm-5.1 fails with:
+
+  HTTP 400 {\"error\":{\"code\":\"1214\",\"message\":\"The messages
+  parameter is illegal. Please check the documentation.\"}}
+
+Occurs 3 times in current daemon.log, all for session
+github:XertroV/clawq:workflow_run:26206077293. Each attempt has msgs=3 and
+~11k tok, then 3 retries all return HTTP 400 1214, ERROR is emitted, the
+resume is abandoned.
+
+Excerpts:
+```
+[15:32:11.415] Firing automatic restart-resume prompt for session=... prompt_len=674
+[15:32:11.474] [github:...] -> LLM provider=zai_coding model=glm-5.1 msgs=3 ~11k tok
+[15:32:16.060] ERROR Failed to resume session github:... : HTTP 400 code 1214 The messages parameter is illegal
+```
+
+## Hypotheses
+
+1. The resume-prompt builder injects an empty assistant tool_call or stale
+   tool_result that violates Z.ai's tool-call/result-pairing requirement
+   (similar to MiniMax error 2013, fixed in B620).
+2. `ensure_tool_group_integrity` exists for the MiniMax path but may not
+   be applied for Z.ai. Need to factor it into Provider.messages_to_anthropic_json
+   or apply on the Z.ai provider entry point.
+3. The system prompt or initial user turn contains content Z.ai rejects.
+
+## Suggested next steps
+
+1. Dump the exact JSON body sent to Z.ai for this failing resume (one-shot
+   diagnostic logging guarded by an env var or session tag).
+2. Mirror the B620 fix: apply Message_history.ensure_tool_group_integrity
+   in src/provider_zai*.ml (if present) or the OpenAI-compat fallback path
+   used for zai_coding.
+3. Add a regression: a fixture history with an orphaned tool_use must not
+   produce a body that fails ensure_tool_group_integrity invariants.
+
+## Evidence
+
+- ~/.clawq/daemon.log: search 'code\":\"1214' — 3 ERRORs + ~10 retry WARNs
+- Session: github:XertroV/clawq:workflow_run:26206077293
+- Related: B617 (z.ai native Anthropic-compat path missing — already fixed),
+  B620 (MiniMax tool ordering — already fixed)
