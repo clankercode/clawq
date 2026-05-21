@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-19T17:01:49Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-05-21T20:37:14Z"
 complexity: medium
 depends_on: []
+duration_minutes: 90935.42358083148
 estimate_hours: 1
 id: B568
 priority: high
 started_at: "2026-03-19T17:01:49Z"
-status: in_progress
+status: done
 tags: []
 title: slash command `/model help` should print help rather than setting model to help. We should have a check and instead of setting the model to unknown choices, require that the user use `/model set-force provider:model`. so we need to error instead of setting and add the `/model set-force` command (the main thing being that it allows changing the model to an unknown value)
 ---
