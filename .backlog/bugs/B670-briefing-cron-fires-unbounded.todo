@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-05-21T21:03:00Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-05-21T21:08:03Z"
 complexity: medium
 depends_on: []
+duration_minutes: 5.0541458167833335
 estimate_hours: 1
 id: B670
 priority: high
 started_at: "2026-05-21T21:03:00Z"
-status: in_progress
+status: done
 tags: []
 title: Briefing cron fires unbounded parallel web_search calls with no rate-limiting or provider fallback
 ---
