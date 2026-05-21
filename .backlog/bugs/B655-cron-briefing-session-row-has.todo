@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B655
+priority: high
+status: pending
+tags: []
+title: cron:briefing session row has empty-string channel/channel_id causing unsupported channel error
+---
+session_state row for cron:briefing was created with channel='' and channel_id='' (empty strings) rather than NULL. Scheduler calls Memory.get_session_channel which returns Some('','') because it only filters for non-TEXT data, not empty TEXT. Then daemon_util.dispatch_resumed_message falls through to '_ -> unsupported channel %s' branch with empty channel name, producing the WARN 'unsupported channel ' (trailing space) at 04:00 cron run for both prompt and delivery phases. Two-part fix: (1) cleanup data — set channel=NULL,channel_id=NULL for that row; (2) defensive — Memory.get_session_channel should treat empty TEXT same as NULL. Related: B656 covers the defensive code path.

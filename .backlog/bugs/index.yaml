@@ -649,3 +649,4 @@ bugs:
     - file: B652-agent-health-watchdog-observer.todo
     - file: B653-kimi-kimi-for-code-rejects-ass.todo
     - file: B654-memory-recall-fails-on-fts5-co.todo
+    - file: B655-cron-briefing-session-row-has.todo
