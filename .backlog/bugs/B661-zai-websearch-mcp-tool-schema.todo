@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B661
+priority: high
+status: pending
+tags: []
+title: zai_websearch MCP tool schema mismatch — agent sends empty/wrong field
+---
+At 04:26 cron:briefing agent called zai_websearch with args={"query":"AI agents..."} but MCP server returned 'Error: MCP error -400: search_query cannot be empty'. So the field is called 'search_query' upstream but the agent picked 'query' (consistent with web_search_prime's other tool which uses 'search_query'). Likely the tool's input_schema as exposed by the MCP server has the right field, but either (a) the schema describes 'query' as an alias and the server rejects, or (b) the agent normalized two different MCP tools with similar names into the same call shape. Action: verify zai_websearch's input_schema discovery in src/mcp_client.ml — make sure the tool's documented param name matches what the model sees in the prompt.
