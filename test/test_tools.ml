@@ -1160,6 +1160,89 @@ let test_web_search_reads_live_config_after_registry_refresh () =
     "replaced tool no longer uses missing-config closure" true
     (not (String.equal out2 out1))
 
+(* B597: web_search retries HTTP 429 with backoff. Tests use a counter
+   that returns 429 on the first N calls and 200 on call N+1, then
+   asserts the helper retried the configured number of times. Uses
+   zero-delay backoff so the test is fast. *)
+let test_http_get_with_429_retry_succeeds_after_retry () =
+  let port =
+    let sock = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
+    Fun.protect
+      ~finally:(fun () -> Unix.close sock)
+      (fun () ->
+        Unix.setsockopt sock Unix.SO_REUSEADDR true;
+        Unix.bind sock (Unix.ADDR_INET (Unix.inet_addr_loopback, 0));
+        match Unix.getsockname sock with
+        | Unix.ADDR_INET (_, p) -> p
+        | _ -> Alcotest.fail "expected inet socket")
+  in
+  let attempt = ref 0 in
+  let stop, stopper = Lwt.wait () in
+  let callback _conn _req _body =
+    incr attempt;
+    if !attempt <= 2 then
+      Cohttp_lwt_unix.Server.respond_string ~status:`Too_many_requests
+        ~body:"slow down" ()
+    else Cohttp_lwt_unix.Server.respond_string ~status:`OK ~body:"hello" ()
+  in
+  let server =
+    Cohttp_lwt_unix.Server.create
+      ~mode:(`TCP (`Port port))
+      (Cohttp_lwt_unix.Server.make ~callback ())
+  in
+  Lwt.async (fun () -> Lwt.pick [ server; stop ]);
+  Fun.protect
+    ~finally:(fun () ->
+      if Lwt.is_sleeping stop then Lwt.wakeup_later stopper ())
+    (fun () ->
+      let status, body =
+        Lwt_main.run
+          (Tools_builtin_net.http_get_with_429_retry ~delays_s:[ 0.0; 0.0; 0.0 ]
+             ~uri:(Printf.sprintf "http://127.0.0.1:%d/q" port)
+             ~headers:[] ())
+      in
+      Alcotest.(check int) "succeeded after retries" 200 status;
+      Alcotest.(check string) "body returned" "hello" body;
+      Alcotest.(check int) "exactly 3 attempts" 3 !attempt)
+
+let test_http_get_with_429_retry_gives_up_after_max () =
+  let port =
+    let sock = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
+    Fun.protect
+      ~finally:(fun () -> Unix.close sock)
+      (fun () ->
+        Unix.setsockopt sock Unix.SO_REUSEADDR true;
+        Unix.bind sock (Unix.ADDR_INET (Unix.inet_addr_loopback, 0));
+        match Unix.getsockname sock with
+        | Unix.ADDR_INET (_, p) -> p
+        | _ -> Alcotest.fail "expected inet socket")
+  in
+  let attempt = ref 0 in
+  let stop, stopper = Lwt.wait () in
+  let callback _conn _req _body =
+    incr attempt;
+    Cohttp_lwt_unix.Server.respond_string ~status:`Too_many_requests
+      ~body:"slow down" ()
+  in
+  let server =
+    Cohttp_lwt_unix.Server.create
+      ~mode:(`TCP (`Port port))
+      (Cohttp_lwt_unix.Server.make ~callback ())
+  in
+  Lwt.async (fun () -> Lwt.pick [ server; stop ]);
+  Fun.protect
+    ~finally:(fun () ->
+      if Lwt.is_sleeping stop then Lwt.wakeup_later stopper ())
+    (fun () ->
+      let status, _ =
+        Lwt_main.run
+          (Tools_builtin_net.http_get_with_429_retry ~delays_s:[ 0.0; 0.0 ]
+             ~uri:(Printf.sprintf "http://127.0.0.1:%d/q" port)
+             ~headers:[] ())
+      in
+      Alcotest.(check int) "final status still 429" 429 status;
+      Alcotest.(check int) "1 initial + 2 retries = 3 attempts" 3 !attempt)
+
 let test_registry_remove_drops_tool () =
   let registry = Tool_registry.create () in
   let base = Runtime_config.default in
@@ -3483,6 +3566,10 @@ let suite =
       test_command_default_allowlist_includes_basics;
     Alcotest.test_case "web_search reads live config after registry refresh"
       `Quick test_web_search_reads_live_config_after_registry_refresh;
+    Alcotest.test_case "B597: http_get_with_429_retry succeeds after retries"
+      `Quick test_http_get_with_429_retry_succeeds_after_retry;
+    Alcotest.test_case "B597: http_get_with_429_retry gives up after max" `Quick
+      test_http_get_with_429_retry_gives_up_after_max;
     Alcotest.test_case "registry remove drops tool" `Quick
       test_registry_remove_drops_tool;
     Alcotest.test_case "zai websearch requires api key" `Quick

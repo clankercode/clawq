@@ -279,6 +279,23 @@ let web_fetch ~workspace_only =
     deferred = false;
   }
 
+(* B597: retry HTTP GETs that return 429 (Too Many Requests) with
+   exponential backoff. Returns (status, body) of the last attempt. The
+   delays parameter is exposed for tests so they can run without sleeps. *)
+let http_get_with_429_retry ?(delays_s = [ 1.0; 2.0; 4.0 ]) ~uri ~headers () =
+  let open Lwt.Syntax in
+  let rec loop delays =
+    let* status, body = Http_client.get ~uri ~headers in
+    if status <> 429 then Lwt.return (status, body)
+    else
+      match delays with
+      | [] -> Lwt.return (status, body)
+      | d :: rest ->
+          let* () = Lwt_unix.sleep d in
+          loop rest
+  in
+  loop delays_s
+
 let web_search ~(config : Runtime_config.t) =
   let ws_cfg = config.web_search in
   let schema =
@@ -368,14 +385,20 @@ let web_search ~(config : Runtime_config.t) =
                           limit
                       in
                       let* status, body =
-                        Http_client.get ~uri
+                        http_get_with_429_retry ~uri
                           ~headers:
                             [
                               ("X-Subscription-Token", api_key);
                               ("Accept", "application/json");
                             ]
+                          ()
                       in
-                      if status >= 400 then
+                      if status = 429 then
+                        Lwt.return
+                          "Error: Brave search API rate-limited (HTTP 429) \
+                           after 3 retries. Try again in a minute, or \
+                           configure a different search_provider (e.g. ddg)."
+                      else if status >= 400 then
                         Lwt.return
                           (Printf.sprintf "Error: Brave API returned HTTP %d"
                              status)
@@ -425,10 +448,15 @@ let web_search ~(config : Runtime_config.t) =
                           encoded_query
                       in
                       let* status, body =
-                        Http_client.get ~uri
+                        http_get_with_429_retry ~uri
                           ~headers:[ ("Accept", "application/json") ]
+                          ()
                       in
-                      if status >= 400 then
+                      if status = 429 then
+                        Lwt.return
+                          "Error: DuckDuckGo search API rate-limited (HTTP \
+                           429) after 3 retries. Try again in a minute."
+                      else if status >= 400 then
                         Lwt.return
                           (Printf.sprintf "Error: DDG API returned HTTP %d"
                              status)
