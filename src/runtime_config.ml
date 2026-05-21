@@ -43,6 +43,11 @@ let default_provider_config : provider_config =
 
 type agent_defaults = {
   primary_model : string;
+  subagent_default_model : string option;
+      (* When set, agents created with an Agent_template whose template.model
+         is None use this model instead of inheriting primary_model. Allows
+         the user to route subagents to a cheaper/different provider without
+         touching the main agent's model. None preserves legacy behavior. *)
   system_prompt : string;
   max_tool_iterations : int;
   tool_search_enabled : bool;
@@ -663,6 +668,7 @@ let default =
     agent_defaults =
       {
         primary_model = "openai-codex:gpt-5.4";
+        subagent_default_model = None;
         system_prompt = "";
         max_tool_iterations = 10;
         tool_search_enabled = false;
@@ -1311,6 +1317,10 @@ let to_json (cfg : t) : Yojson.Safe.t =
           `Assoc
             ([
                ("primary_model", `String ad.primary_model);
+               ( "subagent_default_model",
+                 match ad.subagent_default_model with
+                 | Some m -> `String m
+                 | None -> `Null );
                ("system_prompt", `String ad.system_prompt);
                ("max_tool_iterations", `Int ad.max_tool_iterations);
                ("tool_search_enabled", `Bool ad.tool_search_enabled);

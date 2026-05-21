@@ -161,6 +161,75 @@ let test_name_validation () =
     "dots invalid" false
     (Agent_template.is_valid_name "my.agent")
 
+let make_template ~name ~model : Agent_template.t =
+  {
+    name;
+    description = "test";
+    role = Agent_template.Coder;
+    goal = "g";
+    backstory = "b";
+    system_prompt = "sp";
+    model;
+    max_tool_iterations = None;
+    allowed_tools = [];
+    disallowed_tools = [];
+    tool_search_enabled = None;
+    reasoning_effort = None;
+    cwd = None;
+    source = Agent_template.Builtin;
+    metadata = [];
+  }
+
+let make_config ~primary ~subagent_default : Runtime_config.t =
+  let d = Runtime_config.default in
+  {
+    d with
+    agent_defaults =
+      {
+        d.agent_defaults with
+        primary_model = primary;
+        subagent_default_model = subagent_default;
+      };
+  }
+
+let test_subagent_default_model_applies () =
+  let config =
+    make_config ~primary:"primary:m1"
+      ~subagent_default:(Some "kimi_coding:kimi-for-code")
+  in
+  let tmpl = make_template ~name:"sub" ~model:None in
+  let cfg2 =
+    Agent.apply_subagent_default_model ~config ~agent_template:(Some tmpl)
+  in
+  Alcotest.(check string)
+    "subagent model wins over primary" "kimi_coding:kimi-for-code"
+    cfg2.agent_defaults.primary_model
+
+let test_template_model_wins_over_default () =
+  let config =
+    make_config ~primary:"primary:m1"
+      ~subagent_default:(Some "kimi_coding:kimi-for-code")
+  in
+  let tmpl = make_template ~name:"sub" ~model:(Some "openai-codex:gpt-5.4") in
+  let cfg2 =
+    Agent.apply_subagent_default_model ~config ~agent_template:(Some tmpl)
+  in
+  (* Template.model is honored at provider-call time; the function leaves
+     config.primary_model alone when the template explicitly chose. *)
+  Alcotest.(check string)
+    "primary preserved when template.model set" "primary:m1"
+    cfg2.agent_defaults.primary_model
+
+let test_no_template_no_override () =
+  let config =
+    make_config ~primary:"primary:m1"
+      ~subagent_default:(Some "kimi_coding:kimi-for-code")
+  in
+  let cfg2 = Agent.apply_subagent_default_model ~config ~agent_template:None in
+  Alcotest.(check string)
+    "no override when no template" "primary:m1"
+    cfg2.agent_defaults.primary_model
+
 let test_to_frontmatter_roundtrip () =
   match
     Agent_template.parse_template ~source_path:"/tmp/test.md" valid_template_md
@@ -400,4 +469,12 @@ let suite =
     Alcotest.test_case "parse cwd field" `Quick test_parse_cwd_field;
     Alcotest.test_case "cwd frontmatter roundtrip" `Quick
       test_cwd_frontmatter_roundtrip;
+    Alcotest.test_case
+      "subagent_default_model overrides primary when template.model=None" `Quick
+      test_subagent_default_model_applies;
+    Alcotest.test_case
+      "subagent_default_model does not override explicit template.model" `Quick
+      test_template_model_wins_over_default;
+    Alcotest.test_case "subagent_default_model not applied without a template"
+      `Quick test_no_template_no_override;
   ]

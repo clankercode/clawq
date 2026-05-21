@@ -27,7 +27,29 @@ let capture_active_workspace_file_state_for_config (config : Runtime_config.t) =
       in
       (file, digest))
 
+(* When an agent_template is supplied but its own model field is None, allow
+   agent_defaults.subagent_default_model to take over. The template-level
+   model still wins when it is set, preserving the strongest preference. *)
+let apply_subagent_default_model ~(config : Runtime_config.t)
+    ~(agent_template : Agent_template.t option) =
+  match agent_template with
+  | None -> config
+  | Some tmpl -> (
+      match tmpl.Agent_template.model with
+      | Some _ -> config
+      | None -> (
+          match config.agent_defaults.subagent_default_model with
+          | None -> config
+          | Some m when String.trim m = "" -> config
+          | Some m ->
+              {
+                config with
+                agent_defaults =
+                  { config.agent_defaults with primary_model = m };
+              }))
+
 let create ~config ?tool_registry ?agent_template ?cwd () =
+  let config = apply_subagent_default_model ~config ~agent_template in
   let system_prompt =
     Prompt_builder.build ~config ~tool_registry ?agent_template ()
   in

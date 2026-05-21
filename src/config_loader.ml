@@ -158,6 +158,13 @@ let parse_config ?(resolve_secrets = true) json =
         try ad |> member "primary_model" |> to_string
         with _ -> default.agent_defaults.primary_model
       in
+      let subagent_default_model =
+        try
+          match ad |> member "subagent_default_model" with
+          | `String s when String.trim s <> "" -> Some (String.trim s)
+          | _ -> None
+        with _ -> default.agent_defaults.subagent_default_model
+      in
       let system_prompt =
         try ad |> member "system_prompt" |> to_string
         with _ -> default.agent_defaults.system_prompt
@@ -208,6 +215,7 @@ let parse_config ?(resolve_secrets = true) json =
       in
       ({
          primary_model;
+         subagent_default_model;
          system_prompt;
          max_tool_iterations;
          tool_search_enabled;
