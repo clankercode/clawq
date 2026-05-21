@@ -1,0 +1,23 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B673
+priority: high
+status: pending
+tags: []
+title: Add hard turn-abort limit on consecutive invalid tool calls and sanitize history before restart-resume
+---
+The B622 escalation in `src/agent.ml` tracks `last_missing_required_key`/`last_missing_required_count` per tool, escalating error message strength, but it never terminates the agent turn. A model stuck in a degenerate state (emitting `{}` for `shell_exec`, then `file_read`) will loop forever, burning tokens and triggering repeated watchdog "SameErrorString" stuck detections. After daemon restart, `src/daemon_util.ml` fires an automatic restart-resume that replays the full broken history verbatim (stuck detections, system prompts, background task completions, user interruptions). The model immediately resumes the same empty-argument pattern, and because the agent record is recreated, the escalation counter resets to 0, so the first post-restart failure is treated as a fresh first-time error rather than a continuation of a known loop.
+
+Two structural fixes needed:
+
+1. **Hard circuit-breaker in `src/agent.ml`**: after a total of N (e.g. 3) consecutive invalid tool calls across all tools, terminate the current turn with a synthetic stop signal rather than letting the model try again. This caps cost and prevents indefinite looping.
+
+2. **History sanitization before restart-resume in `src/daemon_util.ml`/`src/session_core.ml`**: for sessions whose last state was "stuck" (tracked in session state or detected by last-turn watchdog signal), truncate or summarize the broken tail of the conversation before injecting the restart-resume prompt. Replaying stuck-detection messages and system scaffolding creates an unrecoverable context that reliably degrades model output.
+
+Additionally consider persisting `last_missing_required_count` into session state so restart-resume can seed the new agent with the pre-restart loop depth, triggering the "STOP" message immediately.
+
+--
+Auto-filed by clawq postmortem for session teams:personal:a:1JPVFngEx3FRRVWXUe5fb97HWjfsCdtDImgKuD3u_N6IpgOD0euB5bnQHI9RsDQuK3qOG_5Jyhq4wWGr0IczaxEXPN5vIGppdngtwZucpyhDNrW1_YJCrXnHrksQ5fCuT (pattern: SameErrorString: error repeated 3 times: Error: missing required parameter 'command' for tool shell_exec. Required parameters: command (string). Example: shell_e...).
+Postmortem doc: /home/xertrov/.clawq/postmortems/2026-05-22T073450-teams:personal:a:1JPVFngEx3FRRVWXUe5fb97HWjfsCdtDImgKuD3u_N6IpgOD0euB5bnQHI9RsDQuK3qOG_5Jyhq4wWGr0IczaxEXPN5vIGppdngtwZucpyhDNrW1_YJCrXnHrksQ5fCuT.md
