@@ -1005,6 +1005,14 @@ let context_window_table =
     ("deepseek-r1", 128000);
     ("command-r-plus", 128000);
     ("command-r", 128000);
+    ("minimax-m2", 204800);
+    ("minimax-m2-highspeed", 204800);
+    ("minimax-m2.1", 204800);
+    ("minimax-m2.1-highspeed", 204800);
+    ("minimax-m2.5", 204800);
+    ("minimax-m2.5-highspeed", 204800);
+    ("minimax-m2.7", 204800);
+    ("minimax-m2.7-highspeed", 204800);
   ]
 
 let strip_date_suffix_cfg s =

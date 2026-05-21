@@ -230,6 +230,21 @@ let test_context_window_deepseek () =
     "deepseek-r1" (Some 128000)
     (Runtime_config.context_window_for_model "deepseek-r1")
 
+let test_context_window_minimax () =
+  let check label name expected =
+    Alcotest.(check (option int))
+      label (Some expected)
+      (Runtime_config.context_window_for_model name)
+  in
+  check "MiniMax-M2 canonical" "MiniMax-M2" 204800;
+  check "MiniMax-M2.1 canonical" "MiniMax-M2.1" 204800;
+  check "MiniMax-M2.5 canonical" "MiniMax-M2.5" 204800;
+  check "MiniMax-M2.7 canonical" "MiniMax-M2.7" 204800;
+  check "MiniMax-M2.7-highspeed canonical" "MiniMax-M2.7-highspeed" 204800;
+  check "minimax:MiniMax-M2.7 provider prefix" "minimax:MiniMax-M2.7" 204800;
+  check "minimax/MiniMax-M2.7 legacy prefix" "minimax/MiniMax-M2.7" 204800;
+  check "lowercase variant" "minimax-m2.7" 204800
+
 let test_find_provider_first_wins () =
   let providers =
     [
@@ -949,6 +964,8 @@ let suite =
       test_context_window_claude3;
     Alcotest.test_case "context window deepseek" `Quick
       test_context_window_deepseek;
+    Alcotest.test_case "context window minimax variants" `Quick
+      test_context_window_minimax;
     Alcotest.test_case "find provider first wins" `Quick
       test_find_provider_first_wins;
     Alcotest.test_case "find provider with codex oauth auth" `Quick

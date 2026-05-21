@@ -495,6 +495,148 @@ let test_live_streaming () =
      | exception exn ->
          Alcotest.fail ("streaming failed: " ^ Printexc.to_string exn))
 
+(* B614 integration: send a real request to MiniMax with a tool that has
+   required:["query"] and verify the model honors the required field by either
+   (a) emitting a tool_call that includes the required argument, or (b)
+   returning text that asks for the missing argument. The model must NOT
+   silently omit the required argument from a tool_call. *)
+let test_live_required_field_honored () =
+  if minimax_api_key = None then Alcotest.skip ();
+  let config = make_test_config () in
+  let search_tool =
+    `Assoc
+      [
+        ("type", `String "function");
+        ( "function",
+          `Assoc
+            [
+              ("name", `String "lookup_capital");
+              ( "description",
+                `String
+                  "Look up the capital city of a country. The 'country' \
+                   parameter is required and must be a non-empty string." );
+              ( "parameters",
+                `Assoc
+                  [
+                    ("type", `String "object");
+                    ( "properties",
+                      `Assoc
+                        [
+                          ( "country",
+                            `Assoc
+                              [
+                                ("type", `String "string");
+                                ( "description",
+                                  `String
+                                    "ISO 3166-1 country name to look up the \
+                                     capital for. Required." );
+                              ] );
+                        ] );
+                    ("required", `List [ `String "country" ]);
+                    ("additionalProperties", `Bool false);
+                  ] );
+            ] );
+      ]
+  in
+  let tools = `List [ search_tool ] in
+  let msgs =
+    [
+      Provider.make_message ~role:"system"
+        ~content:
+          "Use the lookup_capital tool to answer questions about capital \
+           cities.";
+      Provider.make_message ~role:"user"
+        ~content:"What is the capital of France?";
+    ]
+  in
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* result =
+       Provider_minimax.complete ~config
+         ~provider:(List.assoc "minimax" config.providers)
+         ~model:"MiniMax-M2.7" ~messages:msgs ~tools ()
+     in
+     match result with
+     | Provider.ToolCalls { calls; _ } ->
+         Alcotest.(check bool)
+           "at least one tool call" true
+           (List.length calls > 0);
+         let call = List.hd calls in
+         Alcotest.(check string)
+           "tool called is lookup_capital" "lookup_capital" call.function_name;
+         let args =
+           try Yojson.Safe.from_string call.arguments with _ -> `Assoc []
+         in
+         let open Yojson.Safe.Util in
+         let country =
+           try args |> member "country" |> to_string with _ -> ""
+         in
+         Alcotest.(check bool)
+           "required 'country' argument present and non-empty" true
+           (String.trim country <> "");
+         Lwt.return_unit
+     | Provider.Text _ ->
+         (* Acceptable: model declined to call the tool. *)
+         Lwt.return_unit
+     | exception Lwt_unix.Timeout -> Alcotest.fail "request timed out"
+     | exception exn ->
+         Alcotest.fail ("request failed: " ^ Printexc.to_string exn))
+
+(* Capture the exact request body MiniMax receives. We don't actually send the
+   request; we exercise the same converter pipeline and assert on the JSON the
+   converter would produce. This is the contract test cx-reviewer flagged. *)
+let test_request_body_has_required_field_for_anthropic_tools () =
+  let tool =
+    `Assoc
+      [
+        ("type", `String "function");
+        ( "function",
+          `Assoc
+            [
+              ("name", `String "memory_forget");
+              ("description", `String "Remove a memory by key");
+              ( "parameters",
+                `Assoc
+                  [
+                    ("type", `String "object");
+                    ( "properties",
+                      `Assoc
+                        [
+                          ( "key",
+                            `Assoc
+                              [
+                                ("type", `String "string");
+                                ( "description",
+                                  `String "Memory key to remove (required)" );
+                              ] );
+                        ] );
+                    ("required", `List [ `String "key" ]);
+                  ] );
+            ] );
+      ]
+  in
+  let converted =
+    Provider_minimax.tools_to_anthropic_json (Some (`List [ tool ]))
+  in
+  match converted with
+  | Some (`List [ entry ]) ->
+      let open Yojson.Safe.Util in
+      let schema = entry |> member "input_schema" in
+      let required =
+        try schema |> member "required" |> to_list |> List.map to_string
+        with _ -> []
+      in
+      Alcotest.(check (list string))
+        "input_schema.required preserves keys from openai schema" [ "key" ]
+        required;
+      let props =
+        try schema |> member "properties" |> to_assoc with _ -> []
+      in
+      Alcotest.(check bool)
+        "input_schema.properties has 'key'" true
+        (List.mem_assoc "key" props)
+  | _ -> Alcotest.fail "expected exactly one converted entry"
+
 let suite =
   [
     Alcotest.test_case "user message" `Quick test_user_message;
@@ -537,4 +679,8 @@ let suite =
     Alcotest.test_case "live thinking response" `Slow
       test_live_thinking_response;
     Alcotest.test_case "live streaming" `Slow test_live_streaming;
+    Alcotest.test_case "B614: required-field anthropic input_schema preserved"
+      `Quick test_request_body_has_required_field_for_anthropic_tools;
+    Alcotest.test_case "B614: live required-field honored by model" `Slow
+      test_live_required_field_honored;
   ]

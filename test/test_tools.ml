@@ -3080,6 +3080,317 @@ let test_every_builtin_tool_has_required_field () =
         true has_required)
     tools
 
+(* B614 contract: for every registered tool (with full optional surfaces), if
+   any property's description string mentions "(required)" or "required.", the
+   property MUST appear in the schema's required[] list. Catches drift where
+   a tool author marks a parameter as required in prose but forgets the JSON
+   Schema required array — that gap means models served Anthropic-format tool
+   definitions never see the parameter as mandatory. *)
+let test_every_builtin_tool_required_description_matches_schema () =
+  let registry = Tool_registry.create () in
+  let config_with_search =
+    {
+      Runtime_config.default with
+      web_search =
+        Some
+          {
+            Runtime_config.search_provider = "ddg";
+            search_api_key = "";
+            num_results = 5;
+            search_base_url = None;
+          };
+    }
+  in
+  let sandbox =
+    Sandbox.create ~backend:Sandbox.None
+      ~workspace:(Runtime_config.effective_workspace config_with_search)
+      ~extra_allowed_paths:[] ~workspace_only:false ()
+  in
+  let db = Memory.init ~db_path:":memory:" () in
+  let dummy_send ~text:_ = Lwt.return_unit in
+  Tools_builtin.register_all ~config:config_with_search ~sandbox ~db:(Some db)
+    ~send_fn:(Some dummy_send) registry;
+  let tools = Tool_registry.list registry in
+  let lower_contains haystack needle =
+    let hay = String.lowercase_ascii haystack in
+    let nd = String.lowercase_ascii needle in
+    let hlen = String.length hay in
+    let nlen = String.length nd in
+    if nlen = 0 then true
+    else
+      let rec loop i =
+        if i + nlen > hlen then false
+        else if String.sub hay i nlen = nd then true
+        else loop (i + 1)
+      in
+      loop 0
+  in
+  let problems = ref [] in
+  List.iter
+    (fun (t : Tool.t) ->
+      let open Yojson.Safe.Util in
+      let properties =
+        try t.parameters_schema |> member "properties" |> to_assoc
+        with _ -> []
+      in
+      let required_list =
+        try
+          t.parameters_schema |> member "required" |> to_list
+          |> List.map to_string
+        with _ -> []
+      in
+      List.iter
+        (fun (prop_name, prop_def) ->
+          let desc =
+            try prop_def |> member "description" |> to_string with _ -> ""
+          in
+          let prose_says_required =
+            lower_contains desc "(required)"
+            || lower_contains desc "required."
+            || (lower_contains desc "required" && lower_contains desc "must ")
+          in
+          if prose_says_required && not (List.mem prop_name required_list) then
+            problems :=
+              Printf.sprintf
+                "tool '%s' parameter '%s' description claims required but \
+                 schema required[] does not include it"
+                t.name prop_name
+              :: !problems)
+        properties)
+    tools;
+  if !problems <> [] then
+    Alcotest.fail (String.concat "\n" (List.rev !problems))
+
+(* Roundtrip every registered tool's schema through both OpenAI and
+   Anthropic-compatible converters. Verify required[] and properties survive
+   intact. *)
+let test_tool_schemas_roundtrip_openai_and_anthropic () =
+  let registry = Tool_registry.create () in
+  let config = Runtime_config.default in
+  let sandbox =
+    Sandbox.create ~backend:Sandbox.None
+      ~workspace:(Runtime_config.effective_workspace config)
+      ~extra_allowed_paths:[] ~workspace_only:false ()
+  in
+  let db = Memory.init ~db_path:":memory:" () in
+  let dummy_send ~text:_ = Lwt.return_unit in
+  Tools_builtin.register_all ~config ~sandbox ~db:(Some db)
+    ~send_fn:(Some dummy_send) registry;
+  let openai_json = Tool_registry.to_openai_json registry in
+  let anthropic_json =
+    Provider_anthropic.tools_to_anthropic_json (Some openai_json)
+  in
+  let minimax_json =
+    Provider_minimax.tools_to_anthropic_json (Some openai_json)
+  in
+  let registered_tools = Tool_registry.list registry in
+  let openai_list =
+    match openai_json with
+    | `List ts -> ts
+    | _ -> Alcotest.fail "expected `List"
+  in
+  let anthropic_list =
+    match anthropic_json with
+    | Some (`List ts) -> ts
+    | _ -> Alcotest.fail "anthropic conversion returned non-list"
+  in
+  let minimax_list =
+    match minimax_json with
+    | Some (`List ts) -> ts
+    | _ -> Alcotest.fail "minimax conversion returned non-list"
+  in
+  Alcotest.(check int)
+    "openai list size matches registry"
+    (List.length registered_tools)
+    (List.length openai_list);
+  Alcotest.(check int)
+    "anthropic list size matches registry"
+    (List.length registered_tools)
+    (List.length anthropic_list);
+  Alcotest.(check int)
+    "minimax list size matches registry"
+    (List.length registered_tools)
+    (List.length minimax_list);
+  let extract_required json =
+    try
+      let open Yojson.Safe.Util in
+      json |> member "required" |> to_list |> List.map to_string
+    with _ -> []
+  in
+  let extract_properties_keys json =
+    try
+      let open Yojson.Safe.Util in
+      json |> member "properties" |> to_assoc |> List.map fst
+    with _ -> []
+  in
+  (* Index the anthropic/minimax converted lists by tool name to avoid
+     ordering dependence between the registry and the JSON-format outputs. *)
+  let by_name json_list =
+    let open Yojson.Safe.Util in
+    List.map (fun j -> (j |> member "name" |> to_string, j)) json_list
+  in
+  let anthropic_index = by_name anthropic_list in
+  let minimax_index = by_name minimax_list in
+  let find_by_name name idx =
+    try Some (List.assoc name idx) with Not_found -> None
+  in
+  List.iter
+    (fun (t : Tool.t) ->
+      let open Yojson.Safe.Util in
+      let anthropic =
+        match find_by_name t.name anthropic_index with
+        | Some j -> j
+        | None ->
+            Alcotest.fail
+              (Printf.sprintf "anthropic conversion missing tool %s" t.name)
+      in
+      let input_schema = anthropic |> member "input_schema" in
+      let original_required = extract_required t.parameters_schema in
+      let converted_required = extract_required input_schema in
+      Alcotest.(check (list string))
+        (Printf.sprintf
+           "tool %s: anthropic input_schema.required matches original" t.name)
+        original_required converted_required;
+      let original_props = extract_properties_keys t.parameters_schema in
+      let converted_props = extract_properties_keys input_schema in
+      Alcotest.(check (list string))
+        (Printf.sprintf "tool %s: anthropic input_schema.properties keys match"
+           t.name)
+        original_props converted_props)
+    registered_tools;
+  List.iter
+    (fun (t : Tool.t) ->
+      let open Yojson.Safe.Util in
+      let minimax =
+        match find_by_name t.name minimax_index with
+        | Some j -> j
+        | None ->
+            Alcotest.fail
+              (Printf.sprintf "minimax conversion missing tool %s" t.name)
+      in
+      let input_schema = minimax |> member "input_schema" in
+      let original_required = extract_required t.parameters_schema in
+      let converted_required = extract_required input_schema in
+      Alcotest.(check (list string))
+        (Printf.sprintf
+           "tool %s: minimax input_schema.required matches original" t.name)
+        original_required converted_required)
+    registered_tools
+
+(* B614 contract: for every registered tool with a non-empty required[],
+   calling validate_required_params with {} returns Error mentioning each
+   missing param name. Catches typos in required[] (e.g., a name in required
+   that doesn't actually map to a real property the invoke reads). *)
+let test_every_required_param_is_enforced_at_runtime () =
+  let registry = Tool_registry.create () in
+  let config_with_search =
+    {
+      Runtime_config.default with
+      web_search =
+        Some
+          {
+            Runtime_config.search_provider = "ddg";
+            search_api_key = "";
+            num_results = 5;
+            search_base_url = None;
+          };
+    }
+  in
+  let sandbox =
+    Sandbox.create ~backend:Sandbox.None
+      ~workspace:(Runtime_config.effective_workspace config_with_search)
+      ~extra_allowed_paths:[] ~workspace_only:false ()
+  in
+  let db = Memory.init ~db_path:":memory:" () in
+  let dummy_send ~text:_ = Lwt.return_unit in
+  Tools_builtin.register_all ~config:config_with_search ~sandbox ~db:(Some db)
+    ~send_fn:(Some dummy_send) registry;
+  let tools = Tool_registry.list registry in
+  List.iter
+    (fun (t : Tool.t) ->
+      let open Yojson.Safe.Util in
+      let required =
+        try
+          t.parameters_schema |> member "required" |> to_list
+          |> List.map to_string
+        with _ -> []
+      in
+      if required <> [] then begin
+        match Tool.validate_required_params t (`Assoc []) with
+        | Ok () ->
+            Alcotest.fail
+              (Printf.sprintf
+                 "tool %s required=[%s] but validate_required_params(`Assoc \
+                  []) returned Ok"
+                 t.name
+                 (String.concat ";" required))
+        | Error msg ->
+            List.iter
+              (fun req_name ->
+                let needle = "'" ^ req_name ^ "'" in
+                let hay = msg in
+                let contains =
+                  try
+                    let _ =
+                      Str.search_forward (Str.regexp_string needle) hay 0
+                    in
+                    true
+                  with Not_found -> false
+                in
+                Alcotest.(check bool)
+                  (Printf.sprintf
+                     "tool %s validate error mentions required param '%s'"
+                     t.name req_name)
+                  true contains)
+              required
+      end)
+    tools
+
+(* B614 / deferred tool defensive coverage: if a tool is marked deferred=true
+   and tool_search is enabled, the model still needs the parameters schema or
+   it cannot satisfy required[]. Verify tool_to_deferred_json preserves
+   parameters (regression for cx-reviewer audit finding). *)
+let test_deferred_tool_json_preserves_parameters () =
+  let mock_tool : Tool.t =
+    {
+      name = "test_deferred";
+      description = "deferred test tool";
+      parameters_schema =
+        `Assoc
+          [
+            ("type", `String "object");
+            ( "properties",
+              `Assoc
+                [
+                  ( "needle",
+                    `Assoc
+                      [
+                        ("type", `String "string");
+                        ("description", `String "Search needle (required)");
+                      ] );
+                ] );
+            ("required", `List [ `String "needle" ]);
+            ("additionalProperties", `Bool false);
+          ];
+      invoke = (fun ?context:_ _args -> Lwt.return "ok");
+      invoke_stream = None;
+      risk_level = Tool.Low;
+      deferred = true;
+    }
+  in
+  let json = Tool_registry.tool_to_deferred_json mock_tool in
+  let open Yojson.Safe.Util in
+  let fn = json |> member "function" in
+  let params = try fn |> member "parameters" with _ -> `Null in
+  Alcotest.(check bool)
+    "deferred tool JSON includes parameters" true (params <> `Null);
+  let required =
+    try params |> member "required" |> to_list |> List.map to_string
+    with _ -> []
+  in
+  Alcotest.(check (list string))
+    "deferred tool preserves required[]" [ "needle" ] required
+
 let suite =
   [
     Alcotest.test_case "normalize absolute" `Quick test_normalize_absolute;
@@ -3282,4 +3593,13 @@ let suite =
       test_list_dir_uses_effective_cwd;
     Alcotest.test_case "B604: every builtin tool has 'required' in schema"
       `Quick test_every_builtin_tool_has_required_field;
+    Alcotest.test_case
+      "B614: every builtin tool required-description matches schema" `Quick
+      test_every_builtin_tool_required_description_matches_schema;
+    Alcotest.test_case "B614: tool schemas roundtrip openai+anthropic" `Quick
+      test_tool_schemas_roundtrip_openai_and_anthropic;
+    Alcotest.test_case "B614: every required param enforced at runtime" `Quick
+      test_every_required_param_is_enforced_at_runtime;
+    Alcotest.test_case "B614: deferred tool JSON preserves parameters" `Quick
+      test_deferred_tool_json_preserves_parameters;
   ]

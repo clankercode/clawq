@@ -49,8 +49,11 @@ let tool_to_deferred_json (t : Tool.t) =
       ("type", `String "function");
       ( "function",
         `Assoc
-          [ ("name", `String t.name); ("description", `String t.description) ]
-      );
+          [
+            ("name", `String t.name);
+            ("description", `String t.description);
+            ("parameters", t.parameters_schema);
+          ] );
     ]
 
 let tool_search_entry =
