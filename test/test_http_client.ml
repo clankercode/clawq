@@ -156,8 +156,94 @@ let test_labeled_timeout_includes_label () =
     "contains label" true
     (starts_with ~prefix:"HTTP timeout in test_fn" msg)
 
+(* B659: default UA injection when caller didn't supply one. *)
+let test_ensure_user_agent_injects_default () =
+  let injected = Http_client.ensure_user_agent [ ("X-Custom", "v") ] in
+  Alcotest.(check bool)
+    "UA added" true
+    (List.exists
+       (fun (k, _) -> String.lowercase_ascii k = "user-agent")
+       injected);
+  Alcotest.(check bool)
+    "custom preserved" true
+    (List.assoc "X-Custom" injected = "v")
+
+(* B659: caller's UA is preserved. *)
+let test_ensure_user_agent_preserves_existing () =
+  let injected =
+    Http_client.ensure_user_agent [ ("User-Agent", "custom/1.0") ]
+  in
+  Alcotest.(check int)
+    "no duplicate UA" 1
+    (List.length
+       (List.filter
+          (fun (k, _) -> String.lowercase_ascii k = "user-agent")
+          injected));
+  Alcotest.(check string)
+    "custom UA preserved" "custom/1.0"
+    (List.assoc "User-Agent" injected)
+
+(* B658: stream_with_idle_timeout fails when no chunk arrives within the
+   timeout, even if the underlying stream isn't closed. *)
+let test_stream_idle_timeout_fires () =
+  let raw_stream =
+    Lwt_stream.from (fun () ->
+        let open Lwt.Syntax in
+        let* () = Lwt_unix.sleep 10.0 in
+        Lwt.return None)
+  in
+  let wrapped =
+    Http_client.stream_with_idle_timeout ~timeout_s:0.05 ~label:"test_idle"
+      raw_stream
+  in
+  let msg =
+    Lwt_main.run
+      (Lwt.catch
+         (fun () -> Lwt_stream.get wrapped |> Lwt.map (fun _ -> ""))
+         (function Failure m -> Lwt.return m | exn -> Lwt.reraise exn))
+  in
+  Alcotest.(check bool)
+    "idle timeout error mentions label" true
+    (try
+       ignore (Str.search_forward (Str.regexp_string "test_idle") msg 0);
+       true
+     with Not_found -> false);
+  Alcotest.(check bool)
+    "idle timeout mentions 'idle'" true
+    (try
+       ignore (Str.search_forward (Str.regexp_string "idle") msg 0);
+       true
+     with Not_found -> false)
+
+(* B658: stream_with_idle_timeout passes chunks through when they arrive
+   before the timeout. *)
+let test_stream_idle_timeout_passes_chunks () =
+  let chunks = ref [ "a"; "b"; "c" ] in
+  let raw_stream =
+    Lwt_stream.from (fun () ->
+        match !chunks with
+        | [] -> Lwt.return None
+        | h :: t ->
+            chunks := t;
+            Lwt.return (Some h))
+  in
+  let wrapped =
+    Http_client.stream_with_idle_timeout ~timeout_s:5.0 ~label:"test_pass"
+      raw_stream
+  in
+  let collected = Lwt_main.run (Lwt_stream.to_list wrapped) in
+  Alcotest.(check (list string)) "all chunks pass" [ "a"; "b"; "c" ] collected
+
 let suite =
   [
+    Alcotest.test_case "B659: ensure_user_agent injects default" `Quick
+      test_ensure_user_agent_injects_default;
+    Alcotest.test_case "B659: ensure_user_agent preserves existing" `Quick
+      test_ensure_user_agent_preserves_existing;
+    Alcotest.test_case "B658: stream idle timeout fires" `Quick
+      test_stream_idle_timeout_fires;
+    Alcotest.test_case "B658: stream idle timeout passes chunks" `Quick
+      test_stream_idle_timeout_passes_chunks;
     Alcotest.test_case "get times out before headers" `Quick
       test_get_times_out_before_headers;
     Alcotest.test_case "get times out on stalled body" `Quick

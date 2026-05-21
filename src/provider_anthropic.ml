@@ -251,7 +251,9 @@ let complete_streaming ~(config : Runtime_config.t)
   Logs.info (fun m ->
       m "Anthropic stream request to %s model=%s msgs=%d" uri model
         (List.length messages));
-  Http_client.post_stream_with ~uri ~headers ~body ~label:"Anthropic API error"
+  (* B658: idle timeout from provider.http_timeout_s. *)
+  Http_client.post_stream_with ?stream_idle_timeout_s:provider.http_timeout_s
+    ~uri ~headers ~body ~label:"Anthropic API error"
     ~on_ok:(fun stream ->
       (* Parse Anthropic SSE stream.
            Events of interest:

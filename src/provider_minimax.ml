@@ -549,8 +549,9 @@ let complete_streaming ~(config : Runtime_config.t)
     Lwt.fail_with
       (Printf.sprintf "MiniMax API error (HTTP %d): %s" r.status err_body)
   in
-  Http_client.post_stream_with ~uri ~headers ~body ~label:"MiniMax API error"
-    ~on_error
+  (* B658: per-chunk idle timeout via provider.http_timeout_s. *)
+  Http_client.post_stream_with ?stream_idle_timeout_s:provider.http_timeout_s
+    ~uri ~headers ~body ~label:"MiniMax API error" ~on_error
     ~on_ok:(fun stream ->
       let buf = Buffer.create 256 in
       let state = make_stream_state ~model in

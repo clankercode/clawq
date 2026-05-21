@@ -1721,7 +1721,12 @@ let complete_stream ~(config : Runtime_config.t) ~messages ?tools ?session_key
           m "%s-> LLM provider=%s model=%s msgs=%d ~%dk tok" sk_tag
             provider_name model (List.length messages)
             (estimate_messages_tokens messages / 1000));
-      Http_client.post_stream_with ~uri ~headers ~body ~label:"LLM API error"
+      (* B658: gate body-stream reads on provider.http_timeout_s so a
+         dropped TCP / silent stall surfaces as a clear failure instead of
+         wedging the agent loop. *)
+      Http_client.post_stream_with
+        ?stream_idle_timeout_s:provider.http_timeout_s ~uri ~headers ~body
+        ~label:"LLM API error"
         ~on_ok:(fun stream ->
           process_sse_stream
             ~thinking_style:(thinking_style_of_provider ~provider_name provider)

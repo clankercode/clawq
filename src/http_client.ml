@@ -23,6 +23,19 @@ let ensure_debug_init () =
 
 let cohttp_headers_to_list h = Cohttp.Header.to_list h
 
+(* B659: some providers (e.g. Kimi For Coding at api.kimi.com/coding/v1)
+   gate API access by User-Agent. Cohttp's default "ocaml-cohttp/X.Y" can
+   silently get filtered (or hang via TLS-stall in the gateway) so always
+   inject our own UA when the caller didn't supply one. *)
+let default_user_agent () =
+  Printf.sprintf "clawq/%s (https://github.com/xertrov/clawq)"
+    Build_info.version_dev
+
+let ensure_user_agent headers =
+  if List.exists (fun (k, _) -> String.lowercase_ascii k = "user-agent") headers
+  then headers
+  else ("User-Agent", default_user_agent ()) :: headers
+
 let labeled_timeout ~label timeout_s f =
   Lwt.catch
     (fun () -> Lwt_unix.with_timeout timeout_s f)
@@ -36,7 +49,9 @@ let post_json ~uri ~headers ~body =
   let open Lwt.Syntax in
   ensure_debug_init ();
   let started = Unix.gettimeofday () in
-  let all_headers = ("Content-Type", "application/json") :: headers in
+  let all_headers =
+    ensure_user_agent (("Content-Type", "application/json") :: headers)
+  in
   labeled_timeout ~label:"post_json" !default_timeout_s (fun () ->
       let uri_parsed = Uri.of_string uri in
       let cohttp_headers = Cohttp.Header.of_list all_headers in
@@ -61,7 +76,9 @@ let post_json_with_timeout ~timeout_s ~uri ~headers ~body =
   let open Lwt.Syntax in
   ensure_debug_init ();
   let started = Unix.gettimeofday () in
-  let all_headers = ("Content-Type", "application/json") :: headers in
+  let all_headers =
+    ensure_user_agent (("Content-Type", "application/json") :: headers)
+  in
   labeled_timeout ~label:"post_json" timeout_s (fun () ->
       let uri_parsed = Uri.of_string uri in
       let cohttp_headers = Cohttp.Header.of_list all_headers in
@@ -86,7 +103,9 @@ let put_json ~uri ~headers ~body =
   let open Lwt.Syntax in
   ensure_debug_init ();
   let started = Unix.gettimeofday () in
-  let all_headers = ("Content-Type", "application/json") :: headers in
+  let all_headers =
+    ensure_user_agent (("Content-Type", "application/json") :: headers)
+  in
   labeled_timeout ~label:"put_json" !default_timeout_s (fun () ->
       let uri_parsed = Uri.of_string uri in
       let cohttp_headers = Cohttp.Header.of_list all_headers in
@@ -111,7 +130,9 @@ let post_json_with_headers ~uri ~headers ~body =
   let open Lwt.Syntax in
   ensure_debug_init ();
   let started = Unix.gettimeofday () in
-  let all_headers = ("Content-Type", "application/json") :: headers in
+  let all_headers =
+    ensure_user_agent (("Content-Type", "application/json") :: headers)
+  in
   labeled_timeout ~label:"post_json_with_headers" !default_timeout_s (fun () ->
       let uri_parsed = Uri.of_string uri in
       let cohttp_headers = Cohttp.Header.of_list all_headers in
@@ -197,7 +218,9 @@ let put_raw ~uri ~headers ~content_type ~body =
   let open Lwt.Syntax in
   ensure_debug_init ();
   let started = Unix.gettimeofday () in
-  let all_headers = ("Content-Type", content_type) :: headers in
+  let all_headers =
+    ensure_user_agent (("Content-Type", content_type) :: headers)
+  in
   labeled_timeout ~label:"put_raw" !default_timeout_s (fun () ->
       let uri_parsed = Uri.of_string uri in
       let cohttp_headers = Cohttp.Header.of_list all_headers in
@@ -222,7 +245,7 @@ let put_empty ~uri ~headers =
   let open Lwt.Syntax in
   ensure_debug_init ();
   let started = Unix.gettimeofday () in
-  let all_headers = ("Content-Length", "0") :: headers in
+  let all_headers = ensure_user_agent (("Content-Length", "0") :: headers) in
   labeled_timeout ~label:"put_empty" !default_timeout_s (fun () ->
       let uri_parsed = Uri.of_string uri in
       let cohttp_headers = Cohttp.Header.of_list all_headers in
@@ -255,14 +278,34 @@ type stream_response = {
   drain : unit -> unit Lwt.t;
 }
 
+(* B658: idle-timeout wrapper for body streams. When the upstream stops
+   sending chunks (TCP half-close, dropped connection, server hang) and the
+   consumer keeps awaiting more data, the call would otherwise wait forever.
+   This wraps each chunk read with a per-chunk deadline so callers can
+   surface a bounded "stream idle" error instead. *)
+let stream_with_idle_timeout ~timeout_s ~label stream =
+  Lwt_stream.from (fun () ->
+      Lwt.pick
+        [
+          Lwt_stream.get stream;
+          (let open Lwt.Syntax in
+           let* () = Lwt_unix.sleep timeout_s in
+           Lwt.fail_with
+             (Printf.sprintf "%s: stream idle for %.0fs (no chunk received)"
+                label timeout_s));
+        ])
+
 (** [post_stream] applies the timeout only to the initial connection and
-    response-header exchange, NOT to reading the body stream (which can take
-    arbitrarily long for SSE / streaming responses). *)
-let post_stream ~uri ~headers ~body =
+    response-header exchange. The optional [~stream_idle_timeout_s] gates each
+    chunk read on the body stream — if no chunk arrives within that many seconds
+    the stream raises a clear failure (B658). *)
+let post_stream ?stream_idle_timeout_s ~uri ~headers ~body () =
   let open Lwt.Syntax in
   ensure_debug_init ();
   let started = Unix.gettimeofday () in
-  let all_headers = ("Content-Type", "application/json") :: headers in
+  let all_headers =
+    ensure_user_agent (("Content-Type", "application/json") :: headers)
+  in
   labeled_timeout ~label:"post_stream" !default_timeout_s (fun () ->
       let uri_parsed = Uri.of_string uri in
       let cohttp_headers = Cohttp.Header.of_list all_headers in
@@ -277,7 +320,14 @@ let post_stream ~uri ~headers ~body =
       let resp_hdrs =
         cohttp_headers_to_list (Cohttp.Response.headers response)
       in
-      let stream = Cohttp_lwt.Body.to_stream resp_body in
+      let raw_stream = Cohttp_lwt.Body.to_stream resp_body in
+      let stream =
+        match stream_idle_timeout_s with
+        | Some t when t > 0.0 ->
+            stream_with_idle_timeout ~timeout_s:t ~label:"post_stream"
+              raw_stream
+        | _ -> raw_stream
+      in
       if Http_debug.enabled () then begin
         let buf = Buffer.create 4096 in
         let tapped =
@@ -341,9 +391,10 @@ let collect_error_body stream =
   let* chunks = Lwt_stream.to_list stream in
   Lwt.return (String.concat "" chunks)
 
-let post_stream_with ~uri ~headers ~body ~label ?on_error ~on_ok () =
+let post_stream_with ?stream_idle_timeout_s ~uri ~headers ~body ~label ?on_error
+    ~on_ok () =
   let open Lwt.Syntax in
-  let* r = post_stream ~uri ~headers ~body in
+  let* r = post_stream ?stream_idle_timeout_s ~uri ~headers ~body () in
   Lwt.finalize
     (fun () ->
       if r.status < 200 || r.status >= 300 then
@@ -400,7 +451,9 @@ let patch_json ~uri ~headers ~body =
   let open Lwt.Syntax in
   ensure_debug_init ();
   let started = Unix.gettimeofday () in
-  let all_headers = ("Content-Type", "application/json") :: headers in
+  let all_headers =
+    ensure_user_agent (("Content-Type", "application/json") :: headers)
+  in
   labeled_timeout ~label:"patch_json" !default_timeout_s (fun () ->
       let uri_parsed = Uri.of_string uri in
       let cohttp_headers = Cohttp.Header.of_list all_headers in
@@ -425,7 +478,9 @@ let delete ~uri ~headers ~body =
   let open Lwt.Syntax in
   ensure_debug_init ();
   let started = Unix.gettimeofday () in
-  let all_headers = ("Content-Type", "application/json") :: headers in
+  let all_headers =
+    ensure_user_agent (("Content-Type", "application/json") :: headers)
+  in
   labeled_timeout ~label:"delete" !default_timeout_s (fun () ->
       let uri_parsed = Uri.of_string uri in
       let cohttp_headers = Cohttp.Header.of_list all_headers in
