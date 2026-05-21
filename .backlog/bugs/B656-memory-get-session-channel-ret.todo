@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B656
+priority: high
+status: pending
+tags: []
+title: Memory.get_session_channel returns Some("","") for empty-string TEXT columns
+---
+Defensive code bug: Memory.get_session_channel in src/memory.ml:1208 matches TEXT,TEXT and returns Some(channel, channel_id) — but if either is an empty string (legal TEXT, distinct from NULL), it still returns Some, propagating an invalid 'channel' to scheduler delivery code. Should treat empty strings same as NULL and return None. Found while diagnosing B655 (cron:briefing session inserted with empty strings). Fix: add 'when channel <> "" && channel_id <> ""' guard or check after extraction.

@@ -650,3 +650,4 @@ bugs:
     - file: B653-kimi-kimi-for-code-rejects-ass.todo
     - file: B654-memory-recall-fails-on-fts5-co.todo
     - file: B655-cron-briefing-session-row-has.todo
+    - file: B656-memory-get-session-channel-ret.todo
