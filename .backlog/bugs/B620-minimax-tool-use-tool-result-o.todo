@@ -1,0 +1,22 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B620
+priority: high
+status: pending
+tags: []
+title: MiniMax tool_use/tool_result ordering violates Anthropic-API on session resume
+---
+Daemon log scan (2026-05-21): 10 occurrences across 3 sessions of MiniMax HTTP 400 with error code 2013 'tool call result does not follow tool call' after restart-resume of sessions with in-flight tool_use blocks. The WARN 'MiniMax body shape on error' dumps confirm the converted history violates Anthropic's strict adjacency requirement that every tool_use must be immediately followed by its matching tool_result block.
+
+Representative log lines: daemon.log L919, 922, 925, 992, 995, 998, 1066, 1069, 1072, 1156, 1160, 1164. Three sessions failed to resume because of this.
+
+Likely cause: Memory.load_history + history reconstruction reorders or splits tool_use/tool_result pairs. The Provider_minimax.messages_to_anthropic_json reordering fix (existing tests) handles the common forward path but may miss specific restart-resume edge cases (e.g., assistant turn with multiple tool_uses where only some have results in DB).
+
+Fix:
+- Reproduce: capture a session DB snapshot that triggers this, then convert via Provider_minimax.messages_to_anthropic_json and assert error 2013 doesn't occur in API response.
+- Add a stricter post-conversion validator that asserts every tool_use block in an assistant message has a matching tool_result in the next user message.
+- If a tool_use has no result (e.g., interrupted before tool_result was stored), inject a synthetic tool_result with content '[interrupted: result missing on resume]'.
+
+Tag: minimax, anthropic-api, session-resume, message-history
