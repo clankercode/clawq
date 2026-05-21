@@ -60,6 +60,42 @@ let test_search_no_results () =
   let results = Memory.search ~db ~query:"xyznonexistent" ~limit:5 () in
   Alcotest.(check int) "no results" 0 (List.length results)
 
+(* B654: queries containing colons (FTS5 column-qualifier syntax) must not
+   throw "no such column: rig". Our core memory keys frequently use colons
+   like "rig:briefing:config", so callers commonly query for them verbatim. *)
+let test_recall_core_with_colon_query () =
+  let db = Memory.init ~db_path:":memory:" ~search_enabled:true () in
+  Memory.store_core ~db ~key:"rig:briefing:config"
+    ~content:"{\"topics\":[\"crypto\"]}" ~category:"rig" ();
+  Memory.store_core ~db ~key:"lesson:briefing:2026"
+    ~content:"avoid empty queries" ~category:"lessons" ();
+  let results = Memory.recall_core ~db ~query:"rig:briefing:config" ~limit:5 in
+  Alcotest.(check bool)
+    "recall finds colon-keyed memory" true
+    (List.exists (fun (k, _, _) -> k = "rig:briefing:config") results)
+
+let test_recall_core_with_multi_token_query () =
+  let db = Memory.init ~db_path:":memory:" ~search_enabled:true () in
+  Memory.store_core ~db ~key:"k1" ~content:"briefing daily news topic" ();
+  Memory.store_core ~db ~key:"k2" ~content:"unrelated content" ();
+  let results = Memory.recall_core ~db ~query:"briefing news" ~limit:5 in
+  Alcotest.(check bool)
+    "multi-token AND match" true
+    (List.exists (fun (k, _, _) -> k = "k1") results);
+  Alcotest.(check bool)
+    "non-matching record excluded" false
+    (List.exists (fun (k, _, _) -> k = "k2") results)
+
+let test_search_with_colon_query () =
+  let db = Memory.init ~db_path:":memory:" ~search_enabled:true () in
+  Memory.store_message ~db ~session_key:"s1"
+    (Provider.make_message ~role:"user"
+       ~content:"please load rig:briefing:config from memory");
+  let results = Memory.search ~db ~query:"rig:briefing:config" ~limit:5 () in
+  Alcotest.(check bool)
+    "colon-query search returns row" true
+    (List.length results > 0)
+
 let suite =
   [
     Alcotest.test_case "FTS init enabled" `Quick test_fts_init;
@@ -68,4 +104,10 @@ let suite =
     Alcotest.test_case "search session filter" `Quick test_search_session_filter;
     Alcotest.test_case "search limit" `Quick test_search_limit;
     Alcotest.test_case "search no results" `Quick test_search_no_results;
+    Alcotest.test_case "B654 recall_core colon query" `Quick
+      test_recall_core_with_colon_query;
+    Alcotest.test_case "B654 recall_core multi-token query" `Quick
+      test_recall_core_with_multi_token_query;
+    Alcotest.test_case "B654 search colon query" `Quick
+      test_search_with_colon_query;
   ]

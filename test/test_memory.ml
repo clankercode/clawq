@@ -1231,6 +1231,24 @@ let test_session_info_includes_cwd () =
       Alcotest.(check (option string))
         "effective_cwd in list" (Some "/tmp/test") r.effective_cwd
 
+(* B656: get_session_channel must treat empty-string channel/channel_id as
+   absent, not as a bound channel. Otherwise scheduler delivery falls through
+   to "unsupported channel" errors (see B655 for the data condition). *)
+let test_get_session_channel_empty_strings_are_none () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Memory.set_session_cwd ~db ~session_key:"empty-chan" ~cwd:None;
+  let stmt =
+    Sqlite3.prepare db
+      "UPDATE session_state SET channel = '', channel_id = '' WHERE \
+       session_key = ?"
+  in
+  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT "empty-chan"));
+  ignore (Sqlite3.step stmt);
+  ignore (Sqlite3.finalize stmt);
+  let result = Memory.get_session_channel ~db ~session_key:"empty-chan" in
+  Alcotest.(check bool)
+    "empty strings treated as no channel" true (result = None)
+
 (* --- Snapshot export/import tests --- *)
 
 let test_export_snapshot_roundtrip () =
@@ -1530,6 +1548,8 @@ let suite =
     Alcotest.test_case "agent create with cwd" `Quick test_agent_create_with_cwd;
     Alcotest.test_case "session info includes cwd" `Quick
       test_session_info_includes_cwd;
+    Alcotest.test_case "B656 get_session_channel empty strings -> None" `Quick
+      test_get_session_channel_empty_strings_are_none;
     Alcotest.test_case "export snapshot roundtrip" `Quick
       test_export_snapshot_roundtrip;
     Alcotest.test_case "export snapshot metadata" `Quick

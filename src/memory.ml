@@ -1214,7 +1214,11 @@ let get_session_channel ~db ~session_key =
   let result =
     if Sqlite3.step stmt = Sqlite3.Rc.ROW then
       match (Sqlite3.column stmt 0, Sqlite3.column stmt 1) with
-      | Sqlite3.Data.TEXT channel, Sqlite3.Data.TEXT channel_id ->
+      (* B656: treat empty strings the same as NULL so callers don't fall
+         through to "unsupported channel" delivery paths for sessions that
+         have no channel binding. *)
+      | Sqlite3.Data.TEXT channel, Sqlite3.Data.TEXT channel_id
+        when channel <> "" && channel_id <> "" ->
           Some (channel, channel_id)
       | _ -> None
     else None
@@ -1551,14 +1555,36 @@ let store_core ~db ~key ~content ?(category = "general") () =
           m "Failed to store core memory: %s" (Sqlite3.Rc.to_string rc)));
   ignore (Sqlite3.finalize stmt)
 
+(* B654: FTS5 treats ':' as a column-qualifier operator, so a query like
+   "rig:briefing:config" parses as `column=rig MATCH "briefing:config"` and
+   errors with "no such column: rig". Escape each whitespace-separated token
+   as an FTS5 quoted phrase (with internal double quotes doubled) so colons
+   and other punctuation are treated as literals. Multi-token queries
+   compose with implicit AND, matching prior expectations. *)
+let fts5_escape_token s =
+  let buf = Buffer.create (String.length s + 2) in
+  Buffer.add_char buf '"';
+  String.iter
+    (fun c ->
+      if c = '"' then Buffer.add_string buf "\"\"" else Buffer.add_char buf c)
+    s;
+  Buffer.add_char buf '"';
+  Buffer.contents buf
+
+let fts5_safe_query q =
+  String.split_on_char ' ' q
+  |> List.filter (fun s -> s <> "")
+  |> List.map fts5_escape_token |> String.concat " "
+
 let recall_core ~db ~query ~limit =
   let sql =
     "SELECT cm.key, cm.content, cm.category FROM core_memories cm JOIN \
      core_memories_fts f ON cm.rowid = f.rowid WHERE core_memories_fts MATCH ? \
      ORDER BY f.rank LIMIT ?"
   in
+  let safe_query = fts5_safe_query query in
   let stmt = Sqlite3.prepare db sql in
-  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT query));
+  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT safe_query));
   ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int limit)));
   let results = ref [] in
   while Sqlite3.step stmt = Sqlite3.Rc.ROW do
@@ -1715,7 +1741,8 @@ let search ~db ~query ?session_key ~limit () =
           false )
   in
   let stmt = Sqlite3.prepare db sql in
-  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT query));
+  (* B654: escape FTS5 colons/quotes *)
+  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT (fts5_safe_query query)));
   if has_session then begin
     ignore
       (Sqlite3.bind stmt 2
@@ -1805,7 +1832,9 @@ let search_session_history ~db ~session_key ~query ~limit () =
         Fun.protect
           ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
           (fun () ->
-            ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT query));
+            (* B654: escape FTS5 colons/quotes *)
+            ignore
+              (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT (fts5_safe_query query)));
             ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT session_key));
             ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.INT (Int64.of_int limit)));
             let rows = ref [] in
