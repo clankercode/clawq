@@ -673,6 +673,7 @@ let cmd_delegate args =
         Background_task.delegate_enqueue ~db ?notify_cfg:cfg.notify
           ?preferred_runner:parsed.preferred_runner ?model:parsed.model
           ?repo_path:parsed.repo_path ?branch:parsed.branch
+          ~use_worktree:parsed.use_worktree
           ~default_repo_path:(default_delegate_repo_path cfg)
           ~goal:parsed.goal ()
       with

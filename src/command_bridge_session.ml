@@ -866,6 +866,7 @@ type delegate_args = {
   repo_path : string option;
   branch : string option;
   goal : string;
+  use_worktree : bool;
 }
 
 let path_is_git_repo path =
@@ -956,15 +957,17 @@ let parse_background_logs_args args =
   loop 40 0 false None args
 
 let parse_delegate_args args =
-  let rec loop preferred_runner model repo_path branch positionals = function
+  let rec loop preferred_runner model repo_path branch use_worktree positionals
+      = function
     | [] ->
         let goal = String.concat " " (List.rev positionals) |> String.trim in
         if goal = "" then
           Error
             "Usage: clawq delegate [--runner \
              auto|kimi|opencode|codex|claude|gemini|cursor] [--model <name>] \
-             [--repo <path>] [--branch <name>] <goal>"
-        else Ok { preferred_runner; model; repo_path; branch; goal }
+             [--repo <path>] [--branch <name>] [--no-worktree] <goal>"
+        else
+          Ok { preferred_runner; model; repo_path; branch; goal; use_worktree }
     | "--runner" :: value :: rest ->
         let value = String.lowercase_ascii (String.trim value) in
         let preferred_runner =
@@ -975,17 +978,27 @@ let parse_delegate_args args =
           Error
             "Runner must be one of: auto, codex, claude, kimi, gemini, \
              opencode, cursor"
-        else loop preferred_runner model repo_path branch positionals rest
+        else
+          loop preferred_runner model repo_path branch use_worktree positionals
+            rest
     | "--model" :: value :: rest ->
-        loop preferred_runner (Some value) repo_path branch positionals rest
+        loop preferred_runner (Some value) repo_path branch use_worktree
+          positionals rest
     | "--repo" :: value :: rest ->
-        loop preferred_runner model (Some value) branch positionals rest
+        loop preferred_runner model (Some value) branch use_worktree positionals
+          rest
     | "--branch" :: value :: rest ->
-        loop preferred_runner model repo_path (Some value) positionals rest
+        loop preferred_runner model repo_path (Some value) use_worktree
+          positionals rest
+    | "--no-worktree" :: rest ->
+        (* B649: opt out of git-worktree isolation so delegate accepts non-git
+           paths (e.g. plain ~/.clawq/workspace runs). *)
+        loop preferred_runner model repo_path branch false positionals rest
     | arg :: rest ->
-        loop preferred_runner model repo_path branch (arg :: positionals) rest
+        loop preferred_runner model repo_path branch use_worktree
+          (arg :: positionals) rest
   in
-  loop None None None None [] args
+  loop None None None None true [] args
 
 type plan_start_args = {
   plan_prompt : string;

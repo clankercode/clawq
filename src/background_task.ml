@@ -1325,8 +1325,27 @@ let delegate_enqueue ?context ?notify_cfg ?(check_available = true)
   if String.trim chosen_repo_path = "" then
     Error "Could not determine a repository path for delegation"
   else
-    match validate_workspace_path chosen_repo_path with
-    | Error _ as err -> err
+    (* B649/B651: when use_worktree=true the harvest step requires the
+       working path to be a git repo. Resolve symlinks so a workspace
+       symlinked to a real repo is accepted; reject non-git paths upfront
+       with a clear error so the task is not enqueued at all (instead of
+       running and reporting status=dirty-worktree at the end). *)
+    let chosen_repo_path =
+      try Unix.realpath chosen_repo_path with _ -> chosen_repo_path
+    in
+    let validation =
+      if use_worktree then validate_repo_path ~require_git:true chosen_repo_path
+      else validate_workspace_path chosen_repo_path
+    in
+    match validation with
+    | Error msg ->
+        Error
+          (Printf.sprintf
+             "%s\n\
+              Delegate with use_worktree=true requires a git repository; pass \
+              use_worktree=false to run in a plain workspace, or point \
+              repo_path at an actual git checkout."
+             msg)
     | Ok () -> (
         match
           resolve_runner ~check_available ?preferred:preferred_runner
