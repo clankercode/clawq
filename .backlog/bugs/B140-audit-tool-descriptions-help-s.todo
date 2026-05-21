@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-09T09:43:32Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-05-21T23:50:27Z"
 complexity: medium
 depends_on: []
+duration_minutes: 105966.91787031585
 estimate_hours: 1
 id: B140
 priority: medium
 started_at: "2026-03-09T09:43:32Z"
-status: in_progress
+status: done
 tags: []
 title: Audit the tool descriptions/help so available capabilities are used optimally
 ---
