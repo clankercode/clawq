@@ -668,3 +668,4 @@ bugs:
     - file: B671-briefing-hourly-cron-exhausts.todo
     - file: B672-web-search-429-failover-not-en.todo
     - file: B673-add-hard-turn-abort-limit-on-c.todo
+    - file: B674-need-end-to-end-integration-te.todo

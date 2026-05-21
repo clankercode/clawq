@@ -1,0 +1,31 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B674
+priority: high
+status: pending
+tags: []
+title: 'Need end-to-end integration tests for kimi and minimax-m2.7-highspeed: normal sessions, tool calls, resume'
+---
+We don't have systematic regression coverage for the two providers we lean on most heavily (kimi and minimax M2.7-highspeed). Today's daemon log showed at least three distinct kimi HTTP 400 failures involving orphan tool_calls in resumed/restored sessions ('use_skill:76 did not have response messages'), and minimax has historically had B644-style adjacency rejections. We need integration tests that cover:
+
+1. Normal session — single user message, get a text reply back. Confirms baseline auth/endpoint/parsing.
+2. Tool call round-trip — define a trivial tool, prompt the model to call it, parse the tool_call, send back a tool_result, confirm the model can continue.
+3. Multi-turn with persisted history — turn 1 calls tool, turn 2 references tool result. Catches issues where serialized history shape doesn't round-trip cleanly through the provider.
+4. Session resume — write history to DB, kill agent mid-session, reload, run another turn. Confirms tool_use/tool_result pairing survives the resume path (B644 territory for minimax; today's kimi 400 territory).
+5. Streaming variant of each — exercises SSE / chunked parser as well as the non-streaming path.
+
+Coverage per provider:
+- minimax: MiniMax-M2.7-highspeed via /anthropic/v1/messages AND /v1/chat/completions (we already have one tool-call test added today; expand to (1)–(5)).
+- kimi: kimi-for-code via kimi_coding endpoint.
+
+Tag tests Slow + skip-on-missing-API-key (KIMI_API_KEY, MINIMAX_API_KEY) following the existing pattern in test_provider_minimax.ml.
+
+Acceptance:
+- A dedicated test file (or grouped suite) per provider with all five scenarios.
+- Each test prints clear failure messages on diagnostic failure (which path bypassed the tool, which payload was rejected, etc).
+- The kimi orphan tool_calls pattern from 2026-05-22 daemon log specifically reproducible and asserted-against.
+- The minimax adjacency assertion B644 has a coverage line in this suite.
+
+Related: B644, B670, B672, today's kimi 400 errors.
