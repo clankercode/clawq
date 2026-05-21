@@ -1,0 +1,25 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B614
+priority: high
+status: pending
+tags: []
+title: 'Anthropic/MiniMax tools: required parameters not marked required at the API level'
+---
+Even after B604 (every tool has a required field in its schema), the Anthropic-format providers (provider_anthropic.ml, provider_minimax.ml) still show required parameters as not-required to the model, causing models to omit mandatory arguments.
+
+User observation: 'still a bug with tool calls where required fields are not shown as required. this is via the anthropic api atm'.
+
+Investigation needed:
+- Trace what input_schema actually gets sent in a tools list with a tool that has required:['key'] for memory_forget for example.
+- Anthropic/MiniMax provider just passes 'parameters' field through as input_schema. Possible issues:
+  - Some tool schemas may have required:[] when they should not.
+  - Or the required field may be in wrong place (e.g., nested in properties).
+  - Or the model needs additional input_schema metadata.
+- Add integration test using MiniMax API: register a tool with required field, call the model, verify the model includes the required arg or that input_schema's 'required' list is non-empty.
+
+Suggested fix: audit every tool's parameters_schema to confirm required mirrors actual invoke-side validation. Add a property test that for every tool, every param mentioned in invoke validation appears in required[].
+
+Tag: anthropic-api, minimax-api, tools, schema
