@@ -487,6 +487,18 @@ type debate_config = {
   max_parallel : int;
 }
 
+type postmortem_config = {
+  enabled : bool;
+  model : string option;
+      (* Provider:model used for the postmortem analysis turn. When None,
+         falls back to agent_defaults.primary_model. Recommended default:
+         a cheap reasoning-capable model like zai_coding:glm-5-turbo. *)
+  delay_s : float;
+      (* Wait this many seconds before launching the postmortem agent to
+         avoid burst-thrashing on rapid-fire stuck sessions. 0.0 = launch
+         immediately. *)
+}
+
 type t = {
   workspace : string;
   default_temperature : float;
@@ -522,6 +534,7 @@ type t = {
   browser : browser_config;
   test : test_config;
   debate : debate_config;
+  postmortem : postmortem_config;
 }
 
 let default_log_config : log_config =
@@ -544,6 +557,15 @@ let default_error_watcher_config : error_watcher_config =
 
 let default_interactive_config : interactive_config =
   { enable_question_notes = true }
+
+let default_postmortem_config : postmortem_config =
+  {
+    enabled = true;
+    (* Cheap reasoning-capable default; the postmortem turn is short and
+       doesn't need the primary model's quality. *)
+    model = Some "zai_coding:glm-5-turbo";
+    delay_s = 0.0;
+  }
 
 let default_debate_config : debate_config =
   {
@@ -788,6 +810,7 @@ let default =
     browser = default_browser_config;
     test = { show_skills = false };
     debate = default_debate_config;
+    postmortem = default_postmortem_config;
   }
 
 let is_key_set key =
@@ -1977,6 +2000,7 @@ let to_json (cfg : t) : Yojson.Safe.t =
   let ew = cfg.error_watcher in
   let ch = cfg.connector_history in
   let db_ = cfg.debate in
+  let pm = cfg.postmortem in
   let fields =
     fields
     @ [
@@ -2013,6 +2037,14 @@ let to_json (cfg : t) : Yojson.Safe.t =
                 `List (List.map (fun s -> `String s) db_.default_models) );
               ("judge_model", `String db_.judge_model);
               ("max_parallel", `Int db_.max_parallel);
+            ] );
+        ( "postmortem",
+          `Assoc
+            [
+              ("enabled", `Bool pm.enabled);
+              ( "model",
+                match pm.model with Some s -> `String s | None -> `Null );
+              ("delay_s", `Float pm.delay_s);
             ] );
       ]
   in

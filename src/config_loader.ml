@@ -1867,6 +1867,26 @@ let parse_config ?(resolve_secrets = true) json =
          ({ enabled; default_models; judge_model; max_parallel }
            : Runtime_config.debate_config)
        with _ -> Runtime_config.default_debate_config);
+    postmortem =
+      (try
+         let pm = json |> member "postmortem" in
+         let def = Runtime_config.default_postmortem_config in
+         let enabled =
+           try pm |> member "enabled" |> to_bool with _ -> def.enabled
+         in
+         let model =
+           try
+             match pm |> member "model" with
+             | `String s when s <> "" -> Some s
+             | `Null -> def.model
+             | _ -> def.model
+           with _ -> def.model
+         in
+         let delay_s =
+           try pm |> member "delay_s" |> to_number with _ -> def.delay_s
+         in
+         ({ enabled; model; delay_s } : Runtime_config.postmortem_config)
+       with _ -> Runtime_config.default_postmortem_config);
   }
 
 let rec merge_json (original : Yojson.Safe.t) (complete : Yojson.Safe.t) :

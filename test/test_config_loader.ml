@@ -830,6 +830,12 @@ let test_full_config_roundtrip () =
           judge_model = "anthropic:claude-sonnet-4-6";
           max_parallel = 3;
         };
+      postmortem =
+        {
+          enabled = false;
+          model = Some "anthropic:claude-haiku-4.5";
+          delay_s = 7.5;
+        };
     }
   in
   let json = Runtime_config.to_json cfg in
@@ -895,7 +901,13 @@ let test_full_config_roundtrip () =
   Alcotest.(check string)
     "debate.judge_model" cfg.debate.judge_model cfg2.debate.judge_model;
   Alcotest.(check int)
-    "debate.max_parallel" cfg.debate.max_parallel cfg2.debate.max_parallel
+    "debate.max_parallel" cfg.debate.max_parallel cfg2.debate.max_parallel;
+  Alcotest.(check bool)
+    "postmortem.enabled" cfg.postmortem.enabled cfg2.postmortem.enabled;
+  Alcotest.(check (option string))
+    "postmortem.model" cfg.postmortem.model cfg2.postmortem.model;
+  Alcotest.(check (float 0.001))
+    "postmortem.delay_s" cfg.postmortem.delay_s cfg2.postmortem.delay_s
 
 let suite =
   [

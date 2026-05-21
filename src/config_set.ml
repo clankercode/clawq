@@ -441,6 +441,7 @@ let config_schema =
             ("judge_model", L);
             ("max_parallel", L);
           ] );
+      ("postmortem", O [ ("enabled", L); ("model", L); ("delay_s", L) ]);
     ]
 
 let rec validate_path segments schema =

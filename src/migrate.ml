@@ -193,6 +193,7 @@ let convert (json : Yojson.Safe.t) =
       browser = default.browser;
       test = default.test;
       debate = default.debate;
+      postmortem = default.postmortem;
     }
   in
   (config, List.rev !warnings)

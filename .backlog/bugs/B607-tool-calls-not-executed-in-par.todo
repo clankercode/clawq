@@ -13,3 +13,7 @@ Models can emit multiple tool_call entries in a single response (all provider pa
 Impact: when a model emits multiple independent tool calls (e.g. grep + file_read + glob), clawq executes them one at a time instead of concurrently. This wastes time and prevents efficient parallelism on multi-core workloads.
 
 Fix: swap map_s for map_p with concurrency limits, accounting for state mutation edge cases (workspace file watching, effective_cwd, etc.).
+
+User notes (2026-05-21):
+- May be more visible on Anthropic models, but we want parallel exec for all providers.
+- Progress bar/message should update with the full count of in-flight calls immediately when parallel execution starts (instead of revealing each one as it finishes), so users see "running N tools" at the start, not incremental progress.

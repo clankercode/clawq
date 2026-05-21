@@ -645,46 +645,65 @@ let () =
   spawn_postmortem_agent_fn :=
     fun mgr ~stuck_history ~session_key ~reason ?db () ->
       let open Lwt.Syntax in
-      let postmortem_session_key =
-        Printf.sprintf "__postmortem_%s@%d" session_key
-          (int_of_float (Unix.gettimeofday ()))
-      in
-      let evidence_summary = Postmortem.format_history_text stuck_history in
-      let correction = "(postmortem agent will determine correction)" in
-      let* doc_path =
-        Postmortem.write_doc ~session_key ~pattern:reason ~evidence_summary
-          ~correction
-      in
-      (match db with
-      | Some db -> (
-          try
-            ignore
-              (Memory.insert_postmortem ~db ~session_key ~pattern:reason
-                 ~evidence_json:
-                   (Yojson.Safe.to_string (`String evidence_summary))
-                 ~correction_injected:correction ~doc_path)
-          with exn ->
-            Logs.warn (fun m ->
-                m "postmortem: failed to insert DB record: %s"
-                  (Printexc.to_string exn)))
-      | None -> ());
-      let prompt =
-        Postmortem.make_postmortem_prompt ~session_key ~reason ~doc_path
-          ~history_text:evidence_summary ()
-      in
-      Lwt.async (fun () ->
-          Lwt.catch
-            (fun () ->
-              let* _response =
-                turn mgr ~key:postmortem_session_key ~message:prompt ()
-              in
-              Lwt.return_unit)
-            (fun exn ->
+      let pm_cfg = mgr.Session_core.config.postmortem in
+      if not pm_cfg.enabled then begin
+        Logs.info (fun m ->
+            m "postmortem disabled in config; suppressing launch (session=%s)"
+              session_key);
+        Lwt.return_unit
+      end
+      else
+        let postmortem_session_key =
+          Printf.sprintf "__postmortem_%s@%d" session_key
+            (int_of_float (Unix.gettimeofday ()))
+        in
+        let evidence_summary = Postmortem.format_history_text stuck_history in
+        let correction = "(postmortem agent will determine correction)" in
+        let* doc_path =
+          Postmortem.write_doc ~session_key ~pattern:reason ~evidence_summary
+            ~correction
+        in
+        (match db with
+        | Some db -> (
+            try
+              ignore
+                (Memory.insert_postmortem ~db ~session_key ~pattern:reason
+                   ~evidence_json:
+                     (Yojson.Safe.to_string (`String evidence_summary))
+                   ~correction_injected:correction ~doc_path);
+              (* Apply configured postmortem model override (if any) to the
+                 dedicated postmortem session before the agent runs. *)
+              match pm_cfg.model with
+              | Some m ->
+                  Memory.set_session_model_override ~db
+                    ~session_key:postmortem_session_key ~model:m
+              | None -> ()
+            with exn ->
               Logs.warn (fun m ->
-                  m "postmortem agent error for session %s: %s" session_key
-                    (Printexc.to_string exn));
-              Lwt.return_unit));
-      Lwt.return_unit
+                  m "postmortem: failed to insert DB record: %s"
+                    (Printexc.to_string exn)))
+        | None -> ());
+        let prompt =
+          Postmortem.make_postmortem_prompt ~session_key ~reason ~doc_path
+            ~history_text:evidence_summary ()
+        in
+        Lwt.async (fun () ->
+            Lwt.catch
+              (fun () ->
+                let* () =
+                  if pm_cfg.delay_s > 0.0 then Lwt_unix.sleep pm_cfg.delay_s
+                  else Lwt.return_unit
+                in
+                let* _response =
+                  turn mgr ~key:postmortem_session_key ~message:prompt ()
+                in
+                Lwt.return_unit)
+              (fun exn ->
+                Logs.warn (fun m ->
+                    m "postmortem agent error for session %s: %s" session_key
+                      (Printexc.to_string exn));
+                Lwt.return_unit));
+        Lwt.return_unit
 
 let apply_template_tool_restrictions = Agent_template.filter_tool_registry
 
