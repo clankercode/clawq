@@ -1,0 +1,56 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B637
+priority: high
+status: pending
+tags:
+    - minimax
+    - upstream
+title: MiniMax /anthropic/v1/messages returns 404 nginx intermittently for valid models
+---
+## Summary
+
+Live in ~/.clawq/daemon.log (2026-05-21 14:57 – 15:55): four separate teams
+session turns failed with:
+
+  Failure(\"LLM API error (HTTP 404): <html>...nginx...</html>\")
+
+Each preceded by a successful-looking dispatch:
+  -> LLM provider=minimax model=MiniMax-M2.7-highspeed msgs=141..144 ~44k tok
+  MiniMax stream request to https://api.minimax.io/anthropic/v1/messages model=MiniMax-M2.7-highspeed
+
+All 3 retries fail (404 returns immediately), then the user sees an error.
+Model name is correctly normalized via `api_model_name` (provider_minimax.ml
+line 5-14) so this is not a casing issue.
+
+Each affected turn was at message count >140 (long context).
+
+## Hypotheses
+
+1. MiniMax's nginx fronts the Anthropic-compat endpoint and returns 404 when
+   the request body is too large or fails internal validation BEFORE the
+   real model sees it.
+2. Rate limiting via 404 (unusual but possible).
+3. A path issue when streaming is enabled (we hit the *streaming* endpoint
+   for the broken requests).
+
+## Suggested next steps
+
+1. When HTTP 404 is returned by a known-good base URL, log the request body
+   size and the response Content-Length / response headers to disk for
+   inspection.
+2. Add a single-retry-with-non-streaming fallback: if stream attempt 404s,
+   try the same body via `complete` (non-streaming). This may bypass an
+   nginx-level streaming guard.
+3. Add a regression: a mock SSE server that returns 404 should not cause the
+   3-retry storm — it should be surfaced quickly with a clear user-facing
+   error.
+
+## Evidence
+
+- ~/.clawq/daemon.log: search 'HTTP 404' — 5 retry pairs
+- Affected session: teams:personal:a:1JPVFng...
+- Affected workflow session: github:XertroV/clawq:workflow_run:26206077293
+  (but that one uses provider=zai_coding, distinct from MiniMax)
