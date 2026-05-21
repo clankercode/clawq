@@ -1,0 +1,42 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 1
+id: B642
+priority: medium
+status: pending
+tags:
+    - log-noise
+    - observer
+title: MiniMax body shape on error log line is enormous and crowds out other errors
+---
+## Summary
+
+When MiniMax returns HTTP 400 (e.g. error 2013 'tool call result does not
+follow tool call' before B620 was fixed, or B634's empty-args feedback
+loop), `src/provider_minimax.ml` calls
+`Provider.summarize_anthropic_messages` which emits a single WARN line of
+many hundreds of bytes:
+
+  WARN MiniMax body shape on error (HTTP 400): A[txt] A[1tu] U[1tr]
+  A[1tu] U[1tr] A[1tu] U[1tr] U[txt] A[4tu] U[4tr] A[1tu] U[1tr] U[txt]
+  A[2tu] U[2tr] ... [continues for ~150+ A/U tokens]
+
+3+ occurrences in current daemon.log, each ~2 KB.
+
+Purpose is fine (diagnose history shape) but the line dominates the
+visible log around the actual error.
+
+## Suggested fix
+
+1. Wrap the summary in a multi-line breakdown or truncate to last N=20
+   blocks.
+2. Or: gate behind a `MINIMAX_DEBUG_BODY` env var so it only fires when
+   actively debugging.
+3. Or: emit at DEBUG severity by default, INFO only when MINIMAX_DEBUG_BODY
+   is set.
+
+## Evidence
+
+- src/provider_minimax.ml line 198-200 (non-stream) and 263-265 (stream)
+- ~/.clawq/daemon.log: search 'MiniMax body shape on error'
