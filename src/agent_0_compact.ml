@@ -236,9 +236,16 @@ let trim_history agent =
   let coq_output =
     Clawq_core.AgentLoop.ensure_tool_group_integrity coq_trimmed
   in
-  agent.history <-
+  let provider_history =
     Agent_loop_conformance.coq_to_provider_history_with_names
-      ~original_messages:agent.history coq_output;
+      ~original_messages:agent.history coq_output
+  in
+  (* B626: the Coq-extracted integrity path strips orphan tool_call ids but
+     does not drop the resulting fully-empty assistant messages or model
+     provider_response_items_json/thinking. Re-run the native pass so the
+     downstream Anthropic-format converters don't see empty assistants
+     (which Anthropic 400s on). *)
+  agent.history <- Message_history.ensure_tool_group_integrity provider_history;
   assert_history_bound ~where:"trim_history" agent
 
 let force_compress_history agent =
@@ -284,7 +291,9 @@ let force_compress_history agent =
       end
       else bounded
     in
-    agent.history <- compressed;
+    (* B626: same rationale as trim_history — re-run native pass to drop
+       fully-empty assistants the Coq path leaves behind. *)
+    agent.history <- Message_history.ensure_tool_group_integrity compressed;
     assert_history_bound ~where:"force_compress_history" agent;
     true
   end
