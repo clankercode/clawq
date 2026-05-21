@@ -1,10 +1,14 @@
 ---
+claimed_at: "2026-05-21T09:21:09Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B622
 priority: high
-status: pending
+started_at: "2026-05-21T09:21:09Z"
+status: in_progress
 tags: []
 title: Models repeatedly omit required tool params; need server-side retry with hint
 ---
