@@ -644,6 +644,21 @@ let notify_background_task_finished ?continuation_delay
             Lwt.return (task, true))
     | _ -> Lwt.return (task, false)
   in
+  (* B630/B632: if this task was triggered by a cron job, record its output
+     so the scheduler can detect consecutive-identical-output loops and
+     disable the cron before it burns more tokens. Safe no-op for non-cron
+     tasks (lookup returns None). *)
+  (match (db, task.Background_task.status) with
+  | Some db, Background_task.Succeeded ->
+      let output =
+        Option.value ~default:"" task.Background_task.result_preview
+      in
+      let _ : string option =
+        Scheduler.mark_run_output ~db ~bg_task_id:task.Background_task.id
+          ~output
+      in
+      ()
+  | _ -> ());
   if skip_notification then Lwt.return_unit
   else
     let* summary = summarize_for_notification ~config task in

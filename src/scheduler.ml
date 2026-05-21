@@ -63,7 +63,13 @@ let init_schema db =
     \  finished_at TEXT,\n\
     \  status TEXT NOT NULL DEFAULT 'running',\n\
     \  result_preview TEXT\n\
-     )"
+     )";
+  (* B630/B632: track which bg task carried this run + hash of its output so
+     the scheduler can detect consecutive-identical-output degenerate loops
+     (e.g. an hourly cron that always emits "Nothing notable." because its
+     config is empty) and disable the cron before it burns more tokens. *)
+  (try exec "ALTER TABLE cron_runs ADD COLUMN bg_task_id INTEGER" with _ -> ());
+  try exec "ALTER TABLE cron_runs ADD COLUMN output_hash TEXT" with _ -> ()
 
 let parse_duration_seconds s =
   let len = String.length s in
@@ -507,6 +513,14 @@ let prune_runs ~db ~job_name ~keep =
   ignore (Sqlite3.step stmt);
   ignore (Sqlite3.finalize stmt)
 
+let record_run_bg_task ~db ~run_id ~bg_task_id =
+  let sql = "UPDATE cron_runs SET bg_task_id = ? WHERE id = ?" in
+  let stmt = Sqlite3.prepare db sql in
+  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.INT (Int64.of_int bg_task_id)));
+  ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int run_id)));
+  ignore (Sqlite3.step stmt);
+  ignore (Sqlite3.finalize stmt)
+
 let trigger_job ~db ~name =
   match get_job ~db ~name with
   | None -> Error (Printf.sprintf "No cron job found with name '%s'." name)
@@ -525,12 +539,133 @@ let trigger_job ~db ~name =
       | Ok task_id ->
           record_run_finish ~db ~run_id ~status:"triggered"
             ~result_preview:(Printf.sprintf "bg task %d" task_id);
+          record_run_bg_task ~db ~run_id ~bg_task_id:task_id;
           prune_runs ~db ~job_name:job.name ~keep:20;
           Ok task_id
       | Error err ->
           record_run_finish ~db ~run_id ~status:"error" ~result_preview:err;
           prune_runs ~db ~job_name:job.name ~keep:20;
           Error err)
+
+let expire_job_inline ~db ~name =
+  let sql = "UPDATE cron_jobs SET enabled = 0 WHERE name = ?" in
+  let stmt = Sqlite3.prepare db sql in
+  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT name));
+  ignore (Sqlite3.step stmt);
+  ignore (Sqlite3.finalize stmt)
+
+(* B630/B632: identical-output detection. When a bg task that was triggered
+   by a cron job completes, hash its output and stash it on the cron_runs
+   row. If the most recent N runs for that job all share the same non-empty
+   hash, the cron is producing a degenerate identical loop — disable it and
+   warn so the user can fix the underlying cause (empty config, prompt
+   shortcut, etc.) instead of letting it burn tokens hourly. *)
+let identical_output_disable_threshold = 5
+
+let normalize_output_for_hash s =
+  (* Collapse whitespace so trivial formatting jitter doesn't defeat
+     identical-output detection. *)
+  let buf = Buffer.create (String.length s) in
+  let last_ws = ref true in
+  String.iter
+    (fun c ->
+      if c = ' ' || c = '\t' || c = '\n' || c = '\r' then begin
+        if not !last_ws then Buffer.add_char buf ' ';
+        last_ws := true
+      end
+      else begin
+        Buffer.add_char buf c;
+        last_ws := false
+      end)
+    s;
+  String.trim (Buffer.contents buf)
+
+let hash_output s =
+  let normalized = normalize_output_for_hash s in
+  if normalized = "" then None
+  else Some (Digest.to_hex (Digest.string normalized))
+
+let lookup_run_id_for_bg_task ~db ~bg_task_id =
+  let sql =
+    "SELECT id, job_name FROM cron_runs WHERE bg_task_id = ? ORDER BY id DESC \
+     LIMIT 1"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.INT (Int64.of_int bg_task_id)));
+  let result =
+    if Sqlite3.step stmt = Sqlite3.Rc.ROW then
+      match (Sqlite3.column stmt 0, Sqlite3.column stmt 1) with
+      | Sqlite3.Data.INT rid, Sqlite3.Data.TEXT job_name ->
+          Some (Int64.to_int rid, job_name)
+      | _ -> None
+    else None
+  in
+  ignore (Sqlite3.finalize stmt);
+  result
+
+let last_n_output_hashes ~db ~job_name ~n =
+  let sql =
+    "SELECT output_hash FROM cron_runs WHERE job_name = ? AND output_hash IS \
+     NOT NULL ORDER BY id DESC LIMIT ?"
+  in
+  let stmt = Sqlite3.prepare db sql in
+  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT job_name));
+  ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int n)));
+  let rec loop acc =
+    if Sqlite3.step stmt = Sqlite3.Rc.ROW then
+      match Sqlite3.column stmt 0 with
+      | Sqlite3.Data.TEXT h -> loop (h :: acc)
+      | _ -> loop acc
+    else acc
+  in
+  let hashes = loop [] in
+  ignore (Sqlite3.finalize stmt);
+  hashes
+
+let update_run_output_hash ~db ~run_id ~hash =
+  let sql = "UPDATE cron_runs SET output_hash = ? WHERE id = ?" in
+  let stmt = Sqlite3.prepare db sql in
+  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT hash));
+  ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int run_id)));
+  ignore (Sqlite3.step stmt);
+  ignore (Sqlite3.finalize stmt)
+
+(* Public: scan whether the last `threshold` runs all share the same non-empty
+   output hash. Returns Some hash when the loop is detected. *)
+let detect_identical_output_loop ~db ~job_name ~threshold =
+  let hashes = last_n_output_hashes ~db ~job_name ~n:threshold in
+  if List.length hashes < threshold then None
+  else
+    match hashes with
+    | [] -> None
+    | h :: rest when List.for_all (fun h' -> h' = h) rest -> Some h
+    | _ -> None
+
+(* Called from the bg-task completion path (daemon_util) so the scheduler can
+   record output for cron-triggered runs and disable degenerate loops. Safe to
+   call with a non-cron task id — it just returns None when no row matches. *)
+let mark_run_output ~db ~bg_task_id ~output =
+  match lookup_run_id_for_bg_task ~db ~bg_task_id with
+  | None -> None
+  | Some (run_id, job_name) -> (
+      match hash_output output with
+      | None -> None
+      | Some hash ->
+          update_run_output_hash ~db ~run_id ~hash;
+          (match
+             detect_identical_output_loop ~db ~job_name
+               ~threshold:identical_output_disable_threshold
+           with
+          | None -> ()
+          | Some _ ->
+              expire_job_inline ~db ~name:job_name;
+              Logs.warn (fun m ->
+                  m
+                    "Cron job %S disabled after %d consecutive identical \
+                     outputs — investigate empty config / prompt shortcuts. \
+                     Re-enable with `clawq cron enable %s` after fixing."
+                    job_name identical_output_disable_threshold job_name));
+          Some job_name)
 
 let get_last_run_time ~db ~job_name =
   let sql =

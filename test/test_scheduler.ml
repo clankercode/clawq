@@ -540,6 +540,102 @@ let query_single_text_option db sql =
           | _ -> None)
       | _ -> None)
 
+(* ── B630/B632: consecutive-identical-output detection ──────────────────── *)
+
+let job_enabled ~db ~name =
+  match Scheduler.get_job ~db ~name with Some j -> j.enabled | None -> false
+
+(* Stub a triggered cron run: create the job, insert a cron_runs row with the
+   given bg_task_id, and return the bg_task_id so we can drive
+   mark_run_output. *)
+let stub_cron_run ~db ~job_name ~bg_task_id =
+  let run_id = Scheduler.record_run_start ~db ~job_name in
+  Scheduler.record_run_bg_task ~db ~run_id ~bg_task_id
+
+let test_identical_output_disables_cron () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Scheduler.init_schema db;
+  ignore
+    (Scheduler.add_job ~db ~name:"loopy" ~session_key:"s" ~message:"m"
+       ~schedule:"every 1h" ());
+  let output = "Nothing notable." in
+  (* Feed 5 identical outputs through 5 distinct bg task ids. *)
+  for i = 1 to 5 do
+    stub_cron_run ~db ~job_name:"loopy" ~bg_task_id:i;
+    let _ = Scheduler.mark_run_output ~db ~bg_task_id:i ~output in
+    ()
+  done;
+  Alcotest.(check bool)
+    "5 identical outputs disable the cron" false
+    (job_enabled ~db ~name:"loopy")
+
+let test_varying_outputs_keep_cron_enabled () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Scheduler.init_schema db;
+  ignore
+    (Scheduler.add_job ~db ~name:"varied" ~session_key:"s" ~message:"m"
+       ~schedule:"every 1h" ());
+  for i = 1 to 5 do
+    stub_cron_run ~db ~job_name:"varied" ~bg_task_id:i;
+    let _ =
+      Scheduler.mark_run_output ~db ~bg_task_id:i
+        ~output:(Printf.sprintf "different content %d" i)
+    in
+    ()
+  done;
+  Alcotest.(check bool)
+    "varying outputs keep the cron enabled" true
+    (job_enabled ~db ~name:"varied")
+
+let test_empty_output_does_not_trigger () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Scheduler.init_schema db;
+  ignore
+    (Scheduler.add_job ~db ~name:"empty" ~session_key:"s" ~message:"m"
+       ~schedule:"every 1h" ());
+  for i = 1 to 5 do
+    stub_cron_run ~db ~job_name:"empty" ~bg_task_id:i;
+    let _ = Scheduler.mark_run_output ~db ~bg_task_id:i ~output:"   \n  " in
+    ()
+  done;
+  Alcotest.(check bool)
+    "empty outputs don't disable the cron" true
+    (job_enabled ~db ~name:"empty")
+
+let test_whitespace_normalized () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Scheduler.init_schema db;
+  ignore
+    (Scheduler.add_job ~db ~name:"ws" ~session_key:"s" ~message:"m"
+       ~schedule:"every 1h" ());
+  let variations =
+    [|
+      "Nothing notable.";
+      "Nothing  notable.";
+      "Nothing\tnotable.";
+      "Nothing notable.  ";
+      "  Nothing notable.\n";
+    |]
+  in
+  Array.iteri
+    (fun i out ->
+      let bg_id = i + 1 in
+      stub_cron_run ~db ~job_name:"ws" ~bg_task_id:bg_id;
+      let _ = Scheduler.mark_run_output ~db ~bg_task_id:bg_id ~output:out in
+      ())
+    variations;
+  Alcotest.(check bool)
+    "whitespace-variant outputs hash identically and disable cron" false
+    (job_enabled ~db ~name:"ws")
+
+let test_mark_run_output_non_cron_noop () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Scheduler.init_schema db;
+  (* bg_task_id 9999 was never registered as a cron run *)
+  Alcotest.(check (option string))
+    "no-op when bg task is not cron-linked" None
+    (Scheduler.mark_run_output ~db ~bg_task_id:9999 ~output:"foo")
+
 let test_tick_marks_response_sent_after_turn () =
   Lwt_main.run
     (let open Lwt.Syntax in
@@ -653,4 +749,14 @@ let suite =
     Alcotest.test_case "update job TTL" `Quick test_update_job_ttl;
     Alcotest.test_case "tick marks response_sent after turn" `Quick
       test_tick_marks_response_sent_after_turn;
+    Alcotest.test_case "identical-output loop disables cron job" `Quick
+      test_identical_output_disables_cron;
+    Alcotest.test_case "non-identical outputs keep cron enabled" `Quick
+      test_varying_outputs_keep_cron_enabled;
+    Alcotest.test_case "empty output is not considered identical" `Quick
+      test_empty_output_does_not_trigger;
+    Alcotest.test_case "whitespace normalization in identical detection" `Quick
+      test_whitespace_normalized;
+    Alcotest.test_case "mark_run_output on non-cron task is a no-op" `Quick
+      test_mark_run_output_non_cron_noop;
   ]
