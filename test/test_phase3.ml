@@ -271,6 +271,89 @@ let test_execute_tool_calls_stream_bounds_final_result () =
            true
          with Not_found -> false)
 
+(* B607: tool calls in a single batch must execute in parallel (Lwt_list.map_p)
+   AND emit all ToolStart events up-front before any tool completes. This test
+   uses a shared in-flight counter to detect concurrent execution and asserts
+   that all 3 ToolStart events arrive before any ToolResult. *)
+let test_parallel_tool_calls_and_upfront_tool_starts () =
+  let registry = Tool_registry.create () in
+  let in_flight = ref 0 in
+  let max_in_flight = ref 0 in
+  let counting_tool name : Tool.t =
+    {
+      name;
+      description = "Concurrency probe";
+      parameters_schema = `Assoc [];
+      invoke =
+        (fun ?context:_ _args ->
+          let open Lwt.Syntax in
+          incr in_flight;
+          if !in_flight > !max_in_flight then max_in_flight := !in_flight;
+          (* Yield repeatedly so other parallel tools have time to start. *)
+          let* () = Lwt.pause () in
+          let* () = Lwt.pause () in
+          let* () = Lwt.pause () in
+          decr in_flight;
+          Lwt.return (name ^ ":done"));
+      invoke_stream = None;
+      risk_level = Tool.Low;
+      deferred = false;
+    }
+  in
+  Tool_registry.register registry (counting_tool "probe_a");
+  Tool_registry.register registry (counting_tool "probe_b");
+  Tool_registry.register registry (counting_tool "probe_c");
+  let agent = Agent.create ~config:default_config ~tool_registry:registry () in
+  let events = ref [] in
+  let calls =
+    [
+      { Provider.id = "ca"; function_name = "probe_a"; arguments = "{}" };
+      { Provider.id = "cb"; function_name = "probe_b"; arguments = "{}" };
+      { Provider.id = "cc"; function_name = "probe_c"; arguments = "{}" };
+    ]
+  in
+  Lwt_main.run
+    (Agent.execute_tool_calls_stream agent ~db:None ~audit_enabled:false
+       ~session_key:None calls ~on_chunk:(fun event ->
+         events := event :: !events;
+         Lwt.return_unit));
+  let events = List.rev !events in
+  Alcotest.(check bool)
+    "concurrent execution observed (max_in_flight > 1)" true (!max_in_flight > 1);
+  (* Up-front ToolStart contract: every ToolStart appears in the event
+     stream BEFORE the first ToolResult. *)
+  let rec first_result_index i = function
+    | [] -> -1
+    | Provider.ToolResult _ :: _ -> i
+    | _ :: rest -> first_result_index (i + 1) rest
+  in
+  let first_result = first_result_index 0 events in
+  let tool_start_indices =
+    List.mapi (fun i e -> (i, e)) events
+    |> List.filter_map (function
+      | i, Provider.ToolStart _ -> Some i
+      | _ -> None)
+  in
+  Alcotest.(check int) "3 ToolStart events" 3 (List.length tool_start_indices);
+  Alcotest.(check bool)
+    "all ToolStart before first ToolResult" true
+    (List.for_all (fun i -> i < first_result) tool_start_indices);
+  let tool_result_count =
+    List.length
+      (List.filter
+         (function Provider.ToolResult _ -> true | _ -> false)
+         events)
+  in
+  Alcotest.(check int) "3 ToolResult events" 3 tool_result_count;
+  let all_success =
+    List.for_all
+      (function
+        | Provider.ToolResult { is_error; _ } -> not is_error | _ -> true)
+      events
+  in
+  Alcotest.(check bool) "all 3 results successful" true all_success;
+  Alcotest.(check int) "counter drains to zero after batch" 0 !in_flight
+
 let test_loop_terminates () =
   with_fake_tool_loop_provider (fun config requests ->
       let tool_invocations = ref 0 in
@@ -717,6 +800,9 @@ let suite =
     Alcotest.test_case "tool invocation" `Quick test_tool_invocation;
     Alcotest.test_case "streamed tool result is bounded" `Quick
       test_execute_tool_calls_stream_bounds_final_result;
+    Alcotest.test_case
+      "B607: tool calls execute in parallel with up-front ToolStart" `Quick
+      test_parallel_tool_calls_and_upfront_tool_starts;
     Alcotest.test_case "loop terminates" `Quick test_loop_terminates;
     Alcotest.test_case "memory roundtrip" `Quick test_memory_roundtrip;
     Alcotest.test_case "memory clear" `Quick test_memory_clear;

@@ -485,8 +485,15 @@ let perform_cwd_history_wipe agent =
     | Some msg -> [ summary_msg; msg ]
     | None -> [ summary_msg ])
 
-(* Execute tool calls in order so workspace refresh events can attribute active
-   prompt-file updates to the specific tool call that triggered them. *)
+(* B607: Execute tool calls in PARALLEL when the model emits more than one in
+   a single response. Lwt_list.map_p preserves input order in its result list
+   so history append remains deterministic. Per-tool ToolStart events fire
+   up-front (before any tool completes) so consumers (status messages, UIs)
+   show 'running N tools' immediately rather than revealing each as it
+   finishes. Workspace-refresh attribution is still per-tool (each captures
+   its own before-state) — slightly duplicate FS reads for batches that
+   modify the same file, accepted in exchange for keeping attribution
+   correct. *)
 let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
     ?interrupt_check ?on_tool_round_complete ~on_chunk calls =
   let open Lwt.Syntax in
@@ -515,39 +522,40 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
           | None -> false)
       | None -> false
   in
+  (* B607: emit ToolStart for every call up-front so the UI sees "running N"
+     immediately. Audit log entries also fire up-front to match. *)
+  List.iter
+    (fun (tc : Provider.tool_call) ->
+      Logs.info (fun m ->
+          m "%sTool call: %s (id=%s) args=%s" sk_tag tc.function_name tc.id
+            tc.arguments);
+      (match (db, audit_enabled, session_key) with
+      | Some db, true, Some sk ->
+          let risk =
+            match agent.tool_registry with
+            | Some reg -> (
+                match Tool_registry.find reg tc.function_name with
+                | Some t -> risk_level_to_string t.risk_level
+                | None -> "unknown")
+            | None -> "unknown"
+          in
+          Audit.log ~db
+            (ToolInvocation
+               {
+                 session_key = sk;
+                 tool_name = tc.function_name;
+                 risk_level = risk;
+                 args_preview = tc.arguments;
+               })
+      | _ -> ());
+      notify_async (fun () ->
+          on_chunk
+            (Provider.ToolStart
+               { id = tc.id; name = tc.function_name; arguments = tc.arguments })))
+    calls;
   let* results =
-    Lwt_list.map_s
+    Lwt_list.map_p
       (fun (tc : Provider.tool_call) ->
-        Logs.info (fun m ->
-            m "%sTool call: %s (id=%s) args=%s" sk_tag tc.function_name tc.id
-              tc.arguments);
-        (match (db, audit_enabled, session_key) with
-        | Some db, true, Some sk ->
-            let risk =
-              match agent.tool_registry with
-              | Some reg -> (
-                  match Tool_registry.find reg tc.function_name with
-                  | Some t -> risk_level_to_string t.risk_level
-                  | None -> "unknown")
-              | None -> "unknown"
-            in
-            Audit.log ~db
-              (ToolInvocation
-                 {
-                   session_key = sk;
-                   tool_name = tc.function_name;
-                   risk_level = risk;
-                   args_preview = tc.arguments;
-                 })
-        | _ -> ());
-        notify_async (fun () ->
-            on_chunk
-              (Provider.ToolStart
-                 {
-                   id = tc.id;
-                   name = tc.function_name;
-                   arguments = tc.arguments;
-                 }));
         if check_interrupt () then begin
           Logs.info (fun m ->
               m "%sSkipping tool %s (interrupted)" sk_tag tc.function_name);
@@ -764,31 +772,35 @@ let execute_tool_calls agent ~db ~audit_enabled ~session_key ?interrupt_check
           | None -> false)
       | None -> false
   in
+  (* B607: emit tool invocation audit entries up-front for the whole batch. *)
+  List.iter
+    (fun (tc : Provider.tool_call) ->
+      Logs.info (fun m ->
+          m "%sTool call: %s (id=%s) args=%s" sk_tag tc.function_name tc.id
+            tc.arguments);
+      match (db, audit_enabled, session_key) with
+      | Some db, true, Some sk ->
+          let risk =
+            match agent.tool_registry with
+            | Some reg -> (
+                match Tool_registry.find reg tc.function_name with
+                | Some t -> risk_level_to_string t.risk_level
+                | None -> "unknown")
+            | None -> "unknown"
+          in
+          Audit.log ~db
+            (ToolInvocation
+               {
+                 session_key = sk;
+                 tool_name = tc.function_name;
+                 risk_level = risk;
+                 args_preview = tc.arguments;
+               })
+      | _ -> ())
+    calls;
   let* results =
-    Lwt_list.map_s
+    Lwt_list.map_p
       (fun (tc : Provider.tool_call) ->
-        Logs.info (fun m ->
-            m "%sTool call: %s (id=%s) args=%s" sk_tag tc.function_name tc.id
-              tc.arguments);
-        (match (db, audit_enabled, session_key) with
-        | Some db, true, Some sk ->
-            let risk =
-              match agent.tool_registry with
-              | Some reg -> (
-                  match Tool_registry.find reg tc.function_name with
-                  | Some t -> risk_level_to_string t.risk_level
-                  | None -> "unknown")
-              | None -> "unknown"
-            in
-            Audit.log ~db
-              (ToolInvocation
-                 {
-                   session_key = sk;
-                   tool_name = tc.function_name;
-                   risk_level = risk;
-                   args_preview = tc.arguments;
-                 })
-        | _ -> ());
         if check_interrupt () then begin
           Logs.info (fun m ->
               m "%sSkipping tool %s (interrupted)" sk_tag tc.function_name);
