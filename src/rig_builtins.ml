@@ -25,12 +25,12 @@ Start with these defaults unless the user has specified otherwise:
 ## Step 3: Create the daily briefing cron job
 
 Use shell_exec to run:
-  clawq cron add briefing-daily briefing "0 7 * * *" You are generating the user's daily briefing. 1. Run the installed RSS tool to fetch headlines from ~/.clawq/briefing_feeds.txt. Extract the top 5 most notable headlines. 2. Use web_search for each monitored topic to find recent developments. 3. If a weather location is configured, use web_search for today's weather. 4. Compose a briefing with sections: Top Headlines, Topic Updates, Weather, Worth Reading. Keep it 400-800 words, scannable, with bullet points and links.
+  clawq cron add briefing-daily briefing "0 7 * * *" You are generating the user's daily briefing. 1. Run the installed RSS tool to fetch headlines from ~/.clawq/briefing_feeds.txt. Extract the top 5 most notable headlines. 2. Use web_search SEQUENTIALLY (one call at a time, never parallel) for each monitored topic — typical free-tier search APIs rate-limit at ~1 req/sec. If a search returns "rate-limited" or "no results", skip that topic and continue. 3. If a weather location is configured, use web_search for today's weather. 4. Compose a briefing with sections: Top Headlines, Topic Updates, Weather, Worth Reading. Keep it 400-800 words, scannable, with bullet points and links.
 
 ## Step 4: Create the hourly notable-events cron job
 
 Use shell_exec to run:
-  clawq cron add briefing-hourly briefing "0 * * * *" Quick breaking-news check. Use web_search for each monitored topic. Add 'breaking' or 'just announced' qualifiers. If nothing genuinely notable happened, respond with EXACTLY: 'Nothing notable.' Only report truly significant events. 2-3 sentences with a link if notable.
+  clawq cron add briefing-hourly briefing "0 * * * *" Quick breaking-news check. Use web_search SEQUENTIALLY (one call at a time, never parallel) for each monitored topic — search APIs rate-limit at ~1 req/sec. Add 'breaking' or 'just announced' qualifiers. If a search returns "rate-limited" or "no results", skip that topic and continue with the next. If nothing genuinely notable happened, respond with EXACTLY: 'Nothing notable.' Only report truly significant events. 2-3 sentences with a link if notable.
 
 ## Step 5: Store rig state
 

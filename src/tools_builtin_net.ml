@@ -372,141 +372,168 @@ let web_search ~(config : Runtime_config.t) =
                       query;
                     Buffer.contents buf
                   in
-                  match provider with
-                  | "brave" ->
-                      let base =
-                        match ws.search_base_url with
-                        | Some u -> u
-                        | None ->
-                            "https://api.search.brave.com/res/v1/web/search"
+                  (* B670: provider-specific helpers so we can fall back from
+                     Brave to DDG on 429 without re-implementing the parser. *)
+                  let do_brave () =
+                    let base =
+                      match ws.search_base_url with
+                      | Some u -> u
+                      | None -> "https://api.search.brave.com/res/v1/web/search"
+                    in
+                    let uri =
+                      Printf.sprintf "%s?q=%s&count=%d" base encoded_query limit
+                    in
+                    let* status, body =
+                      http_get_with_429_retry ~uri
+                        ~headers:
+                          [
+                            ("X-Subscription-Token", api_key);
+                            ("Accept", "application/json");
+                          ]
+                        ()
+                    in
+                    if status = 429 then Lwt.return (`Rate_limited "brave")
+                    else if status >= 400 then
+                      Lwt.return
+                        (`Err
+                           (Printf.sprintf "Error: Brave API returned HTTP %d"
+                              status))
+                    else
+                      let json =
+                        try Yojson.Safe.from_string body
+                        with _ ->
+                          `Assoc [ ("web", `Assoc [ ("results", `List []) ]) ]
                       in
-                      let uri =
-                        Printf.sprintf "%s?q=%s&count=%d" base encoded_query
-                          limit
+                      let results =
+                        try json |> member "web" |> member "results" |> to_list
+                        with _ -> []
                       in
-                      let* status, body =
-                        http_get_with_429_retry ~uri
-                          ~headers:
-                            [
-                              ("X-Subscription-Token", api_key);
-                              ("Accept", "application/json");
-                            ]
-                          ()
+                      let lines =
+                        List.mapi
+                          (fun i r ->
+                            let title =
+                              try r |> member "title" |> to_string
+                              with _ -> "(no title)"
+                            in
+                            let url =
+                              try r |> member "url" |> to_string with _ -> ""
+                            in
+                            let snippet =
+                              try r |> member "description" |> to_string
+                              with _ -> ""
+                            in
+                            Printf.sprintf "%d. %s\n   %s\n   %s" (i + 1) title
+                              url snippet)
+                          results
                       in
-                      if status = 429 then
-                        Lwt.return
-                          "Error: Brave search API rate-limited (HTTP 429) \
-                           after 3 retries. Try again in a minute, or \
-                           configure a different search_provider (e.g. ddg)."
-                      else if status >= 400 then
-                        Lwt.return
-                          (Printf.sprintf "Error: Brave API returned HTTP %d"
-                             status)
-                      else
-                        let json =
-                          try Yojson.Safe.from_string body
-                          with _ ->
-                            `Assoc [ ("web", `Assoc [ ("results", `List []) ]) ]
-                        in
-                        let results =
-                          try
-                            json |> member "web" |> member "results" |> to_list
-                          with _ -> []
-                        in
-                        let lines =
-                          List.mapi
-                            (fun i r ->
-                              let title =
-                                try r |> member "title" |> to_string
-                                with _ -> "(no title)"
-                              in
+                      Lwt.return
+                        (`Ok
+                           (if lines = [] then "No results found"
+                            else String.concat "\n\n" lines))
+                  in
+                  let do_ddg ?(base_url = "https://api.duckduckgo.com") () =
+                    let uri =
+                      Printf.sprintf
+                        "%s/?q=%s&format=json&no_redirect=1&no_html=1" base_url
+                        encoded_query
+                    in
+                    let* status, body =
+                      http_get_with_429_retry ~uri
+                        ~headers:[ ("Accept", "application/json") ]
+                        ()
+                    in
+                    if status = 429 then Lwt.return (`Rate_limited "ddg")
+                    else if status >= 400 then
+                      Lwt.return
+                        (`Err
+                           (Printf.sprintf "Error: DDG API returned HTTP %d"
+                              status))
+                    else
+                      let json =
+                        try Yojson.Safe.from_string body with _ -> `Assoc []
+                      in
+                      let abstract =
+                        try json |> member "AbstractText" |> to_string
+                        with _ -> ""
+                      in
+                      let abstract_url =
+                        try json |> member "AbstractURL" |> to_string
+                        with _ -> ""
+                      in
+                      let related =
+                        try json |> member "RelatedTopics" |> to_list
+                        with _ -> []
+                      in
+                      let lines = ref [] in
+                      List.iteri
+                        (fun i topic ->
+                          if i < limit then
+                            try
+                              let text = topic |> member "Text" |> to_string in
                               let url =
-                                try r |> member "url" |> to_string
+                                try topic |> member "FirstURL" |> to_string
                                 with _ -> ""
                               in
-                              let snippet =
-                                try r |> member "description" |> to_string
-                                with _ -> ""
-                              in
-                              Printf.sprintf "%d. %s\n   %s\n   %s" (i + 1)
-                                title url snippet)
-                            results
-                        in
-                        Lwt.return
-                          (if lines = [] then "No results found"
-                           else String.concat "\n\n" lines)
-                  | "ddg" | _ ->
-                      (* DuckDuckGo instant answer API — free, no key needed *)
-                      let base =
+                              lines :=
+                                Printf.sprintf "%d. %s\n   %s" (i + 1) text url
+                                :: !lines
+                            with _ -> ())
+                        related;
+                      let lines = List.rev !lines in
+                      let lines =
+                        if abstract <> "" then
+                          Printf.sprintf "Answer: %s\n%s" abstract abstract_url
+                          :: lines
+                        else lines
+                      in
+                      Lwt.return
+                        (`Ok
+                           (if lines = [] then
+                              "No results found (DDG instant API has limited \
+                               coverage)"
+                            else String.concat "\n\n" lines))
+                  in
+                  match provider with
+                  | "brave" -> (
+                      let* outcome = do_brave () in
+                      match outcome with
+                      | `Ok s -> Lwt.return s
+                      | `Err e -> Lwt.return e
+                      | `Rate_limited _ -> (
+                          (* B670: Brave rate-limited; fall back to DDG so the
+                             agent gets *something* rather than burning more
+                             retry budget on the same 429. *)
+                          Logs.info (fun m ->
+                              m
+                                "web_search: brave HTTP 429 — falling back to \
+                                 ddg");
+                          let* fallback = do_ddg () in
+                          match fallback with
+                          | `Ok s ->
+                              Lwt.return
+                                ("(brave rate-limited, fell back to ddg)\n" ^ s)
+                          | `Err e ->
+                              Lwt.return
+                                ("Error: Brave HTTP 429 and DDG fallback \
+                                  failed: " ^ e)
+                          | `Rate_limited _ ->
+                              Lwt.return
+                                "Error: both brave and ddg returned HTTP 429 — \
+                                 try again in a minute."))
+                  | "ddg" | _ -> (
+                      let base_url =
                         match ws.search_base_url with
                         | Some u -> u
                         | None -> "https://api.duckduckgo.com"
                       in
-                      let uri =
-                        Printf.sprintf
-                          "%s/?q=%s&format=json&no_redirect=1&no_html=1" base
-                          encoded_query
-                      in
-                      let* status, body =
-                        http_get_with_429_retry ~uri
-                          ~headers:[ ("Accept", "application/json") ]
-                          ()
-                      in
-                      if status = 429 then
-                        Lwt.return
-                          "Error: DuckDuckGo search API rate-limited (HTTP \
-                           429) after 3 retries. Try again in a minute."
-                      else if status >= 400 then
-                        Lwt.return
-                          (Printf.sprintf "Error: DDG API returned HTTP %d"
-                             status)
-                      else
-                        let json =
-                          try Yojson.Safe.from_string body with _ -> `Assoc []
-                        in
-                        let abstract =
-                          try json |> member "AbstractText" |> to_string
-                          with _ -> ""
-                        in
-                        let abstract_url =
-                          try json |> member "AbstractURL" |> to_string
-                          with _ -> ""
-                        in
-                        let related =
-                          try json |> member "RelatedTopics" |> to_list
-                          with _ -> []
-                        in
-                        let lines = ref [] in
-                        List.iteri
-                          (fun i topic ->
-                            if i < limit then
-                              try
-                                let text =
-                                  topic |> member "Text" |> to_string
-                                in
-                                let url =
-                                  try topic |> member "FirstURL" |> to_string
-                                  with _ -> ""
-                                in
-                                lines :=
-                                  Printf.sprintf "%d. %s\n   %s" (i + 1) text
-                                    url
-                                  :: !lines
-                              with _ -> ())
-                          related;
-                        let lines = List.rev !lines in
-                        let lines =
-                          if abstract <> "" then
-                            Printf.sprintf "Answer: %s\n%s" abstract
-                              abstract_url
-                            :: lines
-                          else lines
-                        in
-                        Lwt.return
-                          (if lines = [] then
-                             "No results found (DDG instant API has limited \
-                              coverage; consider using provider: brave)"
-                           else String.concat "\n\n" lines))
+                      let* outcome = do_ddg ~base_url () in
+                      match outcome with
+                      | `Ok s -> Lwt.return s
+                      | `Err e -> Lwt.return e
+                      | `Rate_limited _ ->
+                          Lwt.return
+                            "Error: DuckDuckGo search API rate-limited (HTTP \
+                             429) after 3 retries. Try again in a minute."))
                 (fun exn -> Lwt.return ("Error: " ^ Printexc.to_string exn)));
     invoke_stream = None;
     risk_level = Low;
