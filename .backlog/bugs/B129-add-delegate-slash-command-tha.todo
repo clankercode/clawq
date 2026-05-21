@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-09T10:10:47Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-05-21T20:45:13Z"
 complexity: medium
 depends_on: []
+duration_minutes: 105754.4457848509
 estimate_hours: 1
 id: B129
 priority: high
 started_at: "2026-03-09T10:10:47Z"
-status: in_progress
+status: done
 tags: []
 title: Add /delegate slash command that runs a temporary subagent session
 ---
