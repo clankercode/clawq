@@ -97,28 +97,57 @@ let titles_similar a b =
     let union = List.length (List.sort_uniq compare (set_a @ set_b)) in
     if union = 0 then false else float_of_int inter /. float_of_int union >= 0.6
 
-(* Look at recent backlog bug filenames for a similar title. The slug in the
-   filename is derived from the title, so a token-overlap check on slugs gives
-   a cheap, build-free dedup. *)
+(* Read the YAML frontmatter `title:` field from a .todo file. Frontmatter is
+   between two `---` lines; we scan for a leading `title:` key inside it. *)
+let read_todo_title path =
+  try
+    In_channel.with_open_text path (fun ic ->
+        let rec read_lines acc =
+          match In_channel.input_line ic with
+          | None -> List.rev acc
+          | Some l -> read_lines (l :: acc)
+        in
+        let lines = read_lines [] in
+        let rec find_title in_fm = function
+          | [] -> None
+          | l :: rest ->
+              let trimmed = String.trim l in
+              if trimmed = "---" then
+                if in_fm then None (* end of frontmatter without title *)
+                else find_title true rest
+              else if in_fm then begin
+                let key = "title:" in
+                let klen = String.length key in
+                let llen = String.length trimmed in
+                if llen > klen && String.sub trimmed 0 klen = key then
+                  Some (String.trim (String.sub trimmed klen (llen - klen)))
+                else find_title true rest
+              end
+              else find_title false rest
+        in
+        find_title false lines)
+  with _ -> None
+
+(* Look at recent backlog bug frontmatter titles for a similar title. Reading
+   the actual title (rather than the truncated filename slug) gives a far
+   better signal: filenames are clipped to ~30 chars by `bl`, so a long
+   title like "Cron jobs need consecutive-identical-output detection (9th
+   recurrence...)" becomes "cron-jobs-need-consecutive-ide" — too few tokens
+   for Jaccard to score against. *)
 let recent_similar_bug_exists ~title =
-  let candidates =
-    let dir = "/home/xertrov/src/clawq/.backlog/bugs" in
-    if Sys.file_exists dir && Sys.is_directory dir then
+  let dir = "/home/xertrov/src/clawq/.backlog/bugs" in
+  if not (Sys.file_exists dir && Sys.is_directory dir) then false
+  else
+    let files =
       Sys.readdir dir |> Array.to_list
       |> List.filter (fun f -> Filename.check_suffix f ".todo")
-    else []
-  in
-  (* Filenames look like `B632-cron-jobs-need-consecutive-ide.todo` — strip the
-     leading `Bnnn-` prefix and `.todo` suffix to recover an approximate slug. *)
-  let slug_of_filename f =
-    let base = Filename.chop_suffix f ".todo" in
-    match String.index_opt base '-' with
-    | Some i when i < String.length base - 1 ->
-        String.sub base (i + 1) (String.length base - i - 1)
-        |> String.map (fun c -> if c = '-' then ' ' else c)
-    | _ -> base
-  in
-  List.exists (fun f -> titles_similar title (slug_of_filename f)) candidates
+    in
+    List.exists
+      (fun f ->
+        match read_todo_title (Filename.concat dir f) with
+        | Some t -> titles_similar title t
+        | None -> false)
+      files
 
 (* Run `bl bug --title ... --body ... --simple`. Returns Lwt.unit; logs the
    outcome. *)
