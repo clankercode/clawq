@@ -1,0 +1,17 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B605
+priority: high
+status: pending
+tags: []
+title: Kimi coding catalog stale; /model set kimi should default to current Kimi Coding model
+---
+Two issues:
+
+1. Models_catalog kimi/kimi_coding entries need updating. User reports Kimi K2.6 was released recently. Verify which models are current on the Moonshot platform and the Kimi for Code subscription endpoint. Update src/models_catalog.ml entries (~lines 512-573) accordingly.
+
+2. /model set kimi should resolve 'kimi' (a bare alias, not a real model ID) to the current Kimi Coding subscription model (kimi_coding:<latest>). Currently validate_model_name rejects bare 'kimi' as not in catalog. Add alias resolution: 'kimi' -> 'kimi_coding:kimi-for-coding' (or whatever the latest is). Similar aliases could exist for 'glm', 'codex', 'opus' (see B487 for related work).
+
+3. Existing typo: src/runtime_config.ml line 537,553 has 'kimi_coding:kimi-for-code' (missing 'ing'). Should be 'kimi-for-coding'.
