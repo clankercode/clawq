@@ -659,3 +659,4 @@ bugs:
     - file: B662-web-search-prime-mcp-returns-4.todo
     - file: B663-briefing-cron-hard-coded-brave.todo
     - file: B664-web-search-prime-mcp-server-mi.todo
+    - file: B665-identical-output-detection-bli.todo

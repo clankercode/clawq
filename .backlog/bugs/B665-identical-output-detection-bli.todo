@@ -1,0 +1,24 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B665
+priority: high
+status: pending
+tags: []
+title: identical-output detection blind to stuck sessions — B630/B632 only hashes Succeeded tasks
+---
+Root cause: `daemon_util.ml:651-660` gates `Scheduler.mark_run_output` on `task.status = Succeeded`. When a briefing cron session gets stuck with pattern "invalid response format" and emits "Nothing notable.", it never reaches `Succeeded`, so its output hash is never recorded. The `identical_output_disable_threshold` of 5 in `scheduler.ml:563` therefore never fires, and the cron burns tokens indefinitely.
+
+Additionally, the model made 11 `web_search` calls with entirely empty `{}` arguments because the briefing-hourly prompt (`src/rig_builtins.ml:33`) does not explicitly require reading `rig:briefing:config` before searching — it references the config but doesn't mandate extracting topic strings and passing them as the `query` parameter.
+
+Required fixes:
+1. In `src/daemon_util.ml` around line 651, change `Scheduler.mark_run_output` to record output hashes for all terminal statuses (`Succeeded`, `Failed`, `Interrupted`), not just `Succeeded`. This makes the consecutive-identical-output safeguard actually catch degenerate loops regardless of how the session ends.
+2. In `src/rig_builtins.ml` around line 33, revise the briefing-hourly prompt to either (a) inline the actual topic list into the cron message so no runtime recall is needed, or (b) add a strict guard: "First read rig:briefing:config. If you cannot read it, do not call web_search — report the failure instead."
+3. Consider adding an empty-argument guard to the `web_search` tool handler in `src/tools_builtin.ml`: when called with missing or empty `query`, return an explicit error instead of silently returning "No results found."
+
+Verification: After fix (1), trigger a briefing cron that emits "Nothing notable." from a stuck session (e.g., by temporarily breaking the prompt or tool), observe that the 5th consecutive identical output disables the cron.
+
+--
+Auto-filed by clawq postmortem for session cron:briefing (pattern: invalid response format).
+Postmortem doc: /home/xertrov/.clawq/postmortems/2026-05-22T044306-cron:briefing.md
