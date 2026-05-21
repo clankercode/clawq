@@ -1,0 +1,45 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B651
+priority: medium
+status: pending
+tags:
+    - background-task
+    - worktree
+    - dirty-state
+title: Background task delegated to ~/.clawq/workspace (non-git) reports 'dirty-worktree' despite Codex committing to the real repo via symlink
+---
+## Summary
+
+Observed in postmortem analysis written by the agent
+(~/.clawq/postmortems/2026-05-21T...-github:....md): a background_task
+delegated with `cwd=/home/xertrov/.clawq/workspace` (the clawq workspace,
+NOT a git repo) had its Codex runner navigate via the symlink
+`src-clawq -> /home/xertrov/src/clawq` and successfully commit changes
+into the real repo. But because the task's *worktree path* was the
+non-git workspace, the harvest step ran 'Task worktree is no longer a
+git repository; changes cannot be harvested' and the task ended
+status=dirty-worktree.
+
+The main agent then misinterpreted this as the task failing and re-
+delegated, creating a confusing loop visible in the postmortem.
+
+## Suggested fix
+
+1. When delegating a background_task whose declared cwd is the clawq
+   workspace, and a symlink to a git repo exists inside, treat the
+   actual repo path (resolved via the symlink) as the canonical
+   worktree for harvest purposes. Or refuse the delegation entirely
+   with a clear error.
+2. `dirty-worktree` should be a distinct terminal state that the main
+   agent does NOT re-delegate as if it were a transient failure.
+3. Add a regression test: a delegate with a non-git cwd + a symlink
+   to a git repo should either succeed (resolving the symlink) or
+   fail-fast at task creation, not produce the dirty-worktree state.
+
+## Evidence
+
+- ~/.clawq/postmortems/2026-05-21T...-github:XertroV/clawq:workflow_run:26230206042.md
+- ~/.clawq/daemon.log: search 'dirty-worktree'
