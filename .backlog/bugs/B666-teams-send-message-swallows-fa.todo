@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-05-21T19:10:22Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-05-21T19:12:53Z"
 complexity: medium
 depends_on: []
+duration_minutes: 2.5184521910999997
 estimate_hours: 1
 id: B666
 priority: high
 started_at: "2026-05-21T19:10:22Z"
-status: in_progress
+status: done
 tags: []
 title: Teams send_message swallows failures — dispatch_resumed_message returns Ok() when send returned empty
 ---

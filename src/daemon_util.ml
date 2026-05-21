@@ -248,8 +248,20 @@ let dispatch_resumed_message ?(senders = default_resume_senders)
   | "teams" -> (
       match config.channels.teams with
       | Some tc ->
-          let* _id = senders.send_teams ~config:tc ~channel_id ~text in
-          Lwt.return (Ok ())
+          let* activity_id = senders.send_teams ~config:tc ~channel_id ~text in
+          (* B666: Teams.send_message returns the new activity_id on success,
+             or "" when send_reply gave up (missing service_url, no OAuth
+             token, HTTP failure). Surface that as Error so callers don't
+             log "delivery succeeded" after a Teams ERROR. *)
+          if activity_id = "" then
+            Lwt.return
+              (Error
+                 (Printf.sprintf
+                    "teams send returned empty activity_id (check daemon.log \
+                     for the specific Teams error — usually missing/invalid \
+                     service_url in channel_id=%S or expired OAuth token)"
+                    channel_id))
+          else Lwt.return (Ok ())
       | None -> Lwt.return (Error "teams channel is not configured"))
   | "github" ->
       (* GitHub sessions are fire-and-forget: the agent posts back to GitHub

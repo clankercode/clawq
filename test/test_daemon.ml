@@ -639,6 +639,88 @@ let test_dispatch_resumed_message_routes_github () =
   in
   Alcotest.(check (result unit string)) "github dispatch ok" (Ok ()) result
 
+(* B666: when Teams.send_message returns "" (the failure signal —
+   missing/invalid service_url, OAuth token missing, HTTP error), the
+   dispatcher must surface an Error so the cron scheduler doesn't log
+   "delivery succeeded" after a Teams ERROR. *)
+let test_dispatch_resumed_message_teams_empty_activity_is_error () =
+  let senders =
+    {
+      Daemon.default_resume_senders with
+      send_teams = (fun ~config:_ ~channel_id:_ ~text:_ -> Lwt.return "");
+    }
+  in
+  let teams_cfg =
+    {
+      Runtime_config.app_id = "app";
+      app_secret = "secret";
+      tenant_id = "tenant";
+      service_url = "https://example.test/";
+      webhook_path = "/teams/webhook";
+      allow_teams = [];
+      allow_users = [];
+      mention_mode = "first";
+      default_model = None;
+      file_consent_cards = false;
+    }
+  in
+  let config =
+    {
+      Runtime_config.default with
+      channels = { Runtime_config.default.channels with teams = Some teams_cfg };
+    }
+  in
+  let result =
+    Lwt_main.run
+      (Daemon.dispatch_resumed_message ~senders ~config ~channel:"teams"
+         ~channel_id:"|conv-1" ~text:"hi" ())
+  in
+  match result with
+  | Ok () ->
+      Alcotest.fail "expected Error when teams send returned empty activity_id"
+  | Error msg ->
+      Alcotest.(check bool)
+        "error mentions teams send" true
+        (try
+           ignore (Str.search_forward (Str.regexp_string "teams send") msg 0);
+           true
+         with Not_found -> false)
+
+let test_dispatch_resumed_message_teams_non_empty_activity_is_ok () =
+  let senders =
+    {
+      Daemon.default_resume_senders with
+      send_teams =
+        (fun ~config:_ ~channel_id:_ ~text:_ -> Lwt.return "activity-123");
+    }
+  in
+  let teams_cfg =
+    {
+      Runtime_config.app_id = "app";
+      app_secret = "secret";
+      tenant_id = "tenant";
+      service_url = "https://example.test/";
+      webhook_path = "/teams/webhook";
+      allow_teams = [];
+      allow_users = [];
+      mention_mode = "first";
+      default_model = None;
+      file_consent_cards = false;
+    }
+  in
+  let config =
+    {
+      Runtime_config.default with
+      channels = { Runtime_config.default.channels with teams = Some teams_cfg };
+    }
+  in
+  let result =
+    Lwt_main.run
+      (Daemon.dispatch_resumed_message ~senders ~config ~channel:"teams"
+         ~channel_id:"|conv-1" ~text:"hi" ())
+  in
+  Alcotest.(check (result unit string)) "teams dispatch ok" (Ok ()) result
+
 let test_resume_pending_agent_sessions_marks_missing_channel_info () =
   let db = Memory.init ~db_path:":memory:" () in
   let config = Runtime_config.default in
@@ -2272,6 +2354,12 @@ let suite =
       test_dispatch_resumed_message_routes_slack;
     Alcotest.test_case "dispatch resumed message routes github (no-op)" `Quick
       test_dispatch_resumed_message_routes_github;
+    Alcotest.test_case
+      "B666: dispatch resumed message teams empty activity_id surfaces Error"
+      `Quick test_dispatch_resumed_message_teams_empty_activity_is_error;
+    Alcotest.test_case
+      "B666: dispatch resumed message teams non-empty activity_id is Ok" `Quick
+      test_dispatch_resumed_message_teams_non_empty_activity_is_ok;
     Alcotest.test_case
       "resume pending sessions marks missing channel info as sent" `Quick
       test_resume_pending_agent_sessions_marks_missing_channel_info;
