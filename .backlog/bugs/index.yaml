@@ -600,3 +600,4 @@ bugs:
     - file: B601-minimax-models-show-404-see-cl.todo
     - file: B602-glm-5-5-1-context-window-artif.todo
     - file: B603-local-tasks-skip-compaction-ag.todo
+    - file: B604-tool-schema-required-ness-miss.todo

@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B604
+priority: high
+status: pending
+tags: []
+title: Tool schema required-ness missing in agent_tools.ml — 15+ tools lack required parameter annotations, causing model confusion
+---
+
+Tool schema required-ness missing in agent_tools.ml — 15+ tools lack required parameter annotations, causing model confusion
