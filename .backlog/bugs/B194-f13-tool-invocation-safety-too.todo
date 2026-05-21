@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-09T20:52:56Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-05-21T23:47:22Z"
 complexity: high
 depends_on: []
+duration_minutes: 105294.43475703854
 estimate_hours: 12
 id: B194
 priority: high
 started_at: "2026-03-09T20:52:56Z"
-status: in_progress
+status: done
 tags: []
 title: 'F13: Tool Invocation Safety — ToolSafety.v'
 ---
