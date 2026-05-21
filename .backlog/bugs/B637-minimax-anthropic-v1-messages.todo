@@ -1,13 +1,15 @@
 ---
+claimed_at: "2026-05-21T18:34:19Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B637
 priority: high
-status: pending
-tags:
-    - minimax
-    - upstream
+started_at: "2026-05-21T18:34:19Z"
+status: in_progress
+tags: []
 title: MiniMax /anthropic/v1/messages returns 404 nginx intermittently for valid models
 ---
 ## Summary
