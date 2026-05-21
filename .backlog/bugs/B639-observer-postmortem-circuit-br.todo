@@ -1,0 +1,59 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B639
+priority: high
+status: pending
+tags:
+    - observer
+    - session
+    - stuck-loop
+title: Observer/postmortem circuit breaker fires repeatedly but main agent loop continues making same broken tool calls
+---
+## Summary
+
+When an agent emits the same erroring tool call N times in a row (e.g.
+shell_exec with empty arguments — see B634), the observer logs:
+
+  WARN [observer] stuck detected ... SameErrorString: error repeated 3 times
+  WARN [observer] message-count check: stuck session=... repeated missing required parameter
+  WARN Postmortem circuit breaker open ... suppressing additional launch
+
+…34+16+4+3+2+1+1 = 61 stuck-detected events in current daemon.log alone.
+
+But the main agent loop keeps issuing the same broken tool calls. The
+circuit breaker only suppresses *postmortem* re-launch — it does not break
+the agent's main loop, soft-reset history, message the user, or escalate.
+
+The agent's thinking_content shows it knows it's stuck:
+> 'tool arguments arriving as empty `{}` at execution layer'
+yet emits the same failure each turn.
+
+## Suggested behavior
+
+After N (e.g. 5) consecutive identical tool-error patterns, the runtime
+should:
+
+1. Stop dispatching further turns for the session until the user replies.
+2. Post a user-facing diagnostic ('I appear stuck — last 5 tool calls
+   were `shell_exec({})` returning `missing required parameter`. Pausing
+   and waiting for your input.').
+3. Optionally roll back history to remove the bad assistant turns so a
+   restart does not re-trigger the same loop.
+
+This complements (does not replace) B395 (postmortem circuit breaker) and
+B632 (cron consecutive-identical-output detection — already filed/done).
+
+## Evidence
+
+- ~/.clawq/daemon.log: 34+16+4+3+2+1+1 'stuck detected' events on one
+  session (teams:personal:a:1JPVFng...) over 6 hours
+- Same session: ~118 consecutive tool calls failing with the same error
+  message, no break-out
+
+## Test
+
+Add an integration test that drives an agent with a mock provider returning
+identical bad tool-calls, asserts the main loop pauses after 5 identical
+errors, and asserts a user-facing diagnostic message is emitted.
