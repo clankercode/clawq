@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-05-21T09:02:00Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-05-21T09:04:49Z"
 complexity: medium
 depends_on: []
+duration_minutes: 2.8314787665
 estimate_hours: 1
 id: B609
 priority: high
 started_at: "2026-05-21T09:02:00Z"
-status: in_progress
+status: done
 tags: []
 title: postmortem.enabled=false still leaves postmortem side effects
 ---
