@@ -259,10 +259,15 @@ let send_reply ?(alert = false) ~(config : Runtime_config.teams_config)
                 build_reply_body ~alert ~text:chunk ~mention
                   ~mention_mode:config.mention_mode
               in
+              Logs.info (fun m ->
+                  m "Teams: POST %s body_len=%d" uri (String.length body));
               let* status, resp =
                 post_json_throttled ~conversation_id ~uri ~headers ~body
               in
               if status >= 200 && status < 300 then begin
+                Logs.info (fun m ->
+                    m "Teams: POST ok (HTTP %d) conv=%s resp_len=%d" status
+                      conversation_id (String.length resp));
                 try
                   let json = Yojson.Safe.from_string resp in
                   let open Yojson.Safe.Util in

@@ -283,6 +283,11 @@ let notify_resumed_session ?(senders = default_resume_senders)
   let open Lwt.Syntax in
   match Session.find_registered_notifier session_manager ~key:session_key with
   | Some notify ->
+      Logs.info (fun m ->
+          m
+            "notify_resumed_session: using registered notifier for session=%s \
+             text_len=%d"
+            session_key (String.length text));
       Lwt.catch
         (fun () -> notify text)
         (fun exn ->
@@ -291,6 +296,11 @@ let notify_resumed_session ?(senders = default_resume_senders)
                 (Printexc.to_string exn));
           Lwt.return_unit)
   | None ->
+      Logs.info (fun m ->
+          m
+            "notify_resumed_session: dispatching to %s:%s for session=%s \
+             text_len=%d"
+            channel channel_id session_key (String.length text));
       Lwt.catch
         (fun () ->
           let* result =
@@ -298,7 +308,11 @@ let notify_resumed_session ?(senders = default_resume_senders)
               ()
           in
           match result with
-          | Ok () -> Lwt.return_unit
+          | Ok () ->
+              Logs.info (fun m ->
+                  m "notify_resumed_session: dispatch ok for %s via %s:%s"
+                    session_key channel channel_id);
+              Lwt.return_unit
           | Error err ->
               Logs.warn (fun m ->
                   m "Failed to send resumed session notice for %s via %s:%s: %s"
