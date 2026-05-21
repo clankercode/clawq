@@ -73,7 +73,8 @@ let models_set_default_cmd =
   let skip_validation =
     Arg.(
       value & flag
-      & info [ "skip-validation"; "no-test" ]
+      & info
+          [ "skip-validation"; "no-test" ]
           ~doc:
             "Skip the live test completion that normally runs before \
              committing the switch. Use only when you know the model works.")

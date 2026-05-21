@@ -205,7 +205,7 @@ let pricing_table =
       { input_per_m = 0.20; output_per_m = 1.10; cache_read_per_m = None } );
     (* Z.ai - Source: https://docs.z.ai/guides/overview/pricing *)
     ( "glm-5.1",
-      { input_per_m = 1.0; output_per_m = 3.2; cache_read_per_m = None } );
+      { input_per_m = 1.4; output_per_m = 4.4; cache_read_per_m = None } );
     ( "glm-5-turbo",
       { input_per_m = 1.2; output_per_m = 4.0; cache_read_per_m = Some 0.24 } );
     ( "glm-5",
