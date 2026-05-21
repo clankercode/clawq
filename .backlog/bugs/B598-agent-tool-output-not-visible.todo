@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B598
+priority: high
+status: pending
+tags: []
+title: Agent tool output not visible to user in channel sessions — add optional forward-to-user flag
+---
+
+Agent tool output not visible to user in channel sessions — add optional forward-to-user flag

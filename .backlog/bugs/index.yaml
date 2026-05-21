@@ -594,3 +594,4 @@ bugs:
     - file: B595-teams-ask-user-question-text-r.todo
     - file: B596-github-webhook-hooks-post-back.todo
     - file: B597-web-search-no-retry-or-fallbac.todo
+    - file: B598-agent-tool-output-not-visible.todo
