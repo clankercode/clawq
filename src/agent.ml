@@ -1111,6 +1111,12 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
     in
     match (usage, session_key) with
     | Some (pt, ct, api_cached), Some sid -> (
+        if api_cached > pt && pt > 0 then
+          Logs.warn (fun m ->
+              m
+                "[cache] provider reported cached=%d > prompt_tokens=%d; \
+                 provider is not normalizing usage. Cache %% will be wrong."
+                api_cached pt);
         if pt > 0 then
           Logs.info (fun m ->
               m "[cache] cached=%d/%d (%.0f%%) prompt tokens" api_cached pt
@@ -1441,6 +1447,12 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
     in
     match (usage, session_key) with
     | Some (pt, ct, api_cached), Some sid -> (
+        if api_cached > pt && pt > 0 then
+          Logs.warn (fun m ->
+              m
+                "[cache] provider reported cached=%d > prompt_tokens=%d; \
+                 provider is not normalizing usage. Cache %% will be wrong."
+                api_cached pt);
         if pt > 0 then
           Logs.info (fun m ->
               m "[cache] cached=%d/%d (%.0f%%) prompt tokens" api_cached pt

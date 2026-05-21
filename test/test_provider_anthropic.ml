@@ -202,6 +202,23 @@ let test_parse_tool_use_response () =
   | Ok (Provider.Text _) -> Alcotest.fail "expected ToolCalls"
   | Error e -> Alcotest.fail ("error: " ^ e)
 
+(* B608 regression: Anthropic input_tokens is NEW (uncached); normalize
+   to OpenAI-style total prompt tokens so downstream stays consistent. *)
+let test_parse_response_normalizes_cached_to_total () =
+  let body =
+    {|{"content":[{"type":"text","text":"hi"}],"model":"claude-3","stop_reason":"end_turn","usage":{"input_tokens":250,"output_tokens":40,"cache_read_input_tokens":12500}}|}
+  in
+  match Provider_anthropic.parse_anthropic_response body "claude-3" with
+  | Ok (Provider.Text { usage = Some (pt, ct, cached); _ }) ->
+      Alcotest.(check int)
+        "pt is total (new + cached), not just new" (250 + 12500) pt;
+      Alcotest.(check int) "ct unchanged" 40 ct;
+      Alcotest.(check int) "cached unchanged" 12500 cached;
+      Alcotest.(check bool) "cached <= pt invariant holds" true (cached <= pt)
+  | Ok (Provider.Text { usage = None; _ }) -> Alcotest.fail "expected usage"
+  | Ok (Provider.ToolCalls _) -> Alcotest.fail "expected Text"
+  | Error e -> Alcotest.fail ("error: " ^ e)
+
 let test_parse_invalid_json () =
   match Provider_anthropic.parse_anthropic_response "not json" "model" with
   | Error _ -> ()
@@ -244,6 +261,9 @@ let suite =
     Alcotest.test_case "tools empty list" `Quick test_tools_empty_list;
     Alcotest.test_case "tools valid" `Quick test_tools_valid;
     Alcotest.test_case "parse text response" `Quick test_parse_text_response;
+    Alcotest.test_case
+      "B608: parse_response normalizes cached to total prompt tokens" `Quick
+      test_parse_response_normalizes_cached_to_total;
     Alcotest.test_case "parse tool use response" `Quick
       test_parse_tool_use_response;
     Alcotest.test_case "parse invalid json" `Quick test_parse_invalid_json;

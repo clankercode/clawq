@@ -68,7 +68,11 @@ let parse_response body model =
         let cached =
           try u |> member "cache_read_input_tokens" |> to_int with _ -> 0
         in
-        Some (input_tokens, output_tokens, cached)
+        (* B608: MiniMax (Anthropic-compatible) reports input_tokens =
+           NEW (uncached) tokens and cache_read_input_tokens separately.
+           Normalize to OpenAI-style total-prompt-tokens so the cache-hit
+           log and cost calculation are consistent across providers. *)
+        Some (input_tokens + cached, output_tokens, cached)
       with _ -> None
     in
     let content_list = try json |> member "content" |> to_list with _ -> [] in
@@ -299,7 +303,8 @@ let complete_streaming ~(config : Runtime_config.t)
                    try u |> member "cache_read_input_tokens" |> to_int
                    with _ -> 0
                  in
-                 usage_acc := Some (it, ot, cached)
+                 (* B608: normalize to total-input semantics (see complete). *)
+                 usage_acc := Some (it + cached, ot, cached)
                with _ -> ());
               Lwt.return_unit
           | "content_block_start" -> (

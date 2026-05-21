@@ -280,6 +280,25 @@ let test_parse_text_response () =
   | Ok (Provider.ToolCalls _) -> Alcotest.fail "expected Text"
   | Error e -> Alcotest.fail ("error: " ^ e)
 
+(* B608 regression: Anthropic-compatible APIs report input_tokens as NEW
+   (uncached) and cache_read_input_tokens separately. The provider must
+   normalize to OpenAI-style total-prompt semantics (pt = new + cached) so
+   downstream cost calculation and the cache-hit log are correct. *)
+let test_parse_response_normalizes_cached_to_total () =
+  let body =
+    {|{"content":[{"type":"text","text":"hi"}],"model":"MiniMax-M2.7","stop_reason":"end_turn","usage":{"input_tokens":120,"output_tokens":50,"cache_read_input_tokens":35835}}|}
+  in
+  match Provider_minimax.parse_response body "MiniMax-M2.7" with
+  | Ok (Provider.Text { usage = Some (pt, ct, cached); _ }) ->
+      Alcotest.(check int)
+        "pt is total (new + cached), not just new" (120 + 35835) pt;
+      Alcotest.(check int) "ct unchanged" 50 ct;
+      Alcotest.(check int) "cached unchanged" 35835 cached;
+      Alcotest.(check bool) "cached <= pt invariant holds" true (cached <= pt)
+  | Ok (Provider.Text { usage = None; _ }) -> Alcotest.fail "expected usage"
+  | Ok (Provider.ToolCalls _) -> Alcotest.fail "expected Text"
+  | Error e -> Alcotest.fail ("error: " ^ e)
+
 let test_parse_thinking_response () =
   let body =
     {|{"content":[{"type":"thinking","thinking":"inner monologue"},{"type":"text","text":"hello"}],"model":"MiniMax-M2.7","stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":5}}|}
@@ -759,6 +778,9 @@ let suite =
     Alcotest.test_case "tools empty list" `Quick test_tools_empty_list;
     Alcotest.test_case "tools valid" `Quick test_tools_valid;
     Alcotest.test_case "parse text response" `Quick test_parse_text_response;
+    Alcotest.test_case
+      "B608: parse_response normalizes cached to total prompt tokens" `Quick
+      test_parse_response_normalizes_cached_to_total;
     Alcotest.test_case "parse thinking response" `Quick
       test_parse_thinking_response;
     Alcotest.test_case "parse tool use response" `Quick
