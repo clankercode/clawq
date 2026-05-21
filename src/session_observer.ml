@@ -157,11 +157,34 @@ let take_last n lst =
   in
   aux [] n lst
 
+(* Strip any leading and embedded "STUCK:" prefixes from a reason fragment so
+   a misformatted LLM verdict like "STUCK:reasonSTUCK:reason" doesn't end up
+   logged as a doubled reason. Also trim trailing whitespace/newlines and cap
+   the result to one line — observer reasons are summaries, not paragraphs. *)
+let clean_stuck_reason raw =
+  let s = String.trim raw in
+  let rec strip_prefix s =
+    let len = String.length s in
+    if len >= 6 && String.sub s 0 6 = "STUCK:" then
+      strip_prefix (String.trim (String.sub s 6 (len - 6)))
+    else s
+  in
+  let s = strip_prefix s in
+  (* Pull off a duplicated "STUCK:" tail if present. *)
+  let s =
+    match Str.search_forward (Str.regexp_string "STUCK:") s 0 with
+    | exception Not_found -> s
+    | i -> String.trim (String.sub s 0 i)
+  in
+  match String.index_opt s '\n' with
+  | Some i -> String.trim (String.sub s 0 i)
+  | None -> s
+
 let parse_verdict response =
   let s = String.trim response in
   if s = "OK" then `Ok
   else if String.length s >= 6 && String.sub s 0 6 = "STUCK:" then
-    let reason = String.trim (String.sub s 6 (String.length s - 6)) in
+    let reason = clean_stuck_reason (String.sub s 6 (String.length s - 6)) in
     `Stuck reason
   else if s = "NEED_MORE" then `Need_more
   else `Ok (* conservative: unknown response = treat as Ok *)
@@ -362,7 +385,9 @@ let check_thinking_excerpt ~(config : Runtime_config.t) ~excerpt () =
       let verdict =
         if s = "SANE" then `Sane
         else if String.length s >= 8 && String.sub s 0 8 = "LOOPING:" then
-          let reason = String.trim (String.sub s 8 (String.length s - 8)) in
+          let reason =
+            clean_stuck_reason (String.sub s 8 (String.length s - 8))
+          in
           `Looping reason
         else `Sane
       in

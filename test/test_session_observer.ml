@@ -413,6 +413,28 @@ let test_parse_verdict () =
     "unknown defaults to ok" "ok"
     (match Session_observer.parse_verdict "MAYBE" with
     | `Ok -> "ok"
+    | _ -> "other");
+  (* B-postobserve: when the LLM emits a duplicated STUCK: prefix or trails
+     after the first reason, parse_verdict should clean it to one line. The
+     duplicated "...searchesSTUCK:..." form showed up in daemon.log. *)
+  Alcotest.(check string)
+    "duplicated STUCK: prefix collapses to first reason"
+    "repeating static response without performing web searches"
+    (match
+       Session_observer.parse_verdict
+         "STUCK:repeating static response without performing web \
+          searchesSTUCK:repeating static response without performing web \
+          searches"
+     with
+    | `Stuck r -> r
+    | _ -> "other");
+  Alcotest.(check string)
+    "newline-terminated reason keeps only the first line" "looping"
+    (match
+       Session_observer.parse_verdict
+         "STUCK:looping\nadditional trailing prose to ignore"
+     with
+    | `Stuck r -> r
     | _ -> "other")
 
 let suite =
