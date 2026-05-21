@@ -60,6 +60,7 @@
   test_pairing
   test_perf
   test_phase3
+  test_postmortem
   test_prompt_builder
   test_provider
   test_provider_anthropic

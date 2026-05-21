@@ -37,6 +37,7 @@ let () =
        ("cli_exit", Test_cli_exit.suite);
        ("command_bridge", Test_command_bridge.suite);
        ("phase3", Test_phase3.suite);
+       ("postmortem", Test_postmortem.suite);
        ("scheduler", Test_scheduler.suite);
        ("background_task", Test_background_task.suite);
        ("bg_shell", Test_bg_shell.suite);

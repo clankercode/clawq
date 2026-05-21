@@ -48,23 +48,52 @@ let write_doc ~session_key ~pattern ~evidence_summary ~correction =
   let* () = Lwt.return_unit in
   Lwt.return path
 
+(* B611: render the postmortem evidence with the structured tool-call data
+   the analyst needs to diagnose loops. Assistant turns with tool_calls now
+   include each tool's name and args (truncated). Tool result turns include
+   the tool name and a content preview. Plain content is preserved
+   verbatim. The newest 20 messages are kept (was 15) up to ~6000 chars
+   (was 3000) since structured rendering needs more room. *)
 let format_history_text messages =
-  let limit = 15 in
-  let max_chars = 3000 in
+  let limit = 20 in
+  let max_chars = 6000 in
+  let truncate_field s n =
+    if String.length s <= n then s else String.sub s 0 n ^ "...[truncated]"
+  in
   let rec take n = function
     | [] -> []
     | _ when n = 0 -> []
     | x :: rest -> x :: take (n - 1) rest
   in
   let msgs = take limit messages in
-  let lines =
-    List.map
-      (fun (msg : Provider.message) ->
-        Printf.sprintf "[%s]: %s" msg.role msg.content)
-      msgs
+  let format_tool_call (tc : Provider.tool_call) =
+    Printf.sprintf "  - tool=%s id=%s args=%s" tc.function_name tc.id
+      (truncate_field tc.arguments 400)
   in
+  let format_msg (msg : Provider.message) =
+    match msg.role with
+    | "assistant" when msg.tool_calls <> [] ->
+        let calls_block =
+          String.concat "\n" (List.map format_tool_call msg.tool_calls)
+        in
+        let text =
+          if msg.content = "" then ""
+          else "\n  text=" ^ truncate_field msg.content 400
+        in
+        Printf.sprintf "[assistant] tool_calls=%d:\n%s%s"
+          (List.length msg.tool_calls)
+          calls_block text
+    | "tool" ->
+        let name = Option.value msg.name ~default:"unknown" in
+        let preview = truncate_field msg.content 600 in
+        let id = Option.value msg.tool_call_id ~default:"(no tool_call_id)" in
+        Printf.sprintf "[tool name=%s id=%s] %s" name id preview
+    | role -> Printf.sprintf "[%s] %s" role (truncate_field msg.content 600)
+  in
+  let lines = List.map format_msg msgs in
   let full = String.concat "\n" lines in
-  if String.length full > max_chars then String.sub full 0 max_chars ^ "..."
+  if String.length full > max_chars then
+    String.sub full 0 max_chars ^ "\n...[history truncated for length]"
   else full
 
 let make_postmortem_prompt ~session_key ~reason ~doc_path ~history_text () =
