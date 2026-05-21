@@ -1,0 +1,19 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B624
+priority: high
+status: pending
+tags: []
+title: briefing-hourly cron postmortems never remediate the underlying empty-topics misconfiguration
+---
+Daemon log scan (2026-05-21): the briefing-hourly cron has triggered postmortems 5+ times (2026-03-30, 2026-05-01, 2026-05-02, 2026-05-07, 2026-05-21) for the same 'rig:briefing:config topics: []' issue. Each time the postmortem completes with 'Nothing notable.' and 11 such outputs are in the log; 6 unique postmortem sessions; 18 cron invocations total this window.
+
+Symptom: empty topics list in rig:briefing:config means the cron has nothing to brief on. Postmortem documents this but does not (a) self-remediate by adding topics, (b) pause the cron, or (c) escalate to the user. The cron continues consuming context and tokens hourly.
+
+Fix:
+- Postmortem findings should produce one of: (i) disable the broken cron job, (ii) post an actionable user-visible message via the configured notify channel, (iii) write a bl bug.
+- This is related to B610 'postmortem findings never close the DB record or create actionable work' but more specific.
+
+Tag: cron, postmortem, remediation, briefing
