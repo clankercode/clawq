@@ -235,6 +235,7 @@ let list_tool ~db =
                            untruncated prompt. Defaults to false." );
                     ] );
               ] );
+          ("required", `List []);
           ("additionalProperties", `Bool false);
         ];
     invoke =

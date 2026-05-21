@@ -3054,6 +3054,32 @@ let test_list_dir_uses_effective_cwd () =
         "lists effective CWD contents" true
         (contains result "nested.txt"))
 
+(* B604: every tool must declare a "required" array in its JSON schema (even
+   if empty) so the Anthropic Messages API (and other strict format providers)
+   don't reject the schema. *)
+let test_every_builtin_tool_has_required_field () =
+  let registry = Tool_registry.create () in
+  let config = Runtime_config.default in
+  let sandbox =
+    Sandbox.create ~backend:Sandbox.None
+      ~workspace:(Runtime_config.effective_workspace config)
+      ~extra_allowed_paths:[] ~workspace_only:false ()
+  in
+  Tools_builtin.register_all ~config ~sandbox registry;
+  let tools = Tool_registry.list registry in
+  List.iter
+    (fun (t : Tool.t) ->
+      let has_required =
+        match t.parameters_schema with
+        | `Assoc fields -> List.mem_assoc "required" fields
+        | _ -> false
+      in
+      Alcotest.(check bool)
+        (Printf.sprintf
+           "tool %s has 'required' field in parameters_schema (B604)" t.name)
+        true has_required)
+    tools
+
 let suite =
   [
     Alcotest.test_case "normalize absolute" `Quick test_normalize_absolute;
@@ -3254,4 +3280,6 @@ let suite =
       test_shell_exec_uses_effective_cwd;
     Alcotest.test_case "list_dir uses effective CWD" `Quick
       test_list_dir_uses_effective_cwd;
+    Alcotest.test_case "B604: every builtin tool has 'required' in schema"
+      `Quick test_every_builtin_tool_has_required_field;
   ]

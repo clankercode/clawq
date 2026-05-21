@@ -1778,6 +1778,7 @@ let inject_connector_history ~(config : Runtime_config.t) ~db =
                       );
                     ] );
               ] );
+          ("required", `List []);
         ];
     invoke =
       (fun ?context args ->

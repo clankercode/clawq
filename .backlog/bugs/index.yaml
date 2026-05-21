@@ -608,3 +608,5 @@ bugs:
     - file: B609-postmortem-enabled-false-still.todo
     - file: B610-postmortem-findings-never-clos.todo
     - file: B611-postmortem-evidence-omits-the.todo
+    - file: B612-postmortem-circuit-breaker-sup.todo
+    - file: B613-postmortem-model-null-cannot-c.todo

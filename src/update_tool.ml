@@ -629,6 +629,7 @@ let tool ~is_draining ?claim_update ?finish_update ?find_repo_root ?run_command
                            configured." );
                     ] );
               ] );
+          ("required", `List []);
           ("additionalProperties", `Bool false);
         ];
     invoke = (fun ?context args -> invoke_common ?context args);

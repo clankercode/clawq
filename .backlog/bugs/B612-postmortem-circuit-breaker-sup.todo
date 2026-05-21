@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B612
+priority: high
+status: pending
+tags: []
+title: postmortem circuit breaker suppresses later distinct failures too broadly
+---
+A root session gets only one postmortem until reset, even if a later unrelated stuck pattern occurs or the first launch fails. Track breaker state by (root, normalized_pattern) or add cooldown/status so distinct failures can still produce learning. session_core.ml postmortem_circuit_breakers hashtable. Found by cx-reviewer.

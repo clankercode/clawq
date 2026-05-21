@@ -595,7 +595,12 @@ let skill_md_to_tool (meta : skill_md_meta) : Tool.t =
     Tool.name = meta.md_name;
     Tool.description = meta.md_description;
     Tool.parameters_schema =
-      `Assoc [ ("type", `String "object"); ("properties", `Assoc []) ];
+      `Assoc
+        [
+          ("type", `String "object");
+          ("properties", `Assoc []);
+          ("required", `List []);
+        ];
     Tool.invoke =
       (fun ?context:_ _ -> Lwt.return "Skills are not directly invocable");
     Tool.invoke_stream = None;
@@ -993,7 +998,12 @@ let skill_list_tool ?workspace_dir () =
        ~/.clawq/skills/ and SKILL.md skills from workspace and personal \
        directories";
     parameters_schema =
-      `Assoc [ ("type", `String "object"); ("properties", `Assoc []) ];
+      `Assoc
+        [
+          ("type", `String "object");
+          ("properties", `Assoc []);
+          ("required", `List []);
+        ];
     invoke =
       (fun ?context:_ _args ->
         let dir = skills_dir () in

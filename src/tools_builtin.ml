@@ -393,6 +393,10 @@ let send_file ~workspace ~workspace_only ~extra_allowed_paths
                       );
                     ] );
               ] );
+          (* No required fields: the (path | content) constraint is
+             enforced at runtime since JSON Schema cannot express "exactly
+             one of these". *)
+          ("required", `List []);
         ];
     invoke =
       (fun ?context args ->
@@ -787,6 +791,7 @@ let compact_history ~compact_fn =
         [
           ("type", `String "object");
           ("properties", `Assoc []);
+          ("required", `List []);
           ("additionalProperties", `Bool false);
         ];
     invoke =

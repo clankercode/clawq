@@ -864,6 +864,7 @@ let list_tool ~db =
         [
           ("type", `String "object");
           ("properties", `Assoc []);
+          ("required", `List []);
           ("additionalProperties", `Bool false);
         ];
     invoke =
