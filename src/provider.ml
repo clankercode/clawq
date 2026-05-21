@@ -256,6 +256,63 @@ let messages_to_json messages = `List (List.map message_to_json messages)
    the tool result. Preserves order otherwise. Requires that every tool
    message's tool_call_id matches some preceding assistant tool_use (callers
    should run Message_history.ensure_tool_group_integrity first). *)
+(* B638: inline copy of Message_history.ensure_tool_group_integrity so the
+   OpenAI-compat path in this module can pre-strip orphan tool_use /
+   tool_result pairs without creating a cyclic import (Message_history
+   already depends on Provider for the message type). Keep in sync if the
+   upstream implementation evolves. *)
+let inline_ensure_tool_group_integrity (msgs : message list) =
+  let call_ids =
+    List.fold_left
+      (fun acc (m : message) ->
+        if m.role = "assistant" && m.tool_calls <> [] then
+          List.fold_left
+            (fun acc (tc : tool_call) ->
+              if List.mem tc.id acc then acc else tc.id :: acc)
+            acc m.tool_calls
+        else acc)
+      [] msgs
+  in
+  let result_ids =
+    List.fold_left
+      (fun acc (m : message) ->
+        match m.tool_call_id with
+        | Some id when m.role = "tool" ->
+            if List.mem id acc then acc else id :: acc
+        | _ -> acc)
+      [] msgs
+  in
+  msgs
+  |> List.filter (fun (m : message) ->
+      if m.role = "tool" then
+        match m.tool_call_id with
+        | Some id -> List.mem id call_ids
+        | None -> true
+      else true)
+  |> List.map (fun (m : message) ->
+      if m.role = "assistant" && m.tool_calls <> [] then
+        let kept =
+          List.filter
+            (fun (tc : tool_call) -> List.mem tc.id result_ids)
+            m.tool_calls
+        in
+        { m with tool_calls = kept }
+      else m)
+  |> List.filter (fun (m : message) ->
+      let has_provider_items =
+        match m.provider_response_items_json with
+        | Some s when String.trim s <> "" && s <> "[]" -> true
+        | _ -> false
+      in
+      let has_thinking =
+        match m.thinking with
+        | Some s when String.trim s <> "" -> true
+        | _ -> false
+      in
+      not
+        (m.role = "assistant" && m.content = "" && m.content_parts = []
+       && m.tool_calls = [] && (not has_provider_items) && not has_thinking))
+
 let reorder_tool_groups (msgs : message list) =
   let n = List.length msgs in
   if n = 0 then []
@@ -1139,6 +1196,13 @@ let complete ~(config : Runtime_config.t) ~messages ?tools ?session_key
       in
       let uri = base_url ^ "/chat/completions" in
       let temp_locked = model_requires_temperature_one model in
+      (* B638: apply tool-group integrity before conversion. Z.ai (glm-5.1)
+         strict-checks message shape and rejects with code 1214 "messages
+         parameter is illegal" when orphan tool_use / tool_result pairs
+         survive (typically after session resume drops intermediate state).
+         Inlined here to avoid a cyclic dependency on Message_history
+         (which itself imports Provider for the message type). *)
+      let messages = inline_ensure_tool_group_integrity messages in
       let body_fields =
         [ ("model", `String model); ("messages", messages_to_json messages) ]
       in
@@ -1182,6 +1246,27 @@ let complete ~(config : Runtime_config.t) ~messages ?tools ?session_key
         | None -> Http_client.post_json ~uri ~headers ~body
       in
       if status < 200 || status >= 300 then begin
+        (* B638: dump the failing request/response to a one-shot diagnostic
+           file when ZAI_DEBUG_BODY=1, so the exact 1214-triggering body
+           can be inspected. *)
+        (match Sys.getenv_opt "ZAI_DEBUG_BODY" with
+        | Some v when v <> "" && v <> "0" -> (
+            let path =
+              Printf.sprintf "/tmp/clawq-zai-debug-%d-%d.json" (Unix.getpid ())
+                (int_of_float (Unix.gettimeofday ()))
+            in
+            try
+              let oc = open_out path in
+              output_string oc
+                (Printf.sprintf
+                   "{\"provider\":%S,\"model\":%S,\"status\":%d,\"request\":%s,\"response\":%s}"
+                   provider_name model status body response_body);
+              close_out oc;
+              Logs.warn (fun m ->
+                  m "ZAI_DEBUG_BODY: wrote failing %s/%s exchange to %s"
+                    provider_name model path)
+            with _ -> ())
+        | _ -> ());
         if status = 400 then
           try
             let err_json = Yojson.Safe.from_string response_body in
@@ -1560,6 +1645,7 @@ let complete_stream ~(config : Runtime_config.t) ~messages ?tools ?session_key
       in
       let uri = base_url ^ "/chat/completions" in
       let temp_locked = model_requires_temperature_one model in
+      let messages = inline_ensure_tool_group_integrity messages in
       let body_fields =
         [
           ("model", `String model);

@@ -2,6 +2,48 @@
 
 let minimax_base = "https://api.minimax.io"
 
+(* B646: MiniMax returns HTTP 500 + body containing error code "1234" with
+   message "Network error, please try again later" several times per day.
+   The global retry layer (3 attempts, 1s/2s) gives up fast. Add an inline
+   500-1234 retry with longer exponential backoff (5s, 15s, 45s) up to 3
+   extra attempts, AND surface the upstream error_id in the WARN so the
+   user can correlate with MiniMax support. *)
+let is_minimax_transient_500 body =
+  try
+    let json = Yojson.Safe.from_string body in
+    let open Yojson.Safe.Util in
+    let code =
+      try json |> member "error" |> member "code" |> to_string with _ -> ""
+    in
+    code = "1234"
+  with _ -> false
+
+let extract_minimax_error_id body =
+  try
+    let json = Yojson.Safe.from_string body in
+    let open Yojson.Safe.Util in
+    let msg =
+      try json |> member "error" |> member "message" |> to_string with _ -> ""
+    in
+    (* MiniMax's message: "Network error, error id: <hex>, please try again later" *)
+    let prefix = "error id: " in
+    match String.index_opt msg 'e' with
+    | None -> None
+    | Some _ -> (
+        match
+          try Some (Str.search_forward (Str.regexp_string prefix) msg 0)
+          with Not_found -> None
+        with
+        | None -> None
+        | Some i ->
+            let start = i + String.length prefix in
+            let endi =
+              try String.index_from msg start ','
+              with Not_found -> String.length msg
+            in
+            Some (String.sub msg start (endi - start)))
+  with _ -> None
+
 let api_model_name model =
   match String.lowercase_ascii (String.trim model) with
   | "minimax-m2.7" -> "MiniMax-M2.7"
@@ -198,8 +240,35 @@ let complete ~(config : Runtime_config.t)
   Logs.info (fun m ->
       m "MiniMax request to %s model=%s api_model=%s msgs=%d" uri model
         api_model (List.length messages));
-  let* status, response_body = Http_client.post_json ~uri ~headers ~body in
+  (* B646: inline retry loop for transient HTTP 500 / code 1234 with longer
+     exponential backoff than the global retry layer provides. *)
+  let rec attempt_with_backoff n =
+    let* status, response_body = Http_client.post_json ~uri ~headers ~body in
+    if status = 500 && is_minimax_transient_500 response_body && n < 3 then begin
+      let delay = 5.0 *. Float.pow 3.0 (Float.of_int n) in
+      let eid = extract_minimax_error_id response_body in
+      Logs.warn (fun m ->
+          m
+            "MiniMax transient 500 (code 1234, error_id=%s) — extra attempt \
+             %d/3 in %.0fs"
+            (Option.value eid ~default:"?")
+            (n + 1) delay);
+      let* () = Lwt_unix.sleep delay in
+      attempt_with_backoff (n + 1)
+    end
+    else Lwt.return (status, response_body)
+  in
+  let* status, response_body = attempt_with_backoff 0 in
   if status < 200 || status >= 300 then begin
+    (* B637: log request body size on any 4xx/5xx so 404-nginx and other
+       silent rejections are easier to diagnose. *)
+    Logs.warn (fun m ->
+        m
+          "MiniMax HTTP %d — request body %d bytes (~%dk), response body %d \
+           bytes"
+          status (String.length body)
+          (String.length body / 1024)
+          (String.length response_body));
     Logs.warn (fun m ->
         m "MiniMax body shape on error (HTTP %d): %s" status
           (* B642: truncate to last 24 messages by default; set
@@ -272,6 +341,14 @@ let complete_streaming ~(config : Runtime_config.t)
   let on_error (r : Http_client.stream_response) =
     let open Lwt.Syntax in
     let* err_body = Http_client.collect_error_body r.stream in
+    (* B637: log request body size for streaming errors too. *)
+    Logs.warn (fun m ->
+        m
+          "MiniMax stream HTTP %d — request body %d bytes (~%dk), response \
+           body %d bytes"
+          r.status (String.length body)
+          (String.length body / 1024)
+          (String.length err_body));
     Logs.warn (fun m ->
         m "MiniMax stream body shape on error (HTTP %d): %s" r.status
           (* B642: truncate to last 24 messages by default; set
@@ -282,6 +359,15 @@ let complete_streaming ~(config : Runtime_config.t)
              | _ -> 24
            in
            Provider.summarize_anthropic_messages ~tail anthropic_messages));
+    (* B646: log error_id for transient 500 / code 1234 so it can be reported. *)
+    (match extract_minimax_error_id err_body with
+    | Some eid when r.status = 500 ->
+        Logs.warn (fun m ->
+            m
+              "MiniMax stream upstream error_id=%s (HTTP 500) — report to \
+               support"
+              eid)
+    | _ -> ());
     Lwt.fail_with
       (Printf.sprintf "MiniMax API error (HTTP %d): %s" r.status err_body)
   in
