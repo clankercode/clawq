@@ -1,13 +1,15 @@
 ---
+claimed_at: "2026-05-21T10:20:01Z"
+claimed_by: cli-user
+completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B616
 priority: high
-status: pending
-tags:
-    - kimi
-    - quota
+started_at: "2026-05-21T10:20:01Z"
+status: in_progress
+tags: []
 title: Integrate Kimi quota API for tracking and respecting Kimi token usage
 ---
 
