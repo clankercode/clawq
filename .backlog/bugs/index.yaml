@@ -597,3 +597,4 @@ bugs:
     - file: B598-agent-tool-output-not-visible.todo
     - file: B599-pre-compaction-memory-checkpoi.todo
     - file: B600-model-switch-has-no-safety-net.todo
+    - file: B601-minimax-models-show-404-see-cl.todo

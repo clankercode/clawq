@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B601
+priority: high
+status: pending
+tags: []
+title: minimax models show 404, see ~/.clawq/daemon.log
+---
+
+minimax models show 404, see ~/.clawq/daemon.log
