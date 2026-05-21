@@ -234,6 +234,196 @@ let message_to_json m =
 
 let messages_to_json messages = `List (List.map message_to_json messages)
 
+(* Pull each tool message forward in the list so it sits adjacent to the
+   assistant turn that issued its tool_use. Non-tool messages that happened to
+   land between (e.g. an `on_stuck` correction prepended mid-turn, or a queued
+   user message injected before the tool finished executing) are pushed past
+   the tool result. Preserves order otherwise. Requires that every tool
+   message's tool_call_id matches some preceding assistant tool_use (callers
+   should run Message_history.ensure_tool_group_integrity first). *)
+let reorder_tool_groups (msgs : message list) =
+  let n = List.length msgs in
+  if n = 0 then []
+  else
+    let arr = Array.of_list msgs in
+    let used = Array.make n false in
+    let buf = ref [] in
+    for i = 0 to n - 1 do
+      if not used.(i) then begin
+        used.(i) <- true;
+        let m = arr.(i) in
+        buf := m :: !buf;
+        if m.role = "assistant" && m.tool_calls <> [] then
+          List.iter
+            (fun (tc : tool_call) ->
+              let rec find j =
+                if j >= n then ()
+                else if used.(j) then find (j + 1)
+                else
+                  let mj = arr.(j) in
+                  if mj.role = "tool" && mj.tool_call_id = Some tc.id then begin
+                    used.(j) <- true;
+                    buf := mj :: !buf
+                  end
+                  else find (j + 1)
+              in
+              find (i + 1))
+            m.tool_calls
+      end
+    done;
+    List.rev !buf
+
+(* Convert internal Provider.message list to Anthropic Messages format.
+   Anthropic requires: every tool_use in an assistant turn must be followed by
+   one user turn whose content is the list of matching tool_result blocks (all
+   of them together, in one message). MiniMax enforces this strictly and
+   rejects with code 2013 ("tool call result does not follow tool call") if
+   consecutive tool messages are split across multiple user turns, or if a
+   non-tool message lands between the assistant tool_use and its tool_result. *)
+let messages_to_anthropic_json messages =
+  let messages = reorder_tool_groups messages in
+  let user_text_or_parts (m : message) =
+    match m.content_parts with
+    | [] -> `String (sanitize_utf8 m.content)
+    | parts ->
+        `List
+          (List.map
+             (fun (part : content_part) ->
+               match part with
+               | Text s ->
+                   `Assoc
+                     [
+                       ("type", `String "text");
+                       ("text", `String (sanitize_utf8 s));
+                     ]
+               | Image_base64 { data; media_type } ->
+                   `Assoc
+                     [
+                       ("type", `String "image");
+                       ( "source",
+                         `Assoc
+                           [
+                             ("type", `String "base64");
+                             ("media_type", `String media_type);
+                             ("data", `String data);
+                           ] );
+                     ])
+             parts)
+  in
+  let tool_result_block (m : message) =
+    let sc = sanitize_utf8 m.content in
+    match m.tool_call_id with
+    | Some id ->
+        `Assoc
+          [
+            ("type", `String "tool_result");
+            ("tool_use_id", `String id);
+            ("content", `String sc);
+          ]
+    | None -> `Assoc [ ("type", `String "text"); ("text", `String sc) ]
+  in
+  let assistant_tool_uses (m : message) =
+    List.map
+      (fun (tc : tool_call) ->
+        let args =
+          try Yojson.Safe.from_string tc.arguments with _ -> `Assoc []
+        in
+        `Assoc
+          [
+            ("type", `String "tool_use");
+            ("id", `String tc.id);
+            ("name", `String tc.function_name);
+            ("input", args);
+          ])
+      m.tool_calls
+  in
+  let flush_tools pending acc =
+    match pending with
+    | [] -> acc
+    | blocks ->
+        let user =
+          `Assoc
+            [
+              ("role", `String "user");
+              ("content", `List (List.rev blocks));
+            ]
+        in
+        user :: acc
+  in
+  let rec go pending_tools acc = function
+    | [] -> List.rev (flush_tools pending_tools acc)
+    | (m : message) :: rest -> (
+        match m.role with
+        | "system" | "developer" -> go pending_tools acc rest
+        | "tool" -> go (tool_result_block m :: pending_tools) acc rest
+        | "assistant" when m.tool_calls <> [] ->
+            let acc = flush_tools pending_tools acc in
+            let msg =
+              `Assoc
+                [
+                  ("role", `String "assistant");
+                  ("content", `List (assistant_tool_uses m));
+                ]
+            in
+            go [] (msg :: acc) rest
+        | role ->
+            let acc = flush_tools pending_tools acc in
+            let msg =
+              `Assoc
+                [ ("role", `String role); ("content", user_text_or_parts m) ]
+            in
+            go [] (msg :: acc) rest)
+  in
+  go [] [] messages
+
+(* One-line summary of an Anthropic-format message list, for debug logging
+   when the API rejects a request. E.g. "A[2tu] U[2tr] U[txt] A[1tu] U[1tr]"
+   where A=assistant, U=user, tu=tool_use, tr=tool_result, txt=plain text. *)
+let summarize_anthropic_messages msgs =
+  let summarize_block b =
+    try
+      let open Yojson.Safe.Util in
+      match b |> member "type" |> to_string with
+      | "tool_use" -> "tu"
+      | "tool_result" -> "tr"
+      | "text" -> "txt"
+      | "image" -> "img"
+      | t -> t
+    with _ -> "?"
+  in
+  let summarize_msg m =
+    let open Yojson.Safe.Util in
+    let role =
+      try m |> member "role" |> to_string with _ -> "?"
+    in
+    let tag =
+      match role with
+      | "user" -> "U"
+      | "assistant" -> "A"
+      | r -> r
+    in
+    let content = try Some (m |> member "content") with _ -> None in
+    match content with
+    | Some (`List blocks) ->
+        let parts = List.map summarize_block blocks in
+        let counts = Hashtbl.create 4 in
+        List.iter
+          (fun p ->
+            let n = try Hashtbl.find counts p with Not_found -> 0 in
+            Hashtbl.replace counts p (n + 1))
+          parts;
+        let buf = Buffer.create 16 in
+        Hashtbl.iter
+          (fun k v ->
+            if Buffer.length buf > 0 then Buffer.add_char buf ',';
+            Buffer.add_string buf (Printf.sprintf "%d%s" v k))
+          counts;
+        Printf.sprintf "%s[%s]" tag (Buffer.contents buf)
+    | Some (`String _) -> Printf.sprintf "%s[txt]" tag
+    | _ -> tag
+  in
+  String.concat " " (List.map summarize_msg msgs)
+
 let estimate_messages_tokens messages =
   List.fold_left
     (fun acc (m : message) ->

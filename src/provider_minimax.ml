@@ -13,78 +13,7 @@ let api_model_name model =
   | "minimax-m2" -> "MiniMax-M2"
   | _ -> model
 
-let messages_to_anthropic_json messages =
-  List.filter_map
-    (fun (m : Provider.message) ->
-      let sc = Provider.sanitize_utf8 m.content in
-      match m.role with
-      | "system" | "developer" -> None
-      | "tool" ->
-          let content =
-            match m.tool_call_id with
-            | Some id ->
-                `List
-                  [
-                    `Assoc
-                      [
-                        ("type", `String "tool_result");
-                        ("tool_use_id", `String id);
-                        ("content", `String sc);
-                      ];
-                  ]
-            | None -> `String sc
-          in
-          Some (`Assoc [ ("role", `String "user"); ("content", content) ])
-      | "assistant" when m.Provider.tool_calls <> [] ->
-          let tool_uses =
-            List.map
-              (fun (tc : Provider.tool_call) ->
-                let args =
-                  try Yojson.Safe.from_string tc.arguments with _ -> `Assoc []
-                in
-                `Assoc
-                  [
-                    ("type", `String "tool_use");
-                    ("id", `String tc.id);
-                    ("name", `String tc.function_name);
-                    ("input", args);
-                  ])
-              m.Provider.tool_calls
-          in
-          Some
-            (`Assoc
-               [ ("role", `String "assistant"); ("content", `List tool_uses) ])
-      | role ->
-          let content =
-            match m.Provider.content_parts with
-            | [] -> `String sc
-            | parts ->
-                `List
-                  (List.map
-                     (fun (part : Provider.content_part) ->
-                       match part with
-                       | Provider.Text s ->
-                           `Assoc
-                             [
-                               ("type", `String "text");
-                               ("text", `String (Provider.sanitize_utf8 s));
-                             ]
-                       | Provider.Image_base64 { data; media_type } ->
-                           `Assoc
-                             [
-                               ("type", `String "image");
-                               ( "source",
-                                 `Assoc
-                                   [
-                                     ("type", `String "base64");
-                                     ("media_type", `String media_type);
-                                     ("data", `String data);
-                                   ] );
-                             ])
-                     parts)
-          in
-          Some (`Assoc [ ("role", `String role); ("content", content) ]))
-    messages
+let messages_to_anthropic_json = Provider.messages_to_anthropic_json
 
 let tools_to_anthropic_json tools =
   match tools with
@@ -257,9 +186,13 @@ let complete ~(config : Runtime_config.t)
       m "MiniMax request to %s model=%s api_model=%s msgs=%d" uri model
         api_model (List.length messages));
   let* status, response_body = Http_client.post_json ~uri ~headers ~body in
-  if status < 200 || status >= 300 then
+  if status < 200 || status >= 300 then begin
+    Logs.warn (fun m ->
+        m "MiniMax body shape on error (HTTP %d): %s" status
+          (Provider.summarize_anthropic_messages anthropic_messages));
     Lwt.fail_with
       (Printf.sprintf "MiniMax API error (HTTP %d): %s" status response_body)
+  end
   else
     match parse_response response_body model with
     | Ok resp -> Lwt.return resp
@@ -314,7 +247,17 @@ let complete_streaming ~(config : Runtime_config.t)
   Logs.info (fun m ->
       m "MiniMax stream request to %s model=%s api_model=%s msgs=%d" uri model
         api_model (List.length messages));
+  let on_error (r : Http_client.stream_response) =
+    let open Lwt.Syntax in
+    let* err_body = Http_client.collect_error_body r.stream in
+    Logs.warn (fun m ->
+        m "MiniMax stream body shape on error (HTTP %d): %s" r.status
+          (Provider.summarize_anthropic_messages anthropic_messages));
+    Lwt.fail_with
+      (Printf.sprintf "MiniMax API error (HTTP %d): %s" r.status err_body)
+  in
   Http_client.post_stream_with ~uri ~headers ~body ~label:"MiniMax API error"
+    ~on_error
     ~on_ok:(fun stream ->
       let buf = Buffer.create 256 in
       let content_acc = Buffer.create 1024 in

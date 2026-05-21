@@ -85,6 +85,106 @@ let test_assistant_with_tool_calls () =
     "name" "file_read"
     (block |> member "name" |> to_string)
 
+let test_consecutive_tool_results_coalesce () =
+  (* Regression for MiniMax error 2013: when an assistant turn issues N
+     tool_uses, the N tool_result blocks must arrive in a single user turn,
+     not split across N separate user messages. *)
+  let assistant =
+    {
+      Provider.role = "assistant";
+      content = "";
+      content_parts = [];
+      tool_calls =
+        [
+          {
+            Provider.id = "tc-a";
+            function_name = "file_read";
+            arguments = {|{"path":"/a"}|};
+          };
+          {
+            Provider.id = "tc-b";
+            function_name = "shell_exec";
+            arguments = {|{"command":"ls"}|};
+          };
+        ];
+      tool_call_id = None;
+      name = None;
+      provider_response_items_json = None;
+      thinking = None;
+    }
+  in
+  let r1 =
+    Provider.make_tool_result ~tool_call_id:"tc-a" ~name:"file_read"
+      ~content:"contents-a"
+  in
+  let r2 =
+    Provider.make_tool_result ~tool_call_id:"tc-b" ~name:"shell_exec"
+      ~content:"contents-b"
+  in
+  let result =
+    Provider_minimax.messages_to_anthropic_json [ assistant; r1; r2 ]
+  in
+  Alcotest.(check int) "2 messages (assistant + 1 user)" 2 (List.length result);
+  let open Yojson.Safe.Util in
+  let user = List.nth result 1 in
+  Alcotest.(check string) "role" "user" (user |> member "role" |> to_string);
+  let blocks = user |> member "content" |> to_list in
+  Alcotest.(check int) "2 tool_result blocks" 2 (List.length blocks);
+  let ids =
+    List.map (fun b -> b |> member "tool_use_id" |> to_string) blocks
+  in
+  Alcotest.(check (list string)) "ids in order" [ "tc-a"; "tc-b" ] ids
+
+let test_user_text_between_tool_use_and_result_is_reordered () =
+  (* Regression: when a user-correction or queued-message injection lands
+     between an assistant tool_use and the pending tool_result, the converter
+     must move the tool_result adjacent to its tool_use so MiniMax's strict
+     adjacency requirement is satisfied. *)
+  let assistant =
+    {
+      Provider.role = "assistant";
+      content = "";
+      content_parts = [];
+      tool_calls =
+        [
+          {
+            Provider.id = "tc-x";
+            function_name = "shell_exec";
+            arguments = {|{"command":"ls"}|};
+          };
+        ];
+      tool_call_id = None;
+      name = None;
+      provider_response_items_json = None;
+      thinking = None;
+    }
+  in
+  let injected =
+    Provider.make_message ~role:"user" ~content:"a new message arrived"
+  in
+  let tr =
+    Provider.make_tool_result ~tool_call_id:"tc-x" ~name:"shell_exec"
+      ~content:"done"
+  in
+  let result =
+    Provider_minimax.messages_to_anthropic_json [ assistant; injected; tr ]
+  in
+  let open Yojson.Safe.Util in
+  Alcotest.(check int) "3 messages" 3 (List.length result);
+  let roles = List.map (fun m -> m |> member "role" |> to_string) result in
+  Alcotest.(check (list string))
+    "assistant/user-tool/user-text"
+    [ "assistant"; "user"; "user" ] roles;
+  let second = List.nth result 1 in
+  let block = List.hd (second |> member "content" |> to_list) in
+  Alcotest.(check string)
+    "tool_result block first" "tool_result"
+    (block |> member "type" |> to_string);
+  let third = List.nth result 2 in
+  Alcotest.(check string)
+    "text content last" "a new message arrived"
+    (third |> member "content" |> to_string)
+
 let test_mixed_messages () =
   let msgs =
     [
@@ -407,6 +507,10 @@ let suite =
       test_tool_result_has_tool_use_id;
     Alcotest.test_case "assistant with tool calls" `Quick
       test_assistant_with_tool_calls;
+    Alcotest.test_case "consecutive tool results coalesce" `Quick
+      test_consecutive_tool_results_coalesce;
+    Alcotest.test_case "user text between tool_use and result is reordered"
+      `Quick test_user_text_between_tool_use_and_result_is_reordered;
     Alcotest.test_case "mixed messages" `Quick test_mixed_messages;
     Alcotest.test_case "extract system present" `Quick
       test_extract_system_present;
