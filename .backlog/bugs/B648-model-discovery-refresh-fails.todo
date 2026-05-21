@@ -1,0 +1,44 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 1
+id: B648
+priority: medium
+status: pending
+tags:
+    - model-discovery
+    - auth
+title: model_discovery refresh fails with HTTP 401 for kimi_coding, minimax, and zai_coding
+---
+## Summary
+
+```
+WARN model_discovery: kimi_coding refresh failed: HTTP 401
+WARN model_discovery: minimax refresh failed: HTTP 401
+WARN model_discovery: zai_coding refresh failed: HTTP 401
+```
+
+Each refresh attempt 401s — meaning the API key configured for these
+providers does not authenticate against their /v1/models (or equivalent)
+discovery endpoint. Chat-completion calls TO the same providers work
+(MiniMax shows successful 200 responses elsewhere in the log), so the
+key is valid for chat but not for discovery — likely a scope/endpoint
+mismatch.
+
+## Suggested next steps
+
+1. Verify each provider's discovery endpoint and whether it requires
+   a different auth header style (e.g., `Authorization: Bearer` vs
+   `x-api-key`). Some Anthropic-compat services accept the chat header
+   on /messages but not on /models.
+2. If the endpoint genuinely requires a separate token (e.g. an org/admin
+   key), document that — and either gracefully degrade discovery to the
+   built-in catalog or surface a one-time config warning rather than
+   recurring WARN spam.
+3. Suppress repeated 401 WARNs after the first per process — once it's
+   known to 401, retrying every 12h adds nothing to the log.
+
+## Evidence
+
+- ~/.clawq/daemon.log: search 'model_discovery.*refresh failed' — 3
+  distinct providers, each WARN appears once per startup cycle
