@@ -602,3 +602,4 @@ bugs:
     - file: B603-local-tasks-skip-compaction-ag.todo
     - file: B604-tool-schema-required-ness-miss.todo
     - file: B605-kimi-coding-catalog-stale-mode.todo
+    - file: B606-claude-models-via-claude-code.todo

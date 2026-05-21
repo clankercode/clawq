@@ -1,0 +1,25 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B606
+priority: high
+status: pending
+tags:
+    - security
+    - config
+    - anthropic
+title: Claude models via Claude Code credentials need explicit safety flag
+---
+Claude models via Claude Code credentials now require an explicit safety flag (default disabled). Due to Anthropic's recent policy changes, using Anthropic API credentials with the Claude Code runner or via openai-codex-style OAuth flow requires an explicit opt-in config setting.
+
+Required changes:
+1. Add a new config field like allow_anthropic_via_codex_flow (default false)
+2. Gate all codex/claude runner paths that use Anthropic models behind this flag
+3. Error clearly with instructions if a Claude model is used without the flag enabled
+4. Update CLAUDE.md / docs to explain the new requirement
+
+Current code traces:
+- src/openai_codex_oauth.ml - handles OAuth flow
+- src/provider_anthropic.ml - Anthropic provider
+- src/provider_openai_codex.ml - Codex runner
