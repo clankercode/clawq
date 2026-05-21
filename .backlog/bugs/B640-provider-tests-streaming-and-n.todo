@@ -1,0 +1,50 @@
+---
+complexity: low
+depends_on: []
+estimate_hours: 1
+id: B640
+priority: medium
+status: pending
+tags:
+    - tests
+    - provider
+    - minimax
+title: 'Provider tests: streaming and non-streaming paths don''t assert tool-call arguments round-trip'
+---
+## Summary
+
+`test/test_provider_minimax.ml::test_parse_tool_use_response` (line 326-337)
+parses a non-streaming response containing a `tool_use` block with
+`input={path:/tmp}` but only asserts on `tc.id` and `tc.function_name`. It
+does NOT assert that `tc.arguments` round-trips to '{\"path\":\"/tmp\"}'.
+
+Similarly, there is no test driving `Provider_minimax.complete_streaming`
+with a synthetic SSE stream (sequence of `content_block_start` + N
+`content_block_delta` with `input_json_delta` + `content_block_stop` +
+`message_stop`) and asserting that the accumulated tool-call arguments
+buffer matches the expected JSON.
+
+This blind spot allowed bug B634 (MiniMax tool_use arguments arriving as
+empty `{}`) to remain undetectable in the unit suite. Equivalent gaps
+likely exist in test_provider_anthropic.ml and test_provider_openai_codex.ml.
+
+## Suggested fix
+
+1. Add `test_parse_tool_use_preserves_arguments` to test_provider_minimax.ml:
+   assert `tc.arguments` deserializes to the same object as the original
+   `input` field.
+2. Add a streaming-SSE fixture test: feed a series of SSE events through a
+   harness (or call the line-processor directly) and assert that the
+   produced tool_calls have correct arguments.
+3. Repeat the streaming-SSE fixture test for Anthropic and OpenAI Codex
+   providers (each has its own buffer/Hashtbl path).
+4. Add a regression specifically for the observed failure: a stream that
+   contains a `tool_use` block with NO `input_json_delta` events should
+   produce `arguments = \"\"` (or the documented sentinel) — and the agent
+   loop should refuse to dispatch tools where required params are absent,
+   not silently default to `{}`.
+
+## Evidence
+
+- test_provider_minimax.ml lines 326-337 — missing arguments assertion
+- ~/.clawq/daemon.log — 118 broken tool calls with arguments=\"{}\"
