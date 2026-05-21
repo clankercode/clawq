@@ -1312,6 +1312,10 @@ let parse_config ?(resolve_secrets = true) json =
         try s |> member "attachment_downloads_enabled" |> to_bool
         with _ -> default.security.attachment_downloads_enabled
       in
+      let allow_anthropic_oauth_inference =
+        try s |> member "allow_anthropic_oauth_inference" |> to_bool
+        with _ -> default.security.allow_anthropic_oauth_inference
+      in
       ({
          workspace_only;
          audit_enabled;
@@ -1326,6 +1330,7 @@ let parse_config ?(resolve_secrets = true) json =
          allowed_cwd_patterns;
          sandbox_backend;
          attachment_downloads_enabled;
+         allow_anthropic_oauth_inference;
        }
         : Runtime_config.security_config)
     with _ -> default.security

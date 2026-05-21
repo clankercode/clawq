@@ -1310,8 +1310,9 @@ let build_delegate_prompt ~automerge:_ ~goal =
     ]
 
 let delegate_enqueue ?context ?notify_cfg ?(check_available = true)
-    ?(automerge = true) ?(use_worktree = true) ?(acp = false) ~db
-    ?preferred_runner ?model ?repo_path ?branch ~default_repo_path ~goal () =
+    ?(automerge = true) ?(use_worktree = true) ?(acp = false)
+    ?(allow_claude = true) ~db ?preferred_runner ?model ?repo_path ?branch
+    ~default_repo_path ~goal () =
   let chosen_repo_path =
     match repo_path with
     | Some path when String.trim path <> "" -> path
@@ -1324,7 +1325,8 @@ let delegate_enqueue ?context ?notify_cfg ?(check_available = true)
     | Error _ as err -> err
     | Ok () -> (
         match
-          resolve_runner ~check_available ?preferred:preferred_runner ()
+          resolve_runner ~check_available ?preferred:preferred_runner
+            ~allow_claude ()
         with
         | Error _ as err -> err
         | Ok (runner, auto_model) -> (

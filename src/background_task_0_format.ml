@@ -160,9 +160,18 @@ let validate_repo_path ?(require_git = true) repo_path =
 let runner_available runner =
   runner = Local || command_exists (runner_binary runner)
 
-let resolve_runner ?(check_available = true) ?preferred () =
+let resolve_runner ?(check_available = true) ?preferred ?(allow_claude = true)
+    () =
   let available runner = (not check_available) || runner_available runner in
+  (* B606: when allow_claude is false (Anthropic OAuth opt-in not set), skip
+     Claude both in auto selection and reject an explicit Claude preference
+     with a clear error. *)
   match preferred with
+  | Some Claude when not allow_claude ->
+      Error
+        "Runner 'claude' is disabled by \
+         security.allow_anthropic_oauth_inference = false. Set this to true in \
+         ~/.clawq/config.json to enable, or pick a different runner."
   | Some runner when available runner -> Ok (runner, None)
   | Some runner ->
       Error
@@ -171,7 +180,7 @@ let resolve_runner ?(check_available = true) ?preferred () =
   | None when available Kimi -> Ok (Kimi, None)
   | None when available Cursor -> Ok (Cursor, None)
   | None when available Opencode -> Ok (Opencode, Some "zai-coding-plan/glm-5")
-  | None when available Claude -> Ok (Claude, None)
+  | None when allow_claude && available Claude -> Ok (Claude, None)
   | None when available Codex -> Ok (Codex, None)
   | None when available Gemini -> Ok (Gemini, None)
   | None ->

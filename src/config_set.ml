@@ -320,6 +320,7 @@ let config_schema =
             ("extra_allowed_paths", L);
             ("sandbox_backend", L);
             ("attachment_downloads_enabled", L);
+            ("allow_anthropic_oauth_inference", L);
           ] );
       ("stt", O [ ("provider", L); ("model", L); ("language", L) ]);
       ("mcp", O [ ("enabled", L); ("exposed_tools", L) ]);

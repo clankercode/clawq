@@ -354,6 +354,12 @@ type security_config = {
   sandbox_backend : string;
       (** Sandbox backend: "auto", "firejail", "bubblewrap", or "none" *)
   attachment_downloads_enabled : bool;
+  allow_anthropic_oauth_inference : bool;
+      (** B606: Anthropic's recent policy changes require explicit opt-in for
+          agentic use of Claude models via Claude Code OAuth credentials or the
+          `claude` CLI runner. When false (default), the `claude` runner is
+          rejected with a clear error message asking the user to enable this
+          flag if they accept the policy implications. *)
 }
 
 type stt_config = {
@@ -763,6 +769,7 @@ let default =
           ];
         sandbox_backend = "auto";
         attachment_downloads_enabled = true;
+        allow_anthropic_oauth_inference = false;
       };
     stt = None;
     mcp =
@@ -1774,6 +1781,8 @@ let to_json (cfg : t) : Yojson.Safe.t =
               ("sandbox_backend", `String cfg.security.sandbox_backend);
               ( "attachment_downloads_enabled",
                 `Bool cfg.security.attachment_downloads_enabled );
+              ( "allow_anthropic_oauth_inference",
+                `Bool cfg.security.allow_anthropic_oauth_inference );
             ] );
       ]
   in

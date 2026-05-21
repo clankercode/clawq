@@ -1,4 +1,4 @@
-let enqueue_tool_with_notify ~notify_cfg ~db =
+let enqueue_tool_with_notify ?config ~notify_cfg ~db () =
   {
     Tool.name = "background_task_enqueue";
     description =
@@ -172,6 +172,21 @@ let enqueue_tool_with_notify ~notify_cfg ~db =
               "Error: runner must be 'codex', 'claude', 'kimi', 'gemini', \
                'opencode', 'cursor', or 'local'. Use 'local' with agent_name \
                for in-process agent execution."
+        | Some Background_task.Claude
+          when match config with
+               | Some (c : Runtime_config.t) ->
+                   not c.security.allow_anthropic_oauth_inference
+               | None ->
+                   (* No config available (e.g. test fixture). Default to
+                      allowed so we don't break tests that don't wire config. *)
+                   false ->
+            Lwt.return
+              "Error: the 'claude' runner uses Claude Code OAuth credentials, \
+               which Anthropic's policy requires explicit opt-in for agentic \
+               use. Set security.allow_anthropic_oauth_inference = true in \
+               ~/.clawq/config.json if you accept the policy implications. \
+               Alternatives: use the 'codex', 'kimi', 'opencode', or 'cursor' \
+               runner instead."
         | Some runner when String.trim repo_path = "" ->
             Lwt.return "Error: repo_path is required"
         | Some _ when String.trim prompt = "" ->
@@ -199,7 +214,7 @@ let enqueue_tool_with_notify ~notify_cfg ~db =
     deferred = false;
   }
 
-let enqueue_tool ~db = enqueue_tool_with_notify ~notify_cfg:None ~db
+let enqueue_tool ~db = enqueue_tool_with_notify ~notify_cfg:None ~db ()
 
 let list_tool ~db =
   {
@@ -453,8 +468,8 @@ let logs_tool ~db =
     deferred = false;
   }
 
-let delegate_tool_with_notify ?(check_available = true) ~db ~default_repo_path
-    ~notify_cfg () =
+let delegate_tool_with_notify ?(check_available = true) ?config ~db
+    ~default_repo_path ~notify_cfg () =
   {
     Tool.name = "delegate";
     description =
@@ -637,15 +652,37 @@ let delegate_tool_with_notify ?(check_available = true) ~db ~default_repo_path
         if String.trim goal = "" then Lwt.return "Error: goal is required"
         else if runner_error <> None then
           Lwt.return ("Error: " ^ Option.get runner_error)
+        else if
+          (* B606: gate the 'claude' runner behind explicit opt-in. *)
+          runner_pref = Some Background_task.Claude
+          &&
+          match config with
+          | Some (c : Runtime_config.t) ->
+              not c.security.allow_anthropic_oauth_inference
+          | None -> false
+        then
+          Lwt.return
+            "Error: the 'claude' runner uses Claude Code OAuth credentials, \
+             which Anthropic's policy requires explicit opt-in for agentic \
+             use. Set security.allow_anthropic_oauth_inference = true in \
+             ~/.clawq/config.json if you accept the policy implications. \
+             Alternatives: use runner='codex', 'kimi', 'opencode', or \
+             'cursor'."
         else
           let effective_repo_path =
             match (delegate_cwd, use_worktree) with
             | Some c, false -> Some c
             | _ -> repo_path
           in
+          let allow_claude =
+            match config with
+            | Some (c : Runtime_config.t) ->
+                c.security.allow_anthropic_oauth_inference
+            | None -> true
+          in
           match
             Background_task.delegate_enqueue ?context ?notify_cfg
-              ~check_available ~db ~automerge ~use_worktree ~acp
+              ~check_available ~db ~automerge ~use_worktree ~acp ~allow_claude
               ?preferred_runner:runner_pref ?model
               ?repo_path:effective_repo_path ?branch ~default_repo_path ~goal ()
           with
