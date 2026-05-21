@@ -1,0 +1,21 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B622
+priority: high
+status: pending
+tags: []
+title: Models repeatedly omit required tool params; need server-side retry with hint
+---
+Daemon log scan (2026-05-21): 62 tool errors and 26 stuck-detector triggers caused by models emitting tool_calls with empty required params (shell_exec missing 'command' 30x, use_skill missing 'name' 13x, file_read missing 'path' 6x, grep missing 'pattern' 5x, etc.). B604 added 'required' arrays correctly (verified by B614 tests) but model still omits them and never self-corrects on its own.
+
+This isn't a serialization bug — the schema IS correct per B614 verification. It's a model behavior issue. We need a runtime mitigation:
+- On validate_required_params failure, the agent already returns 'Error: missing required parameter X' to the model. But the model often repeats the SAME bad call. Stuck detector eventually fires, postmortem launches, circuit breaker opens.
+- Better: after 2-3 same-pattern repeats, agent should escalate: log a structured hint like 'You MUST include arg X. Last 3 calls all omitted it.' OR drop the tool from the next turn's tool list (forcing the model to rethink) OR call /compact_history to refresh context.
+
+Concrete fix:
+- Add a per-turn counter of 'identical missing-param' errors. After 3, replace the standard error with an emphatic system-message injection.
+- Add tests covering the escalation behavior.
+
+Tag: tools, validate, stuck-detector, model-behavior

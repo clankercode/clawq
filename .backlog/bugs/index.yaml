@@ -618,3 +618,4 @@ bugs:
     - file: B619-anthropic-tool-result-is-error.todo
     - file: B620-minimax-tool-use-tool-result-o.todo
     - file: B621-http-client-30s-default-timeou.todo
+    - file: B622-models-repeatedly-omit-require.todo
