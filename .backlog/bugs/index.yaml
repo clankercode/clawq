@@ -654,3 +654,4 @@ bugs:
     - file: B657-b653-reasoning-content-guard-o.todo
     - file: B658-kimi-coding-provider-has-no-ht.todo
     - file: B659-kimi-coding-llm-calls-hang-sil.todo
+    - file: B660-brave-search-429-not-auto-fall.todo

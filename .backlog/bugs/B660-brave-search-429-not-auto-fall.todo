@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B660
+priority: high
+status: pending
+tags: []
+title: Brave search 429 not auto-falling-back to DDG/other search provider
+---
+Briefing session at 04:26 hit 'Error: Brave search API rate-limited (HTTP 429) after 3 retries. Try again in a minute, or configure a different search_provider (e.g. ddg).' four times in succession. Error message HINTS at a fallback provider but no auto-fallback occurs. Agent kept calling Brave and burning watchdog budget instead of switching. Action: when web_search hits 429 from Brave, automatically retry once with DDG provider (if configured) before surfacing the error. Or document the manual fallback path.
