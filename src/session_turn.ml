@@ -78,27 +78,38 @@ let spawn_postmortem_agent_fn :
       Lwt.return_unit)
 
 let spawn_postmortem_agent mgr ~stuck_history ~session_key ~reason ?db () =
-  let root_key = Session_core.root_postmortem_session_key session_key in
-  if root_key <> session_key then begin
-    Logs.warn (fun m ->
+  let pm_cfg = mgr.Session_core.config.postmortem in
+  if not pm_cfg.enabled then begin
+    Logs.info (fun m ->
         m
-          "Suppressing recursive postmortem launch for session %s (root=%s, \
+          "postmortem disabled in config; suppressing launch (session=%s, \
            reason=%s)"
-          session_key root_key reason);
+          session_key reason);
     Lwt.return_unit
   end
-  else if Hashtbl.mem mgr.Session_core.postmortem_circuit_breakers root_key then begin
-    Logs.warn (fun m ->
-        m
-          "Postmortem circuit breaker open for session %s; suppressing \
-           additional launch (reason=%s)"
-          root_key reason);
-    Lwt.return_unit
-  end
-  else begin
-    Hashtbl.replace mgr.Session_core.postmortem_circuit_breakers root_key ();
-    !spawn_postmortem_agent_fn mgr ~stuck_history ~session_key ~reason ?db ()
-  end
+  else
+    let root_key = Session_core.root_postmortem_session_key session_key in
+    if root_key <> session_key then begin
+      Logs.warn (fun m ->
+          m
+            "Suppressing recursive postmortem launch for session %s (root=%s, \
+             reason=%s)"
+            session_key root_key reason);
+      Lwt.return_unit
+    end
+    else if Hashtbl.mem mgr.Session_core.postmortem_circuit_breakers root_key
+    then begin
+      Logs.warn (fun m ->
+          m
+            "Postmortem circuit breaker open for session %s; suppressing \
+             additional launch (reason=%s)"
+            root_key reason);
+      Lwt.return_unit
+    end
+    else begin
+      Hashtbl.replace mgr.Session_core.postmortem_circuit_breakers root_key ();
+      !spawn_postmortem_agent_fn mgr ~stuck_history ~session_key ~reason ?db ()
+    end
 
 let expand_skill_refs_fn :
     (string -> (string * string list * (string * string) list) Lwt.t) ref =
@@ -320,26 +331,35 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
         let signal_desc = Stuck_detector.signals_to_string signals in
         Logs.warn (fun m ->
             m "[observer] stuck detected session=%s: %s" key signal_desc);
-        let correction =
-          Printf.sprintf
-            "[Observer] Stuck pattern detected: %s\n\n\
-             A postmortem agent has been launched to analyze this failure and \
-             look for solutions. While it works, you can:\n\
-             1. Ask a subagent to help find an alternative approach\n\
-             2. Work on a different part of the task\n\
-             3. Wait for the postmortem agent to write its findings to \
-             POSTMORTEM.md"
-            signal_desc
-        in
-        let correction_msg =
-          Provider.make_message ~role:"user" ~content:correction
-        in
-        agent.Agent.history <- correction_msg :: agent.Agent.history;
-        let* () = on_history_update [ correction_msg ] in
-        Lwt.async (fun () ->
-            spawn_postmortem_agent mgr ~stuck_history:agent.Agent.history
-              ~session_key:key ~reason:signal_desc ?db:mgr.db ());
-        Lwt.return_unit
+        if not mgr.Session_core.config.postmortem.enabled then begin
+          Logs.info (fun m ->
+              m
+                "[observer] postmortem disabled; not injecting correction \
+                 message (session=%s)"
+                key);
+          Lwt.return_unit
+        end
+        else
+          let correction =
+            Printf.sprintf
+              "[Observer] Stuck pattern detected: %s\n\n\
+               A postmortem agent has been launched to analyze this failure \
+               and look for solutions. While it works, you can:\n\
+               1. Ask a subagent to help find an alternative approach\n\
+               2. Work on a different part of the task\n\
+               3. Wait for the postmortem agent to write its findings to \
+               POSTMORTEM.md"
+              signal_desc
+          in
+          let correction_msg =
+            Provider.make_message ~role:"user" ~content:correction
+          in
+          agent.Agent.history <- correction_msg :: agent.Agent.history;
+          let* () = on_history_update [ correction_msg ] in
+          Lwt.async (fun () ->
+              spawn_postmortem_agent mgr ~stuck_history:agent.Agent.history
+                ~session_key:key ~reason:signal_desc ?db:mgr.db ());
+          Lwt.return_unit
       in
       let* response =
         Lwt.catch

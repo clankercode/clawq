@@ -954,6 +954,36 @@ let test_spawn_postmortem_agent_circuit_breaker_blocks_duplicates () =
         [ ("web:stuck", "loop-1") ]
         (List.rev !launches))
 
+(* B609: when postmortem.enabled=false in config, spawn_postmortem_agent must
+   not mutate the circuit-breaker table and must not call the inner
+   spawn_postmortem_agent_fn. Disabled means truly inert. *)
+let test_spawn_postmortem_agent_disabled_short_circuits_without_side_effects ()
+    =
+  let config =
+    {
+      Runtime_config.default with
+      postmortem = { Runtime_config.default.postmortem with enabled = false };
+    }
+  in
+  let mgr = Session.create ~config () in
+  let launches = ref [] in
+  let prev = !Session.spawn_postmortem_agent_fn in
+  Fun.protect
+    ~finally:(fun () -> Session.spawn_postmortem_agent_fn := prev)
+    (fun () ->
+      (Session.spawn_postmortem_agent_fn :=
+         fun _mgr ~stuck_history:_ ~session_key ~reason ?db:_ () ->
+           launches := (session_key, reason) :: !launches;
+           Lwt.return_unit);
+      Lwt_main.run
+        (Session.spawn_postmortem_agent mgr ~stuck_history:[]
+           ~session_key:"web:stuck" ~reason:"loop-1" ());
+      Alcotest.(check int)
+        "no inner spawn when disabled" 0 (List.length !launches);
+      Alcotest.(check bool)
+        "circuit breaker untouched when disabled" false
+        (Hashtbl.mem mgr.Session_core.postmortem_circuit_breakers "web:stuck"))
+
 let test_spawn_postmortem_agent_circuit_breaker_blocks_recursive_postmortems ()
     =
   let mgr = Session.create ~config:Runtime_config.default () in
@@ -3854,6 +3884,9 @@ let suite =
     Alcotest.test_case
       "postmortem circuit breaker suppresses recursive postmortems" `Quick
       test_spawn_postmortem_agent_circuit_breaker_blocks_recursive_postmortems;
+    Alcotest.test_case
+      "B609: postmortem disabled short-circuits without side effects" `Quick
+      test_spawn_postmortem_agent_disabled_short_circuits_without_side_effects;
     Alcotest.test_case "postmortem session starts fresh, not restored from DB"
       `Quick test_postmortem_session_starts_fresh_not_restored;
     Alcotest.test_case
