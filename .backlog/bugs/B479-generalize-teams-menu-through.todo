@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-15T11:24:58Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-05-21T21:25:03Z"
 complexity: medium
 depends_on: []
+duration_minutes: 97080.09353292217
 estimate_hours: 2
 id: B479
 priority: medium
 started_at: "2026-03-15T11:24:58Z"
-status: in_progress
+status: done
 tags: []
 title: Generalize Teams /menu through shared formatter/DSL
 ---
