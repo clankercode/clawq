@@ -1,0 +1,77 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B653
+priority: high
+status: pending
+tags:
+    - kimi
+    - provider
+    - reasoning
+    - thinking
+title: Kimi (kimi-for-code) rejects assistant tool_call messages missing reasoning_content when thinking=enabled
+---
+## Summary
+
+Observed in ~/.clawq/daemon.log multiple times today on postmortem agents
+that use provider=kimi_coding model=kimi-for-code:
+
+```
+WARN Attempt 1/3 failed (Failure("LLM API error (HTTP 400):
+     {\"error\":{\"message\":\"thinking is enabled but reasoning_content
+     is missing in assistant tool call message at index 3\",
+     \"type\":\"invalid_request_error\"}}"))
+```
+
+Each occurrence retries 3x, then bubbles as a postmortem agent error.
+
+Kimi's thinking-enabled mode requires that every assistant message which
+contains tool_calls ALSO carry a `reasoning_content` field. When the
+history contains an assistant tool_call message that came from a model
+that didn't emit reasoning (e.g. session resume from a different
+provider, or the assistant didn't think this turn), Kimi rejects.
+
+## Why this is becoming load-bearing right now
+
+The briefing crons were just switched to kimi_coding:kimi-for-code via
+a dedicated cron:briefing session_key (commit pending). If kimi runs
+into this for a multi-turn briefing where a previous turn's tool_call
+lacks reasoning_content, all briefings will start failing the same way
+the postmortems did.
+
+## Suggested fix
+
+Either:
+
+1. In the OpenAI-compat path in src/provider.ml — when target model is
+   in a "kimi thinking" list, walk the history and for any assistant
+   message with tool_calls that has no thinking field, inject a stub
+   reasoning_content="" or strip the thinking-enabled body field for
+   that request.
+
+2. Or, simpler: detect the model name kimi-for-code (and kimi-for-coding)
+   and disable thinking-mode signaling in the request body entirely.
+   These models include reasoning in their normal output and don't
+   need separate thinking-mode handling.
+
+3. Or, if Kimi's API genuinely requires reasoning_content on every tool
+   call: store and replay the thinking blob alongside tool_calls in
+   memory.ml's persistence, then surface it in messages_to_json.
+
+## Evidence
+
+- ~/.clawq/daemon.log: search 'reasoning_content is missing' — 6+ hits
+  starting around 01:00, all on __postmortem_teams sessions using
+  kimi-for-code
+- All occurrences fail at message index 3 — first multi-turn assistant
+  in the postmortem history, which has tool_calls but no thinking
+  (postmortem starts fresh)
+
+## Risk if not fixed
+
+Kimi-for-code becomes effectively unusable for any session that contains
+prior tool_use turns from any other provider. Affects:
+- Postmortem agent (current fallback after B635's temperature fix)
+- Briefings (just migrated to kimi)
+- Any user-initiated kimi session that touches tool_calls

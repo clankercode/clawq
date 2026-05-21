@@ -647,3 +647,4 @@ bugs:
     - file: B650-postmortem-agent-itself-gets-s.todo
     - file: B651-background-task-delegated-to-c.todo
     - file: B652-agent-health-watchdog-observer.todo
+    - file: B653-kimi-kimi-for-code-rejects-ass.todo
