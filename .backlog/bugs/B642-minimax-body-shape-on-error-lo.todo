@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-05-21T18:34:20Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-05-21T18:34:20Z"
 complexity: low
 depends_on: []
+duration_minutes: 0.0097988422
 estimate_hours: 1
 id: B642
 priority: medium
 started_at: "2026-05-21T18:34:20Z"
-status: in_progress
+status: done
 tags: []
 title: MiniMax body shape on error log line is enormous and crowds out other errors
 ---
