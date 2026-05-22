@@ -376,6 +376,7 @@ Context provided: [key files, decisions, or constraints passed to the agent]
         "delegate";
         "change_working_dir";
         "inject_connector_history";
+        "send_to_session";
       ]
     ~disallowed_tools:[]
 
@@ -1600,6 +1601,7 @@ Extract check: pass | fail | N/A
         "memory_store";
         "memory_recall";
         "change_working_dir";
+        "send_to_session";
       ]
     ~disallowed_tools:[]
 
@@ -1933,6 +1935,7 @@ After completing any infrastructure change, provide this structured output:
         "memory_recall";
         "change_working_dir";
         "browser";
+        "send_to_session";
       ]
     ~disallowed_tools:[]
 

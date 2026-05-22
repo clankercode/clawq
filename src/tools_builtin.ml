@@ -1662,4 +1662,10 @@ let register_all ~(config : Runtime_config.t) ~sandbox ?(db = None)
           risk_level = Tool.Low;
           deferred = false;
         }
-  | None -> ()
+  | None -> (
+      (* B679: send_to_session requires session_mgr and db *)
+      match (session_mgr, db) with
+      | Some mgr, Some _db ->
+          Tool_registry.register registry
+            (Tools_builtin_util.send_to_session ~session_mgr:(Some mgr) ~db ())
+      | _ -> ())
