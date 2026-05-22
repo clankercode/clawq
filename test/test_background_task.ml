@@ -3670,6 +3670,14 @@ let test_recover_rejects_healthy_running () =
       ignore
         (Background_task.set_running ~db ~id ~branch:"test"
            ~worktree_path:repo_path ~log_path ~pid:proc.Process_group.pid);
+      (* Wait for child to call setsid() so process group exists. *)
+      let rec wait_for_pg ?(attempts = 0) () =
+        if attempts >= 200 then ()
+        else if not (Process_group.group_alive proc.Process_group.pid) then (
+          Unix.sleepf 0.005;
+          wait_for_pg ~attempts:(attempts + 1) ())
+      in
+      wait_for_pg ();
       Fun.protect
         ~finally:(fun () ->
           Lwt_main.run
