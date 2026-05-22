@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-05-22T09:34:24Z"
+claimed_by: cli-user
+completed_at: "2026-05-22T09:34:25Z"
 complexity: medium
 depends_on: []
+duration_minutes: 0.021546984433333333
 estimate_hours: 1
 id: B678
 priority: high
-status: pending
+started_at: "2026-05-22T09:34:24Z"
+status: done
 tags: []
 title: Briefing cron prompt is structurally fragile — replace with deterministic skill
 ---
