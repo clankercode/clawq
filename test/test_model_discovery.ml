@@ -127,8 +127,40 @@ let test_load_codex_missing_file () =
       in
       Alcotest.(check int) "0 when missing" 0 count)
 
+(* B676: provider configs without an explicit `kind` should still be skipped
+   when the provider NAME matches a known-non-/v1/models-supporting backend
+   (e.g. kimi_coding, zai_coding). Previously these triggered HTTP 401. *)
+let make_pc api_key kind : Runtime_config.provider_config =
+  { Runtime_config.default_provider_config with api_key; kind }
+
+let test_skip_by_name_when_kind_absent () =
+  let pc = make_pc "sk-kimi-fake-key-for-test" None in
+  (* with no kind, but provider name is in skip list, should still skip *)
+  Alcotest.(check bool)
+    "kimi_coding skipped by name" true
+    (Model_discovery.should_skip_provider ~name:"kimi_coding" pc);
+  Alcotest.(check bool)
+    "zai_coding skipped by name" true
+    (Model_discovery.should_skip_provider ~name:"zai_coding" pc);
+  Alcotest.(check bool)
+    "unknown name not skipped" false
+    (Model_discovery.should_skip_provider ~name:"some_unknown_provider" pc);
+  (* with explicit kind, the kind wins *)
+  let pc_with_kind = make_pc "sk-x" (Some "anthropic") in
+  Alcotest.(check bool)
+    "explicit kind=anthropic skipped" true
+    (Model_discovery.should_skip_provider ~name:"kimi_coding" pc_with_kind);
+  (* empty api_key skipped regardless of name *)
+  let pc_empty = make_pc "" None in
+  Alcotest.(check bool)
+    "empty api_key skipped" true
+    (Model_discovery.should_skip_provider ~name:"openrouter" pc_empty)
+
 let suite =
   [
     ("load codex file models", `Quick, test_load_codex_file_models);
     ("load codex missing file", `Quick, test_load_codex_missing_file);
+    ( "skip by name when kind absent (B676)",
+      `Quick,
+      test_skip_by_name_when_kind_absent );
   ]

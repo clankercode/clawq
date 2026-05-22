@@ -20,8 +20,18 @@ let default_base_url_for_kind = function
   | "ollama" -> "http://localhost:11434"
   | _ -> "https://api.openai.com/v1"
 
-let should_skip_provider (pc : Runtime_config.provider_config) =
-  match pc.kind with Some k -> List.mem k skip_kinds | None -> pc.api_key = ""
+(* B676: also skip by provider NAME so providers whose config omits `kind`
+   (e.g. kimi_coding, kimi, zai_coding) don't trigger spurious HTTP 401s
+   against an /v1/models endpoint they don't support. *)
+let should_skip_provider ?name (pc : Runtime_config.provider_config) =
+  match pc.kind with
+  | Some k -> List.mem k skip_kinds
+  | None -> (
+      pc.api_key = ""
+      ||
+      match name with
+      | Some n -> List.mem (String.lowercase_ascii n) skip_kinds
+      | None -> false)
 
 let is_ollama (pc : Runtime_config.provider_config) =
   match pc.kind with Some "ollama" -> true | _ -> false
@@ -307,7 +317,8 @@ let error_signature err =
 let refresh_provider ~db ~provider_name
     ~(provider_config : Runtime_config.provider_config) =
   let open Lwt.Syntax in
-  if should_skip_provider provider_config then Lwt.return (Ok 0)
+  if should_skip_provider ~name:provider_name provider_config then
+    Lwt.return (Ok 0)
   else
     let base_url = get_base_url provider_config in
     let* result =
@@ -349,7 +360,7 @@ let maybe_refresh ?db ?(force = false) ~(config : Runtime_config.t) () =
       let* () =
         Lwt_list.iter_s
           (fun (name, pc) ->
-            if should_skip_provider pc then Lwt.return_unit
+            if should_skip_provider ~name pc then Lwt.return_unit
             else
               let fresh =
                 (not force)
