@@ -1276,6 +1276,11 @@ let test_missing_required_error_escalates_on_repeats () =
       Alcotest.(check bool)
         "level 2+: STOP notice present" true (contains msg "STOP")
   | Ok () -> Alcotest.fail "expected Error on third repeat");
+  (* B677: after the threshold (default 3), the agent's hard_abort_reason
+     should be set so the turn loop can terminate. *)
+  Alcotest.(check bool)
+    "B677: hard_abort_reason set after 3 identical failures" true
+    (agent.hard_abort_reason <> None);
   (* Successful call clears the counter *)
   (match go (`Assoc [ ("command", `String "ls") ]) with
   | Ok () -> ()
@@ -1286,6 +1291,85 @@ let test_missing_required_error_escalates_on_repeats () =
         "back to level 0 after successful intervening call" true
         ((not (contains msg "SECOND")) && not (contains msg "STOP"))
   | Ok () -> Alcotest.fail "expected Error after reset"
+
+(* B677: dedicated test — circuit breaker arms hard_abort_reason at the
+   configured threshold. *)
+let test_b677_circuit_breaker_arms_at_threshold () =
+  let tool : Tool.t =
+    {
+      name = "web_search";
+      description = "Web search";
+      parameters_schema =
+        `Assoc
+          [
+            ( "properties",
+              `Assoc [ ("query", `Assoc [ ("type", `String "string") ]) ] );
+            ("required", `List [ `String "query" ]);
+          ];
+      invoke = (fun ?context:_ _args -> Lwt.return "ok");
+      invoke_stream = None;
+      risk_level = Tool.Low;
+      deferred = false;
+    }
+  in
+  let agent = Agent.create ~config:Runtime_config.default () in
+  let go args = Agent.validate_required_with_escalation agent tool args in
+  (* Default threshold is 3. First two should not arm. *)
+  ignore (go (`Assoc []));
+  Alcotest.(check bool)
+    "not armed after 1 failure" true
+    (agent.hard_abort_reason = None);
+  ignore (go (`Assoc []));
+  Alcotest.(check bool)
+    "not armed after 2 failures" true
+    (agent.hard_abort_reason = None);
+  ignore (go (`Assoc []));
+  Alcotest.(check bool)
+    "armed after 3 identical failures" true
+    (agent.hard_abort_reason <> None);
+  (* Reset on successful call. *)
+  let _ = go (`Assoc [ ("query", `String "hello") ]) in
+  (* hard_abort_reason is consumed by the turn loop in practice; here we
+     verify the counter is reset so a new streak starts from 0. *)
+  Alcotest.(check int)
+    "counter reset to 0 after success" 0 agent.last_missing_required_count;
+  ignore (go (`Assoc []));
+  Alcotest.(check int)
+    "next failure starts a fresh streak (count=1)" 1
+    agent.last_missing_required_count
+
+(* B677: changing tool or missing-param key resets the streak. *)
+let test_b677_resets_on_different_key () =
+  let tool_a : Tool.t =
+    {
+      name = "shell_exec";
+      description = "Run shell";
+      parameters_schema =
+        `Assoc
+          [
+            ( "properties",
+              `Assoc [ ("command", `Assoc [ ("type", `String "string") ]) ] );
+            ("required", `List [ `String "command" ]);
+          ];
+      invoke = (fun ?context:_ _args -> Lwt.return "ok");
+      invoke_stream = None;
+      risk_level = Tool.Low;
+      deferred = false;
+    }
+  in
+  let tool_b : Tool.t = { tool_a with name = "use_skill" } in
+  let agent = Agent.create ~config:Runtime_config.default () in
+  ignore (Agent.validate_required_with_escalation agent tool_a (`Assoc []));
+  ignore (Agent.validate_required_with_escalation agent tool_a (`Assoc []));
+  Alcotest.(check int)
+    "count=2 after two failures on tool_a" 2 agent.last_missing_required_count;
+  ignore (Agent.validate_required_with_escalation agent tool_b (`Assoc []));
+  Alcotest.(check int)
+    "count reset to 1 when failing on different tool" 1
+    agent.last_missing_required_count;
+  Alcotest.(check bool)
+    "circuit breaker not armed (streak interrupted)" true
+    (agent.hard_abort_reason = None)
 
 let test_validate_required_params_passes_valid () =
   let mock_tool : Tool.t =
@@ -1453,4 +1537,10 @@ let suite =
     Alcotest.test_case
       "B622: missing-required error escalates on repeats, resets on success"
       `Quick test_missing_required_error_escalates_on_repeats;
+    Alcotest.test_case
+      "B677: circuit breaker arms hard_abort_reason at threshold" `Quick
+      test_b677_circuit_breaker_arms_at_threshold;
+    Alcotest.test_case
+      "B677: streak resets when failing on a different tool/key" `Quick
+      test_b677_resets_on_different_key;
   ]

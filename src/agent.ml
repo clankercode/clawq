@@ -84,6 +84,7 @@ let create ~config ?tool_registry ?agent_template ?cwd () =
     on_project_doc_loaded = None;
     last_missing_required_key = None;
     last_missing_required_count = 0;
+    hard_abort_reason = None;
   }
 
 let inject_runtime_context messages runtime_context =
@@ -160,7 +161,15 @@ let risk_level_to_string = function
 
 (* B622: escalation-aware required-param validation. Track consecutive
    (tool_name, missing-params) repeats on the agent and return progressively
-   stronger error messages so the model breaks out of the same-call loop. *)
+   stronger error messages so the model breaks out of the same-call loop.
+   B677: when the same (tool, missing-params) pair recurs CLAWQ_MAX_IDENTICAL_
+   PARAM_ERRORS times (default 3), set `agent.hard_abort_reason` so the turn
+   loop terminates instead of letting the model burn another iteration. *)
+let max_identical_param_errors () =
+  match Sys.getenv_opt "CLAWQ_MAX_IDENTICAL_PARAM_ERRORS" with
+  | Some v -> ( try max 2 (int_of_string v) with _ -> 3)
+  | None -> 3
+
 let validate_required_with_escalation agent (tool : Tool.t)
     (args : Yojson.Safe.t) : (unit, string) result =
   match Tool.find_missing_required_params tool args with
@@ -182,6 +191,16 @@ let validate_required_with_escalation agent (tool : Tool.t)
             agent.last_missing_required_count <- 1;
             1
       in
+      let threshold = max_identical_param_errors () in
+      if level >= threshold && agent.hard_abort_reason = None then
+        agent.hard_abort_reason <-
+          Some
+            (Printf.sprintf
+               "Aborted turn after %d consecutive identical \
+                parameter-validation failures on tool '%s' (missing: %s). The \
+                model was looping on the same invalid call shape. Override \
+                with CLAWQ_MAX_IDENTICAL_PARAM_ERRORS."
+               level tool.name (String.concat "," sorted));
       Error
         (Tool.format_missing_required_error tool ~missing
            ~escalation_level:(level - 1) ())
@@ -1424,77 +1443,93 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
             Logs.info (fun m ->
                 m "Mid-turn compaction triggered at iteration %d" iteration)
         | None -> ());
-        (* Check for stuck patterns after each tool call batch *)
-        let stuck_signals =
-          let result =
-            Stuck_detector.check ~history:agent.history ~iteration ~max_iters
-          in
-          match result with
-          | Stuck_detector.Definite signals -> Some signals
-          | _ -> None
-        in
-        let* () =
-          match (stuck_signals, on_stuck) with
-          | Some signals, Some cb -> cb signals
-          | _ -> Lwt.return_unit
-        in
-        (* B652: watchdog — count consecutive Definite stuck detections and
+        (* B677: hard turn-abort on repeated identical parameter-validation
+           failures. validate_required_with_escalation sets this when the
+           model has emitted the same invalid call shape >= threshold times.
+           Append a user-facing assistant message and end the turn before
+           any further LLM cost accrues. *)
+        match agent.hard_abort_reason with
+        | Some reason ->
+            Logs.warn (fun m -> m "B677 circuit breaker: %s" reason);
+            agent.history <-
+              Provider.make_message ~role:"assistant" ~content:reason
+              :: agent.history;
+            trim_history agent;
+            agent.hard_abort_reason <- None;
+            Lwt.return reason
+        | None -> (
+            (* Check for stuck patterns after each tool call batch *)
+            let stuck_signals =
+              let result =
+                Stuck_detector.check ~history:agent.history ~iteration
+                  ~max_iters
+              in
+              match result with
+              | Stuck_detector.Definite signals -> Some signals
+              | _ -> None
+            in
+            let* () =
+              match (stuck_signals, on_stuck) with
+              | Some signals, Some cb -> cb signals
+              | _ -> Lwt.return_unit
+            in
+            (* B652: watchdog — count consecutive Definite stuck detections and
            hard-stop after `watchdog_threshold` so a wedged session does not
            keep burning cost. The observer/postmortem already fired by here.
            Reset the counter on any non-stuck iteration. *)
-        (match stuck_signals with
-        | Some _ -> incr consecutive_stuck
-        | None -> consecutive_stuck := 0);
-        if !consecutive_stuck >= watchdog_threshold then begin
-          let signal_desc =
-            match stuck_signals with
-            | Some s -> Stuck_detector.signals_to_string s
-            | None -> "(unknown)"
-          in
-          let pause_msg =
-            Printf.sprintf
-              "[Watchdog] Pausing this session after %d consecutive stuck \
-               detections (threshold=%d). Last signal: %s\n\n\
-               The model appears to be looping on the same failure mode. I'm \
-               stopping the turn so cost doesn't keep accruing. Reply with new \
-               context or `/reset` to start over."
-              !consecutive_stuck watchdog_threshold signal_desc
-          in
-          Logs.warn (fun m ->
-              m
-                "B652 watchdog: pausing after %d consecutive Definite stuck \
-                 detections (threshold=%d)"
-                !consecutive_stuck watchdog_threshold);
-          agent.history <-
-            Provider.make_message ~role:"assistant" ~content:pause_msg
-            :: agent.history;
-          trim_history agent;
-          Lwt.return pause_msg
-        end
-        else
-          match interrupt_check with
-          | Some check -> (
-              match check () with
-              | interrupt when is_restart_interrupt interrupt ->
-                  Lwt.fail Restart_requested
-              | interrupt when is_queued_message_interrupt interrupt ->
-                  (* Not a real interrupt: continue looping.  Queued messages
+            (match stuck_signals with
+            | Some _ -> incr consecutive_stuck
+            | None -> consecutive_stuck := 0);
+            if !consecutive_stuck >= watchdog_threshold then begin
+              let signal_desc =
+                match stuck_signals with
+                | Some s -> Stuck_detector.signals_to_string s
+                | None -> "(unknown)"
+              in
+              let pause_msg =
+                Printf.sprintf
+                  "[Watchdog] Pausing this session after %d consecutive stuck \
+                   detections (threshold=%d). Last signal: %s\n\n\
+                   The model appears to be looping on the same failure mode. \
+                   I'm stopping the turn so cost doesn't keep accruing. Reply \
+                   with new context or `/reset` to start over."
+                  !consecutive_stuck watchdog_threshold signal_desc
+              in
+              Logs.warn (fun m ->
+                  m
+                    "B652 watchdog: pausing after %d consecutive Definite \
+                     stuck detections (threshold=%d)"
+                    !consecutive_stuck watchdog_threshold);
+              agent.history <-
+                Provider.make_message ~role:"assistant" ~content:pause_msg
+                :: agent.history;
+              trim_history agent;
+              Lwt.return pause_msg
+            end
+            else
+              match interrupt_check with
+              | Some check -> (
+                  match check () with
+                  | interrupt when is_restart_interrupt interrupt ->
+                      Lwt.fail Restart_requested
+                  | interrupt when is_queued_message_interrupt interrupt ->
+                      (* Not a real interrupt: continue looping.  Queued messages
                    are picked up via inject_messages between tool batches.
                    Restart-resume turns remap this token to a real stop
                    signal in daemon_util.ml. *)
-                  loop (iteration + 1)
-              | Some _ ->
-                  let partial =
-                    "[Agent was interrupted mid-task] --- [NOTE: interrupted \
-                     by user]"
-                  in
-                  agent.history <-
-                    Provider.make_message ~role:"assistant" ~content:partial
-                    :: agent.history;
-                  trim_history agent;
-                  Lwt.return partial
-              | None -> loop (iteration + 1))
-          | None -> loop (iteration + 1))
+                      loop (iteration + 1)
+                  | Some _ ->
+                      let partial =
+                        "[Agent was interrupted mid-task] --- [NOTE: \
+                         interrupted by user]"
+                      in
+                      agent.history <-
+                        Provider.make_message ~role:"assistant" ~content:partial
+                        :: agent.history;
+                      trim_history agent;
+                      Lwt.return partial
+                  | None -> loop (iteration + 1))
+              | None -> loop (iteration + 1)))
   in
   loop 0
 
@@ -1819,69 +1854,84 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
                        %d"
                       iteration)
             | None -> ());
-            (* Check for stuck patterns after each tool call batch *)
-            let stuck_signals =
-              let result =
-                Stuck_detector.check ~history:agent.history ~iteration
-                  ~max_iters
-              in
-              match result with
-              | Stuck_detector.Definite signals -> Some signals
-              | _ -> None
-            in
-            let* () =
-              match (stuck_signals, on_stuck) with
-              | Some signals, Some cb -> cb signals
-              | _ -> Lwt.return_unit
-            in
-            (* B652: watchdog (streaming path). See turn() for rationale. *)
-            (match stuck_signals with
-            | Some _ -> incr consecutive_stuck
-            | None -> consecutive_stuck := 0);
-            if !consecutive_stuck >= watchdog_threshold then begin
-              let signal_desc =
-                match stuck_signals with
-                | Some s -> Stuck_detector.signals_to_string s
-                | None -> "(unknown)"
-              in
-              let pause_msg =
-                Printf.sprintf
-                  "[Watchdog] Pausing this session after %d consecutive stuck \
-                   detections (threshold=%d). Last signal: %s\n\n\
-                   The model appears to be looping on the same failure mode. \
-                   I'm stopping the turn so cost doesn't keep accruing. Reply \
-                   with new context or `/reset` to start over."
-                  !consecutive_stuck watchdog_threshold signal_desc
-              in
-              Logs.warn (fun m ->
-                  m
-                    "B652 watchdog (streaming): pausing after %d consecutive \
-                     Definite stuck detections (threshold=%d)"
-                    !consecutive_stuck watchdog_threshold);
-              agent.history <-
-                Provider.make_message ~role:"assistant" ~content:pause_msg
-                :: agent.history;
-              trim_history agent;
-              Lwt.return pause_msg
-            end
-            else
-              match interrupt_check with
-              | Some check -> (
-                  match check () with
-                  | interrupt when is_restart_interrupt interrupt ->
-                      Lwt.fail Restart_requested
-                  | interrupt when is_queued_message_interrupt interrupt ->
-                      loop (iteration + 1)
-                  | Some _ ->
-                      let partial = " --- [NOTE: interrupted by user]" in
-                      agent.history <-
-                        Provider.make_message ~role:"assistant" ~content:partial
-                        :: agent.history;
-                      trim_history agent;
-                      let* () = on_chunk (Provider.Delta partial) in
-                      Lwt.return partial
-                  | None -> loop (iteration + 1))
-              | None -> loop (iteration + 1)))
+            (* B677: hard turn-abort on repeated identical parameter-validation
+               failures (streaming path). *)
+            match agent.hard_abort_reason with
+            | Some reason ->
+                Logs.warn (fun m ->
+                    m "B677 circuit breaker (streaming): %s" reason);
+                agent.history <-
+                  Provider.make_message ~role:"assistant" ~content:reason
+                  :: agent.history;
+                trim_history agent;
+                agent.hard_abort_reason <- None;
+                Lwt.return reason
+            | None -> (
+                (* Check for stuck patterns after each tool call batch *)
+                let stuck_signals =
+                  let result =
+                    Stuck_detector.check ~history:agent.history ~iteration
+                      ~max_iters
+                  in
+                  match result with
+                  | Stuck_detector.Definite signals -> Some signals
+                  | _ -> None
+                in
+                let* () =
+                  match (stuck_signals, on_stuck) with
+                  | Some signals, Some cb -> cb signals
+                  | _ -> Lwt.return_unit
+                in
+                (* B652: watchdog (streaming path). See turn() for rationale. *)
+                (match stuck_signals with
+                | Some _ -> incr consecutive_stuck
+                | None -> consecutive_stuck := 0);
+                if !consecutive_stuck >= watchdog_threshold then begin
+                  let signal_desc =
+                    match stuck_signals with
+                    | Some s -> Stuck_detector.signals_to_string s
+                    | None -> "(unknown)"
+                  in
+                  let pause_msg =
+                    Printf.sprintf
+                      "[Watchdog] Pausing this session after %d consecutive \
+                       stuck detections (threshold=%d). Last signal: %s\n\n\
+                       The model appears to be looping on the same failure \
+                       mode. I'm stopping the turn so cost doesn't keep \
+                       accruing. Reply with new context or `/reset` to start \
+                       over."
+                      !consecutive_stuck watchdog_threshold signal_desc
+                  in
+                  Logs.warn (fun m ->
+                      m
+                        "B652 watchdog (streaming): pausing after %d \
+                         consecutive Definite stuck detections (threshold=%d)"
+                        !consecutive_stuck watchdog_threshold);
+                  agent.history <-
+                    Provider.make_message ~role:"assistant" ~content:pause_msg
+                    :: agent.history;
+                  trim_history agent;
+                  Lwt.return pause_msg
+                end
+                else
+                  match interrupt_check with
+                  | Some check -> (
+                      match check () with
+                      | interrupt when is_restart_interrupt interrupt ->
+                          Lwt.fail Restart_requested
+                      | interrupt when is_queued_message_interrupt interrupt ->
+                          loop (iteration + 1)
+                      | Some _ ->
+                          let partial = " --- [NOTE: interrupted by user]" in
+                          agent.history <-
+                            Provider.make_message ~role:"assistant"
+                              ~content:partial
+                            :: agent.history;
+                          trim_history agent;
+                          let* () = on_chunk (Provider.Delta partial) in
+                          Lwt.return partial
+                      | None -> loop (iteration + 1))
+                  | None -> loop (iteration + 1))))
       (fun exn ->
         match exn with
         | Restart_requested -> Lwt.fail Restart_requested

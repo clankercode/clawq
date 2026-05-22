@@ -20,6 +20,12 @@ type t = {
      missing-params key. *)
   mutable last_missing_required_key : string option;
   mutable last_missing_required_count : int;
+  (* B677: hard turn-abort signal. Set by validate_required_with_escalation
+     when last_missing_required_count crosses CLAWQ_MAX_IDENTICAL_PARAM_ERRORS
+     (default 3). The main turn loop checks this after tool execution and
+     terminates the turn with a clear user-facing message. Reset on any
+     successful tool call. *)
+  mutable hard_abort_reason : string option;
 }
 
 exception Interrupted of string
