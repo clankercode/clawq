@@ -22,23 +22,27 @@ Start with these defaults unless the user has specified otherwise:
 - http://feeds.bbci.co.uk/news/world/rss.xml  # BBC World
 - https://feeds.arstechnica.com/arstechnica/index  # Ars Technica
 
-## Step 3: Create the daily briefing cron job
+## Step 3: Note the delivery session id
+
+The cron jobs themselves run on a persistent worker session (`cron:briefing`) and deliver their output via `send_to_session` back to *this* session — wherever the user invoked `/rig install briefing`. Read the runtime context for `Session id:` and record that value; you will store it as `delivery_session` in Step 6.
+
+## Step 4: Create the daily briefing cron job
 
 Use shell_exec to run:
-  clawq cron add briefing-daily briefing "0 7 * * *" Invoke the briefing-daily skill: call use_skill with name="briefing-daily". The skill handles config loading, pre-flight validation, RSS fetch, topic search, weather, and composition. Do not perform briefing work outside the skill — orchestrate only through use_skill.
+  clawq cron add briefing-daily cron:briefing "0 7 * * *" Invoke the briefing-daily skill: call use_skill with name="briefing-daily". The skill handles config loading, pre-flight validation, RSS fetch, topic search, weather, composition, and delivery via send_to_session. Do not perform briefing work outside the skill — orchestrate only through use_skill.
 
-## Step 4: Create the hourly notable-events cron job
+## Step 5: Create the hourly notable-events cron job
 
 Use shell_exec to run:
-  clawq cron add briefing-hourly briefing "0 * * * *" Invoke the briefing-hourly skill: call use_skill with name="briefing-hourly". The skill handles config loading, pre-flight validation, planned-query emission, and sequential web_search. Do not perform briefing work outside the skill — orchestrate only through use_skill.
+  clawq cron add briefing-hourly cron:briefing "0 * * * *" Invoke the briefing-hourly skill: call use_skill with name="briefing-hourly". The skill handles config loading, pre-flight validation, planned-query emission, sequential web_search, and delivery via send_to_session. Do not perform briefing work outside the skill — orchestrate only through use_skill.
 
-## Step 5: Store rig state
+## Step 6: Store rig state
 
 Use memory_store to save the briefing rig configuration:
 - Key: "rig:briefing:config"
-- Value: JSON with feeds file path, topics, weather location, cron job names, RSS tool used
+- Value: JSON with feeds file path, topics, weather location, cron job names, RSS tool used, AND `delivery_session` set to the Session id captured in Step 3. The delivery_session field is required — the briefing skills will refuse to run without it.
 
-## Step 6: Confirm
+## Step 7: Confirm
 
 Summarize what was installed and configured. Mention:
 - Which RSS tool was installed
@@ -50,21 +54,34 @@ Summarize what was installed and configured. Mention:
 let briefing_adjust_prompt =
   {|You are adjusting the "daily briefing" rig configuration.
 
-## Step 0: Migrate legacy cron prompts (idempotent)
+## Step 0: Migrate legacy cron jobs (idempotent)
 
-Existing briefing cron jobs may still contain the legacy inline prompt that asked the LLM to orchestrate the search loop directly. That pattern is fragile (B678). Re-point both jobs to the deterministic built-in skills via remove + re-add.
+Existing briefing cron jobs may still contain the legacy inline prompt (B678) and may run on the user's DM session_key directly. Migrate them to the deterministic built-in skills running on the persistent `cron:briefing` worker session, with delivery via `send_to_session` (B680).
+
+### 0a: Capture the delivery session
+
+Read the runtime context for `Session id:` — that is *this* session (where /rig adjust briefing is being run). Save it as DELIVERY_SESSION for the next steps.
+
+### 0b: Migrate each cron job
 
 For each job (`briefing-hourly` first, then `briefing-daily`):
 
-1. Run `clawq cron show <name>` via shell_exec. If the output already mentions `use_skill with name="<name>"`, skip — the job is already migrated.
-2. Otherwise, capture the existing schedule from the show output, then run:
+1. Run `clawq cron show <name>` via shell_exec. If the output already shows `Session: cron:briefing` AND the prompt mentions `use_skill with name="<name>"`, skip — already migrated.
+2. Otherwise, capture the existing schedule, then run:
 
    ```
    clawq cron remove <name>
-   clawq cron add <name> briefing "<original_schedule>" Invoke the <name> skill: call use_skill with name="<name>". The skill handles all orchestration. Do not perform briefing work outside the skill.
+   clawq cron add <name> cron:briefing "<original_schedule>" Invoke the <name> skill: call use_skill with name="<name>". The skill handles all orchestration and delivers via send_to_session. Do not perform briefing work outside the skill.
    ```
 
 3. If a job does not exist (cron show fails), skip — the user may not have it installed.
+
+### 0c: Backfill delivery_session in config
+
+After the cron migration:
+
+1. `memory_recall(query="rig:briefing:config")` to read the current config.
+2. If the config has no `delivery_session` field, parse the JSON, add `"delivery_session": "<DELIVERY_SESSION from 0a>"`, and `memory_store` the updated value back. Skip if already present.
 
 ## Step 1: Recall current configuration
 

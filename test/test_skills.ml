@@ -1353,8 +1353,17 @@ let test_builtin_idea_skill () =
 
 (* B678: briefing-hourly and briefing-daily are deterministic built-in skills
    that the briefing cron jobs invoke. They must be discoverable and contain
-   the pre-flight validation directives. *)
+   the pre-flight validation directives.
+   B680: the skills must also require delivery_session in pre-flight and
+   call send_to_session at the end so the cron worker session never
+   silently absorbs the briefing output. *)
 let test_builtin_briefing_skills_present () =
+  let contains haystack needle =
+    try
+      ignore (Str.search_forward (Str.regexp_string needle) haystack 0);
+      true
+    with Not_found -> false
+  in
   let check_skill name =
     let found = Builtin_skills.find_builtin name in
     Alcotest.(check bool) (name ^ " skill found") true (Option.is_some found);
@@ -1362,21 +1371,11 @@ let test_builtin_briefing_skills_present () =
     Alcotest.(check bool)
       (name ^ " mentions memory_recall")
       true
-      (try
-         ignore
-           (Str.search_forward
-              (Str.regexp_string "memory_recall")
-              instructions 0);
-         true
-       with Not_found -> false);
+      (contains instructions "memory_recall");
     Alcotest.(check bool)
       (name ^ " enforces non-empty query")
       true
-      (try
-         ignore
-           (Str.search_forward (Str.regexp_string "non-empty") instructions 0);
-         true
-       with Not_found -> false);
+      (contains instructions "non-empty");
     Alcotest.(check bool)
       (name ^ " mentions pre-flight")
       true
@@ -1386,7 +1385,19 @@ let test_builtin_briefing_skills_present () =
               (Str.regexp_case_fold "pre-flight")
               instructions 0);
          true
-       with Not_found -> false)
+       with Not_found -> false);
+    Alcotest.(check bool)
+      (name ^ " requires delivery_session")
+      true
+      (contains instructions "delivery_session");
+    Alcotest.(check bool)
+      (name ^ " calls send_to_session")
+      true
+      (contains instructions "send_to_session");
+    Alcotest.(check bool)
+      (name ^ " references wake_agent")
+      true
+      (contains instructions "wake_agent")
   in
   check_skill "briefing-hourly";
   check_skill "briefing-daily"

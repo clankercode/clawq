@@ -349,11 +349,12 @@ Get the live CLI interface:
     ( "briefing-hourly",
       "Hourly breaking-news check across the user's monitored topics. \
        Deterministic orchestration with pre-flight config validation; \
-       guarantees web_search is never called with empty args. Invoked by the \
+       guarantees web_search is never called with empty args; delivers results \
+       to the user's session via send_to_session. Invoked by the \
        briefing-hourly cron job.",
       {|# briefing-hourly — Hourly breaking-news check
 
-You are running the hourly briefing. Follow every step exactly in order. Do not call any tool before completing Step 1's pre-flight validation.
+You are running the hourly briefing on the `cron:briefing` worker session. The user's DM session is recorded as `delivery_session` in the rig config; you will deliver your output to that session via `send_to_session` at the end. Follow every step exactly in order. Do not call any tool before completing Step 1's pre-flight validation.
 
 ## Step 1: Load and validate config
 
@@ -364,6 +365,7 @@ Call `memory_recall` with `query="rig:briefing:config"` to retrieve the briefing
 1. If memory_recall returns no result or an empty value, respond with EXACTLY: `Briefing not configured. Run /rig install briefing first.` and stop.
 2. The returned value is a JSON string. Parse it. If parsing fails, respond with `Briefing config malformed: <one-line reason>.` and stop.
 3. Locate the `topics` field. If it is missing, empty, or not an array, respond with `Briefing has no topics configured. Run /rig adjust briefing.` and stop.
+4. Locate the `delivery_session` field. If it is missing or empty, respond with `Briefing has no delivery_session. Run /rig adjust briefing to migrate.` and stop. The skill refuses to silently log into the worker session — without delivery_session the user would never see the output.
 
 ## Step 2: Emit planned queries (audit trail)
 
@@ -386,19 +388,31 @@ For each topic in the topics list (one at a time, never parallel):
 - If the result indicates `rate-limited` or `no results`, record the topic as skipped and continue to the next topic. Do not retry.
 - Search APIs throttle at ~1 req/sec; making these calls sequentially (never parallel) honors that limit.
 
-## Step 4: Summarize
+## Step 4: Compose briefing text
 
-- If nothing genuinely notable was found across all topics, respond with EXACTLY: `Nothing notable.`
-- Otherwise, write 2-3 sentences per notable item with a link. Only report truly significant events (breaking news, just-announced milestones), not routine updates.|}
+- If nothing genuinely notable was found across all topics, the briefing text is EXACTLY: `Nothing notable.` (still delivered in Step 5 so the user knows the check ran).
+- Otherwise, write 2-3 sentences per notable item with a link. Only report truly significant events (breaking news, just-announced milestones), not routine updates.
+
+## Step 5: Deliver to user (MANDATORY)
+
+Call `send_to_session` exactly once with:
+
+- `session_id` = the `delivery_session` value from the config (Step 1).
+- `message` = the briefing text from Step 4 (including the literal `Nothing notable.` case).
+- `wake_agent` = false (silent notification — the user reads it when they next open the channel).
+- `store_in_history` = true (default).
+
+After send_to_session succeeds, your final assistant message should be a short status line like `Delivered briefing to <delivery_session>: <N> notable items.` so the cron run log shows what happened. Do not duplicate the full briefing in this status line.|}
     );
     ( "briefing-daily",
       "Daily briefing across RSS feeds, monitored topics, and weather. \
        Deterministic orchestration with pre-flight config validation; \
-       guarantees web_search is never called with empty args. Invoked by the \
+       guarantees web_search is never called with empty args; delivers results \
+       to the user's session via send_to_session. Invoked by the \
        briefing-daily cron job.",
       {|# briefing-daily — Daily briefing
 
-You are generating the user's daily briefing. Follow every step exactly in order. Do not call any tool before completing Step 1's pre-flight validation.
+You are generating the user's daily briefing on the `cron:briefing` worker session. The user's DM session is recorded as `delivery_session` in the rig config; you will deliver your output to that session via `send_to_session` at the end. Follow every step exactly in order. Do not call any tool before completing Step 1's pre-flight validation.
 
 ## Step 1: Load and validate config
 
@@ -409,6 +423,7 @@ Call `memory_recall` with `query="rig:briefing:config"` to retrieve the briefing
 1. If memory_recall returns no result or an empty value, respond with EXACTLY: `Briefing not configured. Run /rig install briefing first.` and stop.
 2. The returned value is a JSON string. Parse it. If parsing fails, respond with `Briefing config malformed: <one-line reason>.` and stop.
 3. Locate the `feeds_file` path (default `~/.clawq/briefing_feeds.txt`), the `topics` array, the `weather_location` (optional), and the `rss_tool` (default `sfeed`).
+4. Locate the `delivery_session` field. If it is missing or empty, respond with `Briefing has no delivery_session. Run /rig adjust briefing to migrate.` and stop. The skill refuses to silently log into the worker session.
 
 ## Step 2: Emit plan (audit trail)
 
@@ -420,6 +435,7 @@ Daily briefing plan:
 - RSS tool: <rss_tool>
 - Topics: <topic1>, <topic2>, ...
 - Weather: <location_or_none>
+- Delivery: <delivery_session>
 ```
 
 ## Step 3: Fetch RSS headlines
@@ -447,7 +463,18 @@ Write a 400-800 word briefing with sections (omit empty sections):
 - **Weather** — from Step 5
 - **Worth Reading** — anything notable from headlines or topics
 
-Use bullet points and links. Keep it scannable.|}
+Use bullet points and links. Keep it scannable.
+
+## Step 7: Deliver to user (MANDATORY)
+
+Call `send_to_session` exactly once with:
+
+- `session_id` = the `delivery_session` value from the config (Step 1).
+- `message` = the composed briefing from Step 6. If all sections came up empty, send EXACTLY: `Daily briefing: no notable items today.` so the user still knows the run completed.
+- `wake_agent` = false (silent notification — the user reads it when they next open the channel).
+- `store_in_history` = true (default).
+
+After send_to_session succeeds, your final assistant message should be a short status line like `Delivered daily briefing to <delivery_session>: <N> headlines, <M> topic updates.` Do not duplicate the full briefing in this status line.|}
     );
   ]
 
