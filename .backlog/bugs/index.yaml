@@ -677,3 +677,4 @@ bugs:
     - file: B680-reconfigure-briefing-cron-to-u.todo
     - file: B681-briefing-hourly-cron-prompt-ca.todo
     - file: B682-watch-ci-after-push-json-skill.todo
+    - file: B683-briefing-hourly-cron-still-use.todo

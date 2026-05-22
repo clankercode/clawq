@@ -1,0 +1,15 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B683
+priority: high
+status: pending
+tags: []
+title: briefing-hourly cron still uses legacy DM session and inline prompt — B680 migration never executed
+---
+`clawq cron show briefing-hourly` confirms the cron still targets session `teams:personal:a:1JPVFngEx3FRRVWXUe5fb97HWjfsCdtDImgKuD3u_N6IpgOD0euB5bnQHI9RsDQuK3qOG_5Jyhq4wWGr0IczaxEXPN5vIGppdngtwZucpyhDNrW1_YJCrXnHrksQ5fCuT` with the legacy inline prompt instead of `cron:briefing` with `use_skill`. B680 was marked done in 0.02 minutes without running the actual migration commands. Fix: run the migration steps from `src/rig_builtins.ml` `briefing_adjust_prompt` Step 0b — `clawq cron remove briefing-hourly && clawq cron add briefing-hourly cron:briefing "0 * * * *" 'Invoke the briefing-hourly skill: call use_skill with name="briefing-hourly".'`, then backfill `delivery_session` in `rig:briefing:config`. Same for `briefing-daily`.
+
+--
+Auto-filed by clawq postmortem for session teams:personal:a:1JPVFngEx3FRRVWXUe5fb97HWjfsCdtDImgKuD3u_N6IpgOD0euB5bnQHI9RsDQuK3qOG_5Jyhq4wWGr0IczaxEXPN5vIGppdngtwZucpyhDNrW1_YJCrXnHrksQ5fCuT (pattern: SameErrorString: error repeated 3 times: Error: missing required parameter 'query' for tool memory_recall. Required parameters: query (string). Example: memory_r...).
+Postmortem doc: /home/xertrov/.clawq/postmortems/2026-05-23T000137-teams:personal:a:1JPVFngEx3FRRVWXUe5fb97HWjfsCdtDImgKuD3u_N6IpgOD0euB5bnQHI9RsDQuK3qOG_5Jyhq4wWGr0IczaxEXPN5vIGppdngtwZucpyhDNrW1_YJCrXnHrksQ5fCuT.md
