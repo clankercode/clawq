@@ -805,13 +805,61 @@ let resume_turn_prompt =
   ^ "IMPORTANT: Do not call update_clawq during a restart-resume turn — the "
   ^ "daemon has just restarted and triggering another restart would cause a "
   ^ "boot loop."
+
 (* Agent says STAY_IDLE too much so let's pretend it doesn't exist and see what happens *)
 (*^ "(If, after checking the full conversation state, you have confirmed that "
   ^ "there is absolutely no way to continue, reply exactly STAY_IDLE.)"*)
 
+(* B673: stuck/watchdog/postmortem messages from a previous session epoch
+   are injected into history by the observer + agent watchdog when a
+   session loops. On restart-resume they get replayed verbatim to the LLM,
+   which biases the model toward repeating the failure mode. Strip them
+   so the post-restart turn starts from clean conversational state.
+
+   Conservative heuristic: only drop messages whose content starts with a
+   well-known noise prefix. Keep everything else (user messages, normal
+   assistant turns, tool calls + results). *)
+let is_resume_noise_message (m : Provider.message) =
+  let starts_with prefix s =
+    let pl = String.length prefix in
+    String.length s >= pl && String.sub s 0 pl = prefix
+  in
+  let c = m.Provider.content in
+  (m.role = "user" && starts_with "[Observer] Stuck pattern detected:" c)
+  || (m.role = "assistant" && starts_with "[Watchdog] Pausing this session" c)
+  || m.role = "assistant"
+     && starts_with "Aborted turn after " c
+     &&
+       try
+         ignore (String.index c '\'');
+         true
+       with Not_found -> false
+
+let sanitize_history_for_resume (history : Provider.message list) =
+  let filtered =
+    List.filter (fun m -> not (is_resume_noise_message m)) history
+  in
+  let dropped = List.length history - List.length filtered in
+  (filtered, dropped)
+
 let default_resume_turn ~(session_manager : Session.t) ~notify ~session_key
     agent interrupt =
   let open Lwt.Syntax in
+  (* B673: sanitize history before the resume turn so noise messages from
+     the previous session epoch (stuck detections, watchdog pauses, B677
+     circuit-breaker aborts) don't bias the model toward repeating the
+     failure mode. *)
+  let sanitized, dropped_count =
+    sanitize_history_for_resume agent.Agent.history
+  in
+  if dropped_count > 0 then begin
+    Logs.info (fun m ->
+        m
+          "B673: restart-resume sanitize dropped %d noise message(s) from \
+           history for session=%s"
+          dropped_count session_key);
+    agent.Agent.history <- sanitized
+  end;
   let* compaction_info =
     Agent.compact_history_if_needed agent ?db:session_manager.db ()
   in

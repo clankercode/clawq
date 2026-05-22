@@ -2332,8 +2332,61 @@ let test_notify_discord_dispatches_channel_notification () =
         (string_contains t "Background task #9 finished: SUCCEEDED")
   | [] -> Alcotest.fail "expected at least one dispatch"
 
+(* B673: restart-resume history sanitization. Stuck/watchdog/circuit-breaker
+   noise messages from a prior session epoch should be dropped before the
+   resume turn so they don't bias the LLM. *)
+let test_b673_sanitize_history_drops_noise_messages () =
+  let stuck =
+    Provider.make_message ~role:"user"
+      ~content:
+        "[Observer] Stuck pattern detected: SameErrorString repeated 3 times"
+  in
+  let watchdog =
+    Provider.make_message ~role:"assistant"
+      ~content:
+        "[Watchdog] Pausing this session after 2 consecutive stuck detections"
+  in
+  let circuit_breaker =
+    Provider.make_message ~role:"assistant"
+      ~content:
+        "Aborted turn after 3 consecutive identical parameter-validation \
+         failures on tool 'web_search' (missing: query)."
+  in
+  let normal_user = Provider.make_message ~role:"user" ~content:"hello" in
+  let normal_assistant =
+    Provider.make_message ~role:"assistant" ~content:"hi there"
+  in
+  let history =
+    [ normal_user; stuck; normal_assistant; watchdog; circuit_breaker ]
+  in
+  let cleaned, dropped = Daemon.sanitize_history_for_resume history in
+  Alcotest.(check int) "dropped 3 noise messages" 3 dropped;
+  let contents = List.map (fun (m : Provider.message) -> m.content) cleaned in
+  Alcotest.(check (list string))
+    "only normal messages remain" [ "hello"; "hi there" ] contents
+
+(* B673: sanitizer is conservative — does NOT drop normal user/assistant
+   messages even if they incidentally start with "[" or otherwise look
+   noisy. *)
+let test_b673_sanitize_history_preserves_normal_messages () =
+  let bracketed_normal =
+    Provider.make_message ~role:"user"
+      ~content:"[Question] Why is the sky blue?"
+  in
+  let asst_normal =
+    Provider.make_message ~role:"assistant" ~content:"It's Rayleigh scattering."
+  in
+  let history = [ bracketed_normal; asst_normal ] in
+  let cleaned, dropped = Daemon.sanitize_history_for_resume history in
+  Alcotest.(check int) "no noise dropped" 0 dropped;
+  Alcotest.(check int) "both messages preserved" 2 (List.length cleaned)
+
 let suite =
   [
+    Alcotest.test_case "B673: sanitize history drops noise messages" `Quick
+      test_b673_sanitize_history_drops_noise_messages;
+    Alcotest.test_case "B673: sanitize history preserves normal messages" `Quick
+      test_b673_sanitize_history_preserves_normal_messages;
     Alcotest.test_case "boot stage message helpers" `Quick
       test_boot_stage_message_helpers;
     Alcotest.test_case "with boot stage logging success" `Quick
