@@ -1,14 +1,15 @@
 ---
 claimed_at: "2026-03-19T15:15:58Z"
 claimed_by: cli-user
-completed_at: null
+completed_at: "2026-05-22T09:01:38Z"
 complexity: low
 depends_on: []
+duration_minutes: 91785.67355427024
 estimate_hours: 1
 id: B552
 priority: medium
 started_at: "2026-03-19T15:15:58Z"
-status: in_progress
+status: done
 tags: []
 title: /feature command lacks progress feedback during idea creation workflow
 ---
