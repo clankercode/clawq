@@ -1,0 +1,26 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B679
+priority: high
+status: pending
+tags: []
+title: Add send_to_session agent tool for cross-session messaging
+---
+Add a new agent tool send_to_session that allows an agent in one session to send a message to another session's channel without waking the target agent. This is needed for cron-driven briefings to deliver results to a DM session.
+
+Required parameters: session_id (string), message (string)
+Optional parameters: wake_agent (bool, default false), store_in_history (bool, default true)
+
+Internal infrastructure exists: inject_session_message_async in tools_builtin_util.ml already does cross-session injection (used for CI watch follow-ups). The new tool should expose this capability to agents.
+
+Use cases: cron ephemeral sessions forwarding results to a persistent DM; postmortem notifications; background task completion alerts to a specific session.
+
+Acceptance criteria:
+1. send_to_session tool with session_id, message, wake_agent, store_in_history params
+2. When wake_agent=false, message appears in channel but does not trigger agent loop on target session
+3. When store_in_history=false, message is sent but not persisted in messages table
+4. Error handling for unknown/invalid session keys
+5. Rate limiting / abuse guard (max N cross-session sends per session per hour)
+6. Wire into agent tool registry and agent template allowed_tools where appropriate

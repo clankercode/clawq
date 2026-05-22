@@ -673,3 +673,4 @@ bugs:
     - file: B676-kimi-coding-model-discovery-re.todo
     - file: B677-add-circuit-breaker-for-repeat.todo
     - file: B678-briefing-cron-prompt-is-struct.todo
+    - file: B679-add-send-to-session-agent-tool.todo
