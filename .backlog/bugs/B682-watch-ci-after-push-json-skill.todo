@@ -1,0 +1,22 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B682
+priority: high
+status: pending
+tags: []
+title: watch_ci_after_push JSON skill has empty parameters but uses {{branch}}, {{workflow}}, {{limit}} template vars
+---
+The legacy JSON skill at ~/.clawq/skills/watch_ci_after_push.json declares `"parameters": { "type": "object", "properties": {} }` but its command template references {{branch}}, {{workflow}}, and {{limit}}. When invoked with empty args (as the model naturally does given the empty schema), substitute_template leaves these as literal strings, causing `gh run list --limit "{{limit}}"` to fail with a parse error.
+
+Additionally, src/skills.ml load_skill does not validate that template variables in the command have corresponding parameter declarations — it silently registers broken skills.
+
+Fix options (pick one):
+1. Add branch/workflow/limit to parameters with defaults and descriptions
+2. Convert to SKILL.md format using $ARGUMENTS substitution
+3. Add load-time validation in load_skill that warns or refuses when {{...}} vars in the command have no matching parameter declaration
+
+--
+Auto-filed by clawq postmortem for session github:XertroV/clawq:workflow_run:26279539450 (pattern: RepeatedToolCall: "shell_exec" called 3 times with same args: {"command":"sleep 100 && cd /home/xertrov/src/clawq && gh run view 26281706887 --json status,conclusion,jobs --jq '{stat...).
+Postmortem doc: /home/xertrov/.clawq/postmortems/2026-05-22T201752-github:XertroV_clawq:workflow_run:26279539450.md
