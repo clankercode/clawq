@@ -1307,6 +1307,233 @@ let test_live_tool_call_anthropic_vs_openai_minimax_m27 () =
      assert_tool_call ~label:"OpenAI path" openai_result;
      Lwt.return_unit)
 
+(* B674: multi-turn tool-call test. Calls a weather tool, returns a result,
+   and verifies the model produces a follow-up that USES the tool result (text
+   mentioning the returned weather, OR another tool call building on it).
+   Exercises the full resume cycle: assistant tool_use → tool_result → next
+   assistant turn. Runs through the OpenAI-compat path (the daily-driver kimi
+   failure scenario uses the same code path). *)
+let test_live_multi_turn_tool_call_openai_compat () =
+  if minimax_api_key = None then Alcotest.skip ();
+  let api_key = Option.get minimax_api_key in
+  let weather_tool =
+    `Assoc
+      [
+        ("type", `String "function");
+        ( "function",
+          `Assoc
+            [
+              ("name", `String "get_weather");
+              ( "description",
+                `String
+                  "Get the current weather for a city. Returns a short summary."
+              );
+              ( "parameters",
+                `Assoc
+                  [
+                    ("type", `String "object");
+                    ( "properties",
+                      `Assoc
+                        [
+                          ( "city",
+                            `Assoc
+                              [
+                                ("type", `String "string");
+                                ("description", `String "City name.");
+                              ] );
+                        ] );
+                    ("required", `List [ `String "city" ]);
+                    ("additionalProperties", `Bool false);
+                  ] );
+            ] );
+      ]
+  in
+  let tools = `List [ weather_tool ] in
+  let openai_provider : Runtime_config.provider_config =
+    {
+      Runtime_config.default_provider_config with
+      api_key;
+      base_url = Some "https://api.minimax.io/v1";
+      kind = Some "openai";
+    }
+  in
+  let openai_config : Runtime_config.t =
+    {
+      Runtime_config.default with
+      providers = [ ("minimax-openai", openai_provider) ];
+      default_provider = Some "minimax-openai";
+      agent_defaults =
+        {
+          Runtime_config.default.agent_defaults with
+          primary_model = "minimax-openai:MiniMax-M2.7-highspeed";
+        };
+    }
+  in
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let msgs =
+       [
+         Provider.make_message ~role:"system"
+           ~content:
+             "You are a helpful assistant. Use get_weather to answer weather \
+              questions. After the tool returns, summarize the result in one \
+              short sentence.";
+         Provider.make_message ~role:"user" ~content:"Weather in Tokyo?";
+       ]
+     in
+     let* turn1 =
+       Lwt.catch
+         (fun () ->
+           Provider.complete ~config:openai_config ~messages:msgs ~tools ())
+         (fun exn -> Alcotest.fail ("turn 1 raised: " ^ Printexc.to_string exn))
+     in
+     let tc =
+       match turn1 with
+       | Provider.ToolCalls { calls; _ } when calls <> [] -> List.hd calls
+       | Provider.ToolCalls _ ->
+           Alcotest.fail "turn 1 returned ToolCalls but empty list"
+       | Provider.Text { content; _ } ->
+           Alcotest.fail
+             ("turn 1 returned Text instead of ToolCalls. First 200: "
+             ^
+             if String.length content > 200 then String.sub content 0 200
+             else content)
+     in
+     Printf.eprintf "turn 1: tool=%s args=%s id=%s\n%!" tc.function_name
+       tc.arguments tc.id;
+     let assistant_with_tool =
+       {
+         Provider.role = "assistant";
+         content = "";
+         content_parts = [];
+         tool_calls = [ tc ];
+         tool_call_id = None;
+         name = None;
+         provider_response_items_json = None;
+         thinking = None;
+         is_error = false;
+       }
+     in
+     let tool_result =
+       Provider.make_tool_result ~tool_call_id:tc.id ~name:tc.function_name
+         ~content:
+           "Tokyo: 22 degrees Celsius, partly cloudy, light wind from the east."
+     in
+     let msgs2 = msgs @ [ assistant_with_tool; tool_result ] in
+     let* turn2 =
+       Lwt.catch
+         (fun () ->
+           Provider.complete ~config:openai_config ~messages:msgs2 ~tools ())
+         (fun exn -> Alcotest.fail ("turn 2 raised: " ^ Printexc.to_string exn))
+     in
+     (match turn2 with
+     | Provider.Text { content; _ } ->
+         Printf.eprintf "turn 2: Text (len=%d): %s\n%!" (String.length content)
+           (if String.length content > 200 then String.sub content 0 200
+            else content);
+         Alcotest.(check bool)
+           "turn 2 text is non-empty" true
+           (String.trim content <> "");
+         let lower = String.lowercase_ascii content in
+         let mentions_relevant =
+           List.exists
+             (fun needle ->
+               try
+                 ignore (Str.search_forward (Str.regexp_string needle) lower 0);
+                 true
+               with Not_found -> false)
+             [ "tokyo"; "22"; "cloud"; "celsius"; "wind"; "east" ]
+         in
+         Alcotest.(check bool)
+           "turn 2 text references the tool result" true mentions_relevant
+     | Provider.ToolCalls { calls; _ } ->
+         (* Acceptable: model may chain another tool call. Verify it's a valid
+            tool_call from the available toolset. *)
+         Printf.eprintf "turn 2: ToolCalls n=%d (chained)\n%!"
+           (List.length calls);
+         Alcotest.(check bool)
+           "turn 2 chained tool call has a name" true
+           (List.for_all
+              (fun (tc : Provider.tool_call) -> tc.function_name <> "")
+              calls));
+     Lwt.return_unit)
+
+(* B674/B675: orphan tool_call_id mid-history (the kimi failure scenario).
+   Build a synthetic resumed-session history with one paired tool_use+result
+   AND one orphan tool_use whose result was lost. Pass through the public
+   integrity filter. Assert: orphan dropped, paired survives. *)
+let test_b675_orphan_tool_call_mid_history_filtered () =
+  let paired_assistant =
+    {
+      Provider.role = "assistant";
+      content = "";
+      content_parts = [];
+      tool_calls =
+        [
+          {
+            Provider.id = "kept-1";
+            function_name = "use_skill";
+            arguments = {|{"name":"bug"}|};
+          };
+        ];
+      tool_call_id = None;
+      name = None;
+      provider_response_items_json = None;
+      thinking = None;
+      is_error = false;
+    }
+  in
+  let paired_result =
+    Provider.make_tool_result ~tool_call_id:"kept-1" ~name:"use_skill"
+      ~content:"skill loaded"
+  in
+  let orphan_assistant =
+    {
+      Provider.role = "assistant";
+      content = "";
+      content_parts = [];
+      tool_calls =
+        [
+          {
+            Provider.id = "use_skill:76";
+            function_name = "use_skill";
+            arguments = {|{"name":"bug"}|};
+          };
+        ];
+      tool_call_id = None;
+      name = None;
+      provider_response_items_json = None;
+      thinking = None;
+      is_error = false;
+    }
+  in
+  let user_followup =
+    Provider.make_message ~role:"user" ~content:"please continue"
+  in
+  let history =
+    [
+      Provider.make_message ~role:"user" ~content:"start";
+      paired_assistant;
+      paired_result;
+      orphan_assistant;
+      user_followup;
+    ]
+  in
+  let cleaned = Message_history.ensure_tool_group_integrity history in
+  (* Verify the orphan id is gone everywhere. *)
+  let surviving_call_ids =
+    List.concat_map
+      (fun (m : Provider.message) ->
+        List.map (fun (tc : Provider.tool_call) -> tc.id) m.tool_calls)
+      cleaned
+  in
+  Alcotest.(check bool)
+    "orphan tool_call_id 'use_skill:76' is dropped" false
+    (List.mem "use_skill:76" surviving_call_ids);
+  Alcotest.(check bool)
+    "paired tool_call_id 'kept-1' is preserved" true
+    (List.mem "kept-1" surviving_call_ids)
+
 let suite =
   [
     Alcotest.test_case "user message" `Quick test_user_message;
@@ -1389,4 +1616,10 @@ let suite =
     Alcotest.test_case
       "live tool call anthropic vs openai (MiniMax-M2.7-highspeed)" `Slow
       test_live_tool_call_anthropic_vs_openai_minimax_m27;
+    Alcotest.test_case
+      "B674: live multi-turn tool call (openai-compat, MiniMax-M2.7-highspeed)"
+      `Slow test_live_multi_turn_tool_call_openai_compat;
+    Alcotest.test_case
+      "B675: orphan tool_call_id mid-history filtered before send" `Quick
+      test_b675_orphan_tool_call_mid_history_filtered;
   ]
