@@ -1,12 +1,14 @@
 ---
+claimed_at: "2026-05-22T08:49:33Z"
+claimed_by: cli-user
 completed_at: null
 complexity: medium
 depends_on: []
 estimate_hours: 1
 id: B048
 priority: high
-started_at: null
-status: pending
+started_at: "2026-05-22T08:49:33Z"
+status: in_progress
 tags: []
 title: 'Implement: _GEAR_EDITOR_PLAN.md'
 ---
