@@ -1,10 +1,15 @@
 ---
+claimed_at: "2026-05-22T09:42:20Z"
+claimed_by: cli-user
+completed_at: "2026-05-22T09:42:21Z"
 complexity: medium
 depends_on: []
+duration_minutes: 0.022171005716666668
 estimate_hours: 1
 id: B680
 priority: medium
-status: pending
+started_at: "2026-05-22T09:42:20Z"
+status: done
 tags: []
 title: Reconfigure briefing cron to use persistent session with send_to_session delivery
 ---
