@@ -1,0 +1,21 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B681
+priority: high
+status: pending
+tags: []
+title: briefing-hourly cron prompt causes model to call memory_recall without required 'query' parameter
+---
+The briefing-hourly cron prompt in src/rig_builtins.ml (line 33) is the fourth briefing-cron failure mode in under a month. The prompt says "for each monitored topic (from memory key rig:briefing:config)" but does not explicitly instruct the model to call memory_recall(query="rig:briefing:config"). The model then loops 3 times calling memory_recall with empty args {}, failing the required 'query' parameter each time.
+
+Suggested fix:
+1. Tighten the prompt to include the exact tool call: "First call memory_recall with query='rig:briefing:config' to get the topic list."
+2. Long-term: refactor briefing-daily and briefing-hourly cron jobs to be procedural — a pre-flight script/skill reads rig:briefing:config and injects topics into the prompt, so the model only performs summarization and never needs to make parameter-sensitive retrieval calls in a cron context.
+3. Consider lowering the stuck-detector threshold to 2 for identical empty-argument calls, which would catch this class of loop one turn earlier.
+
+--
+Auto-filed by clawq postmortem for session teams:personal:a:1JPVFngEx3FRRVWXUe5fb97HWjfsCdtDImgKuD3u_N6IpgOD0euB5bnQHI9RsDQuK3qOG_5Jyhq4wWGr0IczaxEXPN5vIGppdngtwZucpyhDNrW1_YJCrXnHrksQ5fCuT (pattern: SameErrorString: error repeated 3 times: Error: missing required parameter 'query' for tool memory_recall. Required parameters: query (string). Example: memory_r...
+RepeatedToolCall: "memory_recall" called 3 times with same args: {}).
+Postmortem doc: /home/xertrov/.clawq/postmortems/2026-05-22T120049-teams:personal:a:1JPVFngEx3FRRVWXUe5fb97HWjfsCdtDImgKuD3u_N6IpgOD0euB5bnQHI9RsDQuK3qOG_5Jyhq4wWGr0IczaxEXPN5vIGppdngtwZucpyhDNrW1_YJCrXnHrksQ5fCuT.md

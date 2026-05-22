@@ -675,3 +675,4 @@ bugs:
     - file: B678-briefing-cron-prompt-is-struct.todo
     - file: B679-add-send-to-session-agent-tool.todo
     - file: B680-reconfigure-briefing-cron-to-u.todo
+    - file: B681-briefing-hourly-cron-prompt-ca.todo
