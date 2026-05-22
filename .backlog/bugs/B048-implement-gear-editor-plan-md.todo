@@ -5,9 +5,8 @@ depends_on: []
 estimate_hours: 1
 id: B048
 priority: high
-reason: USER
 started_at: null
-status: blocked
+status: pending
 tags: []
 title: 'Implement: _GEAR_EDITOR_PLAN.md'
 ---
