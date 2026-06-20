@@ -112,27 +112,31 @@ let format_missing_required_error (tool : t) ~(missing : string list)
       ~parameters_schema:tool.parameters_schema ~detail
   in
   (* B622: escalate the error message when the model has repeated the same
-     missing-param mistake. Level 0 = first occurrence, plain error. Level 1
-     = second consecutive: add "REPEATED" notice. Level >= 2 = third+: hard
-     STOP message and explicit reminder of the contract. *)
+     missing-param mistake. Level 0 = first occurrence: plain error plus a
+     clear warning that repeating the same invalid call will abort the turn.
+     Level 1 = second consecutive: final warning. Level >= 2 = third+: hard
+     STOP/ABORT message so the model breaks out of the loop. *)
   match escalation_level with
-  | 0 -> base
+  | 0 ->
+      Printf.sprintf
+        "%s\n\n\
+         ACTION REQUIRED: Re-emit '%s' WITH %s included. Repeating the same \
+         call without the required parameter(s) will abort this turn."
+        base tool.name missing_str
   | 1 ->
       Printf.sprintf
         "%s\n\n\
-         NOTE: This is the SECOND consecutive call to '%s' with the same \
-         missing parameter(s). The tool's schema requires %s. Re-emit the tool \
-         call WITH the required argument(s) included before attempting any \
-         other action."
+         FINAL WARNING: This is the SECOND consecutive call to '%s' with the \
+         same missing parameter(s) %s. The next identical call will abort this \
+         turn. Include the required argument(s) or switch to a different tool."
         base tool.name missing_str
   | _ ->
       Printf.sprintf
         "%s\n\n\
-         STOP: '%s' has been called %d times in a row with the same missing \
-         parameter(s) %s. The model is in a loop. Either (a) include the \
-         required argument(s) in the next tool call OR (b) stop calling this \
-         tool and respond in text explaining why the required argument cannot \
-         be supplied. Do NOT repeat the failing call."
+         STOP / ABORT: '%s' has been called %d times in a row with the same \
+         missing parameter(s) %s. The turn is being aborted now. Do NOT repeat \
+         this call again — either include the required argument(s) or respond \
+         in text."
         base tool.name (escalation_level + 1) missing_str
 
 let validate_required_params (tool : t) (args : Yojson.Safe.t) :

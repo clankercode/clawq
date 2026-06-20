@@ -1144,8 +1144,8 @@ let prepare_turn_history agent ~user_message ?(content_parts = [])
   Lwt.return compacted
 
 let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
-    ?on_tool_round_complete ?runtime_context ?(history_prepared = false)
-    ?on_history_update ?on_stuck () =
+    ?on_inject_messages ?on_tool_round_complete ?runtime_context
+    ?(history_prepared = false) ?on_history_update ?on_stuck () =
   let is_restart_interrupt = function
     | Some reason when reason = restart_interrupt_token -> true
     | _ -> false
@@ -1430,6 +1430,11 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
                   :: agent.history)
               msgs
         | None -> ());
+        let* () =
+          match on_inject_messages with
+          | Some cb -> cb ()
+          | None -> Lwt.return_unit
+        in
         let* () = fire_history_update len_before_tool_loop in
         (* B603: proactive mid-turn compaction. Within a single Agent.turn
            call the model may emit many tool batches (file reads, shell
@@ -1534,8 +1539,9 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
   loop 0
 
 let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
-    ?inject_messages ?on_tool_round_complete ?runtime_context
-    ?(history_prepared = false) ?on_history_update ?on_stuck ~on_chunk () =
+    ?inject_messages ?on_inject_messages ?on_tool_round_complete
+    ?runtime_context ?(history_prepared = false) ?on_history_update ?on_stuck
+    ~on_chunk () =
   let is_restart_interrupt = function
     | Some reason when reason = restart_interrupt_token -> true
     | _ -> false
@@ -1842,6 +1848,11 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
                       :: agent.history)
                   msgs
             | None -> ());
+            let* () =
+              match on_inject_messages with
+              | Some cb -> cb ()
+              | None -> Lwt.return_unit
+            in
             let* () = fire_history_update len_before_tool_loop in
             (* B603: mid-turn compaction in the streaming path too. *)
             let* mid_turn_compaction = compact_history_if_needed agent ?db () in

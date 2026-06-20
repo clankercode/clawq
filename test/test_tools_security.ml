@@ -1264,17 +1264,25 @@ let test_missing_required_error_escalates_on_repeats () =
   | Error msg ->
       Alcotest.(check bool)
         "level 0: no SECOND/STOP escalation prefix" true
-        ((not (contains msg "SECOND")) && not (contains msg "STOP"))
+        ((not (contains msg "SECOND")) && not (contains msg "STOP"));
+      Alcotest.(check bool)
+        "level 0: warns that repeating will abort" true
+        (contains msg "abort this turn")
   | Ok () -> Alcotest.fail "expected Error on first repeat");
   (match go (`Assoc []) with
   | Error msg ->
       Alcotest.(check bool)
-        "level 1: SECOND notice present" true (contains msg "SECOND")
+        "level 1: SECOND notice present" true (contains msg "SECOND");
+      Alcotest.(check bool)
+        "level 1: FINAL WARNING present" true
+        (contains msg "FINAL WARNING")
   | Ok () -> Alcotest.fail "expected Error on second repeat");
   (match go (`Assoc []) with
   | Error msg ->
       Alcotest.(check bool)
-        "level 2+: STOP notice present" true (contains msg "STOP")
+        "level 2+: STOP notice present" true (contains msg "STOP");
+      Alcotest.(check bool)
+        "level 2+: ABORT notice present" true (contains msg "ABORT")
   | Ok () -> Alcotest.fail "expected Error on third repeat");
   (* B677: after the threshold (default 3), the agent's hard_abort_reason
      should be set so the turn loop can terminate. *)

@@ -11,3 +11,6 @@ memory/
 *.vo
 *.vos
 *.vok
+
+# worktrees
+.worktrees/

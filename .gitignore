@@ -31,3 +31,6 @@ _coverage/
 *.coverage
 memory/
 tmp.*
+
+# worktrees
+.worktrees/

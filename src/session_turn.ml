@@ -17,8 +17,9 @@ let stream_turn_with_visibility mgr ~notify agent ~key ~effective_message
   in
   let* response =
     Agent.turn_stream agent ~user_message:effective_message ?db:mgr.db
-      ~session_key:key ~interrupt_check ~inject_messages ?on_tool_round_complete
-      ?runtime_context ~history_prepared:true ~on_history_update ?on_stuck
+      ~session_key:key ~interrupt_check ~inject_messages
+      ~on_inject_messages:handler.reset ?on_tool_round_complete ?runtime_context
+      ~history_prepared:true ~on_history_update ?on_stuck
       ~on_chunk:handler.on_chunk ()
   in
   let* () = handler.finalize () in

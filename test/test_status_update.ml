@@ -168,6 +168,79 @@ let test_buffered_handler () =
        true
      with Not_found -> false)
 
+let test_consolidated_handler_reset_creates_new_group () =
+  let send_count = ref 0 in
+  let all_sent = ref [] in
+  let factory () =
+    let notifier : Status_message.notifier =
+      {
+        send =
+          (fun ?parse_mode:_ text ->
+            incr send_count;
+            let id = Printf.sprintf "msg-%d" !send_count in
+            all_sent := (id, text) :: !all_sent;
+            Lwt.return id);
+        edit = (fun _id ?parse_mode:_ _text -> Lwt.return None);
+        delete = (fun _id -> Lwt.return_unit);
+      }
+    in
+    Status_message.create ~debounce_interval:0.0 ~notifier
+      ~parse_mode:"Markdown" ()
+  in
+  let handler =
+    Status_update.make_handler ~strategy:Consolidated
+      ~notifier_factory:(Some factory)
+      ~notify:(fun _ -> Lwt.return_unit)
+      ~agent_defaults:default_agent_defaults ~parse_mode:"Markdown"
+  in
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () =
+       handler.on_chunk
+         (Provider.ToolStart { id = "t1"; name = "file_read"; arguments = "{}" })
+     in
+     let* () =
+       handler.on_chunk
+         (Provider.ToolResult
+            { id = "t1"; name = "file_read"; result = "ok"; is_error = false })
+     in
+     let* () = handler.reset () in
+     let* () =
+       handler.on_chunk
+         (Provider.ToolStart
+            { id = "t2"; name = "shell_exec"; arguments = "{}" })
+     in
+     let* () =
+       handler.on_chunk
+         (Provider.ToolResult
+            {
+              id = "t2";
+              name = "shell_exec";
+              result = "done";
+              is_error = false;
+            })
+     in
+     handler.finalize ());
+  Alcotest.(check int) "two separate status messages sent" 2 !send_count;
+  Alcotest.(check bool)
+    "first status group mentions file_read" true
+    (List.exists
+       (fun (_, text) ->
+         try
+           ignore (Str.search_forward (Str.regexp_string "file_read") text 0);
+           true
+         with Not_found -> false)
+       !all_sent);
+  Alcotest.(check bool)
+    "second status group mentions shell_exec" true
+    (List.exists
+       (fun (_, text) ->
+         try
+           ignore (Str.search_forward (Str.regexp_string "shell_exec") text 0);
+           true
+         with Not_found -> false)
+       !all_sent)
+
 let test_consolidated_fallback_without_factory () =
   let messages = ref [] in
   let notify text =
@@ -210,6 +283,8 @@ let tests =
       test_consolidated_handler_thinking;
     Alcotest.test_case "individual handler" `Quick test_individual_handler;
     Alcotest.test_case "buffered handler" `Quick test_buffered_handler;
+    Alcotest.test_case "consolidated handler resets on inject" `Quick
+      test_consolidated_handler_reset_creates_new_group;
     Alcotest.test_case "consolidated fallback without factory" `Quick
       test_consolidated_fallback_without_factory;
   ]

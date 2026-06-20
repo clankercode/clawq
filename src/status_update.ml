@@ -2,6 +2,10 @@ type handler = {
   on_chunk : Provider.stream_event -> unit Lwt.t;
   finalize : unit -> unit Lwt.t;
   get_thinking : unit -> string;
+  reset : unit -> unit Lwt.t;
+      (** Finalize the current status group and start a fresh one. Used when a
+          mid-turn user message arrives so that subsequent tool calls get
+          visually separated from the pre-injection batch. *)
 }
 
 type strategy = Consolidated | Individual | Buffered
@@ -27,29 +31,36 @@ let make_handler ~strategy ~notifier_factory ~notify
   | Consolidated -> (
       match notifier_factory with
       | Some factory ->
-          let sm = factory () in
+          let sm = ref (factory ()) in
           let thinking_buf = Buffer.create 256 in
           let on_chunk = function
             | Provider.ToolStart { id; name; arguments } ->
                 let summary =
                   Stream_visibility.summarize_tool_arguments ~name arguments
                 in
-                Status_message.tool_start sm ~id ~name ~summary
+                Status_message.tool_start !sm ~id ~name ~summary
             | Provider.ToolResult { id; name; result; is_error } ->
-                Status_message.tool_result sm ~id ~name ~result ~is_error
+                Status_message.tool_result !sm ~id ~name ~result ~is_error
             | Provider.ThinkingDelta text ->
                 if agent_defaults.show_thinking then begin
                   Buffer.add_string thinking_buf text;
-                  Status_message.update_thinking sm text
+                  Status_message.update_thinking !sm text
                 end
                 else Lwt.return_unit
             | Provider.Delta _ | Provider.ToolCallDelta _
             | Provider.ToolOutputDelta _ | Provider.Done ->
                 Lwt.return_unit
           in
-          let finalize () = Status_message.finalize sm in
+          let finalize () = Status_message.finalize !sm in
           let get_thinking () = Buffer.contents thinking_buf in
-          { on_chunk; finalize; get_thinking }
+          let reset () =
+            let open Lwt.Syntax in
+            let* () = Status_message.finalize !sm in
+            sm := factory ();
+            Buffer.clear thinking_buf;
+            Lwt.return_unit
+          in
+          { on_chunk; finalize; get_thinking; reset }
       | None ->
           (* Fall back to Individual if no factory available *)
           let visibility = Stream_visibility.create () in
@@ -66,7 +77,8 @@ let make_handler ~strategy ~notifier_factory ~notify
           in
           let finalize () = Lwt.return_unit in
           let get_thinking () = Stream_visibility.thinking_text visibility in
-          { on_chunk; finalize; get_thinking })
+          let reset () = Lwt.return_unit in
+          { on_chunk; finalize; get_thinking; reset })
   | Individual ->
       let visibility = Stream_visibility.create () in
       let settings : Stream_visibility.settings =
@@ -82,7 +94,8 @@ let make_handler ~strategy ~notifier_factory ~notify
       in
       let finalize () = Lwt.return_unit in
       let get_thinking () = Stream_visibility.thinking_text visibility in
-      { on_chunk; finalize; get_thinking }
+      let reset () = Lwt.return_unit in
+      { on_chunk; finalize; get_thinking; reset }
   | Buffered ->
       let thinking_buf = Buffer.create 256 in
       let tool_events = ref [] in
@@ -156,4 +169,9 @@ let make_handler ~strategy ~notifier_factory ~notify
           if trimmed <> "" then notify trimmed else Lwt.return_unit
       in
       let get_thinking () = Buffer.contents thinking_buf in
-      { on_chunk; finalize; get_thinking }
+      let reset () =
+        tool_events := [];
+        Buffer.clear thinking_buf;
+        Lwt.return_unit
+      in
+      { on_chunk; finalize; get_thinking; reset }

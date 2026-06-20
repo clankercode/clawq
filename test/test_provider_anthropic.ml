@@ -176,6 +176,48 @@ let test_tools_valid () =
         (converted |> member "description" |> to_string)
   | _ -> Alcotest.fail "expected Some with 1 tool"
 
+let test_tools_required_params_preserved () =
+  let tool =
+    `Assoc
+      [
+        ("type", `String "function");
+        ( "function",
+          `Assoc
+            [
+              ("name", `String "memory_recall");
+              ("description", `String "Recall memories");
+              ( "parameters",
+                `Assoc
+                  [
+                    ("type", `String "object");
+                    ( "properties",
+                      `Assoc
+                        [
+                          ( "query",
+                            `Assoc
+                              [
+                                ("type", `String "string");
+                                ("description", `String "Search query");
+                              ] );
+                        ] );
+                    ("required", `List [ `String "query" ]);
+                  ] );
+            ] );
+      ]
+  in
+  match Provider_anthropic.tools_to_anthropic_json (Some (`List [ tool ])) with
+  | Some (`List [ converted ]) ->
+      let open Yojson.Safe.Util in
+      let input_schema = converted |> member "input_schema" in
+      let required =
+        try input_schema |> member "required" |> to_list |> List.map to_string
+        with _ -> []
+      in
+      Alcotest.(check (list string))
+        "required params preserved in Anthropic input_schema" [ "query" ]
+        required
+  | _ -> Alcotest.fail "expected Some with 1 tool"
+
 (* --- parse_anthropic_response tests --- *)
 
 let test_parse_text_response () =
@@ -261,6 +303,8 @@ let suite =
     Alcotest.test_case "tools none" `Quick test_tools_none;
     Alcotest.test_case "tools empty list" `Quick test_tools_empty_list;
     Alcotest.test_case "tools valid" `Quick test_tools_valid;
+    Alcotest.test_case "tools required params preserved" `Quick
+      test_tools_required_params_preserved;
     Alcotest.test_case "parse text response" `Quick test_parse_text_response;
     Alcotest.test_case
       "B608: parse_response normalizes cached to total prompt tokens" `Quick
