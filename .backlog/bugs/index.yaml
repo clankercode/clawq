@@ -679,3 +679,4 @@ bugs:
     - file: B682-watch-ci-after-push-json-skill.todo
     - file: B683-briefing-hourly-cron-still-use.todo
     - file: B684-b680-briefing-cron-migration-w.todo
+    - file: B685-task-tree-display-hard-wrap-at.todo

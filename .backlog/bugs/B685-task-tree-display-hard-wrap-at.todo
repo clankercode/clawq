@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B685
+priority: high
+status: pending
+tags: []
+title: 'task_tree display: hard wrap at 80 chars and use Unicode tree drawing chars'
+---
+The '/tasks full' and '/tasks' command output should hard wrap text at 80 columns and use Unicode box-drawing/tree characters (like the Linux 'tree' command) instead of the current ASCII formatting.
