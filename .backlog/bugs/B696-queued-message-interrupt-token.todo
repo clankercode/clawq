@@ -1,0 +1,26 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B696
+priority: high
+status: pending
+tags: []
+title: queued_message_interrupt_token ignores explicit "stop" commands
+---
+When a user sends an explicit "stop" while the agent is busy, `session_core.ml` queues the message and sets `queued_message_interrupt_token`. This token is designed NOT to interrupt the normal agent loop (see comment at session_core.ml:515–520). The agent loop in `agent.ml` checks it but continues looping, relying on the LLM to interpret the injected prompt "unless it explicitly asks you to stop or change course."
+
+However, the postmortem for session teams:personal:a:1JPVF... shows the LLM received this prompt and still looped on `backlog bug` tool calls (exit codes 0 and 1, same help output) 5+ times after the user said "stop". The `queued_message_interrupt_token` provided no enforcement.
+
+Structural fix: detect unambiguous stop/pause/wait commands in queued inbound messages and treat them as a real interrupt (e.g., `Agent.restart_interrupt_token` or a dedicated `hard_stop_interrupt_token`) rather than the soft `queued_message_interrupt_token`. 
+
+Suggested approach:
+1. In `session_core.ml` `queue_inbound_message` or in `session_turn.ml` before `inject_messages`, detect if the queued message text is exactly (or clearly) "stop", "pause", "wait", "cancel", etc.
+2. If so, set a hard interrupt (or `restart_interrupt_token`) instead of `queued_message_interrupt_token`, so the agent loop actually stops.
+3. Alternatively, wire `inject_messages` in `session_turn.ml` to check for stop commands in the queued messages before injecting them, and trigger a real stop if found.
+
+Files to modify: `src/session_core.ml`, `src/session_turn.ml`, `src/agent.ml`.
+
+--
+Auto-filed by clawq postmortem for session teams:personal:a:1JPVFngEx3FRRVWXUe5fb97HWjfsCdtDImgKuD3u_N6IpgOD0euB5bnQHI9RsDQuK3qOG_5Jyhq4wWGr0IczaxEXPN5vIGppdngtwZucpyhDNrW1_YJCrXnHrksQ5fCuT (pattern: ignoring_stop).
+Postmortem doc: /home/xertrov/.clawq/postmortems/2026-06-26T030347-teams:personal:a:1JPVFngEx3FRRVWXUe5fb97HWjfsCdtDImgKuD3u_N6IpgOD0euB5bnQHI9RsDQuK3qOG_5Jyhq4wWGr0IczaxEXPN5vIGppdngtwZucpyhDNrW1_YJCrXnHrksQ5fCuT.md

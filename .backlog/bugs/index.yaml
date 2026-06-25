@@ -690,3 +690,4 @@ bugs:
     - file: B693-improve-task-tree-msg-updates.todo
     - file: B694-get-native-subagents-working-s.todo
     - file: B695-allow-tasks-to-be-set-with-det.todo
+    - file: B696-queued-message-interrupt-token.todo
