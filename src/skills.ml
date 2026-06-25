@@ -475,7 +475,14 @@ let scan_skill_dirs dirs =
   List.iter
     (fun dir ->
       if Sys.file_exists dir && Sys.is_directory dir then begin
-        let entries = try Sys.readdir dir |> Array.to_list with _ -> [] in
+        let entries =
+          try Sys.readdir dir |> Array.to_list
+          with exn ->
+            Logs.warn (fun m ->
+                m "H6: failed to read skill directory %s: %s" dir
+                  (Printexc.to_string exn));
+            []
+        in
         List.iter
           (fun entry ->
             let entry_path = Filename.concat dir entry in
