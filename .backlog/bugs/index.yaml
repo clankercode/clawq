@@ -689,3 +689,4 @@ bugs:
     - file: B692-task-tree-should-give-out-ids.todo
     - file: B693-improve-task-tree-msg-updates.todo
     - file: B694-get-native-subagents-working-s.todo
+    - file: B695-allow-tasks-to-be-set-with-det.todo
