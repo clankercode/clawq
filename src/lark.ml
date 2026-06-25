@@ -228,10 +228,11 @@ let handle_webhook_body ~(config : Runtime_config.lark_config)
                         user_id err);
                   Lwt.return (`Ok {|{"code":0}|})))
   with exn ->
-    (* H3: log exception instead of silently returning Ok. *)
+    (* H3: log exception and return Error so the WS handler can skip ACK
+       and allow the server to retry the message. *)
     Logs.warn (fun m ->
         m "Lark handle_webhook_body exception: %s" (Printexc.to_string exn));
-    Lwt.return (`Ok {|{"code":0}|})
+    Lwt.return (`Error (Printexc.to_string exn))
 
 let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
   match config.channels.lark with
@@ -285,23 +286,28 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
                               |> to_string
                             with _ -> ""
                           in
-                          (* H4: process message first, then ACK. If processing
-                             fails, the message can be retried by the server. *)
-                          let* _result =
+                          (* H4: process message first, then ACK only on
+                             success. If processing fails, skip ACK so the
+                             server can retry the message. *)
+                          let* result =
                             handle_webhook_body ~config:lark_config
                               ~session_mgr:session_manager msg
                           in
-                          (* H3: handle_webhook_body catches all exceptions
-                             internally and always returns Ok/Challenge. The
-                             result is intentionally unused — processing
-                             errors are logged inside the function. *)
-                          let ack =
-                            Yojson.Safe.to_string
-                              (`Assoc
-                                 [ ("code", `Int 0); ("logId", `String log_id) ])
-                          in
-                          let* () = Ws_client.send_text ws ack in
-                          Lwt.return_unit
+                          match result with
+                          | `Ok _ | `Challenge _ ->
+                              let ack =
+                                Yojson.Safe.to_string
+                                  (`Assoc
+                                     [
+                                       ("code", `Int 0);
+                                       ("logId", `String log_id);
+                                     ])
+                              in
+                              let* () = Ws_client.send_text ws ack in
+                              Lwt.return_unit
+                          | `Error _ ->
+                              (* H4: skip ACK to allow server retry *)
+                              Lwt.return_unit
                         with exn ->
                           Logs.warn (fun m ->
                               m "Lark WS message error: %s"

@@ -504,6 +504,15 @@ let handle ~session_manager ~auth_token ?slack_config ?github_config
                     ~headers:Http_server_0_util.json_headers
                     ~body:{|{"code":0}|} ()
                 in
+                Lwt.return (Some r)
+            | `Error err ->
+                Logs.warn (fun m -> m "Lark webhook error: %s" err);
+                let* r =
+                  Cohttp_lwt_unix.Server.respond_string
+                    ~status:`Internal_server_error
+                    ~headers:Http_server_0_util.json_headers
+                    ~body:{|{"code":1}|} ()
+                in
                 Lwt.return (Some r)))
   | `GET, path
     when String.length path > 11 && String.sub path 0 11 = "/downloads/" -> (

@@ -69,10 +69,6 @@ type t = {
   pending_questions : (string, string Lwt.u) Hashtbl.t;
   question_callbacks : (string, string) Hashtbl.t;
       (** Maps callback_id -> answer_text for pending questions. *)
-  resetting_sessions : (string, unit) Hashtbl.t;
-      (** F2: tombstone entries for sessions currently in reset() Phase 2.
-          Prevents new session creation during the race window between removing
-          the session from [sessions] and waiting for the per-session mutex. *)
 }
 
 type drain_progress = {
@@ -281,7 +277,6 @@ let create ~config ?tool_registry ?sandbox ?(landlock_enabled = false) ?db () =
     postmortem_circuit_breakers = Hashtbl.create 8;
     pending_questions = Hashtbl.create 8;
     question_callbacks = Hashtbl.create 16;
-    resetting_sessions = Hashtbl.create 8;
   }
 
 let is_draining mgr = mgr.draining
@@ -756,15 +751,6 @@ let get_or_create_locked mgr ~key =
   match Hashtbl.find_opt mgr.sessions key with
   | Some triple -> triple
   | None ->
-      (* F2: if this session is currently being reset, log a warning. The
-         tombstone in resetting_sessions is checked by reset() Phase 2 to
-         avoid wiping a newly-created session's DB data. *)
-      if Hashtbl.mem mgr.resetting_sessions key then
-        Logs.warn (fun m ->
-            m
-              "Session %s is being reset; creating fresh session (DB data \
-               preserved by tombstone check)"
-              key);
       let agent_template = resolve_agent_template_for_key mgr ~key in
       let tool_registry =
         match (agent_template, mgr.tool_registry) with
@@ -1369,22 +1355,7 @@ let reset mgr ~key =
         Memory.clear_session ~db ~session_key:key
     | None -> ()
   in
-  let remove_from_tables () =
-    Hashtbl.remove mgr.deferred_responses key;
-    Hashtbl.remove mgr.queued_messages key;
-    Hashtbl.remove mgr.continuation_checks key;
-    Hashtbl.remove mgr.observer_last_checked key;
-    (* B612: breaker is keyed by (root_key, pattern). Remove every pattern
-       entry for this root. *)
-    let target_root = root_postmortem_session_key key in
-    Hashtbl.filter_map_inplace
-      (fun (rk, _) v -> if rk = target_root then None else Some v)
-      mgr.postmortem_circuit_breakers;
-    unregister_channel_notifier mgr ~key;
-    unregister_rich_notifier mgr ~key;
-    Hashtbl.remove mgr.sessions key
-  in
-  (* Phase 1: under sessions_lock — get mutex ref, clean DB, remove session *)
+  (* Phase 1: under sessions_lock — get mutex ref, clean DB *)
   let* mutex_opt =
     Lwt_util.with_lock_timeout ~fatal_timeout:Lwt_util.short_fatal_timeout
       ~label:(Printf.sprintf "sessions_lock/reset[%s]" key) mgr.sessions_lock
@@ -1394,11 +1365,23 @@ let reset mgr ~key =
           | Some (_, mutex, _) -> Some mutex
           | None -> None
         in
-        (* F2: add tombstone before removing session to prevent new session
-           creation during the race window between Phase 1 and Phase 2. *)
-        Hashtbl.replace mgr.resetting_sessions key ();
+        (* F2: clear DB in Phase 1 but keep the session in the hashtable.
+           Phase 2 will remove it after waiting for the in-progress turn.
+           This prevents new session creation during the gap between phases
+           because get_or_create_locked will find the existing session. *)
         clear_db ();
-        remove_from_tables ();
+        Hashtbl.remove mgr.deferred_responses key;
+        Hashtbl.remove mgr.queued_messages key;
+        Hashtbl.remove mgr.continuation_checks key;
+        Hashtbl.remove mgr.observer_last_checked key;
+        let target_root = root_postmortem_session_key key in
+        Hashtbl.filter_map_inplace
+          (fun (rk, _) v -> if rk = target_root then None else Some v)
+          mgr.postmortem_circuit_breakers;
+        unregister_channel_notifier mgr ~key;
+        unregister_rich_notifier mgr ~key;
+        (* Do NOT remove from mgr.sessions yet — keep it to prevent new
+           session creation during Phase 2 wait. *)
         Lwt.return m)
   in
   (* Phase 2: outside sessions_lock — wait for in-progress turn, re-clear DB *)
@@ -1410,32 +1393,25 @@ let reset mgr ~key =
             ~label:(Printf.sprintf "session_mutex/reset[%s]" key)
             mutex
         in
-        (* F2: check-and-clear under sessions_lock to eliminate the race
-           window between checking if a new session was created and clearing
-           the DB. Without the lock, a new session could be created after
-           the check but before the clear, causing its data to be wiped. *)
+        (* F2: now that we hold the old session's mutex, remove it from
+           the hashtable and re-clear DB. Since the session was kept in the
+           hashtable during Phase 1, no new session could have been created
+           for this key — get_or_create_locked would have found the existing
+           one. So the re-clear is safe. *)
         let* () =
           Lwt_util.with_lock_timeout ~fatal_timeout:Lwt_util.short_fatal_timeout
             ~label:(Printf.sprintf "sessions_lock/reset_phase2[%s]" key)
             mgr.sessions_lock (fun () ->
-              let new_session_created = Hashtbl.mem mgr.sessions key in
-              (match (mgr.db, new_session_created) with
-              | Some db, false -> Memory.clear_session ~db ~session_key:key
-              | Some _db, true ->
-                  Logs.info (fun m ->
-                      m
-                        "Session %s was recreated during reset; skipping Phase \
-                         2 DB clear to preserve new session data"
-                        key)
-              | None, _ -> ());
+              Hashtbl.remove mgr.sessions key;
+              (match mgr.db with
+              | Some db -> Memory.clear_session ~db ~session_key:key
+              | None -> ());
               Lwt.return_unit)
         in
         Lwt_mutex.unlock mutex;
         Lwt.return_unit
     | None -> Lwt.return_unit
   in
-  (* F2: remove tombstone now that reset is complete *)
-  Hashtbl.remove mgr.resetting_sessions key;
   let active_bg_tasks =
     match mgr.db with
     | Some db -> (
