@@ -846,12 +846,145 @@ let test_default_resume_turn_uses_explicit_resume_prompt () =
       let resume_prompt_present =
         List.exists
           (fun (msg : Provider.message) ->
-            (msg.role = "system" || msg.role = "user")
-            && msg.content = Daemon.resume_turn_prompt)
+            msg.role = "user" && msg.content = Daemon.resume_turn_prompt)
           history
       in
       Alcotest.(check bool)
-        "resume prompt persisted into history" true resume_prompt_present)
+        "resume prompt persisted into history as a user message" true
+        resume_prompt_present)
+
+(* Regression for the zai_coding/glm HTTP 400 code 1214 ("messages parameter
+   is illegal") seen during automatic restart-resume of a workflow_run session.
+   The resume turn injected resume_turn_prompt as a trailing `system` message
+   into an otherwise-empty history, so the OpenAI-compatible payload sent to
+   z.ai contained no `user` message and ended with a `system` message — which
+   z.ai rejects. This test captures the actual messages payload the provider
+   receives during a resume turn and asserts it is OpenAI-compat valid:
+   at least one `user` message, and no trailing `system`/`developer` message. *)
+let test_resume_turn_payload_is_openai_compat_valid () =
+  let port = free_port () in
+  let captured : (string * string) list option ref = ref None in
+  let callback _conn _req body =
+    let open Lwt.Syntax in
+    let* body_text = Cohttp_lwt.Body.to_string body in
+    let json = Yojson.Safe.from_string body_text in
+    let open Yojson.Safe.Util in
+    let messages = json |> member "messages" |> to_list in
+    let role_content =
+      List.map
+        (fun m ->
+          let role = try m |> member "role" |> to_string with _ -> "" in
+          let content = try m |> member "content" |> to_string with _ -> "" in
+          (role, content))
+        messages
+    in
+    captured := Some role_content;
+    let response_body =
+      Yojson.Safe.to_string
+        (`Assoc
+           [
+             ("id", `String "cmpl_fake");
+             ("object", `String "chat.completion");
+             ("model", `String "fake-model");
+             ( "choices",
+               `List
+                 [
+                   `Assoc
+                     [
+                       ("index", `Int 0);
+                       ( "message",
+                         `Assoc
+                           [
+                             ("role", `String "assistant");
+                             ("content", `String "resumed-ok");
+                           ] );
+                       ("finish_reason", `String "stop");
+                     ];
+                 ] );
+           ])
+    in
+    Cohttp_lwt_unix.Server.respond_string ~status:`OK ~body:response_body ()
+  in
+  let server =
+    Cohttp_lwt_unix.Server.create
+      ~mode:(`TCP (`Port port))
+      (Cohttp_lwt_unix.Server.make ~callback ())
+  in
+  let stop, stopper = Lwt.wait () in
+  Lwt.async (fun () -> Lwt.pick [ server; stop ]);
+  Fun.protect
+    ~finally:(fun () -> Lwt.wakeup_later stopper ())
+    (fun () ->
+      let db = Memory.init ~db_path:":memory:" () in
+      let telegram_account =
+        { Runtime_config.bot_token = "tg-token"; allow_from = []; totp = None }
+      in
+      let config =
+        {
+          Runtime_config.default with
+          default_provider = Some "fake";
+          providers =
+            [
+              ( "fake",
+                make_fake_provider_config
+                  (Printf.sprintf "http://127.0.0.1:%d" port) );
+            ];
+          prompt =
+            { Runtime_config.default.prompt with dynamic_enabled = false };
+          security =
+            { Runtime_config.default.security with tools_enabled = false };
+          agent_defaults =
+            {
+              Runtime_config.default.agent_defaults with
+              primary_model = "fake-model";
+              show_thinking = false;
+              show_tool_calls = false;
+            };
+          channels =
+            {
+              Runtime_config.default.channels with
+              telegram =
+                Some
+                  {
+                    accounts = [ ("main", telegram_account) ];
+                    text_coalesce_ms = 150;
+                    default_model = None;
+                  };
+            };
+        }
+      in
+      let session_manager = Session.create ~config ~db () in
+      Session.record_agent_turn session_manager ~key:"telegram:42:user"
+        ~channel:"telegram" ~channel_id:"42" ();
+      Lwt_main.run
+        (Daemon.resume_agent_session ~session_manager ~config
+           ~senders:
+             {
+               Daemon.default_resume_senders with
+               send_telegram =
+                 (fun ~bot_token:_ ~chat_id:_ ~text:_ -> Lwt.return_unit);
+             }
+           ~session_key:"telegram:42:user" ~channel:"telegram" ~channel_id:"42"
+           ());
+      let payload =
+        match !captured with
+        | Some p -> p
+        | None -> Alcotest.fail "provider never received a resume-turn payload"
+      in
+      let roles = List.map fst payload in
+      Alcotest.(check bool)
+        "resume payload contains at least one user message" true
+        (List.exists (fun r -> r = "user") roles);
+      let last_role = match List.rev roles with r :: _ -> r | [] -> "" in
+      Alcotest.(check bool)
+        "resume payload does not end with a system/developer message" true
+        (last_role <> "system" && last_role <> "developer");
+      Alcotest.(check bool)
+        "resume prompt delivered as a user message" true
+        (List.exists
+           (fun (role, content) ->
+             role = "user" && string_contains content Daemon.resume_turn_prompt)
+           payload))
 
 let test_resume_agent_session_sends_debug_summary () =
   with_fake_chat_provider (fun base_config ->
@@ -2212,10 +2345,10 @@ let test_resume_agent_session_sends_visible_injection_prompt () =
         (String.length (String.trim second) > 0 && second <> "ok");
       let history = Memory.load_history ~db ~session_key:"telegram:42:user" in
       Alcotest.(check bool)
-        "history includes injected resume prompt" true
+        "history includes injected resume prompt as a user message" true
         (List.exists
            (fun (m : Provider.message) ->
-             m.role = "system" && m.content = Daemon.resume_turn_prompt)
+             m.role = "user" && m.content = Daemon.resume_turn_prompt)
            history);
       Alcotest.(check bool)
         "history retains prior user message" true
@@ -2770,6 +2903,8 @@ let suite =
       test_resume_pending_agent_sessions_summary_counts;
     Alcotest.test_case "default resume turn uses explicit automatic prompt"
       `Quick test_default_resume_turn_uses_explicit_resume_prompt;
+    Alcotest.test_case "resume turn payload is openai-compat valid (z.ai 1214)"
+      `Quick test_resume_turn_payload_is_openai_compat_valid;
     Alcotest.test_case "resume agent session sends debug summary" `Quick
       test_resume_agent_session_sends_debug_summary;
     Alcotest.test_case "resume agent session persists response and marks sent"

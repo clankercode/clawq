@@ -1013,8 +1013,17 @@ let default_resume_turn ~(session_manager : Session.t) ~notify ~session_key
         session_key
         (String.length resume_turn_prompt));
   let history_before_resume_prompt = List.length agent.Agent.history in
+  (* The resume prompt must be a `user` message, not `system`. With history
+     newest-first, build_messages reverses it so a prepended `system` message
+     becomes the *last* message in the request — and for a freshly-resumed
+     session (e.g. a github workflow_run with near-empty history) the payload
+     ends up all-system with no user turn. OpenAI-compatible providers reject
+     that: z.ai returns HTTP 400 code 1214 ("messages parameter is illegal").
+     Using `user` also lets inject_runtime_context attach the resume runtime
+     context (it only augments the last user message), which a `system` role
+     silently dropped. *)
   agent.Agent.history <-
-    Provider.make_message ~role:"system" ~content:resume_turn_prompt
+    Provider.make_message ~role:"user" ~content:resume_turn_prompt
     :: agent.Agent.history;
   Session.persist_new_messages session_manager ~key:session_key
     ~history_before:history_before_resume_prompt agent;
