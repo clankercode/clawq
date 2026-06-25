@@ -756,6 +756,15 @@ let get_or_create_locked mgr ~key =
   match Hashtbl.find_opt mgr.sessions key with
   | Some triple -> triple
   | None ->
+      (* F2: if this session is currently being reset, log a warning. The
+         tombstone in resetting_sessions is checked by reset() Phase 2 to
+         avoid wiping a newly-created session's DB data. *)
+      if Hashtbl.mem mgr.resetting_sessions key then
+        Logs.warn (fun m ->
+            m
+              "Session %s is being reset; creating fresh session (DB data \
+               preserved by tombstone check)"
+              key);
       let agent_template = resolve_agent_template_for_key mgr ~key in
       let tool_registry =
         match (agent_template, mgr.tool_registry) with

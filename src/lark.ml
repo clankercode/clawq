@@ -283,18 +283,14 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
                           in
                           (* H4: process message first, then ACK. If processing
                              fails, the message can be retried by the server. *)
-                          let* result =
+                          let* _result =
                             handle_webhook_body ~config:lark_config
                               ~session_mgr:session_manager msg
                           in
-                          (* H3: log non-ok results from handle_webhook_body
-                             instead of silently discarding. *)
-                          (match result with
-                          | `Ok _ -> ()
-                          | `Challenge _ -> ()
-                          | `Error err ->
-                              Logs.warn (fun m ->
-                                  m "Lark WS handle_webhook_body error: %s" err));
+                          (* H3: handle_webhook_body catches all exceptions
+                             internally and always returns Ok/Challenge. The
+                             result is intentionally unused — processing
+                             errors are logged inside the function. *)
                           let ack =
                             Yojson.Safe.to_string
                               (`Assoc
