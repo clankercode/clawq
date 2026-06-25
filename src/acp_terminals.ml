@@ -54,7 +54,7 @@ let create ~cwd ~command ~args ?env:env_pairs () =
   in
   let exit_waiter =
     let* status = proc#status in
-    let* () = drain in
+    let* () = Lwt.catch (fun () -> drain) (fun _ -> Lwt.return_unit) in
     Lwt.return (pid, status)
   in
   let state =
@@ -70,13 +70,19 @@ let create ~cwd ~command ~args ?env:env_pairs () =
     }
   in
   Lwt.async (fun () ->
-      let* _pid, status = exit_waiter in
-      state.exited <- true;
-      (match status with
-      | Unix.WEXITED code -> state.exit_code <- Some code
-      | Unix.WSIGNALED s -> state.signal <- Some s
-      | Unix.WSTOPPED s -> state.signal <- Some s);
-      Lwt.return_unit);
+      Lwt.catch
+        (fun () ->
+          let* _pid, status = exit_waiter in
+          state.exited <- true;
+          (match status with
+          | Unix.WEXITED code -> state.exit_code <- Some code
+          | Unix.WSIGNALED s -> state.signal <- Some s
+          | Unix.WSTOPPED s -> state.signal <- Some s);
+          Lwt.return_unit)
+        (fun _exn ->
+          state.exited <- true;
+          state.exit_code <- Some (-1);
+          Lwt.return_unit));
   Lwt.return (terminal_id, state, proc)
 
 let get_output state =

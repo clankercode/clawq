@@ -112,6 +112,7 @@ type session_update =
   | Current_mode_update of Yojson.Safe.t
   | Config_option_update of Yojson.Safe.t
   | Session_info_update of Yojson.Safe.t
+  | Unknown of string
 
 type mcp_server_config = {
   mcp_name : string;
@@ -471,7 +472,7 @@ let session_update_of_json json =
   | "current_mode_update" -> Current_mode_update json
   | "config_option_update" -> Config_option_update json
   | "session_info_update" -> Session_info_update json
-  | s -> failwith (Printf.sprintf "Unknown sessionUpdate type: %s" s)
+  | s -> Unknown s
 
 let string_of_session_update_type = function
   | User_message_chunk _ -> "user_message_chunk"
@@ -484,6 +485,7 @@ let string_of_session_update_type = function
   | Current_mode_update _ -> "current_mode_update"
   | Config_option_update _ -> "config_option_update"
   | Session_info_update _ -> "session_info_update"
+  | Unknown s -> Printf.sprintf "unknown(%s)" s
 
 let mcp_server_config_to_json cfg =
   `Assoc
