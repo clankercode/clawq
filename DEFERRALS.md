@@ -15,6 +15,8 @@ See `/tmp/clawq-review/master-list.md` for full details.
 | I6 | model_preferences caching | Needs cache invalidation strategy |
 | I7 | SSE placeholder | Needs real event forwarding implementation |
 | I8 | agent_router naming | Cosmetic naming issue |
+| E7 | IMAP literal handling | Complex structural change, low real-world impact |
+| H2 | Config loader fallback logging | 100+ fallback sites in config_loader.ml; only key channel/provider fields covered. Full coverage requires touching every `try...with _ -> default` pattern. |
 
 ## I4 Architectural Note
 
