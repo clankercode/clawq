@@ -1027,9 +1027,13 @@ let find_provider_for_model ~providers ~model_name =
   let norm = normalize_model_name model_name in
   let match_provider (name, (p : Runtime_config.provider_config)) =
     let norm_name = String.lowercase_ascii name in
+    let nlen = String.length norm_name in
     if
-      String.length norm >= String.length norm_name
-      && String.sub norm 0 (String.length norm_name) = norm_name
+      String.length norm >= nlen
+      && String.sub norm 0 nlen = norm_name
+      && (String.length norm = nlen
+         || let c = norm.[nlen] in
+            c = '-' || c = ':' || c = '/')
       && provider_has_routable_auth ~name p
     then Some (name, p)
     else

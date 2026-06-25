@@ -23,7 +23,9 @@ let queue_state_of_string = function
   | "pending" -> Pending
   | "claimed" -> Claimed
   | "failed" -> Failed
-  | s -> failwith (Printf.sprintf "Unknown queue state: %s" s)
+  | s ->
+      Logs.warn (fun m -> m "Unknown queue state: %s, defaulting to pending" s);
+      Pending
 
 (* ---- Inbound Queue API ---- *)
 

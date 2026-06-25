@@ -638,7 +638,17 @@ let process_operations ~db ~session_key (ops : Yojson.Safe.t list) =
                                         update_task_status ~db ~session_key
                                           ~id:sid ~status:new_status
                                       with
-                                      | Ok () -> ()
+                                      | Ok () -> (
+                                          match note with
+                                          | Some n ->
+                                              (match
+                                                 Task_tree_core.update_task_note
+                                                   ~db ~session_key ~id:sid
+                                                   ~note:(Some n)
+                                               with
+                                              | Ok () -> ()
+                                              | Error e -> err := Some e)
+                                          | None -> ())
                                       | Error e -> err := Some e)
                                   all_ids;
                                 match !err with

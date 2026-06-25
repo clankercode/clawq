@@ -377,7 +377,7 @@ let is_window_constrained ~threshold w =
         if elapsed <= 0.0 || dur <= 0.0 then false
         else
           let time_elapsed_pct = elapsed /. dur *. 100.0 in
-          if time_elapsed_pct <= 0.0 then false
+          if time_elapsed_pct < 1.0 then false
           else
             let pace_ratio = w.used_pct /. time_elapsed_pct in
             pace_ratio >= 1.5 && w.used_pct >= 50.0

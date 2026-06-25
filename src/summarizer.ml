@@ -228,10 +228,8 @@ let maybe_summarize ~(config : Runtime_config.t) ~(db : Sqlite3.db option)
         let* final_result =
           match result with
           | Ok (text, usage, model_used)
-            when String.length text >= 8
-                 && String.sub (String.trim text) 0
-                      (min 8 (String.length (String.trim text)))
-                    = "ESCALATE" -> (
+            when String.starts_with ~prefix:"ESCALATE"
+                   (String.trim text) -> (
               (* Escalation requested *)
               let escalation_pm =
                 match sc.escalation_model with
@@ -249,9 +247,8 @@ let maybe_summarize ~(config : Runtime_config.t) ~(db : Sqlite3.db option)
               | Ok (esc_text, esc_usage, esc_model)
                 when String.length esc_text > 0
                      && not
-                          (String.sub (String.trim esc_text) 0
-                             (min 8 (String.length (String.trim esc_text)))
-                          = "ESCALATE") ->
+                          (String.starts_with ~prefix:"ESCALATE"
+                             (String.trim esc_text)) ->
                   Lwt.return (Ok (esc_text, esc_usage, esc_model))
               | Ok _ ->
                   (* Double escalation or empty — record usage from first attempt *)

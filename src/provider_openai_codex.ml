@@ -35,6 +35,25 @@ let sanitize_input_item item =
               fields
           in
           Some (`Assoc kept)
+      | "tool_call" ->
+          (* Normalize tool_call to function_call for Responses API *)
+          let kept =
+            List.filter
+              (fun (k, _) ->
+                match k with
+                | "type" | "call_id" | "id" | "name" | "arguments" -> true
+                | _ -> false)
+              fields
+          in
+          let normalized =
+            List.map
+              (fun (k, v) ->
+                if k = "type" then (k, `String "function_call")
+                else if k = "id" then ("call_id", v)
+                else (k, v))
+              kept
+          in
+          Some (`Assoc normalized)
       | "message" ->
           (* Rebuild as a clean assistant message *)
           let role =
@@ -85,7 +104,7 @@ let function_call_id_of_item item =
   match item with
   | `Assoc fields -> (
       match List.assoc_opt "type" fields with
-      | Some (`String "function_call") -> (
+      | Some (`String "function_call") | Some (`String "tool_call") -> (
           match List.assoc_opt "call_id" fields with
           | Some (`String id) -> Some id
           | _ -> (
@@ -210,9 +229,10 @@ let collect_call_ids items =
     (fun item ->
       match item with
       | `Assoc fields
-        when match List.assoc_opt "type" fields with
-             | Some (`String "function_call") -> true
-             | _ -> false -> (
+        when (match List.assoc_opt "type" fields with
+              | Some (`String "function_call") | Some (`String "tool_call") ->
+                  true
+              | _ -> false) -> (
           match List.assoc_opt "call_id" fields with
           | Some (`String id) -> Some id
           | _ -> (
@@ -244,7 +264,7 @@ let validate_codex_input_items items =
       match item with
       | `Assoc fields -> (
           match List.assoc_opt "type" fields with
-          | Some (`String "function_call") ->
+          | Some (`String "function_call") | Some (`String "tool_call") ->
               let id =
                 Option.value ~default:""
                   (match List.assoc_opt "call_id" fields with

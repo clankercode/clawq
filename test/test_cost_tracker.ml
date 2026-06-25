@@ -24,9 +24,9 @@ let test_calculate_cost_unknown () =
 
 let test_record_and_get_session () =
   Cost_tracker.record_turn ~model:"gpt-4o-mini" ~prompt_tokens:100
-    ~completion_tokens:50 ~session_id:"test-session-1";
+    ~completion_tokens:50 ~session_id:"test-session-1" ();
   Cost_tracker.record_turn ~model:"gpt-4o-mini" ~prompt_tokens:200
-    ~completion_tokens:100 ~session_id:"test-session-1";
+    ~completion_tokens:100 ~session_id:"test-session-1" ();
   let total = Cost_tracker.get_session_cost ~session_id:"test-session-1" in
   Alcotest.(check bool) "accumulated cost > 0" true (total > 0.0);
   let stats = Cost_tracker.get_session_stats ~session_id:"test-session-1" in

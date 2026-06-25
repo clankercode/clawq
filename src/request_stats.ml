@@ -168,19 +168,47 @@ let summary_for_session ~db ~session_key =
         | _ -> zero_summary)
   with _ -> zero_summary
 
+let is_valid_date_expr s =
+  (* Whitelist: must be a datetime() or date() call with 'now' and safe args *)
+  let len = String.length s in
+  let starts_with prefix =
+    let plen = String.length prefix in
+    len >= plen && String.sub s 0 plen = prefix
+  in
+  let has_substr sub =
+    let slen = String.length sub in
+    let rec go i =
+      if i + slen > len then false
+      else if String.sub s i slen = sub then true
+      else go (i + 1)
+    in
+    go 0
+  in
+  (starts_with "datetime('now'," || starts_with "date('now',")
+  && len > 0
+  && s.[len - 1] = ')'
+  && (not (has_substr ";"))
+  && (not (has_substr "' UNION"))
+  && (not (has_substr "' OR"))
+
 let resolve_since ~db since =
-  try
-    let stmt = Sqlite3.prepare db ("SELECT " ^ since) in
-    Fun.protect
-      ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
-      (fun () ->
-        match Sqlite3.step stmt with
-        | Sqlite3.Rc.ROW -> (
-            match Sqlite3.column stmt 0 with
-            | Sqlite3.Data.TEXT s -> s
-            | _ -> since)
-        | _ -> since)
-  with _ -> since
+  if not (is_valid_date_expr since) then (
+    Logs.warn (fun m ->
+        m "resolve_since: rejecting non-whitelisted expr: %s" since);
+    since)
+  else
+    try
+      let stmt = Sqlite3.prepare db ("SELECT " ^ since) in
+      Fun.protect
+        ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+        (fun () ->
+          match Sqlite3.step stmt with
+          | Sqlite3.Rc.ROW -> (
+              match Sqlite3.column stmt 0 with
+              | Sqlite3.Data.TEXT s -> s
+              | _ -> since)
+          | _ -> since)
+    with _ -> since
 
 let summary_for_period ~db ~since =
   let resolved_since = resolve_since ~db since in

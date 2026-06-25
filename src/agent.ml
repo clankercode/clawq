@@ -1312,7 +1312,8 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
               m "[cache] cached=%d/%d (%.0f%%) prompt tokens" api_cached pt
                 (100.0 *. float_of_int api_cached /. float_of_int pt));
         Cost_tracker.record_turn ~model ~prompt_tokens:pt ~completion_tokens:ct
-          ~session_id:sid;
+          ~session_id:sid ~cache_hit:(api_cached > 0)
+          ~api_cached_tokens:api_cached ();
         Model_preferences.increment_usage model |> ignore;
         match db with
         | Some db ->
@@ -1760,7 +1761,8 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
               m "[cache] cached=%d/%d (%.0f%%) prompt tokens" api_cached pt
                 (100.0 *. float_of_int api_cached /. float_of_int pt));
         Cost_tracker.record_turn ~model ~prompt_tokens:pt ~completion_tokens:ct
-          ~session_id:sid;
+          ~session_id:sid ~cache_hit:(api_cached > 0)
+          ~api_cached_tokens:api_cached ();
         Model_preferences.increment_usage model |> ignore;
         match db with
         | Some db ->
