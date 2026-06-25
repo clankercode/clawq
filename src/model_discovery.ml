@@ -11,6 +11,7 @@ let skip_kinds =
     "zai_coding";
     "minimax";
     "mimo";
+    "xiaomi";
     "openai-codex";
   ]
 

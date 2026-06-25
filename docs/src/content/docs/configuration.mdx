@@ -132,6 +132,19 @@ An object keyed by provider name. The active provider is selected via `agent_def
 | `thinking_budget_tokens` | No | Provider reasoning budget when supported |
 | `oai_thinking_style` | No | OAI-compatible reasoning tag style; defaults to `none` |
 
+#### Xiaomi MiMo providers (zero-config)
+
+The Xiaomi MiMo providers are OpenAI-compatible (`kind: "xiaomi"`, `oai_thinking_style: "reasoning_content"`) and have built-in base URLs, so they need no config block: if a key is present in the matching environment variable, the provider is synthesized in memory and never written to `config.json`.
+
+| Provider | Base URL | Key env var |
+|----------|----------|-------------|
+| `xiaomi` | `https://api.xiaomimimo.com/v1` | `XIAOMI_API_KEY` |
+| `xiaomi-token-plan-cn` | `https://token-plan-cn.xiaomimimo.com/v1` | `XIAOMI_TOKEN_PLAN_CN_API_KEY` |
+| `xiaomi-token-plan-ams` | `https://token-plan-ams.xiaomimimo.com/v1` | `XIAOMI_TOKEN_PLAN_AMS_API_KEY` |
+| `xiaomi-token-plan-sgp` | `https://token-plan-sgp.xiaomimimo.com/v1` | `XIAOMI_TOKEN_PLAN_SGP_API_KEY` (also reads `~/.mimo`) |
+
+Models: public `xiaomi` offers `mimo-v2-flash`, `mimo-v2-omni`, `mimo-v2-pro`, `mimo-v2.5`, `mimo-v2.5-pro`, and `mimo-v2.5-pro-ultraspeed`; the token-plan providers offer the same set minus `mimo-v2-flash`.
+
 ### default_provider
 
 :::caution[Deprecated]

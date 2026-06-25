@@ -4,6 +4,20 @@ type model_pricing = {
   cache_read_per_m : float option;
 }
 
+(* B697: Xiaomi MiMo pricing, derived from Xiaomi.pricing_specs (deduped by id).
+   Bare ids; lookup_pricing strips any provider prefix before matching, so
+   e.g. xiaomi-token-plan-sgp:mimo-v2.5-pro resolves to mimo-v2.5-pro. *)
+let xiaomi_pricing_rows =
+  List.map
+    (fun (id, (s : Xiaomi.model_spec)) ->
+      ( id,
+        {
+          input_per_m = s.Xiaomi.input_per_m;
+          output_per_m = s.Xiaomi.output_per_m;
+          cache_read_per_m = Some s.Xiaomi.cache_read_per_m;
+        } ))
+    Xiaomi.pricing_specs
+
 let pricing_table =
   [
     (* Anthropic - current (cache_read = 10% of input) *)
@@ -231,10 +245,8 @@ let pricing_table =
       { input_per_m = 0.60; output_per_m = 2.20; cache_read_per_m = None } );
     ( "zai_coding/glm-4.6",
       { input_per_m = 0.60; output_per_m = 2.20; cache_read_per_m = None } );
-    (* Xiaomi MiMo *)
-    ( "mimo-v2-flash",
-      { input_per_m = 0.10; output_per_m = 0.30; cache_read_per_m = None } );
   ]
+  @ xiaomi_pricing_rows
 
 let normalize_model s =
   let s = String.lowercase_ascii (String.trim s) in

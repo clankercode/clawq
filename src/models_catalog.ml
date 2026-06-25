@@ -9,6 +9,24 @@ type model_info = {
   deprecated : bool;
 }
 
+(* B697: Xiaomi MiMo catalog entries, derived from Xiaomi.catalog_specs so the
+   data lives in xiaomi.ml (one source of truth across catalog/pricing/routing).
+   All MiMo models are reasoning + tool-capable. *)
+let xiaomi_catalog_models : model_info list =
+  List.map
+    (fun (provider, (s : Xiaomi.model_spec)) ->
+      {
+        provider;
+        id = s.Xiaomi.id;
+        display_name = Some s.Xiaomi.display;
+        context_window = Some s.Xiaomi.context_window;
+        supports_vision = s.Xiaomi.supports_vision;
+        supports_tools = true;
+        supports_thinking = true;
+        deprecated = false;
+      })
+    Xiaomi.catalog_specs
+
 let known_models : model_info list =
   [
     (* Anthropic Claude *)
@@ -726,18 +744,8 @@ let known_models : model_info list =
       supports_thinking = true;
       deprecated = false;
     };
-    (* Mimo *)
-    {
-      provider = "mimo";
-      id = "mimo-v2-flash-free";
-      display_name = None;
-      context_window = Some 128000;
-      supports_vision = false;
-      supports_tools = true;
-      supports_thinking = false;
-      deprecated = false;
-    };
   ]
+  @ xiaomi_catalog_models
 
 let providers =
   let tbl = Hashtbl.create 16 in

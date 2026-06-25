@@ -2,6 +2,11 @@
 
 open Config_wizard_model
 
+let xiaomi_provider_presets =
+  List.map
+    (fun (p : Xiaomi.provider_def) -> (p.name, p.base_url))
+    Xiaomi.providers
+
 let provider_presets =
   [
     ("openai-codex", Openai_codex_oauth.codex_base_url);
@@ -11,17 +16,11 @@ let provider_presets =
     ("groq", "https://api.groq.com/openai/v1");
     ("ollama", "http://localhost:11434/v1");
   ]
+  @ xiaomi_provider_presets
 
 let provider_names =
-  [
-    "openai-codex";
-    "openrouter";
-    "openai";
-    "anthropic";
-    "groq";
-    "ollama";
-    "custom";
-  ]
+  [ "openai-codex"; "openrouter"; "openai"; "anthropic"; "groq"; "ollama" ]
+  @ Xiaomi.provider_names @ [ "custom" ]
 
 let model_presets =
   [

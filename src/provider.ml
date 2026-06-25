@@ -268,7 +268,9 @@ let messages_to_json ?(require_reasoning_content = false) messages =
    message. Detected by name prefix (lowercase). *)
 let model_requires_reasoning_content model =
   let norm = String.lowercase_ascii (String.trim model) in
-  let prefixes = [ "kimi-for-code"; "kimi-for-coding" ] in
+  (* "mimo-" covers all six Xiaomi MiMo ids (deepseek thinking style) and does
+     not collide with "minimax-". *)
+  let prefixes = [ "kimi-for-code"; "kimi-for-coding"; "mimo-" ] in
   List.exists
     (fun p ->
       String.length norm >= String.length p
@@ -892,6 +894,8 @@ let detect_kind ?(name = "") (p : Runtime_config.provider_config) =
   | Some "vertex" -> Vertex
   | Some "cohere" -> Cohere
   | Some "minimax" -> MiniMax
+  (* B697: Xiaomi MiMo (public + token-plan regions) is OpenAI-compatible. *)
+  | Some "xiaomi" -> OpenAICompat
   | Some "openai" -> OpenAICompat
   | Some _ | None ->
       let key = p.api_key in
@@ -940,19 +944,22 @@ let register_native_stream kind fn =
   native_stream := (kind, fn) :: !native_stream
 
 let default_base_url_for name =
-  match name with
-  | "zai_coding" -> "https://api.z.ai/api/coding/paas/v4"
-  | "zai" -> "https://api.z.ai/api/paas/v4"
-  | "zai_anthropic" | "zai-anthropic" -> "https://api.z.ai/api/anthropic"
-  | "mistral" -> "https://api.mistral.ai/v1"
-  | "xai" | "x_ai" -> "https://api.x.ai/v1"
-  | "deepseek" -> "https://api.deepseek.com/v1"
-  | "cohere" -> "https://api.cohere.com"
-  | "kimi_coding" | "kimi-code" -> "https://api.kimi.com/coding/v1"
-  | "kimi" -> "https://api.moonshot.cn/v1"
-  | "moonshot" -> "https://api.moonshot.cn/v1"
-  | "minimax" -> "https://api.minimax.io"
-  | _ -> "https://openrouter.ai/api/v1"
+  match Xiaomi.base_url_for name with
+  | Some url -> url
+  | None -> (
+      match name with
+      | "zai_coding" -> "https://api.z.ai/api/coding/paas/v4"
+      | "zai" -> "https://api.z.ai/api/paas/v4"
+      | "zai_anthropic" | "zai-anthropic" -> "https://api.z.ai/api/anthropic"
+      | "mistral" -> "https://api.mistral.ai/v1"
+      | "xai" | "x_ai" -> "https://api.x.ai/v1"
+      | "deepseek" -> "https://api.deepseek.com/v1"
+      | "cohere" -> "https://api.cohere.com"
+      | "kimi_coding" | "kimi-code" -> "https://api.kimi.com/coding/v1"
+      | "kimi" -> "https://api.moonshot.cn/v1"
+      | "moonshot" -> "https://api.moonshot.cn/v1"
+      | "minimax" -> "https://api.minimax.io"
+      | _ -> "https://openrouter.ai/api/v1")
 
 let strip_date_suffix s =
   let len = String.length s in

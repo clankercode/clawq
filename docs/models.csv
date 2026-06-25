@@ -80,7 +80,12 @@ minimax,MiniMax-M2.5-highspeed,"MiniMax M2.5-highspeed",204800,false,true,"think
 minimax,MiniMax-M2.1,"MiniMax M2.1",204800,false,true,"thinking,tools",0.30,1.20,https://platform.minimax.io/docs/guides/pricing-paygo,"Legacy text model",2026-05-21
 minimax,MiniMax-M2.1-highspeed,"MiniMax M2.1-highspeed",204800,false,true,"thinking,tools",0.60,2.40,https://platform.minimax.io/docs/guides/pricing-paygo,"Legacy highspeed text model; 100 tps",2026-05-21
 minimax,MiniMax-M2,"MiniMax M2",204800,false,true,"thinking,tools",0.30,1.20,https://platform.minimax.io/docs/guides/pricing-paygo,"Legacy text model; agentic capabilities",2026-05-21
-xiaomi,mimo-v2-flash,"MiMo V2 Flash",256000,false,true,"",0.10,0.30,https://mimo.xiaomi.com/mimo-v2-flash,"309B params; hybrid-thinking",2026-03-10
+xiaomi,mimo-v2-flash,"MiMo-V2-Flash",262144,false,true,"thinking,tools",0.10,0.30,https://api.xiaomimimo.com/v1,"Public/API-billing only (not on token-plan); cache-read $0.01/M; deepseek thinking",2026-06-26
+xiaomi,mimo-v2-omni,"MiMo-V2-Omni",262144,true,true,"thinking,tools",0.40,2.00,https://api.xiaomimimo.com/v1,"Vision; token-plan regions cn/ams/sgp; cache-read $0.08/M",2026-06-26
+xiaomi,mimo-v2-pro,"MiMo-V2-Pro",1048576,false,true,"thinking,tools",1.00,3.00,https://api.xiaomimimo.com/v1,"token-plan regions cn/ams/sgp; cache-read $0.20/M",2026-06-26
+xiaomi,mimo-v2.5,"MiMo-V2.5",1048576,true,true,"thinking,tools",0.40,2.00,https://api.xiaomimimo.com/v1,"Vision; token-plan regions cn/ams/sgp; cache-read $0.08/M",2026-06-26
+xiaomi,mimo-v2.5-pro,"MiMo-V2.5-Pro",1048576,false,true,"thinking,tools",1.00,3.00,https://api.xiaomimimo.com/v1,"token-plan regions cn/ams/sgp; cache-read $0.20/M",2026-06-26
+xiaomi,mimo-v2.5-pro-ultraspeed,"MiMo-V2.5-Pro-UltraSpeed",1048576,false,true,"thinking,tools",1.305,2.61,https://api.xiaomimimo.com/v1,"token-plan regions cn/ams/sgp; cache-read $0.0108/M",2026-06-26
 ollama,llama3.3,"Llama 3.3",131072,false,false,"",0,0,https://ollama.com/library,"Local/free",2026-03-10
 ollama,llama3.1,"Llama 3.1",131072,false,false,"",0,0,https://ollama.com/library,"Local/free",2026-03-10
 ollama,qwen3,"Qwen3",131072,false,true,"thinking,non-thinking",0,0,https://ollama.com/library,"Local/free",2026-03-10

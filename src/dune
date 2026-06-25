@@ -14,6 +14,7 @@
   process_group
   phase2
   runtime_config
+  config_loader_support
   config_loader
   http_client
   http_debug
@@ -95,6 +96,7 @@
   repo_manager
   slash_commands_manifest
   totp
+  xiaomi
   cost_tracker
   model_discovery
   request_stats
