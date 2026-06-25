@@ -174,65 +174,79 @@ let parse_message_event json =
 let handle_webhook_body ~(config : Runtime_config.lark_config)
     ~(session_mgr : Session.t) body_str =
   let open Lwt.Syntax in
-  try
-    let json = Yojson.Safe.from_string body_str in
-    let open Yojson.Safe.Util in
-    (* Challenge verification (URL verification) *)
-    let challenge =
-      try Some (json |> member "challenge" |> to_string) with _ -> None
-    in
-    match challenge with
-    | Some ch ->
-        let resp =
-          `Assoc [ ("challenge", `String ch) ] |> Yojson.Safe.to_string
+  (* H3: wrap entire body in Lwt.catch to catch both synchronous exceptions
+     (JSON parse) and async Lwt promise rejections (send_message, Session.turn). *)
+  Lwt.catch
+    (fun () ->
+      try
+        let json = Yojson.Safe.from_string body_str in
+        let open Yojson.Safe.Util in
+        (* Challenge verification (URL verification) *)
+        let challenge =
+          try Some (json |> member "challenge" |> to_string) with _ -> None
         in
-        Lwt.return (`Challenge resp)
-    | None -> (
-        match parse_message_event json with
-        | None -> Lwt.return (`Ok {|{"code":0}|})
-        | Some (event_id, chat_id, user_id, chat_type, text) -> (
-            if dedup_seen event_id then Lwt.return (`Ok {|{"code":0}|})
-            else if not (is_allowed ~config ~user_id) then (
-              Logs.warn (fun m ->
-                  m "Lark: ignoring message from unauthorized user=%s" user_id);
-              Lwt.return (`Ok {|{"code":0}|}))
-            else
-              let channel_type = if chat_type = "p2p" then "dm" else "group" in
-              let key = "lark:" ^ chat_id ^ ":" ^ user_id in
-              Session.register_connector_capabilities session_mgr ~key
-                Connector_capabilities.lark;
-              let* result =
-                Session.with_registered_notifier session_mgr ~key
-                  ~notify:(fun text -> send_message ~config ~chat_id ~text)
-                  (fun () ->
-                    Lwt.catch
+        match challenge with
+        | Some ch ->
+            let resp =
+              `Assoc [ ("challenge", `String ch) ] |> Yojson.Safe.to_string
+            in
+            Lwt.return (`Challenge resp)
+        | None -> (
+            match parse_message_event json with
+            | None -> Lwt.return (`Ok {|{"code":0}|})
+            | Some (event_id, chat_id, user_id, chat_type, text) -> (
+                if dedup_seen event_id then Lwt.return (`Ok {|{"code":0}|})
+                else if not (is_allowed ~config ~user_id) then (
+                  Logs.warn (fun m ->
+                      m "Lark: ignoring message from unauthorized user=%s"
+                        user_id);
+                  Lwt.return (`Ok {|{"code":0}|}))
+                else
+                  let channel_type =
+                    if chat_type = "p2p" then "dm" else "group"
+                  in
+                  let key = "lark:" ^ chat_id ^ ":" ^ user_id in
+                  Session.register_connector_capabilities session_mgr ~key
+                    Connector_capabilities.lark;
+                  let* result =
+                    Session.with_registered_notifier session_mgr ~key
+                      ~notify:(fun text -> send_message ~config ~chat_id ~text)
                       (fun () ->
-                        let* response =
-                          Session.turn session_mgr ~key ~message:text
-                            ~channel_name:"lark" ~channel_type
-                            ~sender_id:user_id ()
+                        Lwt.catch
+                          (fun () ->
+                            let* response =
+                              Session.turn session_mgr ~key ~message:text
+                                ~channel_name:"lark" ~channel_type
+                                ~sender_id:user_id ()
+                            in
+                            Lwt.return (Ok response))
+                          (fun exn ->
+                            Lwt.return (Error (Printexc.to_string exn))))
+                  in
+                  match result with
+                  | Ok response ->
+                      if Session.should_suppress_response response then
+                        Lwt.return (`Ok {|{"code":0}|})
+                      else
+                        let* () =
+                          send_message ~config ~chat_id ~text:response
                         in
-                        Lwt.return (Ok response))
-                      (fun exn -> Lwt.return (Error (Printexc.to_string exn))))
-              in
-              match result with
-              | Ok response ->
-                  if Session.should_suppress_response response then
-                    Lwt.return (`Ok {|{"code":0}|})
-                  else
-                    let* () = send_message ~config ~chat_id ~text:response in
-                    Lwt.return (`Ok {|{"code":0}|})
-              | Error err ->
-                  Logs.err (fun m ->
-                      m "Lark: agent error for chat=%s user=%s: %s" chat_id
-                        user_id err);
-                  Lwt.return (`Ok {|{"code":0}|})))
-  with exn ->
-    (* H3: log exception and return Error so the WS handler can skip ACK
-       and allow the server to retry the message. *)
-    Logs.warn (fun m ->
-        m "Lark handle_webhook_body exception: %s" (Printexc.to_string exn));
-    Lwt.return (`Error (Printexc.to_string exn))
+                        Lwt.return (`Ok {|{"code":0}|})
+                  | Error err ->
+                      Logs.err (fun m ->
+                          m "Lark: agent error for chat=%s user=%s: %s" chat_id
+                            user_id err);
+                      Lwt.return (`Ok {|{"code":0}|})))
+      with exn ->
+        (* H3: catch synchronous exceptions (JSON parse, etc.) *)
+        Logs.warn (fun m ->
+            m "Lark handle_webhook_body exception: %s" (Printexc.to_string exn));
+        Lwt.return (`Error (Printexc.to_string exn)))
+    (fun exn ->
+      (* H3: catch async Lwt promise rejections *)
+      Logs.warn (fun m ->
+          m "Lark handle_webhook_body async error: %s" (Printexc.to_string exn));
+      Lwt.return (`Error (Printexc.to_string exn)))
 
 let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
   match config.channels.lark with

@@ -861,6 +861,23 @@ let with_session_lock ?session_warn_timeout ?session_fatal_timeout mgr ~key f =
       ~label:(Printf.sprintf "session_mutex/with_session_lock[%s]" key)
       mutex
   in
+  (* F2: after acquiring the per-session mutex, re-check that the session
+     still exists in the hashtable. If reset() completed between our
+     get_or_create_locked and now, the session was removed and we should
+     not use the stale agent. Re-create instead. *)
+  let key = sanitize_session_key key in
+  let agent, interrupt =
+    match Hashtbl.find_opt mgr.sessions key with
+    | Some (a, _, i) -> (a, i)
+    | None ->
+        Logs.warn (fun m ->
+            m
+              "Session %s was reset between lock acquisition and mutex \
+               acquire; re-creating fresh session"
+              key);
+        let a, _m, i = get_or_create_locked mgr ~key in
+        (a, i)
+  in
   Lwt.finalize
     (fun () -> f agent interrupt)
     (fun () ->
