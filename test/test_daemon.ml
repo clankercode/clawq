@@ -984,7 +984,17 @@ let test_resume_turn_payload_is_openai_compat_valid () =
         (List.exists
            (fun (role, content) ->
              role = "user" && string_contains content Daemon.resume_turn_prompt)
-           payload))
+           payload);
+      let history = Memory.load_history ~db ~session_key:"telegram:42:user" in
+      let durable_resume_prompts =
+        List.filter
+          (fun (m : Provider.message) ->
+            m.role = "user" && m.content = Daemon.resume_turn_prompt)
+          history
+      in
+      Alcotest.(check int)
+        "resume prompt stored exactly once in durable history" 1
+        (List.length durable_resume_prompts))
 
 let test_resume_agent_session_sends_debug_summary () =
   with_fake_chat_provider (fun base_config ->
