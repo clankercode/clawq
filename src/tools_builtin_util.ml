@@ -1531,7 +1531,7 @@ let unsummarize ~db =
               let from_line, to_line =
                 if head_and_tail then
                   if total_lines <= lines * 2 then (0, total_lines - 1)
-                  else (0, total_lines - 1)
+                  else (0, total_lines - 1)  (* head + skipped + tail *)
                 else
                   let offset = max 0 (min offset (total_lines - 1)) in
                   let avail = total_lines - offset in
@@ -1539,9 +1539,15 @@ let unsummarize ~db =
                   (offset, offset + n - 1)
               in
               let header =
-                Printf.sprintf
-                  "[Original for %s: %d lines, %d bytes, showing lines %d-%d]"
-                  summary_id total_lines record.original_bytes from_line to_line
+                if head_and_tail && total_lines > lines * 2 then
+                  Printf.sprintf
+                    "[Original for %s: %d lines, %d bytes, showing lines 0-%d and %d-%d]"
+                    summary_id total_lines record.original_bytes
+                    (lines - 1) (total_lines - lines) (total_lines - 1)
+                else
+                  Printf.sprintf
+                    "[Original for %s: %d lines, %d bytes, showing lines %d-%d]"
+                    summary_id total_lines record.original_bytes from_line to_line
               in
               let context_section =
                 if with_context && record.context_snippet <> "" then

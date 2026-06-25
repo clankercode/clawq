@@ -3,32 +3,47 @@ let skills_dir () = Dot_dir.sub "skills"
 let substitute_template template (args : Yojson.Safe.t) =
   let open Yojson.Safe.Util in
   let pairs = try to_assoc args with _ -> [] in
-  List.fold_left
-    (fun acc (key, value) ->
-      let v = try to_string value with _ -> Yojson.Safe.to_string value in
-      let pattern = "{{" ^ key ^ "}}" in
-      let rec replace s =
-        match String.split_on_char '{' s with
-        | [] -> s
-        | _ ->
-            let buf = Buffer.create (String.length s) in
-            let i = ref 0 in
-            let len = String.length s in
-            let plen = String.length pattern in
-            while !i < len do
-              if !i + plen <= len && String.sub s !i plen = pattern then begin
-                Buffer.add_string buf v;
-                i := !i + plen
-              end
-              else begin
-                Buffer.add_char buf s.[!i];
-                incr i
-              end
-            done;
-            Buffer.contents buf
+  (* Build a lookup table for key -> value *)
+  let tbl =
+    List.map
+      (fun (key, value) ->
+        (key, try to_string value with _ -> Yojson.Safe.to_string value))
+      pairs
+  in
+  (* Single-pass replacement: scan template and replace all {{key}} patterns *)
+  let buf = Buffer.create (String.length template) in
+  let len = String.length template in
+  let i = ref 0 in
+  while !i < len do
+    if !i + 1 < len && template.[!i] = '{' && template.[!i + 1] = '{' then begin
+      (* Find the closing }} *)
+      let start = !i + 2 in
+      let rec find_close j =
+        if j + 1 >= len then None
+        else if template.[j] = '}' && template.[j + 1] = '}' then Some j
+        else find_close (j + 1)
       in
-      replace acc)
-    template pairs
+      match find_close start with
+      | Some j ->
+          let key = String.sub template start (j - start) in
+          (match List.assoc_opt key tbl with
+          | Some v -> Buffer.add_string buf v
+          | None ->
+              (* Keep the original {{key}} if not found *)
+              Buffer.add_string buf "{{";
+              Buffer.add_string buf key;
+              Buffer.add_string buf "}}");
+          i := j + 2
+      | None ->
+          Buffer.add_char buf template.[!i];
+          incr i
+    end
+    else begin
+      Buffer.add_char buf template.[!i];
+      incr i
+    end
+  done;
+  Buffer.contents buf
 
 let command_template_vars command =
   let len = String.length command in

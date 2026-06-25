@@ -215,6 +215,21 @@ let execute_single_action ~config ~session_key args =
                     "Error: 'url' parameter is required for navigate. Example: \
                      browser(action=\"navigate\", url=\"https://example.com\")"
               | Some url ->
+                  (* Reject non-http/https schemes *)
+                  let is_safe_scheme =
+                    let lower = String.lowercase_ascii url in
+                    String.starts_with ~prefix:"http://" lower
+                    || String.starts_with ~prefix:"https://" lower
+                    || String.starts_with ~prefix:"data:" lower
+                    || (not (String.contains url ':'))
+                  in
+                  if not is_safe_scheme then
+                    Lwt.return
+                      (Printf.sprintf
+                         "Error: rejected URL scheme in %S. Only http://, \
+                          https://, and data: URLs are allowed."
+                         url)
+                  else
                   let* () = Cdp_client.navigate browser ~url ~timeout_s () in
                   let* title_r =
                     Cdp_client.evaluate browser
@@ -322,6 +337,20 @@ let execute_single_action ~config ~session_key args =
               | None ->
                   Lwt.return "Error: 'url' parameter is required for new_tab."
               | Some url ->
+                  let is_safe_scheme =
+                    let lower = String.lowercase_ascii url in
+                    String.starts_with ~prefix:"http://" lower
+                    || String.starts_with ~prefix:"https://" lower
+                    || String.starts_with ~prefix:"data:" lower
+                    || (not (String.contains url ':'))
+                  in
+                  if not is_safe_scheme then
+                    Lwt.return
+                      (Printf.sprintf
+                         "Error: rejected URL scheme in %S. Only http://, \
+                          https://, and data: URLs are allowed."
+                         url)
+                  else
                   let name = get_str "tab" args in
                   let* tab_name =
                     Cdp_client.create_tab browser ?name ~url ~timeout_s ()
@@ -356,6 +385,20 @@ let execute_single_action ~config ~session_key args =
                     "Error: 'url' parameter is required for \
                      navigate_and_extract."
               | Some url ->
+                  let is_safe_scheme =
+                    let lower = String.lowercase_ascii url in
+                    String.starts_with ~prefix:"http://" lower
+                    || String.starts_with ~prefix:"https://" lower
+                    || String.starts_with ~prefix:"data:" lower
+                    || (not (String.contains url ':'))
+                  in
+                  if not is_safe_scheme then
+                    Lwt.return
+                      (Printf.sprintf
+                         "Error: rejected URL scheme in %S. Only http://, \
+                          https://, and data: URLs are allowed."
+                         url)
+                  else
                   let* () = Cdp_client.navigate browser ~url ~timeout_s () in
                   let* content = Cdp_client.get_content browser ~timeout_s () in
                   Lwt.return content)
@@ -400,6 +443,20 @@ let execute_single_action ~config ~session_key args =
                   Lwt.return
                     "Error: 'url' parameter is required for snapshot_all."
               | Some url ->
+                  let is_safe_scheme =
+                    let lower = String.lowercase_ascii url in
+                    String.starts_with ~prefix:"http://" lower
+                    || String.starts_with ~prefix:"https://" lower
+                    || String.starts_with ~prefix:"data:" lower
+                    || (not (String.contains url ':'))
+                  in
+                  if not is_safe_scheme then
+                    Lwt.return
+                      (Printf.sprintf
+                         "Error: rejected URL scheme in %S. Only http://, \
+                          https://, and data: URLs are allowed."
+                         url)
+                  else
                   let* () = Cdp_client.navigate browser ~url ~timeout_s () in
                   let* path = Cdp_client.screenshot browser ~timeout_s () in
                   let* content = Cdp_client.get_content browser ~timeout_s () in
@@ -415,6 +472,20 @@ let execute_single_action ~config ~session_key args =
                   Lwt.return
                     "Error: 'javascript' parameter is required for run_script."
               | Some url, Some js -> (
+                  let is_safe_scheme =
+                    let lower = String.lowercase_ascii url in
+                    String.starts_with ~prefix:"http://" lower
+                    || String.starts_with ~prefix:"https://" lower
+                    || String.starts_with ~prefix:"data:" lower
+                    || (not (String.contains url ':'))
+                  in
+                  if not is_safe_scheme then
+                    Lwt.return
+                      (Printf.sprintf
+                         "Error: rejected URL scheme in %S. Only http://, \
+                          https://, and data: URLs are allowed."
+                         url)
+                  else
                   let* () = Cdp_client.navigate browser ~url ~timeout_s () in
                   let* r =
                     Cdp_client.evaluate browser ~expression:js ~timeout_s ()

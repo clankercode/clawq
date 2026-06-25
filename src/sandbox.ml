@@ -90,7 +90,7 @@ let wrap_command t cmd =
     | Bubblewrap ->
         let extra_binds =
           bind_if_exists "/lib" ^ bind_if_exists "/lib64"
-          ^ bind_if_exists "/bin" ^ bind_if_exists "/etc" ^ extra_binds t
+          ^ bind_if_exists "/bin" ^ ro_bind_if_exists "/etc" ^ extra_binds t
           ^ user_bin_ro_binds ()
         in
         let dev_binds =

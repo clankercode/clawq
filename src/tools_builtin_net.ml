@@ -136,7 +136,19 @@ let strip_html_to_text html =
         String.length remaining >= String.length p
         && String.sub remaining 0 (String.length p) = p
       in
-      if is_prefix "<script" then begin
+      if is_prefix "<!--" then begin
+        (* Skip HTML comments *)
+        i := !i + 4;
+        let found_end = ref false in
+        while (not !found_end) && !i + 2 < len do
+          if html.[!i] = '-' && html.[!i + 1] = '-' && html.[!i + 2] = '>' then begin
+            found_end := true;
+            i := !i + 3
+          end
+          else incr i
+        done
+      end
+      else if is_prefix "<script" then begin
         while !i < len && html.[!i] <> '>' do
           incr i
         done;
@@ -934,7 +946,7 @@ let zai_webfetch ~(config : Runtime_config.t) =
 let sanitize_git_arg arg =
   let arg_low = String.lowercase_ascii arg in
   let dangerous_prefixes =
-    [ "--exec="; "--upload-pack="; "--receive-pack="; "--pager="; "--editor=" ]
+    [ "--exec="; "--upload-pack="; "--receive-pack="; "--pager="; "--editor="; "--config=" ]
   in
   let ok_prefixes =
     not

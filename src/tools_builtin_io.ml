@@ -130,15 +130,33 @@ let backlog_write_error path =
 
 let path_targets_backlog path =
   (* Match any path that contains '/.backlog/' or starts with '.backlog/'. *)
-  let needle = "/.backlog/" in
-  let len_p = String.length path in
-  let len_n = String.length needle in
-  let rec scan i =
-    if i + len_n > len_p then false
-    else if String.sub path i len_n = needle then true
-    else scan (i + 1)
+  (* Normalize the path to catch relative path traversals like ../.backlog/ *)
+  let normalized =
+    let parts = String.split_on_char '/' path in
+    let rec normalize acc = function
+      | [] -> List.rev acc
+      | "" :: rest -> normalize acc rest
+      | "." :: rest -> normalize acc rest
+      | ".." :: rest -> (
+          match acc with
+          | [] -> normalize [] rest
+          | _ :: acc' -> normalize acc' rest)
+      | x :: rest -> normalize (x :: acc) rest
+    in
+    String.concat "/" (normalize [] parts)
   in
-  scan 0 || (len_p >= 9 && String.sub path 0 9 = ".backlog/")
+  let check p =
+    let needle = "/.backlog/" in
+    let len_p = String.length p in
+    let len_n = String.length needle in
+    let rec scan i =
+      if i + len_n > len_p then false
+      else if String.sub p i len_n = needle then true
+      else scan (i + 1)
+    in
+    scan 0 || (len_p >= 9 && String.sub p 0 9 = ".backlog/")
+  in
+  check path || check normalized
 
 let format_dir_listing ?(show_hidden = false) path =
   match Sys.readdir path with
@@ -566,15 +584,24 @@ let file_edit ~workspace ~workspace_only ~extra_allowed_paths =
                 in
                 let new_content =
                   if replace_all then
-                    let rec build i acc =
+                    let buf = Buffer.create (String.length content) in
+                    let rec build i =
                       if i + String.length old_text > String.length content then
-                        acc ^ String.sub content i (String.length content - i)
+                        Buffer.add_string buf
+                          (String.sub content i (String.length content - i))
                       else if
                         String.sub content i (String.length old_text) = old_text
-                      then build (i + String.length old_text) (acc ^ new_text)
-                      else build (i + 1) (acc ^ String.make 1 content.[i])
+                      then begin
+                        Buffer.add_string buf new_text;
+                        build (i + String.length old_text)
+                      end
+                      else begin
+                        Buffer.add_char buf content.[i];
+                        build (i + 1)
+                      end
                     in
-                    build 0 ""
+                    build 0;
+                    Buffer.contents buf
                   else
                     let before = String.sub content 0 idx in
                     let after =
