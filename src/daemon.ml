@@ -839,9 +839,11 @@ let run ~(config : Runtime_config.t) =
            | other -> other
          in
          let oc = open_out state_path in
-         Fun.protect ~finally:(fun () -> close_out oc) (fun () ->
-           output_string oc (Yojson.Safe.pretty_to_string updated);
-           output_char oc '\n')
+         Fun.protect
+           ~finally:(fun () -> close_out oc)
+           (fun () ->
+             output_string oc (Yojson.Safe.pretty_to_string updated);
+             output_char oc '\n')
        with _ -> ());
   Logs.info (fun m ->
       m "Web UI assets ready at %s (version=%s dev_mode=%b)" ui_server.ui_dir
@@ -1684,11 +1686,13 @@ let run ~(config : Runtime_config.t) =
                   let content =
                     try
                       let ic = open_in hb_path in
-                      Fun.protect ~finally:(fun () -> close_in_noerr ic) (fun () ->
-                        let n = in_channel_length ic in
-                        let buf = Bytes.create n in
-                        really_input ic buf 0 n;
-                        String.trim (Bytes.to_string buf))
+                      Fun.protect
+                        ~finally:(fun () -> close_in_noerr ic)
+                        (fun () ->
+                          let n = in_channel_length ic in
+                          let buf = Bytes.create n in
+                          really_input ic buf 0 n;
+                          String.trim (Bytes.to_string buf))
                     with _ -> ""
                   in
                   if content = "" then hb_loop ()

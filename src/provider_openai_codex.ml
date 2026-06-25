@@ -229,10 +229,10 @@ let collect_call_ids items =
     (fun item ->
       match item with
       | `Assoc fields
-        when (match List.assoc_opt "type" fields with
-              | Some (`String "function_call") | Some (`String "tool_call") ->
-                  true
-              | _ -> false) -> (
+        when match List.assoc_opt "type" fields with
+             | Some (`String "function_call") | Some (`String "tool_call") ->
+                 true
+             | _ -> false -> (
           match List.assoc_opt "call_id" fields with
           | Some (`String id) -> Some id
           | _ -> (

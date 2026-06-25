@@ -198,7 +198,9 @@ let notify_skill_loads ~send injections =
           Lwt.catch
             (fun () -> send (Printf.sprintf "Loaded skill: %s" name))
             (fun exn ->
-              Logs.warn (fun m -> m "Skill load notification failed: %s" (Printexc.to_string exn));
+              Logs.warn (fun m ->
+                  m "Skill load notification failed: %s"
+                    (Printexc.to_string exn));
               Lwt.return_unit)))
     names
 
@@ -594,7 +596,8 @@ let rec drain_queued_messages_loop mgr ~key agent interrupt ?on_drain_progress
         | Some msgs -> msgs
         | None -> []
       in
-      Hashtbl.replace mgr.Session_core.queued_messages key (existing @ [ queued ]);
+      Hashtbl.replace mgr.Session_core.queued_messages key
+        (existing @ [ queued ]);
       Lwt.return_unit
   | None, _ ->
       if drained_any then

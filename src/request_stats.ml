@@ -189,7 +189,7 @@ let is_valid_date_expr s =
   && s.[len - 1] = ')'
   && (not (has_substr ";"))
   && (not (has_substr "' UNION"))
-  && (not (has_substr "' OR"))
+  && not (has_substr "' OR")
 
 let resolve_since ~db since =
   if not (is_valid_date_expr since) then (

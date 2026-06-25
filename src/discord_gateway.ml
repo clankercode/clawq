@@ -169,7 +169,9 @@ let handle_gateway_message t msg =
             t.session_id <- None;
             t.seq <- None;
             (* Close websocket and let the reconnect loop handle identification *)
-            (match t.ws with Some ws -> Ws_client.close ws | None -> ());
+            (match t.ws with
+            | Some ws -> Ws_client.close ws
+            | None -> ());
             Lwt.return_unit
           end
       | _ ->

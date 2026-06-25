@@ -1481,9 +1481,11 @@ let cmd_auth args =
                           Yojson.Safe.pretty_to_string ~std:true new_json
                         in
                         let oc = open_out config_path in
-                        Fun.protect ~finally:(fun () -> close_out oc) (fun () ->
-                          output_string oc s;
-                          output_char oc '\n');
+                        Fun.protect
+                          ~finally:(fun () -> close_out oc)
+                          (fun () ->
+                            output_string oc s;
+                            output_char oc '\n');
                         "API keys encrypted in " ^ config_path
                       with exn ->
                         Printf.sprintf "Failed to write config: %s"
@@ -1807,8 +1809,9 @@ let cmd_pipeline args =
             let dir = Structured_pipeline.ensure_pipelines_dir () in
             let path = Filename.concat dir (name ^ ".yaml") in
             let oc = open_out path in
-            Fun.protect ~finally:(fun () -> close_out oc) (fun () ->
-              output_string oc yaml);
+            Fun.protect
+              ~finally:(fun () -> close_out oc)
+              (fun () -> output_string oc yaml);
             Printf.sprintf "Saved pipeline to %s" path
           end
           else "Pipeline not saved."

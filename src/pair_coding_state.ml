@@ -232,8 +232,7 @@ let set_approval ~db ~id ~(role : Pair_coding_types.role) ~approved ~comment =
   let committed = ref false in
   Fun.protect
     ~finally:(fun () ->
-      if not !committed then
-        (try exec_exn db "ROLLBACK" with _ -> ()))
+      if not !committed then try exec_exn db "ROLLBACK" with _ -> ())
     (fun () ->
       let col_approved, col_comment =
         match role with
@@ -260,7 +259,8 @@ let set_approval ~db ~id ~(role : Pair_coding_types.role) ~approved ~comment =
       (* Check if both are now approved *)
       let check_stmt =
         Sqlite3.prepare db
-          "SELECT coder_approved, observer_approved FROM pair_session WHERE id = ?"
+          "SELECT coder_approved, observer_approved FROM pair_session WHERE id \
+           = ?"
       in
       ignore (Sqlite3.bind check_stmt 1 (TEXT id));
       let both =

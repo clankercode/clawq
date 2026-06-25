@@ -350,9 +350,7 @@ let record_turn ~model ~prompt_tokens ~completion_tokens ~session_id
     ?(cache_hit = false) ?(api_cached_tokens = 0) () =
   let cost =
     if cache_hit && api_cached_tokens > 0 then
-      let added_prompt_tokens =
-        max 0 (prompt_tokens - api_cached_tokens)
-      in
+      let added_prompt_tokens = max 0 (prompt_tokens - api_cached_tokens) in
       calculate_cost_with_cache ~model ~prompt_tokens ~completion_tokens
         ~added_prompt_tokens ~cache_hit ~api_cached_tokens ()
     else calculate_cost ~model ~prompt_tokens ~completion_tokens

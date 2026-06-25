@@ -946,7 +946,14 @@ let zai_webfetch ~(config : Runtime_config.t) =
 let sanitize_git_arg arg =
   let arg_low = String.lowercase_ascii arg in
   let dangerous_prefixes =
-    [ "--exec="; "--upload-pack="; "--receive-pack="; "--pager="; "--editor="; "--config=" ]
+    [
+      "--exec=";
+      "--upload-pack=";
+      "--receive-pack=";
+      "--pager=";
+      "--editor=";
+      "--config=";
+    ]
   in
   let ok_prefixes =
     not

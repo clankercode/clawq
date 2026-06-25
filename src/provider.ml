@@ -1032,8 +1032,9 @@ let find_provider_for_model ~providers ~model_name =
       String.length norm >= nlen
       && String.sub norm 0 nlen = norm_name
       && (String.length norm = nlen
-         || let c = norm.[nlen] in
-            c = '-' || c = ':' || c = '/')
+         ||
+         let c = norm.[nlen] in
+         c = '-' || c = ':' || c = '/')
       && provider_has_routable_auth ~name p
     then Some (name, p)
     else

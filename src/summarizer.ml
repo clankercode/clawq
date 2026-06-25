@@ -228,8 +228,7 @@ let maybe_summarize ~(config : Runtime_config.t) ~(db : Sqlite3.db option)
         let* final_result =
           match result with
           | Ok (text, usage, model_used)
-            when String.starts_with ~prefix:"ESCALATE"
-                   (String.trim text) -> (
+            when String.starts_with ~prefix:"ESCALATE" (String.trim text) -> (
               (* Escalation requested *)
               let escalation_pm =
                 match sc.escalation_model with

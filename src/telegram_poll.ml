@@ -204,7 +204,8 @@ let poll_account ~bot_token ~(account : Runtime_config.telegram_account) ~name
                 if update.message_id > 0 then begin
                   let cur =
                     Option.value ~default:0
-                      (Hashtbl.find_opt Telegram.latest_chat_msg_id update.chat_id)
+                      (Hashtbl.find_opt Telegram.latest_chat_msg_id
+                         update.chat_id)
                   in
                   if update.message_id > cur then
                     Hashtbl.replace Telegram.latest_chat_msg_id update.chat_id

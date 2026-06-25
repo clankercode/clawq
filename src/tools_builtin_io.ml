@@ -583,7 +583,7 @@ let file_edit ~workspace ~workspace_only ~extra_allowed_paths =
                   count 0 0
                 in
                 let new_content =
-                  if replace_all then
+                  if replace_all then (
                     let buf = Buffer.create (String.length content) in
                     let rec build i =
                       if i + String.length old_text > String.length content then
@@ -601,7 +601,7 @@ let file_edit ~workspace ~workspace_only ~extra_allowed_paths =
                       end
                     in
                     build 0;
-                    Buffer.contents buf
+                    Buffer.contents buf)
                   else
                     let before = String.sub content 0 idx in
                     let after =

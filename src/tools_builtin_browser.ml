@@ -221,7 +221,7 @@ let execute_single_action ~config ~session_key args =
                     String.starts_with ~prefix:"http://" lower
                     || String.starts_with ~prefix:"https://" lower
                     || String.starts_with ~prefix:"data:" lower
-                    || (not (String.contains url ':'))
+                    || not (String.contains url ':')
                   in
                   if not is_safe_scheme then
                     Lwt.return
@@ -230,13 +230,15 @@ let execute_single_action ~config ~session_key args =
                           https://, and data: URLs are allowed."
                          url)
                   else
-                  let* () = Cdp_client.navigate browser ~url ~timeout_s () in
-                  let* title_r =
-                    Cdp_client.evaluate browser
-                      ~expression:"document.title + ' - ' + location.href" ()
-                  in
-                  let title = match title_r with Ok s -> s | Error _ -> url in
-                  Lwt.return (Printf.sprintf "Navigated to: %s" title))
+                    let* () = Cdp_client.navigate browser ~url ~timeout_s () in
+                    let* title_r =
+                      Cdp_client.evaluate browser
+                        ~expression:"document.title + ' - ' + location.href" ()
+                    in
+                    let title =
+                      match title_r with Ok s -> s | Error _ -> url
+                    in
+                    Lwt.return (Printf.sprintf "Navigated to: %s" title))
           | "click" -> (
               match get_str "selector" args with
               | None ->
@@ -342,7 +344,7 @@ let execute_single_action ~config ~session_key args =
                     String.starts_with ~prefix:"http://" lower
                     || String.starts_with ~prefix:"https://" lower
                     || String.starts_with ~prefix:"data:" lower
-                    || (not (String.contains url ':'))
+                    || not (String.contains url ':')
                   in
                   if not is_safe_scheme then
                     Lwt.return
@@ -351,13 +353,13 @@ let execute_single_action ~config ~session_key args =
                           https://, and data: URLs are allowed."
                          url)
                   else
-                  let name = get_str "tab" args in
-                  let* tab_name =
-                    Cdp_client.create_tab browser ?name ~url ~timeout_s ()
-                  in
-                  Lwt.return
-                    (Printf.sprintf "Opened new tab %S with URL %s" tab_name url)
-              )
+                    let name = get_str "tab" args in
+                    let* tab_name =
+                      Cdp_client.create_tab browser ?name ~url ~timeout_s ()
+                    in
+                    Lwt.return
+                      (Printf.sprintf "Opened new tab %S with URL %s" tab_name
+                         url))
           | "switch_tab" -> (
               match get_str "tab" args with
               | None ->
@@ -390,7 +392,7 @@ let execute_single_action ~config ~session_key args =
                     String.starts_with ~prefix:"http://" lower
                     || String.starts_with ~prefix:"https://" lower
                     || String.starts_with ~prefix:"data:" lower
-                    || (not (String.contains url ':'))
+                    || not (String.contains url ':')
                   in
                   if not is_safe_scheme then
                     Lwt.return
@@ -399,9 +401,11 @@ let execute_single_action ~config ~session_key args =
                           https://, and data: URLs are allowed."
                          url)
                   else
-                  let* () = Cdp_client.navigate browser ~url ~timeout_s () in
-                  let* content = Cdp_client.get_content browser ~timeout_s () in
-                  Lwt.return content)
+                    let* () = Cdp_client.navigate browser ~url ~timeout_s () in
+                    let* content =
+                      Cdp_client.get_content browser ~timeout_s ()
+                    in
+                    Lwt.return content)
           | "fill_form" -> (
               let fields =
                 try
@@ -448,7 +452,7 @@ let execute_single_action ~config ~session_key args =
                     String.starts_with ~prefix:"http://" lower
                     || String.starts_with ~prefix:"https://" lower
                     || String.starts_with ~prefix:"data:" lower
-                    || (not (String.contains url ':'))
+                    || not (String.contains url ':')
                   in
                   if not is_safe_scheme then
                     Lwt.return
@@ -457,12 +461,14 @@ let execute_single_action ~config ~session_key args =
                           https://, and data: URLs are allowed."
                          url)
                   else
-                  let* () = Cdp_client.navigate browser ~url ~timeout_s () in
-                  let* path = Cdp_client.screenshot browser ~timeout_s () in
-                  let* content = Cdp_client.get_content browser ~timeout_s () in
-                  Lwt.return
-                    (Printf.sprintf "Screenshot: %s\n\nPage content:\n%s" path
-                       content))
+                    let* () = Cdp_client.navigate browser ~url ~timeout_s () in
+                    let* path = Cdp_client.screenshot browser ~timeout_s () in
+                    let* content =
+                      Cdp_client.get_content browser ~timeout_s ()
+                    in
+                    Lwt.return
+                      (Printf.sprintf "Screenshot: %s\n\nPage content:\n%s" path
+                         content))
           | "run_script" -> (
               match (get_str "url" args, get_str "javascript" args) with
               | None, _ ->
@@ -477,7 +483,7 @@ let execute_single_action ~config ~session_key args =
                     String.starts_with ~prefix:"http://" lower
                     || String.starts_with ~prefix:"https://" lower
                     || String.starts_with ~prefix:"data:" lower
-                    || (not (String.contains url ':'))
+                    || not (String.contains url ':')
                   in
                   if not is_safe_scheme then
                     Lwt.return
@@ -486,13 +492,13 @@ let execute_single_action ~config ~session_key args =
                           https://, and data: URLs are allowed."
                          url)
                   else
-                  let* () = Cdp_client.navigate browser ~url ~timeout_s () in
-                  let* r =
-                    Cdp_client.evaluate browser ~expression:js ~timeout_s ()
-                  in
-                  match r with
-                  | Ok s -> Lwt.return s
-                  | Error e -> Lwt.return ("Error: " ^ e)))
+                    let* () = Cdp_client.navigate browser ~url ~timeout_s () in
+                    let* r =
+                      Cdp_client.evaluate browser ~expression:js ~timeout_s ()
+                    in
+                    match r with
+                    | Ok s -> Lwt.return s
+                    | Error e -> Lwt.return ("Error: " ^ e)))
           | "perform" -> (
               match get_str "instructions" args with
               | None ->

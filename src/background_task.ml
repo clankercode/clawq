@@ -1962,9 +1962,7 @@ let readopt_running_tasks ~db ~on_task_finished =
                                group is gone, return 0 (clean exit) since we
                                cannot inspect the real exit status. Return 1
                                only if we time out while still alive. *)
-                            let deadline =
-                              Unix.gettimeofday () +. 300.0
-                            in
+                            let deadline = Unix.gettimeofday () +. 300.0 in
                             let rec poll () =
                               if not (Process_group.group_alive pid) then
                                 Lwt.return 0

@@ -53,8 +53,9 @@ let write_state ~pairing_code ~(tunnel_json : Yojson.Safe.t option)
   let json = `Assoc fields in
   try
     let oc = open_out state_path in
-    Fun.protect ~finally:(fun () -> close_out oc) (fun () ->
-      output_string oc (Yojson.Safe.pretty_to_string json))
+    Fun.protect
+      ~finally:(fun () -> close_out oc)
+      (fun () -> output_string oc (Yojson.Safe.pretty_to_string json))
   with exn ->
     Logs.warn (fun m ->
         m "Failed to write daemon state: %s" (Printexc.to_string exn))

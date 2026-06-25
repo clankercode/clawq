@@ -1175,7 +1175,7 @@ let send_message ?(disable_notification = true) ?parse_mode ~bot_token ~chat_id
         else if
           parse_mode <> None && status = 400
           && not (is_not_modified_error resp_body)
-        then
+        then (
           let plain_text =
             match parse_mode with
             | Some "HTML" -> html_fallback_to_plain_text text
@@ -1207,7 +1207,7 @@ let send_message ?(disable_notification = true) ?parse_mode ~bot_token ~chat_id
              in
              if id > cur then Hashtbl.replace latest_chat_msg_id chat_id id
            with _ -> ());
-          Lwt.return_unit
+          Lwt.return_unit)
         else Lwt.return_unit)
 
 let send_chunked ?(disable_notification = true) ?parse_mode ~bot_token ~chat_id

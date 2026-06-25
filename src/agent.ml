@@ -1456,9 +1456,12 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
           }
         in
         Lwt.async (fun () ->
-            Lwt.catch (fun () -> cb call) (fun exn ->
-              Logs.warn (fun m -> m "Debug callback failed: %s" (Printexc.to_string exn));
-              Lwt.return_unit))
+            Lwt.catch
+              (fun () -> cb call)
+              (fun exn ->
+                Logs.warn (fun m ->
+                    m "Debug callback failed: %s" (Printexc.to_string exn));
+                Lwt.return_unit))
     | None -> ());
     match response with
     | Provider.Text { content; provider_response_items_json; thinking; _ } ->
@@ -1907,9 +1910,12 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
               }
             in
             Lwt.async (fun () ->
-                Lwt.catch (fun () -> cb call) (fun exn ->
-                  Logs.warn (fun m -> m "Debug callback failed: %s" (Printexc.to_string exn));
-                  Lwt.return_unit))
+                Lwt.catch
+                  (fun () -> cb call)
+                  (fun exn ->
+                    Logs.warn (fun m ->
+                        m "Debug callback failed: %s" (Printexc.to_string exn));
+                    Lwt.return_unit))
         | None -> ());
         match response with
         | Provider.Text { content; provider_response_items_json; thinking; _ }

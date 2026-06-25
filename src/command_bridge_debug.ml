@@ -309,8 +309,9 @@ let cmd_reset_agent () =
         let path = Filename.concat workspace name in
         try
           let oc = open_out path in
-          Fun.protect ~finally:(fun () -> close_out oc) (fun () ->
-            output_string oc content)
+          Fun.protect
+            ~finally:(fun () -> close_out oc)
+            (fun () -> output_string oc content)
         with _ -> ())
       Workspace_scaffold.templates;
     print_endline "  Done:";
@@ -395,8 +396,9 @@ let cmd_reset_workspace () =
         let path = Filename.concat workspace name in
         try
           let oc = open_out path in
-          Fun.protect ~finally:(fun () -> close_out oc) (fun () ->
-            output_string oc content)
+          Fun.protect
+            ~finally:(fun () -> close_out oc)
+            (fun () -> output_string oc content)
         with _ -> ())
       Workspace_scaffold.templates;
     print_endline "  Done:";
@@ -592,8 +594,9 @@ let cmd_manifest = function
       ""
   | [ "teams"; "--output"; path ] ->
       let oc = open_out path in
-      Fun.protect ~finally:(fun () -> close_out oc) (fun () ->
-        output_string oc (Slash_commands_manifest.teams_json ()));
+      Fun.protect
+        ~finally:(fun () -> close_out oc)
+        (fun () -> output_string oc (Slash_commands_manifest.teams_json ()));
       Printf.sprintf "Wrote Teams manifest to %s" path
   | [ "teams"; "-n"; n ] -> (
       match int_of_string_opt n with

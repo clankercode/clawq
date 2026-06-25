@@ -19,9 +19,13 @@ let parse_config ?(resolve_secrets = true) json =
   let providers_node =
     let top = try json |> member "providers" with _ -> `Null in
     if top <> `Null then top
-    else try json |> member "models" |> member "providers" with exn ->
-      Logs.debug (fun m -> m "Config: 'models.providers' parse failed: %s" (Printexc.to_string exn));
-      `Null
+    else
+      try json |> member "models" |> member "providers"
+      with exn ->
+        Logs.debug (fun m ->
+            m "Config: 'models.providers' parse failed: %s"
+              (Printexc.to_string exn));
+        `Null
   in
   let default_temperature =
     with_default "default_temperature" default.default_temperature (fun () ->
