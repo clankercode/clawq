@@ -867,17 +867,7 @@ type provider_kind =
   | Cohere
   | MiniMax
 
-let string_contains s sub =
-  let ls = String.length s and lsub = String.length sub in
-  if lsub = 0 then true
-  else if ls < lsub then false
-  else
-    let rec go i =
-      if i > ls - lsub then false
-      else if String.sub s i lsub = sub then true
-      else go (i + 1)
-    in
-    go 0
+let string_contains = String_util.string_contains
 
 let detect_kind ?(name = "") (p : Runtime_config.provider_config) =
   match p.kind with

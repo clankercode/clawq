@@ -1,15 +1,7 @@
 type t = { ui_dir : string; dev_mode : bool; version : string }
 type asset = { name : string; content_type : string; body : string }
 
-let string_contains s sub =
-  let ls = String.length s and lsub = String.length sub in
-  let rec loop i =
-    if lsub = 0 then true
-    else if i + lsub > ls then false
-    else if String.sub s i lsub = sub then true
-    else loop (i + 1)
-  in
-  loop 0
+let string_contains = String_util.string_contains
 
 let replace_all s ~pattern ~replacement =
   let plen = String.length pattern in

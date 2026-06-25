@@ -27,7 +27,19 @@ let escape connector text =
           | _ -> Buffer.add_char buf c)
         text;
       Buffer.contents buf
-  | Telegram_markdown | Telegram_mdv2 | Discord | Slack | Teams | Plain -> text
+  | Discord | Slack | Teams ->
+      (* Escape backslash to prevent unintended escape sequences. Do NOT
+         escape formatting markers because escape is called before bold/italic/
+         code wrappers are applied. *)
+      let buf = Buffer.create (String.length text + 16) in
+      String.iter
+        (fun c ->
+          match c with
+          | '\\' -> Buffer.add_string buf "\\\\"
+          | _ -> Buffer.add_char buf c)
+        text;
+      Buffer.contents buf
+  | Telegram_markdown | Telegram_mdv2 | Plain -> text
 
 let of_parse_mode = function
   | "HTML" -> Telegram_html

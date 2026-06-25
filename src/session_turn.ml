@@ -486,9 +486,10 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
               Session_core.persist_compacted_history mgr ~key agent;
               agent.Agent.compacted_mid_turn <- false
             end
-            else
+            else if List.length agent.Agent.history > !persisted_up_to then
               Session_core.persist_new_messages mgr ~key
-                ~history_before:!persisted_up_to agent;
+                ~history_before:!persisted_up_to agent
+            else Session_core.persist_session_workspace_state mgr ~key agent;
             match mgr.db with
             | Some db when mgr.config.security.audit_enabled ->
                 Audit.log ~db
@@ -1343,9 +1344,20 @@ let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
                               agent;
                             agent.Agent.compacted_mid_turn <- false
                           end
-                          else
+                          else if
+                            List.length agent.Agent.history > !persisted_up_to
+                          then
+                            (* Only persist messages if streaming did not already
+                               cover all new messages (history grew after last
+                               flush). Workspace state is still updated
+                               unconditionally inside persist_new_messages. *)
                             Session_core.persist_new_messages mgr ~key
-                              ~history_before:!persisted_up_to agent;
+                              ~history_before:!persisted_up_to agent
+                          else
+                            (* No new messages — still persist workspace state
+                               (effective_cwd may have changed). *)
+                            Session_core.persist_session_workspace_state mgr
+                              ~key agent;
                           match mgr.db with
                           | Some db when mgr.config.security.audit_enabled ->
                               Audit.log ~db

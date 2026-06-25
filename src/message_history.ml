@@ -155,7 +155,10 @@ let sanitize_messages_for_flush (msgs : Provider.message list) :
               "[Multimedia content]"
             else m.content
           in
-          if content = "" || String.trim content = "" then None
+          if content = "" || String.trim content = "" then
+            (* Note: tool-role messages are always preserved because the prefix
+               added above ensures content is never empty. *)
+            None
           else
             Some
               (Provider.make_message ~role

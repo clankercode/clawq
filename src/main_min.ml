@@ -248,7 +248,8 @@ let version_cmd =
     Term.(
       ret
         (const (fun () ->
-             print_endline Build_info.version_string;
+             Printf.printf "clawq %s\ngit %s\nbuilt %s\n" Build_info.version_dev
+               Build_info.git_shorthash Build_info.build_date;
              `Ok ())
         $ const ()))
 

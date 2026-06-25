@@ -1561,18 +1561,7 @@ let parse_session_show_args args =
   loop None 0 None args
 
 (* B235: session events helpers *)
-let string_contains haystack needle =
-  let hlen = String.length haystack in
-  let nlen = String.length needle in
-  if nlen = 0 then true
-  else if nlen > hlen then false
-  else
-    let rec loop i =
-      if i + nlen > hlen then false
-      else if String.sub haystack i nlen = needle then true
-      else loop (i + 1)
-    in
-    loop 0
+let string_contains = String_util.string_contains
 
 type session_events_args = {
   ev_epoch : Memory.epoch_selector option;

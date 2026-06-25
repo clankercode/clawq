@@ -28,14 +28,14 @@ let bash_script =
         cur="${COMP_WORDS[COMP_CWORD]}"
         prev="${COMP_WORDS[COMP_CWORD-1]}"
     }
-    local commands="active agent audit auth background benchmark capabilities channel completions config costs cron debug delegate doctor hardware memory mcp migrate models onboard otp-show phase2 plan provider reset-agent reset-workspace rig runtime service session skills status transcribe tunnel update usage version workspace"
+    local commands="active agent audit auth background benchmark capabilities channel completions config costs cron debug debate delegate doctor ec-run hardware held-items manifest memory mcp migrate models onboard otp-show phase2 plan pipeline provider reset-agent reset-workspace rig runtime service session skills status transcribe tunnel update usage version watcher workspace"
     if [[ ${COMP_CWORD} -eq 1 ]]; then
         COMPREPLY=( $(compgen -W "${commands}" -- "${cur}") )
         return
     fi
     case "${COMP_WORDS[1]}" in
         audit)       COMPREPLY=( $(compgen -W "list verify export import purge" -- "${cur}") );;
-        auth)        COMPREPLY=( $(compgen -W "set-key providers encrypt codex-login codex-status codex-logout" -- "${cur}") );;
+        auth)        COMPREPLY=( $(compgen -W "set-key providers encrypt codex-login codex-status codex-logout pair" -- "${cur}") );;
         background)  COMPREPLY=( $(compgen -W "list show add wait logs cancel" -- "${cur}") );;
         completions) COMPREPLY=( $(compgen -W "print install" -- "${cur}") );;
         config)      COMPREPLY=( $(compgen -W "wizard set get show" -- "${cur}") );;
@@ -50,6 +50,10 @@ let bash_script =
         session)     COMPREPLY=( $(compgen -W "list epochs show inject events pending compact" -- "${cur}") );;
         skills)      COMPREPLY=( $(compgen -W "list path init" -- "${cur}") );;
         tunnel)      COMPREPLY=( $(compgen -W "start stop status apply restart daemon-status" -- "${cur}") );;
+        held-items)  COMPREPLY=( $(compgen -W "save list show approve reject" -- "${cur}") );;
+        pipeline)    COMPREPLY=( $(compgen -W "list show run validate create" -- "${cur}") );;
+        watcher)     COMPREPLY=( $(compgen -W "status enable disable reports report" -- "${cur}") );;
+        manifest)    COMPREPLY=( $(compgen -W "teams telegram" -- "${cur}") );;
     esac
 }
 complete -F _clawq_completions clawq
@@ -79,9 +83,13 @@ _clawq() {
                 'config:Manage configuration'
                 'cron:Manage scheduled agent messages'
                 'debug:Debug utilities'
+                'debate:Route prompt to multiple models'
                 'delegate:High-level background-task workflow'
                 'doctor:Check configuration for common issues'
+                'ec-run:Run the error correction process'
                 'hardware:Hardware integration'
+                'held-items:Manage held feature plans'
+                'manifest:Generate connector command manifests'
                 'memory:Show memory backend configuration'
                 'mcp:Start the MCP server'
                 'migrate:Run database migrations'
@@ -90,6 +98,7 @@ _clawq() {
                 'otp-show:Show pairing codes'
                 'phase2:Show Phase 2 feature status'
                 'plan:Manage planning pipelines'
+                'pipeline:Structured output pipelines'
                 'provider:Show provider quota and list'
                 'rig:Manage agent-driven setup rigs'
                 'reset-agent:Wipe and redeploy agent'
@@ -106,6 +115,7 @@ _clawq() {
                 'costs:Show cost breakdowns'
                 'usage:Show provider quota/usage status'
                 'version:Print version and build info'
+                'watcher:Manage error correction watcher'
                 'workspace:Print the current workspace directory'
             )
             _describe 'command' commands
@@ -113,7 +123,7 @@ _clawq() {
         args)
             case $line[1] in
                 audit)       _values 'subcommand' 'list' 'verify' 'export' 'import' 'purge';;
-                auth)        _values 'subcommand' 'set-key' 'providers' 'encrypt' 'codex-login' 'codex-status' 'codex-logout';;
+                auth)        _values 'subcommand' 'set-key' 'providers' 'encrypt' 'codex-login' 'codex-status' 'codex-logout' 'pair';;
                 background)  _values 'subcommand' 'list' 'show' 'add' 'wait' 'logs' 'cancel';;
                 completions) _values 'subcommand' 'print' 'install';;
                 config)      _values 'subcommand' 'wizard' 'set' 'get' 'show';;
@@ -128,6 +138,10 @@ _clawq() {
                 session)     _values 'subcommand' 'list' 'epochs' 'show' 'inject' 'events' 'pending' 'compact';;
                 skills)      _values 'subcommand' 'list' 'path' 'init';;
                 tunnel)      _values 'subcommand' 'start' 'stop' 'status' 'apply' 'restart' 'daemon-status';;
+                held-items)  _values 'subcommand' 'save' 'list' 'show' 'approve' 'reject';;
+                pipeline)    _values 'subcommand' 'list' 'show' 'run' 'validate' 'create';;
+                watcher)     _values 'subcommand' 'status' 'enable' 'disable' 'reports' 'report';;
+                manifest)    _values 'subcommand' 'teams' 'telegram';;
             esac
             ;;
     esac
@@ -138,7 +152,7 @@ _clawq
 
 let fish_script =
   {|# clawq fish completions
-set -l clawq_commands active agent audit auth background benchmark capabilities channel completions config costs cron debug delegate doctor hardware memory mcp migrate models onboard otp-show phase2 plan provider reset-agent reset-workspace rig runtime service session skills status transcribe tunnel update usage version workspace
+set -l clawq_commands active agent audit auth background benchmark capabilities channel completions config costs cron debug debate delegate doctor ec-run hardware held-items manifest memory mcp migrate models onboard otp-show phase2 plan pipeline provider reset-agent reset-workspace rig runtime service session skills status transcribe tunnel update usage version watcher workspace
 
 complete -c clawq -f
 for cmd in $clawq_commands
@@ -146,7 +160,7 @@ for cmd in $clawq_commands
 end
 
 complete -c clawq -n "__fish_seen_subcommand_from audit"       -a "list verify export import purge"
-complete -c clawq -n "__fish_seen_subcommand_from auth"        -a "set-key providers encrypt codex-login codex-status codex-logout"
+complete -c clawq -n "__fish_seen_subcommand_from auth"        -a "set-key providers encrypt codex-login codex-status codex-logout pair"
 complete -c clawq -n "__fish_seen_subcommand_from background"  -a "list show add wait logs cancel"
 complete -c clawq -n "__fish_seen_subcommand_from completions" -a "print install"
 complete -c clawq -n "__fish_seen_subcommand_from config"      -a "wizard set get show"
@@ -161,6 +175,10 @@ complete -c clawq -n "__fish_seen_subcommand_from service"     -a "start stop re
 complete -c clawq -n "__fish_seen_subcommand_from session"     -a "list epochs show inject events pending compact"
 complete -c clawq -n "__fish_seen_subcommand_from skills"      -a "list path init"
 complete -c clawq -n "__fish_seen_subcommand_from tunnel"      -a "start stop status apply restart daemon-status"
+complete -c clawq -n "__fish_seen_subcommand_from held-items"  -a "save list show approve reject"
+complete -c clawq -n "__fish_seen_subcommand_from pipeline"    -a "list show run validate create"
+complete -c clawq -n "__fish_seen_subcommand_from watcher"     -a "status enable disable reports report"
+complete -c clawq -n "__fish_seen_subcommand_from manifest"    -a "teams telegram"
 |}
 
 let script_for_shell = function

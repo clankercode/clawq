@@ -181,10 +181,6 @@ let release_singleton_lock = function
 let nofork_env = "CLAWQ_DAEMON_NOFORK"
 let internal_nofork_env = "CLAWQ_DAEMON_INTERNAL_NOFORK"
 
-let has_prefix ~prefix s =
-  let plen = String.length prefix in
-  String.length s >= plen && String.sub s 0 plen = prefix
-
 let build_env ~set_vars ~unset_vars =
   let should_drop entry =
     List.exists (fun key -> has_prefix ~prefix:(key ^ "=") entry) unset_vars

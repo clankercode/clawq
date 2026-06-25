@@ -1,16 +1,5 @@
 let responses_uri = Openai_codex_oauth.codex_base_url ^ "/responses"
-
-let string_contains s sub =
-  let ls = String.length s and lsub = String.length sub in
-  if lsub = 0 then true
-  else if ls < lsub then false
-  else
-    let rec loop i =
-      if i > ls - lsub then false
-      else if String.sub s i lsub = sub then true
-      else loop (i + 1)
-    in
-    loop 0
+let string_contains = String_util.string_contains
 
 let strip_provider_prefix model =
   Runtime_config.strip_model_provider_prefix model
