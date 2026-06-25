@@ -2334,88 +2334,93 @@ let test_reap_handles_no_pid () =
             | None -> false))
 
 let test_spawn_detects_child_exit_despite_open_pipes () =
-  with_temp_git_repo (fun repo_path ->
-      let db = Memory.init ~db_path:":memory:" () in
-      Background_task.init_schema db;
-      let id =
-        match
-          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
-            ~prompt:"test B210 watchdog" ()
-        with
-        | Ok id -> id
-        | Error msg -> Alcotest.fail msg
-      in
-      (* Mock run_simple_command so prepare_worktree succeeds without git.
+  Test_helpers.with_temp_home (fun _home ->
+      with_temp_git_repo (fun repo_path ->
+          let db = Memory.init ~db_path:":memory:" () in
+          Background_task.init_schema db;
+          let id =
+            match
+              Background_task.enqueue ~db ~runner:Background_task.Codex
+                ~repo_path ~prompt:"test B210 watchdog" ()
+            with
+            | Ok id -> id
+            | Error msg -> Alcotest.fail msg
+          in
+          (* Mock run_simple_command so prepare_worktree succeeds without git.
          We need to create the worktree dir since spawn_task uses it as cwd. *)
-      let wt_path =
-        Filename.concat
-          (Filename.concat
-             (Filename.concat
-                (try Sys.getenv "HOME" with Not_found -> "/tmp")
-                ".clawq")
-             "background-worktrees")
-          (Printf.sprintf "task-%d" id)
-      in
-      (* Ensure parent dirs exist so prepare_worktree can run;
+          let wt_path =
+            Filename.concat
+              (Filename.concat
+                 (Filename.concat
+                    (try Sys.getenv "HOME" with Not_found -> "/tmp")
+                    ".clawq")
+                 "background-worktrees")
+              (Printf.sprintf "task-%d" id)
+          in
+          (* Ensure parent dirs exist so prepare_worktree can run;
          don't create wt_path itself — prepare_worktree rejects existing *)
-      (try Unix.mkdir (Filename.dirname wt_path) 0o755
-       with Unix.Unix_error (Unix.EEXIST, _, _) -> ());
-      (try Sys.rmdir wt_path with Sys_error _ -> ());
-      let finished = ref false in
-      Lwt_main.run
-        (let open Lwt.Syntax in
-         (* Command: main process exits immediately, but sleep 999 keeps
+          (try Unix.mkdir (Filename.dirname (Filename.dirname wt_path)) 0o755
+           with Unix.Unix_error (Unix.EEXIST, _, _) -> ());
+          (try Unix.mkdir (Filename.dirname wt_path) 0o755
+           with Unix.Unix_error (Unix.EEXIST, _, _) -> ());
+          (try Sys.rmdir wt_path with Sys_error _ -> ());
+          let finished = ref false in
+          Lwt_main.run
+            (let open Lwt.Syntax in
+             (* Command: main process exits immediately, but sleep 999 keeps
             pipe fds open as a grandchild in the same process group *)
-         Background_task.spawn_task ~db
-           ~run_simple_command:(fun ~cwd:_ _argv ->
-             (* Mock git worktree add: create the directory so
+             Background_task.spawn_task ~db
+               ~run_simple_command:(fun ~cwd:_ _argv ->
+                 (* Mock git worktree add: create the directory so
                 Process_group.start has a valid cwd *)
-             (try Unix.mkdir wt_path 0o755
-              with Unix.Unix_error (Unix.EEXIST, _, _) -> ());
-             Lwt.return (0, "", ""))
-           ~command_override:(Process_group.Shell "sleep 999 & exec true")
-           ~on_task_finished:(fun _ ->
-             finished := true;
-             Lwt.return_unit)
-           (Option.get (Background_task.get_task ~db ~id));
-         (* Wait for task to reach terminal status — the watchdog needs
+                 (try Unix.mkdir wt_path 0o755
+                  with Unix.Unix_error (Unix.EEXIST, _, _) -> ());
+                 Lwt.return (0, "", ""))
+               ~command_override:(Process_group.Shell "sleep 999 & exec true")
+               ~on_task_finished:(fun _ ->
+                 finished := true;
+                 Lwt.return_unit)
+               (Option.get (Background_task.get_task ~db ~id));
+             (* Wait for task to reach terminal status — the watchdog needs
             ~2s after child exits to kill remaining process group members.
             Total timeout 8s is generous. *)
-         let deadline = Unix.gettimeofday () +. 8.0 in
-         let rec wait () =
-           match Background_task.get_task ~db ~id with
-           | Some t when Background_task.is_terminal_status t.status ->
-               Lwt.return_unit
-           | _ when Unix.gettimeofday () > deadline ->
-               Alcotest.fail "task did not reach terminal status within timeout"
-           | _ ->
-               let* () = Lwt_unix.sleep 0.1 in
-               wait ()
-         in
-         let* () = wait () in
-         Lwt.return_unit);
-      (* Kill any lingering sleep 999 processes from this test *)
-      (try ignore (Sys.command "pkill -f 'sleep 999' 2>/dev/null || true")
-       with _ -> ());
-      (match Background_task.get_task ~db ~id with
-      | None -> Alcotest.fail "expected task"
-      | Some task ->
-          Alcotest.(check bool)
-            "task reached terminal status" true
-            (Background_task.is_terminal_status task.status));
-      Alcotest.(check bool) "on_task_finished fired" true !finished;
-      (* Cleanup worktree dir and log file *)
-      (try
-         let log_dir =
-           Filename.concat
-             (Filename.concat
-                (try Sys.getenv "HOME" with Not_found -> "/tmp")
-                ".clawq")
-             "background-logs"
-         in
-         Sys.remove (Filename.concat log_dir (Printf.sprintf "task-%d.log" id))
-       with Sys_error _ -> ());
-      try Sys.rmdir wt_path with Sys_error _ -> ())
+             let deadline = Unix.gettimeofday () +. 8.0 in
+             let rec wait () =
+               match Background_task.get_task ~db ~id with
+               | Some t when Background_task.is_terminal_status t.status ->
+                   Lwt.return_unit
+               | _ when Unix.gettimeofday () > deadline ->
+                   Alcotest.fail
+                     "task did not reach terminal status within timeout"
+               | _ ->
+                   let* () = Lwt_unix.sleep 0.1 in
+                   wait ()
+             in
+             let* () = wait () in
+             Lwt.return_unit);
+          (* Kill any lingering sleep 999 processes from this test *)
+          (try ignore (Sys.command "pkill -f 'sleep 999' 2>/dev/null || true")
+           with _ -> ());
+          (match Background_task.get_task ~db ~id with
+          | None -> Alcotest.fail "expected task"
+          | Some task ->
+              Alcotest.(check bool)
+                "task reached terminal status" true
+                (Background_task.is_terminal_status task.status));
+          Alcotest.(check bool) "on_task_finished fired" true !finished;
+          (* Cleanup worktree dir and log file *)
+          (try
+             let log_dir =
+               Filename.concat
+                 (Filename.concat
+                    (try Sys.getenv "HOME" with Not_found -> "/tmp")
+                    ".clawq")
+                 "background-logs"
+             in
+             Sys.remove
+               (Filename.concat log_dir (Printf.sprintf "task-%d.log" id))
+           with Sys_error _ -> ());
+          try Sys.rmdir wt_path with Sys_error _ -> ()))
 
 let test_list_tasks_for_display_filters () =
   with_temp_git_repo (fun repo_path ->
@@ -4363,6 +4368,7 @@ let test_spawn_local_task_timeout () =
            ~run_turn:(fun
                ~key:_
                ~message:_
+               ?model:_
                ?agent_name:_
                ?cwd:_
                ~interrupt_check:_
@@ -4414,6 +4420,7 @@ let test_spawn_local_task_success () =
            ~run_turn:(fun
                ~key:_
                ~message:_
+               ?model:_
                ?agent_name:_
                ?cwd:_
                ~interrupt_check:_
@@ -4445,6 +4452,450 @@ let test_spawn_local_task_success () =
             (string_contains preview "done"))
     ~finally:(fun () ->
       ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote dir))))
+
+let test_spawn_local_task_run_turn_failure_marks_failed () =
+  let dir = Filename.temp_dir "clawq-bg-local-failure" "" in
+  Fun.protect
+    (fun () ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Local
+            ~require_git:false ~use_worktree:false ~repo_path:dir
+            ~prompt:"test failure" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      let task =
+        match Background_task.get_task ~db ~id with
+        | Some t -> t
+        | None -> Alcotest.failf "expected task %d" id
+      in
+      Lwt_main.run
+        (let open Lwt.Syntax in
+         Background_task.spawn_local_task
+           ~run_turn:(fun
+               ~key:_
+               ~message:_
+               ?model:_
+               ?agent_name:_
+               ?cwd:_
+               ~interrupt_check:_
+               ~on_history_update:_
+               ()
+             -> Lwt.fail_with "agent template 'missing' not found")
+           ~on_task_started:(fun _ -> Lwt.return_unit)
+           ~on_task_finished:(fun _ -> Lwt.return_unit)
+           ~db task;
+         let rec wait n =
+           if n <= 0 then Lwt.return_unit
+           else
+             let* () = Lwt_unix.sleep 0.05 in
+             match Background_task.get_task ~db ~id with
+             | Some t when t.status <> Background_task.Running ->
+                 Lwt.return_unit
+             | _ -> wait (n - 1)
+         in
+         wait 20);
+      match Background_task.get_task ~db ~id with
+      | None -> Alcotest.fail "expected task"
+      | Some t ->
+          Alcotest.(check string)
+            "status is failed" "failed"
+            (Background_task.string_of_status t.status);
+          let preview = Option.value ~default:"" t.result_preview in
+          Alcotest.(check bool)
+            "result contains template failure" true
+            (string_contains preview "agent template 'missing' not found"))
+    ~finally:(fun () ->
+      ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote dir))))
+
+let test_spawn_local_task_uses_stable_session_key_and_started_row () =
+  let dir = Filename.temp_dir "clawq-bg-local-stable-key" "" in
+  Fun.protect
+    (fun () ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Local
+            ~require_git:false ~use_worktree:false ~repo_path:dir
+            ~prompt:"test stable key" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      let task =
+        match Background_task.get_task ~db ~id with
+        | Some t -> t
+        | None -> Alcotest.failf "expected task %d" id
+      in
+      let seen_key = ref None in
+      let started_status = ref None in
+      let started_log_path = ref None in
+      Lwt_main.run
+        (let open Lwt.Syntax in
+         Background_task.spawn_local_task
+           ~run_turn:(fun
+               ~key
+               ~message:_
+               ?model:_
+               ?agent_name:_
+               ?cwd:_
+               ~interrupt_check:_
+               ~on_history_update:_
+               ()
+             ->
+             seen_key := Some key;
+             Lwt.return "done")
+           ~on_task_started:(fun started ->
+             started_status :=
+               Some (Background_task.string_of_status started.status);
+             started_log_path := started.log_path;
+             Lwt.return_unit)
+           ~on_task_finished:(fun _ -> Lwt.return_unit)
+           ~db task;
+         let rec wait n =
+           if n <= 0 then Lwt.return_unit
+           else
+             let* () = Lwt_unix.sleep 0.05 in
+             match Background_task.get_task ~db ~id with
+             | Some t when t.status <> Background_task.Running ->
+                 Lwt.return_unit
+             | _ -> wait (n - 1)
+         in
+         wait 20);
+      Alcotest.(check (option string))
+        "stable local session key"
+        (Some (Printf.sprintf "__bg_task:%d" id))
+        !seen_key;
+      Alcotest.(check (option string))
+        "started callback receives running row" (Some "running") !started_status;
+      Alcotest.(check bool)
+        "started callback receives log path" true
+        (Option.is_some !started_log_path))
+    ~finally:(fun () ->
+      ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote dir))))
+
+let test_spawn_local_task_replays_queued_messages_fifo () =
+  let dir = Filename.temp_dir "clawq-bg-local-fifo" "" in
+  Fun.protect
+    (fun () ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Local
+            ~require_git:false ~use_worktree:false ~repo_path:dir
+            ~prompt:"initial prompt" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      ignore (Background_task.queue_message ~db ~task_id:id ~message:"first");
+      ignore (Background_task.queue_message ~db ~task_id:id ~message:"second");
+      let task =
+        match Background_task.get_task ~db ~id with
+        | Some t -> t
+        | None -> Alcotest.failf "expected task %d" id
+      in
+      let seen_message = ref None in
+      Lwt_main.run
+        (let open Lwt.Syntax in
+         Background_task.spawn_local_task
+           ~run_turn:(fun
+               ~key:_
+               ~message
+               ?model:_
+               ?agent_name:_
+               ?cwd:_
+               ~interrupt_check:_
+               ~on_history_update:_
+               ()
+             ->
+             seen_message := Some message;
+             Lwt.return "done")
+           ~on_task_started:(fun _ -> Lwt.return_unit)
+           ~on_task_finished:(fun _ -> Lwt.return_unit)
+           ~db task;
+         let rec wait n =
+           if n <= 0 then Lwt.return_unit
+           else
+             let* () = Lwt_unix.sleep 0.05 in
+             match Background_task.get_task ~db ~id with
+             | Some t when t.status <> Background_task.Running ->
+                 Lwt.return_unit
+             | _ -> wait (n - 1)
+         in
+         wait 20);
+      let message = Option.value ~default:"" !seen_message in
+      Alcotest.(check bool)
+        "resume prompt includes first queued message" true
+        (string_contains message "Injected message 1:");
+      Alcotest.(check bool)
+        "resume prompt preserves first message" true
+        (string_contains message "first");
+      Alcotest.(check bool)
+        "resume prompt preserves second message" true
+        (string_contains message "second");
+      Alcotest.(check int)
+        "queued messages drained after success" 0
+        (Background_task.queued_resume_message_count ~db ~id))
+    ~finally:(fun () ->
+      ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote dir))))
+
+let test_spawn_local_task_passes_explicit_model () =
+  let dir = Filename.temp_dir "clawq-bg-local-model" "" in
+  Fun.protect
+    (fun () ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let expected_model = "xiaomi-token-plan-sgp:mimo-v2.5-pro" in
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Local
+            ~require_git:false ~use_worktree:false ~repo_path:dir
+            ~model:expected_model ~prompt:"test model" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      let task =
+        match Background_task.get_task ~db ~id with
+        | Some t -> t
+        | None -> Alcotest.failf "expected task %d" id
+      in
+      let seen_model = ref None in
+      Lwt_main.run
+        (let open Lwt.Syntax in
+         Background_task.spawn_local_task
+           ~run_turn:(fun
+               ~key:_
+               ~message:_
+               ?model
+               ?agent_name:_
+               ?cwd:_
+               ~interrupt_check:_
+               ~on_history_update:_
+               ()
+             ->
+             seen_model := model;
+             Lwt.return "done")
+           ~on_task_started:(fun _ -> Lwt.return_unit)
+           ~on_task_finished:(fun _ -> Lwt.return_unit)
+           ~db task;
+         let rec wait n =
+           if n <= 0 then Lwt.return_unit
+           else
+             let* () = Lwt_unix.sleep 0.05 in
+             match Background_task.get_task ~db ~id with
+             | Some t when t.status <> Background_task.Running ->
+                 Lwt.return_unit
+             | _ -> wait (n - 1)
+         in
+         wait 20);
+      Alcotest.(check (option string))
+        "explicit local model reaches runner" (Some expected_model) !seen_model)
+    ~finally:(fun () ->
+      ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote dir))))
+
+let test_resume_running_local_task_keeps_followup_queued () =
+  let dir = Filename.temp_dir "clawq-bg-local-running-resume" "" in
+  Fun.protect
+    (fun () ->
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Local
+            ~require_git:false ~use_worktree:false ~repo_path:dir
+            ~prompt:"initial prompt" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      let task =
+        match Background_task.get_task ~db ~id with
+        | Some t -> t
+        | None -> Alcotest.failf "expected task %d" id
+      in
+      let turn_started = ref false in
+      Lwt_main.run
+        (let open Lwt.Syntax in
+         Background_task.spawn_local_task
+           ~run_turn:(fun
+               ~key:_
+               ~message:_
+               ?model:_
+               ?agent_name:_
+               ?cwd:_
+               ~interrupt_check
+               ~on_history_update:_
+               ()
+             ->
+             turn_started := true;
+             let rec wait_for_interrupt n =
+               match interrupt_check () with
+               | Some _ -> Lwt.return "stale success after resume"
+               | None when n <= 0 -> Lwt.return "unexpected completion"
+               | None ->
+                   let* () = Lwt_unix.sleep 0.01 in
+                   wait_for_interrupt (n - 1)
+             in
+             wait_for_interrupt 200)
+           ~on_task_started:(fun _ -> Lwt.return_unit)
+           ~on_task_finished:(fun _ -> Lwt.return_unit)
+           ~db task;
+         let rec wait_until_running n =
+           if n <= 0 then Alcotest.fail "local task did not start";
+           match Background_task.get_task ~db ~id with
+           | Some t when t.status = Background_task.Running && !turn_started ->
+               Lwt.return_unit
+           | _ ->
+               let* () = Lwt_unix.sleep 0.01 in
+               wait_until_running (n - 1)
+         in
+         let* () = wait_until_running 200 in
+         (match
+            Background_task.request_resume ~db ~id
+              ~message:(Some "follow-up while running")
+          with
+         | Ok _ -> ()
+         | Error msg -> Alcotest.fail msg);
+         let* () = Lwt_unix.sleep 0.1 in
+         Lwt.return_unit);
+      Alcotest.(check int)
+        "follow-up remains queued" 1
+        (Background_task.queued_resume_message_count ~db ~id);
+      match Background_task.get_task ~db ~id with
+      | Some task ->
+          Alcotest.(check string)
+            "task remains queued for resumed local turn" "queued"
+            (Background_task.string_of_status task.status)
+      | None -> Alcotest.failf "expected task %d" id)
+    ~finally:(fun () ->
+      ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote dir))))
+
+let test_transcript_prefers_stable_session_history_and_filters_regex () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Background_task.init_schema db;
+  let id =
+    match
+      Background_task.enqueue ~db ~runner:Background_task.Local
+        ~require_git:false ~use_worktree:false ~repo_path:"/tmp"
+        ~prompt:"transcript prompt" ()
+    with
+    | Ok id -> id
+    | Error msg -> Alcotest.fail msg
+  in
+  let session_key = Printf.sprintf "__bg_task:%d" id in
+  Memory.store_message ~db ~session_key
+    (Provider.make_message ~role:"user" ~content:"ordinary line");
+  Memory.store_message ~db ~session_key
+    (Provider.make_message ~role:"assistant" ~content:"needle reply");
+  let output =
+    Background_task_transcript.render ~db ~id ~regex:"needle" ~max_lines:10 ()
+  in
+  Alcotest.(check bool)
+    "mentions stable session source" true
+    (string_contains output session_key);
+  Alcotest.(check bool)
+    "includes regex match" true
+    (string_contains output "needle reply");
+  Alcotest.(check bool)
+    "filters before rendering" false
+    (string_contains output "ordinary line")
+
+let test_transcript_oversize_refuses_inline_and_exports_jsonl () =
+  let home = Filename.temp_dir "clawq-bg-transcript-home" "" in
+  Fun.protect
+    (fun () ->
+      Unix.putenv "CLAWQ_HOME" home;
+      let db = Memory.init ~db_path:":memory:" () in
+      Background_task.init_schema db;
+      let id =
+        match
+          Background_task.enqueue ~db ~runner:Background_task.Local
+            ~require_git:false ~use_worktree:false ~repo_path:home
+            ~prompt:"big transcript" ()
+        with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg
+      in
+      let session_key = Printf.sprintf "__bg_task:%d" id in
+      for i = 1 to 305 do
+        Memory.store_message ~db ~session_key
+          (Provider.make_message ~role:"assistant"
+             ~content:(Printf.sprintf "line-%03d" i))
+      done;
+      let output = Background_task_transcript.render ~db ~id () in
+      Alcotest.(check bool)
+        "refuses oversized inline output" true
+        (string_contains output "refusing inline transcript");
+      Alcotest.(check bool)
+        "reports export path" true
+        (string_contains output "JSONL export:");
+      let marker = "JSONL export: " in
+      let path =
+        try
+          let idx = Str.search_forward (Str.regexp_string marker) output 0 in
+          let start = idx + String.length marker in
+          let rest = String.sub output start (String.length output - start) in
+          match String.split_on_char '\n' rest with
+          | p :: _ -> String.trim p
+          | [] -> ""
+        with Not_found -> ""
+      in
+      Alcotest.(check bool) "export file exists" true (Sys.file_exists path);
+      let exported =
+        let ic = open_in path in
+        Fun.protect
+          ~finally:(fun () -> close_in_noerr ic)
+          (fun () -> really_input_string ic (in_channel_length ic))
+      in
+      Alcotest.(check bool)
+        "export contains late line" true
+        (string_contains exported "line-305"))
+    ~finally:(fun () ->
+      Unix.putenv "CLAWQ_HOME" "";
+      ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote home))))
+
+let test_transcript_tool_filters_session_history () =
+  let db = Memory.init ~db_path:":memory:" () in
+  Background_task.init_schema db;
+  let id =
+    match
+      Background_task.enqueue ~db ~runner:Background_task.Local
+        ~require_git:false ~use_worktree:false ~repo_path:"/tmp"
+        ~prompt:"tool transcript prompt" ()
+    with
+    | Ok id -> id
+    | Error msg -> Alcotest.fail msg
+  in
+  let session_key = Printf.sprintf "__bg_task:%d" id in
+  Memory.store_message ~db ~session_key
+    (Provider.make_message ~role:"assistant" ~content:"alpha plain");
+  Memory.store_message ~db ~session_key
+    (Provider.make_message ~role:"assistant" ~content:"beta needle");
+  let tool = Background_task_tools.transcript_tool ~db in
+  let output =
+    Lwt_main.run
+      (tool.Tool.invoke
+         (`Assoc
+            [
+              ("id", `Int id);
+              ("regex", `String "needle");
+              ("max_lines", `Int 20);
+            ]))
+  in
+  Alcotest.(check bool)
+    "tool returns filtered transcript line" true
+    (string_contains output "beta needle");
+  Alcotest.(check bool)
+    "tool applies regex before render" false
+    (string_contains output "alpha plain")
 
 let test_command_to_log_string () =
   let exec_result =
@@ -4484,80 +4935,83 @@ let test_write_log_preamble () =
       ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote dir))))
 
 let test_spawn_task_set_running_failure_marks_failed () =
-  with_temp_git_repo (fun repo_path ->
-      let db = Memory.init ~db_path:":memory:" () in
-      Background_task.init_schema db;
-      let id =
-        match
-          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
-            ~prompt:"test set_running race" ()
-        with
-        | Ok id -> id
-        | Error msg -> Alcotest.fail msg
-      in
-      (* Transition task out of queued so set_running's WHERE status='queued'
+  Test_helpers.with_temp_home (fun _home ->
+      with_temp_git_repo (fun repo_path ->
+          let db = Memory.init ~db_path:":memory:" () in
+          Background_task.init_schema db;
+          let id =
+            match
+              Background_task.enqueue ~db ~runner:Background_task.Codex
+                ~repo_path ~prompt:"test set_running race" ()
+            with
+            | Ok id -> id
+            | Error msg -> Alcotest.fail msg
+          in
+          (* Transition task out of queued so set_running's WHERE status='queued'
          matches zero rows, triggering the failure path. *)
-      Background_task.finish ~db ~id ~status:Background_task.Failed
-        ~result_preview:"pre-failed";
-      (* Re-enqueue a new task (the finished one can't be spawned).
+          Background_task.finish ~db ~id ~status:Background_task.Failed
+            ~result_preview:"pre-failed";
+          (* Re-enqueue a new task (the finished one can't be spawned).
          Instead, directly manipulate: set status back to queued so we can
          spawn, but then race it by finishing before set_running succeeds.
          Actually, the simplest approach: create a fresh task, then finish it
          before spawning — but spawn_task reads the task as-is. The trick is
          that set_running does WHERE status='queued', so if we pass a task
          whose DB row is NOT queued, set_running will fail. *)
-      let id2 =
-        match
-          Background_task.enqueue ~db ~runner:Background_task.Codex ~repo_path
-            ~prompt:"test race condition" ()
-        with
-        | Ok id -> id
-        | Error msg -> Alcotest.fail msg
-      in
-      (* Pre-cancel the task so set_running fails *)
-      ignore (Background_task.cancel ~db ~id:id2);
-      let task = Option.get (Background_task.get_task ~db ~id:id2) in
-      let log_dir =
-        Filename.concat
-          (Filename.concat
-             (try Sys.getenv "HOME" with Not_found -> "/tmp")
-             ".clawq")
-          "background-logs"
-      in
-      (try Unix.mkdir log_dir 0o755
-       with Unix.Unix_error (Unix.EEXIST, _, _) -> ());
-      let log_path = Background_task.task_log_path id2 in
-      Lwt_main.run
-        (let open Lwt.Syntax in
-         Background_task.spawn_task ~db
-           ~run_simple_command:(fun ~cwd:_ _argv -> Lwt.return (0, "", ""))
-           ~command_override:(Process_group.Shell "echo should-be-killed")
-           { task with status = Background_task.Queued }
-         (* Note: we pass Queued in the record but the DB row is cancelled,
+          let id2 =
+            match
+              Background_task.enqueue ~db ~runner:Background_task.Codex
+                ~repo_path ~prompt:"test race condition" ()
+            with
+            | Ok id -> id
+            | Error msg -> Alcotest.fail msg
+          in
+          (* Pre-cancel the task so set_running fails *)
+          ignore (Background_task.cancel ~db ~id:id2);
+          let task = Option.get (Background_task.get_task ~db ~id:id2) in
+          let log_dir =
+            Filename.concat
+              (Filename.concat
+                 (try Sys.getenv "HOME" with Not_found -> "/tmp")
+                 ".clawq")
+              "background-logs"
+          in
+          (try Unix.mkdir (Filename.dirname log_dir) 0o755
+           with Unix.Unix_error (Unix.EEXIST, _, _) -> ());
+          (try Unix.mkdir log_dir 0o755
+           with Unix.Unix_error (Unix.EEXIST, _, _) -> ());
+          let log_path = Background_task.task_log_path id2 in
+          Lwt_main.run
+            (let open Lwt.Syntax in
+             Background_task.spawn_task ~db
+               ~run_simple_command:(fun ~cwd:_ _argv -> Lwt.return (0, "", ""))
+               ~command_override:(Process_group.Shell "echo should-be-killed")
+               { task with status = Background_task.Queued }
+             (* Note: we pass Queued in the record but the DB row is cancelled,
               so set_running's WHERE clause won't match *);
-         let* () = Lwt_unix.sleep 0.2 in
-         Lwt.return_unit);
-      match Background_task.get_task ~db ~id:id2 with
-      | None -> Alcotest.fail "expected task"
-      | Some t ->
-          (* The task was cancelled in DB, so finish's WHERE status<>'cancelled'
+             let* () = Lwt_unix.sleep 0.2 in
+             Lwt.return_unit);
+          match Background_task.get_task ~db ~id:id2 with
+          | None -> Alcotest.fail "expected task"
+          | Some t ->
+              (* The task was cancelled in DB, so finish's WHERE status<>'cancelled'
              won't update it. The task stays cancelled but the log file
              should contain the error. *)
-          let log_content =
-            try
-              let ic = open_in log_path in
-              Fun.protect
-                ~finally:(fun () -> close_in_noerr ic)
-                (fun () -> really_input_string ic (in_channel_length ic))
-            with _ -> ""
-          in
-          Alcotest.(check bool)
-            "log contains preamble" true
-            (string_contains log_content "[clawq] task");
-          Alcotest.(check bool)
-            "log contains set_running error" true
-            (string_contains log_content "set_running failed");
-          ignore t)
+              let log_content =
+                try
+                  let ic = open_in log_path in
+                  Fun.protect
+                    ~finally:(fun () -> close_in_noerr ic)
+                    (fun () -> really_input_string ic (in_channel_length ic))
+                with _ -> ""
+              in
+              Alcotest.(check bool)
+                "log contains preamble" true
+                (string_contains log_content "[clawq] task");
+              Alcotest.(check bool)
+                "log contains set_running error" true
+                (string_contains log_content "set_running failed");
+              ignore t))
 
 let test_spawn_local_task_creates_log () =
   let dir = Filename.temp_dir "clawq-bg-local-log" "" in
@@ -4585,6 +5039,7 @@ let test_spawn_local_task_creates_log () =
            ~run_turn:(fun
                ~key:_
                ~message:_
+               ?model:_
                ?agent_name:_
                ?cwd:_
                ~interrupt_check:_
@@ -4655,6 +5110,7 @@ let test_spawn_local_task_cancel () =
            ~run_turn:(fun
                ~key:_
                ~message:_
+               ?model:_
                ?agent_name:_
                ?cwd:_
                ~interrupt_check
@@ -5066,6 +5522,22 @@ let suite =
       test_spawn_local_task_timeout;
     Alcotest.test_case "spawn local task success" `Quick
       test_spawn_local_task_success;
+    Alcotest.test_case "spawn local task failure marks failed" `Quick
+      test_spawn_local_task_run_turn_failure_marks_failed;
+    Alcotest.test_case "spawn local task stable session key" `Quick
+      test_spawn_local_task_uses_stable_session_key_and_started_row;
+    Alcotest.test_case "spawn local task replays queued messages FIFO" `Quick
+      test_spawn_local_task_replays_queued_messages_fifo;
+    Alcotest.test_case "spawn local task passes explicit model" `Quick
+      test_spawn_local_task_passes_explicit_model;
+    Alcotest.test_case "resume running local task keeps follow-up queued" `Quick
+      test_resume_running_local_task_keeps_followup_queued;
+    Alcotest.test_case "transcript stable session regex" `Quick
+      test_transcript_prefers_stable_session_history_and_filters_regex;
+    Alcotest.test_case "transcript oversized exports JSONL" `Quick
+      test_transcript_oversize_refuses_inline_and_exports_jsonl;
+    Alcotest.test_case "transcript tool filters session history" `Quick
+      test_transcript_tool_filters_session_history;
     Alcotest.test_case "command_to_log_string" `Quick test_command_to_log_string;
     Alcotest.test_case "write_log_preamble" `Quick test_write_log_preamble;
     Alcotest.test_case "spawn set_running failure marks failed" `Quick

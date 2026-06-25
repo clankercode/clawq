@@ -1669,6 +1669,174 @@ let test_handle_background_logs_offset () =
         "end offset shows end of log" true
         (contains end_result "End of log"))
 
+let test_handle_subagents_start_list_and_transcript () =
+  with_temp_home (fun home ->
+      let repo = Filename.concat home "repo" in
+      Unix.mkdir repo 0o755;
+      init_git_repo repo;
+      let model = "xiaomi-token-plan-sgp:mimo-v2.5-pro" in
+      ignore (Agent_template.init_cache ());
+      let clawq_dir = Filename.concat home ".clawq" in
+      let agents_dir = Filename.concat clawq_dir "agents" in
+      Unix.mkdir clawq_dir 0o755;
+      Unix.mkdir agents_dir 0o755;
+      let template_path = Filename.concat agents_dir "native-local-user.md" in
+      let oc = open_out template_path in
+      Fun.protect
+        ~finally:(fun () -> close_out_noerr oc)
+        (fun () ->
+          output_string oc
+            "---\n\
+             name: native-local-user\n\
+             description: Native local user template regression\n\
+             role: coder\n\
+             ---\n\
+             You are a native local user template.\n");
+      let missing_agent_result =
+        Command_bridge.handle
+          [
+            "subagents";
+            "start";
+            "--agent";
+            "definitely-missing-template";
+            repo;
+            "Investigate";
+          ]
+      in
+      Alcotest.(check bool)
+        "subagents start rejects missing template" true
+        (contains missing_agent_result
+           "agent template 'definitely-missing-template' not found");
+      let start_result =
+        Command_bridge.handle
+          [
+            "subagents";
+            "start";
+            "--model";
+            model;
+            "--agent";
+            "native-local-user";
+            repo;
+            "Investigate";
+            "native";
+            "subagents";
+          ]
+      in
+      Alcotest.(check bool)
+        "subagents start queues local task" true
+        (contains start_result "Queued subagent task 1");
+      let db =
+        Memory.init ~db_path:(Filename.concat clawq_dir "memory.db") ()
+      in
+      Background_task.init_schema db;
+      let task =
+        match Background_task.get_task ~db ~id:1 with
+        | Some task -> task
+        | None -> Alcotest.fail "expected subagent task"
+      in
+      Alcotest.(check string)
+        "subagent runner is local" "local"
+        (Background_task.string_of_runner task.runner);
+      Alcotest.(check (option string)) "model preserved" (Some model) task.model;
+      Alcotest.(check (option string))
+        "agent preserved" (Some "native-local-user") task.agent_name;
+      let session_key = "__bg_task:1" in
+      Memory.store_message ~db ~session_key
+        (Provider.make_message ~role:"assistant"
+           ~content:"needle transcript line");
+      let list_result = Command_bridge.handle [ "subagents"; "list" ] in
+      Alcotest.(check bool)
+        "subagents list shows local" true
+        (contains list_result "local");
+      ignore
+        (match
+           Background_task.enqueue ~db ~runner:Background_task.Codex
+             ~repo_path:repo ~prompt:"external task" ()
+         with
+        | Ok id -> id
+        | Error msg -> Alcotest.fail msg);
+      let list_result = Command_bridge.handle [ "subagents"; "list" ] in
+      Alcotest.(check bool)
+        "subagents list hides external runners" false
+        (contains list_result "codex");
+      let nonlocal_send =
+        Command_bridge.handle [ "subagents"; "send"; "2"; "hello" ]
+      in
+      Alcotest.(check bool)
+        "subagents send rejects external task" true
+        (contains nonlocal_send "not a native/local subagent");
+      Alcotest.(check int)
+        "subagents send does not queue external task message" 0
+        (Background_task.queued_resume_message_count ~db ~id:2);
+      let nonlocal_stop = Command_bridge.handle [ "subagents"; "stop"; "2" ] in
+      Alcotest.(check bool)
+        "subagents stop rejects external task" true
+        (contains nonlocal_stop "not a native/local subagent");
+      let nonlocal_transcript =
+        Command_bridge.handle [ "subagents"; "transcript"; "2" ]
+      in
+      Alcotest.(check bool)
+        "subagents transcript rejects external task" true
+        (contains nonlocal_transcript "not a native/local subagent");
+      let transcript_result =
+        Command_bridge.handle
+          [ "subagents"; "transcript"; "1"; "--regex"; "needle" ]
+      in
+      Alcotest.(check bool)
+        "subagents transcript shows filtered line" true
+        (contains transcript_result "needle transcript line"))
+
+let test_handle_background_native_aliases () =
+  with_temp_home (fun home ->
+      let repo = Filename.concat home "repo" in
+      Unix.mkdir repo 0o755;
+      init_git_repo repo;
+      let start_result =
+        Command_bridge.handle
+          [
+            "background";
+            "start";
+            "local";
+            repo;
+            "--branch";
+            "alias-branch";
+            "Alias";
+            "task";
+          ]
+      in
+      Alcotest.(check bool)
+        "background start aliases add" true
+        (contains start_result "Queued background task 1");
+      let clawq_dir = Filename.concat home ".clawq" in
+      let db =
+        Memory.init ~db_path:(Filename.concat clawq_dir "memory.db") ()
+      in
+      Background_task.init_schema db;
+      (match Background_task.get_task ~db ~id:1 with
+      | Some task ->
+          Alcotest.(check string)
+            "background start preserves branch alias" "alias-branch" task.branch
+      | None -> Alcotest.fail "expected background task");
+      let session_key = "__bg_task:1" in
+      Memory.store_message ~db ~session_key
+        (Provider.make_message ~role:"assistant" ~content:"alias transcript");
+      let transcript_result =
+        Command_bridge.handle [ "background"; "transcript"; "1" ]
+      in
+      Alcotest.(check bool)
+        "background transcript alias works" true
+        (contains transcript_result "alias transcript");
+      let send_result =
+        Command_bridge.handle [ "background"; "send"; "1"; "follow"; "up" ]
+      in
+      Alcotest.(check bool)
+        "background send alias works" true
+        (contains send_result "Queued message");
+      let stop_result = Command_bridge.handle [ "background"; "stop"; "1" ] in
+      Alcotest.(check bool)
+        "background stop alias works" true
+        (contains stop_result "Cancelled"))
+
 let test_handle_delegate () =
   with_temp_home (fun home ->
       let repo = Filename.concat home "repo" in
@@ -2886,6 +3054,23 @@ let test_offline_inject_enqueues_bang_message () =
            true
          with Not_found -> false))
 
+let test_offline_session_send_alias_enqueues_message () =
+  with_temp_home (fun home ->
+      ignore (session_db home);
+      let result =
+        Command_bridge.handle
+          [ "session"; "send"; "telegram:1:user"; "hello"; "session" ]
+      in
+      Alcotest.(check bool)
+        "session send queues message" true
+        (contains result "Queued message for session telegram:1:user");
+      let pending_result =
+        Command_bridge.handle [ "session"; "pending"; "telegram:1:user" ]
+      in
+      Alcotest.(check bool)
+        "pending shows sent message" true
+        (contains pending_result "hello session"))
+
 let test_session_list_shows_pending_inbound_count () =
   with_temp_home (fun home ->
       let db = session_db home in
@@ -3213,6 +3398,8 @@ let suite =
       `Quick test_handle_session_inject_persists_when_daemon_missing;
     Alcotest.test_case "handle session inject reports queued bang" `Quick
       test_handle_session_inject_reports_queued_bang;
+    Alcotest.test_case "handle session send alias persists when daemon missing"
+      `Quick test_offline_session_send_alias_enqueues_message;
     Alcotest.test_case "handle session epochs and show archived epoch" `Quick
       test_handle_session_epochs_and_show_archived_epoch;
     Alcotest.test_case "handle session archive show" `Quick
@@ -3271,6 +3458,10 @@ let suite =
       test_handle_background_logs_follow;
     Alcotest.test_case "handle background logs offset" `Quick
       test_handle_background_logs_offset;
+    Alcotest.test_case "handle subagents start/list/transcript" `Quick
+      test_handle_subagents_start_list_and_transcript;
+    Alcotest.test_case "handle background native aliases" `Quick
+      test_handle_background_native_aliases;
     Alcotest.test_case "handle background wait with timeout" `Quick
       test_handle_background_wait_with_timeout;
     Alcotest.test_case "handle background resume and message" `Quick

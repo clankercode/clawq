@@ -20,6 +20,10 @@ let with_args name doc man =
   let args = rest_args "ARGS" in
   Cmd.v (Cmd.info name ~doc ~man) Term.(ret (const (run name) $ args))
 
+(* Disabled-in-minimal stubs — shown in help but print a clear message at runtime *)
+let disabled name doc =
+  simple name (doc ^ " (disabled in minimal build; use full clawq binary).")
+
 let status_cmd = simple "status" "Show runtime configuration summary."
 let doctor_cmd = simple "doctor" "Check configuration for common issues."
 
@@ -109,6 +113,7 @@ let cron_cmd =
     ]
 
 let background_cmd = disabled "background" "Manage background coding tasks"
+let subagents_cmd = disabled "subagents" "Manage native/local subagents"
 let delegate_cmd = disabled "delegate" "High-level background-task workflow"
 
 let audit_cmd =
@@ -215,10 +220,6 @@ let completions_cmd =
        ~doc:"Generate and install shell tab-completion scripts.")
     [ completions_print_cmd; completions_install_cmd ]
 
-(* Disabled-in-minimal stubs — shown in help but print a clear message at runtime *)
-let disabled name doc =
-  simple name (doc ^ " (disabled in minimal build; use full clawq binary).")
-
 let agent_cmd = disabled "agent" "Start the clawq daemon"
 let mcp_cmd = disabled "mcp" "Start the MCP server"
 let transcribe_cmd = disabled "transcribe" "Transcribe an audio file"
@@ -291,6 +292,7 @@ let () =
       auth_cmd;
       cron_cmd;
       background_cmd;
+      subagents_cmd;
       delegate_cmd;
       audit_cmd;
       skills_cmd;

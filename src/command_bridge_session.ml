@@ -82,7 +82,7 @@ let format_session_list_table ~db sessions =
   in
   Table_format.render session_list_columns rows
 
-let cmd_session args =
+let rec cmd_session args =
   let db = get_db () in
   let config = get_config () in
   match args with
@@ -566,6 +566,7 @@ let cmd_session args =
                               | Some msg -> msg
                               | None -> resp_body)))))
       | _ -> "Usage: clawq session inject [--cwd PATH] SESSION MESSAGE...")
+  | "send" :: rest -> cmd_session ("inject" :: rest)
   | [ "compact"; session_key ] -> (
       match read_live_daemon_gateway () with
       | None -> "Error: no live daemon detected. Start `clawq agent` first."
@@ -836,6 +837,7 @@ let cmd_session args =
       \  session pending SESSION\n\
       \  session events SESSION [--epoch current|ID] [--type TYPE]\n\
       \  session inject [--cwd PATH] SESSION MESSAGE...\n\
+      \  session send [--cwd PATH] SESSION MESSAGE...\n\
       \  session compact SESSION\n\
       \  session keepalive SESSION [on|off|status]\n\
       \  session heartbeat SESSION [on|off|status]\n\
@@ -889,7 +891,7 @@ let parse_background_add_args args =
             | None ->
                 Error
                   "Runner must be one of: codex, claude (or claude-code), \
-                   kimi, gemini, opencode, cursor (or cursor-cli)"
+                   kimi, gemini, opencode, cursor (or cursor-cli), local"
             | Some runner ->
                 let prompt = String.concat " " prompt_parts |> String.trim in
                 if prompt = "" then Error "Prompt is required"
@@ -898,8 +900,8 @@ let parse_background_add_args args =
         | _ ->
             Error
               "Usage: clawq background add \
-               <codex|claude|kimi|gemini|opencode|cursor> [--model <name>] \
-               [--agent <name>] <repo> [--branch <name>] <prompt>")
+               <codex|claude|kimi|gemini|opencode|cursor|local> [--model \
+               <name>] [--agent <name>] <repo> [--branch <name>] <prompt>")
     | "--model" :: value :: rest ->
         loop (Some value) branch agent_name positionals rest
     | "--branch" :: value :: rest ->

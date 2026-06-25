@@ -69,8 +69,10 @@ let enqueue_tool_with_notify ?config ~notify_cfg ~db () =
                       ("type", `String "string");
                       ( "description",
                         `String
-                          "Optional explicit model for the external runner, \
-                           e.g. gpt-5.4 or claude-sonnet-4-6." );
+                          "Optional explicit provider:model for the selected \
+                           runner, e.g. xiaomi-token-plan-sgp:mimo-v2.5-pro, \
+                           openai-codex:gpt-5.4, or \
+                           anthropic:claude-sonnet-4-6." );
                     ] );
                 ( "automerge",
                   `Assoc
@@ -507,6 +509,8 @@ let logs_tool ~db =
     deferred = false;
   }
 
+let transcript_tool = Background_task_transcript_tool.transcript_tool
+
 let delegate_tool_with_notify ?(check_available = true) ?config ~db
     ~default_repo_path ~notify_cfg () =
   {
@@ -578,8 +582,9 @@ let delegate_tool_with_notify ?(check_available = true) ?config ~db
                       ("type", `String "string");
                       ( "description",
                         `String
-                          "Optional explicit model for the external runner, \
-                           e.g. gpt-5.4 or claude-sonnet-4-6." );
+                          "Optional explicit provider:model for the selected \
+                           runner, e.g. openai-codex:gpt-5.4 or \
+                           anthropic:claude-sonnet-4-6." );
                     ] );
                 ( "automerge",
                   `Assoc
@@ -772,8 +777,9 @@ let resume_tool ~db =
     Tool.name = "background_task_resume";
     description =
       "Resume a previously started background coding task using the runner's \
-       built-in session resume support. Requires a worktree-backed task that \
-       has already started at least once.";
+       built-in session resume support, or the stable __bg_task:<id> session \
+       for local/native tasks. Requires a task that has already started at \
+       least once.";
     parameters_schema =
       `Assoc
         [
@@ -811,7 +817,8 @@ let message_tool ~db =
     Tool.name = "background_task_send_message";
     description =
       "Send a new chat message into a background coding task. The current run \
-       is resumed with the runner's native continue/resume support and the \
+       is resumed with the runner's native continue/resume support, or with \
+       the stable __bg_task:<id> session for local/native tasks, and the \
        message is injected as a user chat message.";
     parameters_schema =
       `Assoc
@@ -922,7 +929,7 @@ let recover_tool ~db =
                       ( "description",
                         `String
                           "Optional runner override \
-                           (codex|claude|kimi|gemini|opencode|cursor)" );
+                           (codex|claude|kimi|gemini|opencode|cursor|local)" );
                     ] );
                 ( "model",
                   `Assoc

@@ -39,16 +39,26 @@ Every clawq command is listed below. Run `clawq COMMAND --help` for per-command 
 | `clawq completions` | Generate and install shell tab-completion scripts (bash, zsh, fish) |
 | `clawq costs` | Show cumulative LLM costs and token usage |
 | `clawq background` | Inspect and control background coding agent worktree tasks |
-| `clawq background add RUNNER [--model MODEL] REPO [--branch NAME] PROMPT` | Queue a background coding task in a fresh git worktree |
+| `clawq background add RUNNER [--model MODEL] [--agent NAME] REPO [--branch NAME] PROMPT` | Queue a background coding task; RUNNER may be codex, claude, kimi, gemini, opencode, cursor, or local |
 | `clawq background show ID` | Inspect one background task, including log/worktree paths when available |
 | `clawq background wait ID [--timeout SECONDS]` | Block until a background task finishes, then print the final summary |
 | `clawq background logs ID [--lines COUNT] [--offset LINE] [--follow/-f]` | Show the captured log for a background task |
-| `clawq background resume ID` | Resume a previously started worktree-backed background task using the runner's native session support |
-| `clawq background message ID MESSAGE...` | Queue a follow-up user-style chat message for a previously started worktree-backed background task and resume it |
+| `clawq background transcript ID [--regex R] [--max-lines N] [--export]` | Show a bounded task transcript; oversized output is exported as JSONL |
+| `clawq background start RUNNER ...` | Compatibility alias for `background add` |
+| `clawq background resume ID` | Resume a previously started task using runner session support or the local `__bg_task:<id>` session |
+| `clawq background message ID MESSAGE...` | Queue a follow-up user-style chat message for a previously started task and resume it |
+| `clawq background send ID MESSAGE...` | Compatibility alias for `background message` |
 | `clawq background cancel ID` | Cancel a queued or running background task |
+| `clawq background stop ID` | Compatibility alias for `background cancel` |
 | `clawq background retry ID` | Re-queue a failed background task (max 3 retries) |
 | `clawq background recover ID [--runner R] [--model M]` | Recover a failed or stuck task by spawning a replacement with full context from the original |
 | `clawq background finalize ID` | Rebase, fast-forward merge, and clean up a completed task's worktree |
+| `clawq subagents` | Manage native/local subagents backed by background tasks |
+| `clawq subagents start [--model M] [--agent NAME] REPO PROMPT` | Queue a native/local subagent task |
+| `clawq subagents list` | List native/local subagent tasks |
+| `clawq subagents send ID MESSAGE...` | Send a follow-up message to a native/local subagent |
+| `clawq subagents transcript ID [--regex R] [--max-lines N] [--export]` | Show a bounded native/local subagent transcript |
+| `clawq subagents stop ID` | Cancel a native/local subagent task |
 | `clawq channel` | List configured channels |
 | `clawq channel set-model NAME MODEL` | Set a channel-specific default model (overrides global primary_model) |
 | `clawq channel show-model NAME` | Show the current model for a channel (channel override or global default) |
@@ -96,6 +106,7 @@ Every clawq command is listed below. Run `clawq COMMAND --help` for per-command 
 | `clawq session model SESSION clear` | Clear the per-session model override, reverting to global default |
 | `clawq session archive show ID [--offset N] [--limit N]` | View archived session messages with pagination |
 | `clawq session inject [--cwd PATH] SESSION MSG` | Inject a message into a session's durable inbound queue (optionally set agent working directory) |
+| `clawq session send [--cwd PATH] SESSION MSG` | Human-friendly alias for `session inject`; use this to steer agents in other live sessions |
 | `clawq session pending SESSION` | Show pending inbound queue entries for a session |
 | `clawq session keepalive SESSION on\|off` | Toggle session keepalive |
 | `clawq session heartbeat SESSION on\|off` | Toggle heartbeat routing for a session |
@@ -249,19 +260,30 @@ clawq background list
 clawq background show 1
 clawq background wait 1
 clawq background logs 1
+clawq background transcript 1 --regex failure
+clawq background start local --agent coder --model xiaomi-token-plan-sgp:mimo-v2.5-pro /path/to/repo "investigate the failure"
+clawq background send 1 "Please include the exact failing command"
+clawq background stop 1
 clawq background resume 1
 clawq background message 1 "Please fix the failing tests before wrapping up"
 clawq background cancel 1
 clawq background retry 1
 clawq background recover 1 --runner claude
 clawq background finalize 1
+clawq subagents start --agent coder --model xiaomi-token-plan-sgp:mimo-v2.5-pro /path/to/repo "implement the task from TASK.md"
+clawq subagents list
+clawq subagents send 1 "Please add regression coverage"
+clawq subagents transcript 1 --regex regression
+clawq subagents stop 1
 ```
 
-`clawq delegate` is the high-level handoff command for this flow. The `background` subcommands are the more explicit control surface when you want to inspect queue state, wait for completion in the terminal, or read the saved task log.
+`clawq delegate` is the high-level handoff command for this flow. The `background` subcommands are the more explicit control surface when you want to inspect queue state, wait for completion in the terminal, read the saved task log, or inspect a bounded transcript. `clawq subagents` is the native/local wrapper backed by the same background task records.
 
 Background tasks are daemon-owned. The full `clawq agent` process polls the queue, creates a fresh git worktree for each task under `~/.clawq/background-worktrees/`, runs the selected CLI non-interactively, and stores the task log under `~/.clawq/background-logs/`.
 
-Once a worktree-backed task has started, `clawq background resume <id>` resumes it using the runner's tracked session ID (when available) or falls back to the runner's generic continue flag. Each runner's session ID is automatically captured: Claude pre-assigns a UUID via `--session-id`, Codex parses JSONL output for `thread_id`, and OpenCode/Kimi/Cursor extract session IDs from log output. `clawq background message <id> ...` injects a new user message into that resumed conversation. The injected message is delivered durably and replayed FIFO for the target task.
+Once a worktree-backed external task has started, `clawq background resume <id>` resumes it using the runner's tracked session ID (when available) or falls back to the runner's generic continue flag. Each runner's session ID is automatically captured: Claude pre-assigns a UUID via `--session-id`, Codex parses JSONL output for `thread_id`, and OpenCode/Kimi/Cursor extract session IDs from log output. Local tasks persist history under `__bg_task:<id>` and resume that same session for follow-up messages. `clawq background message <id> ...`, `clawq background send <id> ...`, and `clawq subagents send <id> ...` inject a new user message into the resumed conversation. The injected message is delivered durably and replayed FIFO for the target task.
+
+For other live clawq sessions, use `clawq session send <session_key> ...`; `background stop` and `subagents stop` only cancel background task IDs.
 
 Tasks with `automerge` enabled will automatically rebase onto the target branch and fast-forward merge on success. If a conflict occurs, the parent agent is notified and can use `background finalize <id>` to retry the rebase and fast-forward merge after resolving conflicts. If the worktree has uncommitted changes (staged or unstaged), finalize and automerge will refuse to proceed and report the dirty state — commit or discard changes first, then retry.
 

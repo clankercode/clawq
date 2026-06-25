@@ -90,6 +90,46 @@ let test_bad_usage () =
      done;
      !found)
 
+let contains needle haystack =
+  let n = String.length needle and h = String.length haystack in
+  let found = ref false in
+  for i = 0 to h - n do
+    if String.sub haystack i n = needle then found := true
+  done;
+  !found
+
+let test_scripts_include_subagents_and_background_aliases () =
+  let bash = Completions.cmd_completions [ "print"; "--shell"; "bash" ] in
+  Alcotest.(check bool)
+    "bash top-level subagents" true
+    (contains "status subagents transcribe" bash);
+  Alcotest.(check bool)
+    "bash background transcript alias" true
+    (contains
+       "list show add start wait logs transcript resume message send cancel \
+        stop"
+       bash);
+  Alcotest.(check bool)
+    "bash subagents subcommands" true
+    (contains "list start stop send transcript" bash);
+  Alcotest.(check bool)
+    "bash session send" true
+    (contains "show inject send events" bash);
+  let zsh = Completions.cmd_completions [ "print"; "--shell"; "zsh" ] in
+  Alcotest.(check bool)
+    "zsh top-level subagents" true
+    (contains "subagents:Manage native/local subagents" zsh);
+  Alcotest.(check bool)
+    "zsh background transcript alias" true
+    (contains "'transcript' 'resume' 'message' 'send' 'cancel' 'stop'" zsh);
+  let fish = Completions.cmd_completions [ "print"; "--shell"; "fish" ] in
+  Alcotest.(check bool)
+    "fish top-level subagents" true
+    (contains "status subagents transcribe" fish);
+  Alcotest.(check bool)
+    "fish subagents subcommands" true
+    (contains "__fish_seen_subcommand_from subagents" fish)
+
 let suite =
   [
     Alcotest.test_case "help (no args)" `Quick test_help_no_args;
@@ -100,4 +140,6 @@ let suite =
     Alcotest.test_case "install path bash" `Quick test_install_path_bash;
     Alcotest.test_case "install path fish" `Quick test_install_path_fish;
     Alcotest.test_case "bad usage" `Quick test_bad_usage;
+    Alcotest.test_case "scripts include native subagents" `Quick
+      test_scripts_include_subagents_and_background_aliases;
   ]

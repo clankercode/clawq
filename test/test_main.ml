@@ -138,6 +138,7 @@ let () =
        ("benchmark", Test_benchmark.suite);
        ("models_catalog", Test_models_catalog.suite);
        ("xiaomi", Test_xiaomi.suite);
+       ("native_subagents_e2e", Test_native_subagents_e2e.suite);
        ("model_discovery", Test_model_discovery.suite);
        ("model_preferences", Test_model_preferences.suite);
        ("session_keepalive", Test_keepalive.suite);

@@ -9,13 +9,7 @@ let contains hay needle =
   nlen = 0 || loop 0
 
 let with_temp_workspace f =
-  let base = Filename.get_temp_dir_name () in
-  let dir =
-    Filename.concat base
-      (Printf.sprintf "clawq_tools_%d_%d" (Unix.getpid ()) (Random.bits ()))
-  in
-  (try Unix.rmdir dir with _ -> ());
-  Unix.mkdir dir 0o755;
+  let dir = Filename.temp_dir "clawq_tools_" "" in
   let cwd = Sys.getcwd () in
   Fun.protect
     (fun () ->
@@ -1426,6 +1420,7 @@ let test_register_all_with_db_registers_memory_and_bg_tools () =
       "background_task_list";
       "background_task_wait";
       "background_task_logs";
+      "background_task_transcript";
       "background_task_resume";
       "background_task_send_message";
       "delegate";

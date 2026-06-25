@@ -39,7 +39,7 @@ Seven runners are supported. Six are external CLI tools; one (`local`) runs in-p
 | `gemini` | `gemini` | Index-based | 4th |
 | `opencode` | `opencode` | Parse log regex `session=ses_...` | 5th |
 | `cursor` | `cursor-agent` | Parse log regex `chat...=...` | 6th |
-| `local` | (in-process) | Ephemeral key | N/A |
+| `local` | (in-process) | Stable `__bg_task:<id>` session | N/A |
 
 External runners are invoked with their respective `--yolo`/`--dangerously-*` flags to enable non-interactive operation. Runner definitions live in `src/runner_framework.ml`.
 
@@ -48,9 +48,25 @@ External runners are invoked with their respective `--yolo`/`--dangerously-*` fl
 The `local` runner executes agent turns in-process using clawq's own LLM provider and tool system. No external binary is needed. Local tasks:
 
 - Write logs to `~/.clawq/background-logs/task-<id>.log` (preamble, agent history updates, and final result)
+- Persist real session history under the stable session key `__bg_task:<id>`, so follow-up messages resume the same conversation
 - Support **cooperative cancellation** — `background cancel` sets an interrupt flag checked between agent turns; the task stops cleanly and is marked Cancelled
 - Use **log-file freshness** for health diagnosis — stall detection checks the log modification time, not just elapsed wall-clock time
 - Can be bound to an agent template via `--agent <name>`, or use the default session turn
+
+### Native Subagents
+
+`clawq subagents` is the human-friendly wrapper for native/local background tasks:
+
+```bash
+clawq subagents start --agent coder --model xiaomi-token-plan-sgp:mimo-v2.5-pro \
+  ~/src/myproject "Investigate and fix the failing scheduler test"
+clawq subagents list
+clawq subagents send 42 "Please include the exact failing command"
+clawq subagents transcript 42 --regex scheduler
+clawq subagents stop 42
+```
+
+These commands use the same background task table as `clawq background`. The compatibility aliases `background start`, `background stop`, `background send`, and `background transcript` route to the same behavior.
 
 ## Worktree Lifecycle
 
@@ -117,9 +133,22 @@ clawq background resume 42
 clawq background message 42 "Also update the test suite"
 ```
 
-`background resume` uses `By_session_id` mode when a session ID was captured, or `By_last` (resume most recent session) as fallback.
+For external runners, `background resume` uses `By_session_id` mode when a session ID was captured, or `By_last` (resume most recent session) as fallback. For `local` tasks, messages resume the stable `__bg_task:<id>` session directly.
 
 `background message` appends the message to the runner's prompt and resumes, letting you steer an in-progress task without losing context.
+
+For agents running in unrelated live sessions, use `clawq session send <session_key> ...` or the `send_to_session` tool. Background stop/cancel semantics apply to background task IDs only.
+
+## Transcripts
+
+Use `subagents transcript <id>` or `background transcript <id>` to inspect bounded task conversation history:
+
+```bash
+clawq subagents transcript 42 --regex "failing test" --max-lines 100
+clawq background transcript 42 --export
+```
+
+Transcript lookup prefers the stable local session history for `__bg_task:<id>`, then ACP history, then the captured log file. Regex filtering is applied before size checks. Inline output defaults to 200 lines and hard-caps at 300 lines; oversized results are refused inline and exported as searchable JSONL under the clawq state directory.
 
 ## Completion Pass
 
@@ -132,6 +161,8 @@ When any worktree-backed task finishes (Succeeded or DirtyWorktree), the system 
 The completion pass also includes a **review-and-fix guard**: the agent must review all changes (`git diff master..HEAD`) for correctness, quality, completeness, and safety before signaling done. Issues found must be fixed and re-reviewed until clean.
 
 This ensures every worktree task goes through both verification and review, regardless of whether automerge is enabled.
+
+Parent sessions receive a concise completion wake message with a bounded result preview and a pointer such as `subagents transcript 42`; full logs and transcripts are not injected into the parent context.
 
 ## Automerge
 
@@ -180,6 +211,12 @@ clawq background add <runner> [--model M] <repo>   # Queue a task
 clawq background wait <id> [--timeout <secs>]      # Wait for completion
 clawq background logs <id> [--lines N]             # Show log lines
               [--offset N] [--follow]
+clawq background transcript <id> [--regex R]       # Show bounded transcript
+              [--max-lines N] [--export]
+clawq background start <runner> [--model M] <repo> # Alias for add
+              [--branch <name>] <prompt>
+clawq background send <id> <message...>            # Alias for message
+clawq background stop <id>                         # Alias for cancel
 clawq background resume <id>                       # Resume a task
 clawq background message <id> <message...>         # Send message and resume
 clawq background cancel <id>                       # Cancel a task
@@ -187,6 +224,12 @@ clawq background retry <id>                        # Re-queue failed task
 clawq background recover <id> [--runner R]         # Recover with new runner
               [--model M]
 clawq background finalize <id>                     # Rebase, fast-forward merge, clean up
+clawq subagents list                               # List native/local tasks
+clawq subagents start [--model M] [--agent NAME]   # Queue a local task
+              <repo> <prompt>
+clawq subagents send <id> <message...>             # Message a local task
+clawq subagents transcript <id> [--regex R]        # Read bounded transcript
+clawq subagents stop <id>                          # Cancel a local task
 ```
 
 ## Plan Pipeline

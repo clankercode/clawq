@@ -912,7 +912,7 @@ let requeue_for_resume ~db ~id ~result_preview =
 let request_resume ~message ~db ~id =
   match get_task ~db ~id with
   | None -> Error (Printf.sprintf "No background task found with id %d" id)
-  | Some task when not (resume_supported task) ->
+  | Some task when task.runner <> Local && not (resume_supported task) ->
       Error
         (Printf.sprintf
            "Task %d cannot be resumed because it does not have an isolated \
@@ -924,9 +924,14 @@ let request_resume ~message ~db ~id =
       let normalized_message = Option.map String.trim message in
       (match task.status with
       | Running -> (
-          match task.pid with
-          | Some pid when pid > 0 -> Process_group.terminate_blocking pid
-          | _ -> ())
+          if task.runner = Local then
+            match Hashtbl.find_opt running id with
+            | Some st -> st.cancelled := true
+            | None -> ()
+          else
+            match task.pid with
+            | Some pid when pid > 0 -> Process_group.terminate_blocking pid
+            | _ -> ())
       | _ -> ());
       match normalized_message with
       | Some "" -> Error "Message must not be empty"
@@ -1747,102 +1752,23 @@ let default_spawn_task ?augment_env ~on_task_started ~on_task_finished ~db task
     =
   spawn_task ?augment_env ~on_task_started ~on_task_finished ~db task
 
-let local_task_timeout_seconds = 600.0
+let local_task_timeout_seconds = Background_task_local.timeout_seconds_default
 
-let spawn_local_task ?(timeout_seconds = local_task_timeout_seconds) ~run_turn
-    ~on_task_started ~on_task_finished ~db (task : task) =
-  let cancel_state = { cancelled = ref false } in
-  Hashtbl.replace running task.id cancel_state;
-  let finish_and_notify ~status ~result_preview =
-    finish ~db ~id:task.id ~status ~result_preview;
-    let open Lwt.Syntax in
-    match get_task ~db ~id:task.id with
-    | Some t -> on_task_finished t
-    | None -> Lwt.return_unit
-  in
-  Lwt.async (fun () ->
-      Lwt.finalize
-        (fun () ->
-          let open Lwt.Syntax in
-          let* prepared = prepare_worktree task in
-          match prepared with
-          | Error err -> finish_and_notify ~status:Failed ~result_preview:err
-          | Ok (branch, worktree_path, log_path) ->
-              let _set =
-                set_running ~db ~id:task.id ~branch ~worktree_path ~log_path
-                  ~pid:(-1)
-              in
-              let prompt_short = preview_text_n 200 task.prompt in
-              write_log_preamble ~log_path ~task_id:task.id
-                ~command:
-                  (Process_group.Shell
-                     (Printf.sprintf "local-turn: %s" prompt_short));
-              let* () = on_task_started task in
-              let ephemeral_key =
-                Printf.sprintf "__cron:%d:%d" task.id
-                  (int_of_float (Unix.gettimeofday ()))
-              in
-              let cwd =
-                if worktree_path <> "" then Some worktree_path else None
-              in
-              let interrupt_check () =
-                if !(cancel_state.cancelled) then Some "cancelled" else None
-              in
-              let on_history_update msgs =
-                append_messages_to_log ~log_path
-                  (List.map
-                     (fun (m : Provider.message) -> (m.role, m.content))
-                     msgs);
-                Lwt.return_unit
-              in
-              let heartbeat_stop = start_log_heartbeat ~log_path in
-              Lwt.finalize
-                (fun () ->
-                  Lwt.catch
-                    (fun () ->
-                      let* timed_result =
-                        Resilience.with_timeout ~timeout_s:timeout_seconds
-                          (fun () ->
-                            run_turn ~key:ephemeral_key ~message:task.prompt
-                              ?agent_name:task.agent_name ?cwd ~interrupt_check
-                              ~on_history_update ())
-                      in
-                      match timed_result with
-                      | Error timeout_msg ->
-                          append_log_line ~log_path
-                            (Printf.sprintf "[clawq] timed out: %s" timeout_msg);
-                          finish_and_notify ~status:Failed
-                            ~result_preview:timeout_msg
-                      | Ok result ->
-                          let result_short = preview_text_n 300 result in
-                          let rich_preview =
-                            Printf.sprintf
-                              "[cron ephemeral] prompt: %s\n\nresponse: %s"
-                              prompt_short result_short
-                          in
-                          append_log_line ~log_path
-                            (Printf.sprintf "[clawq] finished: %s" result_short);
-                          finish_and_notify ~status:Succeeded
-                            ~result_preview:rich_preview)
-                    (fun exn ->
-                      let status, preview =
-                        match exn with
-                        | Agent_0_compact.Interrupted partial ->
-                            ( Cancelled,
-                              Printf.sprintf "Cancelled: %s"
-                                (preview_text_n 300 partial) )
-                        | _ -> (Failed, Printexc.to_string exn)
-                      in
-                      append_log_line ~log_path
-                        (Printf.sprintf "[clawq] %s: %s"
-                           (string_of_status status) preview);
-                      finish_and_notify ~status ~result_preview:preview))
-                (fun () ->
-                  heartbeat_stop := true;
-                  Lwt.return_unit))
-        (fun () ->
-          Hashtbl.remove running task.id;
-          Lwt.return_unit))
+let local_task_deps : Background_task_local.deps =
+  {
+    prepare_worktree = (fun task -> prepare_worktree task);
+    finish;
+    get_task;
+    set_running;
+    list_queued_messages;
+    delete_queued_message;
+    resume_prompt_of_messages;
+  }
+
+let spawn_local_task ?timeout_seconds ~run_turn ~on_task_started
+    ~on_task_finished ~db task =
+  Background_task_local.spawn ?timeout_seconds local_task_deps ~run_turn
+    ~on_task_started ~on_task_finished ~db task
 
 let rec take n = function
   | [] -> []

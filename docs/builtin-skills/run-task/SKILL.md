@@ -6,7 +6,7 @@ argument-hint: <TARGET> [extra steering]
 
 # run-task
 
-Execute backlog target `$ARGUMENTS` end-to-end: gather context, build a startup prompt, spawn a worktree-backed subagent, and manage the claim/done/review cycle.
+Execute backlog target `$ARGUMENTS` end-to-end: gather context, build a startup prompt, spawn a native/local or worktree-backed subagent, and manage the claim/done/review cycle.
 
 ## Setup
 
@@ -144,6 +144,7 @@ Automerge is enabled by default. To disable it for a specific task, pass `autome
 
 - `background_task_list` — check status
 - `background_task_logs` / `background_task_wait` — follow progress
+- `background_task_transcript` — inspect bounded conversation history, with regex filters and JSONL export for large results
 - `background_task_send_message` — send clarifications
 - `background_task_resume` / `background_task_recover` — handle stalls
 

@@ -430,8 +430,70 @@ let cmd_cron args =
        \"0 9 * * 1-5\" for weekdays at 9am)\n\
        TTL duration: e.g. 24h, 7d, 30m (job auto-disables after this time)"
 
-let cmd_background args =
+type transcript_args = {
+  id : int;
+  regex : string option;
+  max_lines : int option;
+  export : bool;
+}
+
+let parse_transcript_args args =
+  let rec loop id regex max_lines export = function
+    | [] -> (
+        match id with
+        | Some id -> Ok { id; regex; max_lines; export }
+        | None ->
+            Error
+              "Usage: transcript <id> [--regex PATTERN] [--max-lines N] \
+               [--export]")
+    | "--regex" :: value :: rest -> loop id (Some value) max_lines export rest
+    | "--max-lines" :: value :: rest -> (
+        try loop id regex (Some (int_of_string value)) export rest
+        with _ -> Error "--max-lines must be an integer")
+    | "--export" :: rest -> loop id regex max_lines true rest
+    | arg :: rest -> (
+        match id with
+        | Some _ ->
+            Error
+              "Usage: transcript <id> [--regex PATTERN] [--max-lines N] \
+               [--export]"
+        | None -> (
+            try loop (Some (int_of_string arg)) regex max_lines export rest
+            with _ -> Error "background task id must be an integer"))
+  in
+  loop None None None false args
+
+let cmd_background_transcript rest =
+  let db = get_db () in
+  Background_task.init_schema db;
+  match parse_transcript_args rest with
+  | Error msg -> "Error: " ^ msg
+  | Ok parsed ->
+      Background_task_transcript.render ~db ~id:parsed.id ?regex:parsed.regex
+        ?max_lines:parsed.max_lines ~export:parsed.export ()
+
+let require_local_subagent_task ~db id_s =
+  let id = try int_of_string id_s with _ -> -1 in
+  if id < 0 then Error "background task id must be an integer"
+  else
+    match Background_task.get_task ~db ~id with
+    | None -> Error (Printf.sprintf "No background task found with id %d" id)
+    | Some task when task.runner <> Background_task.Local ->
+        Error
+          (Printf.sprintf
+             "Task %d is not a native/local subagent (runner is %s). Use \
+              `clawq background ...` for non-local background tasks."
+             id
+             (Background_task.string_of_runner task.runner))
+    | Some _ -> Ok id
+
+let rec cmd_background args =
   match args with
+  | "start" :: rest -> cmd_background ("add" :: rest)
+  | [ "stop"; id_s ] -> cmd_background [ "cancel"; id_s ]
+  | "send" :: id_s :: message_parts ->
+      cmd_background ("message" :: id_s :: message_parts)
+  | "transcript" :: rest -> cmd_background_transcript rest
   | [ "list" ] ->
       let db = get_db () in
       Background_task.init_schema db;
@@ -451,18 +513,26 @@ let cmd_background args =
          tasks\n\
         \  background show <id>                                    - Show task \
          details\n\
-        \  background add <codex|claude|kimi|gemini|opencode|cursor> [--model \
-         <model>] [--agent <name>] <repo> [--branch <name>] <prompt> - Queue a \
-         task\n\
+        \  background add <codex|claude|kimi|gemini|opencode|cursor|local> \
+         [--model <model>] [--agent <name>] <repo> [--branch <name>] <prompt> \
+         - Queue a task\n\
+        \  background start <runner> ...                           - Alias for \
+         background add\n\
         \  background wait <id> [--timeout <seconds>]              - Wait for \
          completion\n\
         \  background logs <id> [--lines N] [--offset N] [--follow] - Show \
          task logs\n\
+        \  background transcript <id> [--regex R] [--max-lines N] [--export] - \
+         Show bounded task transcript\n\
         \  background resume <id>                                - Resume a task\n\
         \  background message <id> <message>...                  - Send a \
          message to a task\n\
+        \  background send <id> <message>...                     - Alias for \
+         background message\n\
         \  background cancel <id>                                  - Cancel a \
          task\n\
+        \  background stop <id>                                    - Alias for \
+         background cancel\n\
         \  background retry <id>                                   - Re-queue \
          a failed task\n\
         \  background recover <id> [--runner R] [--model M]        - Recover a \
@@ -663,24 +733,32 @@ let cmd_background args =
             Worktree_merge.format_result result)
   | _ ->
       "Usage: clawq background \
-       <list|show|add|wait|logs|resume|message|cancel|retry|recover|finalize|export-acp>\n\
+       <list|show|add|start|wait|logs|transcript|resume|message|send|cancel|stop|retry|recover|finalize|export-acp>\n\
       \  background list                                         - List queued \
        and completed tasks\n\
       \  background show <id>                                    - Show task \
        details\n\
-      \  background add <codex|claude|kimi|gemini|opencode|cursor> [--model \
-       <model>] [--agent <name>] <repo> [--branch <name>] <prompt> - Queue a \
-       worktree runner\n\
+      \  background add <codex|claude|kimi|gemini|opencode|cursor|local> \
+       [--model <model>] [--agent <name>] <repo> [--branch <name>] <prompt> - \
+       Queue a background runner\n\
+      \  background start <runner> ...                           - Alias for \
+       background add\n\
       \  background wait <id> [--timeout <seconds>]              - Wait for a \
        task to finish\n\
       \  background logs <id> [--lines N] [--offset N] [--follow] - Show task \
        log lines\n\
+      \  background transcript <id> [--regex R] [--max-lines N] [--export] - \
+       Show bounded task transcript\n\
       \  background resume <id>                                  - Resume a \
        started task with the runner's native session support\n\
       \  background message <id> <message...>                    - Inject a \
        chat message into a started task and resume it\n\
+      \  background send <id> <message...>                       - Alias for \
+       background message\n\
       \  background cancel <id>                                  - Cancel a \
        queued/running task\n\
+      \  background stop <id>                                    - Alias for \
+       background cancel\n\
       \  background retry <id>                                   - Re-queue a \
        failed task (max 3 retries)\n\
       \  background recover <id> [--runner R] [--model M]        - Recover a \
@@ -689,6 +767,82 @@ let cmd_background args =
        fast-forward into target branch\n\
       \  background export-acp <id>                              - Export ACP \
        session history as JSONL"
+
+let cmd_subagents args =
+  match args with
+  | [] ->
+      "Usage: clawq subagents <list|start|stop|send|transcript>\n\
+      \  subagents list\n\
+      \  subagents start [--model M] [--agent NAME] <repo> <prompt...>\n\
+      \  subagents stop <id>\n\
+      \  subagents send <id> <message...>\n\
+      \  subagents transcript <id> [--regex R] [--max-lines N] [--export]"
+  | [ "list" ] ->
+      let db = get_db () in
+      Background_task.init_schema db;
+      Background_task.list_tasks ~db
+      |> List.filter (fun (task : Background_task.task) ->
+          task.runner = Background_task.Local)
+      |> fun tasks -> Background_task.format_task_list_with_hidden tasks 0
+  | "start" :: rest -> (
+      let cfg = get_config () in
+      let db = get_db () in
+      let workspace = Runtime_config.effective_workspace cfg in
+      ignore (Agent_template.init_cache ~workspace_dir:workspace ());
+      Background_task.init_schema db;
+      match parse_background_add_args ("local" :: rest) with
+      | Error msg -> "Error: " ^ msg
+      | Ok parsed -> (
+          match parsed.agent_name with
+          | Some name when Agent_template.resolve name = None ->
+              Printf.sprintf "Error: agent template '%s' not found" name
+          | _ -> (
+              let session_key, channel, channel_id =
+                Background_task.routing_from_context ?notify_cfg:cfg.notify ()
+              in
+              match
+                Background_task.enqueue ~db ~runner:Background_task.Local
+                  ?model:parsed.model ?agent_name:parsed.agent_name
+                  ~repo_path:parsed.repo_path ~prompt:parsed.prompt
+                  ?branch:parsed.branch ?session_key ?channel ?channel_id ()
+              with
+              | Ok id ->
+                  Printf.sprintf
+                    "Queued subagent task %d (local). Use `clawq subagents \
+                     transcript %d` to inspect its bounded transcript."
+                    id id
+              | Error msg -> "Error: " ^ msg)))
+  | [ "stop"; id_s ] -> (
+      let db = get_db () in
+      Background_task.init_schema db;
+      match require_local_subagent_task ~db id_s with
+      | Error msg -> "Error: " ^ msg
+      | Ok _ -> cmd_background [ "cancel"; id_s ])
+  | "send" :: id_s :: message_parts -> (
+      let db = get_db () in
+      Background_task.init_schema db;
+      match require_local_subagent_task ~db id_s with
+      | Error msg -> "Error: " ^ msg
+      | Ok _ -> cmd_background ("message" :: id_s :: message_parts))
+  | "transcript" :: rest -> (
+      let db = get_db () in
+      Background_task.init_schema db;
+      match parse_transcript_args rest with
+      | Error msg -> "Error: " ^ msg
+      | Ok parsed -> (
+          match require_local_subagent_task ~db (string_of_int parsed.id) with
+          | Error msg -> "Error: " ^ msg
+          | Ok _ ->
+              Background_task_transcript.render ~db ~id:parsed.id
+                ?regex:parsed.regex ?max_lines:parsed.max_lines
+                ~export:parsed.export ()))
+  | _ ->
+      "Usage: clawq subagents <list|start|stop|send|transcript>\n\
+      \  subagents list\n\
+      \  subagents start [--model M] [--agent NAME] <repo> <prompt...>\n\
+      \  subagents stop <id>\n\
+      \  subagents send <id> <message...>\n\
+      \  subagents transcript <id> [--regex R] [--max-lines N] [--export]"
 
 let cmd_delegate args =
   let cfg = get_config () in
@@ -1420,6 +1574,7 @@ let handle args =
   | "runner" :: rest -> cmd_runner rest
   | "cron" :: rest -> cmd_cron rest
   | "background" :: rest -> cmd_background rest
+  | "subagents" :: rest -> cmd_subagents rest
   | "delegate" :: rest -> cmd_delegate rest
   | "skills" :: rest -> Command_bridge_agent_cmds.cmd_skills rest
   | "pair" :: rest -> Command_bridge_pair.cmd_pair rest

@@ -334,6 +334,7 @@ let test_local_runner_lifecycle () =
            ~run_turn:(fun
                ~key:_
                ~message:_
+               ?model:_
                ?agent_name:_
                ?cwd:_
                ~interrupt_check:_
@@ -395,6 +396,7 @@ let test_local_runner_callback () =
            ~run_turn:(fun
                ~key:_
                ~message:_
+               ?model:_
                ?agent_name:_
                ?cwd:_
                ~interrupt_check:_
@@ -451,6 +453,7 @@ let test_local_runner_timeout () =
            ~run_turn:(fun
                ~key:_
                ~message:_
+               ?model:_
                ?agent_name:_
                ?cwd:_
                ~interrupt_check:_

@@ -64,7 +64,10 @@
   scheduler
   runner_framework
   background_task_0_format
+  background_task_local
   background_task
+  background_task_transcript
+  background_task_transcript_tool
   background_task_tools
   worktree_merge
   plan_pipeline

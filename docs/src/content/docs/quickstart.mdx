@@ -134,6 +134,7 @@ Minimal working configuration:
 - `base_url`: Use `https://api.openai.com/v1` for OpenAI directly, or any compatible endpoint.
 - `default_model`: Default model for this provider. Can be overridden per-request.
 - `agent_defaults.primary_model`: Sets the provider and model using `provider:model` format (e.g. `"openrouter:gpt-4o"`).
+- `agent_defaults.subagent_default_model`: Optional `provider:model` default for native/local subagents when no task or template model is set.
 - For GitHub webhook automation, add `channels.github` config plus a public webhook URL; see the Channels page for the full setup and hook file format.
 
 ## 4. Validate

@@ -38,12 +38,13 @@ let make_fake_provider_config base_url : Runtime_config.provider_config =
     default_model = Some "fake-model";
   }
 
-let with_fake_chat_provider f =
+let with_fake_chat_provider ?on_request f =
   let port = free_port () in
   let callback _conn req body =
     let open Lwt.Syntax in
     let* body_text = Cohttp_lwt.Body.to_string body in
     let json = Yojson.Safe.from_string body_text in
+    (match on_request with Some cb -> cb json | None -> ());
     let open Yojson.Safe.Util in
     let messages = json |> member "messages" |> to_list in
     let user_messages =
@@ -110,6 +111,7 @@ let with_fake_chat_provider f =
             {
               Runtime_config.default.agent_defaults with
               primary_model = "fake-model";
+              subagent_default_model = Some "fake-native:subagent-default";
               show_thinking = false;
               show_tool_calls = false;
             };
@@ -1201,7 +1203,8 @@ let test_pp_header_colorized () =
       true
     with Not_found -> false
   in
-  Alcotest.(check bool) "header contains ANSI codes" true has_ansi;
+  let expects_ansi = Option.is_none (Sys.getenv_opt "NO_COLOR") in
+  Alcotest.(check bool) "header ANSI follows NO_COLOR" expects_ansi has_ansi;
   let stripped = strip_ansi output in
   let has_level =
     try
@@ -1508,6 +1511,286 @@ let make_test_task ?(id = 9) ?(session_key = Some "telegram:42:user")
     follow_up_prompt = None;
   }
 
+let test_local_background_turn_template_persists_history_and_model () =
+  let seen_models = ref [] in
+  let seen_user_counts = ref [] in
+  let old_native_complete = !Provider.native_complete in
+  Fun.protect
+    ~finally:(fun () -> Provider.native_complete := old_native_complete)
+    (fun () ->
+      Provider.register_native_complete Provider.Cohere
+        (fun
+          ~config:_ ~provider:_ ~model ~messages ?tools:_ ?session_key:_ () ->
+          let user_count =
+            messages
+            |> List.filter (fun (msg : Provider.message) -> msg.role = "user")
+            |> List.length
+          in
+          seen_models := model :: !seen_models;
+          seen_user_counts := user_count :: !seen_user_counts;
+          let latest =
+            messages
+            |> List.filter_map (fun (msg : Provider.message) ->
+                if msg.role = "user" then Some msg.content else None)
+            |> List.rev
+            |> function
+            | latest :: _ -> latest
+            | [] -> ""
+          in
+          Lwt.return
+            (Provider.Text
+               {
+                 content = "reply:" ^ latest;
+                 usage = None;
+                 model;
+                 provider_response_items_json = None;
+                 thinking = None;
+               }));
+      let config =
+        {
+          Runtime_config.default with
+          default_provider = Some "fake-native";
+          providers =
+            [
+              ( "fake-native",
+                {
+                  Runtime_config.default_provider_config with
+                  api_key = "test-key";
+                  kind = Some "cohere";
+                  default_model = Some "fake-model";
+                } );
+            ];
+          prompt =
+            { Runtime_config.default.prompt with dynamic_enabled = false };
+          security =
+            { Runtime_config.default.security with tools_enabled = false };
+          agent_defaults =
+            {
+              Runtime_config.default.agent_defaults with
+              primary_model = "fake-model";
+              show_thinking = false;
+              show_tool_calls = false;
+            };
+        }
+      in
+      let db = Memory.init ~db_path:":memory:" () in
+      let session_manager = Session.create ~config ~db () in
+      let key = "__bg_task:77" in
+      let model = "xiaomi-token-plan-sgp:mimo-v2.5-pro" in
+      let noop_history _msgs = Lwt.return_unit in
+      let no_interrupt () = None in
+      Lwt_main.run
+        (let open Lwt.Syntax in
+         let* first =
+           Daemon.run_local_background_turn ~session_manager ~key
+             ~message:"first local template turn" ~model ~agent_name:"coder"
+             ~interrupt_check:no_interrupt ~on_history_update:noop_history ()
+         in
+         Alcotest.(check bool)
+           "first fake response" true
+           (string_contains first "first local template turn");
+         let* second =
+           Daemon.run_local_background_turn ~session_manager ~key
+             ~message:"second local template turn" ~model ~agent_name:"coder"
+             ~interrupt_check:no_interrupt ~on_history_update:noop_history ()
+         in
+         Alcotest.(check bool)
+           "second fake response" true
+           (string_contains second "second local template turn");
+         Lwt.return_unit);
+      Alcotest.(check (list string))
+        "explicit model sent for both turns" [ model; model ]
+        (List.rev !seen_models);
+      Alcotest.(check (list int))
+        "second turn includes prior user history" [ 1; 2 ]
+        (List.rev !seen_user_counts);
+      let history = Memory.load_history ~db ~session_key:key in
+      Alcotest.(check int) "four messages persisted" 4 (List.length history);
+      Alcotest.(check bool)
+        "stable transcript sees second reply" true
+        (string_contains
+           (Background_task_transcript.render ~db ~id:77 ~regex:"second" ())
+           "second local template turn"))
+
+let test_local_background_turn_missing_template_fails () =
+  Test_helpers.with_temp_home (fun _home ->
+      let db = Memory.init ~db_path:":memory:" () in
+      let session_manager =
+        Session.create ~config:Runtime_config.default ~db ()
+      in
+      let noop_history _msgs = Lwt.return_unit in
+      let no_interrupt () = None in
+      let result =
+        Lwt_main.run
+          (Lwt.catch
+             (fun () ->
+               let open Lwt.Syntax in
+               let* _ =
+                 Daemon.run_local_background_turn ~session_manager
+                   ~key:"__bg_task:404" ~message:"hello"
+                   ~agent_name:"definitely-missing-template"
+                   ~interrupt_check:no_interrupt ~on_history_update:noop_history
+                   ()
+               in
+               Lwt.return "unexpected success")
+             (fun exn -> Lwt.return (Printexc.to_string exn)))
+      in
+      Alcotest.(check bool)
+        "missing template fails local turn" true
+        (string_contains result
+           "agent template 'definitely-missing-template' not found"))
+
+let test_local_background_turn_template_model_precedence () =
+  Test_helpers.with_temp_home (fun home ->
+      ignore (Agent_template.init_cache ());
+      let agents_dir =
+        Filename.concat (Filename.concat home ".clawq") "agents"
+      in
+      let ensure_dir dir =
+        if not (Sys.file_exists dir) then Unix.mkdir dir 0o755
+      in
+      ensure_dir (Filename.concat home ".clawq");
+      ensure_dir agents_dir;
+      let template_path = Filename.concat agents_dir "modelled-local.md" in
+      let oc = open_out template_path in
+      Fun.protect
+        ~finally:(fun () -> close_out_noerr oc)
+        (fun () ->
+          output_string oc
+            "---\n\
+             name: modelled-local\n\
+             description: Model precedence regression\n\
+             role: coder\n\
+             model: fake-native:template-choice\n\
+             ---\n\
+             You are a modelled local test agent.\n");
+      let seen_models = ref [] in
+      let old_native_complete = !Provider.native_complete in
+      Fun.protect
+        ~finally:(fun () -> Provider.native_complete := old_native_complete)
+        (fun () ->
+          Provider.register_native_complete Provider.Cohere
+            (fun
+              ~config:_
+              ~provider:_
+              ~model
+              ~messages:_
+              ?tools:_
+              ?session_key:_
+              ()
+            ->
+              seen_models := model :: !seen_models;
+              Lwt.return
+                (Provider.Text
+                   {
+                     content = "template model response";
+                     usage = None;
+                     model;
+                     provider_response_items_json = None;
+                     thinking = None;
+                   }));
+          let config =
+            {
+              Runtime_config.default with
+              default_provider = Some "fake-native";
+              providers =
+                [
+                  ( "fake-native",
+                    {
+                      Runtime_config.default_provider_config with
+                      api_key = "test-key";
+                      kind = Some "cohere";
+                      default_model = Some "fake-native:global-default";
+                    } );
+                ];
+              prompt =
+                { Runtime_config.default.prompt with dynamic_enabled = false };
+              security =
+                { Runtime_config.default.security with tools_enabled = false };
+              agent_defaults =
+                {
+                  Runtime_config.default.agent_defaults with
+                  primary_model = "fake-native:global-default";
+                  subagent_default_model = Some "fake-native:subagent-default";
+                  show_thinking = false;
+                  show_tool_calls = false;
+                };
+            }
+          in
+          let db = Memory.init ~db_path:":memory:" () in
+          let session_manager = Session.create ~config ~db () in
+          ignore
+            (Lwt_main.run
+               (Daemon.run_local_background_turn ~session_manager
+                  ~key:"__bg_task:78" ~message:"template model turn"
+                  ~agent_name:"modelled-local"
+                  ~interrupt_check:(fun () -> None)
+                  ~on_history_update:(fun _ -> Lwt.return_unit)
+                  ()));
+          Alcotest.(check (list string))
+            "template model beats subagent default and global"
+            [ "template-choice" ] (List.rev !seen_models)))
+
+let test_local_background_turn_no_template_subagent_default_model () =
+  let seen_models = ref [] in
+  let old_native_complete = !Provider.native_complete in
+  Fun.protect
+    ~finally:(fun () -> Provider.native_complete := old_native_complete)
+    (fun () ->
+      Provider.register_native_complete Provider.Cohere
+        (fun
+          ~config:_ ~provider:_ ~model ~messages:_ ?tools:_ ?session_key:_ () ->
+          seen_models := model :: !seen_models;
+          Lwt.return
+            (Provider.Text
+               {
+                 content = "subagent default model response";
+                 usage = None;
+                 model;
+                 provider_response_items_json = None;
+                 thinking = None;
+               }));
+      let config =
+        {
+          Runtime_config.default with
+          default_provider = Some "fake-native";
+          providers =
+            [
+              ( "fake-native",
+                {
+                  Runtime_config.default_provider_config with
+                  api_key = "test-key";
+                  kind = Some "cohere";
+                  default_model = Some "fake-native:global-default";
+                } );
+            ];
+          prompt =
+            { Runtime_config.default.prompt with dynamic_enabled = false };
+          security =
+            { Runtime_config.default.security with tools_enabled = false };
+          agent_defaults =
+            {
+              Runtime_config.default.agent_defaults with
+              primary_model = "fake-native:global-default";
+              subagent_default_model = Some "fake-native:subagent-default";
+              show_thinking = false;
+              show_tool_calls = false;
+            };
+        }
+      in
+      let db = Memory.init ~db_path:":memory:" () in
+      let session_manager = Session.create ~config ~db () in
+      ignore
+        (Lwt_main.run
+           (Daemon.run_local_background_turn ~session_manager
+              ~key:"__bg_task:79" ~message:"plain local turn"
+              ~interrupt_check:(fun () -> None)
+              ~on_history_update:(fun _ -> Lwt.return_unit)
+              ()));
+      Alcotest.(check (list string))
+        "subagent default beats global when no explicit/template model"
+        [ "subagent-default" ] (List.rev !seen_models))
+
 let test_notify_background_task_finished_dispatches_and_injects_wakeup () =
   let db = Memory.init ~db_path:":memory:" () in
   let telegram_account =
@@ -1586,7 +1869,13 @@ let test_notify_background_task_finished_dispatches_and_injects_wakeup () =
                 (Str.regexp "succeeded\\|failed\\|cancelled")
                 message 0);
            true
-         with Not_found -> false)
+         with Not_found -> false);
+      Alcotest.(check bool)
+        "includes bounded result preview" true
+        (string_contains message "Result preview: ok");
+      Alcotest.(check bool)
+        "points to subagent transcript command" true
+        (string_contains message "subagents transcript 9")
   | msgs ->
       Alcotest.failf "expected exactly one injected wake-up message, got %d"
         (List.length msgs)
@@ -1636,7 +1925,10 @@ let test_notify_background_task_finished_queues_wakeup_when_session_busy () =
   | [ message ] ->
       Alcotest.(check bool)
         "queued terse label present" true
-        (String.starts_with ~prefix:"[bg #" message)
+        (String.starts_with ~prefix:"[bg #" message);
+      Alcotest.(check bool)
+        "queued wake has transcript pointer" true
+        (string_contains message "subagents transcript 12")
   | msgs ->
       Alcotest.failf "expected one queued wake-up message, got %d"
         (List.length msgs)
@@ -2482,6 +2774,15 @@ let suite =
       test_resume_agent_session_sends_debug_summary;
     Alcotest.test_case "resume agent session persists response and marks sent"
       `Quick test_resume_agent_session_persists_response_and_marks_sent;
+    Alcotest.test_case
+      "local background template persists history and explicit model" `Quick
+      test_local_background_turn_template_persists_history_and_model;
+    Alcotest.test_case "local background missing template fails" `Quick
+      test_local_background_turn_missing_template_fails;
+    Alcotest.test_case "local background template model precedence" `Quick
+      test_local_background_turn_template_model_precedence;
+    Alcotest.test_case "local background no-template subagent default model"
+      `Quick test_local_background_turn_no_template_subagent_default_model;
     Alcotest.test_case "background completion dispatches and injects wake-up"
       `Quick test_notify_background_task_finished_dispatches_and_injects_wakeup;
     Alcotest.test_case "background completion queues wake-up when session busy"

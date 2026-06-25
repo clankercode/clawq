@@ -370,6 +370,7 @@ Context provided: [key files, decisions, or constraints passed to the agent]
         "background_task_list";
         "background_task_wait";
         "background_task_logs";
+        "background_task_transcript";
         "background_task_cancel";
         "background_task_resume";
         "background_task_send_message";

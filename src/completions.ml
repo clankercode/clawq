@@ -28,7 +28,7 @@ let bash_script =
         cur="${COMP_WORDS[COMP_CWORD]}"
         prev="${COMP_WORDS[COMP_CWORD-1]}"
     }
-    local commands="active agent audit auth background benchmark capabilities channel completions config costs cron debug debate delegate doctor ec-run hardware held-items manifest memory mcp migrate models onboard otp-show phase2 plan pipeline provider reset-agent reset-workspace rig runtime service session skills status transcribe tunnel update usage version watcher workspace"
+    local commands="active agent audit auth background benchmark capabilities channel completions config costs cron debug debate delegate doctor ec-run hardware held-items manifest memory mcp migrate models onboard otp-show phase2 plan pipeline provider reset-agent reset-workspace rig runtime service session skills status subagents transcribe tunnel update usage version watcher workspace"
     if [[ ${COMP_CWORD} -eq 1 ]]; then
         COMPREPLY=( $(compgen -W "${commands}" -- "${cur}") )
         return
@@ -36,7 +36,7 @@ let bash_script =
     case "${COMP_WORDS[1]}" in
         audit)       COMPREPLY=( $(compgen -W "list verify export import purge" -- "${cur}") );;
         auth)        COMPREPLY=( $(compgen -W "set-key providers encrypt codex-login codex-status codex-logout pair" -- "${cur}") );;
-        background)  COMPREPLY=( $(compgen -W "list show add wait logs cancel" -- "${cur}") );;
+        background)  COMPREPLY=( $(compgen -W "list show add start wait logs transcript resume message send cancel stop retry recover finalize export-acp" -- "${cur}") );;
         completions) COMPREPLY=( $(compgen -W "print install" -- "${cur}") );;
         config)      COMPREPLY=( $(compgen -W "wizard set get show" -- "${cur}") );;
         cron)        COMPREPLY=( $(compgen -W "list add remove history runs" -- "${cur}") );;
@@ -47,8 +47,9 @@ let bash_script =
         rig)         COMPREPLY=( $(compgen -W "install adjust remove list" -- "${cur}") );;
         runtime)     COMPREPLY=( $(compgen -W "status native docker" -- "${cur}") );;
         service)     COMPREPLY=( $(compgen -W "start stop restart signal-restart status" -- "${cur}") );;
-        session)     COMPREPLY=( $(compgen -W "list epochs show inject events pending compact" -- "${cur}") );;
+        session)     COMPREPLY=( $(compgen -W "list epochs show inject send events pending compact" -- "${cur}") );;
         skills)      COMPREPLY=( $(compgen -W "list path init" -- "${cur}") );;
+        subagents)   COMPREPLY=( $(compgen -W "list start stop send transcript" -- "${cur}") );;
         tunnel)      COMPREPLY=( $(compgen -W "start stop status apply restart daemon-status" -- "${cur}") );;
         held-items)  COMPREPLY=( $(compgen -W "save list show approve reject" -- "${cur}") );;
         pipeline)    COMPREPLY=( $(compgen -W "list show run validate create" -- "${cur}") );;
@@ -108,6 +109,7 @@ _clawq() {
                 'session:Manage agent sessions'
                 'skills:Manage agent skills'
                 'status:Show runtime configuration summary'
+                'subagents:Manage native/local subagents'
                 'transcribe:Transcribe an audio file'
                 'tunnel:Manage public tunnel'
                 'update:Trigger a daemon update'
@@ -124,7 +126,7 @@ _clawq() {
             case $line[1] in
                 audit)       _values 'subcommand' 'list' 'verify' 'export' 'import' 'purge';;
                 auth)        _values 'subcommand' 'set-key' 'providers' 'encrypt' 'codex-login' 'codex-status' 'codex-logout' 'pair';;
-                background)  _values 'subcommand' 'list' 'show' 'add' 'wait' 'logs' 'cancel';;
+                background)  _values 'subcommand' 'list' 'show' 'add' 'start' 'wait' 'logs' 'transcript' 'resume' 'message' 'send' 'cancel' 'stop' 'retry' 'recover' 'finalize' 'export-acp';;
                 completions) _values 'subcommand' 'print' 'install';;
                 config)      _values 'subcommand' 'wizard' 'set' 'get' 'show';;
                 cron)        _values 'subcommand' 'list' 'add' 'remove' 'history' 'runs';;
@@ -135,8 +137,9 @@ _clawq() {
                 rig)         _values 'subcommand' 'install' 'adjust' 'remove' 'list';;
                 runtime)     _values 'subcommand' 'status' 'native' 'docker';;
                 service)     _values 'subcommand' 'start' 'stop' 'restart' 'signal-restart' 'status';;
-                session)     _values 'subcommand' 'list' 'epochs' 'show' 'inject' 'events' 'pending' 'compact';;
+                session)     _values 'subcommand' 'list' 'epochs' 'show' 'inject' 'send' 'events' 'pending' 'compact';;
                 skills)      _values 'subcommand' 'list' 'path' 'init';;
+                subagents)   _values 'subcommand' 'list' 'start' 'stop' 'send' 'transcript';;
                 tunnel)      _values 'subcommand' 'start' 'stop' 'status' 'apply' 'restart' 'daemon-status';;
                 held-items)  _values 'subcommand' 'save' 'list' 'show' 'approve' 'reject';;
                 pipeline)    _values 'subcommand' 'list' 'show' 'run' 'validate' 'create';;
@@ -152,7 +155,7 @@ _clawq
 
 let fish_script =
   {|# clawq fish completions
-set -l clawq_commands active agent audit auth background benchmark capabilities channel completions config costs cron debug debate delegate doctor ec-run hardware held-items manifest memory mcp migrate models onboard otp-show phase2 plan pipeline provider reset-agent reset-workspace rig runtime service session skills status transcribe tunnel update usage version watcher workspace
+set -l clawq_commands active agent audit auth background benchmark capabilities channel completions config costs cron debug debate delegate doctor ec-run hardware held-items manifest memory mcp migrate models onboard otp-show phase2 plan pipeline provider reset-agent reset-workspace rig runtime service session skills status subagents transcribe tunnel update usage version watcher workspace
 
 complete -c clawq -f
 for cmd in $clawq_commands
@@ -161,7 +164,7 @@ end
 
 complete -c clawq -n "__fish_seen_subcommand_from audit"       -a "list verify export import purge"
 complete -c clawq -n "__fish_seen_subcommand_from auth"        -a "set-key providers encrypt codex-login codex-status codex-logout pair"
-complete -c clawq -n "__fish_seen_subcommand_from background"  -a "list show add wait logs cancel"
+complete -c clawq -n "__fish_seen_subcommand_from background"  -a "list show add start wait logs transcript resume message send cancel stop retry recover finalize export-acp"
 complete -c clawq -n "__fish_seen_subcommand_from completions" -a "print install"
 complete -c clawq -n "__fish_seen_subcommand_from config"      -a "wizard set get show"
 complete -c clawq -n "__fish_seen_subcommand_from cron"        -a "list add remove history runs"
@@ -172,8 +175,9 @@ complete -c clawq -n "__fish_seen_subcommand_from provider"    -a "quota list"
 complete -c clawq -n "__fish_seen_subcommand_from rig"        -a "install adjust remove list"
 complete -c clawq -n "__fish_seen_subcommand_from runtime"     -a "status native docker"
 complete -c clawq -n "__fish_seen_subcommand_from service"     -a "start stop restart signal-restart status"
-complete -c clawq -n "__fish_seen_subcommand_from session"     -a "list epochs show inject events pending compact"
+complete -c clawq -n "__fish_seen_subcommand_from session"     -a "list epochs show inject send events pending compact"
 complete -c clawq -n "__fish_seen_subcommand_from skills"      -a "list path init"
+complete -c clawq -n "__fish_seen_subcommand_from subagents"   -a "list start stop send transcript"
 complete -c clawq -n "__fish_seen_subcommand_from tunnel"      -a "start stop status apply restart daemon-status"
 complete -c clawq -n "__fish_seen_subcommand_from held-items"  -a "save list show approve reject"
 complete -c clawq -n "__fish_seen_subcommand_from pipeline"    -a "list show run validate create"

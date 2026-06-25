@@ -681,6 +681,7 @@ let handle args =
   | "auth" :: rest -> cmd_auth rest
   | "cron" :: rest -> cmd_cron rest
   | "background" :: rest -> cmd_background rest
+  | "subagents" :: rest -> cmd_background rest
   | "delegate" :: rest -> cmd_delegate rest
   | "skills" :: rest -> cmd_skills rest
   | "audit" :: rest -> cmd_audit rest

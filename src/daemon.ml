@@ -210,6 +210,7 @@ let run ~(config : Runtime_config.t) =
       Tool_registry.register registry
         (Skills.skill_list_tool ~workspace_dir:workspace ());
       let skill_cache = Skills.init_cache ~workspace_dir:workspace () in
+      ignore (Agent_template.init_cache ~workspace_dir:workspace ());
       Tool_registry.register registry
         (Skills.use_skill_tool ~workspace_only:config.security.workspace_only ());
       Lwt.async (fun () -> Skills.skill_watcher_loop skill_cache);
@@ -1621,57 +1622,16 @@ let run ~(config : Runtime_config.t) =
                     ~run_turn:(fun
                         ~key
                         ~message
+                        ?model
                         ?agent_name
                         ?cwd
                         ~interrupt_check
                         ~on_history_update
                         ()
                       ->
-                      match agent_name with
-                      | Some name -> (
-                          match Agent_template.resolve name with
-                          | None ->
-                              Lwt.return
-                                (Printf.sprintf
-                                   "Error: agent template '%s' not found" name)
-                          | Some tmpl ->
-                              let tool_registry =
-                                Session_turn.resolve_agent_template_registry
-                                  session_manager tmpl
-                              in
-                              let agent =
-                                Agent.create
-                                  ~config:session_manager.Session_core.config
-                                  ?tool_registry ~agent_template:tmpl ()
-                              in
-                              agent.effective_cwd <- cwd;
-                              Agent.turn agent ~user_message:message
-                                ~interrupt_check ~on_history_update ())
-                      | None ->
-                          let open Lwt.Syntax in
-                          (* Bridge interrupt_check by polling and setting
-                             the session interrupt ref. The done_ flag
-                             ensures the poller stops after the turn. *)
-                          let done_ = ref false in
-                          Lwt.async (fun () ->
-                              let rec poll () =
-                                if !done_ then Lwt.return_unit
-                                else
-                                  match interrupt_check () with
-                                  | Some msg ->
-                                      Session_core.set_interrupt_if_present
-                                        session_manager ~key msg
-                                  | None ->
-                                      let* () = Lwt_unix.sleep 0.5 in
-                                      poll ()
-                              in
-                              poll ());
-                          Lwt.finalize
-                            (fun () ->
-                              Session.turn session_manager ~key ~message ?cwd ())
-                            (fun () ->
-                              done_ := true;
-                              Lwt.return_unit))
+                      Daemon_util.run_local_background_turn ~session_manager
+                        ~key ~message ?model ?agent_name ?cwd ~interrupt_check
+                        ~on_history_update ())
                     ~db
                     ~on_task_finished:
                       (notify_background_task_finished ~session_manager ~config

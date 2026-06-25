@@ -150,15 +150,16 @@ Show usage instructions to the user. Done.
 4. Spawn background task:
    ```
    background_task_enqueue(
-     runner: "<selected>",
+     runner: "<selected, or local for a native subagent>",
      repo_path: "<repo>",
      prompt: "<constructed prompt with requirements, AC, file targets>",
      branch: "clawq-feature-<name>",
      use_worktree: true
    )
    ```
-5. Monitor: `background_task_logs(id)`, `background_task_wait(id)`
-6. On failure: `background_task_recover(id)`
+5. Monitor: `background_task_logs(id)`, `background_task_wait(id)`, and `background_task_transcript(id, regex: "...")` for bounded conversation history. Local/native subagents persist history under `__bg_task:<id>`.
+6. Steer: `background_task_send_message(id, message: "...")`
+7. On failure: `background_task_recover(id)`
 
 ## Phase 6: Verification and Reporting
 
@@ -167,7 +168,7 @@ Show usage instructions to the user. Done.
 1. **Skills**: invoke via `use_skill` to verify loading
 2. **Cron**: verify via `shell_exec("clawq cron list")`
 3. **Rigs**: verify via `shell_exec("clawq rig list")`
-4. **OCaml**: check `background_task_list` for completion, verify `make test` passed
+4. **OCaml**: check `background_task_list` for completion, inspect `background_task_transcript` when context is needed, verify `make test` passed
 5. **Store**: `memory_store(key="feature:<name>", value="<summary of what was created>")`
 
 Present final report:

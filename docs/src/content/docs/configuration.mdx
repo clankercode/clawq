@@ -284,6 +284,10 @@ The model resolution hierarchy (highest to lowest priority):
 2. Channel-specific default model (`clawq channel set-model NAME MODEL`)
 3. Global `agent_defaults.primary_model`
 
+Native/local subagents resolve models separately: explicit task `--model`, then
+the agent template `model`, then `agent_defaults.subagent_default_model`, then
+the parent/global default.
+
 All 17 channel types are supported: `telegram`, `discord`, `slack`, `github`, `teams`, `matrix`, `mattermost`, `dingtalk`, `imessage`, `signal`, `irc`, `email`, `whatsapp`, `nostr`, `lark`, `line`, `onebot`.
 
 ### security

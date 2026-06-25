@@ -1619,6 +1619,8 @@ let register_all ~(config : Runtime_config.t) ~sandbox ?(db = None)
       Tool_registry.register registry (Background_task_tools.list_tool ~db);
       Tool_registry.register registry (Background_task_tools.wait_tool ~db);
       Tool_registry.register registry (Background_task_tools.logs_tool ~db);
+      Tool_registry.register registry
+        (Background_task_tools.transcript_tool ~db);
       Tool_registry.register registry (Background_task_tools.resume_tool ~db);
       Tool_registry.register registry (Background_task_tools.message_tool ~db);
       Tool_registry.register registry

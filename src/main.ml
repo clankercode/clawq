@@ -343,6 +343,31 @@ let session_inject_cmd =
                @ [ sk ] @ msg_parts))
         $ cwd $ session_key $ args))
 
+let session_send_cmd =
+  let args = required_trailing_args 0 "MESSAGE" in
+  let session_key =
+    Arg.(required & pos 0 (some string) None & info [] ~docv:"SESSION")
+  in
+  let cwd =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "cwd" ]
+          ~doc:"Set the agent's working directory for this session."
+          ~docv:"PATH")
+  in
+  Cmd.v
+    (Cmd.info "send"
+       ~doc:"Send an inbound message to another live or queued session.")
+    Term.(
+      ret
+        (const (fun cwd sk msg_parts ->
+             run "session"
+               ([ "send" ]
+               @ (match cwd with Some c -> [ "--cwd"; c ] | None -> [])
+               @ [ sk ] @ msg_parts))
+        $ cwd $ session_key $ args))
+
 let session_events_cmd =
   let session_key =
     Arg.(required & pos 0 (some string) None & info [] ~docv:"SESSION")
@@ -427,6 +452,7 @@ let session_cmd =
       session_epochs_cmd;
       session_show_cmd;
       session_inject_cmd;
+      session_send_cmd;
       session_events_cmd;
       session_pending_cmd;
       session_compact_cmd;
@@ -657,6 +683,48 @@ let background_logs_cmd =
              run "background" args)
         $ id $ lines $ offset $ follow))
 
+let background_transcript_cmd =
+  let id = Arg.(required & pos 0 (some string) None & info [] ~docv:"ID") in
+  let regex =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "regex" ] ~docv:"REGEX"
+          ~doc:"Filter transcript lines with an OCaml Str regex.")
+  in
+  let max_lines =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "max-lines" ] ~docv:"COUNT"
+          ~doc:"Maximum inline transcript lines (default 200, hard cap 300).")
+  in
+  let export =
+    Arg.(
+      value & flag
+      & info [ "export" ] ~doc:"Also write the filtered transcript to JSONL.")
+  in
+  Cmd.v
+    (Cmd.info "transcript"
+       ~doc:"Show a bounded task transcript with optional regex filtering.")
+    Term.(
+      ret
+        (const (fun id regex max_lines export ->
+             let args = [ "transcript"; id ] in
+             let args =
+               match regex with
+               | Some value -> args @ [ "--regex"; value ]
+               | None -> args
+             in
+             let args =
+               match max_lines with
+               | Some value -> args @ [ "--max-lines"; value ]
+               | None -> args
+             in
+             let args = if export then args @ [ "--export" ] else args in
+             run "background" args)
+        $ id $ regex $ max_lines $ export))
+
 let background_resume_cmd =
   let id = Arg.(required & pos 0 (some string) None & info [] ~docv:"ID") in
   Cmd.v
@@ -678,6 +746,72 @@ let background_message_cmd =
              run "background" ([ "message"; id ] @ message))
         $ id $ message))
 
+let background_start_cmd =
+  let runner =
+    Arg.(required & pos 0 (some string) None & info [] ~docv:"RUNNER")
+  in
+  let repo = Arg.(required & pos 1 (some string) None & info [] ~docv:"REPO") in
+  let model =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "model" ] ~docv:"MODEL"
+          ~doc:"Explicit runner model to use when supported.")
+  in
+  let branch =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "branch" ] ~docv:"NAME" ~doc:"Branch name for the new worktree.")
+  in
+  let agent =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "agent" ] ~docv:"NAME"
+          ~doc:"Agent template name for local/native tasks.")
+  in
+  let prompt = required_trailing_args 1 "PROMPT" in
+  Cmd.v
+    (Cmd.info "start" ~doc:"Alias for background add.")
+    Term.(
+      ret
+        (const (fun runner repo model branch agent prompt ->
+             let args = [ "start"; runner; repo ] in
+             let args =
+               match model with
+               | Some value -> args @ [ "--model"; value ]
+               | None -> args
+             in
+             let args =
+               match branch with
+               | Some name -> args @ [ "--branch"; name ]
+               | None -> args
+             in
+             let args =
+               match agent with
+               | Some name -> args @ [ "--agent"; name ]
+               | None -> args
+             in
+             run "background" (args @ prompt))
+        $ runner $ repo $ model $ branch $ agent $ prompt))
+
+let background_send_cmd =
+  let id = Arg.(required & pos 0 (some string) None & info [] ~docv:"ID") in
+  let message = required_trailing_args 1 "MESSAGE" in
+  Cmd.v
+    (Cmd.info "send" ~doc:"Alias for background message.")
+    Term.(
+      ret
+        (const (fun id message -> run "background" ([ "send"; id ] @ message))
+        $ id $ message))
+
+let background_stop_cmd =
+  let id = Arg.(required & pos 0 (some string) None & info [] ~docv:"ID") in
+  Cmd.v
+    (Cmd.info "stop" ~doc:"Alias for background cancel.")
+    Term.(ret (const (fun id -> run "background" [ "stop"; id ]) $ id))
+
 let background_cancel_cmd =
   let id = Arg.(required & pos 0 (some string) None & info [] ~docv:"ID") in
   Cmd.v
@@ -697,7 +831,8 @@ let background_recover_cmd =
       value
       & opt (some string) None
       & info [ "runner" ] ~docv:"RUNNER"
-          ~doc:"Override runner (codex|claude|kimi|gemini|opencode|cursor).")
+          ~doc:
+            "Override runner (codex|claude|kimi|gemini|opencode|cursor|local).")
   in
   let model =
     Arg.(
@@ -740,7 +875,7 @@ let background_cmd =
     (Cmd.info "background"
        ~doc:
          "Manage background coding tasks that run a coding agent in git \
-          worktrees."
+          worktrees or local sessions."
        ~man:
          [
            `S "EXAMPLES";
@@ -748,6 +883,7 @@ let background_cmd =
            `P "clawq background add codex /path/to/repo \"implement feature X\"";
            `P "clawq background show 3";
            `P "clawq background logs 3 --follow";
+           `P "clawq background transcript 3 --regex failure";
            `P "clawq background message 3 \"please also fix the tests\"";
          ])
     [
@@ -756,12 +892,134 @@ let background_cmd =
       background_add_cmd;
       background_wait_cmd;
       background_logs_cmd;
+      background_transcript_cmd;
       background_resume_cmd;
       background_message_cmd;
+      background_start_cmd;
+      background_send_cmd;
+      background_stop_cmd;
       background_cancel_cmd;
       background_retry_cmd;
       background_recover_cmd;
       background_finalize_cmd;
+    ]
+
+let subagents_list_cmd =
+  Cmd.v
+    (Cmd.info "list" ~doc:"List native/local subagent background tasks.")
+    Term.(ret (const (run "subagents") $ const [ "list" ]))
+
+let subagents_start_cmd =
+  let repo = Arg.(required & pos 0 (some string) None & info [] ~docv:"REPO") in
+  let model =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "model" ] ~docv:"MODEL"
+          ~doc:"Explicit model for the native subagent.")
+  in
+  let agent =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "agent" ] ~docv:"NAME"
+          ~doc:"Agent template name to use, e.g. coder or reviewer.")
+  in
+  let prompt = required_trailing_args 1 "PROMPT" in
+  Cmd.v
+    (Cmd.info "start" ~doc:"Start a native/local subagent task.")
+    Term.(
+      ret
+        (const (fun repo model agent prompt ->
+             let args = [ "start"; repo ] in
+             let args =
+               match model with
+               | Some value -> args @ [ "--model"; value ]
+               | None -> args
+             in
+             let args =
+               match agent with
+               | Some name -> args @ [ "--agent"; name ]
+               | None -> args
+             in
+             run "subagents" (args @ prompt))
+        $ repo $ model $ agent $ prompt))
+
+let subagents_stop_cmd =
+  let id = Arg.(required & pos 0 (some string) None & info [] ~docv:"ID") in
+  Cmd.v
+    (Cmd.info "stop" ~doc:"Stop a native subagent task.")
+    Term.(ret (const (fun id -> run "subagents" [ "stop"; id ]) $ id))
+
+let subagents_send_cmd =
+  let id = Arg.(required & pos 0 (some string) None & info [] ~docv:"ID") in
+  let message = required_trailing_args 1 "MESSAGE" in
+  Cmd.v
+    (Cmd.info "send" ~doc:"Send a follow-up message to a native subagent.")
+    Term.(
+      ret
+        (const (fun id message -> run "subagents" ([ "send"; id ] @ message))
+        $ id $ message))
+
+let subagents_transcript_cmd =
+  let id = Arg.(required & pos 0 (some string) None & info [] ~docv:"ID") in
+  let regex =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "regex" ] ~docv:"REGEX" ~doc:"Filter transcript lines.")
+  in
+  let max_lines =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "max-lines" ] ~docv:"COUNT"
+          ~doc:"Maximum inline transcript lines.")
+  in
+  let export =
+    Arg.(value & flag & info [ "export" ] ~doc:"Export transcript JSONL.")
+  in
+  Cmd.v
+    (Cmd.info "transcript" ~doc:"Show a bounded native subagent transcript.")
+    Term.(
+      ret
+        (const (fun id regex max_lines export ->
+             let args = [ "transcript"; id ] in
+             let args =
+               match regex with
+               | Some value -> args @ [ "--regex"; value ]
+               | None -> args
+             in
+             let args =
+               match max_lines with
+               | Some value -> args @ [ "--max-lines"; value ]
+               | None -> args
+             in
+             let args = if export then args @ [ "--export" ] else args in
+             run "subagents" args)
+        $ id $ regex $ max_lines $ export))
+
+let subagents_cmd =
+  Cmd.group
+    ~default:Term.(ret (const (run "subagents") $ const []))
+    (Cmd.info "subagents"
+       ~doc:"Manage native/local subagents backed by background tasks."
+       ~man:
+         [
+           `S "EXAMPLES";
+           `P
+             "clawq subagents start --agent coder --model \
+              xiaomi-token-plan-sgp:mimo-v2.5-pro /path/to/repo \"investigate \
+              this\"";
+           `P "clawq subagents send 3 \"please include the failing command\"";
+           `P "clawq subagents transcript 3 --regex failure";
+         ])
+    [
+      subagents_list_cmd;
+      subagents_start_cmd;
+      subagents_stop_cmd;
+      subagents_send_cmd;
+      subagents_transcript_cmd;
     ]
 
 let delegate_cmd =
@@ -1477,6 +1735,7 @@ let () =
       mcp_cmd;
       cron_cmd;
       background_cmd;
+      subagents_cmd;
       delegate_cmd;
       plan_cmd;
       audit_cmd;
