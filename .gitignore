@@ -36,3 +36,4 @@ tmp.*
 .worktrees/
 .worktrees/
 npm-pkg/bin/
+.maint/

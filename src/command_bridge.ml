@@ -10,12 +10,13 @@ let cmd_transcribe args =
       else
         let cfg = get_config () in
         let ic = open_in_bin file_path in
-        Fun.protect ~finally:(fun () -> close_in_noerr ic) (fun () ->
-        let n = in_channel_length ic in
-        let buf = Bytes.create n in
-        really_input ic buf 0 n;
-        Bytes.to_string buf)
-        let audio_data = Bytes.to_string buf in
+        let audio_data =
+          Fun.protect ~finally:(fun () -> close_in_noerr ic) (fun () ->
+            let n = in_channel_length ic in
+            let buf = Bytes.create n in
+            really_input ic buf 0 n;
+            Bytes.to_string buf)
+        in
         let filename = Filename.basename file_path in
         let content_type = Stt.content_type_of_ext filename in
         let result =
