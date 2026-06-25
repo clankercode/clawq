@@ -680,3 +680,4 @@ bugs:
     - file: B683-briefing-hourly-cron-still-use.todo
     - file: B684-b680-briefing-cron-migration-w.todo
     - file: B685-task-tree-display-hard-wrap-at.todo
+    - file: B686-support-agentic-task-metadata.todo

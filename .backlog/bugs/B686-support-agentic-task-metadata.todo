@@ -1,0 +1,11 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B686
+priority: high
+status: pending
+tags: []
+title: Support agentic task metadata and autostart
+---
+Allow tasks to include structured execution metadata: dependency tasks, model, agent type, prompt, and related details. Add a task_start_agent tool for launching a task as an agentic/native subagent. Add an optional autostart boolean; when true, automatically spawn the task as an agent as soon as it becomes unblocked. Add a config setting for maximum concurrent agents and enforce that limit for native subagents.
