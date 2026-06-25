@@ -116,6 +116,17 @@ let test_parse_message_invalid () =
   | None -> ()
   | Some _ -> Alcotest.fail "expected None"
 
+let test_handle_webhook_body_returns_error_when_turn_fails () =
+  let config = mk_lark_cfg () in
+  let session_mgr = Session.create ~config:Runtime_config.default () in
+  let body =
+    {|{"header":{"event_id":"evt-turn-fails"},"event":{"message":{"chat_id":"chat1","chat_type":"p2p","content":"{\"text\":\"hello\"}"},"sender":{"sender_id":{"open_id":"user1"}}}}|}
+  in
+  match Lwt_main.run (Lark.handle_webhook_body ~config ~session_mgr body) with
+  | `Error _ -> ()
+  | `Ok body -> Alcotest.failf "expected Error, got Ok %s" body
+  | `Challenge body -> Alcotest.failf "expected Error, got Challenge %s" body
+
 let suite =
   [
     Alcotest.test_case "is_allowed wildcard" `Quick test_is_allowed_wildcard;
@@ -131,4 +142,6 @@ let suite =
     Alcotest.test_case "parse message empty text" `Quick
       test_parse_message_empty_text;
     Alcotest.test_case "parse message invalid" `Quick test_parse_message_invalid;
+    Alcotest.test_case "webhook returns Error when turn fails" `Quick
+      test_handle_webhook_body_returns_error_when_turn_fails;
   ]

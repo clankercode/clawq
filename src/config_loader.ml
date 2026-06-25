@@ -2,6 +2,17 @@ open Config_loader_support
 
 let default_path = Config_loader_support.default_path
 
+(* H2: helper to log warnings when config field parsing fails silently.
+   Use [with_default field_name default (fun () -> parse_expr)] instead of
+   [try parse_expr with _ -> default] to get visibility into config typos. *)
+let with_default field_name default f =
+  try f ()
+  with exn ->
+    Logs.debug (fun m ->
+        m "Config field '%s' parse failed: %s (using default)" field_name
+          (Printexc.to_string exn));
+    default
+
 let parse_config ?(resolve_secrets = true) json =
   let open Yojson.Safe.Util in
   let default = Runtime_config.default in
@@ -11,12 +22,12 @@ let parse_config ?(resolve_secrets = true) json =
     else try json |> member "models" |> member "providers" with _ -> `Null
   in
   let default_temperature =
-    try json |> member "default_temperature" |> to_float
-    with _ -> default.default_temperature
+    with_default "default_temperature" default.default_temperature (fun () ->
+        json |> member "default_temperature" |> to_float)
   in
   let parsed_default_provider =
-    try Some (json |> member "default_provider" |> to_string)
-    with _ -> default.default_provider
+    with_default "default_provider" default.default_provider (fun () ->
+        Some (json |> member "default_provider" |> to_string))
   in
   let () =
     match parsed_default_provider with
@@ -161,7 +172,10 @@ let parse_config ?(resolve_secrets = true) json =
                max_output_tokens;
              }
               : Runtime_config.provider_config) ))
-    with _ -> []
+    with exn ->
+      Logs.warn (fun m ->
+          m "Failed to parse providers config: %s" (Printexc.to_string exn));
+      []
   in
   (* B697: backfill declared xiaomi providers and synthesize absent ones when a
      key is discoverable (env vars / ~/.mimo). No-op on the resolve_secrets=false
@@ -1961,7 +1975,14 @@ let load_readonly ?(path = "") () : Runtime_config.t =
   let config_path = if path <> "" then path else default_path () in
   if not (Sys.file_exists config_path) then default_with_discovered_providers ()
   else
-    match try Some (Yojson.Safe.from_file config_path) with _ -> None with
+    match
+      try Some (Yojson.Safe.from_file config_path)
+      with exn ->
+        Logs.warn (fun m ->
+            m "Failed to parse config %s: %s (using defaults)" config_path
+              (Printexc.to_string exn));
+        None
+    with
     | None -> default_with_discovered_providers ()
     | Some json ->
         let json = migrate_config_json json in

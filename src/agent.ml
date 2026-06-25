@@ -2,23 +2,10 @@ include Agent_0_compact
 
 let restart_interrupt_token = "__clawq_restart__"
 let queued_message_interrupt_token = "[queued inbound message]"
-let stop_interrupt_token = "__clawq_stop__"
-let stopped_by_admin_message = "Stopped by admin."
-
-let is_stop_interrupt = function
-  | Some reason when reason = stop_interrupt_token -> true
-  | _ -> false
 
 let is_queued_message_interrupt = function
   | Some reason when reason = queued_message_interrupt_token -> true
   | _ -> false
-
-let record_stopped_by_admin agent =
-  agent.history <-
-    Provider.make_message ~role:"assistant" ~content:stopped_by_admin_message
-    :: agent.history;
-  trim_history agent;
-  stopped_by_admin_message
 
 let active_workspace_files_for_config (config : Runtime_config.t) =
   let workspace = Runtime_config.effective_workspace config in
@@ -549,8 +536,7 @@ let perform_cwd_history_wipe agent =
    modify the same file, accepted in exchange for keeping attribution
    correct. *)
 let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
-    ?interrupt_check ?on_tool_round_complete ?on_llm_call_debug ~on_chunk calls
-    =
+    ?interrupt_check ?on_tool_round_complete ~on_chunk calls =
   let open Lwt.Syntax in
   let sk_tag = match session_key with Some s -> "[" ^ s ^ "] " | None -> "" in
   let notification_promises = ref [] in
@@ -577,7 +563,6 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
           | None -> false)
       | None -> false
   in
-  let reserved_no_arg_skills = Hashtbl.create 8 in
   (* B607: emit ToolStart for every call up-front so the UI sees "running N"
      immediately. Audit log entries also fire up-front to match. *)
   List.iter
@@ -609,9 +594,55 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
             (Provider.ToolStart
                { id = tc.id; name = tc.function_name; arguments = tc.arguments })))
     calls;
+  (* F1 fix: validate all tool calls serially before parallel execution.
+     validate_required_with_escalation mutates agent.last_missing_required_key,
+     agent.last_missing_required_count, and agent.hard_abort_reason, which
+     would race under Lwt_list.map_p. Pre-validate serially, then use cached
+     results in the parallel block.
+     Note: agent.history, agent.effective_cwd, pending_history_wipe, and
+     agent.observed_active_workspace_files are also mutated inside the parallel
+     block via inject_system_messages/request_cwd_change callbacks and
+     post-tool workspace refresh. These are safe under OCaml 5.1 cooperative
+     Lwt scheduling (no yield points in the mutation paths). If multi-domain
+     parallelism is introduced, these would need synchronization. *)
+  let pre_validations =
+    List.map
+      (fun (tc : Provider.tool_call) ->
+        if check_interrupt () then (tc, Error "[skipped: interrupted by user]")
+        else
+          match agent.tool_registry with
+          | None -> (tc, Error "Error: no tool registry available")
+          | Some registry -> (
+              match Tool_registry.find registry tc.function_name with
+              | None ->
+                  ( tc,
+                    Error
+                      (Printf.sprintf "Error: unknown tool '%s'"
+                         tc.function_name) )
+              | Some tool -> (
+                  match tc.function_name with
+                  | "tool_search" -> (tc, Ok None)
+                  | _ -> (
+                      let args =
+                        try Yojson.Safe.from_string tc.arguments
+                        with _ ->
+                          Logs.warn (fun m ->
+                              m
+                                "Tool call '%s': failed to parse arguments as \
+                                 JSON (raw: %s)"
+                                tc.function_name tc.arguments);
+                          `Assoc []
+                      in
+                      match
+                        validate_required_with_escalation agent tool args
+                      with
+                      | Error msg -> (tc, Error msg)
+                      | Ok () -> (tc, Ok (Some (tool, args)))))))
+      calls
+  in
   let* results =
     Lwt_list.map_p
-      (fun (tc : Provider.tool_call) ->
+      (fun ((tc : Provider.tool_call), pre_validation) ->
         if check_interrupt () then begin
           Logs.info (fun m ->
               m "%sSkipping tool %s (interrupted)" sk_tag tc.function_name);
@@ -644,112 +675,80 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
           let before_active_workspace_files =
             capture_active_workspace_file_state agent
           in
-          let is_tool_search = tc.function_name = "tool_search" in
           let streamed_output = ref false in
           let t0 = Unix.gettimeofday () in
           let* result_msg, result_for_event =
-            if is_tool_search then
-              let msg = resolve_tool_search agent tc in
-              Lwt.return (msg, msg.Provider.content)
-            else
-              let* result =
-                match agent.tool_registry with
-                | None -> Lwt.return "Error: no tool registry available"
-                | Some registry -> (
-                    match Tool_registry.find registry tc.function_name with
-                    | None ->
-                        Lwt.return
-                          (Printf.sprintf "Error: unknown tool '%s'"
-                             tc.function_name)
-                    | Some tool ->
-                        Lwt.catch
-                          (fun () ->
-                            let args =
-                              try Yojson.Safe.from_string tc.arguments
-                              with _ ->
-                                Logs.warn (fun m ->
-                                    m
-                                      "Tool call '%s': failed to parse \
-                                       arguments as JSON (raw: %s)"
-                                      tc.function_name tc.arguments);
-                                `Assoc []
-                            in
-                            match
-                              validate_required_with_escalation agent tool args
-                            with
-                            | Error msg -> Lwt.return msg
-                            | Ok () -> (
-                                match
-                                  Skill_invocation_guard.use_skill_loaded_noop
-                                    ~reserved_no_arg_skills
-                                    ~history:agent.history tool args
-                                with
-                                | Some response -> Lwt.return response
-                                | None -> (
-                                    let context =
-                                      {
-                                        Tool.session_key;
-                                        send_progress =
-                                          Some
-                                            (fun text ->
-                                              streamed_output := true;
-                                              on_chunk
-                                                (Provider.ToolOutputDelta
-                                                   { id = tc.id; chunk = text }));
-                                        interrupt_check;
-                                        inject_system_messages =
-                                          Some
-                                            (fun msgs ->
-                                              let msgs =
-                                                Skill_dedup
-                                                .dedup_skill_injections
-                                                  ~history:agent.history msgs
-                                              in
-                                              List.iter
-                                                (fun content ->
-                                                  agent.history <-
-                                                    Provider.make_message
-                                                      ~role:"system" ~content
-                                                    :: agent.history)
-                                                msgs);
-                                        effective_cwd = agent.effective_cwd;
-                                        request_cwd_change =
-                                          Some
-                                            (fun new_cwd wipe ->
-                                              agent.effective_cwd <-
-                                                Some new_cwd;
-                                              if wipe then
-                                                pending_history_wipe := true);
-                                      }
-                                    in
-                                    match tool.invoke_stream with
-                                    | Some invoke_stream ->
-                                        invoke_stream ~context
-                                          ~on_output_chunk:(fun chunk ->
-                                            streamed_output := true;
-                                            on_chunk
-                                              (Provider.ToolOutputDelta
-                                                 { id = tc.id; chunk }))
-                                          args
-                                    | None -> tool.invoke ~context args)))
-                          (fun exn ->
-                            Lwt.return
-                              ("Error invoking tool: " ^ Printexc.to_string exn))
-                    )
-              in
-              let* result_for_history =
-                Tool_postprocess.process_tool_result ~config:agent.config ~db
-                  ~session_key ~tool_name:tc.function_name
-                  ~history:agent.history ?on_llm_call_debug ~raw_result:result
-                  ()
-              in
-              let result_for_event =
-                if !streamed_output then result_for_history else result
-              in
-              Lwt.return
-                ( Provider.make_tool_result ~tool_call_id:tc.id
-                    ~name:tc.function_name ~content:result_for_history,
-                  result_for_event )
+            match pre_validation with
+            | Error err_msg ->
+                Lwt.return
+                  ( Provider.make_tool_result ~tool_call_id:tc.id
+                      ~name:tc.function_name ~content:err_msg,
+                    err_msg )
+            | Ok None ->
+                let msg = resolve_tool_search agent tc in
+                Lwt.return (msg, msg.Provider.content)
+            | Ok (Some ((tool : Tool.t), args)) ->
+                let* result =
+                  Lwt.catch
+                    (fun () ->
+                      let context =
+                        {
+                          Tool.session_key;
+                          send_progress =
+                            Some
+                              (fun text ->
+                                streamed_output := true;
+                                on_chunk
+                                  (Provider.ToolOutputDelta
+                                     { id = tc.id; chunk = text }));
+                          interrupt_check;
+                          inject_system_messages =
+                            Some
+                              (fun msgs ->
+                                let msgs =
+                                  Skill_dedup.dedup_skill_injections
+                                    ~history:agent.history msgs
+                                in
+                                List.iter
+                                  (fun content ->
+                                    agent.history <-
+                                      Provider.make_message ~role:"system"
+                                        ~content
+                                      :: agent.history)
+                                  msgs);
+                          effective_cwd = agent.effective_cwd;
+                          request_cwd_change =
+                            Some
+                              (fun new_cwd wipe ->
+                                agent.effective_cwd <- Some new_cwd;
+                                if wipe then pending_history_wipe := true);
+                        }
+                      in
+                      match tool.invoke_stream with
+                      | Some invoke_stream ->
+                          invoke_stream ~context
+                            ~on_output_chunk:(fun chunk ->
+                              streamed_output := true;
+                              on_chunk
+                                (Provider.ToolOutputDelta { id = tc.id; chunk }))
+                            args
+                      | None -> tool.invoke ~context args)
+                    (fun exn ->
+                      Lwt.return
+                        ("Error invoking tool: " ^ Printexc.to_string exn))
+                in
+                let* result_for_history =
+                  Tool_postprocess.process_tool_result ~config:agent.config ~db
+                    ~session_key ~tool_name:tc.function_name
+                    ~history:agent.history ~raw_result:result
+                in
+                let result_for_event =
+                  if !streamed_output then result_for_history else result
+                in
+                Lwt.return
+                  ( Provider.make_tool_result ~tool_call_id:tc.id
+                      ~name:tc.function_name ~content:result_for_history,
+                    result_for_event )
           in
           let invoke_duration = Unix.gettimeofday () -. t0 in
           Logs.info (fun m ->
@@ -820,7 +819,7 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
           if Option.is_some refresh.message then
             agent.observed_active_workspace_files <- refresh.after_state;
           Lwt.return (tc, result_msg, refresh.message))
-      calls
+      pre_validations
   in
   List.iter
     (fun ((_tc : Provider.tool_call), tool_msg, refresh_msg) ->
@@ -847,7 +846,7 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
   Lwt.return_unit
 
 let execute_tool_calls agent ~db ~audit_enabled ~session_key ?interrupt_check
-    ?on_tool_round_complete ?on_llm_call_debug calls =
+    ?on_tool_round_complete calls =
   let open Lwt.Syntax in
   let sk_tag = match session_key with Some s -> "[" ^ s ^ "] " | None -> "" in
   let pending_history_wipe = ref false in
@@ -865,7 +864,6 @@ let execute_tool_calls agent ~db ~audit_enabled ~session_key ?interrupt_check
           | None -> false)
       | None -> false
   in
-  let reserved_no_arg_skills = Hashtbl.create 8 in
   (* B607: emit tool invocation audit entries up-front for the whole batch. *)
   List.iter
     (fun (tc : Provider.tool_call) ->
@@ -892,9 +890,45 @@ let execute_tool_calls agent ~db ~audit_enabled ~session_key ?interrupt_check
                })
       | _ -> ())
     calls;
+  (* F1 fix: pre-validate tool calls serially (see streaming path above). *)
+  let pre_validations =
+    List.map
+      (fun (tc : Provider.tool_call) ->
+        if check_interrupt () then (tc, Error "[skipped: interrupted by user]")
+        else
+          match agent.tool_registry with
+          | None -> (tc, Error "Error: no tool registry available")
+          | Some registry -> (
+              match Tool_registry.find registry tc.function_name with
+              | None ->
+                  ( tc,
+                    Error
+                      (Printf.sprintf "Error: unknown tool '%s'"
+                         tc.function_name) )
+              | Some tool -> (
+                  match tc.function_name with
+                  | "tool_search" -> (tc, Ok None)
+                  | _ -> (
+                      let args =
+                        try Yojson.Safe.from_string tc.arguments
+                        with _ ->
+                          Logs.warn (fun m ->
+                              m
+                                "Tool call '%s': failed to parse arguments as \
+                                 JSON (raw: %s)"
+                                tc.function_name tc.arguments);
+                          `Assoc []
+                      in
+                      match
+                        validate_required_with_escalation agent tool args
+                      with
+                      | Error msg -> (tc, Error msg)
+                      | Ok () -> (tc, Ok (Some (tool, args)))))))
+      calls
+  in
   let* results =
     Lwt_list.map_p
-      (fun (tc : Provider.tool_call) ->
+      (fun ((tc : Provider.tool_call), pre_validation) ->
         if check_interrupt () then begin
           Logs.info (fun m ->
               m "%sSkipping tool %s (interrupted)" sk_tag tc.function_name);
@@ -918,89 +952,57 @@ let execute_tool_calls agent ~db ~audit_enabled ~session_key ?interrupt_check
           let before_active_workspace_files =
             capture_active_workspace_file_state agent
           in
-          let is_tool_search = tc.function_name = "tool_search" in
           let* result_msg =
-            if is_tool_search then Lwt.return (resolve_tool_search agent tc)
-            else
-              let* result =
-                match agent.tool_registry with
-                | None -> Lwt.return "Error: no tool registry available"
-                | Some registry -> (
-                    match Tool_registry.find registry tc.function_name with
-                    | None ->
-                        Lwt.return
-                          (Printf.sprintf "Error: unknown tool '%s'"
-                             tc.function_name)
-                    | Some tool ->
-                        Lwt.catch
-                          (fun () ->
-                            let args =
-                              try Yojson.Safe.from_string tc.arguments
-                              with _ ->
-                                Logs.warn (fun m ->
-                                    m
-                                      "Tool call '%s': failed to parse \
-                                       arguments as JSON (raw: %s)"
-                                      tc.function_name tc.arguments);
-                                `Assoc []
-                            in
-                            match
-                              validate_required_with_escalation agent tool args
-                            with
-                            | Error msg -> Lwt.return msg
-                            | Ok () -> (
-                                match
-                                  Skill_invocation_guard.use_skill_loaded_noop
-                                    ~reserved_no_arg_skills
-                                    ~history:agent.history tool args
-                                with
-                                | Some response -> Lwt.return response
-                                | None ->
-                                    let context =
-                                      {
-                                        Tool.session_key;
-                                        send_progress = None;
-                                        interrupt_check;
-                                        inject_system_messages =
-                                          Some
-                                            (fun msgs ->
-                                              let msgs =
-                                                Skill_dedup
-                                                .dedup_skill_injections
-                                                  ~history:agent.history msgs
-                                              in
-                                              List.iter
-                                                (fun content ->
-                                                  agent.history <-
-                                                    Provider.make_message
-                                                      ~role:"system" ~content
-                                                    :: agent.history)
-                                                msgs);
-                                        effective_cwd = agent.effective_cwd;
-                                        request_cwd_change =
-                                          Some
-                                            (fun new_cwd wipe ->
-                                              agent.effective_cwd <-
-                                                Some new_cwd;
-                                              if wipe then
-                                                pending_history_wipe := true);
-                                      }
-                                    in
-                                    tool.invoke ~context args))
-                          (fun exn ->
-                            Lwt.return
-                              ("Error invoking tool: " ^ Printexc.to_string exn))
-                    )
-              in
-              let* result_for_history =
-                Tool_postprocess.process_tool_result ~config:agent.config ~db
-                  ~session_key ~tool_name:tc.function_name
-                  ~history:agent.history ?on_llm_call_debug ~raw_result:result
-                  ()
-              in
-              Lwt.return
-                (Provider.make_tool_result ~tool_call_id:tc.id
-                   ~name:tc.function_name ~content:result_for_history)
+            match pre_validation with
+            | Error err_msg ->
+                Lwt.return
+                  (Provider.make_tool_result ~tool_call_id:tc.id
+                     ~name:tc.function_name ~content:err_msg)
+            | Ok None -> Lwt.return (resolve_tool_search agent tc)
+            | Ok (Some ((tool : Tool.t), args)) ->
+                let* result =
+                  Lwt.catch
+                    (fun () ->
+                      let context =
+                        {
+                          Tool.session_key;
+                          send_progress = None;
+                          interrupt_check;
+                          inject_system_messages =
+                            Some
+                              (fun msgs ->
+                                let msgs =
+                                  Skill_dedup.dedup_skill_injections
+                                    ~history:agent.history msgs
+                                in
+                                List.iter
+                                  (fun content ->
+                                    agent.history <-
+                                      Provider.make_message ~role:"system"
+                                        ~content
+                                      :: agent.history)
+                                  msgs);
+                          effective_cwd = agent.effective_cwd;
+                          request_cwd_change =
+                            Some
+                              (fun new_cwd wipe ->
+                                agent.effective_cwd <- Some new_cwd;
+                                if wipe then pending_history_wipe := true);
+                        }
+                      in
+                      tool.invoke ~context args)
+                    (fun exn ->
+                      Lwt.return
+                        ("Error invoking tool: " ^ Printexc.to_string exn))
+                in
+                let* result_for_history =
+                  Tool_postprocess.process_tool_result ~config:agent.config ~db
+                    ~session_key ~tool_name:tc.function_name
+                    ~history:agent.history ~raw_result:result
+                in
+                Lwt.return
+                  (Provider.make_tool_result ~tool_call_id:tc.id
+                     ~name:tc.function_name ~content:result_for_history)
           in
           let result = result_msg.Provider.content in
           let success = not (String.starts_with ~prefix:"Error:" result) in
@@ -1033,7 +1035,7 @@ let execute_tool_calls agent ~db ~audit_enabled ~session_key ?interrupt_check
           if Option.is_some refresh.message then
             agent.observed_active_workspace_files <- refresh.after_state;
           Lwt.return (tc, result_msg, refresh.message))
-      calls
+      pre_validations
   in
   (* Results already reflect execution order; append deterministically. *)
   List.iter
@@ -1149,7 +1151,7 @@ let filter_content_parts_for_model config content_parts =
   | _ -> content_parts
 
 let prepare_turn_history agent ~user_message ?(content_parts = [])
-    ?(workspace_refresh_checked = false) ?db ?on_llm_call_debug () =
+    ?(workspace_refresh_checked = false) ?db () =
   let open Lwt.Syntax in
   let* () =
     if workspace_refresh_checked then Lwt.return_unit
@@ -1175,14 +1177,13 @@ let prepare_turn_history agent ~user_message ?(content_parts = [])
           ~content_parts:(Provider.Text user_message :: parts)
   in
   agent.history <- user_msg :: agent.history;
-  let* compacted = compact_history_if_needed agent ?db ?on_llm_call_debug () in
+  let* compacted = compact_history_if_needed agent ?db () in
   trim_history agent;
   Lwt.return compacted
 
 let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
     ?on_inject_messages ?on_tool_round_complete ?runtime_context
-    ?(history_prepared = false) ?on_history_update ?on_stuck ?on_llm_call_debug
-    () =
+    ?(history_prepared = false) ?on_history_update ?on_stuck () =
   let is_restart_interrupt = function
     | Some reason when reason = restart_interrupt_token -> true
     | _ -> false
@@ -1194,7 +1195,7 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
   let open Lwt.Syntax in
   let* _compaction_info =
     if history_prepared then Lwt.return_none
-    else prepare_turn_history agent ~user_message ?db ?on_llm_call_debug ()
+    else prepare_turn_history agent ~user_message ?db ()
   in
   let audit_enabled = agent.config.security.audit_enabled in
   let max_iters = agent.config.agent_defaults.max_tool_iterations in
@@ -1232,14 +1233,8 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
     let res = config.Runtime_config.resilience in
     let open Lwt.Syntax in
     let primary () =
-      let provider_name, _, _ =
-        Provider.select_provider ~config ?quota_states:quota_states_opt ()
-      in
-      let* response =
-        Provider.complete ~config ~messages ?tools ?session_key
-          ?quota_states:quota_states_opt ()
-      in
-      Lwt.return (provider_name, response)
+      Provider.complete ~config ~messages ?tools ?session_key
+        ?quota_states:quota_states_opt ()
     in
     let with_optional_fallback () =
       match res.fallback_provider with
@@ -1253,11 +1248,8 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
           if fallback_name = primary_name then primary ()
           else
             Resilience.with_fallback ~primary ~fallback:(fun () ->
-                let* response =
-                  Provider.complete ~config ~messages ?tools ?session_key
-                    ~preferred_provider:fb_name ()
-                in
-                Lwt.return (fallback_name, response))
+                Provider.complete ~config ~messages ?tools ?session_key
+                  ~preferred_provider:fb_name ())
       | None -> primary ()
     in
     let* timed =
@@ -1267,7 +1259,7 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
     in
     match timed with Ok v -> Lwt.return v | Error e -> Lwt.fail_with e
   in
-  let track_cost ~current_request_history_len ~provider response =
+  let track_cost ~current_request_history_len response =
     let usage, model =
       match response with
       | Provider.Text { usage; model; _ } -> (usage, model)
@@ -1290,6 +1282,9 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
         Model_preferences.increment_usage model |> ignore;
         match db with
         | Some db ->
+            let pname, _, _ =
+              Provider.select_provider ~config:agent.config ()
+            in
             let prev = Request_stats.get_prev_totals ~db ~session_key:sid in
             let added =
               match prev with
@@ -1341,7 +1336,7 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
             let cached_tokens =
               if api_cached > 0 then Some api_cached else None
             in
-            Request_stats.record ~db ~session_key:sid ~provider ~model
+            Request_stats.record ~db ~session_key:sid ~provider:pname ~model
               ~prompt_tokens:pt ~completion_tokens:ct ?cost_usd:cost_usd_opt
               ~added_prompt_tokens:added ?cached_tokens ()
         | None -> ())
@@ -1380,8 +1375,7 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
       | None -> runtime_context
     in
     let current_request_history_len = List.length agent.history in
-    let started_at = Unix.gettimeofday () in
-    let* provider_name, response =
+    let* response =
       Lwt.catch
         (fun () ->
           let messages = build_messages ?runtime_context agent in
@@ -1400,12 +1394,7 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
           end
           else Lwt.fail exn)
     in
-    let duration_s = Unix.gettimeofday () -. started_at in
-    let* () =
-      Agent_debug.notify ?on_llm_call_debug ~provider:provider_name ~duration_s
-        response
-    in
-    track_cost ~current_request_history_len ~provider:provider_name response;
+    track_cost ~current_request_history_len response;
     agent.last_request_history_len <- Some current_request_history_len;
     match response with
     | Provider.Text { content; provider_response_items_json; thinking; _ } ->
@@ -1467,7 +1456,7 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
         agent.history <- assistant_msg :: agent.history;
         let* () =
           execute_tool_calls agent ~db ~audit_enabled ~session_key
-            ?interrupt_check ?on_tool_round_complete ?on_llm_call_debug calls
+            ?interrupt_check ?on_tool_round_complete calls
         in
         (match inject_messages with
         | Some get_msgs ->
@@ -1490,9 +1479,7 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
            outputs, etc.) that grow history without bound. compact_history_
            if_needed checks token/message thresholds and compacts only when
            needed — so this is cheap when not at the threshold. *)
-        let* mid_turn_compaction =
-          compact_history_if_needed agent ?db ?on_llm_call_debug ()
-        in
+        let* mid_turn_compaction = compact_history_if_needed agent ?db () in
         (match mid_turn_compaction with
         | Some _ ->
             agent.compacted_mid_turn <- true;
@@ -1566,8 +1553,6 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
               match interrupt_check with
               | Some check -> (
                   match check () with
-                  | interrupt when is_stop_interrupt interrupt ->
-                      Lwt.return (record_stopped_by_admin agent)
                   | interrupt when is_restart_interrupt interrupt ->
                       Lwt.fail Restart_requested
                   | interrupt when is_queued_message_interrupt interrupt ->
@@ -1594,7 +1579,7 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
 let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
     ?inject_messages ?on_inject_messages ?on_tool_round_complete
     ?runtime_context ?(history_prepared = false) ?on_history_update ?on_stuck
-    ?on_llm_call_debug ~on_chunk () =
+    ~on_chunk () =
   let is_restart_interrupt = function
     | Some reason when reason = restart_interrupt_token -> true
     | _ -> false
@@ -1602,7 +1587,7 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
   let open Lwt.Syntax in
   let* _compaction_info =
     if history_prepared then Lwt.return_none
-    else prepare_turn_history agent ~user_message ?db ?on_llm_call_debug ()
+    else prepare_turn_history agent ~user_message ?db ()
   in
   let audit_enabled = agent.config.security.audit_enabled in
   let max_iters = agent.config.agent_defaults.max_tool_iterations in
@@ -1645,8 +1630,6 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
         match interrupt_check with
         | Some check -> (
             match check () with
-            | interrupt when is_stop_interrupt interrupt ->
-                Lwt.fail Stop_requested
             | interrupt when is_restart_interrupt interrupt ->
                 Lwt.fail Restart_requested
             | interrupt when is_queued_message_interrupt interrupt ->
@@ -1667,14 +1650,8 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
     let open Lwt.Syntax in
     Buffer.clear partial_buf;
     let primary () =
-      let provider_name, _, _ =
-        Provider.select_provider ~config ?quota_states:quota_states_opt ()
-      in
-      let* response =
-        Provider.complete_stream ~config ~messages ?tools ?session_key
-          ?quota_states:quota_states_opt ~on_chunk ()
-      in
-      Lwt.return (provider_name, response)
+      Provider.complete_stream ~config ~messages ?tools ?session_key
+        ?quota_states:quota_states_opt ~on_chunk ()
     in
     let with_optional_fallback () =
       match res.fallback_provider with
@@ -1688,11 +1665,8 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
           if fallback_name = primary_name then primary ()
           else
             Resilience.with_fallback ~primary ~fallback:(fun () ->
-                let* response =
-                  Provider.complete_stream ~config ~messages ?tools ?session_key
-                    ~preferred_provider:fb_name ~on_chunk ()
-                in
-                Lwt.return (fallback_name, response))
+                Provider.complete_stream ~config ~messages ?tools ?session_key
+                  ~preferred_provider:fb_name ~on_chunk ())
       | None -> primary ()
     in
     let* timed =
@@ -1702,7 +1676,7 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
     in
     match timed with Ok v -> Lwt.return v | Error e -> Lwt.fail_with e
   in
-  let track_cost ~current_request_history_len ~provider response =
+  let track_cost ~current_request_history_len response =
     let usage, model =
       match response with
       | Provider.Text { usage; model; _ } -> (usage, model)
@@ -1725,6 +1699,9 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
         Model_preferences.increment_usage model |> ignore;
         match db with
         | Some db ->
+            let pname, _, _ =
+              Provider.select_provider ~config:agent.config ()
+            in
             let prev = Request_stats.get_prev_totals ~db ~session_key:sid in
             let added =
               match prev with
@@ -1776,7 +1753,7 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
             let cached_tokens =
               if api_cached > 0 then Some api_cached else None
             in
-            Request_stats.record ~db ~session_key:sid ~provider ~model
+            Request_stats.record ~db ~session_key:sid ~provider:pname ~model
               ~prompt_tokens:pt ~completion_tokens:ct ?cost_usd:cost_usd_opt
               ~added_prompt_tokens:added ?cached_tokens ()
         | None -> ())
@@ -1815,10 +1792,9 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
       | None -> runtime_context
     in
     let current_request_history_len = List.length agent.history in
-    let started_at = Unix.gettimeofday () in
     Lwt.catch
       (fun () ->
-        let* provider_name, response =
+        let* response =
           Lwt.catch
             (fun () ->
               let messages = build_messages ?runtime_context agent in
@@ -1837,12 +1813,7 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
               end
               else Lwt.fail exn)
         in
-        let duration_s = Unix.gettimeofday () -. started_at in
-        let* () =
-          Agent_debug.notify ?on_llm_call_debug ~provider:provider_name
-            ~duration_s response
-        in
-        track_cost ~current_request_history_len ~provider:provider_name response;
+        track_cost ~current_request_history_len response;
         agent.last_request_history_len <- Some current_request_history_len;
         match response with
         | Provider.Text { content; provider_response_items_json; thinking; _ }
@@ -1903,8 +1874,7 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
             agent.history <- assistant_msg :: agent.history;
             let* () =
               execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
-                ?interrupt_check ?on_tool_round_complete ?on_llm_call_debug
-                ~on_chunk calls
+                ?interrupt_check ?on_tool_round_complete ~on_chunk calls
             in
             (match inject_messages with
             | Some get_msgs ->
@@ -1923,9 +1893,7 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
             in
             let* () = fire_history_update len_before_tool_loop in
             (* B603: mid-turn compaction in the streaming path too. *)
-            let* mid_turn_compaction =
-              compact_history_if_needed agent ?db ?on_llm_call_debug ()
-            in
+            let* mid_turn_compaction = compact_history_if_needed agent ?db () in
             (match mid_turn_compaction with
             | Some _ ->
                 agent.compacted_mid_turn <- true;
@@ -1998,10 +1966,6 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
                   match interrupt_check with
                   | Some check -> (
                       match check () with
-                      | interrupt when is_stop_interrupt interrupt ->
-                          let response = record_stopped_by_admin agent in
-                          let* () = on_chunk (Provider.Delta response) in
-                          Lwt.return response
                       | interrupt when is_restart_interrupt interrupt ->
                           Lwt.fail Restart_requested
                       | interrupt when is_queued_message_interrupt interrupt ->
@@ -2019,10 +1983,6 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
                   | None -> loop (iteration + 1))))
       (fun exn ->
         match exn with
-        | Stop_requested ->
-            let response = record_stopped_by_admin agent in
-            let* () = on_chunk (Provider.Delta response) in
-            Lwt.return response
         | Restart_requested -> Lwt.fail Restart_requested
         | Interrupted partial ->
             let annotated = partial ^ " --- [NOTE: interrupted by user]" in

@@ -600,10 +600,10 @@ let test_reset_waits_for_session_lock () =
         let* () = Lwt_mutex.lock mutex in
         let reset_p = Session.reset mgr ~key:"s1" in
         let* () = Lwt.pause () in
-        (* Phase 1 completes immediately (sessions_lock is free), removing
-           the session from the hashtable *)
+        (* F2: Phase 1 clears DB but keeps the session in the hashtable to
+           prevent new session creation during the Phase 2 wait. *)
         Alcotest.(check bool)
-          "session removed after phase 1" false
+          "session still present after phase 1" true
           (Hashtbl.mem mgr.sessions "s1");
         (* Phase 2 is waiting on the per-session mutex *)
         Alcotest.(check bool)
@@ -614,6 +614,45 @@ let test_reset_waits_for_session_lock () =
   Alcotest.(check int)
     "history cleared after unlock" 0
     (List.length (Memory.load_history ~db ~session_key:"s1"))
+
+let test_with_session_lock_relocks_when_session_replaced () =
+  let config = Runtime_config.default in
+  let mgr = Session.create ~config () in
+  let key = "web:replaced-lock" in
+  Lwt_main.run
+    (Session.with_session_lock mgr ~key (fun _agent _interrupt ->
+         Lwt.return_unit));
+  let old_mutex =
+    match Hashtbl.find_opt mgr.Session_core.sessions key with
+    | Some (_, mutex, _) -> mutex
+    | None -> Alcotest.fail "expected initial session"
+  in
+  let replacement_agent = Agent.create ~config () in
+  let replacement_mutex = Lwt_mutex.create () in
+  let replacement_interrupt = ref None in
+  let ran = ref false in
+  Lwt_main.run
+    (let open Lwt.Syntax in
+     let* () = Lwt_mutex.lock old_mutex in
+     let lock_p =
+       Session.with_session_lock mgr ~key (fun agent _interrupt ->
+           ran := true;
+           Alcotest.(check bool)
+             "uses replacement agent" true
+             (agent == replacement_agent);
+           Lwt.return_unit)
+     in
+     let* () = Lwt.pause () in
+     let* () = Lwt_mutex.lock replacement_mutex in
+     Hashtbl.replace mgr.Session_core.sessions key
+       (replacement_agent, replacement_mutex, replacement_interrupt);
+     Lwt_mutex.unlock old_mutex;
+     let* () = Lwt.pause () in
+     Alcotest.(check bool)
+       "does not run while replacement mutex is locked" false !ran;
+     Lwt_mutex.unlock replacement_mutex;
+     lock_p);
+  Alcotest.(check bool) "ran after replacement unlock" true !ran
 
 let test_same_key_restore_from_db_on_first_create () =
   let db = Memory.init ~db_path:":memory:" () in
@@ -4482,6 +4521,8 @@ let suite =
       test_reset_clears_active_session_and_history;
     Alcotest.test_case "reset waits for session lock" `Quick
       test_reset_waits_for_session_lock;
+    Alcotest.test_case "with_session_lock relocks replaced session" `Quick
+      test_with_session_lock_relocks_when_session_replaced;
     Alcotest.test_case "same key restore from db on first create" `Quick
       test_same_key_restore_from_db_on_first_create;
     Alcotest.test_case "reset then same key create is fresh" `Quick

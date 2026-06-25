@@ -918,23 +918,62 @@ let get_or_create_locked mgr ~key =
 
 let with_session_lock ?session_warn_timeout ?session_fatal_timeout mgr ~key f =
   let open Lwt.Syntax in
+  let key = sanitize_session_key key in
   (* Release sessions_lock before blocking on per-session mutex to avoid
      deadlock: other operations (message dispatch, draining, etc.) also need
      sessions_lock; holding it while waiting for a busy session's mutex would
-     block everything. *)
-  let* agent, mutex, interrupt =
-    Lwt_util.with_lock_timeout ~fatal_timeout:Lwt_util.short_fatal_timeout
-      ~label:(Printf.sprintf "sessions_lock/with_session_lock[%s]" key)
-      mgr.sessions_lock (fun () ->
-        let agent, mutex, interrupt = get_or_create_locked mgr ~key in
-        Lwt.return (agent, mutex, interrupt))
+     block everything. If reset() replaces/removes the session while we are
+     waiting, discard the stale mutex and retry with the current session. *)
+  let rec acquire_current_session () =
+    let* _agent, mutex, _interrupt =
+      Lwt_util.with_lock_timeout ~fatal_timeout:Lwt_util.short_fatal_timeout
+        ~label:(Printf.sprintf "sessions_lock/with_session_lock[%s]" key)
+        mgr.sessions_lock (fun () ->
+          let agent, mutex, interrupt = get_or_create_locked mgr ~key in
+          Lwt.return (agent, mutex, interrupt))
+    in
+    let* () =
+      Lwt_util.lock_with_timeout ?warn_timeout:session_warn_timeout
+        ?fatal_timeout:session_fatal_timeout
+        ~label:(Printf.sprintf "session_mutex/with_session_lock[%s]" key)
+        mutex
+    in
+    let* state =
+      Lwt.catch
+        (fun () ->
+          Lwt_util.with_lock_timeout ~fatal_timeout:Lwt_util.short_fatal_timeout
+            ~label:
+              (Printf.sprintf "sessions_lock/with_session_lock_recheck[%s]" key)
+            mgr.sessions_lock (fun () ->
+              match Hashtbl.find_opt mgr.sessions key with
+              | Some (agent, current_mutex, interrupt)
+                when current_mutex == mutex ->
+                  Lwt.return (`Acquired (agent, current_mutex, interrupt))
+              | Some _ ->
+                  Logs.warn (fun m ->
+                      m
+                        "Session %s was replaced while waiting for its mutex; \
+                         retrying with the current session mutex"
+                        key);
+                  Lwt.return `Stale
+              | None ->
+                  Logs.warn (fun m ->
+                      m
+                        "Session %s was reset while waiting for its mutex; \
+                         re-creating fresh session"
+                        key);
+                  Lwt.return `Stale))
+        (fun exn ->
+          Lwt_mutex.unlock mutex;
+          Lwt.fail exn)
+    in
+    match state with
+    | `Acquired state -> Lwt.return state
+    | `Stale ->
+        Lwt_mutex.unlock mutex;
+        acquire_current_session ()
   in
-  let* () =
-    Lwt_util.lock_with_timeout ?warn_timeout:session_warn_timeout
-      ?fatal_timeout:session_fatal_timeout
-      ~label:(Printf.sprintf "session_mutex/with_session_lock[%s]" key)
-      mutex
-  in
+  let* agent, mutex, interrupt = acquire_current_session () in
   Lwt.finalize
     (fun () -> f agent interrupt)
     (fun () ->
@@ -1429,22 +1468,7 @@ let reset mgr ~key =
         Memory.clear_session ~db ~session_key:key
     | None -> ()
   in
-  let remove_from_tables () =
-    Hashtbl.remove mgr.deferred_responses key;
-    Hashtbl.remove mgr.queued_messages key;
-    Hashtbl.remove mgr.continuation_checks key;
-    Hashtbl.remove mgr.observer_last_checked key;
-    (* B612: breaker is keyed by (root_key, pattern). Remove every pattern
-       entry for this root. *)
-    let target_root = root_postmortem_session_key key in
-    Hashtbl.filter_map_inplace
-      (fun (rk, _) v -> if rk = target_root then None else Some v)
-      mgr.postmortem_circuit_breakers;
-    unregister_channel_notifier mgr ~key;
-    unregister_rich_notifier mgr ~key;
-    Hashtbl.remove mgr.sessions key
-  in
-  (* Phase 1: under sessions_lock — get mutex ref, clean DB, remove session *)
+  (* Phase 1: under sessions_lock — get mutex ref, clean DB *)
   let* mutex_opt =
     Lwt_util.with_lock_timeout ~fatal_timeout:Lwt_util.short_fatal_timeout
       ~label:(Printf.sprintf "sessions_lock/reset[%s]" key) mgr.sessions_lock
@@ -1454,8 +1478,23 @@ let reset mgr ~key =
           | Some (_, mutex, _) -> Some mutex
           | None -> None
         in
+        (* F2: clear DB in Phase 1 but keep the session in the hashtable.
+           Phase 2 will remove it after waiting for the in-progress turn.
+           This prevents new session creation during the gap between phases
+           because get_or_create_locked will find the existing session. *)
         clear_db ();
-        remove_from_tables ();
+        Hashtbl.remove mgr.deferred_responses key;
+        Hashtbl.remove mgr.queued_messages key;
+        Hashtbl.remove mgr.continuation_checks key;
+        Hashtbl.remove mgr.observer_last_checked key;
+        let target_root = root_postmortem_session_key key in
+        Hashtbl.filter_map_inplace
+          (fun (rk, _) v -> if rk = target_root then None else Some v)
+          mgr.postmortem_circuit_breakers;
+        unregister_channel_notifier mgr ~key;
+        unregister_rich_notifier mgr ~key;
+        (* Do NOT remove from mgr.sessions yet — keep it to prevent new
+           session creation during Phase 2 wait. *)
         Lwt.return m)
   in
   (* Phase 2: outside sessions_lock — wait for in-progress turn, re-clear DB *)
@@ -1467,9 +1506,21 @@ let reset mgr ~key =
             ~label:(Printf.sprintf "session_mutex/reset[%s]" key)
             mutex
         in
-        (match mgr.db with
-        | Some db -> Memory.clear_session ~db ~session_key:key
-        | None -> ());
+        (* F2: now that we hold the old session's mutex, remove it from
+           the hashtable and re-clear DB. Since the session was kept in the
+           hashtable during Phase 1, no new session could have been created
+           for this key — get_or_create_locked would have found the existing
+           one. So the re-clear is safe. *)
+        let* () =
+          Lwt_util.with_lock_timeout ~fatal_timeout:Lwt_util.short_fatal_timeout
+            ~label:(Printf.sprintf "sessions_lock/reset_phase2[%s]" key)
+            mgr.sessions_lock (fun () ->
+              Hashtbl.remove mgr.sessions key;
+              (match mgr.db with
+              | Some db -> Memory.clear_session ~db ~session_key:key
+              | None -> ());
+              Lwt.return_unit)
+        in
         Lwt_mutex.unlock mutex;
         Lwt.return_unit
     | None -> Lwt.return_unit

@@ -301,10 +301,23 @@ let run () =
     {
       enabled = Setup_tui.get_bool enabled;
       model =
-        (match Pmodel.parse model_str with Ok m -> m | Error _ -> d.model);
+        (match Pmodel.parse model_str with
+        | Ok m -> m
+        | Error _ ->
+            Logs.warn (fun m ->
+                m "H5: invalid summarizer model '%s', falling back to default"
+                  model_str);
+            d.model);
       escalation_model =
         (if esc_str = "" then None
-         else match Pmodel.parse esc_str with Ok m -> Some m | Error _ -> None);
+         else
+           match Pmodel.parse esc_str with
+           | Ok m -> Some m
+           | Error _ ->
+               Logs.warn (fun m ->
+                   m "H5: invalid summarizer escalation model '%s', ignoring"
+                     esc_str);
+               None);
       threshold_chars = Setup_tui.get_int threshold_chars;
       p1_max_chars = Setup_tui.get_int p1_max_chars;
       p2_max_chars = Setup_tui.get_int p2_max_chars;

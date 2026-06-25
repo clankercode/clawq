@@ -5,6 +5,9 @@ let dedup_seen id = Channel_util.Lru_dedup.check_and_mark dedup id
 
 (* Per-sender protocol tracking: "nip17" or "nip04". *)
 let sender_protocols : (string, string) Hashtbl.t = Hashtbl.create 16
+(* F4: global mutable state — safe under OCaml 5.1 cooperative Lwt (single
+   domain). If multi-domain parallelism is introduced, wrap in Atomic.t or
+   protect with a mutex. *)
 
 let is_allowed ~(config : Runtime_config.nostr_config) ~pubkey =
   Channel_util.is_allowed ~allowlist:config.allow_from pubkey

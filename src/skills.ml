@@ -476,7 +476,14 @@ let scan_skill_dirs dirs =
   List.iter
     (fun dir ->
       if Sys.file_exists dir && Sys.is_directory dir then begin
-        let entries = try Sys.readdir dir |> Array.to_list with _ -> [] in
+        let entries =
+          try Sys.readdir dir |> Array.to_list
+          with exn ->
+            Logs.warn (fun m ->
+                m "H6: failed to read skill directory %s: %s" dir
+                  (Printexc.to_string exn));
+            []
+        in
         List.iter
           (fun entry ->
             let entry_path = Filename.concat dir entry in
@@ -539,6 +546,10 @@ type skill_cache = {
    one green thread runs at a time, so no mutex is needed. If the runtime ever
    moves to multi-domain parallelism, wrap access with Lwt_mutex. *)
 let global_cache : skill_cache option ref = ref None
+
+(* F4: global mutable state — safe under OCaml 5.1 cooperative Lwt (single
+   domain). If multi-domain parallelism is introduced, wrap in Atomic.t or
+   protect with a mutex. *)
 let global_cache_get () = !global_cache
 
 let get_dir_mtime dir =
