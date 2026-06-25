@@ -2398,9 +2398,11 @@ let test_spawn_detects_child_exit_despite_open_pipes () =
              in
              let* () = wait () in
              Lwt.return_unit);
-          (* Kill any lingering sleep 999 processes from this test *)
-          (try ignore (Sys.command "pkill -f 'sleep 999' 2>/dev/null || true")
-           with _ -> ());
+          (* Kill any lingering processes from this test's process group *)
+          (match Background_task.get_task ~db ~id with
+          | Some task when Option.is_some task.pid ->
+              Process_group.signal_group (Option.get task.pid) Sys.sigkill
+          | _ -> ());
           (match Background_task.get_task ~db ~id with
           | None -> Alcotest.fail "expected task"
           | Some task ->
