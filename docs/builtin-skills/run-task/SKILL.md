@@ -61,6 +61,9 @@ $ bl claim TARGET
 **Leaf tail (plan mode):**
 > Plan and complete TARGET. After planning, run `git rebase` against your parent branch to ensure you're up to date. Make `bl done TARGET` the second-to-last step of the plan, and make loading and using the `review-and-fix` skill the final step of the plan.
 
+Use plain Git for parent-branch checks and rebases. Do not use Graphite (`gt`)
+or other stack-management tools to infer or mutate branch relationships.
+
 ### Scope prompt (epic, milestone, phase)
 
 ```text
@@ -159,4 +162,6 @@ Verify the worker is making progress; don't assume success from a clean launch.
 - Reconstruct prompts from backlog outputs.
 - Surface claim conflicts explicitly.
 - Use clawq-native worktree/background tools over ad-hoc shell workflows.
+- For interactive task completion, use plain Git for branch ancestry and rebase
+  steps; do not call Graphite (`gt`) unless the user explicitly asks for it.
 - Branch names should visibly contain the target ID (e.g. `clawq-bg-B467`).

@@ -83,6 +83,39 @@ let restore_provider_response_items msg =
       with _ -> None)
   | None -> None
 
+let function_call_item (tc : Provider.tool_call) =
+  `Assoc
+    [
+      ("type", `String "function_call");
+      ("call_id", `String tc.id);
+      ("name", `String tc.function_name);
+      ("arguments", `String (Provider.sanitize_utf8 tc.arguments));
+    ]
+
+let function_call_id_of_item item =
+  match item with
+  | `Assoc fields -> (
+      match List.assoc_opt "type" fields with
+      | Some (`String "function_call") -> (
+          match List.assoc_opt "call_id" fields with
+          | Some (`String id) -> Some id
+          | _ -> (
+              match List.assoc_opt "id" fields with
+              | Some (`String id) -> Some id
+              | _ -> None))
+      | _ -> None)
+  | _ -> None
+
+let replay_items_with_local_tool_calls items
+    (tool_calls : Provider.tool_call list) =
+  let existing_call_ids = List.filter_map function_call_id_of_item items in
+  let missing_calls =
+    List.filter
+      (fun (tc : Provider.tool_call) -> not (List.mem tc.id existing_call_ids))
+      tool_calls
+  in
+  items @ List.map function_call_item missing_calls
+
 let message_to_input (msg : Provider.message) =
   let sc = Provider.sanitize_utf8 msg.content in
   match msg.role with
@@ -121,24 +154,16 @@ let message_to_input (msg : Provider.message) =
               ];
         List.iter
           (fun (tc : Provider.tool_call) ->
-            entries :=
-              !entries
-              @ [
-                  `Assoc
-                    [
-                      ("type", `String "function_call");
-                      ("call_id", `String tc.id);
-                      ("name", `String tc.function_name);
-                      ( "arguments",
-                        `String (Provider.sanitize_utf8 tc.arguments) );
-                    ];
-                ])
+            entries := !entries @ [ function_call_item tc ])
           msg.tool_calls;
         Some (`List !entries)
       in
       match restore_provider_response_items msg with
-      | Some (`List _ as items) -> Some items
-      | Some item -> Some item
+      | Some (`List items) ->
+          Some (`List (replay_items_with_local_tool_calls items msg.tool_calls))
+      | Some item ->
+          Some
+            (`List (replay_items_with_local_tool_calls [ item ] msg.tool_calls))
       | None -> fallback ())
   | "tool" -> (
       match msg.tool_call_id with

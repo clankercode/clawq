@@ -718,6 +718,63 @@ let test_codex_build_body_drops_orphan_tool_outputs () =
   let input = Yojson.Safe.Util.(json |> member "input" |> to_list) in
   Alcotest.(check int) "orphan tool output omitted" 1 (List.length input)
 
+let test_codex_build_body_replays_call_when_raw_items_omit_it () =
+  let assistant =
+    {
+      Provider.role = "assistant";
+      content = "";
+      content_parts = [];
+      tool_calls =
+        [
+          {
+            Provider.id = "call_kept";
+            function_name = "shell_exec";
+            arguments = {|{"command":"pwd"}|};
+          };
+        ];
+      tool_call_id = None;
+      name = None;
+      provider_response_items_json =
+        Some {|[{"type":"reasoning","id":"rs_missing_call"}]|};
+      thinking = None;
+      is_error = false;
+    }
+  in
+  let body =
+    Provider_openai_codex.build_body ~model:"gpt-5"
+      ~provider:Runtime_config.default_provider_config
+      ~messages:
+        [
+          Provider.make_message ~role:"user" ~content:"start";
+          assistant;
+          Provider.make_tool_result ~tool_call_id:"call_kept" ~name:"shell_exec"
+            ~content:"/tmp";
+        ]
+      None
+  in
+  let json = Yojson.Safe.from_string body in
+  let input = Yojson.Safe.Util.(json |> member "input" |> to_list) in
+  let item_type item =
+    let open Yojson.Safe.Util in
+    try item |> member "type" |> to_string
+    with _ -> ( try item |> member "role" |> to_string with _ -> "")
+  in
+  let item_types = List.map item_type input in
+  Alcotest.(check (list string))
+    "input includes replay call before output"
+    [ "user"; "reasoning"; "function_call"; "function_call_output" ]
+    item_types;
+  let call_count =
+    List.length
+      (List.filter (fun item -> item_type item = "function_call") input)
+  in
+  let output_count =
+    List.length
+      (List.filter (fun item -> item_type item = "function_call_output") input)
+  in
+  Alcotest.(check int) "one function_call" 1 call_count;
+  Alcotest.(check int) "one function_call_output" 1 output_count
+
 let suite =
   [
     Alcotest.test_case "SSE parse delta line" `Quick test_parse_sse_line_delta;
@@ -758,4 +815,6 @@ let suite =
       test_codex_stream_preserves_response_output_items;
     Alcotest.test_case "codex build body drops orphan tool outputs" `Quick
       test_codex_build_body_drops_orphan_tool_outputs;
+    Alcotest.test_case "codex build body restores omitted raw tool calls" `Quick
+      test_codex_build_body_replays_call_when_raw_items_omit_it;
   ]
