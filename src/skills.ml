@@ -323,8 +323,9 @@ let create_example () =
 }|}
     in
     let oc = open_out path in
-    output_string oc example;
-    close_out oc;
+    Fun.protect
+      ~finally:(fun () -> close_out_noerr oc)
+      (fun () -> output_string oc example);
     "Created example skill at " ^ path
   end
 

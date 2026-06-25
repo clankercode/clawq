@@ -253,149 +253,163 @@ let poll_imap ~(cfg : Runtime_config.email_config) =
       connect_tls ~host:cfg.imap_host ~port:cfg.imap_port
     else connect_tcp ~host:cfg.imap_host ~port:cfg.imap_port
   in
-  (* Read greeting *)
-  let* _greeting = imap_read_line ic in
-  (* LOGIN *)
-  let tag1 = next_tag () in
-  let* () =
-    imap_write oc
-      (tag1 ^ " LOGIN " ^ imap_quote cfg.username ^ " "
-     ^ imap_quote cfg.password)
-  in
-  let* _resp = imap_read_response ic tag1 in
-  (* SELECT INBOX *)
-  let tag2 = next_tag () in
-  let* () = imap_write oc (tag2 ^ " SELECT INBOX") in
-  let* _resp = imap_read_response ic tag2 in
-  (* SEARCH UNSEEN *)
-  let tag3 = next_tag () in
-  let* () = imap_write oc (tag3 ^ " SEARCH UNSEEN") in
-  let* search_resp = imap_read_response ic tag3 in
-  let uids =
-    try
-      let lines = String.split_on_char '\n' search_resp in
-      let search_line =
-        List.find_opt
-          (fun l ->
-            String.length l > 9
-            && String.sub (String.uppercase_ascii l) 0 9 = "* SEARCH ")
-          lines
+  Lwt.finalize
+    (fun () ->
+      (* Read greeting *)
+      let* _greeting = imap_read_line ic in
+      (* LOGIN *)
+      let tag1 = next_tag () in
+      let* () =
+        imap_write oc
+          (tag1 ^ " LOGIN " ^ imap_quote cfg.username ^ " "
+         ^ imap_quote cfg.password)
       in
-      match search_line with
-      | None -> []
-      | Some l ->
-          let rest = String.sub l 9 (String.length l - 9) in
-          List.filter
-            (fun s -> s <> "")
-            (String.split_on_char ' ' (String.trim rest))
-    with _ -> []
-  in
-  if uids = [] then begin
-    (* LOGOUT *)
-    let tag_out = next_tag () in
-    let* () = imap_write oc (tag_out ^ " LOGOUT") in
-    let* _r = imap_read_response ic tag_out in
-    Lwt.return []
-  end
-  else begin
-    let uid_list = String.concat "," uids in
-    (* FETCH headers and body *)
-    let tag4 = next_tag () in
-    let* () =
-      imap_write oc
-        (tag4 ^ " FETCH " ^ uid_list
-       ^ " (BODY[HEADER.FIELDS (FROM SUBJECT MESSAGE-ID)] BODY[TEXT])")
-    in
-    let* fetch_resp = imap_read_response ic tag4 in
-    (* Parse the FETCH response - simplified: split on FETCH boundaries *)
-    (* Parse messages from fetch_resp BEFORE marking as seen *)
-    let msgs =
-      List.filter_map
-        (fun uid ->
-          try
-            (* Find the fetch block for this UID *)
-            let marker = "* " ^ uid ^ " FETCH" in
-            let idx =
-              try
-                let start = ref (-1) in
-                String.iteri
-                  (fun i _ ->
-                    if
-                      !start = -1
-                      && i + String.length marker <= String.length fetch_resp
-                      && String.sub fetch_resp i (String.length marker) = marker
-                    then start := i)
-                  fetch_resp;
-                !start
-              with _ -> -1
-            in
-            if idx < 0 then None
-            else begin
-              (* Extract a reasonable chunk for this message *)
-              let chunk =
-                String.sub fetch_resp idx
-                  (min 8192 (String.length fetch_resp - idx))
-              in
-              let from_raw, subject, message_id = parse_fetch_headers chunk in
-              let from_addr = extract_email_addr from_raw in
-              let body =
-                (* Extract body text between header/body boundary.
-                   IMAP FETCH returns headers then a blank line then body. *)
-                try
-                  (* Find double-newline (header/body separator) after the
-                     FETCH metadata line *)
-                  let sep = Str.regexp {|\r?\n\r?\n|} in
-                  let _ = Str.search_forward sep chunk 0 in
-                  let body_start = Str.match_end () in
-                  let raw_body =
-                    String.sub chunk body_start
-                      (String.length chunk - body_start)
-                  in
-                  (* Trim trailing IMAP closure like ")\r\n" *)
-                  let trimmed =
-                    let len = String.length raw_body in
-                    let end_pos = ref len in
-                    while
-                      !end_pos > 0
-                      && (raw_body.[!end_pos - 1] = ')'
-                         || raw_body.[!end_pos - 1] = '\r'
-                         || raw_body.[!end_pos - 1] = '\n'
-                         || raw_body.[!end_pos - 1] = ' ')
-                    do
-                      decr end_pos
-                    done;
-                    if !end_pos < len then String.sub raw_body 0 !end_pos
-                    else raw_body
-                  in
-                  strip_html trimmed
-                with _ -> ""
-              in
-              if is_seen message_id then None
-              else Some { uid; from_addr; from_raw; subject; message_id; body }
-            end
-          with _ -> None)
-        uids
-    in
-    (* Only mark as seen the UIDs that were successfully parsed *)
-    let parsed_uids = List.map (fun (m : email_msg) -> m.uid) msgs in
-    let* () =
-      if parsed_uids <> [] then begin
-        let parsed_uid_list = String.concat "," parsed_uids in
-        let tag5 = next_tag () in
-        let* () =
-          imap_write oc (tag5 ^ " STORE " ^ parsed_uid_list ^ " +FLAGS (\\Seen)")
-        in
-        let* _resp = imap_read_response ic tag5 in
-        Lwt.return_unit
+      let* _resp = imap_read_response ic tag1 in
+      (* SELECT INBOX *)
+      let tag2 = next_tag () in
+      let* () = imap_write oc (tag2 ^ " SELECT INBOX") in
+      let* _resp = imap_read_response ic tag2 in
+      (* SEARCH UNSEEN *)
+      let tag3 = next_tag () in
+      let* () = imap_write oc (tag3 ^ " SEARCH UNSEEN") in
+      let* search_resp = imap_read_response ic tag3 in
+      let uids =
+        try
+          let lines = String.split_on_char '\n' search_resp in
+          let search_line =
+            List.find_opt
+              (fun l ->
+                String.length l > 9
+                && String.sub (String.uppercase_ascii l) 0 9 = "* SEARCH ")
+              lines
+          in
+          match search_line with
+          | None -> []
+          | Some l ->
+              let rest = String.sub l 9 (String.length l - 9) in
+              List.filter
+                (fun s -> s <> "")
+                (String.split_on_char ' ' (String.trim rest))
+        with _ -> []
+      in
+      if uids = [] then begin
+        (* LOGOUT *)
+        let tag_out = next_tag () in
+        let* () = imap_write oc (tag_out ^ " LOGOUT") in
+        let* _r = imap_read_response ic tag_out in
+        Lwt.return []
       end
-      else Lwt.return_unit
-    in
-    (* LOGOUT *)
-    let tag_out = next_tag () in
-    let* () = imap_write oc (tag_out ^ " LOGOUT") in
-    let* _r = imap_read_response ic tag_out in
-    Lwt.return msgs
-  end
+      else begin
+        let uid_list = String.concat "," uids in
+        (* FETCH headers and body *)
+        let tag4 = next_tag () in
+        let* () =
+          imap_write oc
+            (tag4 ^ " FETCH " ^ uid_list
+           ^ " (BODY[HEADER.FIELDS (FROM SUBJECT MESSAGE-ID)] BODY[TEXT])")
+        in
+        let* fetch_resp = imap_read_response ic tag4 in
+        (* Parse the FETCH response - simplified: split on FETCH boundaries *)
+        (* Parse messages from fetch_resp BEFORE marking as seen *)
+        let msgs =
+          List.filter_map
+            (fun uid ->
+              try
+                (* Find the fetch block for this UID *)
+                let marker = "* " ^ uid ^ " FETCH" in
+                let idx =
+                  try
+                    let start = ref (-1) in
+                    String.iteri
+                      (fun i _ ->
+                        if
+                          !start = -1
+                          && i + String.length marker
+                             <= String.length fetch_resp
+                          && String.sub fetch_resp i (String.length marker)
+                             = marker
+                        then start := i)
+                      fetch_resp;
+                    !start
+                  with _ -> -1
+                in
+                if idx < 0 then None
+                else begin
+                  (* Extract a reasonable chunk for this message *)
+                  let chunk =
+                    String.sub fetch_resp idx
+                      (min 8192 (String.length fetch_resp - idx))
+                  in
+                  let from_raw, subject, message_id =
+                    parse_fetch_headers chunk
+                  in
+                  let from_addr = extract_email_addr from_raw in
+                  let body =
+                    (* Extract body text between header/body boundary.
+                   IMAP FETCH returns headers then a blank line then body. *)
+                    try
+                      (* Find double-newline (header/body separator) after the
+                     FETCH metadata line *)
+                      let sep = Str.regexp {|\r?\n\r?\n|} in
+                      let _ = Str.search_forward sep chunk 0 in
+                      let body_start = Str.match_end () in
+                      let raw_body =
+                        String.sub chunk body_start
+                          (String.length chunk - body_start)
+                      in
+                      (* Trim trailing IMAP closure like ")\r\n" *)
+                      let trimmed =
+                        let len = String.length raw_body in
+                        let end_pos = ref len in
+                        while
+                          !end_pos > 0
+                          && (raw_body.[!end_pos - 1] = ')'
+                             || raw_body.[!end_pos - 1] = '\r'
+                             || raw_body.[!end_pos - 1] = '\n'
+                             || raw_body.[!end_pos - 1] = ' ')
+                        do
+                          decr end_pos
+                        done;
+                        if !end_pos < len then String.sub raw_body 0 !end_pos
+                        else raw_body
+                      in
+                      strip_html trimmed
+                    with _ -> ""
+                  in
+                  if is_seen message_id then None
+                  else
+                    Some { uid; from_addr; from_raw; subject; message_id; body }
+                end
+              with _ -> None)
+            uids
+        in
+        (* Only mark as seen the UIDs that were successfully parsed *)
+        let parsed_uids = List.map (fun (m : email_msg) -> m.uid) msgs in
+        let* () =
+          if parsed_uids <> [] then begin
+            let parsed_uid_list = String.concat "," parsed_uids in
+            let tag5 = next_tag () in
+            let* () =
+              imap_write oc
+                (tag5 ^ " STORE " ^ parsed_uid_list ^ " +FLAGS (\\Seen)")
+            in
+            let* _resp = imap_read_response ic tag5 in
+            Lwt.return_unit
+          end
+          else Lwt.return_unit
+        in
+        (* LOGOUT *)
+        let tag_out = next_tag () in
+        let* () = imap_write oc (tag_out ^ " LOGOUT") in
+        let* _r = imap_read_response ic tag_out in
+        Lwt.return msgs
+      end)
+    (fun () ->
+      Lwt.catch
+        (fun () ->
+          let* () = Lwt_io.close ic in
+          Lwt_io.close oc)
+        (fun _ -> Lwt.return_unit))
 
 (* Upgrade an existing TCP file descriptor to TLS *)
 let upgrade_to_tls ~host fd =
@@ -477,69 +491,78 @@ let send_email ~(cfg : Runtime_config.email_config) ~to_addr ~subject ~body
       upgrade_to_tls ~host:cfg.smtp_host fd
     end
   in
-  (* Read greeting (for implicit TLS port 465) or proceed after STARTTLS *)
-  let* () =
-    if cfg.smtp_port = 465 then begin
-      let* _greeting = smtp_read ic () in
-      Lwt.return_unit
-    end
-    else Lwt.return_unit
-  in
-  (* EHLO (re-EHLO after STARTTLS, or initial EHLO for port 465) *)
-  let* () = smtp_write oc "EHLO clawq" in
-  let* () = read_ehlo ic in
-  (* AUTH LOGIN *)
-  let* () = smtp_write oc "AUTH LOGIN" in
-  let* _challenge1 = smtp_read ic () in
-  let* () = smtp_write oc (Base64.encode_exn cfg.username) in
-  let* _challenge2 = smtp_read ic () in
-  let* () = smtp_write oc (Base64.encode_exn cfg.password) in
-  let* _auth_resp = smtp_read ic () in
-  (* MAIL FROM *)
-  let* () = smtp_write oc ("MAIL FROM:<" ^ cfg.from_address ^ ">") in
-  let* _resp = smtp_read ic () in
-  (* RCPT TO *)
-  let* () = smtp_write oc ("RCPT TO:<" ^ to_addr ^ ">") in
-  let* _resp = smtp_read ic () in
-  (* DATA *)
-  let* () = smtp_write oc "DATA" in
-  let* _resp = smtp_read ic () in
-  (* Headers *)
-  let* () = smtp_write oc ("From: " ^ cfg.from_address) in
-  let* () = smtp_write oc ("To: " ^ to_addr) in
-  let* () = smtp_write oc ("Subject: " ^ subject) in
-  let* () =
-    match in_reply_to with
-    | Some id -> smtp_write oc ("In-Reply-To: " ^ id)
-    | None -> Lwt.return_unit
-  in
-  let* () =
-    match references with
-    | Some refs -> smtp_write oc ("References: " ^ refs)
-    | None -> Lwt.return_unit
-  in
-  let* () = smtp_write oc "MIME-Version: 1.0" in
-  let* () = smtp_write oc "Content-Type: text/plain; charset=UTF-8" in
-  let* () = smtp_write oc "" in
-  (* Body - dot-stuff lines starting with '.' *)
-  let lines = String.split_on_char '\n' body in
-  let* () =
-    Lwt_list.iter_s
-      (fun line ->
-        let line = String.trim line in
-        let line =
-          if String.length line > 0 && line.[0] = '.' then "." ^ line else line
-        in
-        smtp_write oc line)
-      lines
-  in
-  (* End DATA *)
-  let* () = smtp_write oc "." in
-  let* _resp = smtp_read ic () in
-  (* QUIT *)
-  let* () = smtp_write oc "QUIT" in
-  let* _resp = smtp_read ic () in
-  Lwt.return_unit
+  Lwt.finalize
+    (fun () ->
+      (* Read greeting (for implicit TLS port 465) or proceed after STARTTLS *)
+      let* () =
+        if cfg.smtp_port = 465 then begin
+          let* _greeting = smtp_read ic () in
+          Lwt.return_unit
+        end
+        else Lwt.return_unit
+      in
+      (* EHLO (re-EHLO after STARTTLS, or initial EHLO for port 465) *)
+      let* () = smtp_write oc "EHLO clawq" in
+      let* () = read_ehlo ic in
+      (* AUTH LOGIN *)
+      let* () = smtp_write oc "AUTH LOGIN" in
+      let* _challenge1 = smtp_read ic () in
+      let* () = smtp_write oc (Base64.encode_exn cfg.username) in
+      let* _challenge2 = smtp_read ic () in
+      let* () = smtp_write oc (Base64.encode_exn cfg.password) in
+      let* _auth_resp = smtp_read ic () in
+      (* MAIL FROM *)
+      let* () = smtp_write oc ("MAIL FROM:<" ^ cfg.from_address ^ ">") in
+      let* _resp = smtp_read ic () in
+      (* RCPT TO *)
+      let* () = smtp_write oc ("RCPT TO:<" ^ to_addr ^ ">") in
+      let* _resp = smtp_read ic () in
+      (* DATA *)
+      let* () = smtp_write oc "DATA" in
+      let* _resp = smtp_read ic () in
+      (* Headers *)
+      let* () = smtp_write oc ("From: " ^ cfg.from_address) in
+      let* () = smtp_write oc ("To: " ^ to_addr) in
+      let* () = smtp_write oc ("Subject: " ^ subject) in
+      let* () =
+        match in_reply_to with
+        | Some id -> smtp_write oc ("In-Reply-To: " ^ id)
+        | None -> Lwt.return_unit
+      in
+      let* () =
+        match references with
+        | Some refs -> smtp_write oc ("References: " ^ refs)
+        | None -> Lwt.return_unit
+      in
+      let* () = smtp_write oc "MIME-Version: 1.0" in
+      let* () = smtp_write oc "Content-Type: text/plain; charset=UTF-8" in
+      let* () = smtp_write oc "" in
+      (* Body - dot-stuff lines starting with '.' *)
+      let lines = String.split_on_char '\n' body in
+      let* () =
+        Lwt_list.iter_s
+          (fun line ->
+            let line = String.trim line in
+            let line =
+              if String.length line > 0 && line.[0] = '.' then "." ^ line
+              else line
+            in
+            smtp_write oc line)
+          lines
+      in
+      (* End DATA *)
+      let* () = smtp_write oc "." in
+      let* _resp = smtp_read ic () in
+      (* QUIT *)
+      let* () = smtp_write oc "QUIT" in
+      let* _resp = smtp_read ic () in
+      Lwt.return_unit)
+    (fun () ->
+      Lwt.catch
+        (fun () ->
+          let* () = Lwt_io.close ic in
+          Lwt_io.close oc)
+        (fun _ -> Lwt.return_unit))
 
 let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
   match config.channels.email with

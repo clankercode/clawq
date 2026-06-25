@@ -14,8 +14,9 @@ let write ~channel ~channel_id =
   in
   try
     let oc = open_out p in
-    output_string oc (Yojson.Safe.to_string json);
-    close_out oc
+    Fun.protect
+      ~finally:(fun () -> close_out_noerr oc)
+      (fun () -> output_string oc (Yojson.Safe.to_string json))
   with _ -> ()
 
 let read () =

@@ -157,61 +157,63 @@ let list_jobs ~db =
      COALESCE(ephemeral, 0), expires_at FROM cron_jobs ORDER BY id"
   in
   let stmt = Sqlite3.prepare db sql in
-  let jobs = ref [] in
-  while Sqlite3.step stmt = Sqlite3.Rc.ROW do
-    let id =
-      match Sqlite3.column stmt 0 with
-      | Sqlite3.Data.INT i -> Int64.to_int i
-      | _ -> 0
-    in
-    let name =
-      match Sqlite3.column stmt 1 with Sqlite3.Data.TEXT s -> s | _ -> ""
-    in
-    let session_key =
-      match Sqlite3.column stmt 2 with Sqlite3.Data.TEXT s -> s | _ -> ""
-    in
-    let message =
-      match Sqlite3.column stmt 3 with Sqlite3.Data.TEXT s -> s | _ -> ""
-    in
-    let schedule_str =
-      match Sqlite3.column stmt 4 with Sqlite3.Data.TEXT s -> s | _ -> ""
-    in
-    let enabled =
-      match Sqlite3.column stmt 5 with
-      | Sqlite3.Data.INT i -> i <> 0L
-      | _ -> true
-    in
-    let agent_name =
-      match Sqlite3.column stmt 6 with
-      | Sqlite3.Data.TEXT s -> Some s
-      | _ -> None
-    in
-    let ephemeral =
-      match Sqlite3.column stmt 7 with
-      | Sqlite3.Data.INT i -> i <> 0L
-      | _ -> false
-    in
-    let expires_at =
-      match Sqlite3.column stmt 8 with
-      | Sqlite3.Data.TEXT s -> Some s
-      | _ -> None
-    in
-    jobs :=
-      {
-        id;
-        name;
-        session_key;
-        message;
-        schedule_str;
-        enabled;
-        agent_name;
-        ephemeral;
-        expires_at;
-      }
-      :: !jobs
-  done;
-  ignore (Sqlite3.finalize stmt);
-  List.rev !jobs
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      let jobs = ref [] in
+      while Sqlite3.step stmt = Sqlite3.Rc.ROW do
+        let id =
+          match Sqlite3.column stmt 0 with
+          | Sqlite3.Data.INT i -> Int64.to_int i
+          | _ -> 0
+        in
+        let name =
+          match Sqlite3.column stmt 1 with Sqlite3.Data.TEXT s -> s | _ -> ""
+        in
+        let session_key =
+          match Sqlite3.column stmt 2 with Sqlite3.Data.TEXT s -> s | _ -> ""
+        in
+        let message =
+          match Sqlite3.column stmt 3 with Sqlite3.Data.TEXT s -> s | _ -> ""
+        in
+        let schedule_str =
+          match Sqlite3.column stmt 4 with Sqlite3.Data.TEXT s -> s | _ -> ""
+        in
+        let enabled =
+          match Sqlite3.column stmt 5 with
+          | Sqlite3.Data.INT i -> i <> 0L
+          | _ -> true
+        in
+        let agent_name =
+          match Sqlite3.column stmt 6 with
+          | Sqlite3.Data.TEXT s -> Some s
+          | _ -> None
+        in
+        let ephemeral =
+          match Sqlite3.column stmt 7 with
+          | Sqlite3.Data.INT i -> i <> 0L
+          | _ -> false
+        in
+        let expires_at =
+          match Sqlite3.column stmt 8 with
+          | Sqlite3.Data.TEXT s -> Some s
+          | _ -> None
+        in
+        jobs :=
+          {
+            id;
+            name;
+            session_key;
+            message;
+            schedule_str;
+            enabled;
+            agent_name;
+            ephemeral;
+            expires_at;
+          }
+          :: !jobs
+      done;
+      List.rev !jobs)
 
 let add_job ~db ~name ~session_key ~message ~schedule ?(ephemeral = false) ?ttl
     () =
@@ -227,7 +229,7 @@ let add_job ~db ~name ~session_key ~message ~schedule ?(ephemeral = false) ?ttl
             | Error e -> Error ("Invalid TTL: " ^ e))
       with
       | Error e -> Error e
-      | Ok ttl_secs -> (
+      | Ok ttl_secs ->
           let sql =
             match ttl_secs with
             | None ->
@@ -239,26 +241,27 @@ let add_job ~db ~name ~session_key ~message ~schedule ?(ephemeral = false) ?ttl
                  '+' || ? || ' seconds'))"
           in
           let stmt = Sqlite3.prepare db sql in
-          ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT name));
-          ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT session_key));
-          ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.TEXT message));
-          ignore (Sqlite3.bind stmt 4 (Sqlite3.Data.TEXT schedule));
-          ignore
-            (Sqlite3.bind stmt 5
-               (Sqlite3.Data.INT (if ephemeral then 1L else 0L)));
-          (match ttl_secs with
-          | Some n ->
-              ignore (Sqlite3.bind stmt 6 (Sqlite3.Data.TEXT (string_of_int n)))
-          | None -> ());
-          match Sqlite3.step stmt with
-          | Sqlite3.Rc.DONE ->
-              ignore (Sqlite3.finalize stmt);
-              Ok ()
-          | rc ->
-              ignore (Sqlite3.finalize stmt);
-              Error
-                (Printf.sprintf "Failed to add job: %s"
-                   (Sqlite3.Rc.to_string rc))))
+          Fun.protect
+            ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+            (fun () ->
+              ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT name));
+              ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT session_key));
+              ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.TEXT message));
+              ignore (Sqlite3.bind stmt 4 (Sqlite3.Data.TEXT schedule));
+              ignore
+                (Sqlite3.bind stmt 5
+                   (Sqlite3.Data.INT (if ephemeral then 1L else 0L)));
+              (match ttl_secs with
+              | Some n ->
+                  ignore
+                    (Sqlite3.bind stmt 6 (Sqlite3.Data.TEXT (string_of_int n)))
+              | None -> ());
+              match Sqlite3.step stmt with
+              | Sqlite3.Rc.DONE -> Ok ()
+              | rc ->
+                  Error
+                    (Printf.sprintf "Failed to add job: %s"
+                       (Sqlite3.Rc.to_string rc))))
 
 let list_runs ~db ?job_name ~limit () =
   let sql, bindings =
@@ -274,39 +277,41 @@ let list_runs ~db ?job_name ~limit () =
           [ Sqlite3.Data.INT (Int64.of_int limit) ] )
   in
   let stmt = Sqlite3.prepare db sql in
-  List.iteri (fun i v -> ignore (Sqlite3.bind stmt (i + 1) v)) bindings;
-  let runs = ref [] in
-  while Sqlite3.step stmt = Sqlite3.Rc.ROW do
-    let run_id =
-      match Sqlite3.column stmt 0 with
-      | Sqlite3.Data.INT i -> Int64.to_int i
-      | _ -> 0
-    in
-    let job_name =
-      match Sqlite3.column stmt 1 with Sqlite3.Data.TEXT s -> s | _ -> ""
-    in
-    let started_at =
-      match Sqlite3.column stmt 2 with Sqlite3.Data.TEXT s -> s | _ -> ""
-    in
-    let finished_at =
-      match Sqlite3.column stmt 3 with
-      | Sqlite3.Data.TEXT s -> Some s
-      | _ -> None
-    in
-    let status =
-      match Sqlite3.column stmt 4 with Sqlite3.Data.TEXT s -> s | _ -> ""
-    in
-    let result_preview =
-      match Sqlite3.column stmt 5 with
-      | Sqlite3.Data.TEXT s -> Some s
-      | _ -> None
-    in
-    runs :=
-      { run_id; job_name; started_at; finished_at; status; result_preview }
-      :: !runs
-  done;
-  ignore (Sqlite3.finalize stmt);
-  List.rev !runs
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      List.iteri (fun i v -> ignore (Sqlite3.bind stmt (i + 1) v)) bindings;
+      let runs = ref [] in
+      while Sqlite3.step stmt = Sqlite3.Rc.ROW do
+        let run_id =
+          match Sqlite3.column stmt 0 with
+          | Sqlite3.Data.INT i -> Int64.to_int i
+          | _ -> 0
+        in
+        let job_name =
+          match Sqlite3.column stmt 1 with Sqlite3.Data.TEXT s -> s | _ -> ""
+        in
+        let started_at =
+          match Sqlite3.column stmt 2 with Sqlite3.Data.TEXT s -> s | _ -> ""
+        in
+        let finished_at =
+          match Sqlite3.column stmt 3 with
+          | Sqlite3.Data.TEXT s -> Some s
+          | _ -> None
+        in
+        let status =
+          match Sqlite3.column stmt 4 with Sqlite3.Data.TEXT s -> s | _ -> ""
+        in
+        let result_preview =
+          match Sqlite3.column stmt 5 with
+          | Sqlite3.Data.TEXT s -> Some s
+          | _ -> None
+        in
+        runs :=
+          { run_id; job_name; started_at; finished_at; status; result_preview }
+          :: !runs
+      done;
+      List.rev !runs)
 
 let update_job ~db ~name ?schedule ?message ?ttl () =
   let updates = ref [] in
@@ -342,12 +347,16 @@ let update_job ~db ~name ?schedule ?message ?ttl () =
       Printf.sprintf "UPDATE cron_jobs SET %s WHERE name = ?" set_clause
     in
     let stmt = Sqlite3.prepare db sql in
-    let all_bindings = List.rev !bindings @ [ Sqlite3.Data.TEXT name ] in
-    List.iteri (fun i v -> ignore (Sqlite3.bind stmt (i + 1) v)) all_bindings;
-    ignore (Sqlite3.step stmt);
-    ignore (Sqlite3.finalize stmt);
-    if Sqlite3.changes db > 0 then Ok ()
-    else Error (Printf.sprintf "No job found with name '%s'" name)
+    Fun.protect
+      ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+      (fun () ->
+        let all_bindings = List.rev !bindings @ [ Sqlite3.Data.TEXT name ] in
+        List.iteri
+          (fun i v -> ignore (Sqlite3.bind stmt (i + 1) v))
+          all_bindings;
+        ignore (Sqlite3.step stmt);
+        if Sqlite3.changes db > 0 then Ok ()
+        else Error (Printf.sprintf "No job found with name '%s'" name))
 
 let get_job ~db ~name =
   let sql =
@@ -355,70 +364,71 @@ let get_job ~db ~name =
      COALESCE(ephemeral, 0), expires_at FROM cron_jobs WHERE name = ?"
   in
   let stmt = Sqlite3.prepare db sql in
-  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT name));
-  let result =
-    if Sqlite3.step stmt = Sqlite3.Rc.ROW then
-      let id =
-        match Sqlite3.column stmt 0 with
-        | Sqlite3.Data.INT i -> Int64.to_int i
-        | _ -> 0
-      in
-      let name =
-        match Sqlite3.column stmt 1 with Sqlite3.Data.TEXT s -> s | _ -> ""
-      in
-      let session_key =
-        match Sqlite3.column stmt 2 with Sqlite3.Data.TEXT s -> s | _ -> ""
-      in
-      let message =
-        match Sqlite3.column stmt 3 with Sqlite3.Data.TEXT s -> s | _ -> ""
-      in
-      let schedule_str =
-        match Sqlite3.column stmt 4 with Sqlite3.Data.TEXT s -> s | _ -> ""
-      in
-      let enabled =
-        match Sqlite3.column stmt 5 with
-        | Sqlite3.Data.INT i -> i <> 0L
-        | _ -> true
-      in
-      let agent_name =
-        match Sqlite3.column stmt 6 with
-        | Sqlite3.Data.TEXT s -> Some s
-        | _ -> None
-      in
-      let ephemeral =
-        match Sqlite3.column stmt 7 with
-        | Sqlite3.Data.INT i -> i <> 0L
-        | _ -> false
-      in
-      let expires_at =
-        match Sqlite3.column stmt 8 with
-        | Sqlite3.Data.TEXT s -> Some s
-        | _ -> None
-      in
-      Some
-        {
-          id;
-          name;
-          session_key;
-          message;
-          schedule_str;
-          enabled;
-          agent_name;
-          ephemeral;
-          expires_at;
-        }
-    else None
-  in
-  ignore (Sqlite3.finalize stmt);
-  result
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT name));
+      if Sqlite3.step stmt = Sqlite3.Rc.ROW then
+        let id =
+          match Sqlite3.column stmt 0 with
+          | Sqlite3.Data.INT i -> Int64.to_int i
+          | _ -> 0
+        in
+        let name =
+          match Sqlite3.column stmt 1 with Sqlite3.Data.TEXT s -> s | _ -> ""
+        in
+        let session_key =
+          match Sqlite3.column stmt 2 with Sqlite3.Data.TEXT s -> s | _ -> ""
+        in
+        let message =
+          match Sqlite3.column stmt 3 with Sqlite3.Data.TEXT s -> s | _ -> ""
+        in
+        let schedule_str =
+          match Sqlite3.column stmt 4 with Sqlite3.Data.TEXT s -> s | _ -> ""
+        in
+        let enabled =
+          match Sqlite3.column stmt 5 with
+          | Sqlite3.Data.INT i -> i <> 0L
+          | _ -> true
+        in
+        let agent_name =
+          match Sqlite3.column stmt 6 with
+          | Sqlite3.Data.TEXT s -> Some s
+          | _ -> None
+        in
+        let ephemeral =
+          match Sqlite3.column stmt 7 with
+          | Sqlite3.Data.INT i -> i <> 0L
+          | _ -> false
+        in
+        let expires_at =
+          match Sqlite3.column stmt 8 with
+          | Sqlite3.Data.TEXT s -> Some s
+          | _ -> None
+        in
+        Some
+          {
+            id;
+            name;
+            session_key;
+            message;
+            schedule_str;
+            enabled;
+            agent_name;
+            ephemeral;
+            expires_at;
+          }
+      else None)
 
 let remove_job ~db ~name =
   let sql = "DELETE FROM cron_jobs WHERE name = ?" in
   let stmt = Sqlite3.prepare db sql in
-  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT name));
-  ignore (Sqlite3.step stmt);
-  ignore (Sqlite3.finalize stmt);
-  Sqlite3.changes db > 0
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT name));
+      ignore (Sqlite3.step stmt);
+      Sqlite3.changes db > 0)
 
 let toggle_job ~db ~name =
   let sql =
@@ -426,15 +436,16 @@ let toggle_job ~db ~name =
      WHERE name = ?"
   in
   let stmt = Sqlite3.prepare db sql in
-  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT name));
-  match Sqlite3.step stmt with
-  | Sqlite3.Rc.DONE ->
-      ignore (Sqlite3.finalize stmt);
-      if Sqlite3.changes db > 0 then Ok ()
-      else Error (Printf.sprintf "Job '%s' not found." name)
-  | rc ->
-      ignore (Sqlite3.finalize stmt);
-      Error (Printf.sprintf "SQLite error: %s" (Sqlite3.Rc.to_string rc))
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT name));
+      match Sqlite3.step stmt with
+      | Sqlite3.Rc.DONE ->
+          if Sqlite3.changes db > 0 then Ok ()
+          else Error (Printf.sprintf "Job '%s' not found." name)
+      | rc ->
+          Error (Printf.sprintf "SQLite error: %s" (Sqlite3.Rc.to_string rc)))
 
 let get_history ~db ~name ~limit =
   let sql =
@@ -442,48 +453,52 @@ let get_history ~db ~name ~limit =
      cron_runs WHERE job_name = ? ORDER BY id DESC LIMIT ?"
   in
   let stmt = Sqlite3.prepare db sql in
-  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT name));
-  ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int limit)));
-  let runs = ref [] in
-  while Sqlite3.step stmt = Sqlite3.Rc.ROW do
-    let run_id =
-      match Sqlite3.column stmt 0 with
-      | Sqlite3.Data.INT i -> Int64.to_int i
-      | _ -> 0
-    in
-    let job_name =
-      match Sqlite3.column stmt 1 with Sqlite3.Data.TEXT s -> s | _ -> ""
-    in
-    let started_at =
-      match Sqlite3.column stmt 2 with Sqlite3.Data.TEXT s -> s | _ -> ""
-    in
-    let finished_at =
-      match Sqlite3.column stmt 3 with
-      | Sqlite3.Data.TEXT s -> Some s
-      | _ -> None
-    in
-    let status =
-      match Sqlite3.column stmt 4 with Sqlite3.Data.TEXT s -> s | _ -> ""
-    in
-    let result_preview =
-      match Sqlite3.column stmt 5 with
-      | Sqlite3.Data.TEXT s -> Some s
-      | _ -> None
-    in
-    runs :=
-      { run_id; job_name; started_at; finished_at; status; result_preview }
-      :: !runs
-  done;
-  ignore (Sqlite3.finalize stmt);
-  List.rev !runs
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT name));
+      ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int limit)));
+      let runs = ref [] in
+      while Sqlite3.step stmt = Sqlite3.Rc.ROW do
+        let run_id =
+          match Sqlite3.column stmt 0 with
+          | Sqlite3.Data.INT i -> Int64.to_int i
+          | _ -> 0
+        in
+        let job_name =
+          match Sqlite3.column stmt 1 with Sqlite3.Data.TEXT s -> s | _ -> ""
+        in
+        let started_at =
+          match Sqlite3.column stmt 2 with Sqlite3.Data.TEXT s -> s | _ -> ""
+        in
+        let finished_at =
+          match Sqlite3.column stmt 3 with
+          | Sqlite3.Data.TEXT s -> Some s
+          | _ -> None
+        in
+        let status =
+          match Sqlite3.column stmt 4 with Sqlite3.Data.TEXT s -> s | _ -> ""
+        in
+        let result_preview =
+          match Sqlite3.column stmt 5 with
+          | Sqlite3.Data.TEXT s -> Some s
+          | _ -> None
+        in
+        runs :=
+          { run_id; job_name; started_at; finished_at; status; result_preview }
+          :: !runs
+      done;
+      List.rev !runs)
 
 let record_run_start ~db ~job_name =
   let sql = "INSERT INTO cron_runs (job_name, status) VALUES (?, 'running')" in
   let stmt = Sqlite3.prepare db sql in
-  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT job_name));
-  ignore (Sqlite3.step stmt);
-  ignore (Sqlite3.finalize stmt);
-  Int64.to_int (Sqlite3.last_insert_rowid db)
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT job_name));
+      ignore (Sqlite3.step stmt);
+      Int64.to_int (Sqlite3.last_insert_rowid db))
 
 let record_run_finish ~db ~run_id ~status ~result_preview =
   let preview =
@@ -495,11 +510,13 @@ let record_run_finish ~db ~run_id ~status ~result_preview =
      result_preview = ? WHERE id = ?"
   in
   let stmt = Sqlite3.prepare db sql in
-  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT status));
-  ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT preview));
-  ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.INT (Int64.of_int run_id)));
-  ignore (Sqlite3.step stmt);
-  ignore (Sqlite3.finalize stmt)
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT status));
+      ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT preview));
+      ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.INT (Int64.of_int run_id)));
+      ignore (Sqlite3.step stmt))
 
 let prune_runs ~db ~job_name ~keep =
   let sql =
@@ -507,19 +524,23 @@ let prune_runs ~db ~job_name ~keep =
      cron_runs WHERE job_name = ? ORDER BY id DESC LIMIT ?)"
   in
   let stmt = Sqlite3.prepare db sql in
-  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT job_name));
-  ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT job_name));
-  ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.INT (Int64.of_int keep)));
-  ignore (Sqlite3.step stmt);
-  ignore (Sqlite3.finalize stmt)
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT job_name));
+      ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.TEXT job_name));
+      ignore (Sqlite3.bind stmt 3 (Sqlite3.Data.INT (Int64.of_int keep)));
+      ignore (Sqlite3.step stmt))
 
 let record_run_bg_task ~db ~run_id ~bg_task_id =
   let sql = "UPDATE cron_runs SET bg_task_id = ? WHERE id = ?" in
   let stmt = Sqlite3.prepare db sql in
-  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.INT (Int64.of_int bg_task_id)));
-  ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int run_id)));
-  ignore (Sqlite3.step stmt);
-  ignore (Sqlite3.finalize stmt)
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.INT (Int64.of_int bg_task_id)));
+      ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int run_id)));
+      ignore (Sqlite3.step stmt))
 
 let trigger_job ~db ~name =
   match get_job ~db ~name with
@@ -550,9 +571,11 @@ let trigger_job ~db ~name =
 let expire_job_inline ~db ~name =
   let sql = "UPDATE cron_jobs SET enabled = 0 WHERE name = ?" in
   let stmt = Sqlite3.prepare db sql in
-  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT name));
-  ignore (Sqlite3.step stmt);
-  ignore (Sqlite3.finalize stmt)
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT name));
+      ignore (Sqlite3.step stmt))
 
 (* B630/B632: identical-output detection. When a bg task that was triggered
    by a cron job completes, hash its output and stash it on the cron_runs
@@ -591,17 +614,16 @@ let lookup_run_id_for_bg_task ~db ~bg_task_id =
      LIMIT 1"
   in
   let stmt = Sqlite3.prepare db sql in
-  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.INT (Int64.of_int bg_task_id)));
-  let result =
-    if Sqlite3.step stmt = Sqlite3.Rc.ROW then
-      match (Sqlite3.column stmt 0, Sqlite3.column stmt 1) with
-      | Sqlite3.Data.INT rid, Sqlite3.Data.TEXT job_name ->
-          Some (Int64.to_int rid, job_name)
-      | _ -> None
-    else None
-  in
-  ignore (Sqlite3.finalize stmt);
-  result
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.INT (Int64.of_int bg_task_id)));
+      if Sqlite3.step stmt = Sqlite3.Rc.ROW then
+        match (Sqlite3.column stmt 0, Sqlite3.column stmt 1) with
+        | Sqlite3.Data.INT rid, Sqlite3.Data.TEXT job_name ->
+            Some (Int64.to_int rid, job_name)
+        | _ -> None
+      else None)
 
 let last_n_output_hashes ~db ~job_name ~n =
   let sql =
@@ -609,26 +631,29 @@ let last_n_output_hashes ~db ~job_name ~n =
      NOT NULL ORDER BY id DESC LIMIT ?"
   in
   let stmt = Sqlite3.prepare db sql in
-  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT job_name));
-  ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int n)));
-  let rec loop acc =
-    if Sqlite3.step stmt = Sqlite3.Rc.ROW then
-      match Sqlite3.column stmt 0 with
-      | Sqlite3.Data.TEXT h -> loop (h :: acc)
-      | _ -> loop acc
-    else acc
-  in
-  let hashes = loop [] in
-  ignore (Sqlite3.finalize stmt);
-  hashes
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT job_name));
+      ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int n)));
+      let rec loop acc =
+        if Sqlite3.step stmt = Sqlite3.Rc.ROW then
+          match Sqlite3.column stmt 0 with
+          | Sqlite3.Data.TEXT h -> loop (h :: acc)
+          | _ -> loop acc
+        else acc
+      in
+      loop [])
 
 let update_run_output_hash ~db ~run_id ~hash =
   let sql = "UPDATE cron_runs SET output_hash = ? WHERE id = ?" in
   let stmt = Sqlite3.prepare db sql in
-  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT hash));
-  ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int run_id)));
-  ignore (Sqlite3.step stmt);
-  ignore (Sqlite3.finalize stmt)
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT hash));
+      ignore (Sqlite3.bind stmt 2 (Sqlite3.Data.INT (Int64.of_int run_id)));
+      ignore (Sqlite3.step stmt))
 
 (* Public: scan whether the last `threshold` runs all share the same non-empty
    output hash. Returns Some hash when the loop is detected. *)
@@ -687,23 +712,24 @@ let get_last_run_time ~db ~job_name =
      job_name = ? ORDER BY id DESC LIMIT 1"
   in
   let stmt = Sqlite3.prepare db sql in
-  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT job_name));
-  let result =
-    if Sqlite3.step stmt = Sqlite3.Rc.ROW then
-      match Sqlite3.column stmt 0 with
-      | Sqlite3.Data.INT ts -> Some (Int64.to_float ts)
-      | _ -> None
-    else None
-  in
-  ignore (Sqlite3.finalize stmt);
-  result
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT job_name));
+      if Sqlite3.step stmt = Sqlite3.Rc.ROW then
+        match Sqlite3.column stmt 0 with
+        | Sqlite3.Data.INT ts -> Some (Int64.to_float ts)
+        | _ -> None
+      else None)
 
 let expire_job ~db ~name =
   let sql = "UPDATE cron_jobs SET enabled = 0 WHERE name = ?" in
   let stmt = Sqlite3.prepare db sql in
-  ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT name));
-  ignore (Sqlite3.step stmt);
-  ignore (Sqlite3.finalize stmt)
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.finalize stmt))
+    (fun () ->
+      ignore (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT name));
+      ignore (Sqlite3.step stmt))
 
 let tick ~db ~session_mgr
     ?(deliver :

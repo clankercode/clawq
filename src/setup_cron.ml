@@ -283,47 +283,50 @@ let run () =
   | Ok () ->
       let db_path = Dot_dir.db_path () in
       let db = Sqlite3.db_open db_path in
-      Scheduler.init_schema db;
-      let quit = ref false in
-      while not !quit do
-        let jobs = Scheduler.list_jobs ~db in
-        draw_jobs_dashboard jobs;
-        let options =
-          [ ("a", "Add job") ]
-          @ (if jobs <> [] then
-               [
-                 ("e", "Edit job");
-                 ("r", "Remove job");
-                 ("t", "Toggle enabled/disabled");
-                 ("l", "List jobs (table view)");
-               ]
-             else [])
-          @ [ ("h", "Show schedule examples") ]
-        in
-        let choice =
-          Setup_common.prompt_menu ~title:"Actions" ~options
-            ~shortcut_exit:"q/Enter" ()
-        in
-        match String.lowercase_ascii choice with
-        | "q" | "" -> quit := true
-        | "a" ->
-            action_add ~db;
-            Setup_common.press_enter_to_continue ()
-        | "e" ->
-            action_edit ~db jobs;
-            Setup_common.press_enter_to_continue ()
-        | "r" ->
-            action_remove ~db jobs;
-            Setup_common.press_enter_to_continue ()
-        | "t" ->
-            action_toggle ~db jobs;
-            Setup_common.press_enter_to_continue ()
-        | "l" ->
-            print_jobs_table jobs;
-            Setup_common.press_enter_to_continue ()
-        | "h" ->
-            Printf.printf
-              {|
+      Fun.protect
+        ~finally:(fun () -> ignore (Sqlite3.db_close db))
+        (fun () ->
+          Scheduler.init_schema db;
+          let quit = ref false in
+          while not !quit do
+            let jobs = Scheduler.list_jobs ~db in
+            draw_jobs_dashboard jobs;
+            let options =
+              [ ("a", "Add job") ]
+              @ (if jobs <> [] then
+                   [
+                     ("e", "Edit job");
+                     ("r", "Remove job");
+                     ("t", "Toggle enabled/disabled");
+                     ("l", "List jobs (table view)");
+                   ]
+                 else [])
+              @ [ ("h", "Show schedule examples") ]
+            in
+            let choice =
+              Setup_common.prompt_menu ~title:"Actions" ~options
+                ~shortcut_exit:"q/Enter" ()
+            in
+            match String.lowercase_ascii choice with
+            | "q" | "" -> quit := true
+            | "a" ->
+                action_add ~db;
+                Setup_common.press_enter_to_continue ()
+            | "e" ->
+                action_edit ~db jobs;
+                Setup_common.press_enter_to_continue ()
+            | "r" ->
+                action_remove ~db jobs;
+                Setup_common.press_enter_to_continue ()
+            | "t" ->
+                action_toggle ~db jobs;
+                Setup_common.press_enter_to_continue ()
+            | "l" ->
+                print_jobs_table jobs;
+                Setup_common.press_enter_to_continue ()
+            | "h" ->
+                Printf.printf
+                  {|
   Schedule format examples:
 
     Human-readable (clawq extension):
@@ -356,10 +359,10 @@ let run () =
     Leave blank for no TTL (job runs indefinitely).
 
 |};
-            Setup_common.press_enter_to_continue ()
-        | s ->
-            Setup_common.print_warning (Printf.sprintf "Unknown option: %s" s);
-            Setup_common.press_enter_to_continue ()
-      done;
-      ignore (Sqlite3.db_close db);
+                Setup_common.press_enter_to_continue ()
+            | s ->
+                Setup_common.print_warning
+                  (Printf.sprintf "Unknown option: %s" s);
+                Setup_common.press_enter_to_continue ()
+          done);
       "Cron job setup complete."

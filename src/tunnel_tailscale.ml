@@ -67,15 +67,17 @@ let start t =
         let* () = Lwt_unix.sleep 0.1 in
         (try
            let ic = open_in stderr_file in
-           let content = really_input_string ic (in_channel_length ic) in
-           close_in ic;
-           let lines = String.split_on_char '\n' content in
-           List.iter
-             (fun line ->
-               match extract_url line with
-               | Some url -> found_url := Some url
-               | None -> ())
-             lines
+           Fun.protect
+             ~finally:(fun () -> close_in_noerr ic)
+             (fun () ->
+               let content = really_input_string ic (in_channel_length ic) in
+               let lines = String.split_on_char '\n' content in
+               List.iter
+                 (fun line ->
+                   match extract_url line with
+                   | Some url -> found_url := Some url
+                   | None -> ())
+                 lines)
          with _ -> ());
         poll_loop (attempts + 1)
       end

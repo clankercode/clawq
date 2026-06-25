@@ -224,18 +224,23 @@ let apply config =
     let backup = config_path ^ ".bak-" ^ ts in
     try
       let ic = open_in config_path in
-      let contents = really_input_string ic (in_channel_length ic) in
-      close_in ic;
-      let oc = open_out backup in
-      output_string oc contents;
-      close_out oc
+      Fun.protect
+        ~finally:(fun () -> close_in_noerr ic)
+        (fun () ->
+          let contents = really_input_string ic (in_channel_length ic) in
+          let oc = open_out backup in
+          Fun.protect
+            ~finally:(fun () -> close_out_noerr oc)
+            (fun () -> output_string oc contents))
     with _ -> ()
   end;
   let json = Runtime_config.to_json config in
   let oc = open_out config_path in
-  output_string oc (Yojson.Safe.pretty_to_string ~std:true json);
-  output_char oc '\n';
-  close_out oc;
+  Fun.protect
+    ~finally:(fun () -> close_out_noerr oc)
+    (fun () ->
+      output_string oc (Yojson.Safe.pretty_to_string ~std:true json);
+      output_char oc '\n');
   "Config written to " ^ config_path
 
 let cmd_migrate args =

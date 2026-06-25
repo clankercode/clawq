@@ -137,8 +137,11 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
               Lwt.catch
                 (fun () ->
                   let db = Sqlite3.db_open ~mode:`READONLY db_path in
-                  let rows = query_new_messages ~db ~last_id:!last_id in
-                  ignore (Sqlite3.db_close db);
+                  let rows =
+                    Fun.protect
+                      ~finally:(fun () -> ignore (Sqlite3.db_close db))
+                      (fun () -> query_new_messages ~db ~last_id:!last_id)
+                  in
                   let* () =
                     Lwt_list.iter_s
                       (fun (row_id, handle_id, text) ->

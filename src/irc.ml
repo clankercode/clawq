@@ -82,10 +82,15 @@ let connect_tcp ~host ~port =
     | a :: _ -> a
   in
   let fd = Lwt_unix.socket addr.ai_family Unix.SOCK_STREAM 0 in
-  let* () = Lwt_unix.connect fd addr.ai_addr in
-  let ic = Lwt_io.of_fd ~mode:Lwt_io.Input fd in
-  let oc = Lwt_io.of_fd ~mode:Lwt_io.Output fd in
-  Lwt.return { ic; oc }
+  Lwt.finalize
+    (fun () ->
+      let* () = Lwt_unix.connect fd addr.ai_addr in
+      let ic = Lwt_io.of_fd ~mode:Lwt_io.Input fd in
+      let oc = Lwt_io.of_fd ~mode:Lwt_io.Output fd in
+      Lwt.return { ic; oc })
+    (fun () ->
+      (* fd ownership transferred to ic/oc on success; close on failure *)
+      Lwt.return_unit)
 
 let connect_tls ~host ~port =
   let open Lwt.Syntax in
@@ -99,26 +104,29 @@ let connect_tls ~host ~port =
     | a :: _ -> a
   in
   let fd = Lwt_unix.socket addr.ai_family Unix.SOCK_STREAM 0 in
-  let* () = Lwt_unix.connect fd addr.ai_addr in
-  let authenticator =
-    match Ca_certs.authenticator () with
-    | Ok a -> a
-    | Error (`Msg msg) -> failwith ("CA certs error: " ^ msg)
-  in
-  let peer_name =
-    match Domain_name.of_string host with
-    | Ok dn -> (
-        match Domain_name.host dn with Ok h -> Some h | Error _ -> None)
-    | Error _ -> None
-  in
-  let tls_config =
-    match Tls.Config.client ~authenticator ?peer_name () with
-    | Ok c -> c
-    | Error (`Msg msg) -> failwith ("TLS config error: " ^ msg)
-  in
-  let* tls_socket = Tls_lwt.Unix.client_of_fd tls_config fd in
-  let ic, oc = Tls_lwt.of_t tls_socket in
-  Lwt.return { ic; oc }
+  Lwt.finalize
+    (fun () ->
+      let* () = Lwt_unix.connect fd addr.ai_addr in
+      let authenticator =
+        match Ca_certs.authenticator () with
+        | Ok a -> a
+        | Error (`Msg msg) -> failwith ("CA certs error: " ^ msg)
+      in
+      let peer_name =
+        match Domain_name.of_string host with
+        | Ok dn -> (
+            match Domain_name.host dn with Ok h -> Some h | Error _ -> None)
+        | Error _ -> None
+      in
+      let tls_config =
+        match Tls.Config.client ~authenticator ?peer_name () with
+        | Ok c -> c
+        | Error (`Msg msg) -> failwith ("TLS config error: " ^ msg)
+      in
+      let* tls_socket = Tls_lwt.Unix.client_of_fd tls_config fd in
+      let ic, oc = Tls_lwt.of_t tls_socket in
+      Lwt.return { ic; oc })
+    (fun () -> Lwt.return_unit)
 
 let sasl_plain_payload ~nick ~password =
   (* \0nick\0password *)
@@ -331,8 +339,14 @@ let start ~(config : Runtime_config.t) ~(session_manager : Session.t) =
                   else connect_tcp ~host:cfg.host ~port:cfg.port
                 in
                 Channel_util.Backoff.reset backoff;
-                let* () = run_session ~cfg ~conn ~session_manager in
-                Lwt.return_unit)
+                Lwt.finalize
+                  (fun () -> run_session ~cfg ~conn ~session_manager)
+                  (fun () ->
+                    Lwt.catch
+                      (fun () ->
+                        let* () = Lwt_io.close conn.ic in
+                        Lwt_io.close conn.oc)
+                      (fun _ -> Lwt.return_unit)))
               (fun exn ->
                 Logs.err (fun m ->
                     m "IRC: connection error: %s" (Printexc.to_string exn));

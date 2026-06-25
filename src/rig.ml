@@ -57,9 +57,11 @@ let save_state (entries : (string * rig_state) list) =
   let dir = Filename.dirname path in
   (try if not (Sys.file_exists dir) then Sys.mkdir dir 0o755 with _ -> ());
   let oc = open_out path in
-  output_string oc (Yojson.Safe.pretty_to_string ~std:true json);
-  output_char oc '\n';
-  close_out oc
+  Fun.protect
+    ~finally:(fun () -> close_out_noerr oc)
+    (fun () ->
+      output_string oc (Yojson.Safe.pretty_to_string ~std:true json);
+      output_char oc '\n')
 
 let mark_installed ~name ~version =
   let entries = load_state () in
@@ -95,8 +97,11 @@ let rigs_dir () = Filename.concat (Dot_dir.path ()) "rigs"
 let parse_user_rig_file path : rig_def option =
   try
     let ic = open_in path in
-    let content = really_input_string ic (in_channel_length ic) in
-    close_in ic;
+    let content =
+      Fun.protect
+        ~finally:(fun () -> close_in_noerr ic)
+        (fun () -> really_input_string ic (in_channel_length ic))
+    in
     let lines = String.split_on_char '\n' content in
     match lines with
     | first :: rest when String.trim first = "---" -> (

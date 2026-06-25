@@ -87,9 +87,11 @@ let draw_separator ~width =
 let terminal_width () =
   try
     let ic = Unix.open_process_in "tput cols 2>/dev/null" in
-    let w = int_of_string (String.trim (input_line ic)) in
-    ignore (Unix.close_process_in ic);
-    min w 100
+    Fun.protect
+      ~finally:(fun () -> ignore (Unix.close_process_in ic))
+      (fun () ->
+        let w = int_of_string (String.trim (input_line ic)) in
+        min w 100)
   with _ -> 72
 
 (* ── Prompt primitives ───────────────────────────────────────────── *)

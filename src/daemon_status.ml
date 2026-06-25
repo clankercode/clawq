@@ -1,17 +1,19 @@
 let read_file path =
   try
     let ic = open_in_bin path in
-    let buf = Buffer.create 256 in
-    let chunk = Bytes.create 256 in
-    let rec loop () =
-      let n = input ic chunk 0 256 in
-      if n > 0 then (
-        Buffer.add_subbytes buf chunk 0 n;
-        loop ())
-    in
-    (try loop () with End_of_file -> ());
-    close_in ic;
-    Some (Buffer.contents buf)
+    Fun.protect
+      ~finally:(fun () -> close_in_noerr ic)
+      (fun () ->
+        let buf = Buffer.create 256 in
+        let chunk = Bytes.create 256 in
+        let rec loop () =
+          let n = input ic chunk 0 256 in
+          if n > 0 then (
+            Buffer.add_subbytes buf chunk 0 n;
+            loop ())
+        in
+        (try loop () with End_of_file -> ());
+        Some (Buffer.contents buf))
   with _ -> None
 
 let proc_start_ticks pid =
@@ -99,9 +101,11 @@ let read_pid_file path =
   else
     try
       let ic = open_in path in
-      let s = String.trim (input_line ic) in
-      close_in ic;
-      int_of_string_opt s
+      Fun.protect
+        ~finally:(fun () -> close_in_noerr ic)
+        (fun () ->
+          let s = String.trim (input_line ic) in
+          int_of_string_opt s)
     with _ -> None
 
 let read_current_daemon_pid () =
