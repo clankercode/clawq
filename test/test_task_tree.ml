@@ -3,6 +3,37 @@ let fresh_db () =
   Task_tree.init_schema db;
   db
 
+let contains_substring ~needle haystack =
+  try
+    ignore (Str.search_forward (Str.regexp_string needle) haystack 0);
+    true
+  with Not_found -> false
+
+let utf8_column_count s =
+  let len = String.length s in
+  let rec loop i columns =
+    if i >= len then columns
+    else
+      let b = Char.code s.[i] in
+      let step =
+        if b land 0x80 = 0 then 1
+        else if b land 0xE0 = 0xC0 then 2
+        else if b land 0xF0 = 0xE0 then 3
+        else if b land 0xF8 = 0xF0 then 4
+        else 1
+      in
+      loop (i + step) (columns + 1)
+  in
+  loop 0 0
+
+let check_wrapped_to_80 label output =
+  output |> String.split_on_char '\n'
+  |> List.iteri (fun i line ->
+      Alcotest.(check bool)
+        (Printf.sprintf "%s line %d is <= 80 columns" label (i + 1))
+        true
+        (utf8_column_count line <= 80))
+
 let test_init_schema_idempotent () =
   let db = fresh_db () in
   Task_tree.init_schema db;
@@ -99,6 +130,34 @@ let test_add_explicit_parent () =
   let child = List.find (fun t -> t.Task_tree.title = "Child") tasks in
   Alcotest.(check (option string))
     "explicit parent" (Some "root") child.parent_id
+
+let test_add_legacy_hash_parent_confirmation_uses_display_id () =
+  let db = fresh_db () in
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc [ ("op", `String "add"); ("title", `String "Parent") ];
+        `Assoc
+          [
+            ("op", `String "add");
+            ("title", `String "Child");
+            ("parent", `String "#1");
+          ];
+      ]
+  in
+  (match result with
+  | Ok output ->
+      Alcotest.(check bool)
+        "confirmation uses resolved parent display id" true
+        (contains_substring ~needle:"child of T1" output);
+      Alcotest.(check bool)
+        "confirmation omits raw legacy parent id" false
+        (contains_substring ~needle:"child of #1" output)
+  | Error e -> Alcotest.fail e);
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
+  let child = List.find (fun t -> t.Task_tree.title = "Child") tasks in
+  Alcotest.(check (option string))
+    "child parent resolved for storage" (Some "1") child.parent_id
 
 let test_depth_jump_validation () =
   let db = fresh_db () in
@@ -620,7 +679,7 @@ let test_render_populated_tree () =
   Alcotest.(check bool)
     "contains hierarchy" true
     (try
-       ignore (Str.search_forward (Str.regexp_string "1.1") output 0);
+       ignore (Str.search_forward (Str.regexp_string "└──") output 0);
        true
      with Not_found -> false)
 
@@ -671,17 +730,229 @@ let test_tool_invoke_round_trip () =
   in
   let result = Lwt_main.run (tool_t.invoke ~context:ctx args) in
   Alcotest.(check bool)
-    "contains Added" true
-    (try
-       ignore (Str.search_forward (Str.regexp_string "Added") result 0);
-       true
-     with Not_found -> false);
+    "contains displayed task id" true
+    (contains_substring ~needle:"Added T1" result);
   Alcotest.(check bool)
-    "contains compact summary" true
-    (try
-       ignore (Str.search_forward (Str.regexp_string "Tasks: 1 total") result 0);
-       true
-     with Not_found -> false)
+    "omits automatic compact summary" false
+    (contains_substring ~needle:"Tasks: 1 total" result);
+  Alcotest.(check bool)
+    "does not emit github-style issue reference" false
+    (contains_substring ~needle:"#1" result)
+
+let test_process_operations_mutation_response_is_concise () =
+  let db = fresh_db () in
+  let long_title =
+    "A very long task title that would make tool call responses noisy when it \
+     is repeated back to the model after every mutation"
+  in
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [ `Assoc [ ("op", `String "add"); ("title", `String long_title) ] ]
+  in
+  match result with
+  | Error e -> Alcotest.fail e
+  | Ok output ->
+      Alcotest.(check bool)
+        "contains assigned displayed id" true
+        (contains_substring ~needle:"Added T1" output);
+      Alcotest.(check bool)
+        "omits long title" false
+        (contains_substring ~needle:long_title output);
+      Alcotest.(check bool)
+        "omits automatic compact summary" false
+        (contains_substring ~needle:"Tasks: 1 total" output)
+
+let test_process_operations_accepts_displayed_t_id () =
+  let db = fresh_db () in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [ `Assoc [ ("op", `String "add"); ("title", `String "Task") ] ]
+  in
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "update");
+            ("id", `String "T1");
+            ("status", `String "done");
+          ];
+      ]
+  in
+  (match result with Ok _ -> () | Error e -> Alcotest.fail e);
+  let task = List.hd (Task_tree.load_tasks ~db ~session_key:"s1" ()) in
+  Alcotest.(check string)
+    "status updated" "done"
+    (Task_tree.string_of_status task.status)
+
+let test_process_operations_default_and_list_use_display_ids () =
+  let db = fresh_db () in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "add"); ("title", `String "Root"); ("depth", `Int 0);
+          ];
+        `Assoc
+          [
+            ("op", `String "add"); ("title", `String "Child"); ("depth", `Int 1);
+          ];
+      ]
+  in
+  let check_output label output =
+    Alcotest.(check bool)
+      (label ^ " contains T1") true
+      (contains_substring ~needle:"T1" output);
+    Alcotest.(check bool)
+      (label ^ " contains T2") true
+      (contains_substring ~needle:"T2" output);
+    Alcotest.(check bool)
+      (label ^ " uses unicode tree")
+      true
+      (contains_substring ~needle:"└──" output);
+    Alcotest.(check bool)
+      (label ^ " omits old numbered tree")
+      false
+      (contains_substring ~needle:"1. [ ] Root" output);
+    Alcotest.(check bool)
+      (label ^ " omits github-style id")
+      false
+      (contains_substring ~needle:"#1" output)
+  in
+  (match Task_tree.process_operations ~db ~session_key:"s1" [] with
+  | Ok output -> check_output "default list" output
+  | Error e -> Alcotest.fail e);
+  match
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [ `Assoc [ ("op", `String "list") ] ]
+  with
+  | Ok output -> check_output "explicit list" output
+  | Error e -> Alcotest.fail e
+
+let test_legacy_hash_id_mutation_confirmations_use_display_id () =
+  let db = fresh_db () in
+  let expect_clean label expected output =
+    Alcotest.(check bool)
+      (label ^ " shows resolved display id")
+      true
+      (contains_substring ~needle:expected output);
+    Alcotest.(check bool)
+      (label ^ " omits raw hash id")
+      false
+      (contains_substring ~needle:"#1" output)
+  in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [ `Assoc [ ("op", `String "add"); ("title", `String "Task") ] ]
+  in
+  (match
+     Task_tree.process_operations ~db ~session_key:"s1"
+       [
+         `Assoc
+           [
+             ("op", `String "update");
+             ("id", `String "#1");
+             ("status", `String "done");
+           ];
+       ]
+   with
+  | Ok output -> expect_clean "update" "Updated T1" output
+  | Error e -> Alcotest.fail e);
+  (match
+     Task_tree.process_operations ~db ~session_key:"s1"
+       [ `Assoc [ ("op", `String "remove"); ("id", `String "#1") ] ]
+   with
+  | Ok output -> expect_clean "remove" "Soft-deleted T1" output
+  | Error e -> Alcotest.fail e);
+  (match
+     Task_tree.process_operations ~db ~session_key:"s1"
+       [ `Assoc [ ("op", `String "restore"); ("id", `String "#1") ] ]
+   with
+  | Ok output -> expect_clean "restore" "Restored T1" output
+  | Error e -> Alcotest.fail e);
+  match
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [ `Assoc [ ("op", `String "archive"); ("id", `String "#1") ] ]
+  with
+  | Ok output -> expect_clean "archive" "Archived subtree T1" output
+  | Error e -> Alcotest.fail e
+
+let test_add_rejects_hash_prefixed_custom_id () =
+  let db = fresh_db () in
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "add");
+            ("id", `String "#1");
+            ("title", `String "Hash-prefixed custom ID");
+          ];
+      ]
+  in
+  (match result with
+  | Error msg ->
+      Alcotest.(check bool)
+        "mentions hash-prefixed IDs" true
+        (contains_substring ~needle:"must not start with '#'" msg);
+      Alcotest.(check bool)
+        "mentions auto-assignment" true
+        (contains_substring ~needle:"omit 'id' for auto-assignment" msg);
+      Alcotest.(check bool)
+        "mentions custom ID alternative" true
+        (contains_substring ~needle:"non-# custom ID" msg)
+  | Ok _ -> Alcotest.fail "Expected error for hash-prefixed custom ID");
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
+  Alcotest.(check int) "no task created" 0 (List.length tasks)
+
+let test_display_id_collision_rejected () =
+  let db = fresh_db () in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [ `Assoc [ ("op", `String "add"); ("title", `String "Numeric") ] ]
+  in
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "add");
+            ("id", `String "T1");
+            ("title", `String "Display duplicate");
+          ];
+      ]
+  in
+  match result with
+  | Error msg ->
+      Alcotest.(check bool)
+        "mentions display ID collision" true
+        (contains_substring ~needle:"display ID 'T1'" msg)
+  | Ok _ -> Alcotest.fail "Expected error for colliding display ID"
+
+let test_auto_id_skips_custom_display_id () =
+  let db = fresh_db () in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "add");
+            ("id", `String "T1");
+            ("title", `String "Custom display-shaped ID");
+          ];
+      ]
+  in
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [ `Assoc [ ("op", `String "add"); ("title", `String "Auto") ] ]
+  in
+  (match result with Ok _ -> () | Error e -> Alcotest.fail e);
+  let auto =
+    Task_tree.load_tasks ~db ~session_key:"s1" ()
+    |> List.find (fun t -> t.Task_tree.title = "Auto")
+  in
+  Alcotest.(check string) "auto ID skips display collision" "2" auto.id
 
 let test_id_collision_rejected () =
   let db = fresh_db () in
@@ -978,6 +1249,51 @@ let test_render_with_legend () =
        true
      with Not_found -> false)
 
+let test_render_tree_uses_unicode_connectors_and_wraps () =
+  let db = fresh_db () in
+  let long_title =
+    "Implement a carefully described task tree display that keeps every \
+     rendered line inside the eighty column budget without hiding important \
+     task details"
+  in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "add");
+            ("id", `String "root");
+            ("title", `String "Parent");
+          ];
+        `Assoc
+          [
+            ("op", `String "add");
+            ("parent", `String "root");
+            ("title", `String long_title);
+          ];
+        `Assoc
+          [
+            ("op", `String "add");
+            ("parent", `String "root");
+            ("title", `String "Second child");
+          ];
+      ]
+  in
+  let output = Task_tree.render_tree ~db ~session_key:"s1" in
+  Alcotest.(check bool)
+    "contains branch connector" true
+    (contains_substring ~needle:"├──" output);
+  Alcotest.(check bool)
+    "contains end connector" true
+    (contains_substring ~needle:"└──" output);
+  Alcotest.(check bool)
+    "contains continuation vertical" true
+    (contains_substring ~needle:"│" output);
+  Alcotest.(check bool)
+    "does not use numbered ASCII tree" false
+    (contains_substring ~needle:"1. [ ]" output);
+  check_wrapped_to_80 "full tree" output
+
 let test_render_emoji_tree_empty () =
   let db = fresh_db () in
   let output = Task_tree.render_emoji_tree ~db ~session_key:"s1" () in
@@ -1075,31 +1391,24 @@ let test_render_emoji_tree_nested () =
        true
      with Not_found -> false)
 
-let test_render_emoji_tree_truncation () =
+let test_render_emoji_tree_wraps_long_titles () =
   let db = fresh_db () in
   let long_title =
-    "This is a really long task title that should be truncated to about fifty \
-     chars"
+    "This compact slash command task title keeps enough trailing context to be \
+     useful after wrapping at eighty columns"
   in
   let _ =
     Task_tree.process_operations ~db ~session_key:"s1"
       [ `Assoc [ ("op", `String "add"); ("title", `String long_title) ] ]
   in
-  let output =
-    Task_tree.render_emoji_tree ~max_title_chars:50 ~db ~session_key:"s1" ()
-  in
+  let output = Task_tree.render_emoji_tree ~db ~session_key:"s1" () in
   Alcotest.(check bool)
-    "title truncated with ellipsis" true
-    (try
-       ignore (Str.search_forward (Str.regexp_string "...") output 0);
-       true
-     with Not_found -> false);
+    "does not truncate with ellipsis" false
+    (contains_substring ~needle:"..." output);
   Alcotest.(check bool)
-    "full title not present" false
-    (try
-       ignore (Str.search_forward (Str.regexp_string long_title) output 0);
-       true
-     with Not_found -> false)
+    "retains trailing title context" true
+    (contains_substring ~needle:"useful after wrapping at eighty columns" output);
+  check_wrapped_to_80 "compact tree" output
 
 let test_render_emoji_tree_summary () =
   let db = fresh_db () in
@@ -1329,6 +1638,40 @@ let test_reorder_before_sibling () =
       ]
   in
   (match result with Ok _ -> () | Error e -> Alcotest.fail e);
+  let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
+  let titles = List.map (fun t -> t.Task_tree.title) tasks in
+  Alcotest.(check (list string)) "C before A" [ "C"; "A"; "B" ] titles
+
+let test_reorder_hash_ids_confirm_with_display_ids () =
+  let db = fresh_db () in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc [ ("op", `String "add"); ("title", `String "A") ];
+        `Assoc [ ("op", `String "add"); ("title", `String "B") ];
+        `Assoc [ ("op", `String "add"); ("title", `String "C") ];
+      ]
+  in
+  let result =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [
+        `Assoc
+          [
+            ("op", `String "reorder");
+            ("id", `String "#3");
+            ("position", `String "before:#1");
+          ];
+      ]
+  in
+  (match result with
+  | Ok output ->
+      Alcotest.(check bool)
+        "confirmation uses display ids" true
+        (contains_substring ~needle:"Reordered T3 to before:T1" output);
+      Alcotest.(check bool)
+        "confirmation omits raw hash id" false
+        (contains_substring ~needle:"#1" output)
+  | Error e -> Alcotest.fail e);
   let tasks = Task_tree.load_tasks ~db ~session_key:"s1" () in
   let titles = List.map (fun t -> t.Task_tree.title) tasks in
   Alcotest.(check (list string)) "C before A" [ "C"; "A"; "B" ] titles
@@ -1732,8 +2075,12 @@ let test_format_notification_add () =
   match result with
   | None -> Alcotest.fail "Expected Some notification"
   | Some text ->
-      Alcotest.(check bool) "contains title" true (contains text "Setup DB");
-      Alcotest.(check bool) "contains pending" true (contains text "[pending]");
+      Alcotest.(check bool)
+        "contains add count" true
+        (contains text "Added 1 task");
+      Alcotest.(check bool)
+        "omits per-add status echo" false
+        (contains text "[pending]");
       Alcotest.(check bool)
         "contains header" true
         (contains text "Task tree updated")
@@ -1761,8 +2108,37 @@ let test_format_notification_update () =
   match result with
   | None -> Alcotest.fail "Expected Some notification"
   | Some text ->
-      Alcotest.(check bool) "contains #1" true (contains text "`#1`");
+      Alcotest.(check bool) "contains T1" true (contains text "`T1`");
+      Alcotest.(check bool)
+        "does not contain github-style id" false (contains text "`#1`");
       Alcotest.(check bool) "contains done" true (contains text "`done`")
+
+let test_format_notification_hash_id_resolves_to_display_id () =
+  let db = fresh_db () in
+  let _ =
+    Task_tree.process_operations ~db ~session_key:"s1"
+      [ `Assoc [ ("op", `String "add"); ("title", `String "Work item") ] ]
+  in
+  let ops =
+    [
+      `Assoc
+        [
+          ("op", `String "update");
+          ("id", `String "#1");
+          ("status", `String "done");
+        ];
+    ]
+  in
+  let result =
+    Task_tree.format_notification ~connector:Format_adapter.Discord ~db
+      ~session_key:"s1" ops
+  in
+  match result with
+  | None -> Alcotest.fail "Expected Some notification"
+  | Some text ->
+      Alcotest.(check bool) "contains T1" true (contains text "`T1`");
+      Alcotest.(check bool)
+        "does not contain raw hash id" false (contains text "`#1`")
 
 let test_format_notification_focus () =
   let db = fresh_db () in
@@ -1839,8 +2215,9 @@ let test_format_notification_multiple_active () =
   | None -> Alcotest.fail "Expected Some notification"
   | Some text ->
       Alcotest.(check bool) "contains Focus" true (contains text "Focus:");
-      Alcotest.(check bool) "contains #a" true (contains text "#a");
-      Alcotest.(check bool) "contains #b" true (contains text "#b")
+      Alcotest.(check bool) "contains a" true (contains text "a");
+      Alcotest.(check bool)
+        "does not list every active task" false (contains text "Task B")
 
 let test_format_notification_reorder_only () =
   let db = fresh_db () in
@@ -1871,7 +2248,10 @@ let test_format_notification_discord_formatting () =
         "Discord bold header" true
         (contains text "**Task tree updated**");
       Alcotest.(check bool)
-        "Discord bold title" true
+        "Discord add count" true
+        (contains text "Added 1 task");
+      Alcotest.(check bool)
+        "does not echo add title" false
         (contains text "**My task**")
 
 let test_tool_notify_called_on_success () =
@@ -2453,7 +2833,7 @@ let test_render_compact_shows_active_and_error () =
   Alcotest.(check bool)
     "shows active section" true
     (try
-       ignore (Str.search_forward (Str.regexp_string "[>] #1") result 0);
+       ignore (Str.search_forward (Str.regexp_string "[>] T1") result 0);
        true
      with Not_found -> false);
   Alcotest.(check bool)
@@ -2465,7 +2845,7 @@ let test_render_compact_shows_active_and_error () =
   Alcotest.(check bool)
     "shows blocked section" true
     (try
-       ignore (Str.search_forward (Str.regexp_string "[!] #2") result 0);
+       ignore (Str.search_forward (Str.regexp_string "[!] T2") result 0);
        true
      with Not_found -> false);
   Alcotest.(check bool)
@@ -2502,7 +2882,7 @@ let test_render_compact_hides_done_cancelled () =
     (not
        (try
           ignore
-            (Str.search_forward (Str.regexp_string "#1 — Done task") result 0);
+            (Str.search_forward (Str.regexp_string "T1 — Done task") result 0);
           true
         with Not_found -> false));
   Alcotest.(check bool)
@@ -2511,7 +2891,7 @@ let test_render_compact_hides_done_cancelled () =
        (try
           ignore
             (Str.search_forward
-               (Str.regexp_string "#2 — Cancelled task")
+               (Str.regexp_string "T2 — Cancelled task")
                result 0);
           true
         with Not_found -> false));
@@ -2547,20 +2927,20 @@ let test_render_compact_next_pending_actionable () =
   Alcotest.(check bool)
     "shows Parent in Next" true
     (try
-       ignore (Str.search_forward (Str.regexp_string "#1 — Parent") result 0);
+       ignore (Str.search_forward (Str.regexp_string "T1 — Parent") result 0);
        true
      with Not_found -> false);
   Alcotest.(check bool)
     "shows Root2 in Next" true
     (try
-       ignore (Str.search_forward (Str.regexp_string "#3 — Root2") result 0);
+       ignore (Str.search_forward (Str.regexp_string "T3 — Root2") result 0);
        true
      with Not_found -> false);
   Alcotest.(check bool)
     "hides Child (has pending parent)" true
     (not
        (try
-          ignore (Str.search_forward (Str.regexp_string "#2 — Child") result 0);
+          ignore (Str.search_forward (Str.regexp_string "T2 — Child") result 0);
           true
         with Not_found -> false))
 
@@ -2587,7 +2967,7 @@ let test_render_compact_limits_pending () =
     "R4 not shown" true
     (not
        (try
-          ignore (Str.search_forward (Str.regexp_string "#4 — R4") result 0);
+          ignore (Str.search_forward (Str.regexp_string "T4 — R4") result 0);
           true
         with Not_found -> false))
 
@@ -2805,12 +3185,11 @@ let test_process_operations_compact_output () =
               true
             with Not_found -> false));
       Alcotest.(check bool)
-        "has compact summary" true
-        (try
-           ignore
-             (Str.search_forward (Str.regexp_string "Tasks: 1 total") output 0);
-           true
-         with Not_found -> false)
+        "omits automatic compact summary" false
+        (contains_substring ~needle:"Tasks: 1 total" output);
+      Alcotest.(check bool)
+        "still returns assigned id" true
+        (contains_substring ~needle:"Added T1" output)
   | Error e -> Alcotest.fail ("Expected Ok, got Error: " ^ e)
 
 (* ── B293: bulk ops, soft delete, restore ── *)
@@ -3341,6 +3720,8 @@ let suite =
     Alcotest.test_case "add depth auto-nesting" `Quick
       test_add_depth_auto_nesting;
     Alcotest.test_case "add explicit parent" `Quick test_add_explicit_parent;
+    Alcotest.test_case "add legacy hash parent confirmation display ID" `Quick
+      test_add_legacy_hash_parent_confirmation_uses_display_id;
     Alcotest.test_case "depth jump validation" `Quick test_depth_jump_validation;
     Alcotest.test_case "update status lifecycle" `Quick
       test_update_status_lifecycle;
@@ -3372,6 +3753,20 @@ let suite =
     Alcotest.test_case "batch operations" `Quick test_batch_operations;
     Alcotest.test_case "tool invoke round-trip" `Quick
       test_tool_invoke_round_trip;
+    Alcotest.test_case "mutation response concise" `Quick
+      test_process_operations_mutation_response_is_concise;
+    Alcotest.test_case "accepts displayed T id" `Quick
+      test_process_operations_accepts_displayed_t_id;
+    Alcotest.test_case "default/list uses display IDs" `Quick
+      test_process_operations_default_and_list_use_display_ids;
+    Alcotest.test_case "hash ID confirmations use display ID" `Quick
+      test_legacy_hash_id_mutation_confirmations_use_display_id;
+    Alcotest.test_case "add rejects hash-prefixed custom ID" `Quick
+      test_add_rejects_hash_prefixed_custom_id;
+    Alcotest.test_case "display ID collision rejected" `Quick
+      test_display_id_collision_rejected;
+    Alcotest.test_case "auto ID skips custom display ID" `Quick
+      test_auto_id_skips_custom_display_id;
     Alcotest.test_case "ID collision rejected" `Quick test_id_collision_rejected;
     Alcotest.test_case "auto-ID skips agent-chosen" `Quick
       test_auto_id_skips_agent_chosen;
@@ -3384,11 +3779,13 @@ let suite =
     Alcotest.test_case "batch transaction rollback" `Quick
       test_batch_transaction_rollback;
     Alcotest.test_case "render with legend" `Quick test_render_with_legend;
+    Alcotest.test_case "render tree unicode wrapped" `Quick
+      test_render_tree_uses_unicode_connectors_and_wraps;
     Alcotest.test_case "emoji tree empty" `Quick test_render_emoji_tree_empty;
     Alcotest.test_case "emoji tree basic" `Quick test_render_emoji_tree_basic;
     Alcotest.test_case "emoji tree nested" `Quick test_render_emoji_tree_nested;
-    Alcotest.test_case "emoji tree truncation" `Quick
-      test_render_emoji_tree_truncation;
+    Alcotest.test_case "emoji tree wraps long titles" `Quick
+      test_render_emoji_tree_wraps_long_titles;
     Alcotest.test_case "emoji tree summary" `Quick
       test_render_emoji_tree_summary;
     Alcotest.test_case "note-only update" `Quick test_note_only_update;
@@ -3401,6 +3798,8 @@ let suite =
     Alcotest.test_case "reorder after sibling" `Quick test_reorder_after_sibling;
     Alcotest.test_case "reorder before sibling" `Quick
       test_reorder_before_sibling;
+    Alcotest.test_case "reorder hash IDs confirm as display IDs" `Quick
+      test_reorder_hash_ids_confirm_with_display_ids;
     Alcotest.test_case "reorder not found" `Quick test_reorder_not_found;
     Alcotest.test_case "reorder no siblings" `Quick test_reorder_no_siblings;
     Alcotest.test_case "reorder non-sibling target" `Quick
@@ -3426,6 +3825,8 @@ let suite =
       test_format_notification_add;
     Alcotest.test_case "format notification update" `Quick
       test_format_notification_update;
+    Alcotest.test_case "format notification hash ID display" `Quick
+      test_format_notification_hash_id_resolves_to_display_id;
     Alcotest.test_case "format notification focus" `Quick
       test_format_notification_focus;
     Alcotest.test_case "format notification multiple active" `Quick

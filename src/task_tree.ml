@@ -9,9 +9,20 @@ let maybe_purge_deleted_tasks ~db ~config =
           datetime(deleted_at, '+%d days') < datetime('now')"
          days)
 
+let display_reorder_position ~tasks position =
+  let display_ref ref_id =
+    resolve_existing_id ~tasks ~id:ref_id |> display_id
+  in
+  if String.length position > 7 && String.sub position 0 7 = "before:" then
+    "before:" ^ display_ref (String.sub position 7 (String.length position - 7))
+  else if String.length position > 6 && String.sub position 0 6 = "after:" then
+    "after:" ^ display_ref (String.sub position 6 (String.length position - 6))
+  else position
+
 (* Reorder a task among its siblings *)
 let do_reorder ~db ~session_key ~id ~position =
   let tasks = load_tasks ~db ~session_key () in
+  let id = resolve_existing_id ~tasks ~id in
   match List.find_opt (fun t -> t.id = id) tasks with
   | None ->
       Error
@@ -45,6 +56,14 @@ let do_reorder ~db ~session_key ~id ~position =
         match parse_position position with
         | Error e -> Error e
         | Ok parsed -> (
+            let parsed =
+              match parsed with
+              | `Before ref_id ->
+                  `Before (resolve_existing_id ~tasks:siblings ~id:ref_id)
+              | `After ref_id ->
+                  `After (resolve_existing_id ~tasks:siblings ~id:ref_id)
+              | `First | `Last -> parsed
+            in
             let validate_ref ref_id =
               match List.find_opt (fun t -> t.id = ref_id) siblings with
               | None ->
@@ -501,16 +520,26 @@ let process_operations ~db ~session_key (ops : Yojson.Safe.t list) =
                           in
                           match add_result with
                           | Ok actual_id ->
+                              let tasks_after_add =
+                                load_tasks ~db ~session_key ()
+                              in
+                              let stored_parent_id =
+                                match
+                                  List.find_opt
+                                    (fun t -> t.id = actual_id)
+                                    tasks_after_add
+                                with
+                                | Some task -> task.parent_id
+                                | None -> parent_id
+                              in
                               let d =
                                 match depth with
                                 | Some d -> d
                                 | None ->
-                                    if explicit_parent = None then 0
+                                    if stored_parent_id = None then 0
                                     else
-                                      let tasks =
-                                        load_tasks ~db ~session_key ()
-                                      in
-                                      task_depth ~tasks ~id:actual_id
+                                      task_depth ~tasks:tasks_after_add
+                                        ~id:actual_id
                               in
                               (* Update depth stack: truncate to depth d, push new *)
                               depth_stack :=
@@ -519,14 +548,15 @@ let process_operations ~db ~session_key (ops : Yojson.Safe.t list) =
                                      (fun (lvl, _) -> lvl < d)
                                      !depth_stack;
                               let parent_note =
-                                match parent_id with
+                                match stored_parent_id with
                                 | Some pid ->
-                                    Printf.sprintf " (child of %s)" pid
+                                    Printf.sprintf " (child of %s)"
+                                      (display_id pid)
                                 | None -> ""
                               in
                               Buffer.add_string results
-                                (Printf.sprintf "Added %s: %s [%s]%s\n"
-                                   actual_id title
+                                (Printf.sprintf "Added %s [%s]%s\n"
+                                   (display_id actual_id)
                                    (string_of_status
                                       (match status with
                                       | Some s -> s
@@ -571,6 +601,12 @@ let process_operations ~db ~session_key (ops : Yojson.Safe.t list) =
                             |> List.map String.trim
                             |> List.filter (fun s -> s <> "")
                           in
+                          let tasks = load_tasks ~db ~session_key () in
+                          let ids =
+                            List.map
+                              (fun id -> resolve_existing_id ~tasks ~id)
+                              ids
+                          in
                           if recursive then begin
                             match status with
                             | None ->
@@ -588,7 +624,6 @@ let process_operations ~db ~session_key (ops : Yojson.Safe.t list) =
                                       recursive=false or omit it."
                                      (string_of_status new_status))
                             | Some new_status -> (
-                                let tasks = load_tasks ~db ~session_key () in
                                 let all_ids =
                                   List.concat_map
                                     (fun single_id ->
@@ -642,8 +677,8 @@ let process_operations ~db ~session_key (ops : Yojson.Safe.t list) =
                                             Printf.sprintf "note=%s" n :: !parts
                                       | None -> ());
                                       Buffer.add_string results
-                                        (Printf.sprintf "Updated #%s: %s\n"
-                                           single_id
+                                        (Printf.sprintf "Updated %s: %s\n"
+                                           (display_id single_id)
                                            (String.concat ", " (List.rev !parts)))
                                   | Error e -> err := Some e)
                               ids;
@@ -664,15 +699,17 @@ let process_operations ~db ~session_key (ops : Yojson.Safe.t list) =
                             "ID is required for remove. Provide an 'id' field \
                              with an existing task ID."
                       | Some id -> (
+                          let tasks = load_tasks ~db ~session_key () in
+                          let id = resolve_existing_id ~tasks ~id in
                           match
                             do_remove ~db ~session_key ~id ~recursive ()
                           with
                           | Ok count ->
                               Buffer.add_string results
                                 (Printf.sprintf
-                                   "Soft-deleted #%s (%d task(s)). Restore \
+                                   "Soft-deleted %s (%d task(s)). Restore \
                                     with: op=restore id=%s\n"
-                                   id count id);
+                                   (display_id id) count (display_id id));
                               Ok ()
                           | Error e -> Error e))
                   | "clear" -> (
@@ -692,15 +729,19 @@ let process_operations ~db ~session_key (ops : Yojson.Safe.t list) =
                         try Some (op_json |> member "id" |> to_string)
                         with _ -> None
                       in
+                      let id =
+                        let tasks = load_tasks ~db ~session_key () in
+                        Option.map (fun id -> resolve_existing_id ~tasks ~id) id
+                      in
                       match do_archive ~db ~session_key ~id with
                       | Ok count ->
                           Buffer.add_string results
                             (match id with
                             | Some id ->
                                 Printf.sprintf
-                                  "Archived subtree #%s (%d task(s)). Restore \
+                                  "Archived subtree %s (%d task(s)). Restore \
                                    with: op=restore id=%s\n"
-                                  id count id
+                                  (display_id id) count (display_id id)
                             | None ->
                                 Printf.sprintf
                                   "Archived all completed root trees (%d \
@@ -727,11 +768,16 @@ let process_operations ~db ~session_key (ops : Yojson.Safe.t list) =
                             "position is required for reorder. Use 'first', \
                              'last', 'before:<id>', or 'after:<id>'."
                       | Some id, Some position -> (
+                          let tasks = load_tasks ~db ~session_key () in
+                          let id = resolve_existing_id ~tasks ~id in
                           match do_reorder ~db ~session_key ~id ~position with
                           | Ok () ->
+                              let position =
+                                display_reorder_position ~tasks position
+                              in
                               Buffer.add_string results
-                                (Printf.sprintf "Reordered #%s to %s\n" id
-                                   position);
+                                (Printf.sprintf "Reordered %s to %s\n"
+                                   (display_id id) position);
                               Ok ()
                           | Error e -> Error e))
                   | "save_template" -> (
@@ -816,11 +862,15 @@ let process_operations ~db ~session_key (ops : Yojson.Safe.t list) =
                              the soft-deleted task to recover. Use op=list \
                              include_deleted=true to find deleted task IDs."
                       | Some id -> (
+                          let tasks =
+                            load_tasks ~include_deleted:true ~db ~session_key ()
+                          in
+                          let id = resolve_existing_id ~tasks ~id in
                           match do_restore ~db ~session_key ~id with
                           | Ok count ->
                               Buffer.add_string results
-                                (Printf.sprintf "Restored #%s (%d task(s))\n" id
-                                   count);
+                                (Printf.sprintf "Restored %s (%d task(s))\n"
+                                   (display_id id) count);
                               Ok ()
                           | Error e -> Error e))
                   | "list" ->
@@ -839,41 +889,8 @@ let process_operations ~db ~session_key (ops : Yojson.Safe.t list) =
                              "No active tasks. Use op=list \
                               include_deleted=true to show deleted tasks.\n")
                       else begin
-                        let buf = Buffer.create 256 in
-                        let rec render_children ~parent_id ~prefix =
-                          let children =
-                            List.filter (fun t -> t.parent_id = parent_id) tasks
-                            |> List.sort (fun a b ->
-                                compare a.sort_order b.sort_order)
-                          in
-                          let n = ref 0 in
-                          List.iter
-                            (fun t ->
-                              incr n;
-                              let number =
-                                match prefix with
-                                | "" -> string_of_int !n
-                                | p -> p ^ "." ^ string_of_int !n
-                              in
-                              let note_str =
-                                match t.note with
-                                | Some n -> " (" ^ n ^ ")"
-                                | None -> ""
-                              in
-                              let del_str =
-                                if t.deleted_at <> None then " [deleted]"
-                                else ""
-                              in
-                              Buffer.add_string buf
-                                (Printf.sprintf "%s. %s %s%s%s\n" number
-                                   (status_icon t.status) t.title note_str
-                                   del_str);
-                              render_children ~parent_id:(Some t.id)
-                                ~prefix:number)
-                            children
-                        in
-                        render_children ~parent_id:None ~prefix:"";
-                        Buffer.add_string results (Buffer.contents buf)
+                        Buffer.add_string results (render_task_tree tasks);
+                        Buffer.add_char results '\n'
                       end;
                       Ok ()
                   | "" -> Error "Operation 'op' field is required"
@@ -902,20 +919,26 @@ let process_operations ~db ~session_key (ops : Yojson.Safe.t list) =
             Error (msg ^ ". No operations were applied.")
         | None ->
             Memory.exec_exn db "COMMIT";
-            let summary = render_compact ~db ~session_key in
-            let output = Buffer.contents results in
+            let output =
+              match String.trim (Buffer.contents results) with
+              | "" -> "OK"
+              | s -> s
+            in
             let ip_count = count_in_progress ~db ~session_key in
             let warning =
-              if ip_count >= warn_concurrent_in_progress then
-                Printf.sprintf
-                  "\n\n\
-                   \xe2\x9a\xa0\xef\xb8\x8f WARNING: %d tasks are in_progress. \
-                   Consider completing or updating some before starting more \
-                   work."
-                  ip_count
+              if ip_count >= warn_concurrent_in_progress then (
+                let buf = Buffer.create 128 in
+                Buffer.add_string buf "\n\n";
+                add_wrapped_line buf ~initial_prefix:"" ~continuation_prefix:""
+                  (Printf.sprintf
+                     "\xe2\x9a\xa0\xef\xb8\x8f WARNING: %d tasks are \
+                      in_progress. Consider completing or updating some before \
+                      starting more work."
+                     ip_count);
+                Buffer.contents buf)
               else ""
             in
-            Ok (output ^ "\n" ^ summary ^ warning)
+            Ok (output ^ warning)
       end
 
 let tool ~db ?notify () : Tool.t =

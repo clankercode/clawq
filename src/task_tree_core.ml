@@ -33,6 +33,98 @@ let max_depth = 5
 let warn_concurrent_in_progress = 5
 let max_batch_size = 50
 let max_title_length = 200
+let tree_wrap_columns = 80
+
+let is_digit_string s =
+  String.length s > 0
+  && String.for_all (function '0' .. '9' -> true | _ -> false) s
+
+let display_id id = if is_digit_string id then "T" ^ id else id
+let display_ids ids = String.concat ", " (List.map display_id ids)
+
+let display_id_collision ~tasks ~id =
+  let candidate_display_id = display_id id in
+  List.find_opt
+    (fun task -> task.id <> id && display_id task.id = candidate_display_id)
+    tasks
+
+let strip_legacy_id_prefix id =
+  let id = String.trim id in
+  if String.length id > 0 && id.[0] = '#' then
+    String.sub id 1 (String.length id - 1)
+  else id
+
+let is_hash_prefixed_id id =
+  let id = String.trim id in
+  String.length id > 0 && id.[0] = '#'
+
+let legacy_numeric_id id =
+  let id = strip_legacy_id_prefix id in
+  if String.length id > 1 && id.[0] = 'T' then
+    let rest = String.sub id 1 (String.length id - 1) in
+    if is_digit_string rest then Some rest else None
+  else None
+
+let resolve_existing_id ~tasks ~id =
+  let id = strip_legacy_id_prefix id in
+  if List.exists (fun t -> t.id = id) tasks then id
+  else
+    match legacy_numeric_id id with
+    | Some legacy_id when List.exists (fun t -> t.id = legacy_id) tasks ->
+        legacy_id
+    | _ -> id
+
+let utf8_step s i =
+  let b = Char.code s.[i] in
+  if b land 0x80 = 0 then 1
+  else if b land 0xE0 = 0xC0 then 2
+  else if b land 0xF0 = 0xE0 then 3
+  else if b land 0xF8 = 0xF0 then 4
+  else 1
+
+let utf8_columns s =
+  let len = String.length s in
+  let rec loop i columns =
+    if i >= len then columns else loop (i + utf8_step s i) (columns + 1)
+  in
+  loop 0 0
+
+let split_at_columns s columns =
+  let len = String.length s in
+  let rec loop i used =
+    if i >= len || used >= columns then i
+    else loop (i + utf8_step s i) (used + 1)
+  in
+  let cut = loop 0 0 in
+  (String.sub s 0 cut, String.sub s cut (len - cut))
+
+let add_wrapped_line buf ~initial_prefix ~continuation_prefix text =
+  let words =
+    String.split_on_char ' ' text |> List.filter (fun s -> String.length s > 0)
+  in
+  let width = tree_wrap_columns in
+  let rec emit prefix words =
+    let available = max 1 (width - utf8_columns prefix) in
+    let rec fill acc used = function
+      | [] -> (String.concat " " (List.rev acc), [])
+      | word :: rest ->
+          let sep = if acc = [] then 0 else 1 in
+          let word_cols = utf8_columns word in
+          if used + sep + word_cols <= available then
+            fill (word :: acc) (used + sep + word_cols) rest
+          else if acc = [] then
+            let chunk, remaining = split_at_columns word available in
+            let rest = if remaining = "" then rest else remaining :: rest in
+            (chunk, rest)
+          else (String.concat " " (List.rev acc), word :: rest)
+    in
+    let line, rest = fill [] 0 words in
+    Buffer.add_string buf prefix;
+    Buffer.add_string buf line;
+    Buffer.add_char buf '\n';
+    if rest <> [] then emit continuation_prefix rest
+  in
+  emit initial_prefix words
 
 let init_schema db =
   Memory.exec_exn db
@@ -178,9 +270,16 @@ let next_auto_id ~db ~session_key =
         (Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT session_key) : Sqlite3.Rc.t);
       match Sqlite3.step stmt with
       | Sqlite3.Rc.ROW -> (
+          let tasks = load_tasks ~include_deleted:true ~db ~session_key () in
+          let rec next_available n =
+            let candidate = string_of_int n in
+            match display_id_collision ~tasks ~id:candidate with
+            | Some _ -> next_available (n + 1)
+            | None -> candidate
+          in
           match Sqlite3.column stmt 0 with
-          | Sqlite3.Data.INT n -> string_of_int (Int64.to_int n + 1)
-          | _ -> "1")
+          | Sqlite3.Data.INT n -> next_available (Int64.to_int n + 1)
+          | _ -> next_available 1)
       | _ -> "1")
 
 let id_exists ~db ~session_key ~id =
@@ -445,42 +544,47 @@ let status_emoji = function
   | Task_error -> "\xe2\x9d\x8c"
   | Cancelled -> "\xe2\x9e\x96"
 
+let render_task_tree tasks =
+  let buf = Buffer.create 512 in
+  let rec render_children ~parent_id ~prefix =
+    let children =
+      List.filter (fun t -> t.parent_id = parent_id) tasks
+      |> List.sort (fun a b -> compare a.sort_order b.sort_order)
+    in
+    let total = List.length children in
+    List.iteri
+      (fun i t ->
+        let is_last = i = total - 1 in
+        let connector = if is_last then "└── " else "├── " in
+        let child_prefix =
+          if is_last then prefix ^ "    " else prefix ^ "│   "
+        in
+        let note_str =
+          match t.note with Some n -> " (" ^ n ^ ")" | None -> ""
+        in
+        let deleted_str = if t.deleted_at <> None then " [deleted]" else "" in
+        let text =
+          Printf.sprintf "%s %s %s%s%s" (status_icon t.status) (display_id t.id)
+            t.title note_str deleted_str
+        in
+        add_wrapped_line buf ~initial_prefix:(prefix ^ connector)
+          ~continuation_prefix:child_prefix text;
+        render_children ~parent_id:(Some t.id) ~prefix:child_prefix)
+      children
+  in
+  render_children ~parent_id:None ~prefix:"";
+  let result = Buffer.contents buf in
+  if String.length result > 0 && result.[String.length result - 1] = '\n' then
+    String.sub result 0 (String.length result - 1)
+  else result
+
 let render_tree ~db ~session_key =
   let tasks = load_tasks ~db ~session_key () in
   if tasks = [] then
     "No tasks tracked. Use the task_tree tool to plan and track your work.\n\
      Breaking complex goals into subtasks helps maintain focus across long \
      sessions."
-  else
-    let buf = Buffer.create 512 in
-    let rec render_children ~parent_id ~prefix =
-      let children =
-        List.filter (fun t -> t.parent_id = parent_id) tasks
-        |> List.sort (fun a b -> compare a.sort_order b.sort_order)
-      in
-      let n = ref 0 in
-      List.iter
-        (fun t ->
-          incr n;
-          let number =
-            match prefix with
-            | "" -> string_of_int !n
-            | p -> p ^ "." ^ string_of_int !n
-          in
-          let note_str =
-            match t.note with Some n -> " (" ^ n ^ ")" | None -> ""
-          in
-          Buffer.add_string buf
-            (Printf.sprintf "%s. %s %s%s\n" number (status_icon t.status)
-               t.title note_str);
-          render_children ~parent_id:(Some t.id) ~prefix:number)
-        children
-    in
-    render_children ~parent_id:None ~prefix:"";
-    let result = Buffer.contents buf in
-    if String.length result > 0 && result.[String.length result - 1] = '\n' then
-      String.sub result 0 (String.length result - 1)
-    else result
+  else render_task_tree tasks
 
 let render_tree_with_legend ~db ~session_key =
   let tree = render_tree ~db ~session_key in
@@ -488,12 +592,15 @@ let render_tree_with_legend ~db ~session_key =
   else
     let ip_count = count_in_progress ~db ~session_key in
     let warning =
-      if ip_count >= warn_concurrent_in_progress then
-        Printf.sprintf
-          "\n\n\
-           \xe2\x9a\xa0\xef\xb8\x8f WARNING: %d tasks are in_progress. \
-           Consider completing or updating some before starting more work."
-          ip_count
+      if ip_count >= warn_concurrent_in_progress then (
+        let buf = Buffer.create 128 in
+        Buffer.add_string buf "\n\n";
+        add_wrapped_line buf ~initial_prefix:"" ~continuation_prefix:""
+          (Printf.sprintf
+             "\xe2\x9a\xa0\xef\xb8\x8f WARNING: %d tasks are in_progress. \
+              Consider completing or updating some before starting more work."
+             ip_count);
+        Buffer.contents buf)
       else ""
     in
     tree
@@ -502,6 +609,7 @@ let render_tree_with_legend ~db ~session_key =
     ^ warning
 
 let render_emoji_tree ?(max_title_chars = 50) ~db ~session_key () =
+  ignore max_title_chars;
   let tasks = load_tasks ~db ~session_key () in
   if tasks = [] then
     "No tasks tracked. Use the task_tree tool to plan and track your work.\n\
@@ -525,12 +633,12 @@ let render_emoji_tree ?(max_title_chars = 50) ~db ~session_key () =
           let child_prefix =
             if is_last then prefix ^ "    " else prefix ^ "\xe2\x94\x82   "
           in
-          let title =
-            Stream_visibility.truncate_text ~max_chars:max_title_chars t.title
+          let text =
+            Printf.sprintf "%s %s %s" (status_emoji t.status) (display_id t.id)
+              t.title
           in
-          Buffer.add_string buf
-            (Printf.sprintf "%s%s%s %s\n" prefix connector
-               (status_emoji t.status) title);
+          add_wrapped_line buf ~initial_prefix:(prefix ^ connector)
+            ~continuation_prefix:child_prefix text;
           render_children ~parent_id:(Some t.id) ~prefix:child_prefix)
         children
     in
@@ -567,13 +675,16 @@ let render_emoji_tree ?(max_title_chars = 50) ~db ~session_key () =
       (Printf.sprintf "\n%d tasks \xc2\xb7 %s" total
          (String.concat " \xc2\xb7 " counts));
     let ip_count = !n_active in
-    if ip_count >= warn_concurrent_in_progress then
-      Buffer.add_string buf
-        (Printf.sprintf
-           "\n\n\
-            \xe2\x9a\xa0\xef\xb8\x8f WARNING: %d tasks are in_progress. \
-            Consider completing or updating some before starting more work."
-           ip_count);
+    if ip_count >= warn_concurrent_in_progress then begin
+      let warning =
+        Printf.sprintf
+          "\xe2\x9a\xa0\xef\xb8\x8f WARNING: %d tasks are in_progress. \
+           Consider completing or updating some before starting more work."
+          ip_count
+      in
+      Buffer.add_string buf "\n\n";
+      add_wrapped_line buf ~initial_prefix:"" ~continuation_prefix:"" warning
+    end;
     Buffer.contents buf
 
 let render_compact ~db ~session_key =
@@ -628,7 +739,8 @@ let render_compact ~db ~session_key =
             match t.note with Some n -> " (" ^ n ^ ")" | None -> ""
           in
           Buffer.add_string buf
-            (Printf.sprintf "\n  [>] #%s — %s%s" t.id t.title note_str))
+            (Printf.sprintf "\n  [>] %s — %s%s" (display_id t.id) t.title
+               note_str))
         active_tasks
     end;
     (* Blocked section *)
@@ -644,7 +756,8 @@ let render_compact ~db ~session_key =
             match t.note with Some n -> " (" ^ n ^ ")" | None -> ""
           in
           Buffer.add_string buf
-            (Printf.sprintf "\n  [!] #%s — %s%s" t.id t.title note_str))
+            (Printf.sprintf "\n  [!] %s — %s%s" (display_id t.id) t.title
+               note_str))
         error_tasks
     end;
     (* Next: root-actionable pending tasks (no pending ancestor) *)
@@ -668,7 +781,8 @@ let render_compact ~db ~session_key =
       Buffer.add_string buf "\nNext:";
       List.iter
         (fun t ->
-          Buffer.add_string buf (Printf.sprintf "\n  [ ] #%s — %s" t.id t.title))
+          Buffer.add_string buf
+            (Printf.sprintf "\n  [ ] %s — %s" (display_id t.id) t.title))
         show;
       if overflow > 0 then
         Buffer.add_string buf (Printf.sprintf "\n  (+%d more)" overflow)
@@ -741,8 +855,8 @@ let render_focus ~db ~session_key =
               ^ String.concat " > " (List.map (fun a -> a.title) path_ancs)
           in
           Buffer.add_string buf
-            (Printf.sprintf "\n  [>] #%s — %s%s%s" t.id t.title note_str
-               path_str))
+            (Printf.sprintf "\n  [>] %s — %s%s%s" (display_id t.id) t.title
+               note_str path_str))
         active_tasks
     end;
     (* --- blocked --- *)
@@ -756,7 +870,8 @@ let render_focus ~db ~session_key =
         (fun t ->
           let note_str = match t.note with Some n -> " — " ^ n | None -> "" in
           Buffer.add_string buf
-            (Printf.sprintf "\n  [!] #%s — %s%s" t.id t.title note_str))
+            (Printf.sprintf "\n  [!] %s — %s%s" (display_id t.id) t.title
+               note_str))
         error_tasks
     end;
     (* --- next: children of active first, then actionable pending --- *)
@@ -792,7 +907,8 @@ let render_focus ~db ~session_key =
       Buffer.add_string buf "\nNext:";
       List.iter
         (fun t ->
-          Buffer.add_string buf (Printf.sprintf "\n  [ ] #%s — %s" t.id t.title))
+          Buffer.add_string buf
+            (Printf.sprintf "\n  [ ] %s — %s" (display_id t.id) t.title))
         show;
       if overflow > 0 then
         Buffer.add_string buf (Printf.sprintf "\n  (+%d more)" overflow)
@@ -806,116 +922,92 @@ let render_focus ~db ~session_key =
 
 let format_notification ~connector ~db ~session_key (ops : Yojson.Safe.t list) =
   let open Yojson.Safe.Util in
-  let lines = Buffer.create 128 in
-  let meaningful = ref false in
-  List.iter
-    (fun op_json ->
-      let op = try op_json |> member "op" |> to_string with _ -> "" in
-      match op with
-      | "add" ->
-          meaningful := true;
-          let title =
-            try op_json |> member "title" |> to_string with _ -> "?"
-          in
-          let status =
-            try op_json |> member "status" |> to_string with _ -> "pending"
-          in
-          Buffer.add_string lines
-            (Printf.sprintf "+ %s [%s]\n"
-               (Format_adapter.bold connector title)
-               status)
-      | "update" ->
-          meaningful := true;
-          let id = try op_json |> member "id" |> to_string with _ -> "?" in
-          let status =
-            try Some (op_json |> member "status" |> to_string) with _ -> None
-          in
-          let note =
-            try Some (op_json |> member "note" |> to_string) with _ -> None
-          in
-          (* TODO: show recursive count in notification when recursive=true *)
-          let detail =
-            match (status, note) with
-            | Some s, Some n ->
-                Printf.sprintf " -> %s (%s)" (Format_adapter.code connector s) n
-            | Some s, None ->
-                Printf.sprintf " -> %s" (Format_adapter.code connector s)
-            | None, Some n -> Printf.sprintf " note: %s" n
-            | None, None -> ""
-          in
-          Buffer.add_string lines
-            (Printf.sprintf "~ %s%s\n"
-               (Format_adapter.code connector ("#" ^ id))
-               detail)
-      | "remove" ->
-          meaningful := true;
-          let id = try op_json |> member "id" |> to_string with _ -> "?" in
-          Buffer.add_string lines
-            (Printf.sprintf "- Soft-deleted %s\n"
-               (Format_adapter.code connector ("#" ^ id)))
-      | "clear" ->
-          meaningful := true;
-          Buffer.add_string lines "Soft-deleted completed tasks\n"
-      | "archive" -> (
-          meaningful := true;
-          let id =
-            try Some (op_json |> member "id" |> to_string) with _ -> None
-          in
-          match id with
-          | Some id ->
-              Buffer.add_string lines
-                (Printf.sprintf "Archived %s\n"
-                   (Format_adapter.code connector ("#" ^ id)))
-          | None -> Buffer.add_string lines "Archived completed trees\n")
-      | "restore" ->
-          meaningful := true;
-          let id = try op_json |> member "id" |> to_string with _ -> "?" in
-          Buffer.add_string lines
-            (Printf.sprintf "Restored %s\n"
-               (Format_adapter.code connector ("#" ^ id)))
-      | "reorder" | _ -> ())
-    ops;
-  if not !meaningful then None
+  let meaningful_ops =
+    List.filter
+      (fun op_json ->
+        match try op_json |> member "op" |> to_string with _ -> "" with
+        | "add" | "update" | "remove" | "clear" | "archive" | "restore" -> true
+        | _ -> false)
+      ops
+  in
+  if meaningful_ops = [] then None
   else begin
+    let count_op name =
+      List.fold_left
+        (fun acc op_json ->
+          let op = try op_json |> member "op" |> to_string with _ -> "" in
+          if op = name then acc + 1 else acc)
+        0 meaningful_ops
+    in
+    let plural n singular plural =
+      if n = 1 then Printf.sprintf "%d %s" n singular
+      else Printf.sprintf "%d %s" n plural
+    in
     let tasks = load_tasks ~db ~session_key () in
+    let display_input_id id =
+      let ids =
+        String.split_on_char ',' id
+        |> List.map String.trim
+        |> List.filter (fun s -> s <> "")
+      in
+      let ids = if ids = [] then [ id ] else ids in
+      ids
+      |> List.map (fun id -> resolve_existing_id ~tasks ~id |> display_id)
+      |> String.concat ", "
+    in
+    let update_details =
+      List.filter_map
+        (fun op_json ->
+          let op = try op_json |> member "op" |> to_string with _ -> "" in
+          if op <> "update" then None
+          else
+            let id = try op_json |> member "id" |> to_string with _ -> "?" in
+            let status =
+              try Some (op_json |> member "status" |> to_string)
+              with _ -> None
+            in
+            let id = Format_adapter.code connector (display_input_id id) in
+            Some
+              (match status with
+              | Some s ->
+                  Printf.sprintf "Updated %s -> %s" id
+                    (Format_adapter.code connector s)
+              | None -> Printf.sprintf "Updated %s" id))
+        meaningful_ops
+    in
+    let lines = Buffer.create 128 in
+    let add_count = count_op "add" in
+    if add_count > 0 then
+      Buffer.add_string lines
+        (Printf.sprintf "Added %s\n" (plural add_count "task" "tasks"));
+    List.iter
+      (fun line ->
+        Buffer.add_string lines line;
+        Buffer.add_char lines '\n')
+      update_details;
+    let remove_count = count_op "remove" in
+    if remove_count > 0 then
+      Buffer.add_string lines
+        (Printf.sprintf "Soft-deleted %s\n"
+           (plural remove_count "task" "tasks"));
+    if count_op "clear" > 0 then
+      Buffer.add_string lines "Soft-deleted completed tasks\n";
+    let archive_count = count_op "archive" in
+    if archive_count > 0 then
+      Buffer.add_string lines
+        (Printf.sprintf "Archived %s\n" (plural archive_count "tree" "trees"));
+    let restore_count = count_op "restore" in
+    if restore_count > 0 then
+      Buffer.add_string lines
+        (Printf.sprintf "Restored %s\n" (plural restore_count "task" "tasks"));
     let in_progress =
       List.filter (fun t -> t.status = In_progress) tasks
       |> List.sort (fun a b -> compare a.sort_order b.sort_order)
     in
-    (* Focus lines: each active task with ancestor path *)
-    List.iter
-      (fun t ->
-        let ancs = get_ancestors ~tasks ~id:t.id in
-        let path_ancs =
-          match List.rev ancs with _ :: rest -> List.rev rest | [] -> []
-        in
-        let path_str =
-          if path_ancs = [] then ""
-          else
-            "\n  " ^ String.concat " > " (List.map (fun a -> a.title) path_ancs)
-        in
-        let note_str =
-          match t.note with Some n -> Printf.sprintf " (%s)" n | None -> ""
-        in
-        Buffer.add_string lines
-          (Printf.sprintf "Focus: %s %s%s%s\n"
-             (Format_adapter.code connector ("#" ^ t.id))
-             t.title note_str path_str))
-      in_progress;
-    (* Blocked lines *)
     let error_tasks =
       List.filter (fun t -> t.status = Task_error) tasks
       |> List.sort (fun a b -> compare a.sort_order b.sort_order)
     in
-    List.iter
-      (fun t ->
-        let note_str = match t.note with Some n -> " — " ^ n | None -> "" in
-        Buffer.add_string lines
-          (Printf.sprintf "Blocked: %s %s%s\n"
-             (Format_adapter.code connector ("#" ^ t.id))
-             t.title note_str))
-      error_tasks;
-    (* One next actionable task *)
     let pending_tasks =
       List.filter (fun t -> t.status = Pending) tasks
       |> List.sort (fun a b -> compare a.sort_order b.sort_order)
@@ -945,16 +1037,22 @@ let format_notification ~connector ~db ~session_key (ops : Yojson.Safe.t list) =
       | [], h :: _ -> Some h
       | [], [] -> None
     in
-    (match next_task with
-    | Some t ->
-        Buffer.add_string lines
-          (Printf.sprintf "Next: %s %s\n"
-             (Format_adapter.code connector ("#" ^ t.id))
-             t.title)
-    | None -> ());
-    let content = Buffer.contents lines in
-    let header = Format_adapter.bold connector "Task tree updated" ^ "\n" in
-    Some (header ^ content)
+    let add_hint label t =
+      Buffer.add_string lines
+        (Printf.sprintf "%s: %s %s\n" label
+           (Format_adapter.code connector (display_id t.id))
+           t.title)
+    in
+    (match (in_progress, error_tasks, next_task) with
+    | t :: _, _, _ -> add_hint "Focus" t
+    | [], t :: _, _ -> add_hint "Blocked" t
+    | [], [], Some t -> add_hint "Next" t
+    | [], [], None -> ());
+    let content = String.trim (Buffer.contents lines) in
+    if content = "" then None
+    else
+      let header = Format_adapter.bold connector "Task tree updated" ^ "\n" in
+      Some (header ^ content)
   end
 
 (* Validate and execute add operation *)
@@ -965,58 +1063,85 @@ let do_add ~db ~session_key ~id ~parent_id ~title ~status ~note =
          max_title_length)
   else if String.length title = 0 then
     Error "Title is required for add. Provide a 'title' field."
-  else begin
-    let actual_id =
-      match id with Some i -> i | None -> next_auto_id ~db ~session_key
-    in
-    if id_exists ~db ~session_key ~id:actual_id then
-      Error
-        (Printf.sprintf
-           "Task ID '%s' already exists. Choose a different 'id' or omit it \
-            for auto-assignment."
-           actual_id)
-    else
-      let tasks = load_tasks ~db ~session_key () in
-      let parent_depth =
-        match parent_id with
-        | None -> 0
-        | Some pid -> task_depth ~tasks ~id:pid + 1
-      in
-      if parent_depth >= max_depth then
+  else
+    match id with
+    | Some custom_id when is_hash_prefixed_id custom_id ->
         Error
           (Printf.sprintf
-             "Max nesting depth exceeded (max %d levels). Flatten the \
-              hierarchy or archive completed subtrees first."
-             max_depth)
-      else
-        let parent_valid =
-          match parent_id with
-          | Some pid -> id_exists ~db ~session_key ~id:pid
-          | None -> true
+             "Task ID '%s' is invalid: explicit add IDs must not start with \
+              '#'. To fix: omit 'id' for auto-assignment, or use a non-# \
+              custom ID. Use display references such as T1, or legacy #1 \
+              references, only when referring to existing tasks."
+             custom_id)
+    | _ -> (
+        let actual_id =
+          match id with Some i -> i | None -> next_auto_id ~db ~session_key
         in
-        if not parent_valid then
+        if id_exists ~db ~session_key ~id:actual_id then
           Error
             (Printf.sprintf
-               "Parent task '%s' not found. Use 'depth' for batch tree \
-                building (depth 0 = root), or set 'parent' to an existing task \
-                ID. Omit both for a root task."
-               (Option.get parent_id))
-        else begin
-          let actual_status =
-            match status with Some s -> s | None -> Pending
+               "Task ID '%s' already exists. Choose a different 'id' or omit \
+                it for auto-assignment."
+               actual_id)
+        else
+          let all_tasks =
+            load_tasks ~include_deleted:true ~db ~session_key ()
           in
-          match
-            insert_task ~db ~session_key ~id:actual_id ~parent_id ~title
-              ~status:actual_status ~note
-          with
-          | Ok () -> Ok actual_id
-          | Error e -> Error e
-        end
-  end
+          match display_id_collision ~tasks:all_tasks ~id:actual_id with
+          | Some existing ->
+              Error
+                (Printf.sprintf
+                   "Task ID '%s' collides with existing task ID '%s': both \
+                    display as display ID '%s'. Choose a different 'id' or \
+                    omit it for auto-assignment."
+                   actual_id existing.id (display_id actual_id))
+          | None ->
+              let tasks = load_tasks ~db ~session_key () in
+              let parent_id =
+                Option.map
+                  (fun pid -> resolve_existing_id ~tasks ~id:pid)
+                  parent_id
+              in
+              let parent_depth =
+                match parent_id with
+                | None -> 0
+                | Some pid -> task_depth ~tasks ~id:pid + 1
+              in
+              if parent_depth >= max_depth then
+                Error
+                  (Printf.sprintf
+                     "Max nesting depth exceeded (max %d levels). Flatten the \
+                      hierarchy or archive completed subtrees first."
+                     max_depth)
+              else
+                let parent_valid =
+                  match parent_id with
+                  | Some pid -> id_exists ~db ~session_key ~id:pid
+                  | None -> true
+                in
+                if not parent_valid then
+                  Error
+                    (Printf.sprintf
+                       "Parent task '%s' not found. Use 'depth' for batch tree \
+                        building (depth 0 = root), or set 'parent' to an \
+                        existing task ID. Omit both for a root task."
+                       (Option.get parent_id))
+                else begin
+                  let actual_status =
+                    match status with Some s -> s | None -> Pending
+                  in
+                  match
+                    insert_task ~db ~session_key ~id:actual_id ~parent_id ~title
+                      ~status:actual_status ~note
+                  with
+                  | Ok () -> Ok actual_id
+                  | Error e -> Error e
+                end)
 
 (* Validate and execute update operation *)
 let do_update ~db ~session_key ~id ~status ~note =
   let tasks = load_tasks ~db ~session_key () in
+  let id = resolve_existing_id ~tasks ~id in
   match List.find_opt (fun t -> t.id = id) tasks with
   | None -> Error (not_found_error ~tasks ~id)
   | Some task -> (
@@ -1035,15 +1160,13 @@ let do_update ~db ~session_key ~id ~status ~note =
                   in
                   if incomplete <> [] then begin
                     let child_ids =
-                      String.concat ", "
-                        (List.map (fun c -> "#" ^ c.id) incomplete)
+                      display_ids (List.map (fun c -> c.id) incomplete)
                     in
                     result :=
                       Error
                         (Printf.sprintf
-                           "Cannot mark #%s done — children still incomplete: \
-                            %s"
-                           id child_ids)
+                           "Cannot mark %s done — children still incomplete: %s"
+                           (display_id id) child_ids)
                   end
               | In_progress -> ()
               | _ -> ());
@@ -1079,6 +1202,7 @@ let do_update ~db ~session_key ~id ~status ~note =
 (* Validate and execute remove operation — soft-deletes instead of hard-deletes *)
 let do_remove ~db ~session_key ~id ?(recursive = false) () =
   let tasks = load_tasks ~db ~session_key () in
+  let id = resolve_existing_id ~tasks ~id in
   match List.find_opt (fun t -> t.id = id) tasks with
   | None -> Error (not_found_error ~tasks ~id)
   | Some _ ->
@@ -1095,9 +1219,9 @@ let do_remove ~db ~session_key ~id ?(recursive = false) () =
         if has_in_progress then
           Error
             (Printf.sprintf
-               "Cannot remove #%s — subtree contains in_progress tasks. Use \
+               "Cannot remove %s — subtree contains in_progress tasks. Use \
                 recursive=true to force-remove the entire subtree."
-               id)
+               (display_id id))
         else begin
           let ids_reversed = List.rev subtree_ids in
           List.iter
@@ -1151,7 +1275,8 @@ let do_archive ~db ~session_key ~id =
     if not all_terminal then
       Error
         (Printf.sprintf
-           "Cannot archive #%s — subtree contains non-terminal tasks" root_id)
+           "Cannot archive %s — subtree contains non-terminal tasks"
+           (display_id root_id))
     else begin
       let group = next_archive_group () in
       List.iter
@@ -1209,6 +1334,7 @@ let do_archive ~db ~session_key ~id =
   in
   match id with
   | Some root_id -> (
+      let root_id = resolve_existing_id ~tasks ~id:root_id in
       match List.find_opt (fun t -> t.id = root_id) tasks with
       | None -> Error (not_found_error ~tasks ~id:root_id)
       | Some _ -> archive_subtree root_id)
@@ -1243,6 +1369,7 @@ let do_archive ~db ~session_key ~id =
 (* Restore a soft-deleted task and its soft-deleted descendants *)
 let do_restore ~db ~session_key ~id =
   let all_tasks = load_tasks ~include_deleted:true ~db ~session_key () in
+  let id = resolve_existing_id ~tasks:all_tasks ~id in
   match List.find_opt (fun t -> t.id = id) all_tasks with
   | None ->
       Error
