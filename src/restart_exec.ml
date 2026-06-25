@@ -5,16 +5,16 @@ let executable () =
   | Some path when String.trim path <> "" -> String.trim path
   | _ -> Sys.executable_name
 
+let deleted_suffix = " (deleted)"
+
 let path_mentions_deleted path =
   try
     let target = Unix.readlink path in
     let lower = String.lowercase_ascii target in
-    String.contains lower '(' && String.contains lower ')'
-    && String.contains lower 'd' && String.contains lower 'e'
-    && String.contains lower 'l'
+    let suffix = String.lowercase_ascii deleted_suffix in
+    let tlen = String.length lower and slen = String.length suffix in
+    tlen >= slen && String.sub lower (tlen - slen) slen = suffix
   with _ -> false
-
-let deleted_suffix = " (deleted)"
 
 let path_is_deleted path =
   let lower = String.lowercase_ascii path in

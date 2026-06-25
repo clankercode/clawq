@@ -253,7 +253,10 @@ let complete ~(config : Runtime_config.t)
   let headers = [] in
   Logs.info (fun m ->
       m "Gemini request model=%s msgs=%d" model (List.length messages));
-  let* status, response_body = Http_client.post_json ~uri ~headers ~body in
+  let timeout_s = Option.value ~default:180.0 provider.http_timeout_s in
+  let* status, response_body =
+    Http_client.post_json_with_timeout ~timeout_s ~uri ~headers ~body
+  in
   if status < 200 || status >= 300 then
     Lwt.fail_with
       (Printf.sprintf "Gemini API error (HTTP %d): %s" status response_body)
@@ -278,7 +281,8 @@ let complete_streaming ~(config : Runtime_config.t)
   let headers = [] in
   Logs.info (fun m ->
       m "Gemini stream request model=%s msgs=%d" model (List.length messages));
-  Http_client.post_stream_with ~uri ~headers ~body ~label:"Gemini API error"
+  Http_client.post_stream_with ?stream_idle_timeout_s:provider.http_timeout_s
+    ~uri ~headers ~body ~label:"Gemini API error"
     ~on_ok:(fun stream ->
       let buf = Buffer.create 256 in
       let content_acc = Buffer.create 1024 in

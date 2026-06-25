@@ -135,6 +135,7 @@ let complete ~(config : Runtime_config.t)
     ~(provider : Runtime_config.provider_config) ~model ~messages ?tools
     ?session_key:_ () =
   let open Lwt.Syntax in
+  let max_tokens = Option.value ~default:8192 provider.max_output_tokens in
   let base_url =
     match provider.base_url with
     | Some url -> url
@@ -151,7 +152,7 @@ let complete ~(config : Runtime_config.t)
   let body_fields =
     [
       ("model", `String model);
-      ("max_tokens", `Int 8192);
+      ("max_tokens", `Int max_tokens);
       ("messages", `List anthropic_messages);
       ("temperature", `Float (max 1e-8 config.default_temperature));
     ]
@@ -187,7 +188,10 @@ let complete ~(config : Runtime_config.t)
   Logs.info (fun m ->
       m "Anthropic request to %s model=%s msgs=%d" uri model
         (List.length messages));
-  let* status, response_body = Http_client.post_json ~uri ~headers ~body in
+  let timeout_s = Option.value ~default:180.0 provider.http_timeout_s in
+  let* status, response_body =
+    Http_client.post_json_with_timeout ~timeout_s ~uri ~headers ~body
+  in
   if status < 200 || status >= 300 then
     Lwt.fail_with
       (Printf.sprintf "Anthropic API error (HTTP %d): %s" status response_body)
@@ -200,6 +204,7 @@ let complete_streaming ~(config : Runtime_config.t)
     ~(provider : Runtime_config.provider_config) ~model ~messages ?tools
     ?session_key:_ ~on_chunk () =
   let open Lwt.Syntax in
+  let max_tokens = Option.value ~default:8192 provider.max_output_tokens in
   let base_url =
     match provider.base_url with
     | Some url -> url
@@ -214,7 +219,7 @@ let complete_streaming ~(config : Runtime_config.t)
   let body_fields =
     [
       ("model", `String model);
-      ("max_tokens", `Int 8192);
+      ("max_tokens", `Int max_tokens);
       ("messages", `List anthropic_messages);
       ("temperature", `Float (max 1e-8 config.default_temperature));
       ("stream", `Bool true);

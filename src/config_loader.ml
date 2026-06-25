@@ -132,6 +132,15 @@ let parse_config ?(resolve_secrets = true) json =
               | _ -> None
             with _ -> None
           in
+          let max_output_tokens =
+            try
+              match v |> member "max_output_tokens" with
+              | `Null -> None
+              | `Int i -> Some i
+              | `Float f -> Some (int_of_float f)
+              | _ -> None
+            with _ -> None
+          in
           ( name,
             ({
                api_key;
@@ -149,6 +158,7 @@ let parse_config ?(resolve_secrets = true) json =
                quota_check_enabled;
                prompt_cache_retention;
                http_timeout_s;
+               max_output_tokens;
              }
               : Runtime_config.provider_config) ))
     with _ -> []

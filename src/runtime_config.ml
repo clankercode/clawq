@@ -27,6 +27,9 @@ type provider_config = {
          Http_client.default_timeout_s. Set to a generous value (e.g. 180s
          or 300s) for providers that take a long time on large contexts
          (e.g. zai_coding/glm-5.1, deepseek-reasoner). *)
+  max_output_tokens : int option;
+      (* Per-provider max output tokens override. When None, providers fall
+         back to their built-in default (typically 8192). *)
 }
 
 let default_provider_config : provider_config =
@@ -46,6 +49,7 @@ let default_provider_config : provider_config =
     quota_check_enabled = true;
     prompt_cache_retention = Some "24h";
     http_timeout_s = None;
+    max_output_tokens = None;
   }
 
 type agent_defaults = {

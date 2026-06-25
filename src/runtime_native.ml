@@ -8,20 +8,20 @@ let pid_path () = Service.pid_path ()
 let start ~(config : Runtime_config.t) =
   let result = Service.cmd_start ~config in
   if
-    (String.length result >= 7 && String.sub result 0 7 = "Started")
-    || (String.length result >= 7 && String.sub result 0 7 = "Daemon ")
+    String.starts_with ~prefix:"Started" result
+    || String.starts_with ~prefix:"Daemon " result
   then Ok ()
-  else if String.length result >= 7 && String.sub result 0 7 = "Already" then
+  else if String.starts_with ~prefix:"Already" result then
     Error "Daemon is already running"
   else Error result
 
 let stop () =
   let result = Service.cmd_stop () in
   if
-    (String.length result >= 7 && String.sub result 0 7 = "Stopped")
-    || (String.length result >= 4 && String.sub result 0 4 = "Stop")
+    String.starts_with ~prefix:"Stopped" result
+    || String.starts_with ~prefix:"Stop" result
   then Ok ()
-  else if String.length result >= 3 && String.sub result 0 3 = "No " then
+  else if String.starts_with ~prefix:"No " result then
     Error "Daemon is not running"
   else Error result
 

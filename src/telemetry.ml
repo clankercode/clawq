@@ -54,11 +54,12 @@ let new_span_id () = random_hex 8
 let now_ns () = Int64.of_float (Unix.gettimeofday () *. 1e9)
 
 let start_span t ?parent_id:_ ~name:_ ~kind:_ ~attributes:_ () =
-  if not t.enabled then ("", 0L)
+  if not t.enabled then ("", "", 0L)
   else
+    let trace_id = new_trace_id () in
     let span_id = new_span_id () in
     let start_ns = now_ns () in
-    (span_id, start_ns)
+    (trace_id, span_id, start_ns)
 
 let span_kind_to_int = function
   | Internal -> 1
@@ -67,14 +68,14 @@ let span_kind_to_int = function
   | Producer -> 4
   | Consumer -> 5
 
-let finish_span t ~span_id ~start_ns ~name ~kind ?parent_id ~attributes
-    ~status_ok () =
+let finish_span t ~trace_id ~span_id ~start_ns ~name ~kind ?parent_id
+    ~attributes ~status_ok () =
   if not t.enabled then ()
   else if span_id = "" then ()
   else
     let span =
       {
-        trace_id = new_trace_id ();
+        trace_id;
         span_id;
         parent_span_id = parent_id;
         name;

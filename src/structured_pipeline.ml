@@ -99,19 +99,7 @@ let rec yaml_value_to_yojson (v : Yaml.value) : Yojson.Safe.t =
   | `Float f ->
       if Float.is_integer f && Float.is_finite f then `Int (int_of_float f)
       else `Float f
-  | `String s -> (
-      (* Try to parse numeric strings that YAML may leave as strings *)
-      match int_of_string_opt s with
-      | Some i -> `Int i
-      | None -> (
-          match float_of_string_opt s with
-          | Some f when String.contains s '.' -> `Float f
-          | _ -> (
-              (* Check booleans that yaml might parse as strings *)
-              match String.lowercase_ascii s with
-              | "true" -> `Bool true
-              | "false" -> `Bool false
-              | _ -> `String s)))
+  | `String s -> `String s
   | `A items -> `List (List.map yaml_value_to_yojson items)
   | `O pairs ->
       `Assoc (List.map (fun (k, v) -> (k, yaml_value_to_yojson v)) pairs)

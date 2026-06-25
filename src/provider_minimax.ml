@@ -192,6 +192,7 @@ let complete ~(config : Runtime_config.t)
     ~(provider : Runtime_config.provider_config) ~model ~messages ?tools
     ?session_key:_ () =
   let open Lwt.Syntax in
+  let max_tokens = Option.value ~default:8192 provider.max_output_tokens in
   let base_url =
     match provider.base_url with Some url -> url | None -> minimax_base
   in
@@ -206,7 +207,7 @@ let complete ~(config : Runtime_config.t)
   let body_fields =
     [
       ("model", `String api_model);
-      ("max_tokens", `Int 8192);
+      ("max_tokens", `Int max_tokens);
       ("messages", `List anthropic_messages);
       ("temperature", `Float (max 1e-8 config.default_temperature));
     ]
@@ -469,6 +470,7 @@ let complete_streaming ~(config : Runtime_config.t)
     ~(provider : Runtime_config.provider_config) ~model ~messages ?tools
     ?session_key:_ ~on_chunk () =
   let open Lwt.Syntax in
+  let max_tokens = Option.value ~default:8192 provider.max_output_tokens in
   let base_url =
     match provider.base_url with Some url -> url | None -> minimax_base
   in
@@ -481,7 +483,7 @@ let complete_streaming ~(config : Runtime_config.t)
   let body_fields =
     [
       ("model", `String api_model);
-      ("max_tokens", `Int 8192);
+      ("max_tokens", `Int max_tokens);
       ("messages", `List anthropic_messages);
       ("temperature", `Float (max 1e-8 config.default_temperature));
       ("stream", `Bool true);

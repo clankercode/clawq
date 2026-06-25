@@ -270,8 +270,8 @@ let file_read ~workspace ~workspace_only ~extra_allowed_paths =
                                    path path listing)
                             else
                               let* content =
-                                Lwt_io.with_file ~mode:Lwt_io.Input path
-                                  Lwt_io.read
+                                Lwt_io.with_file ~mode:Lwt_io.Input
+                                  canonical_path Lwt_io.read
                               in
                               if has_offset || has_limit then
                                 Lwt.return

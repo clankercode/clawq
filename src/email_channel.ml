@@ -308,17 +308,7 @@ let poll_imap ~(cfg : Runtime_config.email_config) =
     in
     let* fetch_resp = imap_read_response ic tag4 in
     (* Parse the FETCH response - simplified: split on FETCH boundaries *)
-    (* Mark as seen *)
-    let tag5 = next_tag () in
-    let* () =
-      imap_write oc (tag5 ^ " STORE " ^ uid_list ^ " +FLAGS (\\Seen)")
-    in
-    let* _resp = imap_read_response ic tag5 in
-    (* LOGOUT *)
-    let tag_out = next_tag () in
-    let* () = imap_write oc (tag_out ^ " LOGOUT") in
-    let* _r = imap_read_response ic tag_out in
-    (* Parse messages from fetch_resp *)
+    (* Parse messages from fetch_resp BEFORE marking as seen *)
     let msgs =
       List.filter_map
         (fun uid ->
@@ -386,6 +376,24 @@ let poll_imap ~(cfg : Runtime_config.email_config) =
           with _ -> None)
         uids
     in
+    (* Only mark as seen the UIDs that were successfully parsed *)
+    let parsed_uids = List.map (fun (m : email_msg) -> m.uid) msgs in
+    let* () =
+      if parsed_uids <> [] then begin
+        let parsed_uid_list = String.concat "," parsed_uids in
+        let tag5 = next_tag () in
+        let* () =
+          imap_write oc (tag5 ^ " STORE " ^ parsed_uid_list ^ " +FLAGS (\\Seen)")
+        in
+        let* _resp = imap_read_response ic tag5 in
+        Lwt.return_unit
+      end
+      else Lwt.return_unit
+    in
+    (* LOGOUT *)
+    let tag_out = next_tag () in
+    let* () = imap_write oc (tag_out ^ " LOGOUT") in
+    let* _r = imap_read_response ic tag_out in
     Lwt.return msgs
   end
 
