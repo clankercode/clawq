@@ -41,8 +41,9 @@ let parse_config ?(resolve_secrets = true) json =
     | None -> ()
   in
   let encrypt_secrets =
-    try json |> member "security" |> member "encrypt_secrets" |> to_bool
-    with _ -> Runtime_config.default.security.encrypt_secrets
+    with_default "security.encrypt_secrets"
+      Runtime_config.default.security.encrypt_secrets (fun () ->
+        json |> member "security" |> member "encrypt_secrets" |> to_bool)
   in
   let resolve_secret s =
     if resolve_secrets then Secret_store.resolve_secret ~encrypt_secrets s
@@ -60,10 +61,16 @@ let parse_config ?(resolve_secrets = true) json =
             try Some (v |> member "base_url" |> to_string) with _ -> None
           in
           let kind =
-            try Some (v |> member "kind" |> to_string) with _ -> None
+            with_default
+              ("providers." ^ name ^ ".kind")
+              None
+              (fun () -> Some (v |> member "kind" |> to_string))
           in
           let default_model =
-            try Some (v |> member "default_model" |> to_string) with _ -> None
+            with_default
+              ("providers." ^ name ^ ".default_model")
+              None
+              (fun () -> Some (v |> member "default_model" |> to_string))
           in
           let project_id =
             try Some (v |> member "project_id" |> to_string) with _ -> None
@@ -415,7 +422,11 @@ let parse_config ?(resolve_secrets = true) json =
           Some
             ({ accounts; text_coalesce_ms; default_model }
               : Runtime_config.telegram_config)
-        with _ -> None
+        with exn ->
+          Logs.warn (fun m ->
+              m "Config: failed to parse 'channels.telegram': %s"
+                (Printexc.to_string exn));
+          None
       in
       let discord =
         try
@@ -439,7 +450,11 @@ let parse_config ?(resolve_secrets = true) json =
           Some
             ({ bot_token; allow_guilds; allow_users; intents; default_model }
               : Runtime_config.discord_config)
-        with _ -> None
+        with exn ->
+          Logs.warn (fun m ->
+              m "Config: failed to parse 'channels.discord': %s"
+                (Printexc.to_string exn));
+          None
       in
       let slack =
         try
@@ -486,7 +501,11 @@ let parse_config ?(resolve_secrets = true) json =
                default_model;
              }
               : Runtime_config.slack_config)
-        with _ -> None
+        with exn ->
+          Logs.warn (fun m ->
+              m "Config: failed to parse 'channels.slack': %s"
+                (Printexc.to_string exn));
+          None
       in
       let github =
         try
@@ -554,7 +573,11 @@ let parse_config ?(resolve_secrets = true) json =
             try Some (g |> member "default_model" |> to_string) with _ -> None
           in
           Some ({ auth; repos; default_model } : Runtime_config.github_config)
-        with _ -> None
+        with exn ->
+          Logs.warn (fun m ->
+              m "Config: failed to parse 'channels.github': %s"
+                (Printexc.to_string exn));
+          None
       in
       let mattermost =
         try
@@ -756,7 +779,11 @@ let parse_config ?(resolve_secrets = true) json =
                default_model;
              }
               : Runtime_config.irc_config)
-        with _ -> None
+        with exn ->
+          Logs.warn (fun m ->
+              m "Config: failed to parse 'channels.irc': %s"
+                (Printexc.to_string exn));
+          None
       in
       let email =
         try
@@ -1065,7 +1092,11 @@ let parse_config ?(resolve_secrets = true) json =
          teams;
        }
         : Runtime_config.channel_config)
-    with _ -> default.channels
+    with exn ->
+      Logs.warn (fun m ->
+          m "Config: failed to parse 'channels' section: %s (using default)"
+            (Printexc.to_string exn));
+      default.channels
   in
   let gateway =
     try
