@@ -323,14 +323,15 @@ let poll_imap ~(cfg : Runtime_config.email_config) =
                 let idx =
                   try
                     let start = ref (-1) in
+                    let marker_len = String.length marker in
+                    let resp_len = String.length fetch_resp in
                     String.iteri
                       (fun i _ ->
                         if
                           !start = -1
-                          && i + String.length marker
-                             <= String.length fetch_resp
-                          && String.sub fetch_resp i (String.length marker)
-                             = marker
+                          && i + marker_len <= resp_len
+                          && String.sub fetch_resp i marker_len = marker
+                          && (i = 0 || fetch_resp.[i - 1] = '\n')
                         then start := i)
                       fetch_resp;
                     !start
@@ -379,7 +380,7 @@ let poll_imap ~(cfg : Runtime_config.email_config) =
                       strip_html trimmed
                     with _ -> ""
                   in
-                  if is_seen message_id then None
+                  if is_seen message_id || message_id = "" then None
                   else
                     Some { uid; from_addr; from_raw; subject; message_id; body }
                 end

@@ -152,27 +152,28 @@ let update_rate_limit ~route ~headers =
 
 let discord_rest_call ~route ~f =
   let open Lwt.Syntax in
+  let max_retries = 3 in
+  let rec attempt n =
+    let* () = wait_for_rate_limit ~route in
+    let* status, headers, body = f () in
+    update_rate_limit ~route ~headers;
+    if status = 429 && n < max_retries then begin
+      let retry_after =
+        try
+          Cohttp.Header.get headers "retry-after"
+          |> Option.map float_of_string |> Option.value ~default:1.0
+        with _ -> 1.0
+      in
+      Logs.warn (fun m ->
+          m "Discord: rate limited on %s, retrying after %.1fs (attempt %d/%d)"
+            route retry_after (n + 1) max_retries);
+      let* () = Lwt_unix.sleep retry_after in
+      attempt (n + 1)
+    end
+    else Lwt.return (status, body)
+  in
   Lwt_util.with_lock_timeout ~label:"discord_rest" route_mutex (fun () ->
-      let* () = wait_for_rate_limit ~route in
-      let* status, headers, body = f () in
-      update_rate_limit ~route ~headers;
-      if status = 429 then begin
-        let retry_after =
-          try
-            Cohttp.Header.get headers "retry-after"
-            |> Option.map float_of_string |> Option.value ~default:1.0
-          with _ -> 1.0
-        in
-        Logs.warn (fun m ->
-            m "Discord: rate limited on %s, retrying after %.1fs" route
-              retry_after);
-        let* () = Lwt_unix.sleep retry_after in
-        let* () = wait_for_rate_limit ~route in
-        let* status2, headers2, body2 = f () in
-        update_rate_limit ~route ~headers:headers2;
-        Lwt.return (status2, body2)
-      end
-      else Lwt.return (status, body))
+      attempt 0)
 
 let send_message_with_id ?(suppress_notifications = false) ~bot_token
     ~channel_id ~text () =

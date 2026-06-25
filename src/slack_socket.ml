@@ -74,7 +74,6 @@ let run_connection ~(config : Runtime_config.slack_config)
           | "disconnect" ->
               Logs.info (fun m -> m "Slack Socket Mode: disconnect requested");
               Ws_client.close ws;
-              if Lwt.is_sleeping done_p then Lwt.wakeup_later done_u ();
               Lwt.return_unit
           | "events_api" ->
               let body = extract_event_body env.payload in

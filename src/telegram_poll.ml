@@ -2,22 +2,21 @@
 
 let dispatch_update ~bot_token ~(account : Runtime_config.telegram_account)
     ~(session_mgr : Session.t) ?run_update_command ?chat_limiter update =
-  Lwt.async (fun () ->
-      Lwt.catch
-        (fun () ->
-          Telegram.handle_update ~bot_token ~account ~session_mgr
-            ?run_update_command ?chat_limiter update)
-        (fun exn ->
-          Logs.err (fun m ->
-              m "Telegram: handle_update error for update_id=%d: %s"
-                update.update_id (Printexc.to_string exn));
-          Lwt.return_unit))
+  Lwt.catch
+    (fun () ->
+      Telegram.handle_update ~bot_token ~account ~session_mgr
+        ?run_update_command ?chat_limiter update)
+    (fun exn ->
+      Logs.err (fun m ->
+          m "Telegram: handle_update error for update_id=%d: %s"
+            update.update_id (Printexc.to_string exn));
+      Lwt.return_unit)
 
 let flush_pending_text_update ~key ~bot_token
     ~(account : Runtime_config.telegram_account) ~(session_mgr : Session.t)
     ?run_update_command ?chat_limiter () =
   match Hashtbl.find_opt Telegram.pending_text_updates key with
-  | None -> ()
+  | None -> Lwt.return_unit
   | Some pending ->
       Hashtbl.remove Telegram.pending_text_updates key;
       dispatch_update ~bot_token ~account ~session_mgr ?run_update_command
@@ -35,28 +34,24 @@ let schedule_pending_text_flush ~key ~bot_token
              && Unix.gettimeofday () -. pending.last_seen_at
                 >= !Telegram.text_coalesce_window_seconds ->
           Hashtbl.remove Telegram.pending_text_updates key;
-          Lwt.catch
-            (fun () ->
-              Telegram.handle_update ~bot_token ~account ~session_mgr
-                ?run_update_command ?chat_limiter pending.update)
-            (fun exn ->
-              Logs.err (fun m ->
-                  m "Telegram: handle_update error for update_id=%d: %s"
-                    pending.update.update_id (Printexc.to_string exn));
-              Lwt.return_unit)
+          dispatch_update ~bot_token ~account ~session_mgr ?run_update_command
+            ?chat_limiter pending.update
       | _ -> Lwt.return_unit)
 
 let buffer_or_dispatch_update ~bot_token
     ~(account : Runtime_config.telegram_account) ~(session_mgr : Session.t)
     ?run_update_command ?chat_limiter update =
+  let open Lwt.Syntax in
   let now = Unix.gettimeofday () in
   let key = Telegram.text_coalesce_key ~bot_token update in
   if
     (not (Telegram.is_text_coalescing_candidate update))
     || !Telegram.text_coalesce_window_seconds <= 0.0
   then begin
-    flush_pending_text_update ~key ~bot_token ~account ~session_mgr
-      ?run_update_command ?chat_limiter ();
+    let* () =
+      flush_pending_text_update ~key ~bot_token ~account ~session_mgr
+        ?run_update_command ?chat_limiter ()
+    in
     dispatch_update ~bot_token ~account ~session_mgr ?run_update_command
       ?chat_limiter update
   end
@@ -68,19 +63,24 @@ let buffer_or_dispatch_update ~bot_token
         pending.last_seen_at <- now;
         pending.generation <- pending.generation + 1;
         schedule_pending_text_flush ~key ~bot_token ~account ~session_mgr
-          ?run_update_command ?chat_limiter pending.generation
+          ?run_update_command ?chat_limiter pending.generation;
+        Lwt.return_unit
     | Some _ ->
-        flush_pending_text_update ~key ~bot_token ~account ~session_mgr
-          ?run_update_command ?chat_limiter ();
+        let* () =
+          flush_pending_text_update ~key ~bot_token ~account ~session_mgr
+            ?run_update_command ?chat_limiter ()
+        in
         let pending = Telegram.{ update; last_seen_at = now; generation = 0 } in
         Hashtbl.replace Telegram.pending_text_updates key pending;
         schedule_pending_text_flush ~key ~bot_token ~account ~session_mgr
-          ?run_update_command ?chat_limiter pending.generation
+          ?run_update_command ?chat_limiter pending.generation;
+        Lwt.return_unit
     | None ->
         let pending = Telegram.{ update; last_seen_at = now; generation = 0 } in
         Hashtbl.replace Telegram.pending_text_updates key pending;
         schedule_pending_text_flush ~key ~bot_token ~account ~session_mgr
-          ?run_update_command ?chat_limiter pending.generation
+          ?run_update_command ?chat_limiter pending.generation;
+        Lwt.return_unit
 
 let poll_account ~bot_token ~(account : Runtime_config.telegram_account) ~name
     ~(session_mgr : Session.t) ?run_update_command ?chat_limiter ~stop () =
@@ -197,28 +197,32 @@ let poll_account ~bot_token ~(account : Runtime_config.telegram_account) ~name
           in
           if max_uid + 1 > !offset then offset := max_uid + 1;
           let update_count = List.length updates in
-          List.iter
-            (fun (update : Telegram.update) ->
-              offset := update.update_id + 1;
-              if update.message_id > 0 then begin
-                let cur =
-                  Option.value ~default:0
-                    (Hashtbl.find_opt Telegram.latest_chat_msg_id update.chat_id)
-                in
-                if update.message_id > cur then
-                  Hashtbl.replace Telegram.latest_chat_msg_id update.chat_id
-                    update.message_id
-              end;
-              if Telegram.should_process_update update then
-                buffer_or_dispatch_update ~bot_token ~account ~session_mgr
-                  ?run_update_command ?chat_limiter update
-              else
-                Logs.info (fun m ->
-                    m
-                      "Telegram: ignoring duplicate update update_id=%d \
-                       chat_id=%s"
-                      update.update_id update.chat_id))
-            updates;
+          let* () =
+            Lwt_list.iter_s
+              (fun (update : Telegram.update) ->
+                offset := update.update_id + 1;
+                if update.message_id > 0 then begin
+                  let cur =
+                    Option.value ~default:0
+                      (Hashtbl.find_opt Telegram.latest_chat_msg_id update.chat_id)
+                  in
+                  if update.message_id > cur then
+                    Hashtbl.replace Telegram.latest_chat_msg_id update.chat_id
+                      update.message_id
+                end;
+                if Telegram.should_process_update update then
+                  buffer_or_dispatch_update ~bot_token ~account ~session_mgr
+                    ?run_update_command ?chat_limiter update
+                else begin
+                  Logs.info (fun m ->
+                      m
+                        "Telegram: ignoring duplicate update update_id=%d \
+                         chat_id=%s"
+                        update.update_id update.chat_id);
+                  Lwt.return_unit
+                end)
+              updates
+          in
           (if !poll_count <= 3 || !poll_count mod 100 = 0 then
              let poll_elapsed_ms =
                (Unix.gettimeofday () -. poll_start) *. 1000.0

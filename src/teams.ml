@@ -696,7 +696,13 @@ let strip_at_mentions text =
       do
         incr j
       done;
-      if !j + 4 <= len then i := !j + 5 else i := len
+      if !j + 4 < len then i := !j + 5
+      else if !j + 4 = len then begin
+        (* Closing </at> not found — emit remaining text *)
+        Buffer.add_string buf (String.sub text !i (len - !i));
+        i := len
+      end
+      else i := len
     end
     else begin
       Buffer.add_char buf text.[!i];

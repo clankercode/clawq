@@ -57,18 +57,38 @@ let parse_inline_markdown text =
           i := start)
     | '*' ->
         flush_plain ();
-        let start = !i + 1 in
-        let found = ref false in
-        let j = ref start in
-        while !j < len && not !found do
-          if text.[!j] = '*' then found := true else incr j
-        done;
-        if !found && !j > start then (
-          segments := Bold (String.sub text start (!j - start)) :: !segments;
-          i := !j + 1)
-        else (
-          Buffer.add_char buf '*';
-          i := start)
+        if !i + 1 < len && text.[!i + 1] = '*' then begin
+          (* ** bold delimiter — standard Markdown *)
+          let start = !i + 2 in
+          let found = ref false in
+          let j = ref start in
+          while !j + 1 < len && not !found do
+            if text.[!j] = '*' && text.[!j + 1] = '*' then found := true
+            else incr j
+          done;
+          if !found && !j > start then (
+            segments := Bold (String.sub text start (!j - start)) :: !segments;
+            i := !j + 2)
+          else (
+            Buffer.add_char buf '*';
+            Buffer.add_char buf '*';
+            i := !i + 2)
+        end
+        else begin
+          (* single * bold delimiter *)
+          let start = !i + 1 in
+          let found = ref false in
+          let j = ref start in
+          while !j < len && not !found do
+            if text.[!j] = '*' then found := true else incr j
+          done;
+          if !found && !j > start then (
+            segments := Bold (String.sub text start (!j - start)) :: !segments;
+            i := !j + 1)
+          else (
+            Buffer.add_char buf '*';
+            i := start)
+        end
     | '_' ->
         flush_plain ();
         let start = !i + 1 in

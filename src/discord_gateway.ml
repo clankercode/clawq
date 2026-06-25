@@ -165,10 +165,12 @@ let handle_gateway_message t msg =
           end
           else begin
             Logs.info (fun m ->
-                m "Discord: Invalid Session (not resumable), re-identifying");
+                m "Discord: Invalid Session (not resumable), clearing state");
             t.session_id <- None;
             t.seq <- None;
-            send_identify t
+            (* Close websocket and let the reconnect loop handle identification *)
+            (match t.ws with Some ws -> Ws_client.close ws | None -> ());
+            Lwt.return_unit
           end
       | _ ->
           Logs.debug (fun m -> m "Discord: unhandled gateway opcode %d" op);
