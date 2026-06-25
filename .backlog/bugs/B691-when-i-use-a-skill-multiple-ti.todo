@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B691
+priority: high
+status: pending
+tags: []
+title: 'when i use a skill multiple times, teams shows `Loaded skill: <blah>` each time. This message should only show when the skill actually loads, and if the skill is loading, then we should detect that it has already loaded and do nothing. We should only do nothing if the skill was loaded since the last compaction (or since session start). Otherwise => it should not be in agent context => we need to load it again.'
+---
+
+when i use a skill multiple times, teams shows `Loaded skill: <blah>` each time. This message should only show when the skill actually loads, and if the skill is loading, then we should detect that it has already loaded and do nothing. We should only do nothing if the skill was loaded since the last compaction (or since session start). Otherwise => it should not be in agent context => we need to load it again.
