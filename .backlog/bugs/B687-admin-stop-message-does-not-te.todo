@@ -1,0 +1,25 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B687
+priority: high
+status: pending
+tags: []
+title: Admin "stop" message does not terminate agent turn, causing empty send_message loops
+---
+When an admin user sends "stop" as a steering message, the tool calls in flight are correctly interrupted (marked "[skipped: interrupted by user]"), but the agent turn itself does not terminate. The agent then loops repeatedly calling `send_message` with no content, trying to "respond" or "acknowledge," until the stuck detector flags it.
+
+Root cause: `agent.ml` has three interrupt types — `Restart_requested`, `Queued_message` (continue looping), and generic `Interrupted` (allows loop continuation) — but none map to "admin said stop, end this turn now." The session turn handler does not recognize plain "stop" as a special command either.
+
+Suggested fix: Extend the interrupt mechanism in `src/agent.ml` (and `src/agent_0_compact.ml`) with a `Stop_requested` variant that, when raised, cleanly returns from the turn loop with a "Stopped by admin" message rather than continuing. Alternatively, extend `Session_core.special_command_handler` in `src/session_core.ml` to recognize "stop" from admin users and inject a system-level turn-termination signal.
+
+Files to modify:
+- `src/agent.ml` — add `Stop_requested` exception variant, handle it in `turn` and `turn_stream`
+- `src/agent_0_compact.ml` — add matching exception
+- `src/session_turn.ml` — detect "stop" from admin users and trigger the stop interrupt
+- Optionally `src/daemon.ml` — register a special command handler for `/stop` or bare "stop"
+
+--
+Auto-filed by clawq postmortem for session teams:personal:19:33930192bcc34118be4fb34139fd1949@thread.v2 (pattern: repeating failed actions).
+Postmortem doc: /home/xertrov/.clawq/postmortems/2026-06-26T023142-teams:personal:19:33930192bcc34118be4fb34139fd1949@thread.v2.md

@@ -681,3 +681,4 @@ bugs:
     - file: B684-b680-briefing-cron-migration-w.todo
     - file: B685-task-tree-display-hard-wrap-at.todo
     - file: B686-support-agentic-task-metadata.todo
+    - file: B687-admin-stop-message-does-not-te.todo
