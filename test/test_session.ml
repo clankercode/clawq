@@ -1705,6 +1705,222 @@ let test_turn_stream_emits_compaction_notice () =
         "compaction notice text present" true
         (string_contains output "Compacting conversation history"))
 
+let test_session_debug_toggle_persists () =
+  let db = Memory.init ~db_path:":memory:" () in
+  let mgr = Session.create ~config:Runtime_config.default ~db () in
+  let key = "web:debug" in
+  Alcotest.(check bool)
+    "debug defaults off" false
+    (Session.session_debug_enabled mgr ~key);
+  Alcotest.(check (result unit string))
+    "debug set on" (Ok ())
+    (Session.set_session_debug mgr ~key ~enabled:true);
+  Alcotest.(check bool)
+    "debug enabled" true
+    (Session.session_debug_enabled mgr ~key);
+  Alcotest.(check string)
+    "debug status on" "Session web:debug: debug = on"
+    (Session.session_debug_status_text mgr ~key);
+  Alcotest.(check (result unit string))
+    "debug set off" (Ok ())
+    (Session.set_session_debug mgr ~key ~enabled:false);
+  Alcotest.(check bool)
+    "debug disabled" false
+    (Session.session_debug_enabled mgr ~key)
+
+let test_session_debug_formats_llm_call_summary () =
+  let line =
+    Session_debug.format_llm_call
+      {
+        Session_debug.provider = "fake";
+        model = "fake-model";
+        duration_s = 1.234;
+        usage = Some (100, 20, 25);
+        tool_call_count = 2;
+      }
+  in
+  Alcotest.(check bool)
+    "mentions provider/model" true
+    (string_contains line "provider=fake"
+    && string_contains line "model=fake-model");
+  Alcotest.(check bool)
+    "mentions duration" true
+    (string_contains line "duration=1.23s");
+  Alcotest.(check bool)
+    "mentions total tokens" true
+    (string_contains line "tokens=120");
+  Alcotest.(check bool)
+    "mentions prompt tokens" true
+    (string_contains line "prompt=100");
+  Alcotest.(check bool)
+    "mentions reasoning-inclusive output tokens" true
+    (string_contains line "output+reasoning=20");
+  Alcotest.(check bool)
+    "mentions cached tokens and percent" true
+    (string_contains line "cached=25" && string_contains line "cached_pct=25%");
+  Alcotest.(check bool)
+    "mentions tool calls" true
+    (string_contains line "tool_calls=2")
+
+let test_turn_sends_debug_summary_after_llm_call () =
+  with_fake_chat_provider (fun config ->
+      let db = Memory.init ~db_path:":memory:" () in
+      let mgr = Session.create ~config ~db () in
+      let key = "web:debug-summary" in
+      let sent = ref [] in
+      Session.register_channel_notifier mgr ~key (fun text ->
+          sent := text :: !sent;
+          Lwt.return_unit);
+      Alcotest.(check (result unit string))
+        "debug set on" (Ok ())
+        (Session.set_session_debug mgr ~key ~enabled:true);
+      let response = Lwt_main.run (Session.turn mgr ~key ~message:"hello" ()) in
+      Alcotest.(check string) "response" "reply:hello" response;
+      let messages = List.rev !sent in
+      let debug_lines =
+        List.filter (fun text -> string_contains text "debug: llm") messages
+      in
+      Alcotest.(check int) "one debug line" 1 (List.length debug_lines);
+      let line = List.hd debug_lines in
+      Alcotest.(check bool)
+        "summary includes provider/model" true
+        (string_contains line "provider=fake"
+        && string_contains line "model=fake-model");
+      Alcotest.(check bool)
+        "summary includes duration" true
+        (string_contains line "duration=");
+      Alcotest.(check bool)
+        "summary includes usage" true
+        (string_contains line "tokens=2"
+        && string_contains line "prompt=1"
+        && string_contains line "output+reasoning=1");
+      Alcotest.(check bool)
+        "summary includes tool calls" true
+        (string_contains line "tool_calls=0"))
+
+let test_agent_mention_sends_debug_summary_for_parent_session () =
+  with_fake_chat_provider (fun config ->
+      let db = Memory.init ~db_path:":memory:" () in
+      let mgr = Session.create ~config ~db () in
+      let key = "web:agent-mention-debug" in
+      let sent = ref [] in
+      Session.register_channel_notifier mgr ~key (fun text ->
+          sent := text :: !sent;
+          Lwt.return_unit);
+      Alcotest.(check (result unit string))
+        "debug set on" (Ok ())
+        (Session.set_session_debug mgr ~key ~enabled:true);
+      let response =
+        Lwt_main.run
+          (Session.turn mgr ~key ~message:"@debugger investigate this" ())
+      in
+      Alcotest.(check string) "response" "reply:investigate this" response;
+      let messages = List.rev !sent in
+      let debug_lines =
+        List.filter (fun text -> string_contains text "debug: llm") messages
+      in
+      Alcotest.(check int) "one debug line" 1 (List.length debug_lines);
+      Alcotest.(check bool)
+        "summary includes provider/model" true
+        (string_contains (List.hd debug_lines) "provider=fake"
+        && string_contains (List.hd debug_lines) "model=fake-model"))
+
+let test_agent_invoke_sends_debug_summary_for_parent_session () =
+  with_fake_chat_provider (fun config ->
+      let db = Memory.init ~db_path:":memory:" () in
+      let mgr = Session.create ~config ~db () in
+      let key = "web:agent-invoke-debug" in
+      let sent = ref [] in
+      Alcotest.(check (result unit string))
+        "debug set on" (Ok ())
+        (Session.set_session_debug mgr ~key ~enabled:true);
+      let waiter, resolver = Lwt.wait () in
+      Session.agent_invoke_turn mgr ~parent_key:key ~agent_name:"debugger"
+        ~prompt:"investigate this"
+        ~debug_notify:(fun text ->
+          sent := text :: !sent;
+          Lwt.return_unit)
+        ~send_reply:(fun text ->
+          sent := text :: !sent;
+          Lwt.wakeup_later resolver text;
+          Lwt.return_unit)
+        ();
+      let response = Lwt_main.run waiter in
+      Alcotest.(check string) "response" "reply:investigate this" response;
+      let messages = List.rev !sent in
+      let debug_lines =
+        List.filter (fun text -> string_contains text "debug: llm") messages
+      in
+      Alcotest.(check int) "one debug line" 1 (List.length debug_lines);
+      Alcotest.(check bool)
+        "summary includes provider/model" true
+        (string_contains (List.hd debug_lines) "provider=fake"
+        && string_contains (List.hd debug_lines) "model=fake-model"))
+
+let test_delegate_sends_debug_summary_for_parent_session () =
+  with_fake_chat_provider (fun config ->
+      let db = Memory.init ~db_path:":memory:" () in
+      let mgr = Session.create ~config ~db () in
+      let key = "web:delegate-debug" in
+      let sent = ref [] in
+      Alcotest.(check (result unit string))
+        "debug set on" (Ok ())
+        (Session.set_session_debug mgr ~key ~enabled:true);
+      let waiter, resolver = Lwt.wait () in
+      Session.delegate_turn mgr ~parent_key:key ~prompt:"investigate this"
+        ~debug_notify:(fun text ->
+          sent := text :: !sent;
+          Lwt.return_unit)
+        ~send_reply:(fun text ->
+          sent := text :: !sent;
+          Lwt.wakeup_later resolver text;
+          Lwt.return_unit)
+        ();
+      let response = Lwt_main.run waiter in
+      Alcotest.(check string) "response" "reply:investigate this" response;
+      let messages = List.rev !sent in
+      let debug_lines =
+        List.filter (fun text -> string_contains text "debug: llm") messages
+      in
+      Alcotest.(check int) "one debug line" 1 (List.length debug_lines);
+      Alcotest.(check bool)
+        "summary includes provider/model" true
+        (string_contains (List.hd debug_lines) "provider=fake"
+        && string_contains (List.hd debug_lines) "model=fake-model"))
+
+let test_fork_and_sends_debug_summary_for_parent_session () =
+  with_fake_chat_provider (fun config ->
+      let db = Memory.init ~db_path:":memory:" () in
+      let mgr = Session.create ~config ~db () in
+      let key = "web:fork-debug" in
+      let sent = ref [] in
+      Alcotest.(check (result unit string))
+        "debug set on" (Ok ())
+        (Session.set_session_debug mgr ~key ~enabled:true);
+      let waiter, resolver = Lwt.wait () in
+      Session.fork_and_run mgr ~parent_key:key ~prompt:"investigate this"
+        ~debug_notify:(fun text ->
+          sent := text :: !sent;
+          Lwt.return_unit)
+        ~send_reply:(fun text ->
+          sent := text :: !sent;
+          Lwt.wakeup_later resolver text;
+          Lwt.return_unit)
+        ();
+      let response = Lwt_main.run waiter in
+      Alcotest.(check bool)
+        "response comes from fake provider" true
+        (string_contains response "reply:");
+      let messages = List.rev !sent in
+      let debug_lines =
+        List.filter (fun text -> string_contains text "debug: llm") messages
+      in
+      Alcotest.(check int) "one debug line" 1 (List.length debug_lines);
+      Alcotest.(check bool)
+        "summary includes provider/model" true
+        (string_contains (List.hd debug_lines) "provider=fake"
+        && string_contains (List.hd debug_lines) "model=fake-model"))
+
 let test_bang_message_interrupts_before_lock_and_turns_normally () =
   with_fake_chat_provider (fun config ->
       let db = Memory.init ~db_path:":memory:" () in
@@ -4360,6 +4576,20 @@ let suite =
       test_turn_stream_skill_load_notifies_registered_notifier_once;
     Alcotest.test_case "turn stream emits compaction notice" `Quick
       test_turn_stream_emits_compaction_notice;
+    Alcotest.test_case "session debug toggle persists" `Quick
+      test_session_debug_toggle_persists;
+    Alcotest.test_case "session debug formats llm call summary" `Quick
+      test_session_debug_formats_llm_call_summary;
+    Alcotest.test_case "turn sends debug summary after llm call" `Quick
+      test_turn_sends_debug_summary_after_llm_call;
+    Alcotest.test_case "@agent sends debug summary for parent session" `Quick
+      test_agent_mention_sends_debug_summary_for_parent_session;
+    Alcotest.test_case "agent invoke sends debug summary for parent session"
+      `Quick test_agent_invoke_sends_debug_summary_for_parent_session;
+    Alcotest.test_case "delegate sends debug summary for parent session" `Quick
+      test_delegate_sends_debug_summary_for_parent_session;
+    Alcotest.test_case "fork_and sends debug summary for parent session" `Quick
+      test_fork_and_sends_debug_summary_for_parent_session;
     Alcotest.test_case
       "autonomous continuation prompt can disarm with STAY_IDLE" `Quick
       test_autonomous_continuation_stays_idle_disarms;

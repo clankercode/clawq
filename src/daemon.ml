@@ -405,8 +405,14 @@ let run ~(config : Runtime_config.t) =
              | None -> Lwt.return "Error: session not found"
              | Some (agent, _mutex, _interrupt) -> (
                  let open Lwt.Syntax in
+                 let on_llm_call_debug =
+                   Session.debug_callback_for session_manager ~key:session_key
+                     (Session.find_registered_notifier session_manager
+                        ~key:session_key)
+                 in
                  let* info =
-                   Agent.force_compact_history agent ?db:session_manager.db ()
+                   Agent.force_compact_history agent ?db:session_manager.db
+                     ?on_llm_call_debug ()
                  in
                  match info with
                  | Some info ->

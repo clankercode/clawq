@@ -1256,8 +1256,13 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                         (Slash_commands_fmt.format_reset
                            ~connector:Format_adapter.Teams ~active_bg_tasks)
                   | Compact -> (
+                      let notifier =
+                        make_status_notifier ~config
+                          ~service_url:effective_service_url ~conversation_id
+                          ~reply_to_id:activity_id
+                      in
                       let* compact_result =
-                        Session.compact session_manager ~key ()
+                        Session.compact session_manager ~key ~notifier ()
                       in
                       match compact_result with
                       | Ok _ -> Lwt.return_unit
@@ -1367,11 +1372,31 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                             | Error err -> err)
                       in
                       send_text text
+                  | Debug action ->
+                      let connector = Format_adapter.Teams in
+                      let text =
+                        match action with
+                        | Slash_commands.DebugStatus ->
+                            Slash_commands_fmt.format_debug_status ~connector
+                              (Session.session_debug_status_text session_manager
+                                 ~key)
+                        | Slash_commands.SetDebug enabled -> (
+                            match
+                              Session.set_session_debug session_manager ~key
+                                ~enabled
+                            with
+                            | Ok () ->
+                                Slash_commands_fmt.format_debug_set ~connector
+                                  enabled key
+                            | Error err -> err)
+                      in
+                      send_text text
                   | Delegate (agent_name, prompt) ->
                       let* () =
                         send_text "Delegating to a temporary session..."
                       in
-                      Session.delegate_turn session_manager ?agent_name ~prompt
+                      Session.delegate_turn session_manager ~parent_key:key
+                        ~debug_notify:send_text ?agent_name ~prompt
                         ~send_reply:send_text ();
                       Lwt.return_unit
                   | AgentInvoke (agent_name, prompt) ->
@@ -1380,7 +1405,8 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                           (Printf.sprintf "Invoking agent '%s'..." agent_name)
                       in
                       Session.agent_invoke_turn session_manager ~agent_name
-                        ~prompt ~send_reply:send_text;
+                        ~parent_key:key ~debug_notify:send_text ~prompt
+                        ~send_reply:send_text ();
                       Lwt.return_unit
                   | AgentMenu page ->
                       let card_json =
@@ -1459,14 +1485,20 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                   | ForkAnd (agent_name, prompt) ->
                       let* () = send_text "Forking session..." in
                       Session.fork_and_run session_manager ~parent_key:key
-                        ?agent_name ~prompt ~send_reply:send_text ();
+                        ~debug_notify:send_text ?agent_name ~prompt
+                        ~send_reply:send_text ();
                       Lwt.return_unit
                   | Debate prompt -> (
                       match Session.get_db session_manager with
                       | Some db ->
                           let config = Session.get_config session_manager in
+                          let on_llm_call_debug =
+                            Session.debug_callback_for session_manager ~key
+                              (Some send_text)
+                          in
                           let* text =
-                            Debate.run_for_prompt ~config ~db ~prompt
+                            Debate.run_for_prompt ?on_llm_call_debug ~config ~db
+                              ~prompt ()
                           in
                           send_text text
                       | None -> send_text "Debate requires a database.")
@@ -1717,6 +1749,7 @@ let handle_webhook ~(config : Runtime_config.teams_config)
                                      act_str name)
                               in
                               Session.delegate_turn session_manager ~prompt
+                                ~parent_key:key ~debug_notify:send_text
                                 ~send_reply:send_text ();
                               (match act with
                               | `Install -> (

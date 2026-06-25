@@ -32,6 +32,9 @@ let rec result_to_string = function
       "Heartbeat(On)"
   | Slash_commands.Heartbeat (Slash_commands.SetHeartbeat false) ->
       "Heartbeat(Off)"
+  | Slash_commands.Debug Slash_commands.DebugStatus -> "Debug(Status)"
+  | Slash_commands.Debug (Slash_commands.SetDebug true) -> "Debug(On)"
+  | Slash_commands.Debug (Slash_commands.SetDebug false) -> "Debug(Off)"
   | Slash_commands.Delegate (None, s) -> "Delegate(" ^ s ^ ")"
   | Slash_commands.Delegate (Some agent, s) ->
       "Delegate(@" ^ agent ^ ", " ^ s ^ ")"
@@ -187,6 +190,7 @@ let rec result_eq a b =
   | Slash_commands.Status, Slash_commands.Status -> true
   | Slash_commands.ShowThinking a, Slash_commands.ShowThinking b -> a = b
   | Slash_commands.Heartbeat a, Slash_commands.Heartbeat b -> a = b
+  | Slash_commands.Debug a, Slash_commands.Debug b -> a = b
   | Slash_commands.Delegate (a1, a2), Slash_commands.Delegate (b1, b2) ->
       a1 = b1 && a2 = b2
   | Slash_commands.ForkAnd (a1, a2), Slash_commands.ForkAnd (b1, b2) ->
@@ -388,6 +392,28 @@ let test_heartbeat_invalid_args () =
         (contains_str text "/heartbeat")
   | None -> Alcotest.fail "expected text reply for heartbeat usage"
 
+let test_debug_status () =
+  Alcotest.check result_testable "debug status"
+    (Slash_commands.Debug Slash_commands.DebugStatus)
+    (Slash_commands.handle "/debug");
+  Alcotest.check result_testable "debug explicit status"
+    (Slash_commands.Debug Slash_commands.DebugStatus)
+    (Slash_commands.handle "/debug status")
+
+let test_debug_toggle () =
+  Alcotest.check result_testable "debug on"
+    (Slash_commands.Debug (Slash_commands.SetDebug true))
+    (Slash_commands.handle "/debug on");
+  Alcotest.check result_testable "debug off"
+    (Slash_commands.Debug (Slash_commands.SetDebug false))
+    (Slash_commands.handle "/debug off")
+
+let test_debug_invalid_args () =
+  match extract_text (Slash_commands.handle "/debug maybe") with
+  | Some text ->
+      Alcotest.(check bool) "mentions /debug" true (contains_str text "/debug")
+  | None -> Alcotest.fail "expected text reply for debug usage"
+
 let test_regular_message () =
   Alcotest.check result_testable "regular msg" Slash_commands.NotACommand
     (Slash_commands.handle "hello world")
@@ -417,6 +443,7 @@ let test_commands_list () =
     (List.mem "show_thinking" names);
   Alcotest.(check bool) "has config" true (List.mem "config" names);
   Alcotest.(check bool) "has heartbeat" true (List.mem "heartbeat" names);
+  Alcotest.(check bool) "has debug" true (List.mem "debug" names);
   Alcotest.(check bool) "has fork_and" true (List.mem "fork_and" names);
   Alcotest.(check bool) "has tools" true (List.mem "tools" names);
   Alcotest.(check bool) "has tasks" true (List.mem "tasks" names);
@@ -2747,6 +2774,9 @@ let suite =
     Alcotest.test_case "heartbeat toggle" `Quick test_heartbeat_toggle;
     Alcotest.test_case "heartbeat invalid args" `Quick
       test_heartbeat_invalid_args;
+    Alcotest.test_case "debug status" `Quick test_debug_status;
+    Alcotest.test_case "debug toggle" `Quick test_debug_toggle;
+    Alcotest.test_case "debug invalid args" `Quick test_debug_invalid_args;
     Alcotest.test_case "unknown command" `Quick test_unknown_command;
     Alcotest.test_case "regular message" `Quick test_regular_message;
     Alcotest.test_case "empty message" `Quick test_empty_message;

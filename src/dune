@@ -37,6 +37,8 @@
   path_util
   skill_dedup
   skill_invocation_guard
+  session_debug
+  agent_debug
   agent_0_compact
   agent
   session_core

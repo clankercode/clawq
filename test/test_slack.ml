@@ -13,6 +13,106 @@ let make_config ?(bot_token = "xoxb-test") ?(signing_secret = "test_secret")
     default_model = None;
   }
 
+let contains_str haystack needle =
+  try
+    ignore (Str.search_forward (Str.regexp_string needle) haystack 0);
+    true
+  with Not_found -> false
+
+let free_port () =
+  let sock = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
+  Fun.protect
+    ~finally:(fun () -> Unix.close sock)
+    (fun () ->
+      Unix.setsockopt sock Unix.SO_REUSEADDR true;
+      Unix.bind sock (Unix.ADDR_INET (Unix.inet_addr_loopback, 0));
+      match Unix.getsockname sock with
+      | Unix.ADDR_INET (_, port) -> port
+      | Unix.ADDR_UNIX _ -> Alcotest.fail "expected inet socket")
+
+let make_fake_provider_config base_url : Runtime_config.provider_config =
+  {
+    Runtime_config.default_provider_config with
+    api_key = "test-key";
+    base_url = Some base_url;
+    default_model = Some "fake-model";
+  }
+
+let with_text_provider f =
+  let port = free_port () in
+  let callback _conn _req body =
+    let open Lwt.Syntax in
+    let* _ = Cohttp_lwt.Body.to_string body in
+    let response_body =
+      Yojson.Safe.to_string
+        (`Assoc
+           [
+             ("id", `String "cmpl_fake");
+             ("object", `String "chat.completion");
+             ("model", `String "fake-model");
+             ( "choices",
+               `List
+                 [
+                   `Assoc
+                     [
+                       ("index", `Int 0);
+                       ( "message",
+                         `Assoc
+                           [
+                             ("role", `String "assistant");
+                             ("content", `String "Debate answer.");
+                           ] );
+                       ("finish_reason", `String "stop");
+                     ];
+                 ] );
+             ( "usage",
+               `Assoc
+                 [ ("prompt_tokens", `Int 1); ("completion_tokens", `Int 1) ] );
+           ])
+    in
+    Cohttp_lwt_unix.Server.respond_string ~status:`OK ~body:response_body ()
+  in
+  let stop, stopper = Lwt.wait () in
+  let server =
+    Cohttp_lwt_unix.Server.create
+      ~mode:(`TCP (`Port port))
+      (Cohttp_lwt_unix.Server.make ~callback ())
+  in
+  Lwt.async (fun () -> Lwt.pick [ server; stop ]);
+  Fun.protect
+    ~finally:(fun () -> Lwt.wakeup_later stopper ())
+    (fun () ->
+      let config =
+        {
+          Runtime_config.default with
+          default_provider = Some "fake";
+          providers =
+            [
+              ( "fake",
+                make_fake_provider_config
+                  (Printf.sprintf "http://127.0.0.1:%d" port) );
+            ];
+          prompt =
+            { Runtime_config.default.prompt with dynamic_enabled = false };
+          security =
+            { Runtime_config.default.security with tools_enabled = false };
+          agent_defaults =
+            {
+              Runtime_config.default.agent_defaults with
+              primary_model = "fake:fake-model";
+              show_thinking = false;
+              show_tool_calls = false;
+            };
+          debate =
+            {
+              Runtime_config.default.debate with
+              default_models = [ "fake:fake-model" ];
+              judge_model = "fake:fake-model";
+            };
+        }
+      in
+      f config)
+
 let test_is_allowed_wildcard () =
   let config = make_config () in
   Alcotest.(check bool)
@@ -163,6 +263,39 @@ let test_handle_event_update_returns_before_restart_finishes () =
   Alcotest.(check (list string))
     "progress and final message sent" [ "Starting update..." ] (List.rev !sent)
 
+let test_handle_event_debate_sends_debug_summary () =
+  with_text_provider (fun runtime_config ->
+      let config = make_config () in
+      let db = Memory.init ~db_path:":memory:" () in
+      Debate.init_schema db;
+      let session_manager = Session.create ~config:runtime_config ~db () in
+      let key = "slack:C123:U456" in
+      Alcotest.(check (result unit string))
+        "debug set on" (Ok ())
+        (Session.set_session_debug session_manager ~key ~enabled:true);
+      let sent = ref [] in
+      let body =
+        {|{"type":"event_callback","event":{"type":"message","channel":"C123","user":"U456","text":"/debate should debug"}}|}
+      in
+      let result =
+        Lwt_main.run
+          (Slack.handle_event ~config ~session_manager
+             ~send_message_fn:(fun ~bot_token:_ ~channel_id:_ ~text ->
+               sent := text :: !sent;
+               Lwt.return_unit)
+             body)
+      in
+      let sent = List.rev !sent in
+      Alcotest.(check string) "returns ok" "ok" result;
+      Alcotest.(check bool)
+        "sent debate result" true
+        (List.exists (fun text -> contains_str text "Debate Results") sent);
+      Alcotest.(check bool)
+        "sent debate debug summary" true
+        (List.exists
+           (fun text -> contains_str text "debug: llm provider=fake")
+           sent))
+
 let test_parse_event_with_files () =
   let body =
     {|{"type":"event_callback","event":{"type":"message","channel":"C1","user":"U1","text":"see file","ts":"1234.5","files":[{"url_private_download":"https://files.slack.com/f1","name":"data.csv","mimetype":"text/csv","size":1024}]}}|}
@@ -212,6 +345,8 @@ let suite =
     Alcotest.test_case "session key format" `Quick test_session_key_format;
     Alcotest.test_case "handle event update returns before restart finishes"
       `Quick test_handle_event_update_returns_before_restart_finishes;
+    Alcotest.test_case "handle event debate sends debug summary" `Quick
+      test_handle_event_debate_sends_debug_summary;
     Alcotest.test_case "parse event with files" `Quick
       test_parse_event_with_files;
     Alcotest.test_case "parse event no files" `Quick test_parse_event_no_files;

@@ -71,6 +71,19 @@ let contains_str haystack needle =
     true
   with Not_found -> false
 
+let debug_lines payload =
+  match Yojson.Safe.Util.member "debug" payload with
+  | `List lines ->
+      List.filter_map (function `String line -> Some line | _ -> None) lines
+  | _ -> []
+
+let check_debug_summary label payload =
+  Alcotest.(check bool)
+    label true
+    (List.exists
+       (fun line -> contains_str line "debug: llm provider=fake")
+       (debug_lines payload))
+
 let with_env key value f =
   let previous = Sys.getenv_opt key in
   (match value with Some v -> Unix.putenv key v | None -> Unix.putenv key "");
@@ -99,6 +112,83 @@ let free_port () =
       match Unix.getsockname sock with
       | Unix.ADDR_INET (_, port) -> port
       | Unix.ADDR_UNIX _ -> Alcotest.fail "expected inet socket")
+
+let make_fake_provider_config base_url : Runtime_config.provider_config =
+  {
+    Runtime_config.default_provider_config with
+    api_key = "test-key";
+    base_url = Some base_url;
+    default_model = Some "fake-model";
+  }
+
+let with_text_provider f =
+  let port = free_port () in
+  let callback _conn _req body =
+    let open Lwt.Syntax in
+    let* _ = Cohttp_lwt.Body.to_string body in
+    let response_body =
+      Yojson.Safe.to_string
+        (`Assoc
+           [
+             ("id", `String "cmpl_fake");
+             ("object", `String "chat.completion");
+             ("model", `String "fake-model");
+             ( "choices",
+               `List
+                 [
+                   `Assoc
+                     [
+                       ("index", `Int 0);
+                       ( "message",
+                         `Assoc
+                           [
+                             ("role", `String "assistant");
+                             ("content", `String "Summary of conversation.");
+                           ] );
+                       ("finish_reason", `String "stop");
+                     ];
+                 ] );
+             ( "usage",
+               `Assoc
+                 [ ("prompt_tokens", `Int 1); ("completion_tokens", `Int 1) ] );
+           ])
+    in
+    Cohttp_lwt_unix.Server.respond_string ~status:`OK ~body:response_body ()
+  in
+  let stop, stopper = Lwt.wait () in
+  let server =
+    Cohttp_lwt_unix.Server.create
+      ~mode:(`TCP (`Port port))
+      (Cohttp_lwt_unix.Server.make ~callback ())
+  in
+  Lwt.async (fun () -> Lwt.pick [ server; stop ]);
+  Fun.protect
+    ~finally:(fun () -> Lwt.wakeup_later stopper ())
+    (fun () ->
+      let config =
+        {
+          Runtime_config.default with
+          default_provider = Some "fake";
+          providers =
+            [
+              ( "fake",
+                make_fake_provider_config
+                  (Printf.sprintf "http://127.0.0.1:%d" port) );
+            ];
+          prompt =
+            { Runtime_config.default.prompt with dynamic_enabled = false };
+          security =
+            { Runtime_config.default.security with tools_enabled = false };
+          agent_defaults =
+            {
+              Runtime_config.default.agent_defaults with
+              primary_model = "fake-model";
+              show_thinking = false;
+              show_tool_calls = false;
+            };
+        }
+      in
+      f config)
 
 let compute_github_signature ~secret ~body =
   "sha256=" ^ Digestif.SHA256.(hmac_string ~key:secret body |> to_hex)
@@ -507,6 +597,191 @@ let test_chat_stream_error_marks_response_sent () =
     (query_single_text_option db
        "SELECT response_sent_at FROM session_state WHERE session_key = 'web:s'"
     <> None)
+
+let test_chat_stream_compact_sends_debug_summary () =
+  with_text_provider (fun config ->
+      let db = Memory.init ~db_path:":memory:" () in
+      let session_manager = Session.create ~config ~db () in
+      let key = "web:s" in
+      for i = 1 to 25 do
+        Memory.store_message ~db ~session_key:key
+          (Provider.make_message ~role:"user"
+             ~content:(Printf.sprintf "msg %02d" i))
+      done;
+      Alcotest.(check (result unit string))
+        "debug set on" (Ok ())
+        (Session.set_session_debug session_manager ~key ~enabled:true);
+      let req =
+        Cohttp.Request.make ~meth:`POST
+          (Uri.of_string "http://127.0.0.1/chat/stream")
+      in
+      let body =
+        Cohttp_lwt.Body.of_string {|{"session_id":"s","message":"/compact"}|}
+      in
+      let resp, body =
+        Lwt_main.run
+          (Http_server.handler ~session_manager ~require_pairing:false
+             ~auth_token:None (Obj.magic ()) req body)
+      in
+      Alcotest.(check int)
+        "ok" 200
+        (Cohttp.Code.code_of_status (Cohttp.Response.status resp));
+      let payload = body_string body in
+      Alcotest.(check bool)
+        "sse contains compact result" true
+        (contains_str payload "Session history compacted");
+      Alcotest.(check bool)
+        "sse contains debug summary" true
+        (contains_str payload "debug: llm provider=fake"))
+
+let test_chat_stream_debate_sends_debug_summary () =
+  with_text_provider (fun config ->
+      let config =
+        {
+          config with
+          debate =
+            {
+              config.debate with
+              default_models = [ "fake:fake-model" ];
+              judge_model = "fake:fake-model";
+            };
+        }
+      in
+      let db = Memory.init ~db_path:":memory:" () in
+      Debate.init_schema db;
+      let session_manager = Session.create ~config ~db () in
+      let key = "web:s" in
+      Alcotest.(check (result unit string))
+        "debug set on" (Ok ())
+        (Session.set_session_debug session_manager ~key ~enabled:true);
+      let req =
+        Cohttp.Request.make ~meth:`POST
+          (Uri.of_string "http://127.0.0.1/chat/stream")
+      in
+      let body =
+        Cohttp_lwt.Body.of_string
+          {|{"session_id":"s","message":"/debate should debug"}|}
+      in
+      let resp, body =
+        Lwt_main.run
+          (Http_server.handler ~session_manager ~require_pairing:false
+             ~auth_token:None (Obj.magic ()) req body)
+      in
+      Alcotest.(check int)
+        "ok" 200
+        (Cohttp.Code.code_of_status (Cohttp.Response.status resp));
+      let payload = body_string body in
+      Alcotest.(check bool)
+        "sse contains debate result" true
+        (contains_str payload "Debate Results");
+      Alcotest.(check bool)
+        "sse contains debate debug summary" true
+        (contains_str payload "debug: llm provider=fake"))
+
+let test_chat_json_sends_debug_summary () =
+  with_text_provider (fun config ->
+      let db = Memory.init ~db_path:":memory:" () in
+      let session_manager = Session.create ~config ~db () in
+      let key = "web:s" in
+      Alcotest.(check (result unit string))
+        "debug set on" (Ok ())
+        (Session.set_session_debug session_manager ~key ~enabled:true);
+      let req =
+        Cohttp.Request.make ~meth:`POST (Uri.of_string "http://127.0.0.1/chat")
+      in
+      let body =
+        Cohttp_lwt.Body.of_string {|{"session_id":"s","message":"hi"}|}
+      in
+      let resp, body =
+        Lwt_main.run
+          (Http_server.handler ~session_manager ~require_pairing:false
+             ~auth_token:None (Obj.magic ()) req body)
+      in
+      Alcotest.(check int)
+        "ok" 200
+        (Cohttp.Code.code_of_status (Cohttp.Response.status resp));
+      let payload = Yojson.Safe.from_string (body_string body) in
+      let open Yojson.Safe.Util in
+      Alcotest.(check string)
+        "response" "Summary of conversation."
+        (payload |> member "response" |> to_string);
+      check_debug_summary "json contains debug summary" payload)
+
+let test_chat_json_debate_sends_debug_summary () =
+  with_text_provider (fun config ->
+      let config =
+        {
+          config with
+          debate =
+            {
+              config.debate with
+              default_models = [ "fake:fake-model" ];
+              judge_model = "fake:fake-model";
+            };
+        }
+      in
+      let db = Memory.init ~db_path:":memory:" () in
+      Debate.init_schema db;
+      let session_manager = Session.create ~config ~db () in
+      let key = "web:s" in
+      Alcotest.(check (result unit string))
+        "debug set on" (Ok ())
+        (Session.set_session_debug session_manager ~key ~enabled:true);
+      let req =
+        Cohttp.Request.make ~meth:`POST (Uri.of_string "http://127.0.0.1/chat")
+      in
+      let body =
+        Cohttp_lwt.Body.of_string
+          {|{"session_id":"s","message":"/debate should debug"}|}
+      in
+      let resp, body =
+        Lwt_main.run
+          (Http_server.handler ~session_manager ~require_pairing:false
+             ~auth_token:None (Obj.magic ()) req body)
+      in
+      Alcotest.(check int)
+        "ok" 200
+        (Cohttp.Code.code_of_status (Cohttp.Response.status resp));
+      let payload = Yojson.Safe.from_string (body_string body) in
+      let open Yojson.Safe.Util in
+      let response = payload |> member "response" |> to_string in
+      Alcotest.(check bool)
+        "debate response" true
+        (contains_str response "Debate Results");
+      check_debug_summary "json debate contains debug summary" payload)
+
+let test_session_compact_json_sends_debug_summary () =
+  with_text_provider (fun config ->
+      let db = Memory.init ~db_path:":memory:" () in
+      let session_manager = Session.create ~config ~db () in
+      let key = "web:s" in
+      for i = 1 to 25 do
+        Memory.store_message ~db ~session_key:key
+          (Provider.make_message ~role:"user"
+             ~content:(Printf.sprintf "msg %02d" i))
+      done;
+      Alcotest.(check (result unit string))
+        "debug set on" (Ok ())
+        (Session.set_session_debug session_manager ~key ~enabled:true);
+      let req =
+        Cohttp.Request.make ~meth:`POST
+          (Uri.of_string "http://127.0.0.1/session/compact")
+      in
+      let body = Cohttp_lwt.Body.of_string {|{"session_key":"web:s"}|} in
+      let resp, body =
+        Lwt_main.run
+          (Http_server.handler ~session_manager ~require_pairing:false
+             ~auth_token:None (Obj.magic ()) req body)
+      in
+      Alcotest.(check int)
+        "ok" 200
+        (Cohttp.Code.code_of_status (Cohttp.Response.status resp));
+      let payload = Yojson.Safe.from_string (body_string body) in
+      let open Yojson.Safe.Util in
+      Alcotest.(check bool)
+        "compacted" true
+        (payload |> member "compacted" |> to_bool);
+      check_debug_summary "compact json contains debug summary" payload)
 
 let test_commands_route () =
   let config = Runtime_config.default in
@@ -1249,6 +1524,16 @@ let suite =
       test_chat_error_marks_response_sent;
     Alcotest.test_case "chat stream error marks response sent" `Quick
       test_chat_stream_error_marks_response_sent;
+    Alcotest.test_case "chat stream compact sends debug summary" `Quick
+      test_chat_stream_compact_sends_debug_summary;
+    Alcotest.test_case "chat stream debate sends debug summary" `Quick
+      test_chat_stream_debate_sends_debug_summary;
+    Alcotest.test_case "chat json sends debug summary" `Quick
+      test_chat_json_sends_debug_summary;
+    Alcotest.test_case "chat json debate sends debug summary" `Quick
+      test_chat_json_debate_sends_debug_summary;
+    Alcotest.test_case "session compact json sends debug summary" `Quick
+      test_session_compact_json_sends_debug_summary;
     Alcotest.test_case "commands route" `Quick test_commands_route;
     Alcotest.test_case "ui-version route" `Quick test_ui_version_route;
     Alcotest.test_case "json of stream event variants" `Quick

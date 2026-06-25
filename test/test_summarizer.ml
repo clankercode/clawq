@@ -9,6 +9,107 @@ let cleanup_db (db, path) =
   ignore (Sqlite3.db_close db);
   try Unix.unlink path with _ -> ()
 
+let string_contains haystack needle =
+  let hay_len = String.length haystack and needle_len = String.length needle in
+  let rec loop i =
+    if i + needle_len > hay_len then false
+    else if String.sub haystack i needle_len = needle then true
+    else loop (i + 1)
+  in
+  needle_len = 0 || loop 0
+
+let free_port () =
+  let sock = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
+  Fun.protect
+    ~finally:(fun () -> Unix.close sock)
+    (fun () ->
+      Unix.setsockopt sock Unix.SO_REUSEADDR true;
+      Unix.bind sock (Unix.ADDR_INET (Unix.inet_addr_loopback, 0));
+      match Unix.getsockname sock with
+      | Unix.ADDR_INET (_, port) -> port
+      | Unix.ADDR_UNIX _ -> Alcotest.fail "expected inet socket")
+
+let with_fake_summarizer_provider f =
+  let port = free_port () in
+  let callback _conn req body =
+    let open Lwt.Syntax in
+    let* _body_text = Cohttp_lwt.Body.to_string body in
+    match (Cohttp.Request.meth req, Uri.path (Cohttp.Request.uri req)) with
+    | `POST, "/chat/completions" ->
+        let response_body =
+          Yojson.Safe.to_string
+            (`Assoc
+               [
+                 ("id", `String "cmpl_fake_summary");
+                 ("object", `String "chat.completion");
+                 ("model", `String "fake-model");
+                 ( "choices",
+                   `List
+                     [
+                       `Assoc
+                         [
+                           ("index", `Int 0);
+                           ( "message",
+                             `Assoc
+                               [
+                                 ("role", `String "assistant");
+                                 ("content", `String "short summary");
+                               ] );
+                           ("finish_reason", `String "stop");
+                         ];
+                     ] );
+                 ( "usage",
+                   `Assoc
+                     [
+                       ("prompt_tokens", `Int 7);
+                       ("completion_tokens", `Int 3);
+                       ( "prompt_tokens_details",
+                         `Assoc [ ("cached_tokens", `Int 2) ] );
+                     ] );
+               ])
+        in
+        Cohttp_lwt_unix.Server.respond_string ~status:`OK ~body:response_body ()
+    | _ -> Cohttp_lwt_unix.Server.respond_string ~status:`Not_found ~body:"" ()
+  in
+  let stop, stopper = Lwt.wait () in
+  let server =
+    Cohttp_lwt_unix.Server.create
+      ~mode:(`TCP (`Port port))
+      (Cohttp_lwt_unix.Server.make ~callback ())
+  in
+  Lwt.async (fun () -> Lwt.pick [ server; stop ]);
+  Fun.protect
+    ~finally:(fun () -> Lwt.wakeup_later stopper ())
+    (fun () ->
+      let config =
+        {
+          Runtime_config.default with
+          default_provider = Some "fake";
+          providers =
+            [
+              ( "fake",
+                {
+                  Runtime_config.default_provider_config with
+                  api_key = "test-key";
+                  base_url = Some (Printf.sprintf "http://127.0.0.1:%d" port);
+                  default_model = Some "fake-model";
+                } );
+            ];
+          prompt =
+            { Runtime_config.default.prompt with dynamic_enabled = false };
+          summarizer =
+            {
+              Runtime_config.default_summarizer_config with
+              enabled = true;
+              threshold_chars = 1;
+              p1_max_chars = 1000;
+              p2_max_chars = 2000;
+              model = Pmodel.parse_exn "fake:fake-model";
+            };
+        }
+      in
+      f config)
+
 (* -- Pmodel tests -- *)
 
 let test_pmodel_parse_valid () =
@@ -365,6 +466,43 @@ let test_fallback_no_session () =
   | _ -> Alcotest.fail "expected Fallback_truncated when no session");
   cleanup_db handle
 
+let test_summarizer_debug_callback_after_llm_call () =
+  with_fake_summarizer_provider (fun config ->
+      let handle = tmp_db () in
+      let db = fst handle in
+      let calls = ref [] in
+      let on_llm_call_debug call =
+        calls := call :: !calls;
+        Lwt.return_unit
+      in
+      Fun.protect
+        ~finally:(fun () -> cleanup_db handle)
+        (fun () ->
+          let result =
+            Lwt_main.run
+              (Summarizer.maybe_summarize ~config ~db:(Some db)
+                 ~session_key:(Some "web:summary-debug") ~tool_name:"shell"
+                 ~history:[] ~original:(String.make 20 'x') ~on_llm_call_debug
+                 ())
+          in
+          match result with
+          | Summarizer.Summarized { content; _ } ->
+              Alcotest.(check bool)
+                "summary content present" true
+                (string_contains content "short summary");
+              let calls = List.rev !calls in
+              Alcotest.(check int) "one debug callback" 1 (List.length calls);
+              let call = List.hd calls in
+              Alcotest.(check string)
+                "provider" "fake" call.Session_debug.provider;
+              Alcotest.(check string) "model" "fake-model" call.model;
+              Alcotest.(check (option (triple int int int)))
+                "usage"
+                (Some (7, 3, 2))
+                call.usage;
+              Alcotest.(check int) "tool calls" 0 call.tool_call_count
+          | _ -> Alcotest.fail "expected Summarized"))
+
 (* -- Unsummarize tool tests -- *)
 
 let test_unsummarize_basic () =
@@ -634,7 +772,7 @@ let test_postprocess_passthrough_small () =
   let result =
     Lwt_main.run
       (Tool_postprocess.process_tool_result ~config ~db:None ~session_key:None
-         ~tool_name:"test" ~history:[] ~raw_result:"small output")
+         ~tool_name:"test" ~history:[] ~raw_result:"small output" ())
   in
   Alcotest.(check string) "unchanged" "small output" result
 
@@ -655,7 +793,7 @@ let test_postprocess_truncates_when_no_db () =
     Lwt_main.run
       (Tool_postprocess.process_tool_result ~config ~db:None
          ~session_key:(Some "test") ~tool_name:"test" ~history:[]
-         ~raw_result:big)
+         ~raw_result:big ())
   in
   (* Should be truncated to p2_max_chars + truncation message *)
   Alcotest.(check bool) "truncated" true (String.length result < 500);
@@ -705,7 +843,7 @@ let test_schema_migration_12_to_13 () =
     result
   in
   Alcotest.(check bool) "summaries table exists" true has_table;
-  (* Verify schema version is 21 *)
+  (* Verify schema version is current. *)
   let version =
     let stmt = Sqlite3.prepare db2 "SELECT version FROM schema_version" in
     Fun.protect
@@ -718,7 +856,7 @@ let test_schema_migration_12_to_13 () =
             | _ -> -1)
         | _ -> -1)
   in
-  Alcotest.(check int) "schema version 29" 29 version;
+  Alcotest.(check int) "schema version current" Memory.schema_version version;
   ignore (Sqlite3.db_close db2);
   try Unix.unlink path with _ -> ()
 
@@ -783,6 +921,8 @@ let suite =
     Alcotest.test_case "summarizer: fallback no db" `Quick test_fallback_no_db;
     Alcotest.test_case "summarizer: fallback no session" `Quick
       test_fallback_no_session;
+    Alcotest.test_case "summarizer: debug callback after llm call" `Quick
+      test_summarizer_debug_callback_after_llm_call;
     Alcotest.test_case "unsummarize: basic" `Quick test_unsummarize_basic;
     Alcotest.test_case "unsummarize: offset" `Quick test_unsummarize_offset;
     Alcotest.test_case "unsummarize: head_and_tail" `Quick

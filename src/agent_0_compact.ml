@@ -345,7 +345,7 @@ let truncate_for_history s ~max_chars =
     ^ Printf.sprintf
         "\n\n[truncated %d chars to keep context within model limits]" omitted
 
-let summarize_messages_with_config config messages =
+let summarize_messages_with_config ?on_llm_call_debug config messages =
   let open Lwt.Syntax in
   let content =
     List.map
@@ -377,7 +377,13 @@ let summarize_messages_with_config config messages =
   in
   Lwt.catch
     (fun () ->
+      let provider, _, _ = Provider.select_provider ~config () in
+      let started_at = Unix.gettimeofday () in
       let* response = Provider.complete ~config ~messages:msgs () in
+      let duration_s = Unix.gettimeofday () -. started_at in
+      let* () =
+        Agent_debug.notify ?on_llm_call_debug ~provider ~duration_s response
+      in
       match response with
       | Provider.Text { content; _ } -> Lwt.return content
       | Provider.ToolCalls _ -> Lwt.return content)
@@ -388,8 +394,8 @@ let summarize_messages_with_config config messages =
         (Printf.sprintf "[Summary of %d messages - summarization failed]"
            (List.length messages)))
 
-let summarize_messages agent messages =
-  summarize_messages_with_config agent.config messages
+let summarize_messages ?on_llm_call_debug agent messages =
+  summarize_messages_with_config ?on_llm_call_debug agent.config messages
 
 (* --- Pre-compaction memory flush ---------------------------------------- *)
 
@@ -629,7 +635,8 @@ let flush_trigger_message =
    insight.\n\n\
    Act now — this context will not be available after compaction."
 
-let flush_memories_before_compaction ~config ~system_prompt ~db ~to_compact =
+let flush_memories_before_compaction ?on_llm_call_debug ~config ~system_prompt
+    ~db ~to_compact () =
   let open Lwt.Syntax in
   let n_msgs = List.length to_compact in
   Logs.info (fun m ->
@@ -655,8 +662,17 @@ let flush_memories_before_compaction ~config ~system_prompt ~db ~to_compact =
       if iter >= max_iters then Lwt.return_unit
       else
         let* response =
-          Provider.complete ~config ~messages:!messages
-            ~tools:flush_memory_tool_schemas ()
+          let provider, _, _ = Provider.select_provider ~config () in
+          let started_at = Unix.gettimeofday () in
+          let* response =
+            Provider.complete ~config ~messages:!messages
+              ~tools:flush_memory_tool_schemas ()
+          in
+          let duration_s = Unix.gettimeofday () -. started_at in
+          let* () =
+            Agent_debug.notify ?on_llm_call_debug ~provider ~duration_s response
+          in
+          Lwt.return response
         in
         match response with
         | Provider.Text { content; _ } ->
@@ -702,7 +718,7 @@ let flush_memories_before_compaction ~config ~system_prompt ~db ~to_compact =
           !stored !forgotten);
     Lwt.return_unit
 
-let compact_history_if_needed agent ?db () =
+let compact_history_if_needed agent ?db ?on_llm_call_debug () =
   let open Lwt.Syntax in
   let effective_max = effective_max_messages agent in
   let len = List.length agent.history in
@@ -739,7 +755,8 @@ let compact_history_if_needed agent ?db () =
                 Lwt.catch
                   (fun () ->
                     flush_memories_before_compaction ~config:flush_config
-                      ~system_prompt ~db ~to_compact:snapshot)
+                      ~system_prompt ~db ~to_compact:snapshot ?on_llm_call_debug
+                      ())
                   (fun exn ->
                     Logs.warn (fun m ->
                         m "Pre-compaction memory flush failed: %s"
@@ -758,8 +775,12 @@ let compact_history_if_needed agent ?db () =
         let mid = List.length to_compact / 2 in
         let first_half = List.filteri (fun i _ -> i < mid) to_compact in
         let second_half = List.filteri (fun i _ -> i >= mid) to_compact in
-        let* summary1 = summarize_messages agent first_half in
-        let* summary2 = summarize_messages agent second_half in
+        let* summary1 =
+          summarize_messages ?on_llm_call_debug agent first_half
+        in
+        let* summary2 =
+          summarize_messages ?on_llm_call_debug agent second_half
+        in
         let merged_summary =
           Printf.sprintf
             "[Conversation history compacted]\n\n\
@@ -782,7 +803,7 @@ let compact_history_if_needed agent ?db () =
   end
   else Lwt.return_none
 
-let force_compact_history agent ?db ?compact_cbs () =
+let force_compact_history agent ?db ?compact_cbs ?on_llm_call_debug () =
   let open Lwt.Syntax in
   let pre_tokens = estimate_history_tokens agent.history in
   let cw = context_window_for_agent agent in
@@ -820,7 +841,8 @@ let force_compact_history agent ?db ?compact_cbs () =
               Lwt.catch
                 (fun () ->
                   flush_memories_before_compaction ~config:flush_config
-                    ~system_prompt ~db ~to_compact:snapshot)
+                    ~system_prompt ~db ~to_compact:snapshot ?on_llm_call_debug
+                    ())
                 (fun exn ->
                   Logs.warn (fun m ->
                       m "Pre-compaction memory flush failed: %s"
@@ -836,7 +858,8 @@ let force_compact_history agent ?db ?compact_cbs () =
                 Lwt.catch
                   (fun () ->
                     flush_memories_before_compaction ~config:flush_config
-                      ~system_prompt ~db ~to_compact:snapshot)
+                      ~system_prompt ~db ~to_compact:snapshot ?on_llm_call_debug
+                      ())
                   (fun exn ->
                     Logs.warn (fun m ->
                         m "Pre-compaction memory flush failed: %s"
@@ -865,12 +888,12 @@ let force_compact_history agent ?db ?compact_cbs () =
             let* () =
               cbs.on_step_start "Summarize (part 1)" "\xe2\x9c\x82\xef\xb8\x8f"
             in
-            let* s = summarize_messages agent first_half in
+            let* s = summarize_messages ?on_llm_call_debug agent first_half in
             let* () =
               cbs.on_step_done "Summarize (part 1)" (Unix.gettimeofday () -. t0)
             in
             Lwt.return s
-        | None -> summarize_messages agent first_half
+        | None -> summarize_messages ?on_llm_call_debug agent first_half
       in
       let* summary2 =
         match compact_cbs with
@@ -879,12 +902,12 @@ let force_compact_history agent ?db ?compact_cbs () =
             let* () =
               cbs.on_step_start "Summarize (part 2)" "\xe2\x9c\x82\xef\xb8\x8f"
             in
-            let* s = summarize_messages agent second_half in
+            let* s = summarize_messages ?on_llm_call_debug agent second_half in
             let* () =
               cbs.on_step_done "Summarize (part 2)" (Unix.gettimeofday () -. t0)
             in
             Lwt.return s
-        | None -> summarize_messages agent second_half
+        | None -> summarize_messages ?on_llm_call_debug agent second_half
       in
       let merged_summary =
         Printf.sprintf
@@ -939,7 +962,7 @@ let plan_force_compact agent =
         }
   end
 
-let execute_compact_plan plan ?db ?compact_cbs () =
+let execute_compact_plan plan ?db ?compact_cbs ?on_llm_call_debug () =
   let open Lwt.Syntax in
   let config = plan.cp_config in
   let system_prompt = plan.cp_system_prompt in
@@ -954,7 +977,7 @@ let execute_compact_plan plan ?db ?compact_cbs () =
           Lwt.catch
             (fun () ->
               flush_memories_before_compaction ~config ~system_prompt ~db
-                ~to_compact:snapshot)
+                ~to_compact:snapshot ?on_llm_call_debug ())
             (fun exn ->
               Logs.warn (fun m ->
                   m "Pre-compaction memory flush failed: %s"
@@ -968,7 +991,7 @@ let execute_compact_plan plan ?db ?compact_cbs () =
             Lwt.catch
               (fun () ->
                 flush_memories_before_compaction ~config ~system_prompt ~db
-                  ~to_compact:snapshot)
+                  ~to_compact:snapshot ?on_llm_call_debug ())
               (fun exn ->
                 Logs.warn (fun m ->
                     m "Pre-compaction memory flush failed: %s"
@@ -990,12 +1013,15 @@ let execute_compact_plan plan ?db ?compact_cbs () =
         let* () =
           cbs.on_step_start "Summarize (part 1)" "\xe2\x9c\x82\xef\xb8\x8f"
         in
-        let* s = summarize_messages_with_config config first_half in
+        let* s =
+          summarize_messages_with_config ?on_llm_call_debug config first_half
+        in
         let* () =
           cbs.on_step_done "Summarize (part 1)" (Unix.gettimeofday () -. t0)
         in
         Lwt.return s
-    | None -> summarize_messages_with_config config first_half
+    | None ->
+        summarize_messages_with_config ?on_llm_call_debug config first_half
   in
   let* summary2 =
     match compact_cbs with
@@ -1004,12 +1030,15 @@ let execute_compact_plan plan ?db ?compact_cbs () =
         let* () =
           cbs.on_step_start "Summarize (part 2)" "\xe2\x9c\x82\xef\xb8\x8f"
         in
-        let* s = summarize_messages_with_config config second_half in
+        let* s =
+          summarize_messages_with_config ?on_llm_call_debug config second_half
+        in
         let* () =
           cbs.on_step_done "Summarize (part 2)" (Unix.gettimeofday () -. t0)
         in
         Lwt.return s
-    | None -> summarize_messages_with_config config second_half
+    | None ->
+        summarize_messages_with_config ?on_llm_call_debug config second_half
   in
   let merged_summary =
     Printf.sprintf

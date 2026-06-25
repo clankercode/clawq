@@ -600,7 +600,7 @@ let summarize_for_notification ~(config : Runtime_config.t)
       let pm = config.summarizer.model in
       let summary_promise =
         let* result =
-          Summarizer.call_summarizer ~config ~pm ~system_prompt ~user_content
+          Summarizer.call_summarizer ~config ~pm ~system_prompt ~user_content ()
         in
         match result with
         | Ok (content, _, _) ->
@@ -852,6 +852,9 @@ let default_resume_turn ~(session_manager : Session.t) ~notify ~session_key
   let sanitized, dropped_count =
     sanitize_history_for_resume agent.Agent.history
   in
+  let on_llm_call_debug =
+    Session.debug_callback_for session_manager ~key:session_key (Some notify)
+  in
   if dropped_count > 0 then begin
     Logs.info (fun m ->
         m
@@ -861,7 +864,8 @@ let default_resume_turn ~(session_manager : Session.t) ~notify ~session_key
     agent.Agent.history <- sanitized
   end;
   let* compaction_info =
-    Agent.compact_history_if_needed agent ?db:session_manager.db ()
+    Agent.compact_history_if_needed agent ?db:session_manager.db
+      ?on_llm_call_debug ()
   in
   let compacted = Option.is_some compaction_info in
   let* () = Session.notify_compaction_if_needed ~notify compaction_info in
@@ -910,7 +914,7 @@ let default_resume_turn ~(session_manager : Session.t) ~notify ~session_key
     (fun () ->
       Agent.turn agent ~user_message:resume_turn_prompt ?db:session_manager.db
         ~session_key ~interrupt_check:restart_resume_interrupt_check
-        ?runtime_context ~history_prepared:true ())
+        ?runtime_context ~history_prepared:true ?on_llm_call_debug ())
     (fun () ->
       agent.Agent.config <- saved_config;
       Lwt.return_unit)

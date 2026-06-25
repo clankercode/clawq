@@ -851,6 +851,64 @@ let test_default_resume_turn_uses_explicit_resume_prompt () =
       Alcotest.(check bool)
         "resume prompt persisted into history" true resume_prompt_present)
 
+let test_resume_agent_session_sends_debug_summary () =
+  with_fake_chat_provider (fun base_config ->
+      let db = Memory.init ~db_path:":memory:" () in
+      let slack_config =
+        {
+          Runtime_config.bot_token = "xoxb-test";
+          signing_secret = "secret";
+          events_path = "/slack/events";
+          allow_channels = [];
+          allow_users = [];
+          app_token = "";
+          socket_mode = false;
+          default_model = None;
+        }
+      in
+      let config =
+        {
+          base_config with
+          channels = { base_config.channels with slack = Some slack_config };
+        }
+      in
+      let session_manager = Session.create ~config ~db () in
+      let key = "slack:c1:u1" in
+      Session.record_agent_turn session_manager ~key ~channel:"slack"
+        ~channel_id:"c1" ();
+      (match Session.set_session_debug session_manager ~key ~enabled:true with
+      | Ok () -> ()
+      | Error msg -> Alcotest.fail msg);
+      let dispatched = ref [] in
+      let senders =
+        {
+          Daemon.default_resume_senders with
+          send_slack =
+            (fun ~bot_token:_ ~channel_id:_ ~text ->
+              dispatched := text :: !dispatched;
+              Lwt.return_unit);
+        }
+      in
+      Lwt_main.run
+        (Daemon.resume_agent_session ~senders ~session_manager ~config
+           ~session_key:key ~channel:"slack" ~channel_id:"c1" ());
+      let sent = List.rev !dispatched in
+      Alcotest.(check int)
+        "injection label plus debug summary plus response" 3 (List.length sent);
+      Alcotest.(check bool)
+        "first message is injection label" true
+        (String.starts_with ~prefix:"[automatic restart-resume]"
+           (List.nth sent 0));
+      Alcotest.(check bool)
+        "second message is debug summary" true
+        (string_contains (List.nth sent 1) "debug: llm provider=fake");
+      Alcotest.(check bool)
+        "debug summary includes model" true
+        (string_contains (List.nth sent 1) "model=fake-model");
+      Alcotest.(check bool)
+        "third message is response" true
+        (String.starts_with ~prefix:"reply:" (List.nth sent 2)))
+
 let test_resume_agent_session_persists_response_and_marks_sent () =
   let db = Memory.init ~db_path:":memory:" () in
   let slack_config =
@@ -2420,6 +2478,8 @@ let suite =
       test_resume_pending_agent_sessions_summary_counts;
     Alcotest.test_case "default resume turn uses explicit automatic prompt"
       `Quick test_default_resume_turn_uses_explicit_resume_prompt;
+    Alcotest.test_case "resume agent session sends debug summary" `Quick
+      test_resume_agent_session_sends_debug_summary;
     Alcotest.test_case "resume agent session persists response and marks sent"
       `Quick test_resume_agent_session_persists_response_and_marks_sent;
     Alcotest.test_case "background completion dispatches and injects wake-up"

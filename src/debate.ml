@@ -257,7 +257,7 @@ let get_debate_round ~db ~id =
 
 (* ── Model query helper (mirrors ec_diagnosis.ml) ─────────────────────── *)
 
-let query_model ~config ~model_str ~prompt () =
+let query_model ?on_llm_call_debug ~config ~model_str ~prompt () =
   let pmodel = Pmodel.parse_flexible model_str in
   let provider_name =
     match pmodel.f_provider with Some p -> p | None -> "openai-codex"
@@ -280,6 +280,10 @@ let query_model ~config ~model_str ~prompt () =
       ~session_key:"__debate__" ()
   in
   let elapsed_s = Unix.gettimeofday () -. t0 in
+  let* () =
+    Agent_debug.notify ?on_llm_call_debug ~provider:provider_name
+      ~duration_s:elapsed_s response
+  in
   let content, usage =
     match response with
     | Provider.Text { content; usage; _ } ->
@@ -305,13 +309,15 @@ let chunks n lst =
   in
   if n <= 0 then [ lst ] else aux [] [] 0 lst
 
-let query_models_parallel ~config ~db ~models ~prompt =
+let query_models_parallel ?on_llm_call_debug ~config ~db ~models ~prompt () =
   let cost_ref = ref 0.0 in
   let max_parallel = config.Runtime_config.debate.max_parallel in
   let query_one model_str =
     Lwt.catch
       (fun () ->
-        let* mr = query_model ~config ~model_str ~prompt () in
+        let* mr =
+          query_model ?on_llm_call_debug ~config ~model_str ~prompt ()
+        in
         (match (db, mr.usage) with
         | Some db, Some (pt, ct) ->
             let pmodel = Pmodel.parse_flexible model_str in
@@ -446,10 +452,11 @@ let parse_judge_response raw =
 
 (* ── Run pipeline ─────────────────────────────────────────────────────── *)
 
-let run ~config ~db ~prompt ~models ~judge_model ~skip_judge =
+let run ?on_llm_call_debug ~config ~db ~prompt ~models ~judge_model ~skip_judge
+    () =
   let started_at = Unix.gettimeofday () in
   let* responses, model_cost =
-    query_models_parallel ~config ~db ~models ~prompt
+    query_models_parallel ?on_llm_call_debug ~config ~db ~models ~prompt ()
   in
   let successes =
     List.filter_map (function Ok mr -> Some mr | Error _ -> None) responses
@@ -495,7 +502,8 @@ let run ~config ~db ~prompt ~models ~judge_model ~skip_judge =
       Lwt.catch
         (fun () ->
           let* mr =
-            query_model ~config ~model_str:judge_model ~prompt:judge_prompt ()
+            query_model ?on_llm_call_debug ~config ~model_str:judge_model
+              ~prompt:judge_prompt ()
           in
           let judge_cost =
             match mr.usage with
@@ -700,7 +708,7 @@ let format_round_detail (r : db_round_full) =
 
 (* ── Lwt-compatible entry point for channels ──────────────────────────── *)
 
-let run_for_prompt ~config ~db ~prompt =
+let run_for_prompt ?on_llm_call_debug ~config ~db ~prompt () =
   if not config.Runtime_config.debate.enabled then
     Lwt.return
       "Debate feature is disabled. Set debate.enabled to true in config."
@@ -708,7 +716,8 @@ let run_for_prompt ~config ~db ~prompt =
     let models = config.debate.default_models in
     let judge_model = config.debate.judge_model in
     let* result, warning =
-      run ~config ~db:(Some db) ~prompt ~models ~judge_model ~skip_judge:false
+      run ?on_llm_call_debug ~config ~db:(Some db) ~prompt ~models ~judge_model
+        ~skip_judge:false ()
     in
     insert_debate_round ~db ~result;
     let output = format_text result in
@@ -815,7 +824,7 @@ let cmd_debate ~get_config ~get_db args =
             let result, warning =
               Lwt_main.run
                 (run ~config ~db:(Some db) ~prompt:cli.prompt ~models
-                   ~judge_model ~skip_judge:cli.no_judge)
+                   ~judge_model ~skip_judge:cli.no_judge ())
             in
             insert_debate_round ~db ~result;
             let output =

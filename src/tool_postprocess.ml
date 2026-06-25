@@ -1,13 +1,14 @@
 let process_tool_result ~(config : Runtime_config.t) ~(db : Sqlite3.db option)
     ~(session_key : string option) ~(tool_name : string)
-    ~(history : Provider.message list) ~(raw_result : string) =
+    ~(history : Provider.message list) ?on_llm_call_debug ~(raw_result : string)
+    () =
   let open Lwt.Syntax in
   let sc = config.summarizer in
   (* Stage 1: p1 truncation is handled inside maybe_summarize *)
   (* Stage 2: summarization *)
   let* summarize_result =
     Summarizer.maybe_summarize ~config ~db ~session_key ~tool_name ~history
-      ~original:raw_result ()
+      ~original:raw_result ?on_llm_call_debug ()
   in
   (* Stage 3: p2 truncation — ensure final result fits history limit *)
   let final =

@@ -549,7 +549,8 @@ let perform_cwd_history_wipe agent =
    modify the same file, accepted in exchange for keeping attribution
    correct. *)
 let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
-    ?interrupt_check ?on_tool_round_complete ~on_chunk calls =
+    ?interrupt_check ?on_tool_round_complete ?on_llm_call_debug ~on_chunk calls
+    =
   let open Lwt.Syntax in
   let sk_tag = match session_key with Some s -> "[" ^ s ^ "] " | None -> "" in
   let notification_promises = ref [] in
@@ -739,7 +740,8 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
               let* result_for_history =
                 Tool_postprocess.process_tool_result ~config:agent.config ~db
                   ~session_key ~tool_name:tc.function_name
-                  ~history:agent.history ~raw_result:result
+                  ~history:agent.history ?on_llm_call_debug ~raw_result:result
+                  ()
               in
               let result_for_event =
                 if !streamed_output then result_for_history else result
@@ -845,7 +847,7 @@ let execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
   Lwt.return_unit
 
 let execute_tool_calls agent ~db ~audit_enabled ~session_key ?interrupt_check
-    ?on_tool_round_complete calls =
+    ?on_tool_round_complete ?on_llm_call_debug calls =
   let open Lwt.Syntax in
   let sk_tag = match session_key with Some s -> "[" ^ s ^ "] " | None -> "" in
   let pending_history_wipe = ref false in
@@ -993,7 +995,8 @@ let execute_tool_calls agent ~db ~audit_enabled ~session_key ?interrupt_check
               let* result_for_history =
                 Tool_postprocess.process_tool_result ~config:agent.config ~db
                   ~session_key ~tool_name:tc.function_name
-                  ~history:agent.history ~raw_result:result
+                  ~history:agent.history ?on_llm_call_debug ~raw_result:result
+                  ()
               in
               Lwt.return
                 (Provider.make_tool_result ~tool_call_id:tc.id
@@ -1146,7 +1149,7 @@ let filter_content_parts_for_model config content_parts =
   | _ -> content_parts
 
 let prepare_turn_history agent ~user_message ?(content_parts = [])
-    ?(workspace_refresh_checked = false) ?db () =
+    ?(workspace_refresh_checked = false) ?db ?on_llm_call_debug () =
   let open Lwt.Syntax in
   let* () =
     if workspace_refresh_checked then Lwt.return_unit
@@ -1172,13 +1175,14 @@ let prepare_turn_history agent ~user_message ?(content_parts = [])
           ~content_parts:(Provider.Text user_message :: parts)
   in
   agent.history <- user_msg :: agent.history;
-  let* compacted = compact_history_if_needed agent ?db () in
+  let* compacted = compact_history_if_needed agent ?db ?on_llm_call_debug () in
   trim_history agent;
   Lwt.return compacted
 
 let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
     ?on_inject_messages ?on_tool_round_complete ?runtime_context
-    ?(history_prepared = false) ?on_history_update ?on_stuck () =
+    ?(history_prepared = false) ?on_history_update ?on_stuck ?on_llm_call_debug
+    () =
   let is_restart_interrupt = function
     | Some reason when reason = restart_interrupt_token -> true
     | _ -> false
@@ -1190,7 +1194,7 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
   let open Lwt.Syntax in
   let* _compaction_info =
     if history_prepared then Lwt.return_none
-    else prepare_turn_history agent ~user_message ?db ()
+    else prepare_turn_history agent ~user_message ?db ?on_llm_call_debug ()
   in
   let audit_enabled = agent.config.security.audit_enabled in
   let max_iters = agent.config.agent_defaults.max_tool_iterations in
@@ -1228,8 +1232,14 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
     let res = config.Runtime_config.resilience in
     let open Lwt.Syntax in
     let primary () =
-      Provider.complete ~config ~messages ?tools ?session_key
-        ?quota_states:quota_states_opt ()
+      let provider_name, _, _ =
+        Provider.select_provider ~config ?quota_states:quota_states_opt ()
+      in
+      let* response =
+        Provider.complete ~config ~messages ?tools ?session_key
+          ?quota_states:quota_states_opt ()
+      in
+      Lwt.return (provider_name, response)
     in
     let with_optional_fallback () =
       match res.fallback_provider with
@@ -1243,8 +1253,11 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
           if fallback_name = primary_name then primary ()
           else
             Resilience.with_fallback ~primary ~fallback:(fun () ->
-                Provider.complete ~config ~messages ?tools ?session_key
-                  ~preferred_provider:fb_name ())
+                let* response =
+                  Provider.complete ~config ~messages ?tools ?session_key
+                    ~preferred_provider:fb_name ()
+                in
+                Lwt.return (fallback_name, response))
       | None -> primary ()
     in
     let* timed =
@@ -1254,7 +1267,7 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
     in
     match timed with Ok v -> Lwt.return v | Error e -> Lwt.fail_with e
   in
-  let track_cost ~current_request_history_len response =
+  let track_cost ~current_request_history_len ~provider response =
     let usage, model =
       match response with
       | Provider.Text { usage; model; _ } -> (usage, model)
@@ -1277,9 +1290,6 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
         Model_preferences.increment_usage model |> ignore;
         match db with
         | Some db ->
-            let pname, _, _ =
-              Provider.select_provider ~config:agent.config ()
-            in
             let prev = Request_stats.get_prev_totals ~db ~session_key:sid in
             let added =
               match prev with
@@ -1331,7 +1341,7 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
             let cached_tokens =
               if api_cached > 0 then Some api_cached else None
             in
-            Request_stats.record ~db ~session_key:sid ~provider:pname ~model
+            Request_stats.record ~db ~session_key:sid ~provider ~model
               ~prompt_tokens:pt ~completion_tokens:ct ?cost_usd:cost_usd_opt
               ~added_prompt_tokens:added ?cached_tokens ()
         | None -> ())
@@ -1370,7 +1380,8 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
       | None -> runtime_context
     in
     let current_request_history_len = List.length agent.history in
-    let* response =
+    let started_at = Unix.gettimeofday () in
+    let* provider_name, response =
       Lwt.catch
         (fun () ->
           let messages = build_messages ?runtime_context agent in
@@ -1389,7 +1400,12 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
           end
           else Lwt.fail exn)
     in
-    track_cost ~current_request_history_len response;
+    let duration_s = Unix.gettimeofday () -. started_at in
+    let* () =
+      Agent_debug.notify ?on_llm_call_debug ~provider:provider_name ~duration_s
+        response
+    in
+    track_cost ~current_request_history_len ~provider:provider_name response;
     agent.last_request_history_len <- Some current_request_history_len;
     match response with
     | Provider.Text { content; provider_response_items_json; thinking; _ } ->
@@ -1451,7 +1467,7 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
         agent.history <- assistant_msg :: agent.history;
         let* () =
           execute_tool_calls agent ~db ~audit_enabled ~session_key
-            ?interrupt_check ?on_tool_round_complete calls
+            ?interrupt_check ?on_tool_round_complete ?on_llm_call_debug calls
         in
         (match inject_messages with
         | Some get_msgs ->
@@ -1474,7 +1490,9 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
            outputs, etc.) that grow history without bound. compact_history_
            if_needed checks token/message thresholds and compacts only when
            needed — so this is cheap when not at the threshold. *)
-        let* mid_turn_compaction = compact_history_if_needed agent ?db () in
+        let* mid_turn_compaction =
+          compact_history_if_needed agent ?db ?on_llm_call_debug ()
+        in
         (match mid_turn_compaction with
         | Some _ ->
             agent.compacted_mid_turn <- true;
@@ -1576,7 +1594,7 @@ let turn agent ~user_message ?db ?session_key ?interrupt_check ?inject_messages
 let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
     ?inject_messages ?on_inject_messages ?on_tool_round_complete
     ?runtime_context ?(history_prepared = false) ?on_history_update ?on_stuck
-    ~on_chunk () =
+    ?on_llm_call_debug ~on_chunk () =
   let is_restart_interrupt = function
     | Some reason when reason = restart_interrupt_token -> true
     | _ -> false
@@ -1584,7 +1602,7 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
   let open Lwt.Syntax in
   let* _compaction_info =
     if history_prepared then Lwt.return_none
-    else prepare_turn_history agent ~user_message ?db ()
+    else prepare_turn_history agent ~user_message ?db ?on_llm_call_debug ()
   in
   let audit_enabled = agent.config.security.audit_enabled in
   let max_iters = agent.config.agent_defaults.max_tool_iterations in
@@ -1649,8 +1667,14 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
     let open Lwt.Syntax in
     Buffer.clear partial_buf;
     let primary () =
-      Provider.complete_stream ~config ~messages ?tools ?session_key
-        ?quota_states:quota_states_opt ~on_chunk ()
+      let provider_name, _, _ =
+        Provider.select_provider ~config ?quota_states:quota_states_opt ()
+      in
+      let* response =
+        Provider.complete_stream ~config ~messages ?tools ?session_key
+          ?quota_states:quota_states_opt ~on_chunk ()
+      in
+      Lwt.return (provider_name, response)
     in
     let with_optional_fallback () =
       match res.fallback_provider with
@@ -1664,8 +1688,11 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
           if fallback_name = primary_name then primary ()
           else
             Resilience.with_fallback ~primary ~fallback:(fun () ->
-                Provider.complete_stream ~config ~messages ?tools ?session_key
-                  ~preferred_provider:fb_name ~on_chunk ())
+                let* response =
+                  Provider.complete_stream ~config ~messages ?tools ?session_key
+                    ~preferred_provider:fb_name ~on_chunk ()
+                in
+                Lwt.return (fallback_name, response))
       | None -> primary ()
     in
     let* timed =
@@ -1675,7 +1702,7 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
     in
     match timed with Ok v -> Lwt.return v | Error e -> Lwt.fail_with e
   in
-  let track_cost ~current_request_history_len response =
+  let track_cost ~current_request_history_len ~provider response =
     let usage, model =
       match response with
       | Provider.Text { usage; model; _ } -> (usage, model)
@@ -1698,9 +1725,6 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
         Model_preferences.increment_usage model |> ignore;
         match db with
         | Some db ->
-            let pname, _, _ =
-              Provider.select_provider ~config:agent.config ()
-            in
             let prev = Request_stats.get_prev_totals ~db ~session_key:sid in
             let added =
               match prev with
@@ -1752,7 +1776,7 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
             let cached_tokens =
               if api_cached > 0 then Some api_cached else None
             in
-            Request_stats.record ~db ~session_key:sid ~provider:pname ~model
+            Request_stats.record ~db ~session_key:sid ~provider ~model
               ~prompt_tokens:pt ~completion_tokens:ct ?cost_usd:cost_usd_opt
               ~added_prompt_tokens:added ?cached_tokens ()
         | None -> ())
@@ -1791,9 +1815,10 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
       | None -> runtime_context
     in
     let current_request_history_len = List.length agent.history in
+    let started_at = Unix.gettimeofday () in
     Lwt.catch
       (fun () ->
-        let* response =
+        let* provider_name, response =
           Lwt.catch
             (fun () ->
               let messages = build_messages ?runtime_context agent in
@@ -1812,7 +1837,12 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
               end
               else Lwt.fail exn)
         in
-        track_cost ~current_request_history_len response;
+        let duration_s = Unix.gettimeofday () -. started_at in
+        let* () =
+          Agent_debug.notify ?on_llm_call_debug ~provider:provider_name
+            ~duration_s response
+        in
+        track_cost ~current_request_history_len ~provider:provider_name response;
         agent.last_request_history_len <- Some current_request_history_len;
         match response with
         | Provider.Text { content; provider_response_items_json; thinking; _ }
@@ -1873,7 +1903,8 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
             agent.history <- assistant_msg :: agent.history;
             let* () =
               execute_tool_calls_stream agent ~db ~audit_enabled ~session_key
-                ?interrupt_check ?on_tool_round_complete ~on_chunk calls
+                ?interrupt_check ?on_tool_round_complete ?on_llm_call_debug
+                ~on_chunk calls
             in
             (match inject_messages with
             | Some get_msgs ->
@@ -1892,7 +1923,9 @@ let turn_stream agent ~user_message ?db ?session_key ?interrupt_check
             in
             let* () = fire_history_update len_before_tool_loop in
             (* B603: mid-turn compaction in the streaming path too. *)
-            let* mid_turn_compaction = compact_history_if_needed agent ?db () in
+            let* mid_turn_compaction =
+              compact_history_if_needed agent ?db ?on_llm_call_debug ()
+            in
             (match mid_turn_compaction with
             | Some _ ->
                 agent.compacted_mid_turn <- true;

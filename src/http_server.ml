@@ -1,5 +1,22 @@
 include Http_server_0_util
 
+let has_prefix ~prefix text =
+  let prefix_len = String.length prefix in
+  String.length text >= prefix_len && String.sub text 0 prefix_len = prefix
+
+let make_json_debug_capture () =
+  let lines = ref [] in
+  let notify text =
+    if has_prefix ~prefix:"debug:" text then lines := text :: !lines;
+    Lwt.return_unit
+  in
+  let fields () =
+    match List.rev !lines with
+    | [] -> []
+    | lines -> [ ("debug", `List (List.map (fun line -> `String line) lines)) ]
+  in
+  (notify, fields)
+
 let handler ~session_manager ~require_pairing ~auth_token
     ?daemon_run_update_command ?slack_config ?github_config ?github_api_limiter
     ?ip_limiter ?session_limiter ?slack_event_limiter ?slack_run_update_command
@@ -480,13 +497,48 @@ let handler ~session_manager ~require_pairing ~auth_token
                     in
                     Cohttp_lwt_unix.Server.respond_string ~status:`OK
                       ~headers:json_headers ~body:resp_json ()
+                | Slash_commands.Debug action ->
+                    let response =
+                      match action with
+                      | Slash_commands.DebugStatus ->
+                          Slash_commands_fmt.format_debug_status
+                            ~connector:Format_adapter.Plain
+                            (Session.session_debug_status_text session_manager
+                               ~key)
+                      | Slash_commands.SetDebug enabled -> (
+                          match
+                            Session.set_session_debug session_manager ~key
+                              ~enabled
+                          with
+                          | Ok () ->
+                              Slash_commands_fmt.format_debug_set
+                                ~connector:Format_adapter.Plain enabled key
+                          | Error err -> err)
+                    in
+                    let resp_json =
+                      `Assoc [ ("response", `String response) ]
+                      |> Yojson.Safe.to_string
+                    in
+                    Cohttp_lwt_unix.Server.respond_string ~status:`OK
+                      ~headers:json_headers ~body:resp_json ()
                 | Slash_commands.Debate prompt -> (
                     match Session.get_db session_manager with
                     | Some db ->
                         let config = Session.get_config session_manager in
-                        let* text = Debate.run_for_prompt ~config ~db ~prompt in
+                        let debug_notify, debug_fields =
+                          make_json_debug_capture ()
+                        in
+                        let on_llm_call_debug =
+                          Session.debug_callback_for session_manager ~key
+                            (Some debug_notify)
+                        in
+                        let* text =
+                          Debate.run_for_prompt ?on_llm_call_debug ~config ~db
+                            ~prompt ()
+                        in
                         let resp_json =
-                          `Assoc [ ("response", `String text) ]
+                          `Assoc
+                            ([ ("response", `String text) ] @ debug_fields ())
                           |> Yojson.Safe.to_string
                         in
                         Cohttp_lwt_unix.Server.respond_string ~status:`OK
@@ -523,9 +575,11 @@ let handler ~session_manager ~require_pairing ~auth_token
                 | Slash_commands.AgentInvoke (agent_name, prompt) ->
                     let waiter, resolver = Lwt.wait () in
                     Session.agent_invoke_turn session_manager ~agent_name
-                      ~prompt ~send_reply:(fun text ->
+                      ~parent_key:key ~prompt
+                      ~send_reply:(fun text ->
                         Lwt.wakeup_later resolver text;
-                        Lwt.return_unit);
+                        Lwt.return_unit)
+                      ();
                     let* response = waiter in
                     let resp_json =
                       `Assoc [ ("response", `String response) ]
@@ -627,6 +681,9 @@ let handler ~session_manager ~require_pairing ~auth_token
                       ~headers:json_headers ~body:resp_json ()
                 | _ -> (
                     let loaded_notifications = ref [] in
+                    let debug_notify, debug_fields =
+                      make_json_debug_capture ()
+                    in
                     let* result =
                       Lwt.catch
                         (fun () ->
@@ -634,8 +691,10 @@ let handler ~session_manager ~require_pairing ~auth_token
                             Session.with_registered_notifier session_manager
                               ~key
                               ~notify:(fun text ->
-                                loaded_notifications :=
-                                  !loaded_notifications @ [ text ];
+                                let* () = debug_notify text in
+                                if not (has_prefix ~prefix:"debug:" text) then
+                                  loaded_notifications :=
+                                    !loaded_notifications @ [ text ];
                                 Lwt.return_unit)
                               (fun () ->
                                 Session.turn session_manager ~key ~message
@@ -658,7 +717,9 @@ let handler ~session_manager ~require_pairing ~auth_token
                                 (String.concat "\n" notes) response
                         in
                         let resp_json =
-                          `Assoc [ ("response", `String response) ]
+                          `Assoc
+                            ([ ("response", `String response) ]
+                            @ debug_fields ())
                           |> Yojson.Safe.to_string
                         in
                         Cohttp_lwt_unix.Server.respond_string ~status:`OK
@@ -847,11 +908,15 @@ let handler ~session_manager ~require_pairing ~auth_token
                           ]))
               | None -> (
                   let pre_stats = usage in
+                  let debug_notify, debug_fields = make_json_debug_capture () in
                   let* result =
                     Lwt.catch
                       (fun () ->
                         let* compaction_result =
-                          Session.compact session_manager ~key:session_key ()
+                          Session.with_registered_notifier session_manager
+                            ~key:session_key ~notify:debug_notify (fun () ->
+                              Session.compact session_manager ~key:session_key
+                                ())
                         in
                         Lwt.return (Ok compaction_result))
                       (fun exn -> Lwt.return (Error (Printexc.to_string exn)))
@@ -872,26 +937,28 @@ let handler ~session_manager ~require_pairing ~auth_token
                       json_string_response
                         (Yojson.Safe.to_string
                            (`Assoc
-                              [
-                                ("compacted", `Bool true);
-                                ( "message",
-                                  `String
-                                    "Session history compacted. Older messages \
-                                     have been summarized." );
-                                ("stats", stats_json);
-                              ]))
+                              ([
+                                 ("compacted", `Bool true);
+                                 ( "message",
+                                   `String
+                                     "Session history compacted. Older \
+                                      messages have been summarized." );
+                                 ("stats", stats_json);
+                               ]
+                              @ debug_fields ())))
                   | Ok (Ok false) ->
                       json_string_response
                         (Yojson.Safe.to_string
                            (`Assoc
-                              [
-                                ("compacted", `Bool false);
-                                ( "message",
-                                  `String
-                                    "Nothing to compact — session history is \
-                                     already short enough." );
-                                ("stats", stats_json);
-                              ]))
+                              ([
+                                 ("compacted", `Bool false);
+                                 ( "message",
+                                   `String
+                                     "Nothing to compact — session history is \
+                                      already short enough." );
+                                 ("stats", stats_json);
+                               ]
+                              @ debug_fields ())))
                   | Ok (Error err) ->
                       Cohttp_lwt_unix.Server.respond_string ~status:`Not_found
                         ~headers:json_headers
@@ -1103,18 +1170,65 @@ let handler ~session_manager ~require_pairing ~auth_token
                     sse_reply (Slash_commands.reset_message ~active_bg_tasks ())
                 | Slash_commands.Compact ->
                     let key = "web:" ^ session_id in
-                    let* compact_result =
-                      Session.compact session_manager ~key ()
+                    let stream, push = Lwt_stream.create () in
+                    let push_sse text =
+                      let data =
+                        Yojson.Safe.to_string
+                          (json_of_stream_event (Provider.Delta text))
+                      in
+                      push (Some (Printf.sprintf "data: %s\n\n" data))
                     in
-                    let text =
-                      match compact_result with
-                      | Ok true -> "\xe2\x9c\x85 Session history compacted."
-                      | Ok false ->
-                          "Nothing to compact \xe2\x80\x94 session history is \
-                           already short enough."
-                      | Error err -> Printf.sprintf "Compaction failed: %s" err
+                    let notifier : Status_message.notifier =
+                      {
+                        send =
+                          (fun ?parse_mode:_ text ->
+                            push_sse text;
+                            Lwt.return "web-compact");
+                        edit =
+                          (fun _id ?parse_mode:_ text ->
+                            push_sse text;
+                            Lwt.return_none);
+                        delete = (fun _id -> Lwt.return_unit);
+                      }
                     in
-                    sse_reply text
+                    Lwt.async (fun () ->
+                        Lwt.catch
+                          (fun () ->
+                            let* compact_result =
+                              Session.compact session_manager ~key ~notifier ()
+                            in
+                            let text =
+                              match compact_result with
+                              | Ok true ->
+                                  "\xe2\x9c\x85 Session history compacted."
+                              | Ok false ->
+                                  "Nothing to compact \xe2\x80\x94 session \
+                                   history is already short enough."
+                              | Error err ->
+                                  Printf.sprintf "Compaction failed: %s" err
+                            in
+                            push_sse text;
+                            push (Some "data: [DONE]\n\n");
+                            push None;
+                            Lwt.return_unit)
+                          (fun exn ->
+                            push_sse
+                              (Printf.sprintf "Compaction failed: %s"
+                                 (Printexc.to_string exn));
+                            push (Some "data: [DONE]\n\n");
+                            push None;
+                            Lwt.return_unit));
+                    let headers =
+                      Cohttp.Header.of_list
+                        [
+                          ("Content-Type", "text/event-stream");
+                          ("Cache-Control", "no-cache");
+                          ("Connection", "keep-alive");
+                        ]
+                    in
+                    Cohttp_lwt_unix.Server.respond ~status:`OK ~headers
+                      ~body:(Cohttp_lwt.Body.of_stream stream)
+                      ()
                 | Slash_commands.RuntimeCtx ->
                     let key = "web:" ^ session_id in
                     let* text =
@@ -1298,6 +1412,26 @@ let handler ~session_manager ~require_pairing ~auth_token
                     sse_reply
                       "Heartbeat routing is only available for Telegram, \
                        Slack, Discord, and Teams sessions."
+                | Slash_commands.Debug action ->
+                    let key = "web:" ^ session_id in
+                    let text =
+                      match action with
+                      | Slash_commands.DebugStatus ->
+                          Slash_commands_fmt.format_debug_status
+                            ~connector:Format_adapter.Plain
+                            (Session.session_debug_status_text session_manager
+                               ~key)
+                      | Slash_commands.SetDebug enabled -> (
+                          match
+                            Session.set_session_debug session_manager ~key
+                              ~enabled
+                          with
+                          | Ok () ->
+                              Slash_commands_fmt.format_debug_set
+                                ~connector:Format_adapter.Plain enabled key
+                          | Error err -> err)
+                    in
+                    sse_reply text
                 | Slash_commands.Tools ->
                     let show_test = true in
                     let text =
@@ -1338,6 +1472,7 @@ let handler ~session_manager ~require_pairing ~auth_token
                     in
                     sse_reply text
                 | Slash_commands.Delegate (agent_name, prompt) ->
+                    let key = "web:" ^ session_id in
                     let stream, push = Lwt_stream.create () in
                     let push_sse text =
                       let data =
@@ -1346,8 +1481,13 @@ let handler ~session_manager ~require_pairing ~auth_token
                       in
                       push (Some (Printf.sprintf "data: %s\n\n" data))
                     in
+                    let push_sse_lwt text =
+                      push_sse text;
+                      Lwt.return_unit
+                    in
                     push_sse "Delegating...";
                     Session.delegate_turn session_manager ?agent_name ~prompt
+                      ~parent_key:key ~debug_notify:push_sse_lwt
                       ~send_reply:(fun text ->
                         push_sse text;
                         push (Some "data: [DONE]\n\n");
@@ -1366,6 +1506,7 @@ let handler ~session_manager ~require_pairing ~auth_token
                       ~body:(Cohttp_lwt.Body.of_stream stream)
                       ()
                 | Slash_commands.AgentInvoke (agent_name, prompt) ->
+                    let key = "web:" ^ session_id in
                     let stream, push = Lwt_stream.create () in
                     let push_sse text =
                       let data =
@@ -1374,14 +1515,20 @@ let handler ~session_manager ~require_pairing ~auth_token
                       in
                       push (Some (Printf.sprintf "data: %s\n\n" data))
                     in
+                    let push_sse_lwt text =
+                      push_sse text;
+                      Lwt.return_unit
+                    in
                     push_sse
                       (Printf.sprintf "Invoking agent '%s'..." agent_name);
                     Session.agent_invoke_turn session_manager ~agent_name
-                      ~prompt ~send_reply:(fun text ->
+                      ~parent_key:key ~debug_notify:push_sse_lwt ~prompt
+                      ~send_reply:(fun text ->
                         push_sse text;
                         push (Some "data: [DONE]\n\n");
                         push None;
-                        Lwt.return_unit);
+                        Lwt.return_unit)
+                      ();
                     let headers =
                       Cohttp.Header.of_list
                         [
@@ -1452,9 +1599,13 @@ let handler ~session_manager ~require_pairing ~auth_token
                       in
                       push (Some (Printf.sprintf "data: %s\n\n" data))
                     in
+                    let push_sse_lwt text =
+                      push_sse text;
+                      Lwt.return_unit
+                    in
                     push_sse "Forking session...";
                     Session.fork_and_run session_manager ~parent_key:key
-                      ?agent_name ~prompt
+                      ~debug_notify:push_sse_lwt ?agent_name ~prompt
                       ~send_reply:(fun text ->
                         push_sse text;
                         push (Some "data: [DONE]\n\n");
@@ -1474,27 +1625,44 @@ let handler ~session_manager ~require_pairing ~auth_token
                       ()
                 | Slash_commands.Debate prompt -> (
                     let key = "web:" ^ session_id in
-                    ignore key;
                     match Session.get_db session_manager with
                     | Some db ->
+                        let stream, push = Lwt_stream.create () in
+                        let push_sse text =
+                          let data =
+                            Yojson.Safe.to_string
+                              (json_of_stream_event (Provider.Delta text))
+                          in
+                          push (Some (Printf.sprintf "data: %s\n\n" data))
+                        in
+                        let push_sse_lwt text =
+                          push_sse text;
+                          Lwt.return_unit
+                        in
+                        let on_llm_call_debug =
+                          Session.debug_callback_for session_manager ~key
+                            (Some push_sse_lwt)
+                        in
                         let config = Session.get_config session_manager in
-                        let* text = Debate.run_for_prompt ~config ~db ~prompt in
-                        let resp_json =
-                          `Assoc [ ("response", `String text) ]
-                          |> Yojson.Safe.to_string
+                        let* text =
+                          Debate.run_for_prompt ?on_llm_call_debug ~config ~db
+                            ~prompt ()
                         in
-                        Cohttp_lwt_unix.Server.respond_string ~status:`OK
-                          ~headers:json_headers ~body:resp_json ()
-                    | None ->
-                        let resp_json =
-                          `Assoc
+                        push_sse text;
+                        push (Some "data: [DONE]\n\n");
+                        push None;
+                        let headers =
+                          Cohttp.Header.of_list
                             [
-                              ("response", `String "Debate requires a database.");
+                              ("Content-Type", "text/event-stream");
+                              ("Cache-Control", "no-cache");
+                              ("Connection", "keep-alive");
                             ]
-                          |> Yojson.Safe.to_string
                         in
-                        Cohttp_lwt_unix.Server.respond_string ~status:`OK
-                          ~headers:json_headers ~body:resp_json ())
+                        Cohttp_lwt_unix.Server.respond ~status:`OK ~headers
+                          ~body:(Cohttp_lwt.Body.of_stream stream)
+                          ()
+                    | None -> sse_reply "Debate requires a database.")
                 | Slash_commands.BashRun cmd ->
                     let* result = Slash_commands_bash.run_bash_command cmd in
                     let response =

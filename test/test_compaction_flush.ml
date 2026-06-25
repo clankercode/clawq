@@ -258,7 +258,7 @@ let test_flush_stores_memories () =
       in
       Lwt_main.run
         (Agent.flush_memories_before_compaction ~config
-           ~system_prompt:"You are a helpful assistant." ~db ~to_compact);
+           ~system_prompt:"You are a helpful assistant." ~db ~to_compact ());
       (* Verify the memory was stored *)
       let memories = Memory.list_core ~db () in
       Alcotest.(check bool)
@@ -338,7 +338,7 @@ let test_flush_receives_to_compact_messages () =
       in
       Lwt_main.run
         (Agent.flush_memories_before_compaction ~config
-           ~system_prompt:"You are a helpful assistant." ~db ~to_compact);
+           ~system_prompt:"You are a helpful assistant." ~db ~to_compact ());
       (* Check that the LLM request included our marker message *)
       let string_contains haystack needle =
         let hl = String.length haystack and nl = String.length needle in
@@ -752,7 +752,7 @@ let test_flush_with_tool_event_messages () =
       in
       Lwt_main.run
         (Agent.flush_memories_before_compaction ~config
-           ~system_prompt:"You are helpful." ~db ~to_compact);
+           ~system_prompt:"You are helpful." ~db ~to_compact ());
       (* Verify no event or tool roles in the request *)
       List.iter
         (fun body ->

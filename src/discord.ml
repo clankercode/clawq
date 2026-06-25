@@ -813,17 +813,34 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
             in
             send_message_fn ~bot_token:discord_config.bot_token
               ~channel_id:msg.channel_id ~text
+        | Debug action ->
+            let connector = Format_adapter.Discord in
+            let text =
+              match action with
+              | Slash_commands.DebugStatus ->
+                  Slash_commands_fmt.format_debug_status ~connector
+                    (Session.session_debug_status_text session_mgr ~key)
+              | Slash_commands.SetDebug enabled -> (
+                  match Session.set_session_debug session_mgr ~key ~enabled with
+                  | Ok () ->
+                      Slash_commands_fmt.format_debug_set ~connector enabled key
+                  | Error err -> err)
+            in
+            send_message_fn ~bot_token:discord_config.bot_token
+              ~channel_id:msg.channel_id ~text
         | Delegate (agent_name, prompt) ->
             let* () =
               send_message_fn ~bot_token:discord_config.bot_token
                 ~channel_id:msg.channel_id
                 ~text:"Delegating to a temporary session..."
             in
+            let send_agent_reply text =
+              send_message_fn ~bot_token:discord_config.bot_token
+                ~channel_id:msg.channel_id ~text
+            in
             Session.delegate_turn session_mgr ?agent_name ~prompt
-              ~send_reply:(fun text ->
-                send_message_fn ~bot_token:discord_config.bot_token
-                  ~channel_id:msg.channel_id ~text)
-              ();
+              ~parent_key:key ~debug_notify:send_agent_reply
+              ~send_reply:send_agent_reply ();
             Lwt.return_unit
         | AgentInvoke (agent_name, prompt) ->
             let* () =
@@ -831,10 +848,13 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                 ~channel_id:msg.channel_id
                 ~text:(Printf.sprintf "Invoking agent '%s'..." agent_name)
             in
+            let send_agent_reply text =
+              send_message_fn ~bot_token:discord_config.bot_token
+                ~channel_id:msg.channel_id ~text
+            in
             Session.agent_invoke_turn session_mgr ~agent_name ~prompt
-              ~send_reply:(fun text ->
-                send_message_fn ~bot_token:discord_config.bot_token
-                  ~channel_id:msg.channel_id ~text);
+              ~parent_key:key ~debug_notify:send_agent_reply
+              ~send_reply:send_agent_reply ();
             Lwt.return_unit
         | AgentMenu page ->
             let text =
@@ -1044,11 +1064,13 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
                           (Printf.sprintf "Running rig %s for '%s'..." act_str
                              name)
                     in
-                    Session.delegate_turn session_mgr ~prompt
-                      ~send_reply:(fun text ->
-                        send_message_fn ~bot_token:discord_config.bot_token
-                          ~channel_id:msg.channel_id ~text)
-                      ();
+                    let send_agent_reply text =
+                      send_message_fn ~bot_token:discord_config.bot_token
+                        ~channel_id:msg.channel_id ~text
+                    in
+                    Session.delegate_turn session_mgr ~prompt ~parent_key:key
+                      ~debug_notify:send_agent_reply
+                      ~send_reply:send_agent_reply ();
                     (match act with
                     | `Install -> (
                         match Rig.find_rig name with
@@ -1256,17 +1278,29 @@ let handle_message ~(discord_config : Runtime_config.discord_config)
               send_message_fn ~bot_token:discord_config.bot_token
                 ~channel_id:msg.channel_id ~text:"Forking session..."
             in
+            let send_agent_reply text =
+              send_message_fn ~bot_token:discord_config.bot_token
+                ~channel_id:msg.channel_id ~text
+            in
             Session.fork_and_run session_mgr ~parent_key:key ?agent_name ~prompt
-              ~send_reply:(fun text ->
-                send_message_fn ~bot_token:discord_config.bot_token
-                  ~channel_id:msg.channel_id ~text)
-              ();
+              ~debug_notify:send_agent_reply ~send_reply:send_agent_reply ();
             Lwt.return_unit
         | Debate prompt -> (
             match Session.get_db session_mgr with
             | Some db ->
                 let config = Session.get_config session_mgr in
-                let* text = Debate.run_for_prompt ~config ~db ~prompt in
+                let send_agent_reply text =
+                  send_message_fn ~bot_token:discord_config.bot_token
+                    ~channel_id:msg.channel_id ~text
+                in
+                let on_llm_call_debug =
+                  Session.debug_callback_for session_mgr ~key
+                    (Some send_agent_reply)
+                in
+                let* text =
+                  Debate.run_for_prompt ?on_llm_call_debug ~config ~db ~prompt
+                    ()
+                in
                 send_message_fn ~bot_token:discord_config.bot_token
                   ~channel_id:msg.channel_id ~text
             | None ->

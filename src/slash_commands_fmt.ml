@@ -9,6 +9,7 @@ type command = { name : string; description : string; priority : int }
 type thinking_action = ShowThinking | SetThinking of string option
 type show_thinking_action = ShowThinkingStatus | ToggleShowThinking
 type heartbeat_action = HeartbeatStatus | SetHeartbeat of bool
+type debug_action = DebugStatus | SetDebug of bool
 
 type model_action =
   | ModelShow
@@ -95,6 +96,7 @@ type result =
   | Thinking of thinking_action
   | ShowThinking of show_thinking_action
   | Heartbeat of heartbeat_action
+  | Debug of debug_action
   | Delegate of string option * string
   | ForkAnd of string option * string
   | Tools
@@ -257,6 +259,11 @@ let commands =
       priority = 30;
     };
     {
+      name = "debug";
+      description = "Show or set per-session LLM request debug summaries";
+      priority = 28;
+    };
+    {
       name = "config";
       description = "View or modify config: /config [show/get/set/keys]";
       priority = 25;
@@ -387,6 +394,9 @@ let format_show_thinking_usage ~connector =
 
 let format_heartbeat_usage ~connector =
   "Usage: " ^ Format_adapter.code connector "/heartbeat" ^ " [on/off/status]"
+
+let format_debug_usage ~connector =
+  "Usage: " ^ Format_adapter.code connector "/debug" ^ " [on/off/status]"
 
 let format_delegate_usage ~connector =
   "Usage: "
@@ -854,6 +864,16 @@ let format_heartbeat_status ~connector text =
 
 let format_heartbeat_set ~connector enabled key =
   "Heartbeat "
+  ^ Format_adapter.bold connector (if enabled then "enabled" else "disabled")
+  ^ " for session "
+  ^ Format_adapter.code connector key
+  ^ "."
+
+let format_debug_status ~connector text =
+  Format_adapter.bold connector "Debug" ^ ": " ^ text
+
+let format_debug_set ~connector enabled key =
+  "Debug mode "
   ^ Format_adapter.bold connector (if enabled then "enabled" else "disabled")
   ^ " for session "
   ^ Format_adapter.code connector key

@@ -600,24 +600,47 @@ let handle_event ~(config : Runtime_config.slack_config)
                   send_message_fn ~bot_token:config.bot_token ~channel_id ~text
                 in
                 Lwt.return "ok"
+            | Debug action ->
+                let connector = Format_adapter.Slack in
+                let text =
+                  match action with
+                  | Slash_commands.DebugStatus ->
+                      Slash_commands_fmt.format_debug_status ~connector
+                        (Session.session_debug_status_text session_manager ~key)
+                  | Slash_commands.SetDebug enabled -> (
+                      match
+                        Session.set_session_debug session_manager ~key ~enabled
+                      with
+                      | Ok () ->
+                          Slash_commands_fmt.format_debug_set ~connector enabled
+                            key
+                      | Error err -> err)
+                in
+                let* () =
+                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
+                in
+                Lwt.return "ok"
             | Delegate (agent_name, prompt) ->
                 Lwt.async (fun () ->
                     send_message_fn ~bot_token:config.bot_token ~channel_id
                       ~text:"Delegating to a temporary session...");
+                let send_agent_reply text =
+                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
+                in
                 Session.delegate_turn session_manager ?agent_name ~prompt
-                  ~send_reply:(fun text ->
-                    send_message_fn ~bot_token:config.bot_token ~channel_id
-                      ~text)
-                  ();
+                  ~parent_key:key ~debug_notify:send_agent_reply
+                  ~send_reply:send_agent_reply ();
                 Lwt.return "ok"
             | AgentInvoke (agent_name, prompt) ->
                 Lwt.async (fun () ->
                     send_message_fn ~bot_token:config.bot_token ~channel_id
                       ~text:(Printf.sprintf "Invoking agent '%s'..." agent_name));
+                let send_agent_reply text =
+                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
+                in
                 Session.agent_invoke_turn session_manager ~agent_name ~prompt
-                  ~send_reply:(fun text ->
-                    send_message_fn ~bot_token:config.bot_token ~channel_id
-                      ~text);
+                  ~parent_key:key ~debug_notify:send_agent_reply
+                  ~send_reply:send_agent_reply ();
                 Lwt.return "ok"
             | AgentMenu page ->
                 let text =
@@ -869,11 +892,13 @@ let handle_event ~(config : Runtime_config.slack_config)
                               ~text:
                                 (Printf.sprintf "Running rig %s for '%s'..."
                                    act_str name));
+                        let send_agent_reply text =
+                          send_message_fn ~bot_token:config.bot_token
+                            ~channel_id ~text
+                        in
                         Session.delegate_turn session_manager ~prompt
-                          ~send_reply:(fun text ->
-                            send_message_fn ~bot_token:config.bot_token
-                              ~channel_id ~text)
-                          ();
+                          ~parent_key:key ~debug_notify:send_agent_reply
+                          ~send_reply:send_agent_reply ();
                         (match act with
                         | `Install -> (
                             match Rig.find_rig name with
@@ -1123,18 +1148,29 @@ let handle_event ~(config : Runtime_config.slack_config)
                 Lwt.async (fun () ->
                     send_message_fn ~bot_token:config.bot_token ~channel_id
                       ~text:"Forking session...");
+                let send_agent_reply text =
+                  send_message_fn ~bot_token:config.bot_token ~channel_id ~text
+                in
                 Session.fork_and_run session_manager ~parent_key:key ?agent_name
-                  ~prompt
-                  ~send_reply:(fun text ->
-                    send_message_fn ~bot_token:config.bot_token ~channel_id
-                      ~text)
-                  ();
+                  ~debug_notify:send_agent_reply ~prompt
+                  ~send_reply:send_agent_reply ();
                 Lwt.return "ok"
             | Debate prompt -> (
                 match Session.get_db session_manager with
                 | Some db ->
                     let cfg = Session.get_config session_manager in
-                    let* text = Debate.run_for_prompt ~config:cfg ~db ~prompt in
+                    let send_agent_reply text =
+                      send_message_fn ~bot_token:config.bot_token ~channel_id
+                        ~text
+                    in
+                    let on_llm_call_debug =
+                      Session.debug_callback_for session_manager ~key
+                        (Some send_agent_reply)
+                    in
+                    let* text =
+                      Debate.run_for_prompt ?on_llm_call_debug ~config:cfg ~db
+                        ~prompt ()
+                    in
                     let* () =
                       send_message_fn ~bot_token:config.bot_token ~channel_id
                         ~text

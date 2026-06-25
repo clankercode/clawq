@@ -1,4 +1,4 @@
-let schema_version = 29
+let schema_version = 30
 
 let exec_exn db sql =
   match Sqlite3.exec db sql with
@@ -74,6 +74,7 @@ let init_session_schema db =
     \     last_active TEXT NOT NULL DEFAULT (datetime('now')),\n\
     \     keepalive_enabled INTEGER NOT NULL DEFAULT 0,\n\
     \     heartbeat_enabled INTEGER NOT NULL DEFAULT 0,\n\
+    \     debug_enabled INTEGER NOT NULL DEFAULT 0,\n\
     \     model_override TEXT DEFAULT NULL,\n\
     \     effective_cwd TEXT DEFAULT NULL,\n\
     \     CHECK ((channel IS NULL) = (channel_id IS NULL))\n\
@@ -512,6 +513,12 @@ let migrate_step db v =
       with _ -> ())
   | 27 -> init_debate_rounds_schema db
   | 28 -> init_session_repos_schema db
+  | 29 -> (
+      try
+        exec_exn db
+          "ALTER TABLE session_state ADD COLUMN debug_enabled INTEGER NOT NULL \
+           DEFAULT 0"
+      with _ -> ())
   | n -> failwith (Printf.sprintf "Unknown migration step from version %d" n)
 
 (* Idempotent column repair for databases that reached the current schema
@@ -529,6 +536,9 @@ let repair_missing_columns db =
   try_add "ALTER TABLE request_stats ADD COLUMN added_prompt_tokens INTEGER";
   try_add
     "ALTER TABLE session_state ADD COLUMN heartbeat_enabled INTEGER NOT NULL \
+     DEFAULT 0";
+  try_add
+    "ALTER TABLE session_state ADD COLUMN debug_enabled INTEGER NOT NULL \
      DEFAULT 0";
   try_add "ALTER TABLE request_stats ADD COLUMN cached_tokens INTEGER";
   try_add "ALTER TABLE session_state ADD COLUMN effective_cwd TEXT DEFAULT NULL";

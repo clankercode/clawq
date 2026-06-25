@@ -690,6 +690,35 @@ let session_heartbeat_status_text mgr ~key =
         "Session %s: heartbeat = %s (global heartbeat disabled in config)" key
         (if session_enabled then "on" else "off")
 
+let session_debug_enabled mgr ~key =
+  match mgr.db with
+  | Some db -> Session_debug.enabled ~db ~session_key:key
+  | None -> false
+
+let set_session_debug mgr ~key ~enabled =
+  match mgr.db with
+  | Some db ->
+      Session_debug.set_enabled ~db ~session_key:key ~enabled;
+      Ok ()
+  | None -> Error "Session debug mode is unavailable (no database)."
+
+let session_debug_status_text mgr ~key =
+  Printf.sprintf "Session %s: debug = %s" key
+    (if session_debug_enabled mgr ~key then "on" else "off")
+
+let debug_callback_for mgr ~key = function
+  | Some notify when session_debug_enabled mgr ~key ->
+      Some
+        (fun call ->
+          Lwt.catch
+            (fun () -> notify (Session_debug.format_llm_call call))
+            (fun exn ->
+              Logs.warn (fun m ->
+                  m "Failed to send debug LLM summary for %s: %s" key
+                    (Printexc.to_string exn));
+              Lwt.return_unit))
+  | _ -> None
+
 let interrupt_resumable_channel_sessions mgr =
   Lwt_util.with_lock_timeout ~fatal_timeout:Lwt_util.short_fatal_timeout
     ~label:"sessions_lock" mgr.sessions_lock (fun () ->
@@ -1538,6 +1567,19 @@ let compact mgr ~key ?notifier () =
         in
         Some f
   in
+  let debug_notify =
+    match find_registered_notifier mgr ~key with
+    | Some send -> Some send
+    | None -> (
+        match notifier with
+        | None -> None
+        | Some (n : Status_message.notifier) ->
+            Some
+              (fun text ->
+                let* _id = n.send text in
+                Lwt.return_unit))
+  in
+  let on_llm_call_debug = debug_callback_for mgr ~key debug_notify in
   let render ~finished =
     compact_progress_render ~steps ~overall_start:!overall_start ~finished
   in
@@ -1612,7 +1654,8 @@ let compact mgr ~key ?notifier () =
         | Some plan ->
             (* Phase 2: Execute -- LLM calls with NO lock held. *)
             let* summary =
-              Agent.execute_compact_plan plan ?db:mgr.db ?compact_cbs ()
+              Agent.execute_compact_plan plan ?db:mgr.db ?compact_cbs
+                ?on_llm_call_debug ()
             in
             (* Phase 3: Apply -- re-acquire lock, reconcile, persist. *)
             with_session_lock mgr ~key (fun agent _interrupt ->

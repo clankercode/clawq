@@ -1654,7 +1654,7 @@ let register_all ~(config : Runtime_config.t) ~sandbox ?(db = None)
                   let open Lwt.Syntax in
                   let* result, _warning =
                     Debate.run ~config ~db:(Some db) ~prompt ~models
-                      ~judge_model ~skip_judge:no_judge
+                      ~judge_model ~skip_judge:no_judge ()
                   in
                   Debate.insert_debate_round ~db ~result;
                   Lwt.return (Debate.format_json result));

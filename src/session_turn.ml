@@ -1,6 +1,6 @@
 let stream_turn_with_visibility mgr ~notify agent ~key ~effective_message
     ~persisted_up_to ~interrupt_check ~inject_messages ?on_tool_round_complete
-    ~runtime_context ~on_history_update ?on_stuck () =
+    ~runtime_context ~on_history_update ?on_stuck ?on_llm_call_debug () =
   let open Lwt.Syntax in
   let agent_defaults = mgr.Session_core.config.agent_defaults in
   let capabilities = Session_core.find_connector_capabilities mgr ~key in
@@ -19,7 +19,7 @@ let stream_turn_with_visibility mgr ~notify agent ~key ~effective_message
     Agent.turn_stream agent ~user_message:effective_message ?db:mgr.db
       ~session_key:key ~interrupt_check ~inject_messages
       ~on_inject_messages:handler.reset ?on_tool_round_complete ?runtime_context
-      ~history_prepared:true ~on_history_update ?on_stuck
+      ~history_prepared:true ~on_history_update ?on_stuck ?on_llm_call_debug
       ~on_chunk:handler.on_chunk ()
   in
   let* () = handler.finalize () in
@@ -207,7 +207,7 @@ let resolve_agent_template_registry mgr (tmpl : Agent_template.t) =
   | Some base_reg -> Some (Agent_template.filter_tool_registry base_reg tmpl)
   | None -> None
 
-let handle_agent_mention mgr ?notify message =
+let handle_agent_mention mgr ~key ?notify message =
   let open Lwt.Syntax in
   let available_agents =
     List.map
@@ -248,9 +248,13 @@ let handle_agent_mention mgr ?notify message =
                     (fun msg ->
                       Lwt.catch (fun () -> send msg) (fun _ -> Lwt.return_unit))
             | None -> ());
+            let on_llm_call_debug =
+              Session_core.debug_callback_for mgr ~key notify
+            in
             let* response =
               Lwt.catch
-                (fun () -> Agent.turn agent ~user_message:prompt ())
+                (fun () ->
+                  Agent.turn agent ~user_message:prompt ?on_llm_call_debug ())
                 (fun exn ->
                   Lwt.return
                     (Printf.sprintf "Agent invoke failed (%s): %s" agent_name
@@ -273,7 +277,7 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
   interrupt := None;
   (* Check for @agent mention at start of message *)
   let notify = Session_core.find_registered_notifier mgr ~key in
-  let* agent_response = handle_agent_mention mgr ?notify message in
+  let* agent_response = handle_agent_mention mgr ~key ?notify message in
   match agent_response with
   | Some response -> Lwt.return response
   | None ->
@@ -327,6 +331,7 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
       in
       let history_before = List.length agent.history in
       let notify = Session_core.find_registered_notifier mgr ~key in
+      let on_llm_call_debug = Session_core.debug_callback_for mgr ~key notify in
       (* Wire project doc notification callback *)
       (match notify with
       | Some send ->
@@ -351,7 +356,8 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
       let* () = Session_core.notify_event_messages ?notify refresh_messages in
       let* compaction_info =
         Agent.prepare_turn_history agent ~user_message:effective_message
-          ~content_parts ~workspace_refresh_checked:true ?db:mgr.db ()
+          ~content_parts ~workspace_refresh_checked:true ?db:mgr.db
+          ?on_llm_call_debug ()
       in
       let compacted = Option.is_some compaction_info in
       let* () =
@@ -441,12 +447,13 @@ let run_locked_turn mgr ~key agent interrupt ~message ?(content_parts = [])
                     stream_turn_with_visibility mgr ~notify:send agent ~key
                       ~effective_message ~persisted_up_to ~interrupt_check
                       ~inject_messages ?on_tool_round_complete ~runtime_context
-                      ~on_history_update ~on_stuck ()
+                      ~on_history_update ~on_stuck ?on_llm_call_debug ()
                 | _ ->
                     Agent.turn agent ~user_message:effective_message ?db:mgr.db
                       ~session_key:key ~interrupt_check ~inject_messages
                       ?on_tool_round_complete ?runtime_context
-                      ~history_prepared:true ~on_history_update ~on_stuck ()))
+                      ~history_prepared:true ~on_history_update ~on_stuck
+                      ?on_llm_call_debug ()))
           (function
             | Agent.Restart_requested ->
                 if agent.Agent.compacted_mid_turn then begin
@@ -841,7 +848,19 @@ let () =
 
 let apply_template_tool_restrictions = Agent_template.filter_tool_registry
 
-let agent_invoke_turn mgr ~agent_name ~prompt ~send_reply =
+let temporary_agent_debug_callback mgr ?parent_key ?debug_notify () =
+  match parent_key with
+  | None -> None
+  | Some key ->
+      let notify =
+        match debug_notify with
+        | Some send -> Some send
+        | None -> Session_core.find_registered_notifier mgr ~key
+      in
+      Session_core.debug_callback_for mgr ~key notify
+
+let agent_invoke_turn mgr ?parent_key ?debug_notify ~agent_name ~prompt
+    ~send_reply () =
   match Agent_template.resolve agent_name with
   | None ->
       Lwt.async (fun () ->
@@ -873,10 +892,17 @@ let agent_invoke_turn mgr ~agent_name ~prompt ~send_reply =
                       Lwt.catch
                         (fun () -> send_reply msg)
                         (fun _ -> Lwt.return_unit));
+                let on_llm_call_debug =
+                  temporary_agent_debug_callback mgr ?parent_key ?debug_notify
+                    ()
+                in
                 Lwt.catch
                   (fun () ->
                     let open Lwt.Syntax in
-                    let* response = Agent.turn agent ~user_message:prompt () in
+                    let* response =
+                      Agent.turn agent ~user_message:prompt ?on_llm_call_debug
+                        ()
+                    in
                     send_reply response)
                   (fun exn ->
                     Logs.err (fun m ->
@@ -889,7 +915,8 @@ let agent_invoke_turn mgr ~agent_name ~prompt ~send_reply =
                              agent_name (Printexc.to_string exn)))
                       (fun _ -> Lwt.return_unit))))
 
-let delegate_turn mgr ?agent_name ~prompt ~send_reply () =
+let delegate_turn mgr ?parent_key ?debug_notify ?agent_name ~prompt ~send_reply
+    () =
   if mgr.Session_core.draining then
     Lwt.async (fun () ->
         Lwt.catch
@@ -930,10 +957,17 @@ let delegate_turn mgr ?agent_name ~prompt ~send_reply () =
                       Lwt.catch
                         (fun () -> send_reply msg)
                         (fun _ -> Lwt.return_unit));
+                let on_llm_call_debug =
+                  temporary_agent_debug_callback mgr ?parent_key ?debug_notify
+                    ()
+                in
                 Lwt.catch
                   (fun () ->
                     let open Lwt.Syntax in
-                    let* response = Agent.turn agent ~user_message:prompt () in
+                    let* response =
+                      Agent.turn agent ~user_message:prompt ?on_llm_call_debug
+                        ()
+                    in
                     send_reply response)
                   (fun exn ->
                     Logs.err (fun m ->
@@ -945,7 +979,8 @@ let delegate_turn mgr ?agent_name ~prompt ~send_reply () =
                              (Printexc.to_string exn)))
                       (fun _ -> Lwt.return_unit))))
 
-let fork_and_run mgr ~parent_key ?agent_name ~prompt ~send_reply () =
+let fork_and_run mgr ~parent_key ?debug_notify ?agent_name ~prompt ~send_reply
+    () =
   if mgr.Session_core.draining then
     Lwt.async (fun () ->
         Lwt.catch
@@ -995,10 +1030,15 @@ let fork_and_run mgr ~parent_key ?agent_name ~prompt ~send_reply () =
                         (fun () -> send_reply msg)
                         (fun _ -> Lwt.return_unit));
                 agent.Agent.history <- List.rev parent_history;
+                let on_llm_call_debug =
+                  temporary_agent_debug_callback mgr ~parent_key ?debug_notify
+                    ()
+                in
                 Lwt.catch
                   (fun () ->
                     let* response =
-                      Agent.turn agent ~user_message:effective_prompt ()
+                      Agent.turn agent ~user_message:effective_prompt
+                        ?on_llm_call_debug ()
                     in
                     send_reply response)
                   (fun exn ->
@@ -1095,7 +1135,7 @@ let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
                       on_chunk (Provider.Delta (text ^ "\n"))
                     in
                     let* agent_response =
-                      handle_agent_mention mgr ~notify:notify_fn message
+                      handle_agent_mention mgr ~key ~notify:notify_fn message
                     in
                     match agent_response with
                     | Some response ->
@@ -1160,6 +1200,9 @@ let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
                         let notify =
                           Session_core.find_registered_notifier mgr ~key
                         in
+                        let on_llm_call_debug =
+                          Session_core.debug_callback_for mgr ~key notify
+                        in
                         (match notify with
                         | Some send ->
                             agent.Agent.on_project_doc_loaded <-
@@ -1194,7 +1237,8 @@ let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
                         let* compaction_info =
                           Agent.prepare_turn_history agent
                             ~user_message:effective_message ~content_parts
-                            ~workspace_refresh_checked:true ?db:mgr.db ()
+                            ~workspace_refresh_checked:true ?db:mgr.db
+                            ?on_llm_call_debug ()
                         in
                         let compacted = Option.is_some compaction_info in
                         let* () =
@@ -1262,7 +1306,8 @@ let turn_stream mgr ~key ~message ?(content_parts = []) ?(attachments = [])
                                     ~session_key:key ~interrupt_check
                                     ~inject_messages ?on_tool_round_complete
                                     ?runtime_context ~history_prepared:true
-                                    ~on_history_update ~on_chunk ())
+                                    ~on_history_update ?on_llm_call_debug
+                                    ~on_chunk ())
                             (function
                               | Agent.Restart_requested ->
                                   if agent.Agent.compacted_mid_turn then begin

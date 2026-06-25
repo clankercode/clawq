@@ -118,7 +118,8 @@ let summarizer_config_for ~(config : Runtime_config.t) (pm : Pmodel.t) =
       { config.agent_defaults with primary_model = Pmodel.to_string pm };
   }
 
-let call_summarizer ~config ~pm ~system_prompt ~user_content =
+let call_summarizer ?on_llm_call_debug ~config ~pm ~system_prompt ~user_content
+    () =
   let open Lwt.Syntax in
   let override = summarizer_config_for ~config pm in
   let messages =
@@ -127,7 +128,13 @@ let call_summarizer ~config ~pm ~system_prompt ~user_content =
       Provider.make_message ~role:"user" ~content:user_content;
     ]
   in
+  let provider, _, _ = Provider.select_provider ~config:override () in
+  let started_at = Unix.gettimeofday () in
   let* response = Provider.complete ~config:override ~messages () in
+  let duration_s = Unix.gettimeofday () -. started_at in
+  let* () =
+    Agent_debug.notify ?on_llm_call_debug ~provider ~duration_s response
+  in
   match response with
   | Provider.Text { content; usage; model; _ } ->
       Lwt.return (Ok (String.trim content, usage, model))
@@ -143,7 +150,8 @@ let now_iso () =
 
 let maybe_summarize ~(config : Runtime_config.t) ~(db : Sqlite3.db option)
     ~(session_key : string option) ~(tool_name : string)
-    ~(history : Provider.message list) ~(original : string) () =
+    ~(history : Provider.message list) ~(original : string) ?on_llm_call_debug
+    () =
   let open Lwt.Syntax in
   let sc = config.summarizer in
   (* Check if disabled *)
@@ -208,7 +216,9 @@ let maybe_summarize ~(config : Runtime_config.t) ~(db : Sqlite3.db option)
         in
         let try_summarize pm =
           Lwt.catch
-            (fun () -> call_summarizer ~config ~pm ~system_prompt ~user_content)
+            (fun () ->
+              call_summarizer ?on_llm_call_debug ~config ~pm ~system_prompt
+                ~user_content ())
             (fun exn ->
               Logs.warn (fun m ->
                   m "[summarizer] LLM call failed: %s" (Printexc.to_string exn));

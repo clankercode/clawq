@@ -59,6 +59,13 @@ let handle ?(skill_names = []) text =
             | _ ->
                 FormattedReply
                   (fun connector -> format_heartbeat_usage ~connector))
+        | "debug" -> (
+            match args with
+            | [] | [ "status" ] -> Debug DebugStatus
+            | [ "on" ] -> Debug (SetDebug true)
+            | [ "off" ] -> Debug (SetDebug false)
+            | _ ->
+                FormattedReply (fun connector -> format_debug_usage ~connector))
         | "agent" -> (
             match args with
             | [] ->
