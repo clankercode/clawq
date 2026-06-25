@@ -693,3 +693,4 @@ bugs:
     - file: B696-queued-message-interrupt-token.todo
     - file: B697-add-support-for-xiaomi-token-p.todo
     - file: B698-update-models-available-for-mi.todo
+    - file: B699-implement-dynamic-model-cachin.todo
