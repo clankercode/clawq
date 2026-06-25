@@ -11,15 +11,6 @@ let source_name = function
   | Acp_history -> "ACP history"
   | Log_file path -> Printf.sprintf "log file %s" path
 
-let sanitize_export_component s =
-  let b = Bytes.of_string s in
-  for i = 0 to Bytes.length b - 1 do
-    match Bytes.get b i with
-    | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '-' | '_' | '.' -> ()
-    | _ -> Bytes.set b i '_'
-  done;
-  Bytes.to_string b
-
 let ensure_dir path =
   if Sys.file_exists path then ()
   else
