@@ -1,0 +1,12 @@
+---
+complexity: medium
+depends_on: []
+estimate_hours: 1
+id: B689
+priority: high
+status: pending
+tags: []
+title: add a debug mode flag to each session (set with slash command `/debug on|off`) that, after each LLM call, posts a brief 1 line status msg to chat (in the associated channel if one exists). This should include the duration of the call, the number of tokens (including reasoning) used, total prompt token count, cached token count, % cached, etc. Basically all the metadata we can about the request; how many tool calls it had, too.
+---
+
+add a debug mode flag to each session (set with slash command `/debug on|off`) that, after each LLM call, posts a brief 1 line status msg to chat (in the associated channel if one exists). This should include the duration of the call, the number of tokens (including reasoning) used, total prompt token count, cached token count, % cached, etc. Basically all the metadata we can about the request; how many tool calls it had, too.
