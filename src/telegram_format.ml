@@ -83,6 +83,16 @@ let parse_inline_markdown text =
         else (
           Buffer.add_char buf '_';
           i := start)
+    | '\\' when !i + 1 < len ->
+        (* Handle backslash-escaped delimiters: \* \_ \` *)
+        let next = text.[!i + 1] in
+        (match next with
+        | '*' | '_' | '`' | '\\' ->
+            Buffer.add_char buf next;
+            i := !i + 2
+        | _ ->
+            Buffer.add_char buf c;
+            incr i)
     | _ ->
         Buffer.add_char buf c;
         incr i

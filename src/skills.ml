@@ -533,6 +533,10 @@ type skill_cache = {
   search_dirs : string list;
 }
 
+(* Lwt safety: global_cache is accessed from request handling and the background
+   skill_watcher_loop. Under cooperative Lwt (single-domain OCaml 5.1), only
+   one green thread runs at a time, so no mutex is needed. If the runtime ever
+   moves to multi-domain parallelism, wrap access with Lwt_mutex. *)
 let global_cache : skill_cache option ref = ref None
 let global_cache_get () = !global_cache
 

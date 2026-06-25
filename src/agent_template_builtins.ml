@@ -555,9 +555,9 @@ Use memory_store to persist review findings when the review spans multiple sessi
 7. Do NOT provide feedback without file:line references. Generic feedback like "error handling could be improved" is not actionable. Name the file, the line, and the specific gap.
 8. Do NOT write code fixes inline. Describe what should change; do not write the replacement code. The coder agent handles implementation.|}
     ~allowed_tools:
-      [ "file_read"; "shell_exec"; "memory_store"; "memory_recall"; "debate" ]
+      [ "file_read"; "memory_store"; "memory_recall"; "debate" ]
     ~disallowed_tools:
-      [ "file_write"; "file_edit"; "file_edit_lines"; "file_append" ]
+      [ "file_write"; "file_edit"; "file_edit_lines"; "file_append"; "shell_exec" ]
 
 let researcher =
   mk ~name:{|researcher|}
